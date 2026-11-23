@@ -783,7 +783,7 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
             }
             // Where main's moved work and a routed message went (ADR 0217), so main never takes
             // them up again itself.
-            Known::ReplyMoved(_) | Known::AskRouted(_) => {
+            Known::ReplyMoved(_) | Known::AskRouted(_) | Known::LanesOverlapped(_) => {
                 let text = crate::lane::note(event);
                 if pending.is_empty() {
                     push_person(&mut out, text, Vec::new());

@@ -106,6 +106,104 @@ pub struct Titled {
     pub title: String,
 }
 
+/// `lanes_overlapped`, in the writing lane and in main: `lane` wrote `path`, which `other`, a
+/// lane still working, wrote too.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Overlap {
+    pub lane: String,
+    pub title: String,
+    pub path: String,
+    pub other: String,
+    pub other_title: String,
+}
+
+/// The tools that write a file in the bot's folder, by their `path`.
+const WRITES: [&str; 2] = ["workspace_write", "workspace_edit"];
+
+/// The files of the bot's folder these events wrote: a write call that finished without error,
+/// and the files a background job reported. Paths as the calls named them, `./` dropped.
+pub fn written(events: &[Event]) -> std::collections::BTreeSet<String> {
+    let mut calls: std::collections::HashMap<&str, String> = std::collections::HashMap::new();
+    let mut paths = std::collections::BTreeSet::new();
+    for event in events {
+        match event {
+            Event::Known(Known::StepFinished { calls: made, .. }) => {
+                for call in made {
+                    let (name, arguments) = match crate::tools::unwrap_call_tool(&call.arguments) {
+                        Some((name, arguments)) if call.name == crate::tools::CALL_TOOL => {
+                            (name, arguments)
+                        }
+                        _ => (call.name.clone(), call.arguments.clone()),
+                    };
+                    if let Some(path) = WRITES
+                        .contains(&name.as_str())
+                        .then(|| arguments.get("path").and_then(serde_json::Value::as_str))
+                        .flatten()
+                        .map(normal)
+                        .filter(|p| !p.is_empty())
+                    {
+                        calls.insert(&call.id, path);
+                    }
+                }
+            }
+            Event::Known(Known::ToolFinished {
+                call_id, is_error, ..
+            }) => {
+                if let Some(path) = calls.remove(call_id.as_str())
+                    && !is_error
+                {
+                    paths.insert(path);
+                }
+            }
+            Event::Known(Known::JobFinished {
+                files, is_error, ..
+            }) if !is_error => {
+                paths.extend(files.iter().map(|f| normal(f)).filter(|p| !p.is_empty()));
+            }
+            _ => {}
+        }
+    }
+    paths
+}
+
+fn normal(path: &str) -> String {
+    path.trim().trim_start_matches("./").to_owned()
+}
+
+/// The overlaps not noted yet: each path `own` wrote that one of `others` (lanes still working:
+/// id, title, what they wrote) wrote too. `noted` is what `lanes_overlapped` in the writing lane
+/// already said, so each path and lane is noted once.
+pub fn overlaps(
+    own: (&str, &str, &std::collections::BTreeSet<String>),
+    others: &[(String, String, std::collections::BTreeSet<String>)],
+    noted: &[Event],
+) -> Vec<Overlap> {
+    let said = |path: &str, other: &str| {
+        noted.iter().any(|e| {
+            matches!(e, Event::Known(Known::LanesOverlapped(o)) if o.path == path && o.other == other)
+        })
+    };
+    let (lane, title, wrote) = own;
+    let mut found = Vec::new();
+    for (other, other_title, theirs) in others {
+        if other == lane {
+            continue;
+        }
+        for path in wrote.intersection(theirs) {
+            if !said(path, other) {
+                found.push(Overlap {
+                    lane: lane.to_owned(),
+                    title: title.to_owned(),
+                    path: path.clone(),
+                    other: other.clone(),
+                    other_title: other_title.clone(),
+                });
+            }
+        }
+    }
+    found
+}
+
 /// A lane's approval or question, asked in main as well (`approval_requested.lane`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ask {
@@ -537,6 +635,16 @@ pub fn note(event: &Known) -> String {
              to talk.\n</moved>",
             moved.lane,
             quoted(&moved.title)
+        ),
+        Known::LanesOverlapped(overlap) => format!(
+            "<overlap task=\"{}\" path={} from=\"spade\">\nThe task {} wrote {}, which the task \
+             {}, still working, wrote too. Nothing stops either; check the file holds what both \
+             need.\n</overlap>",
+            overlap.lane,
+            serde_json::to_string(&overlap.path).unwrap_or_default(),
+            quoted(&overlap.title),
+            serde_json::to_string(&overlap.path).unwrap_or_default(),
+            quoted(&overlap.other_title)
         ),
         Known::AskRouted(routed) => format!(
             "<routed task=\"{}\" from=\"spade\">\nThe person's message {} was a reply to the \

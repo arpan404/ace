@@ -312,3 +312,46 @@ impl Engine {
         prompt
     }
 }
+
+impl Engine {
+    /// Notes the files lane `id` wrote that another of its bot's lanes, still working, wrote too
+    /// (ADR 0217 §3): `lanes_overlapped` in this lane, read as a plain warning in its next step,
+    /// and in main as a line. A note, never a lock. Whether anything was noted.
+    pub(in super::super) fn note_overlaps(self: &Arc<Self>, id: &str) -> bool {
+        let Some(row) = self.lane_row(id) else {
+            return false;
+        };
+        let Ok(events) = self.load(id) else {
+            return false;
+        };
+        let wrote = lane::written(&events);
+        if wrote.is_empty() {
+            return false;
+        }
+        let others: Vec<(String, String, std::collections::BTreeSet<String>)> = self
+            .lanes_of(&row.parent)
+            .into_iter()
+            .filter(|other| other.conversation != id)
+            .filter(|other| self.lane_state(&other.conversation).live())
+            .filter_map(|other| {
+                let theirs = self.load(&other.conversation).ok()?;
+                let title = lane::title(&theirs).unwrap_or_default();
+                Some((other.conversation, title, lane::written(&theirs)))
+            })
+            .collect();
+        let title = lane::title(&events).unwrap_or_default();
+        let found = lane::overlaps((id, &title, &wrote), &others, &events);
+        for overlap in &found {
+            let noted = Event::Known(Known::LanesOverlapped(overlap.clone()));
+            for at in [id, row.parent.as_str()] {
+                if let Err(error) = self.record(at, &noted) {
+                    tracing::error!(%error, "could not note two task lanes writing one file");
+                }
+            }
+        }
+        if !found.is_empty() {
+            self.announce(&row.parent);
+        }
+        !found.is_empty()
+    }
+}

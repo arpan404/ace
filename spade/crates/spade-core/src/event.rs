@@ -831,6 +831,9 @@ pub enum Known {
     /// A lane's title from the `title` role, stored in main and in the lane (ADR 0217 §2a); it
     /// replaces the first line it started with.
     LaneTitled(crate::lane::Titled),
+    /// A lane wrote a file another lane still working wrote too (ADR 0217 §3): a note to the
+    /// writing lane and a line in main, never a lock.
+    LanesOverlapped(crate::lane::Overlap),
     /// A choice the bot made on the person's behalf, with its reason (ADR 0165, `decision_log`).
     /// Shown in digests and the activity log; the model reads only its call's result.
     DecisionMade(crate::decision::Decision),

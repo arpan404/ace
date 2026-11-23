@@ -828,3 +828,84 @@ async fn a_moved_lane_keeps_the_persons_first_line_when_the_title_call_fails() -
     assert_eq!(count(&spade.events(&conversation).await?, "lane_titled"), 0);
     Ok(())
 }
+
+#[tokio::test]
+async fn a_lane_writing_a_file_another_working_lane_wrote_gets_a_note_and_main_a_line() -> Result {
+    // A stand-in for the folder's write tool that the gate lets run, so the test is about the
+    // note and not the approval.
+    let write = FakeTool::new("workspace_write", Risk::Read, "written");
+    let routes = vec![
+        route(
+            "Compare the CRM quotes",
+            vec![
+                Script::reply("").call(
+                    "w1",
+                    "workspace_write",
+                    json!({ "path": "crm.md", "content": "a" }),
+                ),
+                Script::reply("still comparing").held(Duration::from_secs(10)),
+            ],
+        ),
+        route(
+            "Summarise the CRM quotes",
+            vec![
+                Script::reply("")
+                    .call(
+                        "w1",
+                        "workspace_write",
+                        json!({ "path": "./crm.md", "content": "b" }),
+                    )
+                    .held(Duration::from_secs(1)),
+                Script::reply("Summarised."),
+            ],
+        ),
+    ];
+    let mut main = warm_up();
+    main.extend([
+        Script::reply("")
+            .call(
+                "t1",
+                "task_start",
+                json!({ "title": "Compare the CRM quotes" }),
+            )
+            .call(
+                "t2",
+                "task_start",
+                json!({ "title": "Summarise the CRM quotes" }),
+            ),
+        Script::reply("Started both."),
+        Script::reply("The summary is done."),
+    ]);
+    let spade = Spade::start_routed(routes, main, tools(vec![write]), Options::default()).await?;
+    let (_, conversation) = warm_bot(&spade).await?;
+    spade
+        .say(&conversation, "Compare the CRM quotes and summarise them.")
+        .await?;
+    let events = wait_count(&spade, &conversation, "lanes_overlapped", 1).await?;
+    let noted = events
+        .iter()
+        .find(|e| e["type"] == "lanes_overlapped")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(noted["path"], "crm.md");
+    assert_eq!(noted["title"], "Summarise the CRM quotes");
+    assert_eq!(noted["other_title"], "Compare the CRM quotes");
+    // The writing lane's next step reads the warning; nothing stopped either lane.
+    let summary = noted["lane"].as_str().unwrap_or_default().to_owned();
+    wait_count(&spade, &summary, "reply_finished", 1).await?;
+    let warned = spade.fake.seen().iter().any(|s| {
+        let body = s.body.to_string();
+        body.contains(&lane("Summarise the CRM quotes")) && body.contains("<overlap task=")
+    });
+    assert!(warned, "the second lane never read the note");
+    let found = tasks(&spade, &conversation).await?;
+    assert_eq!(
+        titled(&found, "Compare the CRM quotes").map(|t| &t["state"]),
+        Some(&json!("working"))
+    );
+    assert_eq!(
+        count(&spade.events(&conversation).await?, "lanes_overlapped"),
+        1
+    );
+    Ok(())
+}
