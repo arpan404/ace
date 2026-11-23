@@ -61,6 +61,10 @@ interface WasmExports {
     signal(agent: string | undefined, at: number, silenceMs: number): void;
     next(providerDeadline?: number): number | undefined;
   };
+  WasmBatch: new (stateJson: string, deadlineJson?: string) => {
+    apply(factJson: string, now: number, nextId: (kind: string) => string): string;
+    flush(): string;
+  };
 }
 
 const library =
@@ -233,16 +237,39 @@ export function apply(
 /** A provider frame commits atomically; see `FactBatch` in `reduce.ts`. */
 export class FactBatch {
   private readonly state: ThreadState;
-  private readonly native: boolean;
+  private readonly backend: string;
+  private readonly wasmBatch:
+    | InstanceType<WasmExports["WasmBatch"]>
+    | undefined;
   constructor(state: ThreadState, stableSignals?: { deadline: number | undefined }) {
     this.state = state;
-    this.native = coreBackend() !== "typescript";
-    if (!this.native) throw new Error("native FactBatch is off");
-    handleFor(state).batchBegin(
-      stableSignals === undefined ? undefined : JSON.stringify(stableSignals.deadline ?? null),
-    );
+    const backend = coreBackend();
+    this.backend = backend;
+    if (backend === "typescript") throw new Error("native FactBatch is off");
+    const deadlineJson =
+      stableSignals === undefined ? undefined : JSON.stringify(stableSignals.deadline ?? null);
+    if (backend === "native") {
+      handleFor(state).batchBegin(deadlineJson);
+      this.wasmBatch = undefined;
+    } else {
+      this.wasmBatch = new (wasmAny().WasmBatch)(JSON.stringify(state), deadlineJson);
+    }
   }
   apply(fact: Fact, ctx: ApplyContext): EventPayload[] {
+    if (this.backend === "wasm") {
+      const batch = this.wasmBatch;
+      if (!batch) throw new Error("wasm batch is off");
+      return applyResult(
+        this.state,
+        batch.apply(
+          JSON.stringify(fact, (_, value) =>
+            typeof value === "bigint" ? undefined : value,
+          ) as string,
+          ctx.now,
+          idsNext(ctx),
+        ),
+      );
+    }
     return applyResult(
       this.state,
       handleFor(this.state).batchApply(
@@ -253,6 +280,11 @@ export class FactBatch {
     );
   }
   flush(): EventPayload[] {
+    if (this.backend === "wasm") {
+      const batch = this.wasmBatch;
+      if (!batch) throw new Error("wasm batch is off");
+      return applyResult(this.state, batch.flush());
+    }
     return applyResult(this.state, handleFor(this.state).batchFlush());
   }
 }

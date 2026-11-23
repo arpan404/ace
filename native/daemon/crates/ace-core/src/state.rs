@@ -233,7 +233,7 @@ pub struct ThreadState {
     pub interactions: IndexMap<String, crate::entity_model::Interaction>,
     pub tasks: IndexMap<String, crate::entity_model::BackgroundTask>,
     /// Optional for snapshots created before uncertain execution existed.
-    #[serde(rename = "uncertainTasks")]
+    #[serde(rename = "uncertainTasks", default)]
     pub uncertain_tasks: IndexMap<String, bool>,
     /// ace's own running tasks waiting on the person elsewhere.
     #[serde(rename = "personTasks", skip_serializing_if = "Option::is_none")]

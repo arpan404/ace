@@ -191,7 +191,9 @@ pub fn core_next_deadline(
         Ok::<Option<i64>, String>(ace_core::deadlines::next_deadline(&state, provider))
     }));
     match result {
-        Ok(Ok(deadline)) => Ok(deadline.map(JsValue::from).unwrap_or(JsValue::UNDEFINED)),
+        Ok(Ok(deadline)) => Ok(deadline
+            .map(|deadline| JsValue::from_f64(deadline as f64))
+            .unwrap_or(JsValue::UNDEFINED)),
         Ok(Err(error)) => Err(failure(error)),
         Err(_) => Err(failure("core deadline failed".to_owned())),
     }
@@ -272,7 +274,9 @@ impl WasmDeadlineIndex {
             Ok::<Option<i64>, String>(self.inner.next(provider))
         }));
         match result {
-            Ok(Ok(deadline)) => Ok(deadline.map(JsValue::from).unwrap_or(JsValue::UNDEFINED)),
+            Ok(Ok(deadline)) => Ok(deadline
+                .map(|deadline| JsValue::from_f64(deadline as f64))
+                .unwrap_or(JsValue::UNDEFINED)),
             Ok(Err(error)) => Err(failure(error)),
             Err(_) => Err(failure("deadline next failed".to_owned())),
         }
@@ -331,5 +335,107 @@ pub fn core_is_actionable_interaction(
         Ok(Ok(actionable)) => Ok(actionable),
         Ok(Err(error)) => Err(failure(error)),
         Err(_) => Err(failure("core interaction rule failed".to_owned())),
+    }
+}
+
+/// One fact batch behind a handle the TypeScript shell holds.
+#[wasm_bindgen]
+pub struct WasmBatch {
+    state: ace_core::ThreadState,
+    batch: ace_core::reduce::FactBatch,
+}
+
+#[wasm_bindgen]
+impl WasmBatch {
+    /// Start one batch over a state snapshot.
+    #[wasm_bindgen(constructor)]
+    pub fn new(state_json: &str, deadline_json: Option<String>) -> Result<WasmBatch, JsValue> {
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let state = parse_state(state_json)?;
+            let deadline = match deadline_json {
+                None => None,
+                Some(text) => {
+                    let deadline: Option<i64> =
+                        serde_json::from_str(&text).map_err(|error| error.to_string())?;
+                    Some(deadline)
+                }
+            };
+            Ok::<(ace_core::ThreadState, ace_core::reduce::FactBatch), String>((
+                state,
+                ace_core::reduce::FactBatch::new(deadline),
+            ))
+        }));
+        match result {
+            Ok(Ok((state, batch))) => Ok(Self { state, batch }),
+            Ok(Err(error)) => Err(failure(error)),
+            Err(_) => Err(failure("core batch failed to start".to_owned())),
+        }
+    }
+
+    /// Fold one fact of the batch, returning events and refreshed state.
+    pub fn apply(
+        &mut self,
+        fact_json: &str,
+        now: f64,
+        next_id: &js_sys::Function,
+    ) -> Result<String, JsValue> {
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let now = to_millis(now)?;
+            let input = parse_fact(fact_json)?;
+            let mut ids = NextId {
+                next: next_id,
+                failure: None,
+            };
+            let mut ctx = ace_core::state::ApplyContext {
+                now,
+                ids: &mut ids,
+                resolving_interactions: None,
+            };
+            let mut events = Vec::new();
+            let outcome = self
+                .batch
+                .apply(&mut self.state, &input, &mut ctx, &mut events);
+            if let Some(failure) = ids.failure {
+                return Err(failure);
+            }
+            outcome.ok_or_else(|| "core contract: fold failed".to_owned())?;
+            #[derive(serde::Serialize)]
+            struct Response<'a> {
+                events: &'a [ace_core::emit::Event],
+                state: &'a ace_core::ThreadState,
+            }
+            let response = Response {
+                events: &events,
+                state: &self.state,
+            };
+            ace_json::ser::to_string(&response).map_err(|error| error.to_string())
+        }));
+        match result {
+            Ok(Ok(json)) => Ok(json),
+            Ok(Err(error)) => Err(failure(error)),
+            Err(_) => Err(failure("core batch apply failed".to_owned())),
+        }
+    }
+
+    /// Derive the deferred batch status, returning events and refreshed state.
+    pub fn flush(&mut self) -> Result<String, JsValue> {
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let events = self.batch.flush(&mut self.state);
+            #[derive(serde::Serialize)]
+            struct Response<'a> {
+                events: &'a [ace_core::emit::Event],
+                state: &'a ace_core::ThreadState,
+            }
+            let response = Response {
+                events: &events,
+                state: &self.state,
+            };
+            ace_json::ser::to_string(&response).map_err(|error| error.to_string())
+        }));
+        match result {
+            Ok(Ok(json)) => Ok(json),
+            Ok(Err(error)) => Err(failure(error)),
+            Err(_) => Err(failure("core batch flush failed".to_owned())),
+        }
     }
 }

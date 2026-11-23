@@ -174,7 +174,8 @@ impl<T> Maybe<T> {
 impl<T> Maybe<T> {
     /// Read a missing, null, or valued field. Missing is handled by
     /// `#[serde(default)]` (never reaching here); explicit `null` reads
-    /// `Missing` today, preserving the facade's long-standing shape.
+    /// `Null` so a cleared link round-trips through JSON (wasm passes state
+    /// every call, unlike the native handle).
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -182,7 +183,7 @@ impl<T> Maybe<T> {
     {
         use serde::Deserialize as _;
         Ok(match Option::<T>::deserialize(deserializer)? {
-            None => Self::Missing,
+            None => Self::Null,
             Some(value) => Self::Value(value),
         })
     }
@@ -193,7 +194,7 @@ impl<T> Maybe<T> {
         D: serde::Deserializer<'de>,
     {
         Ok(match crate::json_io::de::opt_i64(deserializer)? {
-            None => Maybe::Missing,
+            None => Maybe::Null,
             Some(value) => Maybe::Value(value),
         })
     }
