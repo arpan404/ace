@@ -63,8 +63,12 @@ name = "ace-adapter-pi"
 version = "0.1.0"
 dependencies = [
  "ace-adapter-api",
+ "ace-core",
  "ace-supervisor",
  "rmcp",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -89,10 +93,16 @@ dependencies = [
 name = "ace-daemon-node"
 version = "0.1.0"
 dependencies = [
+ "ace-adapter-api",
+ "ace-adapter-pi",
+ "ace-core",
  "ace-store",
  "napi",
  "napi-build",
  "napi-derive",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
