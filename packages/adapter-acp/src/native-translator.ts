@@ -109,43 +109,18 @@ export class NativeAcpTranslator implements Translator {
     return JSON.parse(this.handle.tick(now)) as Fact[];
   }
   translate(frame: Frame, now: number): Fact[] {
-    // Rust strings are UTF-8 and cannot hold lone surrogates; the TypeScript
-    // translator keeps such opaque IDs without throwing. Replace lone
-    // surrogates with the replacement character before crossing, so the frame
-    // stays valid JSON the native side can parse and the thread still
-    // distinguishes the child. Field-for-field JSON holds for all valid
-    // UTF-8; lone surrogates normalize to U+FFFD on the native path.
+    // The frame crosses as JSON text; ace-json keeps lone surrogates and
+    // every own field (including `__proto__`) exactly. No copy, no
+    // normalisation: TypeScript session routing keeps the original ids.
     const frameJson = JSON.stringify({
       seq: frame.seq,
       t: frame.t,
       dir: frame.dir,
       channel: frame.channel,
-      data: sanitizeLoneSurrogates(frame.data),
+      data: frame.data,
     });
     return JSON.parse(this.handle.translate(frameJson, now)) as Fact[];
   }
-}
-
-/**
- * Deep copy replacing lone surrogates with U+FFFD, so the JSON crossing to
- * Rust (UTF-8) stays valid and never throws on provider data.
- */
-function sanitizeLoneSurrogates(value: unknown): unknown {
-  if (typeof value === "string") return replaceLoneSurrogates(value);
-  if (Array.isArray(value)) return value.map(sanitizeLoneSurrogates);
-  if (value !== null && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value)) out[replaceLoneSurrogates(key)] = sanitizeLoneSurrogates(entry);
-    return out;
-  }
-  return value;
-}
-
-function replaceLoneSurrogates(text: string): string {
-  return text.replace(
-    /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g,
-    "�",
-  );
 }
 
 /** Whether this process serves the ACP translator natively. */

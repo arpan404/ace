@@ -92,8 +92,9 @@ pub fn placeholder_child(state: &mut TranslationState, tool_key: &str, facts: &m
         .and_then(|tool| tool.child_key.clone());
     if has_child.is_none() {
         let id = state.key("placeholder");
-        let child_key = state.agent_key(&id, facts);
-        if let Some(child) = state.agents.get_mut(&id) {
+        let native_id = ace_json::JsString::from(id.as_str());
+        let child_key = state.agent_key(&native_id, facts);
+        if let Some(child) = state.agents.get_mut(&native_id) {
             child.placeholder = true;
         }
         // The agent_key call creates a full child; adjust to placeholder.
@@ -111,15 +112,17 @@ pub fn placeholder_child(state: &mut TranslationState, tool_key: &str, facts: &m
             .map(|tool| tool.owner_key.clone())
             .unwrap_or_default();
         let tool_key_owned = tool_key.to_owned();
-        if let Some(child) = state.agents.get_mut(&id) {
+        if let Some(child) = state.agents.get_mut(&native_id) {
             child.placeholder = true;
             child.spawn = Some(tool_key_owned.clone());
         }
         if let Some(tool) = state.tools.get_mut(tool_key) {
             tool.child_key = Some(child_key.clone());
-            tool.child_native_id = Some(id.clone());
+            tool.child_native_id = Some(native_id.clone());
         }
-        state.child_tools.insert(id.clone(), tool_key.to_owned());
+        state
+            .child_tools
+            .insert(native_id.clone(), tool_key.to_owned());
         // Patch the agent.seen the agent_key call emitted: it says full, but
         // TypeScript emits placeholder directly. Remove the last fact if it
         // was the full seen and replace with the placeholder seen.
@@ -214,6 +217,7 @@ pub fn placeholder_child(state: &mut TranslationState, tool_key: &str, facts: &m
                         .is_some_and(|child| child.placeholder);
                     if is_placeholder {
                         state.agents.shift_remove(&native_id);
+                        state.unindex_agent(&child_key);
                     }
                 }
             } else {

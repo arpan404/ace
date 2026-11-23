@@ -49,53 +49,75 @@ fn js_typeof(value: &Value) -> &'static str {
 }
 
 /// JavaScript `String(id)` for the JSON ids request keys see.
-fn js_string(value: &Value) -> String {
+fn js_string(value: &Value) -> ace_json::JsString {
+    use ace_json::JsString;
     match value {
-        Value::String(s) => String::from(s.clone()),
-        Value::Number(n) => n.to_string(),
+        Value::String(s) => s.clone(),
+        Value::Number(n) => JsString::from(n.to_string()),
         Value::Bool(b) => {
             if *b {
-                "true".to_owned()
+                JsString::from("true")
             } else {
-                "false".to_owned()
+                JsString::from("false")
             }
         }
-        Value::Null => "null".to_owned(),
-        Value::Array(_) | Value::Object(_) => "[object Object]".to_owned(),
+        Value::Null => JsString::from("null"),
+        Value::Array(items) => array_join(items),
+        Value::Object(_) => JsString::from("[object Object]"),
     }
 }
 
-fn json_string(value: &str) -> String {
-    let mut out = String::with_capacity(value.len() + 2);
-    out.push('"');
-    for c in value.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            c if (c as u32) < 0x20 => {
-                out.push_str(&format!("\\u{:04x}", c as u32));
-            }
-            c => out.push(c),
+/// `String(array)` in JavaScript: elements joined with `,`, with `null`
+/// (and `undefined`, which JSON never holds) as empty, nested arrays
+/// flattened the same way, objects as `[object Object]`.
+fn array_join(items: &ace_json::Array) -> ace_json::JsString {
+    use ace_json::JsString;
+    let mut out = JsString::new();
+    for (index, item) in items.iter().enumerate() {
+        if index > 0 {
+            out.push_str(",");
         }
+        out.push_js(&array_element_string(item));
     }
-    out.push('"');
     out
 }
 
+fn array_element_string(value: &Value) -> ace_json::JsString {
+    use ace_json::JsString;
+    match value {
+        Value::Null => JsString::new(),
+        Value::Array(items) => array_join(items),
+        _ => js_string(value),
+    }
+}
+
 /// `requestKey(id, scope)`: the native request key, same strings as TypeScript.
-pub fn request_key(id: &Value, scope: &str) -> String {
+pub fn request_key(id: &Value, scope: &str) -> ace_json::JsString {
+    use ace_json::JsString;
     let kind = js_typeof(id);
     let text = js_string(id);
     if scope.is_empty() {
-        format!("request:{kind}:{text}")
+        // `request:${typeof id}:${String(id)}`: no JSON involved, so a newline
+        // stays a newline and a lone surrogate stays exact.
+        let mut key = JsString::from("request:");
+        key.push_str(kind);
+        key.push_str(":");
+        key.push_js(&text);
+        key
     } else {
-        let inner = format!(
-            "[{},{},{}]",
-            json_string(scope),
-            json_string(kind),
-            json_string(&text)
+        // `request:${JSON.stringify([scope, typeof id, String(id)])}`: every
+        // key built from JSON values goes through ace-json, so control
+        // characters escape exactly as TypeScript (`\n`, not `\u000a`).
+        let arr = Value::Array(
+            vec![
+                Value::String(ace_json::JsString::from(scope)),
+                Value::String(ace_json::JsString::from(kind)),
+                Value::String(text),
+            ]
+            .into(),
         );
-        format!("request:{inner}")
+        let inner = ace_json::ser::to_string(&arr).unwrap_or_else(|_| "[]".to_owned());
+        JsString::from(format!("request:{inner}"))
     }
 }
 

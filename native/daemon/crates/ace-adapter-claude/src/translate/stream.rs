@@ -83,14 +83,16 @@ pub fn stream(state: &mut ClaudeState, data: &Value, streams: &mut HashMap<Strin
         };
         let delta = object(event.get("delta").unwrap_or(&Value::Null));
         if slot.kind == "text" || slot.kind == "thinking" {
-            let append = {
-                let t = str_of(delta.get("text").unwrap_or(&Value::Null));
-                if !t.is_empty() {
-                    t
-                } else {
-                    str_of(delta.get("thinking").unwrap_or(&Value::Null))
-                }
+            // TypeScript keeps the exact JS strings, lone surrogates included.
+            let text: ace_json::JsString = match delta.get("text") {
+                Some(Value::String(text)) => text.clone(),
+                _ => ace_json::JsString::new(),
             };
+            let thinking: ace_json::JsString = match delta.get("thinking") {
+                Some(Value::String(text)) => text.clone(),
+                _ => ace_json::JsString::new(),
+            };
+            let append = if !text.is_empty() { text } else { thinking };
             state.emit(stream_delta(&agent, &slot.item, &slot.kind, &append));
         }
     } else if kind == "content_block_stop" {
@@ -151,7 +153,7 @@ fn stream_start_upsert(
     upsert(agent, item, Value::Object(ordered))
 }
 
-fn stream_delta(agent: &str, item: &str, kind: &str, append: &str) -> Value {
+fn stream_delta(agent: &str, item: &str, kind: &str, append: &ace_json::JsString) -> Value {
     let mut map = Map::with_capacity(5);
     map.insert("type".to_owned(), Value::from("item.delta".to_owned()));
     map.insert("agent".to_owned(), Value::from(agent.to_owned()));
@@ -160,7 +162,7 @@ fn stream_delta(agent: &str, item: &str, kind: &str, append: &str) -> Value {
         "field".to_owned(),
         Value::from(if kind == "text" { "text" } else { "reasoning" }.to_owned()),
     );
-    map.insert("append".to_owned(), Value::from(append.to_owned()));
+    map.insert("append".to_owned(), Value::from(append.clone()));
     Value::Object(map)
 }
 

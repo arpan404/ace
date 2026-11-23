@@ -24,7 +24,7 @@ pub fn retire_tool(state: &mut TranslationState, tool_key: &str) {
         return;
     }
     let child_terminal = match state.tools.get(tool_key) {
-        Some(tool) => match tool.child_native_id.as_deref() {
+        Some(tool) => match tool.child_native_id.as_ref() {
             Some(child_id) => state
                 .agents
                 .get(child_id)

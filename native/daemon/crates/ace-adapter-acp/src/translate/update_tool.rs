@@ -2,7 +2,7 @@
 //! Tool call updates (part of `translator.ts` `update`).
 
 use crate::translate::completed_tools::{renew_tool, retire_tool};
-use crate::translate::data::{object, raw, string};
+use crate::translate::data::{js_string, object, raw, string};
 use crate::translate::prompt_hold::sync_prompt_hold;
 use crate::translate::shell_output::ShellOutput;
 use crate::translate::state::TranslationState;
@@ -11,20 +11,22 @@ use crate::translate::tool_raw::retain_tool_raw;
 use crate::translate::tool_text::{merge_tool_data, tool_error};
 use crate::translate::tools::{tool_detail, tool_status};
 use crate::translate::update::error_key;
-use ace_json::{Map, Value};
+use ace_json::{JsString, Map, Value};
 
 /// Handle `tool_call` and `tool_call_update`. Returns true when handled.
 pub fn handle_tool_call(
     state: &mut TranslationState,
     shell_output: &mut ShellOutput,
     agent_key: &str,
-    agent_native_id: &str,
+    agent_native_id: &JsString,
     update: &Value,
     frame: &Value,
     facts: &mut Vec<Value>,
 ) -> bool {
     let update_map = object(update);
-    let id = string(update_map.get("toolCallId").unwrap_or(&Value::Null)).to_owned();
+    let id: JsString = js_string(update_map.get("toolCallId").unwrap_or(&Value::Null))
+        .cloned()
+        .unwrap_or_default();
     if id.is_empty() {
         return false;
     }
@@ -48,7 +50,7 @@ pub fn handle_tool_call(
         key
     } else {
         let new_key = state.key("tool");
-        let owner_native = agent_native_id.to_owned();
+        let owner_native = agent_native_id.clone();
         let tool = crate::translate::state::ToolState {
             native_id: id.clone(),
             key: new_key.clone(),
@@ -280,15 +282,9 @@ pub fn handle_tool_call(
                 .get(&tool_key)
                 .and_then(|tool| tool.task.clone())
                 .is_some(),
-            if agent_key == state.root.key {
-                state.root.active
-            } else {
-                state
-                    .agents
-                    .values()
-                    .find(|agent| agent.key == *agent_key)
-                    .is_some_and(|agent| agent.active)
-            },
+            state
+                .agent_by_key(agent_key)
+                .is_some_and(|agent| agent.active),
         );
         if !has_task
             && (live || agent_active)
@@ -311,13 +307,7 @@ pub fn handle_tool_call(
         }
     }
     state.finish_stream(agent_key, facts);
-    if agent_key == state.root.key {
-        state.root.segment.clear();
-    } else if let Some(agent) = state
-        .agents
-        .values_mut()
-        .find(|agent| agent.key == *agent_key)
-    {
+    if let Some(agent) = state.agent_by_key_mut(agent_key) {
         agent.segment.clear();
     }
     let (detail, live_snapshot) = {

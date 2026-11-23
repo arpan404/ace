@@ -10,8 +10,8 @@ pub fn pi_turn_boundary(message: Option<&str>) -> Option<String> {
     }
     let fields = super::native::parse_object_text(text)?;
     // `type` must be a string; `entryId` a string when present, else empty.
-    let boundary_type = super::native::raw_as_str(fields.get("type")?)?;
-    let entry_id = match fields.get("entryId") {
+    let boundary_type = super::native::raw_as_str(super::native::field(&fields, "type")?)?;
+    let entry_id = match super::native::field(&fields, "entryId") {
         Some(raw) => super::native::raw_as_str(raw)?,
         None => String::new(),
     };

@@ -4,13 +4,14 @@
 //! objects decode as maps of raw values, arrays as lists of raw values, and
 //! unknown fields are ignored. Nothing here panics on provider data.
 
-use ace_json::{Kind, Raw, RawRef};
+use ace_json::{JsString, Kind, Raw, RawRef};
 use std::borrow::Cow;
 use std::collections::HashMap;
 
 /// An object's fields, each kept as its canonical JSON. A duplicate key keeps
-/// its last value, as `JSON.parse` does.
-pub type Fields = HashMap<String, Raw>;
+/// its last value, as `JSON.parse` does. Keys stay exact `JsString`s so a lone
+/// surrogate key never collides with U+FFFD the way a lossy `String` would.
+pub type Fields = HashMap<JsString, Raw>;
 
 /// An object's fields kept raw. `None` when the value is not an object.
 pub fn object_fields(raw: RawRef<'_>) -> Option<Fields> {
@@ -19,7 +20,8 @@ pub fn object_fields(raw: RawRef<'_>) -> Option<Fields> {
     }
     let mut map = HashMap::new();
     for (key, value) in raw.entries() {
-        map.insert(key.as_str()?.into_owned(), value.to_raw());
+        let name = key.as_js_string()?;
+        map.insert(name, value.to_raw());
     }
     Some(map)
 }
@@ -65,7 +67,7 @@ pub fn str_of(raw: Option<&Raw>) -> String {
 
 /// Field lookup without copying: the raw value for `key`, if present.
 pub fn field<'a>(map: &'a Fields, key: &str) -> Option<&'a Raw> {
-    map.get(key)
+    map.get(&JsString::from(key))
 }
 
 /// `str` of an object's field: missing or non-string reads as empty.

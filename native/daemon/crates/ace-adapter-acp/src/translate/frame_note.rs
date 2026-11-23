@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Note frames (`translator.ts` note branch).
 
-use crate::translate::data::{object, string};
+use crate::translate::data::{js_string, object, string};
 use crate::translate::state::TranslationState;
 use ace_json::{Map, Value};
 
 /// Handle `note` frames. Always returns true (notes never fall through).
 pub fn handle_note(
     state: &mut TranslationState,
-    input_native_id: &mut Option<String>,
+    input_native_id: &mut Option<ace_json::JsString>,
     data: &Value,
     data_map: &Map,
     facts: &mut Vec<Value>,
@@ -57,8 +57,9 @@ pub fn handle_note(
         return true;
     }
     if data_map.get("event").and_then(Value::as_str) == Some("input-sending") {
-        *input_native_id =
-            Some(string(data_map.get("nativeId").unwrap_or(&Value::Null)).to_owned());
+        *input_native_id = js_string(data_map.get("nativeId").unwrap_or(&Value::Null))
+            .cloned()
+            .filter(|id| !id.is_empty());
         return true;
     }
     state.notice(facts, data, "recorder", None, None);

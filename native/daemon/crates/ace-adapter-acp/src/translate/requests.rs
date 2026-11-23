@@ -2,10 +2,10 @@
 //! Incoming permission requests (`requests.ts`).
 
 use crate::translate::approval::interaction_key;
-use crate::translate::data::{object, raw, string};
+use crate::translate::data::{js_string, object, raw};
 use crate::translate::state::TranslationState;
 use crate::translate::tool_raw::retain_tool_raw;
-use ace_json::{Map, Value};
+use ace_json::{JsString, Map, Value};
 
 /// Open an incoming request. Returns true when the frame is handled.
 pub fn open_request(
@@ -26,21 +26,25 @@ pub fn open_request(
     let request =
         crate::translate::interactions::interaction_request(method, &params_value, state.quirks);
     let native_tool = {
-        let direct = string(params.get("toolCallId").unwrap_or(&Value::Null));
-        if !direct.is_empty() {
-            direct.to_owned()
+        let direct = js_string(params.get("toolCallId").unwrap_or(&Value::Null)).cloned();
+        let direct = direct.filter(|id| !id.is_empty());
+        if let Some(id) = direct {
+            id
         } else {
-            string(
+            js_string(
                 object(params.get("toolCall").unwrap_or(&Value::Null))
                     .get("toolCallId")
                     .unwrap_or(&Value::Null),
             )
-            .to_owned()
+            .cloned()
+            .unwrap_or_default()
         }
     };
     // Resolve the tool and its owner without holding borrows across facts.
     let (tool_key, owner_key) = {
-        let session_id = string(params.get("sessionId").unwrap_or(&Value::Null)).to_owned();
+        let session_id = js_string(params.get("sessionId").unwrap_or(&Value::Null))
+            .cloned()
+            .unwrap_or_default();
         if !session_id.is_empty() {
             // Ensure the agent exists (may push agent.seen facts).
             let agent_key = state.agent_key(&session_id, facts);
@@ -103,8 +107,9 @@ pub fn open_request(
     // A request's own call replaces what an earlier update said.
     let call = object(params.get("toolCall").unwrap_or(&Value::Null)).clone();
     // Capture owner info for updateTool calls.
-    let owner_native_for_update =
-        string(params.get("sessionId").unwrap_or(&Value::Null)).to_owned();
+    let owner_native_for_update = js_string(params.get("sessionId").unwrap_or(&Value::Null))
+        .cloned()
+        .unwrap_or_default();
     let owner_key_for_update = owner_key.clone();
     if !native_tool.is_empty()
         && call.keys().any(|key| key != "toolCallId")
@@ -146,7 +151,9 @@ pub fn open_request(
             facts,
         );
         // Re-resolve after the update created it.
-        let session_id = string(params.get("sessionId").unwrap_or(&Value::Null)).to_owned();
+        let session_id = js_string(params.get("sessionId").unwrap_or(&Value::Null))
+            .cloned()
+            .unwrap_or_default();
         if !session_id.is_empty() {
             // agent already ensured; look up tool again.
             if let Some(agent_key) = state
@@ -181,7 +188,9 @@ pub fn open_request(
             method: method.to_owned(),
             params: params.clone(),
             owner_key: owner_key.clone(),
-            owner_native_id: string(params.get("sessionId").unwrap_or(&Value::Null)).to_owned(),
+            owner_native_id: js_string(params.get("sessionId").unwrap_or(&Value::Null))
+                .cloned()
+                .unwrap_or_default(),
             request: request_value.clone(),
             tool_key: tool_key.clone(),
         },
@@ -239,12 +248,15 @@ pub fn open_request(
 pub fn request_tool(method: &str, params: &Value) -> Option<Map> {
     let params_map = object(params);
     let call = object(params_map.get("toolCall").unwrap_or(&Value::Null));
-    let tool_call_id = {
-        let direct = string(params_map.get("toolCallId").unwrap_or(&Value::Null));
-        if !direct.is_empty() {
-            direct.to_owned()
+    let tool_call_id: JsString = {
+        if let Some(id) = js_string(params_map.get("toolCallId").unwrap_or(&Value::Null))
+            && !id.is_empty()
+        {
+            id.clone()
         } else {
-            string(call.get("toolCallId").unwrap_or(&Value::Null)).to_owned()
+            js_string(call.get("toolCallId").unwrap_or(&Value::Null))
+                .cloned()
+                .unwrap_or_default()
         }
     };
     if tool_call_id.is_empty() {
@@ -259,32 +271,31 @@ pub fn request_tool(method: &str, params: &Value) -> Option<Map> {
         "sessionUpdate".to_owned(),
         Value::from("tool_call".to_owned()),
     );
-    let kind = string(call.get("kind").unwrap_or(&Value::Null));
+    let kind = js_string(call.get("kind").unwrap_or(&Value::Null)).cloned();
     out.insert(
         "kind".to_owned(),
-        Value::from(if kind.is_empty() {
-            "other".to_owned()
-        } else {
-            kind.to_owned()
-        }),
+        Value::from(
+            kind.filter(|kind| !kind.is_empty())
+                .unwrap_or_else(|| JsString::from("other")),
+        ),
     );
-    let title = string(call.get("title").unwrap_or(&Value::Null));
+    let title = js_string(call.get("title").unwrap_or(&Value::Null)).cloned();
     out.insert(
         "title".to_owned(),
-        Value::from(if title.is_empty() {
-            method.to_owned()
-        } else {
-            title.to_owned()
-        }),
+        Value::from(
+            title
+                .filter(|title| !title.is_empty())
+                .unwrap_or_else(|| JsString::from(method)),
+        ),
     );
-    let status = string(call.get("status").unwrap_or(&Value::Null));
+    let status = js_string(call.get("status").unwrap_or(&Value::Null)).cloned();
     out.insert(
         "status".to_owned(),
-        Value::from(if status.is_empty() {
-            "pending".to_owned()
-        } else {
-            status.to_owned()
-        }),
+        Value::from(
+            status
+                .filter(|status| !status.is_empty())
+                .unwrap_or_else(|| JsString::from("pending")),
+        ),
     );
     Some(out)
 }

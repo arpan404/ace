@@ -32,13 +32,7 @@ pub fn end_prompt(
     facts: &mut Vec<Value>,
 ) {
     state.prompt_open = false;
-    if agent_key == state.root.key {
-        state.root.suspended = false;
-    } else if let Some(agent) = state
-        .agents
-        .values_mut()
-        .find(|agent| agent.key == *agent_key)
-    {
+    if let Some(agent) = state.agent_by_key_mut(agent_key) {
         agent.suspended = false;
     }
     let cancelled = reason == "cancelled";
@@ -226,7 +220,7 @@ pub fn end_prompt(
     }
     // Stray sessions end with the root's prompt.
     if agent_key == state.root.key {
-        let stray_keys: Vec<String> = state
+        let stray_keys: Vec<ace_json::JsString> = state
             .agents
             .values()
             .filter(|child| {
@@ -281,7 +275,7 @@ pub fn end_prompt(
         facts.push(Value::Object(wake));
     }
     // Close open permission requests.
-    let open: Vec<String> = state
+    let open: Vec<ace_json::JsString> = state
         .requests
         .iter()
         .filter(|(_, request)| cancelled || request.owner_key == *agent_key)
@@ -299,16 +293,10 @@ pub fn end_prompt(
             facts.push(Value::Object(closed));
         }
     }
-    let segment = if agent_key == state.root.key {
-        state.root.segment.clone()
-    } else {
-        state
-            .agents
-            .values()
-            .find(|agent| agent.key == *agent_key)
-            .map(|agent| agent.segment.clone())
-            .unwrap_or_default()
-    };
+    let segment = state
+        .agent_by_key(agent_key)
+        .map(|agent| agent.segment.clone())
+        .unwrap_or_default();
     let classified = state.quirks.classify_error(&segment).or_else(|| {
         if reason == "refusal" {
             let mut error = Map::with_capacity(3);
