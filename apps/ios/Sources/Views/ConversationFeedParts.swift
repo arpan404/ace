@@ -58,7 +58,12 @@ struct TranscriptSpacer: View {
     var body: some View {
         let value = extent[keyPath: height]
         Color.clear.frame(height: value).accessibilityHidden(true)
-            .onChange(of: value) { _, _ in PerfCounters.bump("extent.spacers") }
+            .onChange(of: value) { old, new in
+                PerfCounters.bump("extent.spacers")
+                #if ACE_FIXTURE
+                TranscriptJumpHooks.note("\(height == \TranscriptExtent.before ? "before" : "after") \(Int(old))>\(Int(new))")
+                #endif
+            }
     }
 }
 

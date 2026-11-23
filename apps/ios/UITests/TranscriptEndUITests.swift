@@ -4,7 +4,10 @@ import XCTest
 /// empty stretch past or before them, and following the end keeps it in view. Runs against the spike fixture;
 /// `TEST_RUNNER_ACE_IOS_SPIKE_PORT` selects its port.
 @MainActor final class TranscriptEndUITests: XCTestCase, @unchecked Sendable {
-    override func setUp() { continueAfterFailure = false }
+    override func setUp() async throws {
+        continueAfterFailure = false
+        try await FixtureStream.restart()
+    }
 
     func testReadingOlderMessagesStaysVisibleAndStillWhileTheTailStreams() async throws {
         let app = open("ios-stream")
@@ -52,7 +55,7 @@ import XCTest
     /// while the text under it grows; once the answer finishes, that status goes from the same row.
     func testTheStreamingAnswerSaysWritingUntilItFinishes() async throws {
         // A fresh answer, short whatever ran before, so reading its text stays quick.
-        try await post("/stream/finish", "{}")
+        try await FixtureStream.restart()
         let app = open("ios-stream")
         let id = try await lastAnswer()
         let tail = app.descendants(matching: .any)["message.answer.\(id)"]

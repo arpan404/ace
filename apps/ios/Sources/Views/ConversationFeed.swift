@@ -414,6 +414,7 @@ struct ConversationFeed: View {
             .onChange(of: keyboard.moves) { _, _ in keyboardWillMove(proxy: proxy) }
             .onChange(of: keyboard.landings) { _, _ in keyboardLanded(proxy: proxy) }
             .onChange(of: barHeight) { old, new in
+                TranscriptJumpHooks.note("bar \(Int(old))>\(Int(new))")
                 // Growing room moves the tail immediately so a new pill can't cover the last row.
                 let motion: Animation? = keyboardMoving ? AceDesign.Motion.keyboard(keyboard.duration) : (new < old ? .default : nil)
                 roomChanged(by: new - old, motion: reduceMotion ? nil : motion, proxy: proxy)
