@@ -460,3 +460,60 @@ async fn a_lane_reopened_while_its_report_goes_out_stays_live_and_the_bot_never_
     wait_count(&spade, &lane_id, "reply_finished", 2).await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn a_lane_goes_live_before_a_reply_of_it_is_stored_or_nothing_is() -> Result {
+    let routes = vec![route(
+        "Tidy the notes",
+        vec![
+            Script::reply("Tidied."),
+            Script::reply("Tidied again.").held(Duration::from_secs(2)),
+        ],
+    )];
+    let mut main = warm_up();
+    main.extend([
+        starts("t1", "Tidy the notes"),
+        Script::reply("Started."),
+        Script::reply("Tidied."),
+        Script::reply("Tidied again."),
+    ]);
+    let spade = Spade::start_routed(routes, main, Vec::new(), Options::default()).await?;
+    let (agent, conversation) = warm_bot(&spade).await?;
+    spade.say(&conversation, "Tidy the notes.").await?;
+    let lane_id = id_of(
+        wait_tasks(&spade, &conversation, |t| {
+            t.first().is_some_and(|t| t["state"] == "finished")
+        })
+        .await?
+        .first(),
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while live_in_store(&spade)?.contains(&lane_id) {
+        if Instant::now() > deadline {
+            return Err("never left the live list".into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    // Putting it back on the list fails, as a crash there would: no reply of it is stored.
+    {
+        let connection = spade_store::Store::connect(spade.database())?;
+        connection.execute_batch(
+            "CREATE TRIGGER no_live BEFORE INSERT ON lanes_live \
+             BEGIN SELECT RAISE(ABORT, 'refused for a test'); END;",
+        )?;
+    }
+    let path = format!("/v1/conversations/{lane_id}/messages");
+    let (status, _) = spade.post(&path, json!({ "text": "Once more." })).await?;
+    assert!(status >= 500, "{status}");
+    assert_eq!(count(&spade.events(&lane_id).await?, "reply_started"), 1);
+    {
+        let connection = spade_store::Store::connect(spade.database())?;
+        connection.execute_batch("DROP TRIGGER no_live;")?;
+    }
+    let (status, body) = spade.post(&path, json!({ "text": "Once more." })).await?;
+    assert_eq!(status, 202, "{body}");
+    wait_count(&spade, &lane_id, "reply_started", 2).await?;
+    assert!(live_in_store(&spade)?.contains(&lane_id));
+    assert_ne!(roster_state(&spade, &agent).await?["state"], "idle");
+    Ok(())
+}

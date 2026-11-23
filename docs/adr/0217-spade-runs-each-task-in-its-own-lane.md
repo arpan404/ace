@@ -510,5 +510,11 @@ moved}`), and a running job's live handle moves to the lane under the lock a job
   ending a lane is compare-and-delete under the record lock, and Spade puts back a working lane
   missing from the live list when it opens; a failed report's error is `error`, untrusted, never
   Spade's summary.
+- **Second closing check (#2672):** a lane's copies in main are named by its run
+  (`<lane>.<run>.<call>`, `lane.epoch`), `lane_requests_closed` names the run that ended and lists
+  only its copies, and an ending report read before the lane was taken up again is never stored;
+  only the person's own reply routed to a task authorizes `task_stop`; a lane goes on
+  `lanes_live` before any write that opens a reply of it, and `lane_copies` drives the reconcile
+  at open, never the history.
 - **Not built here:** the UI (a separate thread builds the popover, the lines and the pill against
   `GET /v1/conversations/{id}/tasks` and the events).

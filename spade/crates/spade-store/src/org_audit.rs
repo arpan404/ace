@@ -133,10 +133,19 @@ impl Store {
         &self,
         writes: &[(&str, &[Event])],
         entries: &[Entry],
+        copies_of: Option<(&str, &str)>,
         now_ms: i64,
     ) -> Result<Vec<Vec<StoredEvent>>> {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
+        // A lane whose request is copied into its bot's conversation is listed in the same
+        // write, so Spade reconciles the copy if the lane ends without closing it (ADR 0217 §4).
+        if let Some((lane, parent)) = copies_of {
+            tx.execute(
+                "INSERT OR IGNORE INTO lane_copies (conversation_id, parent_id) VALUES (?1, ?2)",
+                rusqlite::params![lane, parent],
+            )?;
+        }
         let mut stored = Vec::with_capacity(writes.len());
         for (conversation, events) in writes {
             stored.push(append_in(&tx, conversation, events, now_ms)?);

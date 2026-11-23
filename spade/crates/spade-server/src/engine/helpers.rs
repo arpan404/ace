@@ -559,6 +559,7 @@ impl Engine {
                 conversation: helper.conversation.clone(),
                 call_id: call_id.clone(),
                 title: self.lane_title(&helper.conversation),
+                epoch: Some(reply.to_owned()),
             })
         });
         let helper_ask = (!is_lane).then(|| {
@@ -572,8 +573,9 @@ impl Engine {
         let mirror = Event::Known(Known::ApprovalRequested {
             lane,
             reply: helper.reply.clone(),
+            // Unique across the lane's runs (ADR 0217 §4).
             call_id: match is_lane {
-                true => mirrored_id(&helper.conversation, call_id),
+                true => spade_core::lane::copy_id(&helper.conversation, reply, call_id),
                 false => mirrored_id(&helper.job, call_id),
             },
             name: name.clone(),
@@ -612,13 +614,21 @@ impl Engine {
                     ..
                 }) = &mut in_main
                 {
-                    *c = format!("{}.{c}", helper.parent);
+                    // Named by the lane's run now, as the lane's own requests are.
+                    let epoch = self.load(&helper.parent).ok().and_then(|lane_events| {
+                        Transcript::fold(lane_events.iter())
+                            .open_reply()
+                            .and_then(|m| m.reply.clone())
+                    });
+                    let run = epoch.clone().unwrap_or_default();
+                    *c = spade_core::lane::copy_id(&helper.parent, &run, c);
                     *h = None;
                     *l = Some(Box::new(spade_core::lane::Ask {
                         task: helper.parent.clone(),
                         conversation: helper.conversation.clone(),
                         call_id: call_id.clone(),
                         title: self.lane_title(&helper.parent),
+                        epoch,
                     }));
                 }
                 writes.push((lane.parent.clone(), vec![in_main]));
@@ -629,7 +639,17 @@ impl Engine {
                 .iter()
                 .map(|(id, events)| (id.as_str(), events.as_slice()))
                 .collect();
-            self.append_across(&borrowed, &[])?;
+            // A lane's request copied into its bot's conversation lists the lane among those
+            // with copies, in the same write (ADR 0217 §4).
+            let lane_of_copy = match (is_lane, &also) {
+                (true, _) => Some((helper.conversation.as_str(), helper.parent.as_str())),
+                (false, Some(main)) => Some((helper.parent.as_str(), main.as_str())),
+                _ => None,
+            };
+            match lane_of_copy {
+                Some(copied) => self.append_across_copied(&borrowed, copied)?,
+                None => self.append_across(&borrowed, &[])?,
+            }
         }
         self.announce(&helper.parent);
         if let Some(main) = also {

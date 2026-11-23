@@ -215,6 +215,12 @@ const MIGRATIONS: &[Migration] = &[
         sql: crate::helpers::LANES_LIVE,
         backfill: None,
     },
+    Migration {
+        // ADR 0217: the task lanes whose requests have copies in their bot's conversation, so
+        // Spade reconciles only those when it opens. New and empty (ADR 0170).
+        sql: crate::helpers::LANE_COPIES,
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.

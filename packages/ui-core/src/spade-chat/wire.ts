@@ -195,6 +195,8 @@ const known = z.discriminatedUnion("type", [
         conversation: z.string(),
         call_id: z.string(),
         title: z.string().catch(""),
+        /** The lane's run that asked; its copy here closes only with that run's end. */
+        epoch: z.string().nullish().catch(undefined),
       })
       .nullish()
       .catch(undefined),
@@ -303,6 +305,8 @@ const known = z.discriminatedUnion("type", [
         conversation: z.string(),
         call_id: z.string(),
         title: z.string().catch(""),
+        /** The lane's run that asked; its copy here closes only with that run's end. */
+        epoch: z.string().nullish().catch(undefined),
       })
       .nullish()
       .catch(undefined),

@@ -44,6 +44,26 @@ fn queued_stop() -> Event {
 }
 
 impl Engine {
+    /// Before events that open a reply are stored in a lane, the lane goes on the live list, so
+    /// no crash can leave a lane working that slots, roll-up and Stop don't see (ADR 0217 §6).
+    /// Listed and then not written leaves an ended lane listed, which its next check takes off.
+    pub(in super::super) fn live_before_reply(
+        &self,
+        id: &str,
+        events: &[Event],
+    ) -> Result<(), StoreError> {
+        let opens = events
+            .iter()
+            .any(|e| matches!(e, Event::Known(Known::ReplyStarted { .. })));
+        if !opens {
+            return Ok(());
+        }
+        match self.lane_row(id) {
+            Some(row) => self.store.set_lane_live(id, &row.parent, true),
+            None => Ok(()),
+        }
+    }
+
     /// The lane job `job` of `id` moved to, if it moved.
     pub(super) fn moved_job(&self, id: &str, job: &str) -> Option<String> {
         self.lanes
@@ -333,36 +353,6 @@ impl Engine {
     /// The lanes that haven't ended, of every bot.
     pub(in super::super) fn live_lane_rows(&self) -> Vec<StoredHelper> {
         self.store.live_lanes(None).unwrap_or_default()
-    }
-
-    /// When Spade opens: a lane that still works (an open reply, a job, a wait) but isn't in the
-    /// live list, which a crash between two writes could leave, is put back, so the bot never
-    /// reads idle while it works. Only lanes whose last event leaves them possibly working are
-    /// read.
-    pub(in super::super) fn heal_live_lanes(&self) {
-        let candidates = match self.store.lanes_maybe_working() {
-            Ok(candidates) => candidates,
-            Err(error) => {
-                tracing::error!(%error, "could not look for task lanes to put back");
-                return;
-            }
-        };
-        for row in candidates {
-            let Ok(events) = self.load(&row.conversation) else {
-                continue;
-            };
-            let transcript = Transcript::fold(events.iter());
-            let working = transcript.busy()
-                || transcript.waiting_on_you()
-                || !spade_core::wake::open(events.iter()).is_empty();
-            if working
-                && let Err(error) = self
-                    .store
-                    .set_lane_live(&row.conversation, &row.parent, true)
-            {
-                tracing::error!(%error, "could not put a task lane back in the live list");
-            }
-        }
     }
 
     /// When Spade opens for work: every bot's lanes carry on (queued ones start as slots free),

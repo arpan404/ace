@@ -220,21 +220,10 @@ impl Engine {
             }
             index.links.contains_key(id)
         };
-        // A task lane (ADR 0217) is checked for its report the same way, and one that opens a
-        // new reply (the person wrote in it, main sent it a message, Try again) is live again.
-        if !watched {
-            let Some(lane) = self.lane_row(id) else {
-                return;
-            };
-            let reopened = events.iter().any(|e| {
-                matches!(
-                    e,
-                    Event::Known(spade_core::event::Known::ReplyStarted { .. })
-                )
-            });
-            if reopened && let Err(error) = self.store.set_lane_live(id, &lane.parent, true) {
-                tracing::error!(%error, "could not mark a task lane live again");
-            }
+        // A task lane (ADR 0217) is checked for its report the same way; it went on the live
+        // list before any reply of it was stored (`live_before_reply`).
+        if !watched && !self.is_lane(id) {
+            return;
         }
         let mut dirty = lock(&self.workers.dirty);
         dirty.insert(id.to_owned());

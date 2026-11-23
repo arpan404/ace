@@ -523,16 +523,14 @@ impl Engine {
                 }
             }
             jobs::report_lost(&engine, &conversation.id)?;
-            // A lane's late answer whose copy here never closed closes now (ADR 0217 §4).
-            engine.reconcile_lane_cards(&events);
             // A goal that closed just before a stop (or a crash) is owed its episode.
             if spade_core::knowledge::episode::owed(&events) {
                 engine.owe_episodes(&conversation.id);
             }
         }
-        // A lane still working that a crash left off the live list is put back first; then its
-        // jobs lost with the old process are reported like any (ADR 0217 §6).
-        engine.heal_live_lanes();
+        // Copies in main of lanes' requests a crash left open close (ADR 0217 §4), and a task
+        // lane's jobs lost with the old process are reported like any (ADR 0217 §6).
+        engine.reconcile_lane_copies();
         for lane in engine.live_lane_rows() {
             jobs::report_lost(&engine, &lane.conversation)?;
         }
@@ -984,6 +982,16 @@ impl Engine {
                     ) {
                         return Ok(spade_store::Delivered::Duplicate);
                     }
+                    // A task lane's end read before the person took it up again is stale: it
+                    // is never stored, nor does it close the new run's requests (ADR 0217 §4).
+                    if report.kind == spade_core::tree::Kind::Lane
+                        && lane_ending(report.state)
+                        && !self.load(&report.worker).is_ok_and(|lane| {
+                            spade_core::lane::ended_run_current(&lane, &report.epoch)
+                        })
+                    {
+                        return Ok(spade_store::Delivered::Duplicate);
+                    }
                     !report.state.opens_reply()
                         && spade_core::wake::settled_by(&events, event).is_empty()
                 }
@@ -1201,6 +1209,7 @@ impl Engine {
         ask: Option<spade_store::Delivery<'_>>,
     ) -> Result<spade_store::Delivered, StoreError> {
         let now = self.now_ms();
+        self.live_before_reply(id, events)?;
         let stored = match ask {
             Some(ask) => self.store.append_delivered(id, events, ask, now),
             None => self
@@ -1403,23 +1412,32 @@ fn lane_requests_closed(events: &[Event], event: &Event) -> Option<Event> {
     let Event::Known(Known::WorkerReported(report)) = event else {
         return None;
     };
-    let ended = report.kind == spade_core::tree::Kind::Lane
-        && !matches!(
-            report.state,
-            spade_core::tree::ReportState::NeedsYou | spade_core::tree::ReportState::Stopping
-        );
-    if !ended {
+    if report.kind != spade_core::tree::Kind::Lane || !lane_ending(report.state) {
         return None;
     }
-    let calls = spade_core::lane::requests_closing(events, &report.worker, report.state);
+    let calls = spade_core::lane::requests_closing(
+        events,
+        &report.worker,
+        Some(&report.epoch),
+        report.state,
+    );
     (!calls.is_empty()).then(|| {
         Event::Known(Known::LaneRequestsClosed(
             spade_core::lane::RequestsClosed {
                 lane: report.worker.clone(),
+                epoch: report.epoch.clone(),
                 calls,
             },
         ))
     })
+}
+
+/// Whether a lane's report of `state` says its run ended (not that it waits on the person).
+fn lane_ending(state: spade_core::tree::ReportState) -> bool {
+    !matches!(
+        state,
+        spade_core::tree::ReportState::NeedsYou | spade_core::tree::ReportState::Stopping
+    )
 }
 
 /// Whether `job`'s result is stored already.
