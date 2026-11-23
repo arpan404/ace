@@ -462,9 +462,11 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
    * into ace-media now. Its word that the view is granted clears nothing: a grant can come
    * before the source streams, so only a picture on the current delivery clears the reason.
    */
-  report(source: string, undelivered: MediaUndelivered | undefined): void {
+  report(source: string, undelivered: MediaUndelivered | undefined, connection?: string): void {
     const delivery = this.#deliveries.get(source);
     if (!delivery || delivery.via === nonePath || !undelivered) return;
+    // A word about this client's view on another media connection isn't this subscribe's.
+    if (connection !== undefined && connection !== delivery.asked) return;
     delivery.waiting = undelivered;
     this.#emit(source);
   }

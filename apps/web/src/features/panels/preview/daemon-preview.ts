@@ -690,7 +690,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     }
     if (message.type === "browser.delivery") {
       // Whether the thread's bound view gets pictures now, and why not.
-      deliveries.report(message.threadId, message.undelivered);
+      deliveries.report(message.threadId, message.undelivered, message.connection);
       changed(message.threadId);
       return;
     }

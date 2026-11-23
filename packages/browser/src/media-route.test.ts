@@ -151,3 +151,13 @@ test("a gone refusal that comes after many later subscribes still replaces the c
   media.failed("thread", old.generation, refusal, old.fields.media?.connection);
   expect(refreshed).toEqual(["mc_aaaaaaaaaa"]);
 });
+
+test("a delivery word about a view on another connection leaves this subscribe's notice alone", () => {
+  const { media } = healthy();
+  const begun = media.begin("thread");
+  media.subscribed("thread", begun.generation, { connection: "mc_aaaaaaaaaa" });
+  media.report("thread", { code: "refused", reason: "Not this one." }, "mc_bbbbbbbbbb");
+  expect(media.undelivered("thread")).toBeUndefined();
+  media.report("thread", { code: "starting", reason: "This one." }, "mc_aaaaaaaaaa");
+  expect(media.undelivered("thread")).toMatchObject({ code: "starting" });
+});

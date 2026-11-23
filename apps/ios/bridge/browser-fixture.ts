@@ -73,7 +73,8 @@ export async function liveBrowser(
       if (named && options.media === "hangs")
         return new Promise((resolve, reject) => {
           hanging.push(reject);
-          answering.push(resolve);
+          // The test's reply stands for the daemon's, whatever this request expects.
+          answering.push((reply) => resolve(reply as never));
         });
       const reply = client.request(message, requestOptions);
       if (named && options.media === "unserved")

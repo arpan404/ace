@@ -718,7 +718,7 @@ export class BrowserLive {
     if (message.type === "browser.delivery") {
       // Whether the bound view gets pictures now, and why not: Swift says it until one comes.
       if (message.threadId === watch.threadId)
-        this.#media.report(message.threadId, message.undelivered);
+        this.#media.report(message.threadId, message.undelivered, message.connection);
       return;
     }
     if (message.type === "browser.state") {

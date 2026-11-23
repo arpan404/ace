@@ -259,7 +259,11 @@ test("a bound view whose tab isn't streaming yet is told so, and told again when
   // The tab starts streaming and the view is granted: the subscriber hears it, reason gone.
   const [intent] = d.views.values();
   intent?.onGrant?.(true);
-  expect(deliveries().at(-1)).toEqual({ type: "browser.delivery", threadId: "thread" });
+  expect(deliveries().at(-1)).toEqual({
+    type: "browser.delivery",
+    threadId: "thread",
+    connection: "mc_aaaaaaaaaaaa",
+  });
   // It stops again (its ingest refused): told why once more.
   intent?.onGrant?.(false);
   expect(deliveries().at(-1)).toMatchObject({ undelivered: { code: "starting" } });
@@ -424,7 +428,11 @@ test("a view refused at ace-media's viewer limit says so, and plays once another
   expect(deliveries().at(-1)).toMatchObject({ undelivered: limit });
   if (refused?.type !== "viewer.open") throw new Error("no view opened");
   viewers.received({ type: "viewer.playing", viewer: refused.viewer, playing: true }, none);
-  expect(deliveries().at(-1)).toEqual({ type: "browser.delivery", threadId: "thread" });
+  expect(deliveries().at(-1)).toEqual({
+    type: "browser.delivery",
+    threadId: "thread",
+    connection: connection.connection,
+  });
   client.close();
 });
 
@@ -488,7 +496,11 @@ test("a bound view whose every codec failed is told the encoder is recovering, a
   expect(deliveries().at(-1)).toMatchObject({ undelivered: { code: "refused" } });
   recovering = false;
   intent?.onGrant?.(true);
-  expect(deliveries().at(-1)).toEqual({ type: "browser.delivery", threadId: "thread" });
+  expect(deliveries().at(-1)).toEqual({
+    type: "browser.delivery",
+    threadId: "thread",
+    connection: "mc_aaaaaaaaaaaa",
+  });
   client.close();
 });
 
@@ -615,5 +627,39 @@ test("a resubscribe on a new connection says the new view's own state, not the r
         message.type === "browser.delivery",
     ),
   ).toBe(false);
+  client.close();
+});
+
+test("two subscribers on distinct media connections each hear their own view's word, addressed to it", async () => {
+  const { bridge: client, results, views } = await bridge();
+  await client.handle({
+    ...subscribe(a, "mc_aaaaaaaaaaaa"),
+    mediaClient: true,
+    deliveryStatus: true,
+  });
+  await client.handle({
+    ...subscribe(b, "mc_bbbbbbbbbbbb"),
+    mediaClient: true,
+    deliveryStatus: true,
+  });
+  const [first, second] = views.values();
+  results.length = 0;
+  // The first view is refused while the second is held: the first's word still goes out.
+  first?.onGrant?.(false, "limit");
+  second?.onGrant?.(true);
+  const pushes = results.filter(
+    (message) =>
+      typeof message === "object" &&
+      message !== null &&
+      "type" in message &&
+      message.type === "browser.delivery",
+  );
+  expect(pushes).toEqual([
+    expect.objectContaining({
+      connection: "mc_aaaaaaaaaaaa",
+      undelivered: expect.objectContaining({ code: "refused" }),
+    }),
+    { type: "browser.delivery", threadId: "thread", connection: "mc_bbbbbbbbbbbb" },
+  ]);
   client.close();
 });
