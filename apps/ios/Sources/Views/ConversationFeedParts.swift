@@ -57,8 +57,8 @@ struct SpacerCounts: ViewModifier {
     func body(content: Content) -> some View {
         #if ACE_FIXTURE
         content
-            .onChange(of: before) { _, _ in PerfCounters.bump("extent.spacers") }
-            .onChange(of: after) { _, _ in PerfCounters.bump("extent.spacers") }
+            .onChange(of: before) { old, new in PerfCounters.bump("extent.spacers"); TranscriptJumpHooks.note("before \(Int(old))>\(Int(new))") }
+            .onChange(of: after) { old, new in PerfCounters.bump("extent.spacers"); TranscriptJumpHooks.note("after \(Int(old))>\(Int(new))") }
         #else
         content
         #endif

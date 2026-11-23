@@ -412,6 +412,7 @@ struct ConversationFeed: View {
             .onChange(of: keyboard.moves) { _, _ in keyboardWillMove(proxy: proxy) }
             .onChange(of: keyboard.landings) { _, _ in keyboardLanded(proxy: proxy) }
             .onChange(of: barHeight) { old, new in
+                TranscriptJumpHooks.note("bar \(Int(old))>\(Int(new))")
                 // The composer opening as it takes the keyboard moves on the keyboard's spring.
                 let motion: Animation = keyboardMoving ? AceDesign.Motion.keyboard(keyboard.duration) : .default
                 roomChanged(by: new - old, motion: reduceMotion ? nil : motion, proxy: proxy)
