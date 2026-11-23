@@ -13,17 +13,33 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 import { desktopAppMarker } from "./desktop-update.ts";
 import { daemonRuntimePath } from "./process-names.ts";
 
+/** One way to start the daemon: a program and its arguments. */
+export interface DaemonLaunch {
+  command: string;
+  args: string[];
+}
+
 /**
- * The runtime's arguments for the daemon: `--no-env-file`, then the absolute entry script, then
- * the daemon's words (`start`, `serve --json`). Bun 1.4.4 behaves differently when its executable
- * is not named `node` (ADR 0214): it loads `.env`, `.env.local` and `.env.<NODE_ENV>` from the
+ * The launches that start the daemon from `entry` with `words` (`start`, `serve --json`), most
+ * preferred first: the runtime under the daemon's name `named`, then the runtime itself.
+ *
+ * The named runtime is always ace's own Bun, which behaves differently when its executable is
+ * not named `node` (ADR 0214): it loads `.env`, `.env.local` and `.env.<NODE_ENV>` from the
  * working directory, which `ace open` inherits from wherever it was run, and reads a first bare
- * word as a command of its own (`install`, `run`, `test`). The flag turns the first off; an
- * absolute script first rules out the second. Both mean the same under the name `node`.
+ * word as a command of its own (`install`, `run`, `test`). So that launch passes
+ * `--no-env-file` and an absolute script first. The plain runtime keeps the arguments it always
+ * had: Node rejects `--no-env-file`, and Bun named `node` reads no `.env`.
  */
-export function daemonRuntimeArgs(entry: string, words: readonly string[]): string[] {
+export function daemonLaunches(
+  runtime: string,
+  named: string,
+  entry: string,
+  words: readonly string[],
+): DaemonLaunch[] {
+  const plain = { command: runtime, args: [entry, ...words] };
+  if (named === runtime) return [plain];
   if (!isAbsolute(entry)) throw new Error(`The daemon's entry script must be absolute: ${entry}`);
-  return ["--no-env-file", entry, ...words];
+  return [{ command: named, args: ["--no-env-file", entry, ...words] }, plain];
 }
 
 /**
@@ -47,15 +63,15 @@ export function startableDaemonRuntime(runtime: string, platform: NodeJS.Platfor
 }
 
 /**
- * Starts the daemon on the first of `commands` that can be spawned: the named runtime, then the
- * plain one. A spawn that fails (the file went missing or cannot run) has no pid at once.
+ * Starts the daemon with the first of `launches` that can be spawned: the named runtime, then
+ * the plain one. A spawn that fails (the file went missing or cannot run) has no pid at once.
  */
 export function spawnDaemonRuntime<
   Child extends { pid?: number | undefined; once(event: "error", listener: () => void): unknown },
->(commands: readonly string[], start: (command: string) => Child): Child {
-  const last = commands.length - 1;
-  for (const [index, command] of commands.entries()) {
-    const child = start(command);
+>(launches: readonly DaemonLaunch[], start: (launch: DaemonLaunch) => Child): Child {
+  const last = launches.length - 1;
+  for (const [index, launch] of launches.entries()) {
+    const child = start(launch);
     if (child.pid !== undefined || index === last) return child;
     // Its spawn error arrives later; this attempt is already given up.
     child.once("error", () => {});

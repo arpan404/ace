@@ -3,7 +3,12 @@ import { spawn } from "node:child_process";
 import { closeSync, existsSync } from "node:fs";
 import { DEFAULT_LOG_MAX_BYTES } from "@ace/diagnostics/log-policy";
 import { openLaunchLog } from "@ace/service/launch-log";
-import { bundledDaemonRuntime } from "@ace/service/process-names";
+import {
+  daemonLaunches,
+  spawnDaemonRuntime,
+  startableDaemonRuntime,
+  type DaemonLaunch,
+} from "@ace/service/daemon-program";
 import { dirname } from "node:path";
 import { DaemonHealth } from "@ace/protocol";
 import {
@@ -52,20 +57,30 @@ export function daemonProgram(
 }
 
 /**
- * The program the daemon itself runs on: the bundled runtime under the daemon's own name,
- * `ace Service` (`ace-service` on Linux), when this app ships that copy, so Activity Monitor
- * and Task Manager show ace's service rather than the runtime. One-shot commands and every
- * other script keep the runtime's plain name.
+ * How the daemon itself starts: on the bundled runtime under the daemon's own name, `ace Service`
+ * (`ace-service` on Linux), when this app ships a runnable copy, so Activity Monitor and Task
+ * Manager show ace's service rather than the runtime; on the plain runtime if that copy cannot
+ * be spawned. The named runtime reads no `.env` from anywhere (`daemonLaunches`). One-shot commands
+ * and every other script keep the runtime's plain name.
  */
-export function daemonServerProgram(
+export function daemonServerLaunch(
   resources: DaemonResources,
   execPath: string,
-  platform: NodeJS.Platform,
+  choose: (runtime: string) => string,
   exists: (path: string) => boolean = existsSync,
-): { command: string; env: NodeJS.ProcessEnv } {
+): { launches: DaemonLaunch[]; env: NodeJS.ProcessEnv } {
   const program = daemonProgram(resources, execPath, exists);
-  if (program.command !== resources.node) return program;
-  return { ...program, command: bundledDaemonRuntime(program.command, platform, exists) };
+  const words = ["start"];
+  // Electron as Node, in development only: neither the name nor Bun's flags apply.
+  if (program.command !== resources.node)
+    return {
+      launches: [{ command: program.command, args: [resources.entry, ...words] }],
+      env: program.env,
+    };
+  return {
+    launches: daemonLaunches(program.command, choose(program.command), resources.entry, words),
+    env: program.env,
+  };
 }
 
 export interface SpawnOptions {
@@ -154,17 +169,17 @@ export function daemonEnvironment(
  * is left to break under it when the app quits. Its records go to its own `logs/ace.jsonl`.
  */
 export function spawnDaemon(options: SpawnOptions): DaemonProcess {
-  const program = daemonServerProgram(
-    options.resources,
-    process.execPath,
-    options.platform ?? process.platform,
+  const platform = options.platform ?? process.platform;
+  const program = daemonServerLaunch(options.resources, process.execPath, (runtime) =>
+    startableDaemonRuntime(runtime, platform),
   );
-  const plain = { command: program.command, args: [options.resources.entry, "start"] };
-  const launch = options.prioritize ? options.prioritize(plain) : plain;
   const output = openLaunchLog(options.home, DEFAULT_LOG_MAX_BYTES);
   let child: ReturnType<typeof spawnDetached>;
   try {
-    child = spawnDetached(launch, options, program.env, output);
+    child = spawnDaemonRuntime(program.launches, (plain) => {
+      const launch = options.prioritize ? options.prioritize(plain) : plain;
+      return spawnDetached(launch, options, program.env, output);
+    });
   } finally {
     // The daemon has its own copy now.
     closeSync(output);

@@ -4,7 +4,7 @@ import { copyFileSync, linkSync, mkdirSync, mkdtempSync, rmSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
-import { daemonRuntimeArgs, spawnDaemonRuntime } from "./daemon-program.ts";
+import { daemonLaunches, spawnDaemonRuntime } from "./daemon-program.ts";
 import { shippedExecutableName } from "./process-names.ts";
 
 // Real edge: Bun reads `.env` files from the working directory, and treats a first bare word as
@@ -15,6 +15,13 @@ const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
+
+/** How the daemon starts on `named`: its first, preferred launch. */
+function namedLaunch(named: string, script: string, words: string[]) {
+  const [launch] = daemonLaunches(process.execPath, named, script, words);
+  if (!launch) throw new Error("no launch");
+  return launch;
+}
 
 /** The running runtime under the daemon's name, and a project folder with a `.env`. */
 function namedRuntime(): { named: string; project: string; script: string } {
@@ -50,7 +57,9 @@ test.runIf(onBun)(
   "the daemon under its own name reads no .env from the folder it is started in",
   async () => {
     const { named, project, script } = namedRuntime();
-    const seen = JSON.parse(await output(named, daemonRuntimeArgs(script, ["start"]), project));
+    const launch = namedLaunch(named, script, ["start"]);
+    expect(launch.command).toBe(named);
+    const seen = JSON.parse(await output(launch.command, launch.args, project));
     expect(seen).toEqual({ port: null, probe: null, args: ["start"] });
   },
 );
@@ -58,24 +67,44 @@ test.runIf(onBun)(
 test.runIf(onBun)("a daemon word is the script's argument, never a command of Bun's", async () => {
   const { named, project, script } = namedRuntime();
   for (const word of ["install", "run", "test"]) {
-    const seen = JSON.parse(await output(named, daemonRuntimeArgs(script, [word]), project));
+    const launch = namedLaunch(named, script, [word]);
+    const seen = JSON.parse(await output(launch.command, launch.args, project));
     expect(seen.args).toEqual([word]);
   }
 });
 
 test("a daemon launch takes only an absolute script, so Bun never reads it as a command", () => {
-  expect(() => daemonRuntimeArgs("ace.mjs", ["start"])).toThrow(/absolute/);
+  expect(() => daemonLaunches("/rt/node", "/rt/ace-service", "ace.mjs", ["start"])).toThrow(
+    /absolute/,
+  );
+});
+
+test("the plain runtime keeps the arguments it always had, which Node accepts too", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ace-daemon-plain-"));
+  roots.push(root);
+  const script = join(root, "probe.mjs");
+  writeFileSync(script, "process.stdout.write(process.argv.slice(2).join(' '))");
+  const launches = daemonLaunches(process.execPath, process.execPath, script, ["serve", "--json"]);
+  expect(launches).toHaveLength(1);
+  const [plain] = launches;
+  if (!plain) throw new Error("no launch");
+  expect(await output(plain.command, plain.args, root)).toBe("serve --json");
 });
 
 test("the daemon starts on the plain runtime when its named one cannot be spawned", async () => {
   const root = mkdtempSync(join(tmpdir(), "ace-daemon-fallback-"));
   roots.push(root);
   const missing = join(root, shippedExecutableName("daemon", process.platform));
+  const script = join(root, "probe.mjs");
+  writeFileSync(script, "process.stdout.write('started')");
   const tried: string[] = [];
-  const child = spawnDaemonRuntime([missing, process.execPath], (command) => {
-    tried.push(command);
-    return spawn(command, ["-e", "process.stdout.write('started')"], { stdio: "pipe" });
-  });
+  const child = spawnDaemonRuntime(
+    daemonLaunches(process.execPath, missing, script, []),
+    (launch) => {
+      tried.push(launch.command);
+      return spawn(launch.command, launch.args, { stdio: "pipe" });
+    },
+  );
   let text = "";
   child.stdout?.setEncoding("utf8").on("data", (chunk: string) => (text += chunk));
   const [code] = await once(child, "close");
