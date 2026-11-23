@@ -152,6 +152,16 @@ extension AceAccountAPI {
         guard Self.isOrgId(org), let segment = account.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else { throw .refused("invalid") }
         let _: Ignored = try await orgCall("orgs/\(org)/members/\(segment)", method: "DELETE", token: token)
     }
+    /// A five-minute market grant from the person's own session for one market request (`action`,
+    /// as the bridge's `registryIntent` names it), acting in `org` (ADR 0206 amendment 5).
+    func marketGrant(token: String, org: String, action: String, deviceId: String) async throws(AceOrgError) -> String {
+        guard Self.isOrgId(org) else { throw .refused("invalid") }
+        let fields = ["kind": "device", "subject": deviceId, "purpose": "market-publish", "org": org, "action": action]
+        let body = try? JSONEncoder().encode(fields)
+        let grant: AceGrant = try await orgCall("grants", method: "POST", token: token, body: body)
+        guard !grant.token.isEmpty, grant.token.utf8.count <= 4096 else { throw .refused("invalid") }
+        return grant.token
+    }
     /// `org_` and up to 64 letters or digits, as the backend names organizations.
     static func isOrgId(_ id: String) -> Bool {
         id.range(of: "^org_[A-Za-z0-9]{1,64}$", options: .regularExpression) != nil

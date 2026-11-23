@@ -142,6 +142,14 @@ enum OrgRefusal {
         catch { return .failure(PortalRefused(sentence: OrgRefusal.sentence(error))) }
     }
 
+    /// The person's grant for one registry request the bridge named, or the sentence for why not.
+    func marketGrant(action: String) async -> Result<String, PortalRefused> {
+        do {
+            let device = InstallIdentity.system.id()
+            return .success(try await api.marketGrant(token: token, org: org.id, action: action, deviceId: device))
+        } catch { return .failure(PortalRefused(sentence: OrgRefusal.sentence(error))) }
+    }
+
     private func change(_ run: @escaping () async throws(AceOrgError) -> Void, then reread: () async -> Void) async -> String? {
         guard !busy else { return nil }
         busy = true

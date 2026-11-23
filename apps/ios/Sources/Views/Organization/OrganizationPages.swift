@@ -85,7 +85,7 @@ struct OrganizationPageView: View {
             case .signIn: OrganizationSignInPage(admin: admin)
             case .hosts: OrganizationHostsPage(admin: admin)
             case .policy: OrganizationPolicyPage(admin: admin, inbox: inbox)
-            case .registry: OrganizationRegistryPage(admin: admin)
+            case .registry: OrganizationRegistryPage(admin: admin, inbox: inbox)
             case .audit: OrganizationAuditPage(admin: admin, inbox: inbox)
             }
         }
