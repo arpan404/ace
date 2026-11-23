@@ -445,8 +445,9 @@ async fn model_step(
     let prompt = context::prompt_with(&system, engine.offered_for(id), events, &images)
         .session(id)
         .effort(engine.step_effort(id));
-    // The person's asks close the prompt, after everything stored (ADR 0215 §2).
-    let prompt = match engine.limits.asks {
+    // The person's asks close the prompt, after everything stored (ADR 0215 §2). A helper has
+    // no person: it works from its one task.
+    let prompt = match engine.limits.asks && engine.helper_of(id).is_none() {
         true => spade_core::asks::block::appended(prompt, &engine.asks_of(id, events)),
         false => prompt,
     };

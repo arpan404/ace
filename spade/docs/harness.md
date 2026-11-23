@@ -71,7 +71,7 @@ builds with budgets and caps, are read as raw data and fold to nothing ([ADR 016
   with a short `<asks>` block rebuilt from the ledger: standing instructions, open asks newest
   first (at most 12, the rest counted), then new messages not yet sorted. It is never stored and
   comes after everything stored, so every earlier byte is what the previous call sent and the
-  provider's cached prefix holds. A `cli:` brain gets it at the end of each turn's message. The
+  provider's cached prefix holds. A `cli:` brain gets it at the end of each turn's message; a helper gets none. The
   ledger is folded from the latest compaction's copy and kept in memory per conversation, so a
   step reads only the events since the last one.
 - **The stop check:** when a step makes no calls and the ledger has an open ask (unsorted ones

@@ -82,7 +82,8 @@ the previous call sent: the provider's prefix cache (automatic on the OpenAI-for
 Spade uses; Spade sets no explicit breakpoints) still matches the system prompt, tools and whole
 conversation, and only the block itself, a few hundred tokens, is read fresh. A subscription
 brain (`cli:`, ADR 0133) gets the same block at the end of each turn's message, since its CLI
-keeps its own context.
+keeps its own context. A helper's calls (ADR 0152) get no block: a helper has no person, only
+its one task.
 
 Spade's standing instructions gain three sentences: sort each new message with `asks` (in the
 same step as other calls, so it costs no step), close asks with a reason, keep standing ones and
@@ -107,6 +108,9 @@ It never runs:
   later);
 - for a paused bot, a reply the person stopped, or Spade pausing for an update;
 - in a helper's conversation (ADR 0152), which has no person.
+
+The check reads the conversation's question cards to see whether one waits on the person; it
+does so once, when a reply would end with an unnamed open ask, never per step.
 
 **Cost.** At most one extra model step per reply, and only when the reply would leave an ask open
 that no check named before. A bot that sorts and closes asks as it works pays nothing beyond the
