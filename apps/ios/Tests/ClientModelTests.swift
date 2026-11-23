@@ -109,8 +109,13 @@ import Foundation
         #expect(model.standing == nil)
         model.receive(try frame([["type": "standing", "state": "missing"]]))
         #expect(model.standing == .missing)
-        model.receive(try frame([["type": "standing", "state": "proven"]]))
+        model.receive(try frame([["type": "standing", "state": "proven", "route": "relay"]]))
         #expect(model.standing == .proven)
+        #expect(model.standingRoute == .relay)
+        // A cleared verdict names no state and no route.
+        model.receive(try frame([["type": "standing"]]))
+        #expect(model.standing == nil)
+        #expect(model.standingRoute == nil)
     }
     @Test func corruptUpdatesLeaveTheLastVisibleFactsIntact() throws {
         let model = ClientModel(now: { 0 })
