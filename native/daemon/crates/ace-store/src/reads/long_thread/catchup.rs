@@ -39,29 +39,41 @@ pub(crate) fn counts(
 
 fn range_counts(conn: &Arc<Connection>, thread: &str, seq: i64) -> Result<Counters, LongError> {
     let mut current = counts(conn, thread, 0)?;
-    for key in current.keys().cloned().collect::<Vec<_>>() {
-        let previous = get_row(
+    let keys: Vec<String> = current.keys().cloned().collect();
+    if !keys.is_empty() {
+        let list = serde_json::to_string(&keys).map_err(|error| invalid(&error.to_string()))?;
+        let prev_rows = all_rows(
             conn,
-            "SELECT value FROM long_prefix WHERE thread_id=? AND key=? AND seq<=? ORDER BY seq DESC LIMIT 1",
+            "SELECT j.value AS key,(SELECT value FROM long_prefix WHERE thread_id=? AND key=j.value AND seq<=? ORDER BY seq DESC LIMIT 1) AS value FROM json_each(?) j",
             vec![
                 Value::Text(thread.to_owned()),
-                Value::Text(key.clone()),
                 Value::Integer(seq),
+                Value::Text(list),
             ],
         )?;
-        let prev = match previous.as_ref().and_then(|row| row.get("value")) {
-            None | Some(Value::Null) => 0,
-            Some(Value::Integer(n)) => *n,
-            Some(Value::Real(n)) => *n as i64,
-            Some(_) => return Err(invalid("invalid index row")),
-        };
-        let value = current
-            .get(&key)
-            .copied()
-            .unwrap_or(0)
-            .saturating_sub(prev)
-            .max(0);
-        current.insert(key, value);
+        let mut prev_map = std::collections::BTreeMap::new();
+        for row in prev_rows {
+            let key = match row.get("key") {
+                Some(Value::Text(text)) => text.clone(),
+                _ => continue,
+            };
+            let value = match row.get("value") {
+                Some(Value::Integer(n)) => *n,
+                Some(Value::Real(n)) => *n as i64,
+                _ => 0,
+            };
+            prev_map.insert(key, value);
+        }
+        for key in keys {
+            let prev = prev_map.get(&key).copied().unwrap_or(0);
+            let value = current
+                .get(&key)
+                .copied()
+                .unwrap_or(0)
+                .saturating_sub(prev)
+                .max(0);
+            current.insert(key, value);
+        }
     }
     Ok(current)
 }
@@ -183,13 +195,15 @@ pub(crate) fn read_since_seq(
         let list = serde_json::to_string(&paths).map_err(|error| invalid(&error.to_string()))?;
         let prev_rows = all_rows(
             conn,
-            "SELECT p.path,p.added,p.removed,p.unknown FROM long_file_prefix p WHERE p.thread_id=? AND p.seq<=? AND p.path IN (SELECT value FROM json_each(?)) AND p.seq=(SELECT MAX(seq) FROM long_file_prefix WHERE thread_id=? AND path=p.path AND seq<=?)",
+            "SELECT j.value AS path,(SELECT added FROM long_file_prefix WHERE thread_id=? AND path=j.value AND seq<=? ORDER BY seq DESC LIMIT 1) AS added,(SELECT removed FROM long_file_prefix WHERE thread_id=? AND path=j.value AND seq<=? ORDER BY seq DESC LIMIT 1) AS removed,(SELECT unknown FROM long_file_prefix WHERE thread_id=? AND path=j.value AND seq<=? ORDER BY seq DESC LIMIT 1) AS unknown FROM json_each(?) j",
             vec![
                 Value::Text(thread.to_owned()),
                 Value::Integer(since),
-                Value::Text(list),
                 Value::Text(thread.to_owned()),
                 Value::Integer(since),
+                Value::Text(thread.to_owned()),
+                Value::Integer(since),
+                Value::Text(list),
             ],
         )?;
         let mut map = std::collections::BTreeMap::new();

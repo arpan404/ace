@@ -178,15 +178,16 @@ pub fn thread_catch_up(
     .ok_or_else(|| invalid("thread_not_found"))?;
     let thread_status_text = as_text(row_value(&thread_row, "status")?)?;
     let thread_status = parse_thread_status(thread_status_text)?;
-    let mut latest = String::new();
-    let mut latest_seq = -1i64;
-    for id in family {
-        let row = get_row(
-            conn,
-            "SELECT preview,created_seq FROM long_items WHERE thread_id=? AND role='assistant' ORDER BY created_seq DESC LIMIT 1",
-            vec![Value::Text(id.clone())],
-        )?;
-        if let Some(row) = row {
+    let family_json =
+        serde_json::to_string(&family).map_err(|error| invalid(&error.to_string()))?;
+    let latest_row = get_row(
+        conn,
+        "SELECT preview,created_seq FROM long_items WHERE thread_id IN (SELECT value FROM json_each(?)) AND role='assistant' ORDER BY created_seq DESC LIMIT 1",
+        vec![Value::Text(family_json)],
+    )?;
+    let (latest, _latest_seq) = match latest_row {
+        None => (String::new(), -1),
+        Some(row) => {
             let preview = match row_value(&row, "preview")? {
                 Value::Text(text) => text.clone(),
                 _ => return Err(invalid("invalid index row")),
@@ -196,12 +197,9 @@ pub fn thread_catch_up(
                 Value::Real(n) => *n as i64,
                 _ => return Err(invalid("invalid index row")),
             };
-            if seq > latest_seq {
-                latest_seq = seq;
-                latest = preview;
-            }
+            (preview, seq)
         }
-    }
+    };
     as_preview(&Value::Text(latest.clone()))?;
     let mut digests = Vec::new();
     for id in family {
