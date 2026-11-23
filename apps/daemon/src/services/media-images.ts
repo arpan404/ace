@@ -93,12 +93,27 @@ function spawnImageWorker(env: NodeJS.ProcessEnv) {
   };
 }
 
+/** Image work made where the `media` service never ran, by the daemon's config (one per daemon). */
 const started = new WeakMap<object, ImageWork>();
 
-/** The daemon's image work, made once per daemon. */
+/**
+ * The daemon's image work, as the `media` service published it: one `ace-media --images` for
+ * every service, so its memory, queue and crash limits hold daemon-wide.
+ */
 export function daemonImages(context: ServiceContext): ImageWork {
-  const known = started.get(context.services);
+  const shared = context.services.images;
+  if (shared) return shared;
+  const known = started.get(context.config);
   if (known) return known;
+  const images = makeDaemonImages(context);
+  started.set(context.config, images);
+  return images;
+}
+
+/** Makes the daemon's image work, owned by `context`'s resources; its process starts lazily. */
+export function makeDaemonImages(
+  context: Pick<ServiceContext, "config" | "id" | "log" | "resources">,
+): ImageWork {
   const images = createDaemonImages({
     binary: findMediaBinary(),
     root: context.config.dataDir,
@@ -111,6 +126,5 @@ export function daemonImages(context: ServiceContext): ImageWork {
     log: (level, message, fields) => context.log.log(level, `ace-media images: ${message}`, fields),
   });
   context.resources.own(() => images.dispose());
-  started.set(context.services, images);
   return images;
 }

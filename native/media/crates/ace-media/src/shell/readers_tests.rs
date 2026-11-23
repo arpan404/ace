@@ -3,54 +3,154 @@ use super::*;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 
-/// A serve-sim that answers the first request with a head and half a record, then stalls with
-/// the connection open.
-fn stalling_serve_sim() -> (u16, std::thread::JoinHandle<()>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap_or_else(|e| panic!("bind: {e}"));
-    let port = listener.local_addr().map(|a| a.port()).unwrap_or_default();
-    let thread = std::thread::spawn(move || {
-        let Ok((mut socket, _)) = listener.accept() else {
-            return;
-        };
+/// Short timings, so a test sees replacements and the give-up in well under a second.
+const QUICK: Timings = Timings {
+    first_key: Duration::from_millis(200),
+    key: Duration::from_millis(400),
+    give_up: Duration::from_millis(900),
+};
+
+/// VideoToolbox's avcC for the H.264 vector media-mp4 checks against.
+fn avcc() -> Vec<u8> {
+    let fixture = include_bytes!("../../../media-mp4/tests/vectors/h264.bin");
+    let n = u32::from_be_bytes([fixture[0], fixture[1], fixture[2], fixture[3]]) as usize;
+    fixture[4..4 + n].to_vec()
+}
+
+fn record(tag: u8, body: &[u8]) -> Vec<u8> {
+    let mut out = ((body.len() + 1) as u32).to_be_bytes().to_vec();
+    out.push(tag);
+    out.extend_from_slice(body);
+    out
+}
+
+/// One access unit of one NAL unit with a 4-byte length.
+fn unit(first: u8) -> Vec<u8> {
+    let nal = [first, 0x88, 0x84];
+    let mut out = (nal.len() as u32).to_be_bytes().to_vec();
+    out.extend_from_slice(&nal);
+    out
+}
+
+/// A serve-sim stream: its head after `delay`, then a description, an IDR and a delta.
+fn picture(delay: Duration) -> impl Fn(&mut std::net::TcpStream) + Send + Sync + 'static {
+    move |socket| {
         let mut request = [0u8; 1024];
         let _ = socket.read(&mut request);
-        let mut half =
-            b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\r\n".to_vec();
-        half.extend_from_slice(&100u32.to_be_bytes());
-        half.extend_from_slice(&[1, 0x01, 0x64, 0x00]);
-        let _ = socket.write_all(&half);
-        // Held open: the reader's read never returns on its own.
-        std::thread::sleep(Duration::from_secs(6));
+        std::thread::sleep(delay);
+        let mut out = b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\r\n".to_vec();
+        out.extend(record(1, &avcc()));
+        out.extend(record(2, &unit(0x65)));
+        out.extend(record(3, &unit(0x41)));
+        let _ = socket.write_all(&out);
+    }
+}
+
+/// A serve-sim that answers every connection with `answer`, then ends that stream.
+fn serve_sim(
+    answer: impl Fn(&mut std::net::TcpStream) + Send + Sync + 'static,
+) -> (u16, Arc<AtomicUsize>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap_or_else(|e| panic!("bind: {e}"));
+    let port = listener.local_addr().map(|a| a.port()).unwrap_or_default();
+    let accepted = Arc::new(AtomicUsize::new(0));
+    let counted = accepted.clone();
+    let answer = Arc::new(answer);
+    std::thread::spawn(move || {
+        for socket in listener.incoming() {
+            let Ok(mut socket) = socket else { return };
+            counted.fetch_add(1, Ordering::AcqRel);
+            let answer = answer.clone();
+            std::thread::spawn(move || answer(&mut socket));
+        }
     });
-    (port, thread)
+    (port, accepted)
+}
+
+/// What the reader of `port` sends within `within`: its keyframes, and its failure if any.
+fn read_for(port: u16, within: Duration) -> (usize, Option<String>) {
+    let (outputs, mut received) = mpsc::channel(64);
+    let mut readers = Readers::with_timings(outputs, QUICK);
+    readers.open("sim", 1, &format!("http://127.0.0.1:{port}/stream.avcc"));
+    let opened = Instant::now();
+    let mut keys = 0;
+    while opened.elapsed() < within {
+        match received.try_recv() {
+            Ok((_, _, Output::Unit(frame))) if frame.flags & 1 != 0 => keys += 1,
+            Ok((_, _, Output::Failed(reason))) => return (keys, Some(reason)),
+            Ok(_) => {}
+            Err(_) => std::thread::sleep(Duration::from_millis(5)),
+        }
+    }
+    readers.close(1, 0);
+    (keys, None)
 }
 
 #[test]
-fn a_serve_sim_that_stalls_before_its_first_keyframe_fails_the_source_in_time_for_the_fallback() {
-    let (port, _server) = stalling_serve_sim();
-    let (outputs, mut received) = mpsc::channel(16);
-    let mut readers = Readers::new(outputs);
-    let opened = Instant::now();
-    readers.open("sim", 1, &format!("http://127.0.0.1:{port}/stream.avcc"));
-    let failed = loop {
-        match received.try_recv() {
-            Ok((source, token, Output::Failed(reason))) => break Some((source, token, reason)),
-            Ok(_) => {}
-            Err(_) if opened.elapsed() > Duration::from_secs(4) => break None,
-            Err(_) => std::thread::sleep(Duration::from_millis(10)),
+fn a_serve_sim_stream_that_ends_is_read_again_and_the_picture_carries_on_at_its_next_keyframe() {
+    let (port, _) = serve_sim(picture(Duration::ZERO));
+    let (keys, failed) = read_for(port, Duration::from_millis(1_500));
+    assert_eq!(failed, None);
+    assert!(
+        keys >= 3,
+        "only {keys} keyframes: the stream wasn't read again"
+    );
+}
+
+#[test]
+fn a_serve_sim_slow_to_send_its_first_keyframe_is_asked_again_rather_than_given_up() {
+    // Each stream answers past the first-keyframe deadline once; later ones answer at once.
+    let slow = Arc::new(AtomicUsize::new(0));
+    let answer = picture(Duration::ZERO);
+    let (port, _) = serve_sim(move |socket| {
+        if slow.fetch_add(1, Ordering::AcqRel) == 0 {
+            let mut request = [0u8; 1024];
+            let _ = socket.read(&mut request);
+            std::thread::sleep(Duration::from_millis(600));
+            return;
         }
-    };
-    let Some((source, token, reason)) = failed else {
+        answer(socket);
+    });
+    let (keys, failed) = read_for(port, Duration::from_millis(800));
+    assert_eq!(failed, None);
+    assert!(keys >= 1, "no picture after a slow first stream");
+}
+
+#[test]
+fn a_serve_sim_that_never_sends_a_keyframe_fails_the_source_once_its_give_up_passes() {
+    let (port, accepted) = serve_sim(|socket| {
+        let mut request = [0u8; 1024];
+        let _ = socket.read(&mut request);
+        let _ = socket.write_all(b"HTTP/1.1 200 OK\r\n\r\n");
+        std::thread::sleep(Duration::from_secs(3));
+    });
+    let opened = Instant::now();
+    let (keys, failed) = read_for(port, Duration::from_secs(3));
+    let Some(reason) = failed else {
         panic!("the reader never gave up on a serve-sim that sent no keyframe");
     };
-    assert_eq!((source.as_str(), token), ("sim", 1));
+    assert_eq!(keys, 0);
     assert!(reason.contains("keyframe"), "{reason}");
-    // Soon enough that the daemon's own reader is back within the 2 s fallback.
+    assert!(opened.elapsed() >= QUICK.give_up, "{:?}", opened.elapsed());
     assert!(
-        opened.elapsed() < Duration::from_millis(1_900),
+        opened.elapsed() < Duration::from_secs(2),
         "{:?}",
         opened.elapsed()
     );
+    // Streams that sent nothing were replaced while it waited.
+    assert!(accepted.load(Ordering::Acquire) >= 2);
+}
+
+#[test]
+fn a_serve_sim_that_is_not_listening_fails_the_source_as_unreachable_once_its_give_up_passes() {
+    let port = {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap_or_else(|e| panic!("bind: {e}"));
+        listener.local_addr().map(|a| a.port()).unwrap_or_default()
+    };
+    let (_, failed) = read_for(port, Duration::from_secs(3));
+    let Some(reason) = failed else {
+        panic!("the reader never gave up on a serve-sim that isn't there");
+    };
+    assert!(reason.contains("unreachable"), "{reason}");
 }
 
 #[test]
