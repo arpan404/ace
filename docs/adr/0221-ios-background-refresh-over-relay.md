@@ -23,7 +23,8 @@ can drop between the request, the response and the receipt.
   it authenticates the payload, records the push's ID for deduplication and follows up over
   the remembered daemon route. BGAppRefresh and push wakes share a bounded refresh. A cold
   wake can read the feed while iOS is still returning the push token, preserving the address
-  already registered with the daemon.
+  already registered with the daemon. The authenticated welcome links the daemon ID in the
+  push to the phone's directory entry. A relay-only machine can have a different directory ID.
 - The phone sends its saved cursor with every feed read. The bridge holds one page until the
   native ledger applies it and saves the cursor. If the socket drops before application,
   the kept cursor and IDs determine what to retry. The ledger saves each landed alert ID so a

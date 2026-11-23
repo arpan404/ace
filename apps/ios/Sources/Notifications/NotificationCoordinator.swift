@@ -32,6 +32,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
         static let muted = "ace.notifications.mutedMachines"
         static let liveActivity = "ace.lockScreen.liveActivity"
         static let bridgePosted = "ace.notifications.bridgePosted"
+        static let pushHosts = "ace.notifications.pushHosts"
     }
     /// The bridge notifications remembered per machine, newest last; older ones have long gone.
     static let bridgePostedLimit = 256
@@ -94,6 +95,8 @@ struct SystemAuthorizer: NotificationAuthorizer {
     @ObservationIgnored var machineName: (String) -> String? = { _ in nil }
     /// This phone's push address (ADR 0106), once iOS gave a token; every machine's sync carries it.
     @ObservationIgnored var push: PushRegistration?
+    /// Encrypted pushes name the daemon even when the directory keys it by its relay id.
+    @ObservationIgnored private var pushHosts: [String: String]
     /// Asks iOS for a push token (`registerForRemoteNotifications`); the app delegate sets it.
     @ObservationIgnored var requestPushToken: @MainActor () -> Void = {}
 
@@ -113,9 +116,11 @@ struct SystemAuthorizer: NotificationAuthorizer {
         phone = PhoneNotificationPrefs.load(defaults)
         liveActivity = defaults.object(forKey: Keys.liveActivity) as? Bool ?? true
         bridgePosted = defaults.dictionary(forKey: Keys.bridgePosted) as? [String: [String]] ?? [:]
+        pushHosts = defaults.dictionary(forKey: Keys.pushHosts) as? [String: String] ?? [:]
         self.lockScreen = LockScreenHub(edges: lockScreenEdges ?? .inert, now: { Date(timeIntervalSince1970: now() / 1000) }, sleep: sleep)
         self.lockScreen.allowed = liveActivity
         self.lockScreen.read = { [weak self] in self?.lockScreenInput() ?? ([], [:]) }
+        desk.pushHost = { [weak self] host in self?.pushHosts[host] }
         LockScreenActions.handler = { [weak self] request, allow in await self?.answer(request, allow: allow) }
     }
 
@@ -180,8 +185,21 @@ struct SystemAuthorizer: NotificationAuthorizer {
         lockScreen.rebuild()
     }
     func client(_ hostId: String?) -> ClientModel? {
-        guard let hostId else { return model }
+        guard let hostId = localNotificationHost(hostId) else { return model }
         return machines.first { $0.hostId == hostId }?.model
+    }
+    func localNotificationHost(_ hostId: String?) -> String? {
+        guard let hostId, !machines.contains(where: { $0.hostId == hostId }) else { return hostId }
+        let aliases = pushHosts.keys.filter { pushHosts[$0] == hostId }
+        let attached = machines.filter { pushHosts[$0.hostId] == hostId }
+        if attached.count == 1 { return attached.first?.hostId }
+        return aliases.count == 1 ? aliases.first : hostId
+    }
+    private func rememberPushHost(_ daemonHostId: String, for hostId: String) {
+        let alias = daemonHostId == hostId ? nil : daemonHostId
+        guard pushHosts[hostId] != alias else { return }
+        pushHosts[hostId] = alias
+        defaults.set(pushHosts, forKey: Keys.pushHosts)
     }
     /// Patches from the machine with no host (tests, older callers) go to the first machine.
     func receive(_ patch: NotificationPatch) { receive(patch, from: machines.first?.hostId ?? "") }
@@ -224,11 +242,16 @@ struct SystemAuthorizer: NotificationAuthorizer {
                 }
             }
         case .feedComplete: completeFeed(hostId)
-        case .connected:
+        case .connected(let daemonHostId):
             if let entry {
+                if let daemonHostId { rememberPushHost(daemonHostId, for: hostId) }
                 entry.notifier.connected()
                 sync(entry.model, ledger: entry.notifier, hostId: entry.hostId)
                 connectedForAccess(entry.model, hostId: entry.hostId)
+                if let link = pendingLink, localNotificationHost(link.hostId) == hostId {
+                    entry.model.deepLink = link.threadId
+                    pendingLink = nil
+                }
             }
         case .config(let preferences): preferencesByMachine[hostId] = preferences
         case .action(let id, let outcome):

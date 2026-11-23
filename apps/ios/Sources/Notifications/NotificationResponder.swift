@@ -44,7 +44,7 @@ extension NotificationCoordinator {
             return
         }
         let outcome = await perform(answer, threadId: threadId, hostId: hostId)
-        await report(outcome, for: answer, notificationId: notificationId, threadId: threadId, hostId: hostId)
+        await report(outcome, for: answer, notificationId: notificationId, threadId: threadId, hostId: localNotificationHost(hostId))
         await releaseTransient()
     }
     /// Sends one answer through the machine's bridge and waits for what became of it.
@@ -134,14 +134,18 @@ extension NotificationCoordinator {
     /// Only the authenticated machine named by the alert can answer it.
     func session(_ hostId: String? = nil, budget: Duration) async -> ClientModel? {
         await openTransient()
-        guard let current = client(hostId) else { return nil }
-        current.wake()
+        guard !machines.isEmpty else { return nil }
         var waited = Duration.zero
-        while !Task.isCancelled, current.connection != "ready", waited < budget {
+        var woken: ClientModel?
+        while !Task.isCancelled, waited < budget {
+            if let current = client(hostId) {
+                if current.connection == "ready" { return current }
+                if current !== woken { current.wake(); woken = current }
+            }
             await sleep(.milliseconds(100))
             waited += .milliseconds(100)
         }
-        return current.connection == "ready" ? current : nil
+        return nil
     }
     /// Opens short-lived connections to every paired machine when none is attached, once however
     /// many callers ask at the same time.
@@ -188,6 +192,7 @@ extension NotificationCoordinator {
     /// While the user looks at a thread, its own alerts stay out of the way; an alert whose
     /// banner is off (Settings › Notifications) goes to the list without showing over the app.
     func presentation(for threadId: String?, hostId: String? = nil, banner: Bool = true) -> UNNotificationPresentationOptions {
+        let hostId = localNotificationHost(hostId)
         // A machine turned off on this phone shows nothing, even a notification already on its way.
         if let hostId, MachinesModel.turnedOff(in: defaults).contains(hostId) { return [] }
         if foreground, let threadId, machines.contains(where: { ($0.hostId == hostId || hostId == nil) && $0.model.thread?.id == threadId }) { return [] }

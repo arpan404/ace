@@ -409,6 +409,46 @@ import Testing
         #expect(center.posted.allSatisfy { $0.level == .passive })
     }
 
+    @Test func aRelayFeedReplacesTheDaemonsPushWithoutAnotherInterruption() async throws {
+        let store = try defaults()
+        let center = FakeCenter()
+        let pushed = PushedAlerts(defaults: store)
+        func coordinator() -> NotificationCoordinator {
+            NotificationCoordinator(center: center, authorizer: FakeAuthorizer(), defaults: store, now: { 0 },
+                                    connectInBackground: { _ in [] }, pushed: pushed)
+        }
+        let relay = try target("relay")
+        let before = coordinator()
+        await before.attach(ClientModel(now: { 0 }), target: relay)
+        before.receive(.connected(daemonHostId: "studio"), from: "relay")
+
+        let notice = alert("n:1", status: "needs_you")
+        center.push(notice, hostId: "studio", apnsId: "apns-1", pushed: pushed)
+        let after = coordinator()
+        await after.setEnabled(true)
+        let phone = ClientModel(now: { 0 })
+        await after.attach(phone, target: relay)
+        #expect(after.client("studio") === phone)
+        after.receive(.feed(cursor: 1, entries: [notice], retracted: []), from: "relay")
+        try await until("the relay feed replaced the push") { center.posted.count == 1 }
+        #expect(center.posted.first?.level == .passive)
+        #expect(center.delivered.count == 1)
+        #expect(center.delivered["apns-1"] == nil)
+    }
+
+    @Test func aFeedDoesNotPostTheAlertWhosePushWokeTheApp() async throws {
+        let center = FakeCenter()
+        let desk = AlertDesk(center: center, now: { 0 })
+        desk.pushHost = { _ in "studio" }
+        let notifier = LocalNotifier(center: center, hostId: "relay", desk: desk)
+        notifier.bind(LedgerStore(scope: "relay", defaults: try defaults()))
+        let notice = alert("n:1", status: "needs_you")
+        desk.recordWakePush(AlertContent.requestId(notice.id, hostId: "studio"))
+        await notifier.catchUp(cursor: 1, entries: [notice], retracted: [])
+        #expect(center.posted.isEmpty)
+        #expect(notifier.ledger.cursor == 1)
+    }
+
     @Test func anOlderAlertThatWasNeverPushedLeavesTheNewerPushedOneShown() async throws {
         let center = FakeCenter()
         let pushed = PushedAlerts(defaults: try defaults())

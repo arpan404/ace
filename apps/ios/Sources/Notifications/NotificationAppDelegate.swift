@@ -54,7 +54,7 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
         }
         // UIKit can wake the app before the extension finishes. The same alert should never
         // interrupt twice even if the feed reaches the app first.
-        PushedAlerts.appGroup.record(push.pushedId)
+        coordinator.desk.recordWakePush(push.pushedId)
         coordinator.scene(active: false)
         Task { @MainActor in
             let caught = await coordinator.backgroundCatchUp()

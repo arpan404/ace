@@ -74,13 +74,26 @@ final class SystemNotificationCenter: NotificationCenterPort {
     /// Landings whose post is queued or out, by serial, with the notifier that asked for each.
     private var landing: [Int: (owner: ObjectIdentifier, threadId: String, hostId: String?)] = [:]
     private var landings = 0
+    var pushHost: (String) -> String? = { _ in nil }
+    private var wakePushes: [String] = []
     init(center: any NotificationCenterPort, defaults: UserDefaults? = nil, now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 },
          pushed: PushedAlerts = PushedAlerts(defaults: nil)) {
         self.center = center; self.defaults = defaults; self.now = now; self.pushed = pushed
         stack = defaults.map(AlertStack.load) ?? AlertStack()
     }
+    /// The app and extension can be woken in either order for this push.
+    func recordWakePush(_ id: String) {
+        pushed.record(id)
+        wakePushes.removeAll { $0 == id }
+        wakePushes.append(id)
+        if wakePushes.count > PushedAlerts.capacity { wakePushes.removeFirst() }
+    }
     /// Lands an alert; `owner`'s landings still queued or out can be cancelled (`cancel`).
     func land(_ alert: AlertNotification, hostId: String?, owner: ObjectIdentifier? = nil) async {
+        let daemon = hostId.flatMap(pushHost)
+        let pushId = AlertContent.requestId(alert.id, hostId: daemon ?? hostId)
+        // The extension owns the banner for the push that started this fetch.
+        guard !wakePushes.contains(pushId) else { return }
         let landed = stack.land(AlertContent(alert, hostId: hostId), alert: alert, now: now())
         save()
         withdraw(landed.withdraw)
@@ -92,8 +105,9 @@ final class SystemNotificationCenter: NotificationCenterPort {
             // lands a thread's alerts oldest first, so the newest is what stays, without working
             // out which push came when.
             center.withdrawPushed(standingFor: thread)
+            if let daemon { center.withdrawPushed(standingFor: AlertStack.thread(alert.threadId, hostId: daemon)) }
             // Already seen from a push: in its place again, but without a second sound or banner.
-            if pushed.contains(AlertContent.requestId(alert.id, hostId: hostId)) { content = content.quieted }
+            if pushed.contains(pushId) { content = content.quieted }
         }
         landings += 1
         let serial = landings
@@ -114,10 +128,12 @@ final class SystemNotificationCenter: NotificationCenterPort {
     func retract(_ alertIds: [String], hostId: String?) {
         guard !alertIds.isEmpty else { return }
         let before = stack
+        let daemon = hostId.flatMap(pushHost)
         var landings: [AlertStack.Landing] = []
         for id in alertIds {
             var landing = stack.retract(id, hostId: hostId)
             landing.withdraw += AlertContent.requestIds(retracting: id, hostId: hostId)
+            if let daemon { landing.withdraw += AlertContent.requestIds(retracting: id, hostId: daemon) }
             landings.append(landing)
         }
         apply(landings, since: before)
@@ -130,6 +146,7 @@ final class SystemNotificationCenter: NotificationCenterPort {
     /// The thread was opened, or its request is answered or gone.
     func clear(threadId: String, hostId: String?) {
         let before = stack
+        center.withdrawPushed(standingFor: AlertStack.thread(threadId, hostId: hostId.flatMap(pushHost) ?? hostId))
         apply([stack.clear(threadId: threadId, hostId: hostId)], since: before)
     }
     /// Every change to the stack is kept, folded finishes included, and the summary follows

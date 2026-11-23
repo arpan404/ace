@@ -82,10 +82,10 @@ enum NotificationPatch: Decodable, Sendable, Equatable {
     case config(NotificationPreferences)
     case action(id: String, outcome: ActionOutcome)
     /// A connection opened; the coordinator answers with its current state (`notifications.sync`).
-    case connected
+    case connected(daemonHostId: String?)
 
     enum ActionOutcome: String, Codable, Sendable { case stale, unreachable, unsaved, saved, confirmed, refused }
-    private enum Keys: String, CodingKey { case type, notification, cursor, entries, retracted, preferences, id, outcome, feedId }
+    private enum Keys: String, CodingKey { case type, notification, cursor, entries, retracted, preferences, id, outcome, feedId, daemonHostId }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         switch try box.decode(String.self, forKey: .type) {
@@ -98,7 +98,7 @@ enum NotificationPatch: Decodable, Sendable, Equatable {
                          retracted: try box.decode([String].self, forKey: .retracted),
                          feedId: try box.decodeIfPresent(Int.self, forKey: .feedId))
         case "notifications.feedComplete": self = .feedComplete
-        case "notifications.connected": self = .connected
+        case "notifications.connected": self = .connected(daemonHostId: try box.decodeIfPresent(String.self, forKey: .daemonHostId))
         case "notifications.config": self = .config(try box.decode(NotificationPreferences.self, forKey: .preferences))
         case "notifications.action":
             self = .action(id: try box.decode(String.self, forKey: .id), outcome: try box.decode(ActionOutcome.self, forKey: .outcome))

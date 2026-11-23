@@ -216,6 +216,7 @@ it("an action for an option the approval doesn't offer sends nothing", async () 
 it("reconnects from the last cursor Swift applied while a new feed is still outstanding", async () => {
   let hold = false;
   const { daemon, act, sync, of, settle } = await phone(undefined, undefined, () => !hold);
+  expect(of("notifications.connected")[0]).toMatchObject({ daemonHostId: daemon.hostId });
   sync(true);
   await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(1));
   hold = true;

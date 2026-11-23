@@ -131,6 +131,7 @@ export class NotificationBridge {
    */
   #pushRefused = false;
   #connection = 0;
+  #daemonHostId: string | undefined;
   /** Live alerts handed to Swift on this connection and not yet acknowledged. */
   #handedOver = new Set<string>();
   /** Register/unregister/catch-up run one at a time, each against the latest on/off state. */
@@ -209,6 +210,7 @@ export class NotificationBridge {
         }
       }),
       client.onMessage((message) => {
+        if (message.type === "welcome") this.#daemonHostId = message.hostId;
         if (message.type !== "notification") return;
         // Before Swift syncs nothing is known: no ack, so the daemon pushes, and catch-up
         // posts it here later unless the push already showed it (`PushedAlerts`).
@@ -331,7 +333,8 @@ export class NotificationBridge {
     this.#watchRuns();
     this.#presence();
     // Native state (on/off, app state, cursor) may postdate this runtime; ask for it again.
-    this.#put("notifications:connected", () => ({ type: "notifications.connected" }));
+    const daemonHostId = this.#daemonHostId;
+    this.#put("notifications:connected", () => ({ type: "notifications.connected", daemonHostId }));
     await this.#follow();
   }
   #follow(): Promise<void> {
