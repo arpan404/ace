@@ -252,6 +252,17 @@ pub async fn world_with_options(
     world_with(options, false, sandboxed, Vec::new(), scripts).await
 }
 
+/// [`world_with_options`], its commands run in the bot's terminal (as Spade runs them on macOS)
+/// when `terminal`.
+pub async fn world_in_with_options(
+    options: super::Options,
+    terminal: bool,
+    sandboxed: bool,
+    scripts: impl FnOnce(&Places) -> Vec<Script>,
+) -> Result<World> {
+    world_with(options, terminal, sandboxed, Vec::new(), scripts).await
+}
+
 async fn world_with(
     options: super::Options,
     terminal: bool,

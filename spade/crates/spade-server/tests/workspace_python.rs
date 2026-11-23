@@ -15,7 +15,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use spade_server::workspace::python::Setup;
 use spade_testkit::Script;
-use support::sandbox::{World, world_with_options};
+use support::sandbox::{World, world_in_with_options, world_with_options};
 use support::{Options, Result};
 
 /// Where the tests look for Python: the system folders, no download, nothing to install (the
@@ -59,11 +59,17 @@ fn python_here() -> bool {
 }
 
 async fn world(scripts: Vec<Script>, options: Options) -> Result<Option<World>> {
+    world_in(false, scripts, options).await
+}
+
+/// A sandboxed world whose commands run in the bot's terminal when `terminal`; `None` (after
+/// saying why) when the sandbox isn't available.
+async fn world_in(terminal: bool, scripts: Vec<Script>, options: Options) -> Result<Option<World>> {
     let options = Options {
         python: Some(options.python.clone().unwrap_or_else(setup)),
         ..options
     };
-    let world = world_with_options(options, true, |_| scripts).await?;
+    let world = world_in_with_options(options, terminal, true, |_| scripts).await?;
     if !world.security.contains() {
         eprintln!("skipped: the sandbox isn't available here");
         return Ok(None);
@@ -148,6 +154,42 @@ async fn a_script_that_writes_a_csv_and_a_png_names_both_and_attaches_the_png() 
         .find(|e| e["type"] == "command_ran" && e["call_id"] == "p1")
         .ok_or("no command_ran")?;
     assert_eq!(ran_where["contained"], true, "{ran_where}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn in_the_bots_terminal_a_script_runs_and_names_its_files_as_in_the_one_shot_shell() -> Result
+{
+    if !python_here() {
+        return Ok(());
+    }
+    let Some(world) = world_in(
+        true,
+        vec![
+            Script::reply("").call("p1", "python", json!({ "code": CHART })),
+            Script::reply("Seven fruit."),
+        ],
+        Options::default(),
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+    std::fs::create_dir_all(world.workspaces.of(&world.bot)?.path()?.join("out"))?;
+    world
+        .spade
+        .say(&world.conversation, "Count the fruit")
+        .await?;
+    let events = world
+        .spade
+        .wait_for(&world.conversation, "reply_finished")
+        .await?;
+    let ran = finished(&events, "p1")?;
+    let text = content(&events, "p1")?;
+    assert_eq!(ran["is_error"], false, "{ran}");
+    assert!(text.contains("total 7"), "{text}");
+    assert!(text.contains("out/fruit.csv (new, 32 bytes)"), "{text}");
+    assert_eq!(ran["images"][0]["media_type"], "image/png", "{ran}");
     Ok(())
 }
 
