@@ -26,8 +26,9 @@ after inserting older rows above it.
    still speaks in chronological screen coordinates. Use chronological accessibility priority
    for message rows.
 2. **Allow proven older appends during motion.** Wait for the page fence and the read reply.
-   Keep the surviving rows in order, with unchanged content. Recycle newer rows during a
-   fling only when their measured space can stay in the newer spacer. Hold replacements
+   Keep the rows in the viewport, half a screen ahead, and toward the live edge in order,
+   with unchanged content. Further ahead, a page can complete and regroup a partial turn.
+   Recycle newer rows during a fling only when their measured space can stay in the newer spacer. Hold replacements
    and uncertain pages until idle, then use the existing anchor correction.
 3. **Keep the physical scroll offset during an append.** No snapshot, proxy scroll or
    explicit offset change is required for the append. Explicit anchor correction cannot

@@ -167,15 +167,25 @@ extension ConversationFeed {
         model.admitsOlderAppend = { reply, patches in
             guard let base = reading.thread, anchor.stack.stack == .lazy, !reading.landing.holdsPlace,
                   viewport.sessionAnchor == nil, reply.freshness != .cached,
-                  (reply.deleted ?? []).isEmpty, (reply.evictedLeading ?? []).isEmpty else { return false }
+                  (reply.evictedLeading ?? []).isEmpty else { return false }
+            let shown = reading.shown ?? thread
             let retainedNewer = Set(reply.evictedTrailing ?? [])
+            let metrics = intent.metrics
+            let bottom = metrics.viewport - metrics.bottomInset
             guard extent.hasMeasuredNewerRows(retainedNewer),
                   retainedNewer.allSatisfy({ id in
                       guard let frame = anchor.keeper.frames.frame("block:\(id)") else { return true }
-                      return frame.minY >= intent.metrics.viewport - intent.metrics.bottomInset
+                      return frame.minY >= bottom
                   }) else { return false }
-            return TranscriptHistoryAppend.preservesRows(patches, replacing: base, shown: reading.shown ?? thread,
-                                                        retainedNewer: retainedNewer)
+            // Protect the viewport and half a screen ahead. A turn cut by the previous page
+            // can regroup further ahead without changing the coordinates of these rows.
+            let ahead = metrics.topInset - metrics.viewport / 2
+            let oldestProtected = shown.screen.blockOrder.first { id in
+                guard let frame = anchor.keeper.frames.frame("block:\(id)") else { return false }
+                return frame.minY < bottom && frame.maxY > ahead
+            }
+            return TranscriptHistoryAppend.preservesRows(patches, replacing: base, shown: shown,
+                                                        oldestProtected: oldestProtected, retainedNewer: retainedNewer)
         }
         model.readingWillMove = {
             if model.publishingOlderAppend {
