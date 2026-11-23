@@ -1185,6 +1185,7 @@ fn valid_message_origin(value: &Json) -> bool {
             "commandId",
             "interactionId",
             "threadIds",
+            "parentThreadId",
             "role",
             "from",
             "to",
@@ -1256,6 +1257,9 @@ fn valid_message_origin(value: &Json) -> bool {
         return false;
     }
     if !optional_string(map.get("role")) {
+        return false;
+    }
+    if !optional_string(map.get("parentThreadId")) {
         return false;
     }
     for key in ["from", "to"] {
@@ -2143,13 +2147,11 @@ fn valid_delegation_started(candidate: &Map) -> bool {
     if as_count(candidate.get("generation")).is_none() {
         return false;
     }
-    if let Some(outcome) = candidate.get("outcome") {
-        if matches!(outcome, Json::Null) {
-            return false;
-        }
-        if !valid_delegation_outcome(outcome) {
-            return false;
-        }
+    if let Some(outcome) = candidate.get("outcome")
+        && !matches!(outcome, Json::Null)
+        && !valid_delegation_outcome(outcome)
+    {
+        return false;
     }
     if let Some(machine) = candidate.get("machine")
         && (matches!(machine, Json::Null) || !valid_agent_machine(Some(machine)))

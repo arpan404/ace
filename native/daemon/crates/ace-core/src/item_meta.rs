@@ -23,6 +23,8 @@ pub struct MessageOrigin {
     pub interaction_id: Option<String>,
     #[serde(rename = "threadIds", skip_serializing_if = "Option::is_none")]
     pub thread_ids: Option<Vec<String>>,
+    #[serde(rename = "parentThreadId", skip_serializing_if = "Option::is_none")]
+    pub parent_thread_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

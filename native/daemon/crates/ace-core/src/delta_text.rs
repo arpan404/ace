@@ -11,6 +11,15 @@ fn units(text: &str) -> Vec<u16> {
     text.encode_utf16().collect()
 }
 
+/// UTF-16 length without allocating, for hot paths over long streams.
+fn utf16_len(text: &str) -> usize {
+    if text.is_ascii() {
+        text.len()
+    } else {
+        text.encode_utf16().count()
+    }
+}
+
 /// UTF-8 bytes of a string as `TextEncoder` writes it.
 fn utf8_bytes(text: &str) -> usize {
     text.len()
@@ -313,7 +322,7 @@ pub struct OutputSummaryData {
 pub fn holds_tail(text: &str, source: Option<&TextSourceView>) -> bool {
     match source {
         None => true,
-        Some(source) => source.offset.unwrap_or(0) + units(text).len() as i64 * 2 == source.bytes,
+        Some(source) => source.offset.unwrap_or(0) + utf16_len(text) as i64 * 2 == source.bytes,
     }
 }
 
@@ -329,13 +338,13 @@ pub struct TextSourceView {
 pub fn append_text(text: &mut String, source: &mut Option<TextSourceData>, append: &str) {
     let holds = match source {
         None => true,
-        Some(source) => source.offset.unwrap_or(0) + units(text).len() as i64 * 2 == source.bytes,
+        Some(source) => source.offset.unwrap_or(0) + utf16_len(text) as i64 * 2 == source.bytes,
     };
     if holds {
         text.push_str(append);
     }
     if let Some(source) = source {
-        source.bytes += units(append).len() as i64 * 2;
+        source.bytes += utf16_len(append) as i64 * 2;
     }
 }
 
