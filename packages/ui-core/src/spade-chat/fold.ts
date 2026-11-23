@@ -47,6 +47,7 @@ import type { SpadeRefusedHost } from "./wire.ts";
 import { spadeMessageId } from "./chat-markup.ts";
 import { spadeSameMessage as sameMessage } from "./pending-match.ts";
 import type { SpadeReplyTo } from "./replies.ts";
+import { delegatedTasks } from "./fold-delegated.ts";
 
 /** A background job: the tool it runs and, for a delegation, how many tasks it handed out. */
 export interface SpadeJob {
@@ -56,22 +57,6 @@ export interface SpadeJob {
   reply: string;
   /** When it started (ms), for the working line's clock when no reply is open; unknown at 0. */
   startedAt?: number | undefined;
-}
-
-const record = (value: unknown): Record<string, unknown> | undefined =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-
-/**
- * How many tasks a delegation's call handed out, from its arguments (`{tasks: [...]}`, or the
- * same inside `call_tool`'s `{name, arguments}`); undefined when they don't say.
- */
-function delegatedTasks(argumentsValue: unknown): number | undefined {
-  const outer = record(argumentsValue);
-  const inner = record(outer?.arguments) ?? outer;
-  const tasks = inner?.tasks;
-  return Array.isArray(tasks) && tasks.length > 0 ? tasks.length : undefined;
 }
 
 /*
