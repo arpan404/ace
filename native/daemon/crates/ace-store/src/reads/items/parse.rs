@@ -124,13 +124,29 @@ impl<'a> Parser<'a> {
                 },
                 0x00..=0x1f => return Err(parse_error()),
                 _ => {
+                    // The input is valid UTF-8 and `pos` always rests on a character boundary,
+                    // so the lead byte alone sets the character's length: decode only those
+                    // bytes, never re-validate the whole remaining input.
                     self.pos -= 1;
-                    let rest = self
+                    let lead = *self.bytes.get(self.pos).ok_or_else(parse_error)?;
+                    let len = if lead < 0x80 {
+                        1
+                    } else if lead < 0xe0 {
+                        2
+                    } else if lead < 0xf0 {
+                        3
+                    } else if lead < 0xf8 {
+                        4
+                    } else {
+                        return Err(parse_error());
+                    };
+                    let head = self
                         .bytes
-                        .get(self.pos..)
-                        .and_then(|rest| std::str::from_utf8(rest).ok())
+                        .get(self.pos..self.pos.saturating_add(len))
+                        .filter(|head| head.len() == len)
+                        .and_then(|head| std::str::from_utf8(head).ok())
                         .ok_or_else(parse_error)?;
-                    let c = rest.chars().next().ok_or_else(parse_error)?;
+                    let c = head.chars().next().ok_or_else(parse_error)?;
                     let mut pair = [0u16; 2];
                     units.extend_from_slice(c.encode_utf16(&mut pair));
                     self.pos += c.len_utf8();
