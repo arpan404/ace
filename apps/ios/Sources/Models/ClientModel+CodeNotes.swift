@@ -22,7 +22,8 @@ extension ClientModel {
     /// it; one that can't be kept is taken back, leaving the person their words to try again.
     private func add(_ thread: String, comment: String, _ adding: (String, String?) -> Void) -> Result<String, CodeNoteRefusal> {
         guard canOperate else { return .failure(.cantAct) }
-        guard !codeNotes.full(thread) else { return .failure(.full) }
+        // Notes a message in flight took count too: a refusal gives them back.
+        guard codeNotes[thread].count + (codeNotesInFlight[thread] ?? 0) < CodeNotes.limit else { return .failure(.full) }
         guard CodeNotes.fits(comment) else { return .failure(.tooLong) }
         let before = codeNotes
         let id = UUID().uuidString
@@ -74,26 +75,51 @@ extension ClientModel {
         keepCodeNotes()
         sendCodeNotes(thread)
     }
-    /// A message on `thread` is sent by `send` (true once the machine saved it) and carries the
-    /// notes the bridge holds. They leave this phone's disk before it goes, so a kill once the
-    /// machine has saved it can never bring them back onto the next message; a message that
-    /// wasn't saved gives them back. Meanwhile the bridge keeps the list it had, so the message
-    /// carries exactly these, however late the bridge sends it.
-    func sendingCodeNotes(_ thread: String, _ send: () async -> Bool) async -> Bool {
+    /// A message on `thread` is sent by `send`, and carries the notes the bridge holds. They leave
+    /// this phone's disk first, or the message doesn't go: a relaunch must never bring back a note
+    /// the machine has. The machine's answer settles them: a saved message drops those it names
+    /// as carried and gives back the rest (a /goal or an answer to a question carries none); a
+    /// refusal gives them all back; an unknown outcome (the runtime went first) keeps them off, so
+    /// a note is never sent twice. They go back to the account and machine they came from, and
+    /// count toward its limit meanwhile. The bridge keeps the list it had until the answer.
+    func sendingCodeNotes(_ thread: String, _ send: () async -> SendOutcome) async -> Bool {
         let taken = codeNotes[thread]
-        guard !taken.isEmpty else { return await send() }
-        codeNotesSending.insert(thread)
+        guard !taken.isEmpty else { return await send().saved }
+        let epoch = codeNotesEpoch
+        let store = codeNotesKept
         codeNotes.clear(thread)
-        // A failed write is tried again; the message still goes, as the person asked.
-        keepCodeNotes()
-        let saved = await send()
-        codeNotesSending.remove(thread)
-        if !saved {
+        guard keepCodeNotes() else {
             codeNotes.putBack(thread, taken)
+            // What waits to be written is the kept list again, never the cleared one.
             keepCodeNotes()
+            error = CodeNoteRefusal.notSent.message
+            return false
         }
-        sendCodeNotes(thread)
-        return saved
+        codeNotesInFlight[thread, default: 0] += taken.count
+        let outcome = await send()
+        let back: [CodeNote]
+        switch outcome {
+        case .saved(let carried):
+            let gone = Set(carried)
+            back = taken.filter { !gone.contains($0.id) }
+        case .refused: back = taken
+        case .unknown: back = []
+        }
+        if codeNotesEpoch == epoch {
+            let left = (codeNotesInFlight[thread] ?? 0) - taken.count
+            codeNotesInFlight[thread] = left > 0 ? left : nil
+            if !back.isEmpty {
+                codeNotes.putBack(thread, back)
+                keepCodeNotes()
+            }
+            sendCodeNotes(thread)
+        } else if !back.isEmpty, let store {
+            // Another principal's notes are loaded now: these go back to their own.
+            var kept = store.load()
+            kept.putBack(thread, back)
+            store.save(kept)
+        }
+        return outcome.saved
     }
     /// Writes the notes now; false when they couldn't be (they're tried again). True when this
     /// connection keeps none (signed out).
@@ -136,6 +162,8 @@ extension ClientModel {
     func restoreCodeNotes(keptScope: String?, in directory: URL) {
         codeNotesKept?.flush()
         codeNotesKept = nil
+        codeNotesEpoch += 1
+        codeNotesInFlight = [:]
         checkoutKeys = [:]
         guard let keptScope else {
             codeNotes = CodeNotes()
@@ -147,7 +175,7 @@ extension ClientModel {
     }
     /// The open thread's session hears `thread`'s notes; another thread's wait until it opens.
     func sendCodeNotes(_ thread: String) {
-        guard canOperate, self.thread?.id == thread, !codeNotesSending.contains(thread) else { return }
+        guard canOperate, self.thread?.id == thread, codeNotesInFlight[thread] == nil else { return }
         threadAction(["type": "code.set", "notes": codeNotes.wire(thread)])
     }
 }
@@ -156,7 +184,7 @@ private struct CheckoutRoot: Decodable { let root: String? }
 
 /// Why a note wasn't added or changed, in words for the person.
 enum CodeNoteRefusal: Error, Equatable {
-    case cantAct, full, noCode, tooLong, notSaved
+    case cantAct, full, noCode, tooLong, notSaved, notSent
 
     var message: String {
         switch self {
@@ -165,6 +193,19 @@ enum CodeNoteRefusal: Error, Equatable {
         case .noCode: "These lines hold no code to note."
         case .tooLong: "A note can be at most \(CodeNotes.commentLimit.formatted()) characters. Shorten it."
         case .notSaved: "Couldn't keep the note on this phone. Try again."
+        case .notSent: "Couldn't update the code notes on this phone, so the message wasn't sent. Try again."
         }
     }
+}
+
+/// What became of a message that may carry code notes (`ClientModel.sendingCodeNotes`).
+enum SendOutcome: Equatable {
+    /// Saved on the machine, carrying these notes (none for a /goal or a question's answer).
+    case saved(carried: [String])
+    /// Definitely not saved.
+    case refused
+    /// Unknown: the runtime went before the machine answered.
+    case unknown
+
+    var saved: Bool { if case .saved = self { true } else { false } }
 }

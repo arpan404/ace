@@ -26,11 +26,21 @@ extension ClientModel {
         var action: [String: Any] = ["type": "send", "text": text, "opposite": alternate, "continues": continues, "requestId": id]
         if let reply { action["reply"] = reply.payload }
         if !references.isEmpty { action["references"] = references }
+        // The notes the bridge holds ride along; the answer names those it carried.
         return await sendingCodeNotes(thread.id) {
-            guard continues else { return await admissions.wait(id: id) { threadAction(action) } }
+            defer { carriedNotes[id] = nil }
+            guard continues else {
+                switch await admissions.outcome(id: id, dispatch: { threadAction(action) }) {
+                case .saved: return .saved(carried: carriedNotes[id] ?? [])
+                case .refused: return .refused
+                case .unknown: return .unknown
+                }
+            }
             let refused = await receipts.wait(id: id) { threadAction(action) }
-            if let refused { error = refused }
-            return refused == nil
+            guard let refused else { return .saved(carried: carriedNotes[id] ?? []) }
+            error = refused
+            // The connection closed before the machine answered: it may have started the thread.
+            return refused == CommandReceipts.closed ? .unknown : .refused
         }
     }
     /// Stop the whole agent tree of the turn on screen.

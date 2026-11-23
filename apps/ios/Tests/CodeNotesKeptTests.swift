@@ -135,41 +135,121 @@ import Testing
         #expect(CodeNotesKept(url: kept).load()["t"].isEmpty)
     }
 
+    private func noted(_ root: URL, scope: String = "alice", _ comments: [String]) -> (ClientModel, [String]) {
+        let model = ClientModel(now: { 0 })
+        model.restoreCodeNotes(keptScope: scope, in: root)
+        let ids = comments.enumerated().compactMap { index, comment in
+            try? model.addDiffNote("t", path: "a.ts", first: index + 1, texts: ["line \(index)"], comment: comment).get()
+        }
+        return (model, ids)
+    }
+    private func kept(_ root: URL, scope: String = "alice") -> [String] {
+        let model = ClientModel(now: { 0 })
+        model.restoreCodeNotes(keptScope: scope, in: root)
+        return model.codeNotes["t"].map(\.comment)
+    }
+
     @Test func aNoteAMessageIsCarryingIsOffTheDiskSoAKillMidSendNeverSendsItTwice() async {
         let root = directory()
-        let model = ClientModel(now: { 0 })
-        model.restoreCodeNotes(keptScope: "alice", in: root)
-        _ = model.addDiffNote("t", path: "a.ts", first: 1, texts: ["x"], comment: "Goes")
-        var onDiskMidSend: [CodeNote] = [placeholder()]
+        let (model, ids) = noted(root, ["Goes"])
+        var onDiskMidSend = ["not read"]
         let saved = await model.sendingCodeNotes("t") {
-            // The machine may have admitted the message when the app is killed here.
-            let relaunched = ClientModel(now: { 0 })
-            relaunched.restoreCodeNotes(keptScope: "alice", in: root)
-            onDiskMidSend = relaunched.codeNotes["t"]
-            return true
+            // The machine may have saved the message when the app is killed here.
+            onDiskMidSend = kept(root)
+            return .saved(carried: ids)
         }
         #expect(saved)
         #expect(onDiskMidSend.isEmpty)
         #expect(model.codeNotes["t"].isEmpty)
+        #expect(kept(root).isEmpty)
     }
 
-    @Test func aMessageThatWasntSavedGivesItsNotesBackAheadOfOnesMadeMeanwhile() async {
+    @Test func aMessageTheMachineRefusedGivesItsNotesBackAheadOfOnesMadeMeanwhile() async {
         let root = directory()
-        let model = ClientModel(now: { 0 })
-        model.restoreCodeNotes(keptScope: "alice", in: root)
-        _ = model.addDiffNote("t", path: "a.ts", first: 1, texts: ["x"], comment: "First")
+        let (model, _) = noted(root, ["First"])
         let saved = await model.sendingCodeNotes("t") {
             _ = model.addDiffNote("t", path: "a.ts", first: 2, texts: ["y"], comment: "Meanwhile")
-            return false
+            return .refused
         }
         #expect(!saved)
         #expect(model.codeNotes["t"].map(\.comment) == ["First", "Meanwhile"])
-        let relaunched = ClientModel(now: { 0 })
-        relaunched.restoreCodeNotes(keptScope: "alice", in: root)
-        #expect(relaunched.codeNotes["t"].map(\.comment) == ["First", "Meanwhile"])
-        // The machine's word that the message took the first after all still drops it.
-        relaunched.codeNotesSent("t", ids: [relaunched.codeNotes["t"][0].id])
-        #expect(relaunched.codeNotes["t"].map(\.comment) == ["Meanwhile"])
+        #expect(kept(root) == ["First", "Meanwhile"])
+    }
+
+    @Test func aSavedMessageSettlesOnlyTheNotesItCarriedAndAGoalCarriesNone() async {
+        let root = directory()
+        let (model, ids) = noted(root, ["Carried", "Left"])
+        // A message that carried the first only: the second stays for the next.
+        #expect(await model.sendingCodeNotes("t") { .saved(carried: [ids[0]]) })
+        #expect(model.codeNotes["t"].map(\.comment) == ["Left"])
+        // A /goal or a question's answer is saved without notes: they all stay.
+        #expect(await model.sendingCodeNotes("t") { .saved(carried: []) })
+        #expect(model.codeNotes["t"].map(\.comment) == ["Left"])
+        #expect(kept(root) == ["Left"])
+    }
+
+    @Test func aSendWhoseAnswerWasLostKeepsItsNotesOffSoTheyNeverGoTwice() async {
+        let root = directory()
+        let (model, _) = noted(root, ["Maybe sent"])
+        // The runtime was replaced while the machine may already have saved the message.
+        #expect(!(await model.sendingCodeNotes("t") { .unknown }))
+        #expect(model.codeNotes["t"].isEmpty)
+        #expect(kept(root).isEmpty)
+    }
+
+    @Test func notesThatCantLeaveTheDiskDontGoAndTheMessageIsHeldBack() async throws {
+        let root = directory()
+        let (model, _) = noted(root, ["Stays"])
+        model.codeNotesKept = CodeNotesKept(url: root.appendingPathComponent("notes.json"), delay: .seconds(60))
+        try FileManager.default.removeItem(at: root)
+        try Data().write(to: root)
+        var dispatched = false
+        let saved = await model.sendingCodeNotes("t") { dispatched = true; return .saved(carried: []) }
+        #expect(!saved)
+        #expect(!dispatched)
+        #expect(model.codeNotes["t"].map(\.comment) == ["Stays"])
+        #expect(model.error == CodeNoteRefusal.notSent.message)
+    }
+
+    @Test func aRefusedSendAfterSwitchingAccountsGivesTheNotesBackToTheirOwnAccount() async {
+        let root = directory()
+        let (model, _) = noted(root, scope: "alice", ["Alice's"])
+        let saved = await model.sendingCodeNotes("t") {
+            // Bob signs in on the same machine before the old send is answered.
+            model.restoreCodeNotes(keptScope: "bob", in: root)
+            _ = model.addDiffNote("t", path: "a.ts", first: 1, texts: ["b"], comment: "Bob's")
+            return .refused
+        }
+        #expect(!saved)
+        #expect(model.codeNotes["t"].map(\.comment) == ["Bob's"])
+        #expect(kept(root, scope: "bob") == ["Bob's"])
+        #expect(kept(root, scope: "alice") == ["Alice's"])
+    }
+
+    @Test func notesInFlightCountTowardTheLimitSoAFailedSendLosesNone() async {
+        let root = directory()
+        let (model, _) = noted(root, (0..<CodeNotes.limit).map { "n\($0)" })
+        var meanwhile: Result<String, CodeNoteRefusal>?
+        _ = await model.sendingCodeNotes("t") {
+            meanwhile = model.addDiffNote("t", path: "a.ts", first: 1, texts: ["x"], comment: "21st")
+            return .refused
+        }
+        #expect(meanwhile == .failure(.full))
+        #expect(model.codeNotes["t"].count == CodeNotes.limit)
+    }
+
+    @Test func theMachinesAnswerNamesTheNotesAMessageCarried() throws {
+        let json = #"{"type":"admission","id":"7","ok":true,"message":"","notes":["a","b"]}"#
+        guard case .admission(let id, let ok, _, let notes) = try JSONDecoder().decode(BridgePatch.self, from: Data(json.utf8)) else {
+            Issue.record("Expected an admission"); return
+        }
+        #expect(id == "7" && ok)
+        #expect(notes == ["a", "b"])
+        let plain = #"{"type":"receipt","id":"8","ok":true,"message":""}"#
+        guard case .receipt(_, _, _, let none) = try JSONDecoder().decode(BridgePatch.self, from: Data(plain.utf8)) else {
+            Issue.record("Expected a receipt"); return
+        }
+        #expect(none.isEmpty)
     }
 
     @Test func aRereadThatShowsNoNewLinesLeavesTheNotesUnverified() {
@@ -218,12 +298,6 @@ import Testing
         #expect(notes["t0"].count == 2)
         #expect(notes["new"].count == 1)
     }
-}
-
-/// A placeholder note, so a check that never ran reads as a failure.
-private func placeholder() -> CodeNote {
-    CodeNote(id: "placeholder", path: "", span: TextSpan(start: TextPlace(line: 0, column: 0), end: TextPlace(line: 0, column: 0)),
-             excerpt: "", cut: false, comment: "")
 }
 
 private extension Result {

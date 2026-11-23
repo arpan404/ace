@@ -104,9 +104,15 @@ import QuartzCore
     /// phone for the machine connected (`codeNotesKept`).
     var codeNotes = CodeNotes() { didSet { if codeNotes != oldValue { codeNotesKept?.changed(codeNotes) } } }
     @ObservationIgnored var codeNotesKept: CodeNotesKept?
-    /// Threads whose message is being sent with their notes (`sendingCodeNotes`): the bridge keeps
-    /// its list until the message is saved or refused.
-    @ObservationIgnored var codeNotesSending: Set<String> = []
+    /// How many notes each thread's message in flight took (`sendingCodeNotes`): they count toward
+    /// the limit, and the bridge keeps its list until the message is saved or refused.
+    @ObservationIgnored var codeNotesInFlight: [String: Int] = [:]
+    /// Which principal's notes are loaded (`restoreCodeNotes`): a send answered after a switch
+    /// settles its notes in the store it took them from, never the current one.
+    @ObservationIgnored var codeNotesEpoch = 0
+    /// The code notes each saved message or started thread carried, by request id, as the
+    /// machine's answer named them; read once by the send that waits on it.
+    @ObservationIgnored var carriedNotes: [String: [String]] = [:]
     /// Each thread's checkout as code notes name it (`checkoutKey`), once read.
     @ObservationIgnored var checkoutKeys: [String: String] = [:]
     /// The history window's rows (`TranscriptReading`), beside the live thread: its patches carry
@@ -644,19 +650,21 @@ import QuartzCore
             case .words(let id, let ok, let text, let message, let revision):
                 wordRequests.resolve(id, .init(ok: ok, text: text, message: message, revision: revision))
             case .bulkFinal(let ticket, let outcome): bulkFinals.resolve(ticket, outcome)
-            case .receipt(let id, let ok, let message) where receipts.tracks(id):
+            case .receipt(let id, let ok, let message, let notes) where receipts.tracks(id):
+                if ok, !notes.isEmpty { carriedNotes[id] = notes }
                 // A goal change answers on its own sheet, never as the screen-wide error.
                 receipts.resolve(id, refused: ok ? nil : (message.isEmpty ? "Your computer refused that change." : message))
-            case .admission(let id, let ok, let message) where receipts.tracks(id):
+            case .admission(let id, let ok, let message, _) where receipts.tracks(id):
                 if !ok { receipts.resolve(id, refused: message.isEmpty ? CommandReceipts.unsent : message) }
-            case .receipt(let id, let ok, let message):
+            case .receipt(let id, let ok, let message, _):
                 if let interactionId = approvalRequests[id], approvalSubmissions[interactionId]?.requestId == id {
                     if ok { approvalSubmissions[interactionId]?.phase = .waiting }
                     else { approvalSubmissions[interactionId] = nil; approvalRequests[id] = nil }
                 }
                 // A refused Stop leaves the tree working: offer Stop again.
                 if !ok { error = message; thread?.screen.stopFailed(id) }
-            case .admission(let id, let ok, let message):
+            case .admission(let id, let ok, let message, let notes):
+                if ok, !notes.isEmpty { carriedNotes[id] = notes }
                 admissions.resolve(id, persisted: ok)
                 if let interactionId = approvalRequests[id], approvalSubmissions[interactionId]?.requestId == id {
                     if ok { approvalSubmissions[interactionId]?.phase = .waiting }
