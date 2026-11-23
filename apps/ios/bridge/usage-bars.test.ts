@@ -67,6 +67,12 @@ test("the Usage glyph draws the accounts the person chose, in their order", asyn
           source: "cli" as const,
           windowDurationMins: 300,
         },
+        seven_day: {
+          usedPercent: 10,
+          resetsAt: now + 4 * 86_400_000,
+          source: "cli" as const,
+          windowDurationMins: 10080,
+        },
       },
     }),
   );
@@ -81,17 +87,29 @@ test("the Usage glyph draws the accounts the person chose, in their order", asyn
     await client.start();
     await until(() => read()?.value.length === 2, "both accounts");
     const [first, second] = readable.map((account) => account.id);
-    expect(read().choices.map((choice) => choice.id)).toEqual([first, second]);
-
-    follow.choose([second]);
-    expect(read().value.map((bar) => bar.left)).toEqual([40]);
-    expect(read().choices.map((choice) => [choice.id, choice.shown])).toEqual([
-      [second, true],
-      [first, false],
+    expect(read().choices.map((choice) => choice.id)).toEqual([
+      `${first}#session`,
+      `${second}#session`,
+      `${first}#weekly`,
+      `${second}#weekly`,
     ]);
 
-    follow.choose([second, first]);
-    expect(read().value.map((bar) => bar.left)).toEqual([40, 80]);
+    // A pin saved before windows existed names the account: it keeps drawing its session.
+    follow.choose([second]);
+    expect(read().value.map((bar) => bar.left)).toEqual([40]);
+
+    // Windows of one account may fill several bars, in the order chosen.
+    follow.choose([`${second}#weekly`, `${second}#session`, `${first}#weekly`]);
+    expect(read().value).toMatchObject([
+      { window: "Weekly", left: 90 },
+      { window: "5-hour", left: 40 },
+      { window: "Weekly", left: 90 },
+    ]);
+    expect(
+      read()
+        .choices.filter((choice) => choice.shown)
+        .map((choice) => choice.id),
+    ).toEqual([`${second}#weekly`, `${second}#session`, `${first}#weekly`]);
 
     follow.choose([]);
     expect(read().value).toHaveLength(2);

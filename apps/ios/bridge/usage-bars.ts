@@ -4,6 +4,8 @@ import {
   accountView,
   RailPins,
   knownTimeZone,
+  migrateRailPins,
+  railSessionKinds,
   railUsage,
   usageDay,
   usageLimits,
@@ -39,7 +41,12 @@ export function followUsageBars(owner: ClientCore, sink: PatchSink, clock: Inbox
       accounts.map((account) => ({ account, environment: "This machine" })),
       Math.floor(now / minute) * minute,
     );
-    const { bars, choices } = railUsage(limits, used, "session", pins);
+    const { bars, choices } = railUsage(
+      limits,
+      used,
+      "session",
+      migrateRailPins(pins, railSessionKinds(limits)),
+    );
     const encoded = JSON.stringify({ bars, choices });
     if (sent === encoded) return;
     sent = encoded;

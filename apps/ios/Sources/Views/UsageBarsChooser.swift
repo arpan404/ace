@@ -22,7 +22,7 @@ struct UsageBarsChooser: View {
                     ForEach(choices) { choice in
                         Toggle(isOn: binding(choice)) {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(choice.label)
+                                Text(choice.title)
                                 Text(detail(choice))
                                     .font(AceDesign.Typeface.meta)
                                     .foregroundStyle(choice.tone == .ok ? AceDesign.Ink.subtle : AceDesign.Ink.primary)
@@ -36,14 +36,14 @@ struct UsageBarsChooser: View {
                 } header: {
                     Text("In the top bar")
                 } footer: {
-                    Text(full ? "Four at most. Turn one off to add another." : "Drag to reorder. Up to four.")
+                    Text(full ? "Four bars at most. Turn one off to add another." : "Drag to reorder. An account can have a bar for each of its limits, four in all.")
                 }
                 if !client.usagePins.isEmpty {
                     Section {
                         Button("Show the most used") { client.setUsagePins([]) }
                             .accessibilityIdentifier("usage.bars.reset")
                     } footer: {
-                        Text("Draws the accounts you used most this week.")
+                        Text("Draws the accounts you used most this week, each by its session limit.")
                     }
                 }
             }
@@ -60,11 +60,11 @@ struct UsageBarsChooser: View {
     }
 
     private func detail(_ choice: UsageChoice) -> String {
-        let left = "\(Int(choice.left.rounded()))% left for the \(choice.span)"
+        let left = choice.window == nil ? "\(Int(choice.left.rounded()))% left for the \(choice.span)" : "\(Int(choice.left.rounded()))% left"
         switch choice.tone {
         case .ok: return left
         case .low: return "Low, \(left)"
-        case .out: return "Out for the \(choice.span)"
+        case .out: return choice.window == nil ? "Out for the \(choice.span)" : "Out"
         }
     }
 

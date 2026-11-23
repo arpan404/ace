@@ -10,8 +10,13 @@ struct UsageHeadroomBar: Decodable, Equatable, Sendable {
     let left: Double
     let tone: Tone
     let span: String
+    /// Set when the bar is one chosen limit of its account: "5-hour", "Daily" or "Weekly".
+    let window: String?
 
     var spoken: String {
+        if let window {
+            return tone == .out ? "\(label) \(window) out" : "\(label) \(window) \(Int(left.rounded()))% left"
+        }
         switch tone {
         case .ok: "\(label) \(Int(left.rounded()))% left for the \(span)"
         case .low: "\(label) low, \(Int(left.rounded()))% left for the \(span)"
@@ -48,11 +53,15 @@ struct UsageChoice: Decodable, Equatable, Identifiable, Sendable {
     let left: Double
     let tone: UsageHeadroomBar.Tone
     let span: String
+    let window: String?
     let shown: Bool
+
+    /// The row's name: the account, and the limit when it reports several.
+    var title: String { window.map { "\(label) · \($0)" } ?? label }
 
     /// "Claude Code · Personal, 59% left for the session", and "low" or "out" when they are.
     var spoken: String {
-        UsageHeadroomBar(key: id, label: label, left: left, tone: tone, span: span).spoken
+        UsageHeadroomBar(key: id, label: label, left: left, tone: tone, span: span, window: window).spoken
     }
 }
 
