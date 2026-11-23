@@ -22,6 +22,14 @@ use crate::proxy::{ProxyTarget, is_localhost};
 /// failure (file descriptors exhausted) never spins the loop.
 const ACCEPT_RETRY: Duration = Duration::from_millis(10);
 
+/// The TCP connection cap when the caller has no reason to choose another.
+///
+/// This guards the daemon's file descriptors against a local slowloris holding
+/// connections whose first head never arrives. It is **not** the WebSocket cap:
+/// that is the TypeScript server's 256 sockets (`apps/daemon/src/server.ts:289`,
+/// `:393`) and T1a.7's admission decides it.
+pub const DEFAULT_MAX_TCP_CONNECTIONS: usize = 1024;
+
 /// The daemon's loopback listener.
 pub struct LoopbackListener {
     local: SocketAddr,
@@ -32,17 +40,24 @@ pub struct LoopbackListener {
 impl LoopbackListener {
     /// Listen on `addr` (127.0.0.1 only, port 0 picks a free port) and forward
     /// ordinary HTTP to `target`, handing every upgrade candidate to `upgrades`.
-    ///
-    /// `max_connections` is the most TCP connections held at once. The caller
-    /// passes the daemon's existing cap: the TypeScript server's 256 sockets
-    /// (`apps/daemon/src/server.ts:289` and `:393`). A connection over it is
-    /// accepted and closed at once, so a local slowloris cannot hold descriptors
-    /// while its first head is still owed.
+    /// At most [`DEFAULT_MAX_TCP_CONNECTIONS`] TCP connections are held at once.
     pub async fn bind(
         addr: SocketAddr,
         target: ProxyTarget,
         upgrades: Arc<dyn UpgradeHandler>,
-        max_connections: usize,
+    ) -> Result<Self, TransportError> {
+        Self::bind_with(addr, target, upgrades, DEFAULT_MAX_TCP_CONNECTIONS).await
+    }
+
+    /// The same, with the TCP connection cap chosen by the caller. It guards
+    /// file descriptors, not the WebSocket cap: a connection over it is accepted
+    /// and closed at once, so a local slowloris cannot hold descriptors while
+    /// its first head is still owed.
+    pub async fn bind_with(
+        addr: SocketAddr,
+        target: ProxyTarget,
+        upgrades: Arc<dyn UpgradeHandler>,
+        max_tcp_connections: usize,
     ) -> Result<Self, TransportError> {
         if !is_localhost(addr) {
             return Err(TransportError::NotLoopback { addr });
@@ -62,7 +77,7 @@ impl LoopbackListener {
             target,
             upgrades,
             shutdown.clone(),
-            Arc::new(Semaphore::new(max_connections)),
+            Arc::new(Semaphore::new(max_tcp_connections)),
         ));
         Ok(Self {
             local,

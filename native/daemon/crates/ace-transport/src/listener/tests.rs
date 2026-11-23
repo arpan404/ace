@@ -113,7 +113,7 @@ async fn listener_with(
     let secret = Arc::new(HopSecret::from_hex(secret_hex).expect("a test secret"));
     let target = ProxyTarget::new(upstream, secret).expect("a loopback target");
     let addr: SocketAddr = "127.0.0.1:0".parse().expect("a test address");
-    LoopbackListener::bind(addr, target, Arc::new(RefuseUpgrades), max_connections)
+    LoopbackListener::bind_with(addr, target, Arc::new(RefuseUpgrades), max_connections)
         .await
         .expect("the listener binds")
 }

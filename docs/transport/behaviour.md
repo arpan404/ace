@@ -91,6 +91,11 @@ allowed`. A request without an Origin (the CLI, native clients) is not refused f
   `access-cors.server.process` and the route tests in §12). Range requests, upload budgets and
   relay attachments keep their limits (`attachment-range`, `attachment-http-budget`,
   `attachment-relay`, `attachment-upload` process tests).
+- **Recorded difference (T1a.2's proxy hop)**: a request-target in absolute form with no path
+  (`GET http://host`) reaches the handlers as `http://host/`, because `http::Uri` fills the empty
+  path when the hop frames the request and cannot represent it otherwise. Direct browser, iOS and
+  CLI requests use origin-form and are untouched, and RFC 9112 §3.2.2 makes an empty path
+  equivalent to `/`.
 
 ## 4. Liveness and idle
 

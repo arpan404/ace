@@ -240,7 +240,6 @@ dependencies = [
  "httparse",
  "hyper",
  "hyper-util",
- "socket2",
  "thiserror",
  "tokio",
  "tokio-util",

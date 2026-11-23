@@ -7,13 +7,15 @@
 //! never reaches this service (see `driver`).
 //!
 //! One exchange has one deadline, from the service call to the last byte of the
-//! answer, and its upstream connection is aborted the moment the answer ends,
-//! the client goes away or the deadline fires.
+//! answer. The connection's task enforces it (`ExchangeDeadline`), so it fires
+//! even when nothing is polling the response body, and the upstream connection
+//! is aborted the moment the answer ends, the client goes away or the deadline
+//! fires.
 
 use std::future::Future;
 use std::io;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -28,9 +30,9 @@ use hyper::client::conn::http1;
 use hyper::service::Service;
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpStream;
-use tokio::sync::Notify;
+use tokio::sync::{Notify, watch};
 use tokio::task::JoinHandle;
-use tokio::time::{Instant, Sleep};
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::{UpgradeHandler, UpgradeIo, UpgradeReply};
@@ -43,7 +45,7 @@ use crate::peer::Peer;
 /// the answer: Node's `requestTimeout` bounds receiving the whole request with
 /// the same 300 s, and the same deadline covers the response this hop streams
 /// back. Nothing answers a status when it fires (T1a.2 answers 400 and 431
-/// only), so the connection is reset.
+/// only), so the client connection is closed.
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// The one address the transport binds and connects on: 127.0.0.1, never the
@@ -94,9 +96,6 @@ pub enum ProxyError {
     /// The exchange did not finish in time; no status is answered for it.
     #[error("exchange did not finish in time")]
     Timeout,
-    /// The client stopped sending before its upload ended.
-    #[error("client went away before its request body ended")]
-    ClientGone,
     /// The upgrade handler closed the connection with no answer.
     #[error("the upgrade handler closed the connection")]
     Dropped,
@@ -105,64 +104,75 @@ pub enum ProxyError {
 /// The body both answers and forwarded responses carry.
 type HopBody = UnsyncBoxBody<Bytes, ProxyError>;
 
-/// One connection's upload side: whether its current request body has ended,
-/// and the token the socket watch cancels when the client goes away first.
-#[derive(Clone)]
-pub struct UploadWatch {
-    ended: Arc<AtomicBool>,
-    gone: CancellationToken,
+/// The deadline of the exchange a connection is running, armed by the service
+/// when a request starts and cleared when the answer ends.
+///
+/// The service's own `timeout_at` covers connect, upload and the response head,
+/// but a response body is only driven when hyper can write it: a blocked client
+/// would otherwise outlive the deadline. The connection's task waits on
+/// [`ExchangeDeadline::reached`] beside the connection itself and closes it
+/// when the deadline passes, which drops the body and aborts the upstream.
+#[derive(Debug, Default)]
+pub struct ExchangeDeadline {
+    armed: watch::Sender<Option<Instant>>,
 }
 
-impl Default for UploadWatch {
-    fn default() -> Self {
-        Self::new()
+impl ExchangeDeadline {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
     }
-}
 
-impl UploadWatch {
-    pub fn new() -> Self {
-        Self {
-            ended: Arc::new(AtomicBool::new(false)),
-            gone: CancellationToken::new(),
+    fn arm(&self, at: Instant) {
+        self.armed.send_replace(Some(at));
+    }
+
+    /// Clear the deadline this exchange armed; a later exchange's stays.
+    fn clear(&self, at: Instant) {
+        self.armed.send_if_modified(|slot| {
+            if *slot == Some(at) {
+                *slot = None;
+                true
+            } else {
+                false
+            }
+        });
+    }
+
+    /// Resolve once the armed deadline has passed. Waits while none is armed.
+    pub(crate) async fn reached(&self) {
+        let mut armed = self.armed.subscribe();
+        loop {
+            let Some(at) = *armed.borrow_and_update() else {
+                if armed.changed().await.is_err() {
+                    return;
+                }
+                continue;
+            };
+            tokio::select! {
+                _ = tokio::time::sleep_until(at) => {
+                    if *armed.borrow() == Some(at) {
+                        return;
+                    }
+                }
+                changed = armed.changed() => {
+                    if changed.is_err() {
+                        return;
+                    }
+                }
+            }
         }
-    }
-
-    /// The token the socket watch cancels.
-    pub fn client_gone(&self) -> CancellationToken {
-        self.gone.clone()
-    }
-
-    /// Whether the request body being sent has reached its end. The socket
-    /// watch uses it to tell a half-close after a complete request from a
-    /// client that went away mid-upload.
-    pub fn has_ended(&self) -> bool {
-        self.ended.load(Ordering::SeqCst)
-    }
-
-    /// A new request's body starts unended.
-    fn restart(&self) {
-        self.ended.store(false, Ordering::SeqCst);
-    }
-
-    fn end(&self) {
-        self.ended.store(true, Ordering::SeqCst);
-    }
-
-    /// The client sent nothing more before its upload ended, or reset the
-    /// connection.
-    pub fn cancel(&self) {
-        self.gone.cancel();
     }
 }
 
 /// One request's progress: how many are in flight (upgrades included), how many
-/// responses have finished, and a generation that changes with every start and
-/// finish so the idle timer restarts with each request.
+/// responses have finished, and when the last of either happened, so the idle
+/// timer restarts at the moment an answer ends.
 #[derive(Debug)]
 pub struct RequestActivity {
     in_flight: AtomicUsize,
     completed: AtomicUsize,
     changes: AtomicUsize,
+    changed_at: Mutex<Instant>,
     notify: Notify,
 }
 
@@ -172,6 +182,7 @@ impl Default for RequestActivity {
             in_flight: AtomicUsize::new(0),
             completed: AtomicUsize::new(0),
             changes: AtomicUsize::new(0),
+            changed_at: Mutex::new(Instant::now()),
             notify: Notify::new(),
         }
     }
@@ -182,13 +193,20 @@ impl RequestActivity {
         Arc::new(Self::default())
     }
 
-    fn start(self: &Arc<Self>) -> InFlight {
-        self.in_flight.fetch_add(1, Ordering::SeqCst);
+    fn note_change(&self) {
         self.changes.fetch_add(1, Ordering::SeqCst);
-        InFlight {
-            activity: Arc::clone(self),
-            armed: true,
-        }
+        let mut changed_at = self
+            .changed_at
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        *changed_at = Instant::now();
+        drop(changed_at);
+        self.notify.notify_waiters();
+    }
+
+    fn arrive(&self) {
+        self.in_flight.fetch_add(1, Ordering::SeqCst);
+        self.note_change();
     }
 
     fn finish(&self, completed: bool) {
@@ -196,8 +214,7 @@ impl RequestActivity {
             self.completed.fetch_add(1, Ordering::SeqCst);
         }
         self.in_flight.fetch_sub(1, Ordering::SeqCst);
-        self.changes.fetch_add(1, Ordering::SeqCst);
-        self.notify.notify_waiters();
+        self.note_change();
     }
 
     /// Whether any response has finished on this connection yet. A fresh
@@ -208,42 +225,69 @@ impl RequestActivity {
     }
 
     /// Resolve once no request has been in flight for `idle`, which is Node's
-    /// `keepAliveTimeout` for a connection waiting on its next request. A
-    /// request that starts or ends during the wait restarts it.
+    /// `keepAliveTimeout` for a connection waiting on its next request. The
+    /// window starts when the last request started or ended, so a change during
+    /// the wait moves it rather than shortening it.
     pub async fn wait_idle(&self, idle: Duration) {
         loop {
-            let changes = self.changes.load(Ordering::SeqCst);
             let notified = self.notify.notified();
             tokio::pin!(notified);
-            // Arm the listener before reading the counter, so a request that
-            // finishes between the two is not missed.
+            // Arm the listener before reading the state, so a change between
+            // the two is not missed.
             notified.as_mut().enable();
             if self.in_flight.load(Ordering::SeqCst) > 0 {
-                notified.await;
+                notified.as_mut().await;
                 continue;
             }
-            tokio::time::sleep(idle).await;
-            if self.in_flight.load(Ordering::SeqCst) == 0
-                && self.changes.load(Ordering::SeqCst) == changes
-            {
-                return;
+            let changes = self.changes.load(Ordering::SeqCst);
+            let since = *self
+                .changed_at
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            tokio::select! {
+                _ = tokio::time::sleep_until(since + idle) => {
+                    if self.in_flight.load(Ordering::SeqCst) == 0
+                        && self.changes.load(Ordering::SeqCst) == changes
+                    {
+                        return;
+                    }
+                }
+                _ = notified.as_mut() => {}
             }
         }
     }
 }
 
-/// A request counted as in flight until its answer is handed to hyper.
+/// A request counted as in flight, and its exchange's deadline armed, until its
+/// answer is handed to hyper.
 struct InFlight {
     activity: Arc<RequestActivity>,
+    deadlines: Arc<ExchangeDeadline>,
+    at: Instant,
     armed: bool,
 }
 
 impl InFlight {
+    fn start(activity: &Arc<RequestActivity>, deadlines: &Arc<ExchangeDeadline>) -> Self {
+        let at = Instant::now() + REQUEST_TIMEOUT;
+        deadlines.arm(at);
+        activity.arrive();
+        Self {
+            activity: Arc::clone(activity),
+            deadlines: Arc::clone(deadlines),
+            at,
+            armed: true,
+        }
+    }
+
+    fn deadline(&self) -> Instant {
+        self.at
+    }
+
     fn track<B: Body<Data = Bytes>>(
         mut self,
         inner: B,
         error: fn(B::Error) -> ProxyError,
-        deadline: Option<Pin<Box<Sleep>>>,
         upstream: Option<Upstream>,
         counts_as_answer: bool,
     ) -> TrackedBody<B> {
@@ -252,7 +296,8 @@ impl InFlight {
             inner,
             error,
             activity: Arc::clone(&self.activity),
-            deadline,
+            deadlines: Arc::clone(&self.deadlines),
+            at: self.at,
             upstream,
             counts_as_answer,
             finished: false,
@@ -263,6 +308,7 @@ impl InFlight {
 impl Drop for InFlight {
     fn drop(&mut self) {
         if self.armed {
+            self.deadlines.clear(self.at);
             self.activity.finish(false);
         }
     }
@@ -278,14 +324,14 @@ impl Drop for Upstream {
 }
 
 /// A response body that reports its request finished when hyper is done with
-/// it, bounds the whole exchange with the request's deadline, and aborts the
-/// upstream connection when the answer ends or the client goes away (hyper
-/// drops the body when the connection dies).
+/// it, whether it streamed to the end or the client went away. The exchange's
+/// deadline is cleared with it, so the next request's timer is its own.
 pub struct TrackedBody<B: Body<Data = Bytes>> {
     inner: B,
     error: fn(B::Error) -> ProxyError,
     activity: Arc<RequestActivity>,
-    deadline: Option<Pin<Box<Sleep>>>,
+    deadlines: Arc<ExchangeDeadline>,
+    at: Instant,
     upstream: Option<Upstream>,
     counts_as_answer: bool,
     finished: bool,
@@ -298,6 +344,7 @@ impl<B: Body<Data = Bytes>> TrackedBody<B> {
         }
         self.finished = true;
         self.upstream = None;
+        self.deadlines.clear(self.at);
         self.activity.finish(completed && self.counts_as_answer);
     }
 }
@@ -311,12 +358,6 @@ impl<B: Body<Data = Bytes> + Unpin> Body for TrackedBody<B> {
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Frame<Bytes>, ProxyError>>> {
         let this = self.get_mut();
-        if let Some(deadline) = this.deadline.as_mut()
-            && deadline.as_mut().poll(cx).is_ready()
-        {
-            this.finish(false);
-            return Poll::Ready(Some(Err(ProxyError::Timeout)));
-        }
         match Pin::new(&mut this.inner).poll_frame(cx) {
             Poll::Ready(Some(Ok(frame))) => Poll::Ready(Some(Ok(frame))),
             Poll::Ready(Some(Err(error))) => {
@@ -343,49 +384,11 @@ impl<B: Body<Data = Bytes> + Unpin> Body for TrackedBody<B> {
 
 impl<B: Body<Data = Bytes>> Drop for TrackedBody<B> {
     fn drop(&mut self) {
-        self.finish(false);
-    }
-}
-
-/// The client's request body, noting when it reaches its end for the socket
-/// watch.
-pub struct UploadBody {
-    inner: Incoming,
-    watch: UploadWatch,
-}
-
-impl UploadBody {
-    /// A body that is already empty is never polled, so it notes its end here.
-    fn new(inner: Incoming, watch: UploadWatch) -> Self {
-        if inner.is_end_stream() {
-            watch.end();
-        }
-        Self { inner, watch }
-    }
-}
-
-impl Body for UploadBody {
-    type Data = Bytes;
-    type Error = hyper::Error;
-
-    fn poll_frame(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Frame<Bytes>, hyper::Error>>> {
-        let this = self.get_mut();
-        let polled = Pin::new(&mut this.inner).poll_frame(cx);
-        if matches!(polled, Poll::Ready(None) | Poll::Ready(Some(Err(_)))) {
-            this.watch.end();
-        }
-        polled
-    }
-
-    fn is_end_stream(&self) -> bool {
-        self.inner.is_end_stream()
-    }
-
-    fn size_hint(&self) -> SizeHint {
-        self.inner.size_hint()
+        // An empty or fixed-length answer need not be polled to its end: a body
+        // hyper is done with reports `is_end_stream`, which is a finished
+        // response. Anything else was cut short.
+        let complete = self.inner.is_end_stream();
+        self.finish(complete);
     }
 }
 
@@ -397,7 +400,7 @@ struct Exchange {
     peer: Peer,
     shutdown: CancellationToken,
     activity: Arc<RequestActivity>,
-    upload: UploadWatch,
+    deadlines: Arc<ExchangeDeadline>,
     /// The first request head's target, exactly as the driver read it. hyper's
     /// `Uri` fills "/" into a pathless absolute form, so only the head the
     /// driver parsed can be forwarded byte for byte.
@@ -417,7 +420,7 @@ impl ProxyService {
         peer: Peer,
         shutdown: CancellationToken,
         activity: Arc<RequestActivity>,
-        upload: UploadWatch,
+        deadlines: Arc<ExchangeDeadline>,
         first_target: Option<String>,
     ) -> Self {
         Self {
@@ -427,7 +430,7 @@ impl ProxyService {
                 peer,
                 shutdown,
                 activity,
-                upload,
+                deadlines,
                 first_target: Arc::new(Mutex::new(first_target)),
             },
         }
@@ -449,8 +452,7 @@ async fn handle(
     exchange: Exchange,
     mut req: Request<Incoming>,
 ) -> Result<Response<HopBody>, ProxyError> {
-    exchange.upload.restart();
-    let in_flight = exchange.activity.start();
+    let in_flight = InFlight::start(&exchange.activity, &exchange.deadlines);
     let head = request_head(&exchange, &req);
     if head::is_upgrade_candidate(&head) {
         return upgrade(exchange, in_flight, &mut req, head).await;
@@ -496,8 +498,9 @@ async fn forward(
     head: RequestHead,
     req: Request<Incoming>,
 ) -> Result<Response<HopBody>, ProxyError> {
-    // One deadline for the whole exchange, the upload and the answer alike.
-    let deadline = Instant::now() + REQUEST_TIMEOUT;
+    // One deadline for the whole exchange, the upload and the answer alike; the
+    // connection's task enforces it once the answer starts streaming.
+    let deadline = in_flight.deadline();
 
     let connected = tokio::time::timeout_at(deadline, TcpStream::connect(exchange.target.addr))
         .await
@@ -517,29 +520,16 @@ async fn forward(
         &head,
         &exchange.target.secret,
         &exchange.peer,
-        UploadBody::new(req.into_body(), exchange.upload.clone()),
+        req.into_body(),
     )?;
-    let sending = tokio::time::timeout_at(deadline, sender.send_request(request));
-    let client_gone = exchange.upload.client_gone();
-    let response = tokio::select! {
-        _ = client_gone.cancelled() => {
-            // Dropping the upstream guard aborts it: the upload can never end.
-            return Err(ProxyError::ClientGone);
-        }
-        sent = sending => sent
-            .map_err(|_| ProxyError::Timeout)?
-            .map_err(ProxyError::Request)?,
-    };
+    let response = tokio::time::timeout_at(deadline, sender.send_request(request))
+        .await
+        .map_err(|_| ProxyError::Timeout)?
+        .map_err(ProxyError::Request)?;
 
     let (mut parts, body) = response.into_parts();
     parts.headers = header_map(hop::response_headers(&header_pairs(&parts.headers)));
-    let answer = in_flight.track(
-        body,
-        ProxyError::Body,
-        Some(Box::pin(tokio::time::sleep_until(deadline))),
-        Some(upstream),
-        true,
-    );
+    let answer = in_flight.track(body, ProxyError::Body, Some(upstream), true);
     Ok(Response::from_parts(parts, answer.boxed_unsync()))
 }
 
@@ -547,8 +537,8 @@ fn request_head(exchange: &Exchange, req: &Request<Incoming>) -> RequestHead {
     let first = exchange
         .first_target
         .lock()
-        .ok()
-        .and_then(|mut target| target.take());
+        .unwrap_or_else(|poison| poison.into_inner())
+        .take();
     RequestHead {
         method: req.method().as_str().to_owned(),
         target: first.unwrap_or_else(|| req.uri().to_string()),
@@ -560,8 +550,8 @@ fn build_request(
     head: &RequestHead,
     secret: &HopSecret,
     peer: &Peer,
-    body: UploadBody,
-) -> Result<Request<UploadBody>, ProxyError> {
+    body: Incoming,
+) -> Result<Request<Incoming>, ProxyError> {
     let method = Method::from_bytes(head.method.as_bytes()).map_err(|_| ProxyError::Target)?;
     let target: Uri = head.target.parse().map_err(|_| ProxyError::Target)?;
     let mut request = Request::new(body);
@@ -574,7 +564,7 @@ fn build_request(
 fn answered(answer: Response<Full<Bytes>>, in_flight: InFlight) -> Response<HopBody> {
     answer.map(|body| {
         in_flight
-            .track(body, |never| match never {}, None, None, false)
+            .track(body, |never| match never {}, None, false)
             .boxed_unsync()
     })
 }
