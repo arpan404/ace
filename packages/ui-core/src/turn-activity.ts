@@ -363,9 +363,18 @@ function readRootWorking(
   const open = pending.length ? pending : [...ledgerOf(reader).pending()];
   if (open.some((interaction) => interaction.blocking && interaction.agentId === rootId))
     return undefined;
+  // The thread reads needs-you while the child asks, so the daemon holds no Working stamp; once
+  // the wait closes it stamps the turn's start (`live.turnStart`). Counting from there now keeps
+  // the time from jumping as the child's request opens and closes.
+  const live = reader.thread?.live;
+  const turnStart = live?.rootRunId ? live.turnStart?.at : undefined;
   return {
     label: options.stopping ? "Stopping…" : rootActivityLabel(status),
-    elapsedFrom: workingElapsedFrom(reader, status, false, from, idle),
+    elapsedFrom: compacting(status, false)
+      ? live?.compactingSince
+      : (liveStatusSince(live, false) ??
+        turnStart ??
+        workingElapsedFrom(reader, status, false, from, idle)),
   };
 }
 

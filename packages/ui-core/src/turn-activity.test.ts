@@ -127,6 +127,7 @@ function world(status: AgentStatus, items: Item[], interactions: Interaction[] =
   let order: readonly string[] = items.map((item) => item.id);
   let liveRunId: string | undefined;
   let compactingSince: number | undefined;
+  let turnStart: { turn: number; at: number } | undefined;
   const reader: ActivityReader = {
     get order() {
       return order;
@@ -152,6 +153,7 @@ function world(status: AgentStatus, items: Item[], interactions: Interaction[] =
               live: {
                 ...(liveRunId ? { rootRunId: liveRunId, runningSubagentCount: 0 } : {}),
                 ...(compactingSince !== undefined ? { compactingSince } : {}),
+                ...(turnStart ? { turnStart } : {}),
               },
             }
           : {}),
@@ -169,6 +171,10 @@ function world(status: AgentStatus, items: Item[], interactions: Interaction[] =
     tasks,
     liveRun: (id: string) => {
       liveRunId = id;
+    },
+    /** The daemon's stamp for when the current turn's first run started. */
+    turnStarted: (at: number) => {
+      turnStart = { turn: 1, at };
     },
     /** The daemon's stamp for when the root began compacting. */
     compactingFrom: (at: number) => {
@@ -814,4 +820,17 @@ test("while a child waits on the person, rootWorking carries the root's own work
   idleThread.subagent("auditor", { state: "blocked", on: "human", refs: ["sub-asks"] });
   idleThread.ask(approval("sub-asks", 5 * second, undefined, "auditor"));
   expect(turnActivity(idleThread.reader, "root")?.rootWorking).toBeUndefined();
+});
+
+test("the main agent's Working time doesn't move when a child's request opens or closes", () => {
+  // The turn began at 0 and the main agent waited on its own approval from 10s to 70s. Back at
+  // work, the daemon times Working from the turn's start, and does so again once a child's wait
+  // closes: while the child asks, the line counts from there too.
+  const thread = world(working, [said("ask", "user", 0)]);
+  thread.liveRun("run-1");
+  thread.turnStarted(0);
+  thread.ask(approval("root-earlier", 10 * second, 70 * second, "root"));
+  thread.subagent("auditor", { state: "blocked", on: "human", refs: ["sub-asks"] });
+  thread.ask(approval("sub-asks", 100 * second, undefined, "auditor"));
+  expect(turnActivity(thread.reader, "root")?.rootWorking?.elapsedFrom).toBe(0);
 });
