@@ -241,17 +241,27 @@ import XCTest
         profile.tap()
 
         XCTAssertTrue(element(app, labelled: "Summarise what merged each day").waitForExistence(timeout: 15))
-        XCTAssertTrue(element(app, labelled: "Morning summary").exists)
         XCTAssertTrue(element(app, labelled: "Sonnet").exists)
+        // The routines sit below the fold on a phone: the profile scrolls to them, as a person would.
+        for _ in 0..<3 where !element(app, labelled: "Morning summary").exists { app.swipeUp() }
+        XCTAssertTrue(element(app, labelled: "Morning summary").waitForExistence(timeout: 5))
         screenshot("spade-15-profile-details")
 
+        // The tabs are the profile's head; the list was scrolled to the routines, so it is taken
+        // back to them before a tab is chosen.
+        for _ in 0..<3 where !app.buttons["Library"].exists { app.swipeDown() }
         app.buttons["Library"].tap()
         XCTAssertTrue(element(app, labelled: "Keep summaries to three lines.").waitForExistence(timeout: 5))
+        // Skills sit under the Notes, Pages and Files the library keeps.
+        for _ in 0..<3 where !element(app, labelled: "Daily digest").exists { app.swipeUp() }
         XCTAssertTrue(element(app, labelled: "Daily digest").exists)
         screenshot("spade-16-profile-library")
 
+        // Back to the head for the next tab, then down to the services it runs.
+        for _ in 0..<3 where !app.buttons["Computer"].exists { app.swipeDown() }
         app.buttons["Computer"].tap()
         XCTAssertTrue(element(app, labelled: "Asleep until it's needed").waitForExistence(timeout: 5))
+        for _ in 0..<3 where !element(app, labelled: "Digest preview").exists { app.swipeUp() }
         XCTAssertTrue(element(app, labelled: "Digest preview").exists)
         screenshot("spade-17-profile-computer")
 
