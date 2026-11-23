@@ -13,7 +13,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::error::WireError;
-use crate::types::{LocalOrigin, Token};
+use crate::origin::LocalOrigin;
+use crate::types::Token;
 
 /// How long a local daemon has to accept a TCP connection before it counts as unknown (`1_000 ms`).
 pub const PROBE_TIMEOUT: Duration = Duration::from_secs(1);
