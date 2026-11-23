@@ -30,10 +30,10 @@ extension ClientModel {
             probeBrowser()
         }
     }
-    /// Start watching the open thread's browser at the view's size (points) and screen scale.
-    func openBrowser(size: CGSize, scale: CGFloat) {
-        guard let thread, let session = browserSession else { return }
-        let threadId = thread.id
+    /// Start watching the open thread's browser (or `threadId`'s, a Spade bot's hidden thread)
+    /// at the view's size (points) and screen scale.
+    func openBrowser(size: CGSize, scale: CGFloat, threadId shown: String? = nil) {
+        guard let threadId = shown ?? thread?.id, let session = browserSession else { return }
         // Acknowledgements skip the main thread: the daemon's window frees as chunks decode.
         browser.open(threadId: threadId, streams: session.browserStreams) { ack in
             var value: [String: Any] = ["kind": "ack", "sequence": ack.sequence]
