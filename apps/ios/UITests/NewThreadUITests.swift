@@ -12,15 +12,9 @@ import XCTest
         compose.tap()
         let start = app.buttons["newThread.start"]
         XCTAssertTrue(start.waitForExistence(timeout: 10))
-        let screen = app.windows.firstMatch.frame
-        // The pills wrap rather than run off the edge; Send stays reachable.
-        for identifier in ["newThread.project", "newThread.access", "newThread.agent", "newThread.start"] {
-            let button = app.buttons[identifier]
-            if button.exists {
-                XCTAssertGreaterThanOrEqual(button.frame.minX, screen.minX, identifier)
-                XCTAssertLessThanOrEqual(button.frame.maxX, screen.maxX, identifier)
-            }
-        }
+        let project = app.buttons["newThread.project"]
+        XCTAssertTrue(project.isHittable)
+        app.revealNewThreadChoice(app.buttons["newThread.agent"])
         XCTAssertTrue(start.isHittable)
         screenshot("newthread-large-text-fit")
     }
@@ -37,6 +31,7 @@ import XCTest
         app.buttons["project.ace"].tap()
         let agent = app.buttons["newThread.agent"]
         XCTAssertTrue(agent.waitForExistence(timeout: 10))
+        app.revealNewThreadChoice(agent)
         agent.tap()
         // The sheet opens where the draft runs; Claude's first account is one tap away.
         showTab(app, "claude:claude-personal")
@@ -65,6 +60,7 @@ import XCTest
         // The strip's Worktree box turns a worktree on; its base shows beside it.
         let worktree = app.buttons["newThread.worktree"]
         if worktree.waitForExistence(timeout: 10), worktree.isEnabled, worktree.value as? String == "Off" {
+            app.revealNewThreadChoice(worktree)
             worktree.tap()
             XCTAssertTrue(app.buttons["newThread.base"].waitForExistence(timeout: 10))
         }
@@ -166,6 +162,7 @@ import XCTest
         app.buttons["project.ace"].tap()
         let agent = app.buttons["newThread.agent"]
         XCTAssertTrue(agent.waitForExistence(timeout: 10))
+        app.revealNewThreadChoice(agent)
         agent.tap()
         // Codex's personal account lists many models: the lead show, the rest wait behind More models.
         showTab(app, "codex:codex-personal")
@@ -202,9 +199,10 @@ import XCTest
         // The pill names the pick with the model.
         expectation(for: NSPredicate(format: "value CONTAINS 'Fast'"), evaluatedWith: app.buttons["newThread.agent"])
         waitForExpectations(timeout: 10)
-        // Access sits beside +: its menu lists each mode with what it does.
+        // The Access chip opens the list of modes and their descriptions.
         let access = app.buttons["newThread.access"]
         XCTAssertTrue(access.waitForExistence(timeout: 15))
+        app.revealNewThreadChoice(access)
         access.tap()
         let readOnly = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Read-only")).firstMatch
         XCTAssertTrue(readOnly.waitForExistence(timeout: 5))
@@ -379,6 +377,7 @@ import XCTest
         let worktree = app.buttons["newThread.worktree"]
         XCTAssertTrue(worktree.waitForExistence(timeout: 10))
         if (worktree.value as? String)?.hasPrefix("Worktree") != true {
+            app.revealNewThreadChoice(worktree)
             worktree.tap()
             let choice = app.buttons["New worktree"].firstMatch
             XCTAssertTrue(choice.waitForExistence(timeout: 5))

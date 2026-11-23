@@ -3,9 +3,8 @@ import SwiftUI
 /// Where the New thread sheet pushes; choosing a mention pops back to the start.
 enum NewThreadRoute: Hashable { case mention, instructions, startFrom(NewThreadStartFrom.Kind) }
 
-/// New thread: a system sheet with the keyboard up at once. Cancel and its name; the choices as
-/// pills (project, machine when there's more than one, model and effort, where it runs, access);
-/// the words, taking the sheet's height; suggestions; then + · mic · Send. The bridge judges
+/// New thread opens with its choices under the title and the composer above the keyboard.
+/// The bridge judges
 /// readiness and builds `thread.create`; the draft survives the app being killed, and Send closes
 /// the sheet only once the start is saved on this phone.
 struct NewThreadSheet: View {
@@ -19,6 +18,7 @@ struct NewThreadSheet: View {
     var initialProject: (String) -> String? = { _ in nil }
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var sizeClass
     /// The machine started on last, each machine's last project and model, and each project's
     /// last picks and skills.
     private let memory = NewThreadMemoryStore.standard()
@@ -68,12 +68,13 @@ struct NewThreadSheet: View {
         guard let read = compose?.branches, read.workspaceId == draft.projectId else { return nil }
         return (read.state, read.bases, read.start, read.noWorktree)
     }
-    private var blocker: String? {
-        NewThreadGate.blocker(draft, canOperate: client?.canOperate ?? false, agent: compose?.agentsState == "ready" ? choice.agent : nil, files: files.count,
+    private var blocker: String? { startBlocker(files: 0) }
+    private func startBlocker(files: Int) -> String? {
+        NewThreadGate.blocker(draft, canOperate: client?.canOperate ?? false, agent: compose?.agentsState == "ready" ? choice.agent : nil, files: files,
                               waits: [compose?.attachments?.blocked, compose?.access?.provider == choice.agent?.provider ? compose?.access?.problem : nil])
     }
     /// A handoff asked to start and nothing holds it back.
-    private var autoSendReady: Bool { draft.autoSend && blocker == nil && !sending && files.count == draft.files.count }
+    private var autoSendReady: Bool { draft.autoSend && startBlocker(files: files.count) == nil && !sending && files.count == draft.files.count }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -84,6 +85,8 @@ struct NewThreadSheet: View {
                                   attachProblem: $attachProblem, send: send, suggester: suggester, run: runComposerAction,
                                   suggestions: suggestions, pickedSkill: { skill in memory.used(skill, in: draft); remembered += 1 },
                                   place: $place)
+                    .padding(.horizontal, ComposerCapsuleMetrics.side(sizeClass))
+                    .padding(.bottom, ReadingColumn.bar(sizeClass).bottom)
                     .task(id: suggestKey) {
                         suggester.attach(client)
                         suggester.scope = draft.projectId.flatMap { $0 == NewThreadDraft.chat ? nil : .draft(workspaceId: $0, provider: choice.agent?.provider) }
@@ -183,7 +186,7 @@ struct NewThreadSheet: View {
                        chooseBase: { base in drafts.edit { $0.base = base } },
                        chooseAccess: { mode in drafts.edit { $0.access = mode } },
                        retryBranches: readBranches)
-            .padding(.horizontal, AceDesign.Space.margin)
+            .padding(.horizontal, ComposerCapsuleMetrics.side(sizeClass))
             .padding(.top, AceDesign.Space.tight)
     }
     private var pillsModel: NewThreadPillsModel {
@@ -380,7 +383,7 @@ struct NewThreadSheet: View {
         }
     }
     private func send() {
-        guard let client, let machineId, blocker == nil, !sending else { return }
+        guard let client, let machineId, startBlocker(files: draft.autoSend ? files.count : 0) == nil, !sending else { return }
         failure = nil
         // The defaults the bridge suggested become the draft's own choices before it is sent.
         if draft.provider == nil, let agent = choice.agent, let model = choice.model {

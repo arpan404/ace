@@ -16,8 +16,7 @@ struct NativeTextInput: UIViewRepresentable {
     var card = false
     /// Whether the text has the keyboard; it opens to the writing height unless `holdsOneLine`.
     var focused = false
-    /// The thread's capsule stays one line tall with the keyboard up and grows only as the words
-    /// wrap, as Messages does; New thread's card opens to its writing height.
+    /// A capsule stays one line tall with the keyboard up and grows only as the words wrap.
     var holdsOneLine = false
     /// The text took (true) or gave up the keyboard, with the keyboard's animation duration.
     var onFocus: ((Bool, Double) -> Void)? = nil
@@ -33,11 +32,10 @@ struct NativeTextInput: UIViewRepresentable {
     var pasteFiles: (([NSItemProvider]) -> Void)? = nil
     /// A paste long enough to go as a text file (`LargePaste`); nil pastes it as words.
     var pasteLong: ((String) -> Void)? = nil
-    /// Takes all the height it is offered (New thread's page-sized field) and scrolls past it.
-    var fills = false
     /// Shown while there are no words, drawn by the text view itself so it leaves in the same
     /// frame as the first typed character and never sits under it.
     var placeholder = ""
+    var accessibleName = "Steer or follow up"
     @AppStorage("ace.keyboard.returnSends") private var returnSends = false
     @Environment(\.escape) private var escape
     func makeUIView(context: Context) -> ComposerTextView {
@@ -54,9 +52,9 @@ struct NativeTextInput: UIViewRepresentable {
         view.isScrollEnabled = true
         view.accessibilityIdentifier = identifier
         if focusOnAppear { Task { @MainActor in view.becomeFirstResponder() } }
-        view.accessibilityLabel = "Steer or follow up"
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         view.placeholder = placeholder
+        view.accessibilityLabel = accessibleName
         return view
     }
     func updateUIView(_ view: ComposerTextView, context: Context) {
@@ -77,10 +75,10 @@ struct NativeTextInput: UIViewRepresentable {
         view.textColor = UIColor(AceTheme.Colours.foreground)
         view.typingAttributes = AceDesign.inputAttributes(traits: view.traitCollection)
         view.placeholder = placeholder
+        view.accessibilityLabel = accessibleName
     }
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: ComposerTextView, context: Context) -> CGSize? {
         guard let width = proposal.width else { return nil }
-        if fills, let height = proposal.height, height.isFinite { return CGSize(width: width, height: max(height, AceDesign.Size.tap)) }
         let line = AceDesign.TextRole.rowTitle.lineHeight(at: uiView.traitCollection.preferredContentSizeCategory)
         let content = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
         let fit = ComposerFit(line: line, inset: AceDesign.Space.row * 2, minimum: AceDesign.Size.tap)

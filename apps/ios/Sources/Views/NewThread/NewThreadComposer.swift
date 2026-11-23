@@ -5,8 +5,7 @@ import SwiftUI
     static let chip = AceTheme.Typography.label
 }
 
-/// The first message: the field taking the sheet's height, the `@` and `/` lists over it, the
-/// suggestions, then + · mic · Send in one row.
+/// The first message, docked below its suggestions and attachments.
 struct NewThreadComposer: View {
     let drafts: NewThreadDraftModel
     let client: ClientModel?
@@ -42,13 +41,13 @@ struct NewThreadComposer: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            field
-                .overlay(alignment: .bottom) {
-                    if suggester.trigger != nil {
-                        ComposerSuggestionList(list: suggester.shown, pick: pick, retry: { suggester.retry() })
-                            .padding(.horizontal, AceDesign.Space.margin - AceDesign.Space.tight)
-                    }
+            GeometryReader { room in
+                if suggester.trigger != nil {
+                    ComposerSuggestionList(list: suggester.shown, pick: pick, retry: { suggester.retry() },
+                                           maxHeight: room.size.height)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
                 }
+            }
             if !files.isEmpty {
                 ComposerMediaStrip(files: files, staging: drafts.staging, inset: AceDesign.Space.margin, remove: { id in
                     client?.composeDetach(id)
@@ -62,7 +61,17 @@ struct NewThreadComposer: View {
                     .padding(.horizontal, AceDesign.Space.margin).padding(.bottom, AceDesign.Space.tight)
             }
             if let suggestions { suggestions }
-            actions
+            ComposerCapsule {
+                attach.accessibilitySortPriority(2)
+            } field: {
+                field.accessibilitySortPriority(3)
+            } trailing: {
+                if dictation.available { mic.accessibilitySortPriority(1) }
+                ComposerTrailingButton(state: .send, saving: sending, disabled: blocker != nil || sending,
+                                       label: draft.isChat ? "Start chat" : "Start thread", action: send)
+                    .accessibilityHint(blocker ?? "")
+                    .accessibilityIdentifier("newThread.start")
+            }
         }
         .onChange(of: draft.text) { _, _ in notice = nil }
         .modifier(ComposerSuggestHost(suggester: suggester, text: text, place: $place, keep: { drafts.add($0) }))
@@ -70,50 +79,33 @@ struct NewThreadComposer: View {
         .onDisappear { suggester.active = false; dictation.stop() }
     }
 
-    /// The words, on the sheet itself: no box around them, the page is the field.
     private var field: some View {
         NativeTextInput(text: text, inputBegan: {},
-                        submit: { if blocker == nil && !sending { send() } }, card: true, focused: focused,
-                        onFocus: { focus, duration in
+                        submit: { if blocker == nil && !sending { send() } },
+                        focused: focused, holdsOneLine: true,
+                        onFocus: { focus, _ in
                             if !focus { suggester.close() } else { suggester.readAhead() }
-                            withAnimation(AceDesign.Motion.keyboard(duration)) { focused = focus }
+                            focused = focus
                         },
                         identifier: "newThread.message", focusOnAppear: true,
                         onCaret: { text, caret in suggester.caretMoved(text: text, caret: caret, held: (draft.picks ?? ComposerPicks()).held) },
-                        place: place, fills: true, placeholder: draft.isChat ? "Ask anything" : "Describe a task")
-            .accessibilityLabel(draft.isChat ? "Message" : "Describe a task")
-            .padding(.horizontal, AceDesign.Space.margin)
-            .frame(maxHeight: .infinity)
+                        place: place, placeholder: dictation.listening ? "Listening…" : (draft.isChat ? "Ask anything" : "Describe a task"),
+                        accessibleName: draft.isChat ? "Message" : "Describe a task")
     }
 
-    /// + on the leading edge, the mic and Send on the trailing one.
-    private var actions: some View {
-        HStack(spacing: AceDesign.Space.related) {
-            AttachMenu(stage: { staged in
-                guard let client, let project = draft.projectId else { drafts.staging.discard(staged.localId); return }
-                drafts.picked(staged, workspaceId: project)
-                client.composeAttach(staged, workspaceId: project)
-            }, problem: $attachProblem, identifier: "newThread.attach", staging: drafts.staging,
-               more: suggester.adding, pickMore: pick, ask: $askAttach)
-            .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
-            .foregroundStyle(AceTheme.Colours.foreground)
-            .tint(AceTheme.Colours.foreground)
-            .background { NewThreadRound(fill: AceTheme.Colours.fill) }
-            // The new thread takes only the files it was sent with: none joins while it starts.
+    private var attach: some View {
+        AttachMenu(stage: { staged in
+            guard let client, let project = draft.projectId else { drafts.staging.discard(staged.localId); return }
+            drafts.picked(staged, workspaceId: project)
+            client.composeAttach(staged, workspaceId: project)
+        }, problem: $attachProblem, identifier: "newThread.attach", staging: drafts.staging,
+           more: suggester.adding, pickMore: pick, ask: $askAttach)
             .disabled(draft.projectId == nil || client?.canOperate != true || sending)
-            Spacer(minLength: AceDesign.Space.related)
-            if dictation.available { mic }
-            ComposerActionButton(saving: sending, disabled: blocker != nil || sending, label: draft.isChat ? "Start chat" : "Start thread", action: send)
-                .fixedSize()
-                .accessibilityHint(blocker ?? "").accessibilityIdentifier("newThread.start")
-        }
-        .padding(.horizontal, AceDesign.Space.margin - AceDesign.Space.tight)
-        .padding(.top, AceDesign.Space.tight)
-        .padding(.bottom, AceDesign.Space.related)
     }
 
     private var mic: some View {
-        Button {
+        ComposerTrailingButton(state: dictation.listening ? .listening : .dictate, disabled: sending,
+                               label: dictation.listening ? "Stop dictating" : "Dictate") {
             if dictation.listening { dictation.stop(); return }
             beforeDictation = draft.text
             Task<Void, Never> {
@@ -121,24 +113,8 @@ struct NewThreadComposer: View {
                     drafts.edit { $0.text = DictationText.join(beforeDictation, heard: heard) }
                 }
             }
-        } label: {
-            Group {
-                if dictation.listening {
-                    AceShape.stopGlyph.frame(width: AceDesign.Size.stopGlyph, height: AceDesign.Size.stopGlyph)
-                } else {
-                    AceIcon(.microphone, size: AceDesign.Size.sendGlyph, weight: .bold, relativeTo: .body)
-                }
-            }
-            .foregroundStyle(dictation.listening ? AceTheme.Colours.background : AceTheme.Colours.foreground)
-            .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
-            .background { NewThreadRound(fill: dictation.listening ? AceTheme.Colours.foreground : AceTheme.Colours.fill) }
-            // The whole 44-point square answers, not just the round drawn in it.
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .disabled(sending)
         .sensoryFeedback(.selection, trigger: dictation.listening)
-        .accessibilityLabel(dictation.listening ? "Stop dictating" : "Dictate")
         .accessibilityIdentifier("newThread.mic")
     }
 }
@@ -191,10 +167,4 @@ struct NewThreadInstructionsView: View {
         .onAppear(perform: reloadProfiles)
         .navigationTitle("Instructions").navigationBarTitleDisplayMode(.inline)
     }
-}
-
-/// The round behind + and the mic: Send's size, inside the same full tap.
-struct NewThreadRound: View {
-    let fill: Color
-    var body: some View { Circle().fill(fill).frame(width: AceDesign.Size.send, height: AceDesign.Size.send) }
 }

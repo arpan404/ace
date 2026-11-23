@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// The thread's composer, one Liquid Glass capsule as Messages draws it: a round glass + on its
-/// left, then the capsule holding the field and one trailing round button (`ComposerTrailing`):
+/// The thread's Liquid Glass capsule holds +, the field and one trailing button (`ComposerTrailing`):
 /// the microphone while there is nothing to send or stop, Send once there are words or chips, Stop
 /// while the tree works and the field is empty. A typed message steers or queues as the bridge
 /// directs. The words wrap and the capsule grows into a rounded shape concentric with its button,
@@ -139,19 +138,13 @@ struct ComposerView<Top: View, Leading: View>: View {
     /// get the whole width, as the web's composer holds its + inside; wrapped words make it a
     /// rounded shape whose corners stay concentric with the buttons'.
     private var capsule: some View {
-        HStack(alignment: .bottom, spacing: AceTheme.Spacing.none) {
+        ComposerCapsule {
             leading(pick)
-                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
-                .foregroundStyle(AceTheme.Colours.foreground)
-                .tint(AceTheme.Colours.foreground)
-                .buttonStyle(.plain)
+        } field: {
             input
+        } trailing: {
             action
         }
-        .frame(minHeight: AceDesign.Size.tap)
-        .aceContainerShape(AceShape.field)
-        .composerGlass(in: AceShape.field)
-        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("composer.surface")
         // A file dragged over the composer: its edge brightens where it will land.
         .overlay {
@@ -197,7 +190,6 @@ struct ComposerView<Top: View, Leading: View>: View {
                         onCaret: suggester.map { suggester in { text, caret in suggester.caretMoved(text: text, caret: caret, held: draft.picks.held) } },
                         place: place, pasteFiles: intake, pasteLong: pasteLong, placeholder: shownPlaceholder)
             .accessibilityLabel(placeholder)
-            .padding(.leading, ComposerCapsuleMetrics.fieldInset)
     }
     private var action: some View {
         ComposerTrailingButton(state: trailing, saving: draft.saving, disabled: disabled, label: label, sendGlyph: sendGlyph) {

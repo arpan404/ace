@@ -31,3 +31,15 @@ extension XCUIApplication {
         XCTFail("the app never started with its arguments \(launchArguments); it reported \(got)")
     }
 }
+
+extension XCUIApplication {
+    @MainActor func revealNewThreadChoice(_ choice: XCUIElement, towardEnd: Bool = true) {
+        XCTAssertTrue(choice.waitForExistence(timeout: 10))
+        let choices = scrollViews["newThread.choices"]
+        for _ in 0..<8 {
+            if choice.isHittable { return }
+            if towardEnd { choices.swipeLeft() } else { choices.swipeRight() }
+        }
+        XCTAssertTrue(choice.isHittable)
+    }
+}
