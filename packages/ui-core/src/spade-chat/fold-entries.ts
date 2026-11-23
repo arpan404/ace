@@ -378,3 +378,20 @@ export function closeOpen(
     if (call.reply === open.reply) state.running.delete(callId);
   state.open = undefined;
 }
+
+/**
+ * A task lane that ended (stopped, failed or done) no longer waits on what it asked here: its
+ * approvals leave, and its question cards still open close, since neither can be answered now.
+ */
+export function settleLaneAsks(state: SpadeConversationState, lane: string): void {
+  state.approvals = state.approvals.filter((approval) => approval.lane?.task !== lane);
+  for (const callId of state.laneCards.get(lane) ?? []) {
+    state.forLater.delete(callId);
+    updateQuestion(state, callId, (card) =>
+      card.standing === "waiting" || card.standing === "deferred"
+        ? { ...card, standing: "closed" }
+        : undefined,
+    );
+  }
+  state.laneCards.delete(lane);
+}

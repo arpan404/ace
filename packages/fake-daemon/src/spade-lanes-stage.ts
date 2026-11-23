@@ -200,6 +200,12 @@ export function stageFakeLanes(lanes: FakeSpadeLanes, host: FakeLanesHost, main:
   });
   // Main's own words to the task (`task_message`): the bot's, never the person's. The second was
   // written with a web page in view, so it reads as untrusted.
+  host.store(main, {
+    type: "lane_messaged",
+    lane: invoice,
+    title: "Fix the March invoice",
+    asks: [],
+  });
   host.store(invoice, {
     type: "lane_message",
     text: "Dana's team pays on the 1st, so send it before then.",

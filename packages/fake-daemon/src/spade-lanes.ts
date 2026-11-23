@@ -169,11 +169,13 @@ export class FakeSpadeLanes {
         state === "done"
           ? `the check of its goal passed (${lane.plan.length} of ${lane.plan.length} items verified).`
           : state === "failed"
-            ? `its reply failed: ${words}.`
+            ? "its reply failed."
             : state === "stopped"
               ? "it was stopped."
               : "it ended its turn with no goal checked.",
       ...(state === "stopped" ? {} : { words }),
+      // A failure's error is the endpoint's or a tool's, quoted as untrusted: never Spade's.
+      ...(state === "failed" ? { error: words, untrusted: true } : {}),
     });
   }
 

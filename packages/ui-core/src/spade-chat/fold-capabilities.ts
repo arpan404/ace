@@ -87,7 +87,9 @@ export function foldSpadeCapability(
     case "reply_moved":
       place(laneQuiet(event.lane, event.title, "moved"));
       return true;
+    // A person's reply routed to a task, or the bot's own words sent to it (`task_message`).
     case "ask_routed":
+    case "lane_messaged":
       place(laneQuiet(event.lane, event.title, "routed"));
       return true;
     case "lane_titled": {

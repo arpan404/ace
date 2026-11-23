@@ -355,6 +355,8 @@ export interface SpadeConversationState {
   question: { reply: string; callId: string } | undefined;
   /** Cards left for later and not yet answered or dismissed, by call id, oldest first. */
   forLater: Set<string>;
+  /** Each task lane's question cards asked here in main (ADR 0217 §4), by lane: closed with it. */
+  laneCards: Map<string, string[]>;
   /** Background jobs still running, by job id (the id of the call that started each). */
   jobs: Map<string, SpadeJob>;
   /** Jobs a Stop asked to end: their errored end reads as stopped, not failed. */

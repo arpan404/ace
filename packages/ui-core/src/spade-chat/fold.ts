@@ -44,6 +44,7 @@ import {
   refuseCall,
   closeReply,
   closeOpen,
+  settleLaneAsks,
 } from "./fold-entries.ts";
 
 export * from "./fold-types.ts";
@@ -63,6 +64,7 @@ export function emptySpadeConversation(): SpadeConversationState {
     outsideAsks: [],
     question: undefined,
     forLater: new Set(),
+    laneCards: new Map(),
     jobs: new Map(),
     stopping: new Set(),
     unknown: 0,
@@ -176,7 +178,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
     event.state !== "needs_you" &&
     event.state !== "stopping"
   )
-    state.approvals = state.approvals.filter((approval) => approval.lane?.task !== event.worker);
+    settleLaneAsks(state, event.worker);
   const capability = foldSpadeCapability(
     state.capabilities,
     event,
@@ -493,8 +495,11 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       };
       // A task's card stands on its own where it arrived, open until answered: no reply of main's
       // asked it, so main's turn ending never closes it.
-      if (event.lane) steer(state, { ...card, ...stamp(stored) });
-      else if (state.open?.reply === event.reply) {
+      if (event.lane) {
+        steer(state, { ...card, ...stamp(stored) });
+        const cards = state.laneCards.get(event.lane.task) ?? [];
+        state.laneCards.set(event.lane.task, [...cards, event.call_id]);
+      } else if (state.open?.reply === event.reply) {
         state.question = { reply: event.reply, callId: event.call_id };
         updateOpen(state, event.reply, (entry) => ({ ...entry, parts: [...entry.parts, card] }));
       } else steer(state, { ...card, standing: "closed", ...stamp(stored) });
