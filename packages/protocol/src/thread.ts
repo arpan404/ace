@@ -13,6 +13,7 @@ import {
   DelegatedFrom,
   QueuedLaunch,
   StartedBy,
+  TreeRootId,
 } from "./thread-transitions.ts";
 import { AcpIdentity, AcpSessionSupport } from "./agent-registry.ts";
 import { RunCheckpoints } from "./run-client.ts";
@@ -143,6 +144,11 @@ export const Thread = z.object({
    * stays a thread id so older clients still read it.
    */
   startedByClient: StartedByClient.optional(),
+  /**
+   * The top thread of this thread's agent tree, across delegations, handoffs, `thread_start`, and
+   * paired-machine delegation. Absent on a thread that is its own root.
+   */
+  treeRootId: TreeRootId.optional(),
   /** Present while the thread, delegated past its parent's run slots, waits to start. */
   queuedLaunch: QueuedLaunch.optional(),
   execution: ExecutionSelection.optional(),
