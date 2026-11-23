@@ -49,7 +49,8 @@ export function endPrompt(
           stoppable: false,
           // ace's ACP session takes no new prompt while this shell survives unconfirmed; a
           // carried one it takes prompts beside (ADR 0109).
-          ...(carried ? {} : { blocksPrompts: true as const }),
+          // A carried shell ends only with the session: a whole-thread Stop closes it for that.
+          ...(carried ? { endsWithSession: true as const } : { blocksPrompts: true as const }),
           raw: [...tool.raw],
         });
       }

@@ -42,6 +42,12 @@ export const BackgroundTask = z.object({
    * ADR 0109): it keeps the thread waiting even after the agent's turn finished (ADR 0116).
    */
   blocksPrompts: z.literal(true).optional(),
+  /**
+   * The provider can't stop it alone, but ending its session does: an ACP shell the agent keeps
+   * open across turns (ADR 0109). A whole-thread Stop gives it a grace to end, then closes the
+   * session (ADR 0052).
+   */
+  endsWithSession: z.literal(true).optional(),
   /** File the provider writes the task's output to, if any. */
   outputPath: z.string().optional(),
   /** Tool call that started it. */
