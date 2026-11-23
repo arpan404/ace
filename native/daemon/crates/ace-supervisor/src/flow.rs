@@ -1,31 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The reader's side of `OutputFlow` (`flow-control.ts`). The owner's room is a
-//! JavaScript promise the shell owns; what stays here is the guard both readers
-//! run: one drain at a time, pause the transport while the owner is full, stop
-//! for cancellation instead of waiting, and fail once.
-
-/// What a reader may do now.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FlowDecision {
-    /// The owner has room: read.
-    Read,
-    /// The owner is full but the session is live: wait for its promise.
-    Wait,
-    /// The session was cancelled: stop waiting and read to EOF.
-    Cancelled,
-}
-
-/// `waitForOutput`'s order: cancellation is checked before and after the wait,
-/// and a live owner that is not full needs no wait at all.
-pub fn wait_decision(cancelled: bool, paused: bool) -> FlowDecision {
-    if cancelled {
-        FlowDecision::Cancelled
-    } else if paused {
-        FlowDecision::Wait
-    } else {
-        FlowDecision::Read
-    }
-}
+//! The reader's side of `OutputFlow` (`flow-control.ts`). The owner's room and its
+//! wait are a JavaScript promise and an AbortSignal the shell owns; what stays
+//! here is the guard both readers run: one drain at a time, pause the transport
+//! while the owner is full, and fail once. Cancellation is the shell's check
+//! (before and after the wait, as `waitForOutput` does), which is also what lets
+//! a cancelled session read to EOF instead of waiting.
 
 /// The drain guard shared by the line and JSONL readers: re-entrant drains are
 /// refused, a blocked drain waits for the flow promise, and a failed or detached
@@ -68,27 +47,14 @@ impl ReaderFlow {
         self.blocked = false;
     }
 
-    /// The owner has room again; the shell may resume its transport.
-    pub fn is_blocked(&self) -> bool {
-        self.blocked
-    }
-
     /// Refuse everything after a framing or stream failure.
     pub fn fail(&mut self) {
         self.failed = true;
         self.draining = false;
     }
 
-    pub fn is_failed(&self) -> bool {
-        self.failed
-    }
-
     /// The caller detached its listeners; nothing may be delivered afterwards.
     pub fn detach(&mut self) {
         self.detached = true;
-    }
-
-    pub fn is_detached(&self) -> bool {
-        self.detached
     }
 }

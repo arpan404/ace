@@ -589,27 +589,12 @@ impl ReaderFlowNative {
     }
 
     #[napi(catch_unwind)]
-    pub fn is_blocked(&self) -> bool {
-        self.inner.is_blocked()
-    }
-
-    #[napi(catch_unwind)]
     pub fn fail(&mut self) {
         self.inner.fail();
     }
 
     #[napi(catch_unwind)]
-    pub fn is_failed(&self) -> bool {
-        self.inner.is_failed()
-    }
-
-    #[napi(catch_unwind)]
     pub fn detach(&mut self) {
         self.inner.detach();
-    }
-
-    #[napi(catch_unwind)]
-    pub fn is_detached(&self) -> bool {
-        self.inner.is_detached()
     }
 }

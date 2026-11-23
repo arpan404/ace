@@ -116,11 +116,8 @@ interface StreamsAddon {
     endDrain(): void;
     block(): void;
     unblock(): void;
-    isBlocked(): boolean;
     fail(): void;
-    isFailed(): boolean;
     detach(): void;
-    isDetached(): boolean;
   };
 }
 
