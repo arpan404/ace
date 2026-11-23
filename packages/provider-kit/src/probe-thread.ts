@@ -5,7 +5,8 @@ import { IdleWorker, type IdleWorkerRuntime } from "./idle-worker.ts";
 import { OutputLimitError } from "./output-budget.ts";
 import { ProbeReply, type ProbeRequest } from "./probe-messages.ts";
 import { z } from "zod";
-import { admitProcess, killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
+import { admitProcess, registerGroup, unregisterGroup } from "./process-owner.ts";
+import { reportedGroup, signalSoon, type LeaderGroup } from "./leader-group.ts";
 import { requestOwner, unscoped, type RequestOwner } from "./unscoped.ts";
 import { markedEnv } from "./process-marker.ts";
 
@@ -28,9 +29,13 @@ const runtime: IdleWorkerRuntime = {
   now: () => performance.now(),
 };
 
-function stopGroup(pid: number): void {
+/**
+ * The worker may already have reaped the probe when this thread acts, so its group is signalled
+ * through the identity the worker read at spawn; without one, only the worker stops it.
+ */
+function stopGroup(group: LeaderGroup | undefined): void {
   try {
-    killGroup(pid, "SIGKILL");
+    if (group) signalSoon(group, "SIGKILL");
   } catch {
     // A group this daemon can no longer signal is not one it can stop.
   }
@@ -47,6 +52,7 @@ const ProbeAddress = z.object({
 type Flight = {
   id: number;
   pid?: number;
+  group?: LeaderGroup;
   stopping: boolean;
   /** Set when the worker sent a reply this thread can't read; the probe fails with it. */
   failure?: Error;
@@ -73,7 +79,7 @@ export function createProbeThread(
   const stop = (flight: Flight) => {
     const first = !flight.stopping;
     flight.stopping = true;
-    if (flight.pid !== undefined) stopGroup(flight.pid);
+    stopGroup(flight.group);
     try {
       worker.postMessage({ type: "stop", id: flight.id });
     } catch {
@@ -96,7 +102,7 @@ export function createProbeThread(
   };
   const fail = (error: Error) => {
     for (const flight of flights.values()) {
-      if (flight.pid !== undefined) stopGroup(flight.pid);
+      stopGroup(flight.group);
       end(flight);
       flight.done.reject(error);
     }
@@ -135,20 +141,24 @@ export function createProbeThread(
     const flight = flights.get(message.data.id);
     if (!flight) return;
     if (message.data.type === "spawned") {
-      const { pid, unique } = message.data;
+      const { pid, unique, start } = message.data;
       flight.pid = pid;
+      const group = start === undefined ? undefined : reportedGroup({ pid, start, unique });
+      if (group) flight.group = group;
       try {
-        registerGroup(pid, () => stop(flight), {
-          name: "cli-probe",
-          ...(unique ? { unique } : {}),
-        });
+        registerGroup(
+          pid,
+          () => stop(flight),
+          { name: "cli-probe", ...(unique ? { unique } : {}) },
+          () => stopGroup(group),
+        );
       } catch {
         // Unrecorded, it must not outlive this probe.
         flight.stopping = true;
       }
       // Owned by pid now; the admission that covered the gap is no longer needed.
       flight.release();
-      if (flight.stopping) stopGroup(pid);
+      if (flight.stopping) stopGroup(group);
       return;
     }
     const { type: _type, id: _id, ...exit } = message.data;

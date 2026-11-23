@@ -30,7 +30,13 @@ export const WorkerInput = z.discriminatedUnion("type", [
   }),
 ]);
 export const WorkerOutput = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("git-group"), pid: z.number().int().positive(), active: z.boolean() }),
+  z.object({
+    type: z.literal("git-group"),
+    pid: z.number().int().positive(),
+    active: z.boolean(),
+    /** The Git child's kernel start, read right after its spawn, before it can be reaped. */
+    start: z.string().min(1).max(64).optional(),
+  }),
   z.object({ type: z.literal("closed") }),
   z.object({ type: z.literal("result"), key, result: CommandResult }),
   z.object({

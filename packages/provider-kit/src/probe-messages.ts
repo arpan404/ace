@@ -24,6 +24,8 @@ export const ProbeReply = z.discriminatedUnion("type", [
       .string()
       .regex(/^\d{1,20}$/)
       .optional(),
+    /** The probe's kernel start, read before it can exit: its group is signalled only while it holds. */
+    start: z.string().min(1).max(64).optional(),
   }),
   z.object({
     type: z.literal("exit"),

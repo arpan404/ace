@@ -2,6 +2,7 @@ import { channel } from "node:diagnostics_channel";
 import { delimiter } from "node:path";
 import { unscoped } from "./unscoped.ts";
 import { Worker, type WorkerOptions } from "node:worker_threads";
+import { serveWorkerSignals } from "./signal-relay.ts";
 
 /**
  * Where a benchmark names its measurement preloads (paths joined with the path delimiter) for
@@ -36,6 +37,8 @@ export function startWorker(
   options: WorkerOptions = {},
   env: NodeJS.ProcessEnv = process.env,
 ): Worker {
+  // A worker may start and stop processes: the signals it relays are answered from here.
+  serveWorkerSignals();
   const preload = env[workerPreloadVariable]?.split(delimiter).filter(Boolean) ?? [];
   const bun = process.versions.bun !== undefined;
   // A worker belongs to no caller: its events never run in the context of whoever started it.

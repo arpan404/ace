@@ -46,7 +46,14 @@ export function createProbeRunner(
       // Read here, right after the spawn: by the time the owner hears of it the probe may have
       // exited and been reaped, and what it started could no longer be traced to it.
       const unique = systemListing.ancestry?.(proc.pid)?.unique;
-      reply({ type: "spawned", id, pid: proc.pid, ...(unique ? { unique } : {}) });
+      const start = systemListing.info(proc.pid)?.start;
+      reply({
+        type: "spawned",
+        id,
+        pid: proc.pid,
+        ...(unique ? { unique } : {}),
+        ...(start ? { start } : {}),
+      });
     }
     // Read-only probes never write: EOF stdin so a CLI waiting on input exits.
     proc.stdin.end();

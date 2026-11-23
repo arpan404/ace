@@ -3,7 +3,11 @@ import type {
   MutationCleanupSupervisor,
   MutationLease,
 } from "@ace/provider-kit/cleanup";
-import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from "node:child_process";
+import type {
+  ChildProcess,
+  ChildProcessWithoutNullStreams,
+  SpawnOptionsWithoutStdio,
+} from "node:child_process";
 
 /** A durable mutation intent ace retired, and why: for the host's log. */
 export interface RetiredLease {
@@ -35,17 +39,22 @@ export interface GitProcessRuntime {
   ) => ChildProcessWithoutNullStreams;
   scheduleTimeout: (callback: () => void, milliseconds: number) => () => void;
   platform: NodeJS.Platform;
-  signalGroup: (pid: number, signal: NodeJS.Signals) => void;
-  /** Whether any process of the POSIX process group led by `pid` is alive. */
-  groupAlive: (pid: number) => boolean;
+  /**
+   * Signal the POSIX process group `child` (whose pid is `pid`) leads. The default refuses a
+   * call without the child: a bare pid may by now name a newer process's group.
+   */
+  signalGroup: (pid: number, signal: NodeJS.Signals, child?: ChildProcess) => void;
+  /** Whether any process of the POSIX process group led by `pid` (`child`, when known) is alive. */
+  groupAlive: (pid: number, child?: ChildProcess) => boolean;
   /** Every live Git process and its working directory; `undefined` when it can't be listed. */
   gitProcesses: () => Promise<readonly { pid: number; cwd?: string | undefined }[] | undefined>;
   /**
    * The executable a bare `git` would end up running, when starting it directly is cheaper than
    * going through a launcher (macOS's `/usr/bin/git` shim); undefined to keep running `git`.
-   * Only consulted when no `gitBinary` is configured.
+   * Only consulted when no `gitBinary` is configured. `signal` abandons the lookup (and its
+   * launcher process) on the caller's deadline.
    */
-  locateGit: (env: NodeJS.ProcessEnv) => Promise<string | undefined>;
+  locateGit: (env: NodeJS.ProcessEnv, signal?: AbortSignal) => Promise<string | undefined>;
   /**
    * The filesystem's wall clock in epoch milliseconds, to tell how long ago a file's timestamps
    * were set. Separate from `GitOptions.now`, which dates what ace records.

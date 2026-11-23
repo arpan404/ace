@@ -97,6 +97,7 @@ async function batches(
 
 /** Git failures a person can act on, in their words; the rest are `import_failed`. */
 const gitFailures: Partial<Record<string, { code: string; message: string }>> = {
+  git_cancelled: { code: "transfer_cancelled", message: "The transfer was cancelled." },
   ref_conflict: {
     code: "branch_unavailable",
     message: "The branch's name and every name it could land under are taken on this machine.",
