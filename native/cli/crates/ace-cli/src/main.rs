@@ -21,12 +21,11 @@ fn main() -> ExitCode {
     let os_args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     let args: Vec<Cow<'_, str>> = os_args.iter().map(|arg| arg.to_string_lossy()).collect();
     let line: Vec<&str> = args.iter().map(AsRef::as_ref).collect();
-    let exe = std::env::current_exe().unwrap_or_default();
     let stdout = io::stdout();
     let stderr = io::stderr();
     let mut out = Out::new(stdout.lock());
     let mut err = Out::new(stderr.lock());
-    let outcome = run::run(&exe, &line, &mut out, &mut err);
+    let outcome = run::run(&line, &mut out, &mut err);
     let _ = out.flush();
     let _ = err.flush();
     ExitCode::from(outcome.exit_code())

@@ -50,6 +50,18 @@ pub fn is_release_version(value: &str) -> bool {
     index > start
 }
 
+/// This process's version. The binary's own path is only read when no `ACE_VERSION` is stamped,
+/// so help and version touch no file system at all in a release.
+#[must_use]
+pub fn current() -> String {
+    let stamped = std::env::var("ACE_VERSION").ok();
+    if stamped.is_some() {
+        return version(stamped.as_deref(), Path::new(""));
+    }
+    let exe = std::env::current_exe().unwrap_or_default();
+    version(None, &exe)
+}
+
 /// The version the binary was built or installed as.
 #[must_use]
 pub fn version(stamped: Option<&str>, exe: &Path) -> String {

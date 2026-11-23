@@ -3,7 +3,6 @@
 //! names here, or hand it to the bundle. Pure decisions; all I/O is passed in.
 
 use std::io::{IsTerminal as _, Write};
-use std::path::Path;
 
 use cli_out::{
     Env, Failure, Flags, Out, Outcome, OutputMode, Stream, Terminal, WriteError, can_prompt,
@@ -15,19 +14,14 @@ use crate::offline::{home, run_complete, run_completion, run_help, run_version};
 use crate::{handover, help, help_json};
 
 /// Runs one command line, returning the outcome whose exit code ends the process.
-pub fn run<W: Write, E: Write>(
-    exe: &Path,
-    argv: &[&str],
-    out: &mut Out<W>,
-    err: &mut Out<E>,
-) -> Outcome {
+pub fn run<W: Write, E: Write>(argv: &[&str], out: &mut Out<W>, err: &mut Out<E>) -> Outcome {
     match parse(argv) {
         ParseResult::Usage(usage) => {
             let failure = failure_from(usage);
             fail(out, err, None, argv, &failure)
         }
         ParseResult::Noun(noun) => noun_page(&noun, out, err, argv),
-        ParseResult::Command(parsed) => command(exe, &parsed, out, err, argv),
+        ParseResult::Command(parsed) => command(&parsed, out, err, argv),
     }
 }
 
@@ -146,7 +140,6 @@ pub(crate) fn finish<W: Write, E: Write>(
 }
 
 fn command<W: Write, E: Write>(
-    exe: &Path,
     parsed: &Parsed<'_>,
     out: &mut Out<W>,
     err: &mut Out<E>,
@@ -158,10 +151,10 @@ fn command<W: Write, E: Write>(
     }
     // `--help` and `--version` answer before anything runs, whatever command they follow.
     if let Some(words) = early_help(parsed) {
-        return run_help(exe, &words, parsed, out, err, argv);
+        return run_help(&words, parsed, out, err, argv);
     }
     if early_version(parsed) {
-        return run_version(exe, parsed, out, err);
+        return run_version(parsed, out, err);
     }
     // An old spelling's notice or refusal belongs to the command it reaches; unported, it is
     // the bundle's to print, once.
@@ -172,12 +165,12 @@ fn command<W: Write, E: Write>(
         return missing_argument(parsed, out, err, argv);
     }
     match parsed.command.id {
-        "home" => home(exe, parsed, out, err, argv),
+        "home" => home(parsed, out, err, argv),
         "help" => {
             let words = parsed.words.clone();
-            run_help(exe, &words, parsed, out, err, argv)
+            run_help(&words, parsed, out, err, argv)
         }
-        "version" => run_version(exe, parsed, out, err),
+        "version" => run_version(parsed, out, err),
         "completion" => run_completion(parsed, out, err, argv),
         "complete" => run_complete(parsed, out, err, argv),
         _ => hand_over(&parsed.flags, out, err, argv),

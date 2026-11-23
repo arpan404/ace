@@ -12,7 +12,6 @@ use crate::run::{emit_text, fail, finish, hand_over, terminal, write_failed};
 use crate::{completion, help, help_json, version};
 
 pub(crate) fn run_help<W: Write, E: Write>(
-    exe: &Path,
     words: &[&str],
     parsed: &Parsed<'_>,
     out: &mut Out<W>,
@@ -32,7 +31,7 @@ pub(crate) fn run_help<W: Write, E: Write>(
             return finish(out.json(&help_json::command_json(command)), out, err);
         }
         if words.is_empty() {
-            let version = version::version(std::env::var("ACE_VERSION").ok().as_deref(), exe);
+            let version = version::current();
             return finish(out.json(&help_json::tree(&version)), out, err);
         }
         return finish(
@@ -49,12 +48,11 @@ pub(crate) fn run_help<W: Write, E: Write>(
 }
 
 pub(crate) fn run_version<W: Write, E: Write>(
-    exe: &Path,
     parsed: &Parsed<'_>,
     out: &mut Out<W>,
     err: &mut Out<E>,
 ) -> Outcome {
-    let value = version::version(std::env::var("ACE_VERSION").ok().as_deref(), exe);
+    let value = version::current();
     let result = match output_mode(&parsed.flags) {
         OutputMode::Json => out.json(&VersionValue { version: &value }),
         OutputMode::Human | OutputMode::Quiet => out.line(&value),
@@ -68,7 +66,6 @@ struct VersionValue<'a> {
 }
 
 pub(crate) fn home<W: Write, E: Write>(
-    exe: &Path,
     parsed: &Parsed<'_>,
     out: &mut Out<W>,
     err: &mut Out<E>,
@@ -80,7 +77,7 @@ pub(crate) fn home<W: Write, E: Write>(
         return hand_over(&parsed.flags, out, err, argv);
     }
     if output_mode(&parsed.flags) == OutputMode::Json {
-        let version = version::version(std::env::var("ACE_VERSION").ok().as_deref(), exe);
+        let version = version::current();
         return finish(out.json(&help_json::tree(&version)), out, err);
     }
     finish(
