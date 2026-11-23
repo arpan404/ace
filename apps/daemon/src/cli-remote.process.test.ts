@@ -6,12 +6,30 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { prepareDaemonHome } from "@ace/service";
 import { setup, identity } from "./remote-test-support.ts";
+// The Rust binary under test, mirroring the switch in cli/pty-test-support.ts.
+const rust = process.env.ACE_CLI_IMPL === "rust";
+const rustBin =
+  process.env.ACE_CLI_BIN ??
+  fileURLToPath(new URL("../../../native/cli/target/debug/ace", import.meta.url));
+const cliEntry = fileURLToPath(new URL("./cli.ts", import.meta.url));
 async function invoke(home: string, args: string[], env: NodeJS.ProcessEnv = {}, stdin = "") {
-  const child = spawn(
-    process.execPath,
-    [fileURLToPath(new URL("./cli.ts", import.meta.url)), ...args],
-    { env: { ...process.env, ...env, ACE_HOME: home }, stdio: ["pipe", "pipe", "pipe"] },
-  );
+  const child = rust
+    ? // The bundle is reached through the development override, so a handed-over command
+      // runs the same TypeScript entry as without the switch.
+      spawn(rustBin, args, {
+        env: {
+          ...process.env,
+          ...env,
+          ACE_HOME: home,
+          ACE_CLI_NODE: process.execPath,
+          ACE_CLI_ENTRY: cliEntry,
+        },
+        stdio: ["pipe", "pipe", "pipe"],
+      })
+    : spawn(process.execPath, [cliEntry, ...args], {
+        env: { ...process.env, ...env, ACE_HOME: home },
+        stdio: ["pipe", "pipe", "pipe"],
+      });
   let stdout = "";
   let stderr = "";
   child.stdout.on("data", (chunk: Buffer) => {
