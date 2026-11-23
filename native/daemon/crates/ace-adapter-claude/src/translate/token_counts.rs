@@ -44,6 +44,10 @@ fn opt_count(obj: &serde_json::Map<String, Value>, key: &str) -> Option<Option<i
 }
 
 pub fn token_counts(data: &Value) -> Option<TokenCounts> {
+    // The TypeScript schema is an object: anything else fails the sample.
+    if !matches!(data, Value::Object(_)) {
+        return None;
+    }
     let obj = object(data);
     let input = match obj.get("input_tokens") {
         None => 0,

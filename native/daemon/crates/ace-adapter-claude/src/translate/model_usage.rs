@@ -98,6 +98,12 @@ pub(crate) fn parse_model_usage(value: &Value) -> Option<ModelMap> {
 
         let mut kept = Map::new();
 
+        // contextWindow is passthrough in the TypeScript schema: validated
+        // above, then read back for the agent-scope usage fact.
+        if let Some(Value::Number(n)) = eobj.get("contextWindow") {
+            kept.insert("contextWindow".to_owned(), Value::Number(n.clone()));
+        }
+
         kept.insert("inputTokens".to_owned(), Value::Number(input_tokens.into()));
 
         kept.insert(

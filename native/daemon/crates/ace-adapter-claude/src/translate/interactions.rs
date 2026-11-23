@@ -2,7 +2,6 @@
 //! Interaction requests and resolutions (the port of `interactions.ts`).
 
 use serde_json::{Map, Value};
-use std::collections::HashSet;
 
 use super::json::{list, object, str_of};
 
@@ -159,11 +158,14 @@ pub fn request_for(name: &str, input: &Value, options: &Value) -> Value {
         return Value::Object(map);
     }
     let suggestions = list(options_obj.get("suggestions").unwrap_or(&Value::Null));
-    let mut destinations = HashSet::new();
+    // First-seen destination order, like the TypeScript Set spread
+    // (missing destinations read as "" and fail the grant check there).
+    let mut destinations: Vec<String> = Vec::new();
     for value in suggestions {
-        destinations.insert(str_of(
-            object(value).get("destination").unwrap_or(&Value::Null),
-        ));
+        let d = str_of(object(value).get("destination").unwrap_or(&Value::Null));
+        if !destinations.contains(&d) {
+            destinations.push(d);
+        }
     }
     let known = [
         "session",
@@ -243,21 +245,19 @@ pub fn request_for(name: &str, input: &Value, options: &Value) -> Value {
         option_value("deny", "Deny", "deny"),
     ];
     if grant {
-        let mut dests: Vec<&str> = destinations.iter().map(|s| s.as_str()).collect();
-        dests.sort();
         let label = format!(
             "Allow and update {}",
-            dests
+            destinations
                 .iter()
                 .map(|d| labels
                     .iter()
                     .find(|(k, _)| k == d)
                     .map(|(_, v)| *v)
-                    .unwrap_or(*d))
+                    .unwrap_or(d.as_str()))
                 .collect::<Vec<_>>()
                 .join(" and ")
         );
-        let kind = if destinations.len() == 1 && destinations.contains("session") {
+        let kind = if destinations.len() == 1 && destinations.contains(&"session".to_owned()) {
             "allow_session"
         } else {
             "allow_always"

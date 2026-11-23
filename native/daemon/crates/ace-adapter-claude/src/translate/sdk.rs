@@ -85,10 +85,9 @@ pub(crate) fn sdk_translator(
         }
         if subtype == "api_retry" {
             let error = str_of(obj.get("error").unwrap_or(&Value::Null));
-            let on = if obj.get("error_status").is_none() {
-                "network"
-            } else {
-                "upstream"
+            let on = match obj.get("error_status") {
+                None | Some(Value::Null) => "network",
+                _ => "upstream",
             };
             t.state.retry_on = Some(on.to_owned());
             let attempt = number(obj.get("attempt").unwrap_or(&Value::Null));
