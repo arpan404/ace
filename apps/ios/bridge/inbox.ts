@@ -26,6 +26,7 @@ import { z } from "zod";
 import { host, scheduler } from "./host.ts";
 import { preview } from "./presentation.ts";
 import { refusalWords } from "@ace/ui-core/transfers";
+import { followUsageBars } from "./usage-bars.ts";
 import { followAccounts } from "./inbox-accounts.ts";
 import { chatsLayout, inboxLayout, inboxRow, type InboxClock } from "./inbox-rows.ts";
 import { followCheckpoint, inboxCheckpoint } from "./inbox-checkpoint.ts";
@@ -362,6 +363,7 @@ export function followInbox(
   };
   const stops = [
     accounts.stop,
+    followUsageBars(owner, pump, { now: clock.now, set: scheduler.set }),
     agentUse.stop,
     // A pin or move shows on its row, and moves it, before the daemon confirms it.
     organizer.observe((id) => {
