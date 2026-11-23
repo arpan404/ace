@@ -18,7 +18,7 @@ impl PiTranslator {
         self.deadline = best;
     }
 
-    pub(super) fn raw_diag(&self, data: &serde_json::value::RawValue) -> String {
+    pub(super) fn raw_diag(&self, data: &ace_json::Raw) -> String {
         super::facts::raw_json(&raw_type_of(data, "unknown"), data)
             .unwrap_or_else(|| "{\"type\":\"unknown\"}".to_owned())
     }
@@ -26,7 +26,7 @@ impl PiTranslator {
     pub(super) fn notice(
         &self,
         seq: u64,
-        data: &serde_json::value::RawValue,
+        data: &ace_json::Raw,
         text: &str,
         level: &str,
     ) -> Option<Fact> {
@@ -91,7 +91,7 @@ impl PiTranslator {
     pub(super) fn unanswerable(
         &mut self,
         seq: u64,
-        data: &serde_json::value::RawValue,
+        data: &ace_json::Raw,
     ) -> Vec<Fact> {
         self.poisoned = true;
         let mut out = Vec::new();

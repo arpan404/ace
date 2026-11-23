@@ -6,7 +6,7 @@ use crate::translate::state::TranslationState;
 use crate::translate::tool_raw::retain_tool_raw;
 use crate::translate::tool_text::todos;
 use crate::translate::update::{plan_update, waits_on_background_child};
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 /// Handle message chunks, plan tool refreshes and usage updates.
 /// Returns true when the frame is handled, false for usage (which also notes).
@@ -38,21 +38,21 @@ pub fn handle_stream(
         };
         if kind == "user_message_chunk" && input_key.is_some() && state.prompt_open {
             let mut draft = Map::with_capacity(3);
-            draft.insert("type".to_owned(), Value::String("message".to_owned()));
-            draft.insert("role".to_owned(), Value::String("user".to_owned()));
+            draft.insert("type".to_owned(), Value::from("message".to_owned()));
+            draft.insert("role".to_owned(), Value::from("user".to_owned()));
             draft.insert(
                 "raw".to_owned(),
-                Value::Array(vec![raw(frame, "session/update", None)]),
+                Value::from(vec![raw(frame, "session/update", None)]),
             );
             let mut fact = Map::with_capacity(4);
             fact.insert(
                 "type".to_owned(),
-                Value::String("item.reconciled".to_owned()),
+                Value::from("item.reconciled".to_owned()),
             );
-            fact.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
+            fact.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
             fact.insert(
                 "item".to_owned(),
-                Value::String(input_key.unwrap_or_default()),
+                Value::from(input_key.unwrap_or_default()),
             );
             fact.insert("draft".to_owned(), Value::Object(draft));
             facts.push(Value::Object(fact));
@@ -146,33 +146,33 @@ pub fn handle_stream(
         {
             let mut draft = Map::with_capacity(4);
             if thought {
-                draft.insert("type".to_owned(), Value::String("reasoning".to_owned()));
+                draft.insert("type".to_owned(), Value::from("reasoning".to_owned()));
                 draft.insert(
                     "raw".to_owned(),
-                    Value::Array(vec![raw(frame, "session/update", None)]),
+                    Value::from(vec![raw(frame, "session/update", None)]),
                 );
                 draft.insert("complete".to_owned(), Value::Bool(false));
                 // Order: type, raw, complete (as TS literal order).
                 let mut ordered = Map::with_capacity(3);
-                ordered.insert("type".to_owned(), Value::String("reasoning".to_owned()));
+                ordered.insert("type".to_owned(), Value::from("reasoning".to_owned()));
                 ordered.insert(
                     "raw".to_owned(),
-                    Value::Array(vec![raw(frame, "session/update", None)]),
+                    Value::from(vec![raw(frame, "session/update", None)]),
                 );
                 ordered.insert("complete".to_owned(), Value::Bool(false));
                 let mut fact = Map::with_capacity(4);
-                fact.insert("type".to_owned(), Value::String("item.upsert".to_owned()));
-                fact.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
-                fact.insert("item".to_owned(), Value::String(stream.key.clone()));
+                fact.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+                fact.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
+                fact.insert("item".to_owned(), Value::from(stream.key.clone()));
                 fact.insert("draft".to_owned(), Value::Object(ordered));
                 facts.push(Value::Object(fact));
                 let _ = draft;
             } else {
                 let mut ordered = Map::with_capacity(5);
-                ordered.insert("type".to_owned(), Value::String("message".to_owned()));
+                ordered.insert("type".to_owned(), Value::from("message".to_owned()));
                 ordered.insert(
                     "role".to_owned(),
-                    Value::String(
+                    Value::from(
                         if kind == "user_message_chunk" {
                             "user"
                         } else {
@@ -185,18 +185,18 @@ pub fn handle_stream(
                     let parts =
                         crate::translate::content::decode_content(&Value::Object(content.clone()));
                     if !parts.is_empty() {
-                        ordered.insert("parts".to_owned(), Value::Array(parts));
+                        ordered.insert("parts".to_owned(), Value::from(parts));
                     }
                 }
                 ordered.insert(
                     "raw".to_owned(),
-                    Value::Array(vec![raw(frame, "session/update", None)]),
+                    Value::from(vec![raw(frame, "session/update", None)]),
                 );
                 ordered.insert("complete".to_owned(), Value::Bool(false));
                 let mut fact = Map::with_capacity(4);
-                fact.insert("type".to_owned(), Value::String("item.upsert".to_owned()));
-                fact.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
-                fact.insert("item".to_owned(), Value::String(stream.key.clone()));
+                fact.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+                fact.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
+                fact.insert("item".to_owned(), Value::from(stream.key.clone()));
                 fact.insert("draft".to_owned(), Value::Object(ordered));
                 facts.push(Value::Object(fact));
             }
@@ -204,14 +204,14 @@ pub fn handle_stream(
         if content.get("type").and_then(Value::as_str) == Some("text") {
             let text = string(content.get("text").unwrap_or(&Value::Null)).to_owned();
             let mut delta = Map::with_capacity(5);
-            delta.insert("type".to_owned(), Value::String("item.delta".to_owned()));
-            delta.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
-            delta.insert("item".to_owned(), Value::String(stream.key.clone()));
+            delta.insert("type".to_owned(), Value::from("item.delta".to_owned()));
+            delta.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
+            delta.insert("item".to_owned(), Value::from(stream.key.clone()));
             delta.insert(
                 "field".to_owned(),
-                Value::String(if thought { "reasoning" } else { "text" }.to_owned()),
+                Value::from(if thought { "reasoning" } else { "text" }.to_owned()),
             );
-            delta.insert("append".to_owned(), Value::String(text.clone()));
+            delta.insert("append".to_owned(), Value::from(text.clone()));
             facts.push(Value::Object(delta));
             if !thought && kind != "user_message_chunk" {
                 let append_len = text.len().min(8192);
@@ -264,21 +264,21 @@ pub fn handle_stream(
             }
             if let Some(tool) = state.tools.get(&plan_tool) {
                 let mut detail = Map::with_capacity(2);
-                detail.insert("kind".to_owned(), Value::String("plan".to_owned()));
+                detail.insert("kind".to_owned(), Value::from("plan".to_owned()));
                 detail.insert(
                     "todos".to_owned(),
-                    Value::Array(todos(update_map.get("entries").unwrap_or(&Value::Null))),
+                    Value::from(todos(update_map.get("entries").unwrap_or(&Value::Null))),
                 );
                 let mut call = Map::with_capacity(2);
                 call.insert("detail".to_owned(), Value::Object(detail));
-                call.insert("raw".to_owned(), Value::Array(tool.raw.clone()));
+                call.insert("raw".to_owned(), Value::from(tool.raw.clone()));
                 let mut draft = Map::with_capacity(2);
-                draft.insert("type".to_owned(), Value::String("tool_call".to_owned()));
+                draft.insert("type".to_owned(), Value::from("tool_call".to_owned()));
                 draft.insert("call".to_owned(), Value::Object(call));
                 let mut fact = Map::with_capacity(4);
-                fact.insert("type".to_owned(), Value::String("item.upsert".to_owned()));
-                fact.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
-                fact.insert("item".to_owned(), Value::String(tool.key.clone()));
+                fact.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+                fact.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
+                fact.insert("item".to_owned(), Value::from(tool.key.clone()));
                 fact.insert("draft".to_owned(), Value::Object(draft));
                 facts.push(Value::Object(fact));
             }
@@ -304,8 +304,8 @@ pub fn handle_stream(
             && matches!(output, Some(Value::Number(number)) if number.as_i64().is_some_and(|n| n >= 0));
         if valid {
             let mut fact = Map::with_capacity(4);
-            fact.insert("type".to_owned(), Value::String("usage".to_owned()));
-            fact.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
+            fact.insert("type".to_owned(), Value::from("usage".to_owned()));
+            fact.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
             fact.insert(
                 "inputTokens".to_owned(),
                 input.cloned().unwrap_or(Value::Null),

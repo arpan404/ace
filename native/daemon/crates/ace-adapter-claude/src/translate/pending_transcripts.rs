@@ -4,7 +4,7 @@
 //! for the binding; a conservative placeholder task keeps the thread from
 //! reading done.
 
-use serde_json::Value;
+use ace_json::Value;
 use std::collections::{HashMap, HashSet};
 
 use super::frame::{FrameView, OwnedFrame};
@@ -114,7 +114,7 @@ impl PendingTranscripts {
         }
         let bytes = match frame.payload_bytes {
             Some(b) => b,
-            None => serde_json::to_string(frame.data)
+            None => ace_json::ser::to_string(frame.data)
                 .map(|s| s.len())
                 .unwrap_or(0),
         };

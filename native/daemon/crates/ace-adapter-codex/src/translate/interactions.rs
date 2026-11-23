@@ -2,7 +2,7 @@
 //! Interaction requests: approvals, questions and elicitations.
 
 use ace_core::Fact;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::facts::{fact, raw_payload};
 use super::helpers::{command_actions_match, list_of, obj_map, str_empty};
@@ -27,7 +27,7 @@ fn file_changes(value: Option<&Value>) -> Option<Vec<(String, Option<String>)>> 
     for entry in items {
         let map = obj_map(entry);
         let path = match map.get("path") {
-            Some(Value::String(s)) if valid_path(s) => s.clone(),
+            Some(Value::String(s)) if valid_path(s) => s.to_string(),
             _ => return None,
         };
         let kind = match map.get("kind") {
@@ -40,7 +40,7 @@ fn file_changes(value: Option<&Value>) -> Option<Vec<(String, Option<String>)>> 
         }
         let move_path = match kind.get("move_path") {
             None | Some(Value::Null) => None,
-            Some(Value::String(s)) if valid_path(s) => Some(s.clone()),
+            Some(Value::String(s)) if valid_path(s) => Some(s.to_string()),
             _ => return None,
         };
         out.push((path, move_path));
@@ -87,7 +87,7 @@ fn approval_target_value(
         }
     }
     let mut map = Map::with_capacity(6);
-    map.insert("tool".to_owned(), Value::String(tool.to_owned()));
+    map.insert("tool".to_owned(), Value::from(tool.to_owned()));
     if let Some(Value::String(s)) = command {
         map.insert("command".to_owned(), Value::String(s.clone()));
     }
@@ -97,40 +97,40 @@ fn approval_target_value(
     if let Some(paths) = paths {
         map.insert(
             "paths".to_owned(),
-            Value::Array(paths.into_iter().map(Value::String).collect()),
+            Value::Array(paths.into_iter().map(Value::from).collect()),
         );
     }
-    map.insert("access".to_owned(), Value::String(access.to_owned()));
+    map.insert("access".to_owned(), Value::from(access.to_owned()));
     map.insert("input".to_owned(), input.clone());
     Some(Value::Object(map))
 }
 
 fn option_entry(id: &str, label: &str, kind: &str) -> Value {
     let mut map = Map::with_capacity(3);
-    map.insert("id".to_owned(), Value::String(id.to_owned()));
-    map.insert("label".to_owned(), Value::String(label.to_owned()));
-    map.insert("kind".to_owned(), Value::String(kind.to_owned()));
+    map.insert("id".to_owned(), Value::from(id.to_owned()));
+    map.insert("label".to_owned(), Value::from(label.to_owned()));
+    map.insert("kind".to_owned(), Value::from(kind.to_owned()));
     Value::Object(map)
 }
 
 fn decisions(value: Option<&Value>) -> Value {
     let defaults = vec![
-        Value::String("accept".to_owned()),
-        Value::String("acceptForSession".to_owned()),
-        Value::String("decline".to_owned()),
-        Value::String("cancel".to_owned()),
+        Value::from("accept".to_owned()),
+        Value::from("acceptForSession".to_owned()),
+        Value::from("decline".to_owned()),
+        Value::from("cancel".to_owned()),
     ];
     let entries: Vec<Value> = match value {
         None | Some(Value::Null) => defaults,
-        Some(Value::Array(items)) => items.clone(),
+        Some(Value::Array(items)) => items.to_vec(),
         Some(_) => Vec::new(),
     };
     let mut out = Vec::with_capacity(entries.len());
     for entry in entries {
         let id = if let Value::String(s) = &entry {
-            s.clone()
+            s.to_string()
         } else if let Value::Object(map) = &entry {
-            map.keys().next().cloned().unwrap_or("cancel".to_owned())
+            map.keys().next().map(|key| key.to_string()).unwrap_or("cancel".to_owned())
         } else {
             "cancel".to_owned()
         };
@@ -147,22 +147,22 @@ fn decisions(value: Option<&Value>) -> Value {
         };
         out.push(option_entry(&id, &id, kind));
     }
-    Value::Array(out)
+    Value::from(out)
 }
 
 fn question_option(value: &Value) -> Value {
     let native = obj_map(value);
     let label = match value {
-        Value::String(s) => s.clone(),
+        Value::String(s) => s.to_string(),
         _ => str_empty(native.get("label")).to_owned(),
     };
     let id = match native.get("id") {
-        Some(Value::String(s)) => s.clone(),
+        Some(Value::String(s)) => s.to_string(),
         _ => label.clone(),
     };
     let mut map = Map::with_capacity(3);
-    map.insert("id".to_owned(), Value::String(id));
-    map.insert("label".to_owned(), Value::String(label));
+    map.insert("id".to_owned(), Value::from(id));
+    map.insert("label".to_owned(), Value::from(label));
     if let Some(Value::String(description)) = native.get("description") {
         map.insert("description".to_owned(), Value::String(description.clone()));
     }
@@ -178,7 +178,7 @@ fn questions(value: Option<&Value>, is_async: bool) -> Value {
     for (i, entry) in list_of(value).iter().enumerate() {
         let q = obj_map(entry);
         let id = match q.get("id") {
-            Some(Value::String(s)) => s.clone(),
+            Some(Value::String(s)) => s.to_string(),
             _ => format!("q{i}"),
         };
         let text = {
@@ -197,9 +197,9 @@ fn questions(value: Option<&Value>, is_async: bool) -> Value {
         let allow_other = is_async || matches!(q.get("isOther"), Some(Value::Bool(true)));
         let secret = matches!(q.get("isSecret"), Some(Value::Bool(true)));
         let mut map = Map::with_capacity(7);
-        map.insert("id".to_owned(), Value::String(id));
-        map.insert("text".to_owned(), Value::String(text));
-        map.insert("options".to_owned(), Value::Array(options));
+        map.insert("id".to_owned(), Value::from(id));
+        map.insert("text".to_owned(), Value::from(text));
+        map.insert("options".to_owned(), Value::from(options));
         map.insert("multiSelect".to_owned(), Value::Bool(multi));
         map.insert("allowOther".to_owned(), Value::Bool(allow_other));
         map.insert("secret".to_owned(), Value::Bool(secret));
@@ -208,40 +208,40 @@ fn questions(value: Option<&Value>, is_async: bool) -> Value {
         }
         out.push(Value::Object(map));
     }
-    Value::Array(out)
+    Value::from(out)
 }
 
 pub fn open_request(
     agent: &str,
     key: &str,
     method: &str,
-    p: &Map<String, Value>,
+    p: &Map,
     p_value: &Value,
     known_item: bool,
-    native_item: Option<&Map<String, Value>>,
+    native_item: Option<&Map>,
 ) -> Vec<Fact> {
     let mut facts = Vec::new();
     let item = str_empty(p.get("itemId")).to_owned();
     if !item.is_empty() && !known_item {
         let detail = if method.ends_with("requestUserInput") {
             let mut detail = Map::with_capacity(1);
-            detail.insert("kind".to_owned(), Value::String("ask_user".to_owned()));
+            detail.insert("kind".to_owned(), Value::from("ask_user".to_owned()));
             Value::Object(detail)
         } else {
             let mut detail = Map::with_capacity(1);
-            detail.insert("kind".to_owned(), Value::String("custom".to_owned()));
+            detail.insert("kind".to_owned(), Value::from("custom".to_owned()));
             Value::Object(detail)
         };
         let draft = tool_draft(detail, method, p_value, "running", method, None);
         let mut body = Map::with_capacity(3);
-        body.insert("agent".to_owned(), Value::String(agent.to_owned()));
-        body.insert("item".to_owned(), Value::String(item.clone()));
+        body.insert("agent".to_owned(), Value::from(agent.to_owned()));
+        body.insert("item".to_owned(), Value::from(item.clone()));
         body.insert("draft".to_owned(), draft);
         facts.push(fact("item.upsert", body));
     }
     let request = if method.ends_with("requestUserInput") {
         let mut map = Map::with_capacity(2);
-        map.insert("kind".to_owned(), Value::String("question".to_owned()));
+        map.insert("kind".to_owned(), Value::from("question".to_owned()));
         map.insert("questions".to_owned(), questions(p.get("questions"), false));
         Value::Object(map)
     } else if method == "mcpServer/elicitation/request" {
@@ -249,14 +249,14 @@ pub fn open_request(
             Some(approval) => approval,
             None => {
                 let mut map = Map::with_capacity(5);
-                map.insert("kind".to_owned(), Value::String("elicitation".to_owned()));
+                map.insert("kind".to_owned(), Value::from("elicitation".to_owned()));
                 map.insert(
                     "server".to_owned(),
-                    Value::String(str_empty(p.get("serverName")).to_owned()),
+                    Value::from(str_empty(p.get("serverName")).to_owned()),
                 );
                 map.insert(
                     "message".to_owned(),
-                    Value::String(str_empty(p.get("message")).to_owned()),
+                    Value::from(str_empty(p.get("message")).to_owned()),
                 );
                 map.insert(
                     "schema".to_owned(),
@@ -313,17 +313,17 @@ pub fn open_request(
             approval_target_value(tool, access, command_value, p.get("cwd"), None, p_value)
         };
         let options = if method == "item/permissions/requestApproval" {
-            decisions(Some(&Value::Array(vec![
-                Value::String("accept".to_owned()),
-                Value::String("decline".to_owned()),
-                Value::String("cancel".to_owned()),
+            decisions(Some(&Value::from(vec![
+                Value::from("accept".to_owned()),
+                Value::from("decline".to_owned()),
+                Value::from("cancel".to_owned()),
             ])))
         } else {
             decisions(p.get("availableDecisions"))
         };
         let mut map = Map::with_capacity(5);
-        map.insert("kind".to_owned(), Value::String("approval".to_owned()));
-        map.insert("title".to_owned(), Value::String(title));
+        map.insert("kind".to_owned(), Value::from("approval".to_owned()));
+        map.insert("title".to_owned(), Value::from(title));
         if let Some(target) = target {
             map.insert("target".to_owned(), target);
         }
@@ -331,16 +331,16 @@ pub fn open_request(
         Value::Object(map)
     };
     let mut body = Map::with_capacity(6);
-    body.insert("agent".to_owned(), Value::String(agent.to_owned()));
-    body.insert("interaction".to_owned(), Value::String(key.to_owned()));
+    body.insert("agent".to_owned(), Value::from(agent.to_owned()));
+    body.insert("interaction".to_owned(), Value::from(key.to_owned()));
     body.insert("blocking".to_owned(), Value::Bool(true));
     body.insert("request".to_owned(), request);
     if !item.is_empty() {
-        body.insert("item".to_owned(), Value::String(item));
+        body.insert("item".to_owned(), Value::from(item));
     }
     body.insert(
         "raw".to_owned(),
-        Value::Array(vec![raw_payload(method, p_value, None)]),
+        Value::from(vec![raw_payload(method, p_value, None)]),
     );
     facts.push(fact("interaction.opened", body));
     facts
@@ -350,14 +350,14 @@ pub fn turn_error(value: &Value) -> (String, String) {
     let map = obj_map(value);
     let codex_info = map.get("codexErrorInfo");
     let info = match codex_info {
-        Some(Value::String(s)) => s.clone(),
-        Some(Value::Object(m)) => m.keys().next().cloned().unwrap_or_default(),
+        Some(Value::String(s)) => s.to_string(),
+        Some(Value::Object(m)) => m.keys().next().map(|key| key.to_string()).unwrap_or_default(),
         _ => String::new(),
     };
     let message = match map.get("message") {
-        Some(Value::String(s)) => s.clone(),
+        Some(Value::String(s)) => s.to_string(),
         _ => "Codex turn failed".to_owned(),
     };
     let kind = super::helpers::turn_error_kind(&info, &message).to_owned();
-    (kind, message)
+    (kind, String::from(message))
 }

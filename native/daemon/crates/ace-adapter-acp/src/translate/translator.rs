@@ -13,7 +13,7 @@ use crate::translate::settlement::{cancellation_deadline, prompt_end};
 use crate::translate::shell_output::ShellOutput;
 use crate::translate::state::{TranslationState, TranslatorIdentity};
 use crate::translate::update::handle_update;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 /// The ACP translator: pure, synchronous, never fails on provider data.
 pub struct AcpTranslator {
@@ -164,23 +164,23 @@ impl AcpTranslator {
                     parts.extend(decode_content(entry));
                 }
                 let mut draft = Map::with_capacity(6);
-                draft.insert("type".to_owned(), Value::String("message".to_owned()));
-                draft.insert("role".to_owned(), Value::String("user".to_owned()));
+                draft.insert("type".to_owned(), Value::from("message".to_owned()));
+                draft.insert("role".to_owned(), Value::from("user".to_owned()));
                 if let Some(native_id) = self.input_native_id.clone()
                     && !native_id.is_empty()
                 {
-                    draft.insert("nativeId".to_owned(), Value::String(native_id));
+                    draft.insert("nativeId".to_owned(), Value::from(native_id));
                 }
-                draft.insert("parts".to_owned(), Value::Array(parts));
+                draft.insert("parts".to_owned(), Value::from(parts));
                 draft.insert("complete".to_owned(), Value::Bool(true));
                 draft.insert(
                     "raw".to_owned(),
-                    Value::Array(vec![raw(&data, &method, None)]),
+                    Value::from(vec![raw(&data, &method, None)]),
                 );
                 // Order: type, role, nativeId?, parts, complete, raw.
                 let mut ordered = Map::with_capacity(6);
-                ordered.insert("type".to_owned(), Value::String("message".to_owned()));
-                ordered.insert("role".to_owned(), Value::String("user".to_owned()));
+                ordered.insert("type".to_owned(), Value::from("message".to_owned()));
+                ordered.insert("role".to_owned(), Value::from("user".to_owned()));
                 if let Some(Value::String(native_id)) = draft.get("nativeId") {
                     ordered.insert("nativeId".to_owned(), Value::String(native_id.clone()));
                 }
@@ -189,7 +189,7 @@ impl AcpTranslator {
                     draft
                         .get("parts")
                         .cloned()
-                        .unwrap_or(Value::Array(Vec::new())),
+                        .unwrap_or(Value::from(Vec::new())),
                 );
                 ordered.insert("complete".to_owned(), Value::Bool(true));
                 ordered.insert(
@@ -197,9 +197,9 @@ impl AcpTranslator {
                     draft.get("raw").cloned().unwrap_or(Value::Null),
                 );
                 let mut fact = Map::with_capacity(4);
-                fact.insert("type".to_owned(), Value::String("item.upsert".to_owned()));
-                fact.insert("agent".to_owned(), Value::String(agent_key));
-                fact.insert("item".to_owned(), Value::String(input_key));
+                fact.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+                fact.insert("agent".to_owned(), Value::from(agent_key));
+                fact.insert("item".to_owned(), Value::from(input_key));
                 fact.insert("draft".to_owned(), Value::Object(ordered));
                 facts.push(Value::Object(fact));
                 self.input_native_id = None;

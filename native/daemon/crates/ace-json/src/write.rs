@@ -62,7 +62,7 @@ pub fn write_str(out: &mut String, text: &str) {
 /// `JSON.stringify(text)` for any JavaScript string.
 pub fn write_js_string(out: &mut String, text: &JsString) {
     match text.repr_units() {
-        None => write_str(out, text.as_str().unwrap_or("")),
+        None => write_str(out, text.as_str()),
         Some(units) => write_units(out, units),
     }
 }

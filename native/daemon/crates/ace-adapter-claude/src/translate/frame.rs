@@ -2,7 +2,7 @@
 //! Frame views for translation (the shared shape of `Frame` the translator
 //! reads: sequence, direction, channel, redacted data and admitted bytes).
 
-use serde_json::Value;
+use ace_json::Value;
 
 pub struct FrameView<'a> {
     pub seq: i64,

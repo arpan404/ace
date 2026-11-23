@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use indexmap::IndexMap;
-use serde_json::Value;
+use ace_json::Value;
 
 use super::helpers::{obj_map, str_empty};
 
@@ -109,7 +109,7 @@ impl PendingCompletions {
                 overflow: false,
             });
         }
-        let bytes = match serde_json::to_string(params) {
+        let bytes = match ace_json::ser::to_string(params) {
             Ok(text) => text.len(),
             Err(_) => 0,
         };

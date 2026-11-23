@@ -38,7 +38,7 @@ fn array_index(key: &str) -> Option<u32> {
 }
 
 fn index_of_key(key: &JsString) -> Option<u32> {
-    key.as_str().and_then(array_index)
+    key.as_well_formed().and_then(array_index)
 }
 
 /// A borrowed lookup key that hashes like a well-formed [`JsString`].
@@ -52,7 +52,7 @@ impl Hash for Lookup<'_> {
 
 impl Equivalent<JsString> for Lookup<'_> {
     fn equivalent(&self, key: &JsString) -> bool {
-        key.as_str() == Some(self.0)
+        key.as_well_formed() == Some(self.0)
     }
 }
 

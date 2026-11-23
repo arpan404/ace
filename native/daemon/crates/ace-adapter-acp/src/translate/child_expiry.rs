@@ -2,7 +2,7 @@
 //! Child expiry on cancellation deadlines (`children.ts` expiry half).
 
 use crate::translate::state::TranslationState;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 pub fn expire_children(state: &mut TranslationState, now: i64) -> Vec<Value> {
     let mut facts = Vec::new();
@@ -45,7 +45,7 @@ pub fn expire_children(state: &mut TranslationState, now: i64) -> Vec<Value> {
         finish_child_tasks(state, &native_id, "unknown", &mut facts);
         let mut detail = Map::with_capacity(2);
         detail.insert("deadline".to_owned(), Value::from(now));
-        detail.insert("nativeId".to_owned(), Value::String(native_id.clone()));
+        detail.insert("nativeId".to_owned(), Value::from(native_id.clone()));
         state.notice(
             &mut facts,
             &Value::Object(detail),
@@ -75,10 +75,10 @@ pub(crate) fn finish_child_tasks(
             let mut fact = Map::with_capacity(3);
             fact.insert(
                 "type".to_owned(),
-                Value::String("background.ended".to_owned()),
+                Value::from("background.ended".to_owned()),
             );
-            fact.insert("task".to_owned(), Value::String(task));
-            fact.insert("status".to_owned(), Value::String(status.to_owned()));
+            fact.insert("task".to_owned(), Value::from(task));
+            fact.insert("status".to_owned(), Value::from(status.to_owned()));
             facts.push(Value::Object(fact));
         }
         state.background_tools.shift_remove(&tool_key);

@@ -3,7 +3,7 @@
 //! Claude stamps each main-thread reply frame with the client uuids of
 //! every user message the frame's turn has consumed so far.
 
-use serde_json::Value;
+use ace_json::Value;
 use std::collections::{HashSet, VecDeque};
 
 use super::frame::FrameView;
@@ -49,18 +49,18 @@ impl ConsumedInputs {
             if let Some(Value::String(single)) = obj.get("user_message_uuid")
                 && !single.is_empty()
                 && single.len() <= 512
-                && !self.reported.contains(single)
+                && !self.reported.contains(single.as_str())
             {
-                fresh.push(single.clone());
+                fresh.push(String::from(single.clone()));
             }
         } else {
             for uuid in uuids {
                 if let Value::String(s) = uuid
                     && !s.is_empty()
                     && s.len() <= 512
-                    && !self.reported.contains(s)
+                    && !self.reported.contains(s.as_str())
                 {
-                    fresh.push(s.clone());
+                    fresh.push(String::from(s.clone()));
                 }
             }
         }
@@ -89,15 +89,15 @@ impl Default for ConsumedInputs {
 }
 
 fn consumed_fact(root: &str, ids: &[String]) -> Value {
-    let mut map = serde_json::Map::with_capacity(3);
+    let mut map = ace_json::Map::with_capacity(3);
     map.insert(
         "type".to_owned(),
-        Value::String("input.consumed".to_owned()),
+        Value::from("input.consumed".to_owned()),
     );
-    map.insert("agent".to_owned(), Value::String(root.to_owned()));
+    map.insert("agent".to_owned(), Value::from(root.to_owned()));
     map.insert(
         "nativeInputIds".to_owned(),
-        Value::Array(ids.iter().map(|s| Value::String(s.clone())).collect()),
+        Value::Array(ids.iter().map(|s| Value::from(s.clone())).collect()),
     );
     Value::Object(map)
 }

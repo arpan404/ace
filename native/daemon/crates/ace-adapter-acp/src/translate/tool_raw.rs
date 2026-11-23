@@ -2,7 +2,7 @@
 //! Tool raw collection (`tool-raw.ts`).
 
 use crate::translate::data::{object, raw, string};
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 /// Original input, interpreted fields and latest change stay live.
 pub fn retain_tool_raw(
@@ -18,12 +18,12 @@ pub fn retain_tool_raw(
         let parts = tool.input_parts.get_or_insert_with(indexmap::IndexMap::new);
         let mut changed = false;
         for (key, data) in input.iter() {
-            let previous = parts.get(key);
+            let previous = parts.get(key.as_str());
             if previous.is_none_or(|old| old != data) {
                 tool.completed_input = None;
                 changed = true;
             }
-            parts.insert(key.clone(), data.clone());
+            parts.insert(String::from(key.clone()), data.clone());
         }
         let _ = changed;
         if tool.original_input.is_none() && !input.is_empty() {
@@ -62,7 +62,7 @@ pub fn retain_tool_raw(
                 .unwrap_or(Value::Object(Map::new())),
         );
         if !name.is_empty() {
-            inner.insert("nativeName".to_owned(), Value::String(name.to_owned()));
+            inner.insert("nativeName".to_owned(), Value::from(name.to_owned()));
         }
         let name_opt = if name.is_empty() { None } else { Some(name) };
         tool.input_raw = Some(raw(&Value::Object(inner), "acp/tool-input", name_opt));
@@ -78,13 +78,13 @@ pub fn retain_tool_raw(
 /// Terminal snapshots retain all partial input fields.
 pub fn complete_tool_raw(
     tool: &mut crate::translate::state::ToolState,
-) -> Option<Map<String, Value>> {
+) -> Option<Map> {
     let input_raw = tool.input_raw.clone()?;
     let completed = if let Some(done) = tool.completed_input.clone() {
         done
     } else {
         let parts = tool.input_parts.clone().unwrap_or_default();
-        let assembled: Map<String, Value> = parts.into_iter().collect();
+        let assembled: Map = parts.into_iter().collect();
         tool.completed_input = Some(assembled.clone());
         assembled
     };

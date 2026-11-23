@@ -9,8 +9,8 @@ use crate::translate::data::{
 use crate::translate::detail::{Detail, detail};
 use crate::translate::state::{FileChange, NativeState, Out, StateError, Tool};
 use serde::Serialize;
-use serde_json::value::RawValue;
-use serde_json::{Map, Value};
+use ace_json::Raw;
+use ace_json::{Map, Value};
 
 /// The exact command, path, and display fields a tool ran with.
 #[derive(Serialize)]
@@ -54,7 +54,7 @@ pub fn tool(
     typ: &str,
     session: &str,
     message: &str,
-    p: &Map<String, Value>,
+    p: &Map,
     evidence: &Value,
     out: &mut Out<'_>,
 ) -> Result<(), StateError> {
@@ -90,7 +90,7 @@ pub fn tool(
         && !text.is_empty()
         && utf16_len(text) <= 65536
     {
-        ended_input = serde_json::from_str(text).ok();
+        ended_input = ace_json::parse(text).ok();
     }
     let supplied: Option<&Value> = p
         .get("input")
@@ -139,7 +139,7 @@ pub fn tool(
                 agent: slice_units(s_in(source, "agent"), 256),
                 background: matches!(source.get("background"), Some(Value::Bool(true))),
             };
-            serde_json::to_string(&built)?
+            ace_json::ser::to_string(&built)?
         }
     };
     let failed = typ.ends_with("failed") || s_in(native, "status") == "error";
@@ -168,7 +168,7 @@ pub fn tool(
                 .get(&item)
                 .and_then(|tool| tool.changes.clone())
         });
-    let stored_fields_value: Value = serde_json::from_str(&stored).unwrap_or(Value::Null);
+    let stored_fields_value: Value = ace_json::parse(&stored).unwrap_or(Value::Null);
     let stored_fields = fields(&stored_fields_value);
     let changes = if name == "edit" || name == "write" {
         edit_changes(s_in(stored_fields, "filePath"), meta).or(previous_changes)
@@ -179,7 +179,7 @@ pub fn tool(
         session: session.to_owned(),
         message: message.to_owned(),
         name: name.clone(),
-        input: match serde_json::from_str::<Box<RawValue>>(&stored) {
+        input: match Raw::from_json(&stored) {
             Ok(input) => input,
             Err(_) => return Err(StateError::Emit),
         },
@@ -202,7 +202,7 @@ pub fn tool(
             .collect::<Vec<_>>()
             .join("\n")
     };
-    let input_value: Value = serde_json::from_str(&stored).unwrap_or(Value::Null);
+    let input_value: Value = ace_json::parse(&stored).unwrap_or(Value::Null);
     let input_view = fields(&input_value);
     let tool_input = ToolInput {
         command: match input_view.get("command") {

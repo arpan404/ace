@@ -3,7 +3,7 @@
 //! SDK blocks repeat message usage; refinements replace that message's
 //! contribution.
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 use std::collections::HashMap;
 
 use super::json::object;
@@ -44,9 +44,9 @@ pub fn child_usage(state: &mut ClaudeState, agent: &str, id: &str, message: &Val
         let mut map = Map::with_capacity(3);
         map.insert(
             "type".to_owned(),
-            Value::String("context.sample".to_owned()),
+            Value::from("context.sample".to_owned()),
         );
-        map.insert("agent".to_owned(), Value::String(agent.to_owned()));
+        map.insert("agent".to_owned(), Value::from(agent.to_owned()));
         map.insert("usedTokens".to_owned(), Value::Number(occupied.into()));
         if let Some(Value::String(model)) = object(message).get("model") {
             map.insert("model".to_owned(), Value::String(model.clone()));
@@ -139,8 +139,8 @@ pub fn child_usage(state: &mut ClaudeState, agent: &str, id: &str, message: &Val
 
 fn usage_fact(agent: &str, key: &str, total: &TokenCounts) -> Value {
     let mut map = Map::with_capacity(10);
-    map.insert("type".to_owned(), Value::String("usage".to_owned()));
-    map.insert("agent".to_owned(), Value::String(agent.to_owned()));
+    map.insert("type".to_owned(), Value::from("usage".to_owned()));
+    map.insert("agent".to_owned(), Value::from(agent.to_owned()));
     map.insert(
         "inputTokens".to_owned(),
         Value::Number(total.input_tokens.into()),
@@ -166,8 +166,8 @@ fn usage_fact(agent: &str, key: &str, total: &TokenCounts) -> Value {
     }
     map.insert(
         "counterMode".to_owned(),
-        Value::String("cumulative".to_owned()),
+        Value::from("cumulative".to_owned()),
     );
-    map.insert("counterKey".to_owned(), Value::String(key.to_owned()));
+    map.insert("counterKey".to_owned(), Value::from(key.to_owned()));
     Value::Object(map)
 }

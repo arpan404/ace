@@ -2,7 +2,7 @@
 //! Terminal reasons and shell survival (`settlement.ts`).
 
 use crate::translate::data::object;
-use serde_json::Value;
+use ace_json::Value;
 
 const STOP_REASONS: &[&str] = &[
     "end_turn",

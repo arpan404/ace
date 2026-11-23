@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Task frames and ticks (split from `tasks.rs`).
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::json::{list, object, str_of};
 use super::state::{ClaudeState, NativeTask};
@@ -184,7 +184,7 @@ fn resume(state: &mut ClaudeState, prior: &NativeTask, data: &Value) {
     // Merge with the original spawn link so the child keeps its identity.
     let mut merged = object(data).clone();
     if !original.is_empty() {
-        merged.insert("tool_use_id".to_owned(), Value::String(original));
+        merged.insert("tool_use_id".to_owned(), Value::from(original));
     }
     let is_background = object(data).get("is_backgrounded") == Some(&Value::Bool(true));
     let task_id = super::tasks::register(state, &Value::Object(merged), is_background);
@@ -197,27 +197,27 @@ fn resume(state: &mut ClaudeState, prior: &NativeTask, data: &Value) {
 
 fn signal_fact(agent: &str) -> Value {
     let mut map = Map::with_capacity(2);
-    map.insert("type".to_owned(), Value::String("signal".to_owned()));
-    map.insert("agent".to_owned(), Value::String(agent.to_owned()));
+    map.insert("type".to_owned(), Value::from("signal".to_owned()));
+    map.insert("agent".to_owned(), Value::from(agent.to_owned()));
     Value::Object(map)
 }
 
 fn activity_fact(agent: &str, activity: &str, detail: &str) -> Value {
     let mut map = Map::with_capacity(4);
-    map.insert("type".to_owned(), Value::String("activity".to_owned()));
-    map.insert("agent".to_owned(), Value::String(agent.to_owned()));
-    map.insert("activity".to_owned(), Value::String(activity.to_owned()));
+    map.insert("type".to_owned(), Value::from("activity".to_owned()));
+    map.insert("agent".to_owned(), Value::from(agent.to_owned()));
+    map.insert("activity".to_owned(), Value::from(activity.to_owned()));
     if !detail.is_empty() {
-        map.insert("detail".to_owned(), Value::String(detail.to_owned()));
+        map.insert("detail".to_owned(), Value::from(detail.to_owned()));
     }
     Value::Object(map)
 }
 
 fn prompt_upsert(child: &str, item: &str, prompt: &str, keep: Value) -> Value {
     let mut draft = Map::with_capacity(7);
-    draft.insert("type".to_owned(), Value::String("message".to_owned()));
-    draft.insert("role".to_owned(), Value::String("user".to_owned()));
-    draft.insert("parts".to_owned(), Value::Array(vec![part_text(prompt)]));
+    draft.insert("type".to_owned(), Value::from("message".to_owned()));
+    draft.insert("role".to_owned(), Value::from("user".to_owned()));
+    draft.insert("parts".to_owned(), Value::from(vec![part_text(prompt)]));
     draft.insert("synthetic".to_owned(), Value::Bool(true));
     draft.insert("complete".to_owned(), Value::Bool(true));
     if let Value::Object(extra) = keep {
@@ -226,16 +226,16 @@ fn prompt_upsert(child: &str, item: &str, prompt: &str, keep: Value) -> Value {
         }
     }
     let mut map = Map::with_capacity(4);
-    map.insert("type".to_owned(), Value::String("item.upsert".to_owned()));
-    map.insert("agent".to_owned(), Value::String(child.to_owned()));
-    map.insert("item".to_owned(), Value::String(item.to_owned()));
+    map.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+    map.insert("agent".to_owned(), Value::from(child.to_owned()));
+    map.insert("item".to_owned(), Value::from(item.to_owned()));
     map.insert("draft".to_owned(), Value::Object(draft));
     Value::Object(map)
 }
 
 fn part_text(text: &str) -> Value {
     let mut map = Map::with_capacity(2);
-    map.insert("type".to_owned(), Value::String("text".to_owned()));
-    map.insert("text".to_owned(), Value::String(text.to_owned()));
+    map.insert("type".to_owned(), Value::from("text".to_owned()));
+    map.insert("text".to_owned(), Value::from(text.to_owned()));
     Value::Object(map)
 }

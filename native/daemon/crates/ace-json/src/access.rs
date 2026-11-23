@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Reading and building values: the accessors code ported from serde_json expects, with
-//! JavaScript's answers (`as_i64` is `Number.isInteger`, `1.0` included; `as_str` is `None` only
-//! for a string holding a lone surrogate, which [`Value::as_js_str`] still reads).
+//! JavaScript's answers (`as_i64` is `Number.isInteger`, `1.0` included; `as_str` is the text of
+//! any string, and [`Value::as_js_str`] the exact string, lone surrogates included).
 
 use crate::number::Number;
 use crate::object::Map;
@@ -73,10 +73,11 @@ impl Value {
         self.as_number().and_then(Number::as_u64)
     }
 
-    /// The text of a well-formed string.
+    /// A string's text (`typeof value === "string"`); a lone surrogate reads as U+FFFD here,
+    /// while the value itself keeps it.
     pub fn as_str(&self) -> Option<&str> {
         match self {
-            Value::String(text) => text.as_str(),
+            Value::String(text) => Some(text.as_str()),
             _ => None,
         }
     }
@@ -332,13 +333,13 @@ impl FromIterator<Value> for Value {
 
 impl PartialEq<str> for Value {
     fn eq(&self, other: &str) -> bool {
-        self.as_str() == Some(other)
+        self.as_js_str().is_some_and(|text| text == other)
     }
 }
 
 impl PartialEq<&str> for Value {
     fn eq(&self, other: &&str) -> bool {
-        self.as_str() == Some(*other)
+        self.as_js_str().is_some_and(|text| text == other)
     }
 }
 

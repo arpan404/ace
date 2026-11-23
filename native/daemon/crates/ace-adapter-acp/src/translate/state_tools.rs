@@ -4,7 +4,7 @@
 use crate::translate::state::{
     SENT_LIMIT, SentRequest, TranslationState, UNCERTAIN_SHELL_LIMIT, rpc_key,
 };
-use serde_json::{Map, Value};
+use ace_json::Map;
 
 impl TranslationState {
     pub fn tool_mut(&mut self, owner_key: &str, owner_native_id: &str, id: &str) -> Option<String> {
@@ -75,7 +75,7 @@ impl TranslationState {
         &mut self,
         id: &crate::translate::data::RpcId,
         method: &str,
-        params: &Map<String, Value>,
+        params: &Map,
     ) {
         let key = rpc_key(id);
         self.sent.insert(

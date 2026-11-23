@@ -2,7 +2,7 @@
 //! The SDK frame dispatcher (the `sdk` closure of `translator.ts`, split
 //! from `translate.rs` to keep modules small).
 
-use serde_json::Value;
+use ace_json::Value;
 
 use super::ClaudeTranslator;
 use super::compaction::{compact_boundary, compact_summary};
@@ -46,7 +46,7 @@ pub(crate) fn sdk_translator(
             if let Some(Value::String(model)) = obj.get("model")
                 && !model.is_empty()
             {
-                t.state.model = Some(model.clone());
+                t.state.model = Some(String::from(model.clone()));
                 let root = t.state.root.clone();
                 let model_clone = model.clone();
                 t.state.emit(agent_linked(&root, &model_clone));

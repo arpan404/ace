@@ -156,7 +156,7 @@ fn elide_value(value: &mut Value) {
     while let Some(value) = stack.pop() {
         match value {
             Value::String(text) => {
-                if let Some(Cow::Owned(marker)) = text.as_str().map(elide) {
+                if let Some(Cow::Owned(marker)) = text.as_well_formed().map(elide) {
                     *text = JsString::from(marker);
                 }
             }

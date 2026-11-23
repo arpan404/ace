@@ -11,7 +11,7 @@ use crate::translate::requests::{
 use crate::translate::resolve::validate_resolution;
 use crate::translate::state::{NativeState, Out, Pending, StateError};
 use serde::Serialize;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 use std::collections::BTreeMap;
 
 /// An approval, question, or elicitation the person must answer.
@@ -69,11 +69,11 @@ enum Resolution<'a> {
 pub fn interaction(
     state: &mut NativeState,
     typ: &str,
-    p: &Map<String, Value>,
+    p: &Map,
     evidence: &Value,
     out: &mut Out<'_>,
 ) -> Result<(), StateError> {
-    let form: &Map<String, Value> = if typ == "form.created" {
+    let form: &Map = if typ == "form.created" {
         fields(get(p, "form"))
     } else {
         p
@@ -106,12 +106,12 @@ pub fn interaction(
         if state.pending.len() >= 1024 {
             return Err(StateError::Limit("interaction"));
         }
-        let stored = serde_json::to_string(form)?;
+        let stored = ace_json::ser::to_string(form)?;
         state.pending.insert(
             key.clone(),
             Pending {
                 session: session.clone(),
-                data: serde_json::from_str::<Box<serde_json::value::RawValue>>(&stored)?,
+                data: ace_json::Raw::from_json(&stored)?,
                 typ: typ.to_owned(),
                 resolution: None,
             },
@@ -141,7 +141,7 @@ pub fn interaction(
                 && let Some(tool) = state.tools.get(item)
                 && tool.name == s_in(form, "action")
             {
-                approval_input = serde_json::from_str(tool.input.get()).ok();
+                approval_input = ace_json::parse(tool.input.get()).ok();
             }
             approval_dir = state
                 .agents
@@ -161,7 +161,7 @@ pub fn interaction(
                 arr_in(form, "resources")
                     .iter()
                     .map(|resource| match resource {
-                        Value::String(resource) => resource.clone(),
+                        Value::String(resource) => resource.to_string(),
                         _ => String::new(),
                     })
                     .collect::<Vec<_>>()
@@ -186,16 +186,16 @@ pub fn interaction(
         Some(pending) => pending,
         None => return Ok(()),
     };
-    let pending_data: Value = serde_json::from_str(pending.data.get())?;
+    let pending_data: Value = ace_json::parse(pending.data.get())?;
     let pending_fields = fields(&pending_data);
     let choice: Option<Value> = pending
         .resolution
         .as_ref()
-        .map(|raw| serde_json::from_str(raw.get()))
+        .map(|raw| ace_json::parse(raw.get()))
         .transpose()?;
     let choice_fields = choice.as_ref().map(fields);
     let feedback: Option<String> = match get(p, "message") {
-        Value::String(message) => Some(message.clone()),
+        Value::String(message) => Some(String::from(message.clone())),
         _ => match choice_fields.as_ref() {
             Some(choice) => {
                 let kind = s_in(choice, "kind");
@@ -213,7 +213,7 @@ pub fn interaction(
                 {
                     match fields(get(choice, "content")).get("feedback") {
                         Some(Value::String(feedback)) if !feedback.is_empty() => {
-                            Some(feedback.clone())
+                            Some(String::from(feedback.clone()))
                         }
                         _ => None,
                     }
@@ -288,7 +288,7 @@ pub fn interaction(
         Some(match feedback {
             Some(feedback) => {
                 let mut map = Map::new();
-                map.insert(String::from("feedback"), Value::String(feedback));
+                map.insert(String::from("feedback"), Value::from(feedback));
                 Value::Object(map)
             }
             None => Value::Object(Map::new()),
@@ -336,10 +336,10 @@ pub fn store_resolution(
     resolution: &Value,
 ) -> Result<(), StateError> {
     validate_resolution(resolution)?;
-    let stored = serde_json::to_string(resolution)?;
+    let stored = ace_json::ser::to_string(resolution)?;
     match state.pending.get_mut(key) {
         Some(pending) => {
-            pending.resolution = Some(serde_json::from_str::<Box<serde_json::value::RawValue>>(
+            pending.resolution = Some(ace_json::Raw::from_json(
                 &stored,
             )?);
             Ok(())

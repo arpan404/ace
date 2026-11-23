@@ -2,7 +2,7 @@
 //! Child associations (`association.ts`).
 
 use crate::translate::data::{object, string};
-use serde_json::Value;
+use ace_json::Value;
 
 pub struct ChildAssociation {
     pub id: String,

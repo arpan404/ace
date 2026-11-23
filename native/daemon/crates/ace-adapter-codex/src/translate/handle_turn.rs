@@ -2,7 +2,7 @@
 //! Turns: started brackets the agent's work, completed settles it.
 
 use ace_core::Fact;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::ParsedFrame;
 use super::facts::{fact, raw_payload};
@@ -12,7 +12,7 @@ use super::state::CodexTranslator;
 pub fn handle_turn_started(
     translator: &mut CodexTranslator,
     native: &str,
-    p: &Map<String, Value>,
+    p: &Map,
     _now: i64,
     facts: &mut Vec<Fact>,
 ) {
@@ -67,9 +67,9 @@ pub fn handle_turn_started(
         agent.pending_trigger = None;
     }
     let mut body = Map::with_capacity(4);
-    body.insert("agent".to_owned(), Value::String(agent_key));
-    body.insert("nativeTurnId".to_owned(), Value::String(turn));
-    body.insert("trigger".to_owned(), Value::String(trigger));
+    body.insert("agent".to_owned(), Value::from(agent_key));
+    body.insert("nativeTurnId".to_owned(), Value::from(turn));
+    body.insert("trigger".to_owned(), Value::from(trigger));
     facts.push(fact("turn.started", body));
 }
 
@@ -77,7 +77,7 @@ pub fn handle_turn_started(
 pub fn handle_turn_completed(
     translator: &mut CodexTranslator,
     native: &str,
-    p: &Map<String, Value>,
+    p: &Map,
     p_value: &Value,
     frame: &ParsedFrame,
     _now: i64,
@@ -116,12 +116,12 @@ pub fn handle_turn_completed(
         if let Some(held) = held {
             if held.first {
                 let mut body = Map::with_capacity(7);
-                body.insert("agent".to_owned(), Value::String(agent_key.clone()));
-                body.insert("task".to_owned(), Value::String(held.task));
-                body.insert("kind".to_owned(), Value::String("other".to_owned()));
+                body.insert("agent".to_owned(), Value::from(agent_key.clone()));
+                body.insert("task".to_owned(), Value::from(held.task));
+                body.insert("kind".to_owned(), Value::from("other".to_owned()));
                 body.insert(
                     "title".to_owned(),
-                    Value::String("Turn completion".to_owned()),
+                    Value::from("Turn completion".to_owned()),
                 );
                 body.insert("internal".to_owned(), Value::Bool(true));
                 body.insert("stoppable".to_owned(), Value::Bool(false));
@@ -145,23 +145,23 @@ pub fn handle_turn_completed(
         .and_then(|a| a.unmatched_flag.clone())
     {
         let mut request = Map::with_capacity(3);
-        request.insert("kind".to_owned(), Value::String("approval".to_owned()));
+        request.insert("kind".to_owned(), Value::from("approval".to_owned()));
         request.insert(
             "title".to_owned(),
-            Value::String("Codex is waiting for input".to_owned()),
+            Value::from("Codex is waiting for input".to_owned()),
         );
-        request.insert("options".to_owned(), Value::Array(Vec::new()));
+        request.insert("options".to_owned(), Value::from(Vec::new()));
         let mut body = Map::with_capacity(5);
-        body.insert("agent".to_owned(), Value::String(agent_key));
+        body.insert("agent".to_owned(), Value::from(agent_key));
         body.insert(
             "interaction".to_owned(),
-            Value::String(format!("status:{native}")),
+            Value::from(format!("status:{native}")),
         );
         body.insert("blocking".to_owned(), Value::Bool(true));
         body.insert("request".to_owned(), Value::Object(request));
         body.insert(
             "raw".to_owned(),
-            Value::Array(vec![raw_payload("thread/status/changed", &flag.data, None)]),
+            Value::from(vec![raw_payload("thread/status/changed", &flag.data, None)]),
         );
         facts.push(fact("interaction.opened", body));
     }

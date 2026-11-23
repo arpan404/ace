@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Content parts and file changes for item drafts.
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::helpers::{list_of, obj_map, str_empty};
 
@@ -22,11 +22,11 @@ pub(crate) fn file_change(entry: &Value) -> Value {
     let mut map = Map::with_capacity(4);
     map.insert(
         "path".to_owned(),
-        Value::String(str_empty(c.get("path")).to_owned()),
+        Value::from(str_empty(c.get("path")).to_owned()),
     );
-    map.insert("kind".to_owned(), Value::String(kind.to_owned()));
+    map.insert("kind".to_owned(), Value::from(kind.to_owned()));
     if !move_path.is_empty() {
-        map.insert("movePath".to_owned(), Value::String(move_path.to_owned()));
+        map.insert("movePath".to_owned(), Value::from(move_path.to_owned()));
     }
     if let Some(Value::String(diff)) = c.get("diff") {
         map.insert("diff".to_owned(), Value::String(diff.clone()));
@@ -41,37 +41,37 @@ pub(crate) fn content(value: Option<&Value>) -> Value {
         let ptype = str_empty(p.get("type"));
         if ptype == "text" {
             let mut part = Map::with_capacity(2);
-            part.insert("type".to_owned(), Value::String("text".to_owned()));
+            part.insert("type".to_owned(), Value::from("text".to_owned()));
             part.insert(
                 "text".to_owned(),
-                Value::String(str_empty(p.get("text")).to_owned()),
+                Value::from(str_empty(p.get("text")).to_owned()),
             );
             out.push(Value::Object(part));
         } else if ptype == "image" {
             let mut part = Map::with_capacity(3);
-            part.insert("type".to_owned(), Value::String("image".to_owned()));
-            part.insert("mimeType".to_owned(), Value::String("image/*".to_owned()));
+            part.insert("type".to_owned(), Value::from("image".to_owned()));
+            part.insert("mimeType".to_owned(), Value::from("image/*".to_owned()));
             part.insert(
                 "url".to_owned(),
-                Value::String(str_empty(p.get("url")).to_owned()),
+                Value::from(str_empty(p.get("url")).to_owned()),
             );
             out.push(Value::Object(part));
         } else if ptype == "localImage" || ptype == "mention" || ptype == "skill" {
             let mut part = Map::with_capacity(2);
-            part.insert("type".to_owned(), Value::String("file".to_owned()));
+            part.insert("type".to_owned(), Value::from("file".to_owned()));
             part.insert(
                 "path".to_owned(),
-                Value::String(str_empty(p.get("path")).to_owned()),
+                Value::from(str_empty(p.get("path")).to_owned()),
             );
             out.push(Value::Object(part));
         }
     }
-    Value::Array(out)
+    Value::from(out)
 }
 
 pub(crate) fn raw_array(item_type: &str, data: &Value, name: Option<&Value>) -> Value {
     let mut raw = Map::with_capacity(3);
-    raw.insert("type".to_owned(), Value::String(item_type.to_owned()));
+    raw.insert("type".to_owned(), Value::from(item_type.to_owned()));
     if let Some(Value::String(_)) | Some(_) = name
         && let Some(name_value) = name
         && !name_value.is_null()
@@ -84,7 +84,7 @@ pub(crate) fn raw_array(item_type: &str, data: &Value, name: Option<&Value>) -> 
         }
     }
     raw.insert("data".to_owned(), data.clone());
-    Value::Array(vec![Value::Object(raw)])
+    Value::from(vec![Value::Object(raw)])
 }
 
 pub(crate) fn raw_for(item_type: &str, data: &Value, name: Option<&Value>) -> Value {
@@ -92,10 +92,10 @@ pub(crate) fn raw_for(item_type: &str, data: &Value, name: Option<&Value>) -> Va
     // The TypeScript passes `item["tool"] ?? item["name"]`, which is often
     // undefined; here `None` means omitted, `Some(string)` means kept.
     let mut raw = Map::with_capacity(3);
-    raw.insert("type".to_owned(), Value::String(item_type.to_owned()));
+    raw.insert("type".to_owned(), Value::from(item_type.to_owned()));
     if let Some(Value::String(s)) = name {
         raw.insert("name".to_owned(), Value::String(s.clone()));
     }
     raw.insert("data".to_owned(), data.clone());
-    Value::Array(vec![Value::Object(raw)])
+    Value::from(vec![Value::Object(raw)])
 }

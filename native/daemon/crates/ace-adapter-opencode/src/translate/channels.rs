@@ -11,14 +11,14 @@ use crate::translate::translator::{
     ProcessStarted, Signal, Translator,
 };
 use indexmap::IndexMap;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 impl Translator {
     pub(crate) fn frame(
         &mut self,
         channel: &str,
         dir: &str,
-        data: &Map<String, Value>,
+        data: &Map,
         envelope: &Value,
         now: f64,
         out: &mut Out<'_>,
@@ -47,11 +47,11 @@ impl Translator {
                     let mut warning = Map::new();
                     warning.insert(
                         String::from("event"),
-                        Value::String(String::from("mcp-readiness-unconfirmed")),
+                        Value::from(String::from("mcp-readiness-unconfirmed")),
                     );
                     warning.insert(
                         String::from("detail"),
-                        Value::String(String::from(
+                        Value::from(String::from(
                             "OpenCode never registered ace's readiness plugin; the session opened without confirming ace's tools.",
                         )),
                     );
@@ -141,7 +141,7 @@ impl Translator {
 
     pub(crate) fn lifecycle(
         &mut self,
-        data: &Map<String, Value>,
+        data: &Map,
         out: &mut Out<'_>,
     ) -> Result<(), StateError> {
         let state = &mut self.state;
@@ -193,7 +193,7 @@ impl Translator {
     pub(crate) fn http(
         &mut self,
         dir: &str,
-        data: &Map<String, Value>,
+        data: &Map,
         out: &mut Out<'_>,
     ) -> Result<(), StateError> {
         let path = s_in(data, "path");
@@ -217,7 +217,7 @@ impl Translator {
                 self.state.admission_pending.insert(id.clone());
                 self.state.input(&id, &session, out)?;
                 let mut message = body.clone();
-                message.insert(String::from("type"), Value::String(String::from("user")));
+                message.insert(String::from("type"), Value::from(String::from("user")));
                 return projected(&mut self.state, &session, &Value::Object(message), out);
             }
             if dir == "recv" && n_in(data, "status") == 200.0 {

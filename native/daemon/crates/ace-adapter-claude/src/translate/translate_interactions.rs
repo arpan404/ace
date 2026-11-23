@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Interaction frames (the port of `translate-interactions.ts`).
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::frame::FrameView;
 use super::interactions::request_for;
@@ -24,8 +24,8 @@ fn resolution_for_elicitation(data: &Value) -> Value {
 
 fn elicitation_cancel() -> Value {
     let mut map = Map::with_capacity(2);
-    map.insert("kind".to_owned(), Value::String("elicitation".to_owned()));
-    map.insert("action".to_owned(), Value::String("cancel".to_owned()));
+    map.insert("kind".to_owned(), Value::from("elicitation".to_owned()));
+    map.insert("action".to_owned(), Value::from("cancel".to_owned()));
     Value::Object(map)
 }
 
@@ -54,10 +54,10 @@ fn permission(state: &mut ClaudeState, frame: &FrameView<'_>) {
                 "running"
             };
             let mut draft = Map::with_capacity(3);
-            draft.insert("type".to_owned(), Value::String("tool_call".to_owned()));
+            draft.insert("type".to_owned(), Value::from("tool_call".to_owned()));
             draft.insert("complete".to_owned(), Value::Bool(denied));
             let mut call_obj = Map::with_capacity(1);
-            call_obj.insert("status".to_owned(), Value::String(status.to_owned()));
+            call_obj.insert("status".to_owned(), Value::from(status.to_owned()));
             draft.insert("call".to_owned(), Value::Object(call_obj));
             state.emit(upsert(
                 &interaction.agent,
@@ -174,9 +174,9 @@ fn permission(state: &mut ClaudeState, frame: &FrameView<'_>) {
 
 fn upsert(agent: &str, item: &str, draft: Value) -> Value {
     let mut map = Map::with_capacity(4);
-    map.insert("type".to_owned(), Value::String("item.upsert".to_owned()));
-    map.insert("agent".to_owned(), Value::String(agent.to_owned()));
-    map.insert("item".to_owned(), Value::String(item.to_owned()));
+    map.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+    map.insert("agent".to_owned(), Value::from(agent.to_owned()));
+    map.insert("item".to_owned(), Value::from(item.to_owned()));
     map.insert("draft".to_owned(), draft);
     Value::Object(map)
 }
@@ -185,13 +185,13 @@ fn closed(interaction: &str, state_name: &str, resolution: Option<Value>) -> Val
     let mut map = Map::with_capacity(4);
     map.insert(
         "type".to_owned(),
-        Value::String("interaction.closed".to_owned()),
+        Value::from("interaction.closed".to_owned()),
     );
     map.insert(
         "interaction".to_owned(),
-        Value::String(interaction.to_owned()),
+        Value::from(interaction.to_owned()),
     );
-    map.insert("state".to_owned(), Value::String(state_name.to_owned()));
+    map.insert("state".to_owned(), Value::from(state_name.to_owned()));
     if let Some(r) = resolution {
         map.insert("resolution".to_owned(), r);
     }
@@ -209,23 +209,23 @@ fn opened(
     let mut map = Map::with_capacity(7);
     map.insert(
         "type".to_owned(),
-        Value::String("interaction.opened".to_owned()),
+        Value::from("interaction.opened".to_owned()),
     );
-    map.insert("agent".to_owned(), Value::String(agent.to_owned()));
+    map.insert("agent".to_owned(), Value::from(agent.to_owned()));
     map.insert(
         "interaction".to_owned(),
-        Value::String(interaction.to_owned()),
+        Value::from(interaction.to_owned()),
     );
-    map.insert("item".to_owned(), Value::String(item.to_owned()));
+    map.insert("item".to_owned(), Value::from(item.to_owned()));
     map.insert("blocking".to_owned(), Value::Bool(true));
     map.insert("request".to_owned(), request);
     let mut raw_item = Map::with_capacity(3);
-    raw_item.insert("type".to_owned(), Value::String("can_use_tool".to_owned()));
-    raw_item.insert("name".to_owned(), Value::String(name.to_owned()));
+    raw_item.insert("type".to_owned(), Value::from("can_use_tool".to_owned()));
+    raw_item.insert("name".to_owned(), Value::from(name.to_owned()));
     raw_item.insert("data".to_owned(), data.clone());
     map.insert(
         "raw".to_owned(),
-        Value::Array(vec![Value::Object(raw_item)]),
+        Value::from(vec![Value::Object(raw_item)]),
     );
     Value::Object(map)
 }
@@ -246,7 +246,7 @@ pub fn interaction_frame(state: &mut ClaudeState, frame: &FrameView<'_>) -> bool
                 let root = state.root.clone();
                 let raw_payload = {
                     let mut m = Map::with_capacity(2);
-                    m.insert("type".to_owned(), Value::String("elicitation".to_owned()));
+                    m.insert("type".to_owned(), Value::from("elicitation".to_owned()));
                     m.insert("data".to_owned(), (*frame.data).clone());
                     Value::Object(m)
                 };
@@ -297,15 +297,15 @@ fn opened_elicitation(root: &str, interaction: &str, request: Value, payload: Va
     let mut map = Map::with_capacity(6);
     map.insert(
         "type".to_owned(),
-        Value::String("interaction.opened".to_owned()),
+        Value::from("interaction.opened".to_owned()),
     );
-    map.insert("agent".to_owned(), Value::String(root.to_owned()));
+    map.insert("agent".to_owned(), Value::from(root.to_owned()));
     map.insert(
         "interaction".to_owned(),
-        Value::String(interaction.to_owned()),
+        Value::from(interaction.to_owned()),
     );
     map.insert("blocking".to_owned(), Value::Bool(true));
     map.insert("request".to_owned(), request);
-    map.insert("raw".to_owned(), Value::Array(vec![payload]));
+    map.insert("raw".to_owned(), Value::from(vec![payload]));
     Value::Object(map)
 }

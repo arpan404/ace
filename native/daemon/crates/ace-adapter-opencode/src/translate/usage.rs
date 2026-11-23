@@ -4,7 +4,7 @@
 
 use crate::translate::data::{Num, fields, get, utf16_len};
 use serde::Serialize;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 /// A model name either borrowed from translator state or freshly parsed.
 pub enum Model<'a> {
@@ -159,7 +159,7 @@ pub fn session_usage<'a>(
     agent: &'a str,
     session: &str,
     model: Option<Model<'a>>,
-    data: &'a Map<String, Value>,
+    data: &'a Map,
 ) -> Option<Usage<'a>> {
     let tokens = counts(get(data, "tokens"))?;
     let cost = match get(data, "cost") {
@@ -203,7 +203,7 @@ pub fn step_context<'a>(
     agent: &'a str,
     session: &'a str,
     model: Option<Model<'a>>,
-    data: &'a Map<String, Value>,
+    data: &'a Map,
 ) -> Option<ContextSample<'a>> {
     let tokens = counts(get(data, "tokens"))?;
     Some(ContextSample {

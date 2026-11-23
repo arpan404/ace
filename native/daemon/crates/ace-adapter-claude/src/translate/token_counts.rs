@@ -3,7 +3,7 @@
 //! Lenient: any count that is not a non-negative safe integer fails the
 //! whole sample, which the caller skips, never throws.
 
-use serde_json::Value;
+use ace_json::Value;
 
 use super::json::{number, object};
 
@@ -36,7 +36,7 @@ fn count(value: &Value) -> Option<i64> {
     }
 }
 
-fn opt_count(obj: &serde_json::Map<String, Value>, key: &str) -> Option<Option<i64>> {
+fn opt_count(obj: &ace_json::Map, key: &str) -> Option<Option<i64>> {
     match obj.get(key) {
         None | Some(Value::Null) => Some(None),
         Some(v) => count(v).map(Some),

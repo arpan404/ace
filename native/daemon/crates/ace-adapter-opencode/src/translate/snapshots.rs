@@ -8,13 +8,13 @@ use crate::translate::state::{NativeState, Out, StateError};
 use crate::translate::translator::InteractionExpired;
 use crate::translate::translator::Translator;
 use crate::translate::usage::{Model, session_usage};
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 use std::collections::HashSet;
 
 impl Translator {
     pub(crate) fn snapshot_message(
         &mut self,
-        data: &Map<String, Value>,
+        data: &Map,
         out: &mut Out<'_>,
     ) -> Result<(), StateError> {
         let message = fields(get(data, "message"));
@@ -42,7 +42,7 @@ impl Translator {
 
     pub(crate) fn snapshot_info(
         &mut self,
-        data: &Map<String, Value>,
+        data: &Map,
         out: &mut Out<'_>,
     ) -> Result<(), StateError> {
         let info_value = get(data, "info").clone();
@@ -79,7 +79,7 @@ impl Translator {
 
     pub(crate) fn snapshot_active(
         &mut self,
-        data: &Map<String, Value>,
+        data: &Map,
         out: &mut Out<'_>,
     ) -> Result<(), StateError> {
         let id = s_in(data, "sessionID").to_owned();
@@ -106,7 +106,7 @@ impl Translator {
 
     pub(crate) fn snapshot_interactions(
         &mut self,
-        data: &Map<String, Value>,
+        data: &Map,
         out: &mut Out<'_>,
     ) -> Result<(), StateError> {
         let session = s_in(data, "sessionID").to_owned();
@@ -130,7 +130,7 @@ impl Translator {
 
     pub(crate) fn snapshot_inbox(
         &mut self,
-        data: &Map<String, Value>,
+        data: &Map,
         out: &mut Out<'_>,
     ) -> Result<(), StateError> {
         let session = s_in(data, "sessionID").to_owned();

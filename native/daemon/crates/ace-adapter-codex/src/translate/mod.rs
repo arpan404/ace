@@ -32,7 +32,7 @@ pub mod state;
 pub mod turn;
 
 use ace_core::Fact;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use self::facts::{fact, raw_payload};
 pub use self::state::CodexTranslator;
@@ -61,12 +61,12 @@ impl CodexTranslator {
 
     fn warning(&mut self, agent: &str, event: &str, detail: &str) -> Fact {
         let mut inner = Map::with_capacity(2);
-        inner.insert("event".to_owned(), Value::String(event.to_owned()));
-        inner.insert("detail".to_owned(), Value::String(detail.to_owned()));
+        inner.insert("event".to_owned(), Value::from(event.to_owned()));
+        inner.insert("detail".to_owned(), Value::from(detail.to_owned()));
         let mut diag = Map::with_capacity(2);
         diag.insert(
             "type".to_owned(),
-            Value::String("adapter.warning".to_owned()),
+            Value::from("adapter.warning".to_owned()),
         );
         diag.insert("data".to_owned(), Value::Object(inner));
         self.diagnostics.push(Value::Object(diag));
@@ -82,21 +82,21 @@ impl CodexTranslator {
             return Vec::new();
         }
         let mut draft = Map::with_capacity(7);
-        draft.insert("type".to_owned(), Value::String("notice".to_owned()));
-        draft.insert("code".to_owned(), Value::String("thread_title".to_owned()));
-        draft.insert("title".to_owned(), Value::String(text.clone()));
-        draft.insert("level".to_owned(), Value::String("info".to_owned()));
-        draft.insert("text".to_owned(), Value::String(text));
+        draft.insert("type".to_owned(), Value::from("notice".to_owned()));
+        draft.insert("code".to_owned(), Value::from("thread_title".to_owned()));
+        draft.insert("title".to_owned(), Value::from(text.clone()));
+        draft.insert("level".to_owned(), Value::from("info".to_owned()));
+        draft.insert("text".to_owned(), Value::from(text));
         draft.insert("complete".to_owned(), Value::Bool(true));
         draft.insert(
             "raw".to_owned(),
-            Value::Array(vec![raw_payload("thread/name/updated", data, None)]),
+            Value::from(vec![raw_payload("thread/name/updated", data, None)]),
         );
         let mut body = Map::with_capacity(3);
-        body.insert("agent".to_owned(), Value::String(self.root_key.clone()));
+        body.insert("agent".to_owned(), Value::from(self.root_key.clone()));
         body.insert(
             "item".to_owned(),
-            Value::String("codex:thread-title".to_owned()),
+            Value::from("codex:thread-title".to_owned()),
         );
         body.insert("draft".to_owned(), Value::Object(draft));
         vec![fact("item.upsert", body)]
@@ -110,7 +110,7 @@ impl CodexTranslator {
         facts: &mut Vec<Fact>,
     ) {
         let mut data = Map::with_capacity(2);
-        data.insert("method".to_owned(), Value::String(method.to_owned()));
+        data.insert("method".to_owned(), Value::from(method.to_owned()));
         data.insert("params".to_owned(), params);
         let frame = ParsedFrame {
             dir: "recv".to_owned(),
@@ -156,7 +156,7 @@ impl CodexTranslator {
                 method
             }
         };
-        let frame_json = serde_json::to_string(&frame.data).unwrap_or_default();
+        let frame_json = ace_json::ser::to_string(&frame.data).unwrap_or_default();
         self.diagnostic_frame_json = Some(frame_json);
         self.diagnostics = vec![raw_payload(&initial_type, &frame.data, None)];
         let mut facts = Vec::new();
@@ -176,23 +176,23 @@ impl CodexTranslator {
                 None => continue,
             };
             let mut request = Map::with_capacity(3);
-            request.insert("kind".to_owned(), Value::String("approval".to_owned()));
+            request.insert("kind".to_owned(), Value::from("approval".to_owned()));
             request.insert(
                 "title".to_owned(),
-                Value::String("Codex is waiting for input".to_owned()),
+                Value::from("Codex is waiting for input".to_owned()),
             );
-            request.insert("options".to_owned(), Value::Array(Vec::new()));
+            request.insert("options".to_owned(), Value::from(Vec::new()));
             let mut body = Map::with_capacity(5);
-            body.insert("agent".to_owned(), Value::String(agent_key));
+            body.insert("agent".to_owned(), Value::from(agent_key));
             body.insert(
                 "interaction".to_owned(),
-                Value::String(format!("status:{native}")),
+                Value::from(format!("status:{native}")),
             );
             body.insert("blocking".to_owned(), Value::Bool(true));
             body.insert("request".to_owned(), Value::Object(request));
             body.insert(
                 "raw".to_owned(),
-                Value::Array(vec![raw_payload("thread/status/changed", &flag, None)]),
+                Value::from(vec![raw_payload("thread/status/changed", &flag, None)]),
             );
             facts.push(fact("interaction.opened", body));
         }
@@ -211,7 +211,7 @@ impl ace_adapter_api::translator::Translator for CodexTranslator {
     fn take_diagnostics(&mut self) -> Vec<String> {
         self.take_diagnostics_value()
             .iter()
-            .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "null".to_owned()))
+            .map(|v| ace_json::ser::to_string(v).unwrap_or_else(|_| "null".to_owned()))
             .collect()
     }
 
@@ -220,7 +220,7 @@ impl ace_adapter_api::translator::Translator for CodexTranslator {
     }
 
     fn translate(&mut self, frame: &ace_adapter_api::frame::Frame, now_ms: i64) -> Vec<Fact> {
-        let data: Value = serde_json::from_str(frame.data.get()).unwrap_or(Value::Null);
+        let data: Value = ace_json::parse(frame.data.get()).unwrap_or(Value::Null);
         let dir = match frame.dir {
             ace_adapter_api::frame::FrameDirection::Send => "send",
             ace_adapter_api::frame::FrameDirection::Recv => "recv",

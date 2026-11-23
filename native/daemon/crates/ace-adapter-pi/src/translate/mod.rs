@@ -20,7 +20,7 @@ use self::native::{
 };
 use ace_adapter_api::{Frame, FrameDirection, Translator};
 use ace_core::Fact;
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PiError {
@@ -30,7 +30,7 @@ pub enum PiError {
 
 pub(crate) struct ToolEntry {
     pub(crate) name: String,
-    pub(crate) args: Option<Box<serde_json::value::RawValue>>,
+    pub(crate) args: Option<ace_json::Raw>,
     pub(crate) length: usize,
     pub(crate) surviving: bool,
 }
@@ -48,8 +48,9 @@ pub struct PiTranslator {
     pub(crate) retrying: bool,
     pub(crate) prefix: String,
     pub(crate) deadline: Option<i64>,
-    pub(crate) tools: HashMap<String, ToolEntry>,
-    pub(crate) dialogs: HashMap<String, Option<i64>>,
+    /// JavaScript `Map`s in the TypeScript: insertion order is iteration order.
+    pub(crate) tools: IndexMap<String, ToolEntry>,
+    pub(crate) dialogs: IndexMap<String, Option<i64>>,
 }
 
 impl PiTranslator {
@@ -67,8 +68,8 @@ impl PiTranslator {
             retrying: false,
             prefix: "pi".to_owned(),
             deadline: None,
-            tools: HashMap::new(),
-            dialogs: HashMap::new(),
+            tools: IndexMap::new(),
+            dialogs: IndexMap::new(),
         }
     }
 
@@ -76,7 +77,7 @@ impl PiTranslator {
         &mut self,
         seq: u64,
         dir: &FrameDirection,
-        data: &serde_json::value::RawValue,
+        data: &ace_json::Raw,
         now: i64,
     ) -> (Vec<Fact>, bool) {
         let mut retained = false;
@@ -123,7 +124,7 @@ impl PiTranslator {
             }
             if type_name == "dialog_expired" {
                 let id = str_field(&map, "id");
-                if self.dialogs.remove(&id).is_none() {
+                if self.dialogs.shift_remove(&id).is_none() {
                     return (out, retained);
                 }
                 self.refresh_deadline();
@@ -143,7 +144,7 @@ impl PiTranslator {
         if *dir == FrameDirection::Send {
             if type_name == "extension_ui_response" {
                 let id = str_field(&map, "id");
-                if self.dialogs.remove(&id).is_none() {
+                if self.dialogs.shift_remove(&id).is_none() {
                     return (out, retained);
                 }
                 self.refresh_deadline();
@@ -347,7 +348,7 @@ impl PiTranslator {
 
     fn on_message_update(
         &mut self,
-        map: &HashMap<String, Box<serde_json::value::RawValue>>,
+        map: &native::Fields,
         out: &mut Vec<Fact>,
     ) {
         let delta_map = match field(map, "assistantMessageEvent") {
@@ -417,7 +418,7 @@ impl Translator for PiTranslator {
             }
         }
         for id in expired {
-            self.dialogs.remove(&id);
+            self.dialogs.shift_remove(&id);
             push_fact(
                 &mut out,
                 "interaction.closed",

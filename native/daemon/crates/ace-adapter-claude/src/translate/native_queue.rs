@@ -3,7 +3,7 @@
 //! UUID receipts describe only main-thread sends. Never infer task
 //! completion from them.
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 use std::collections::{HashSet, VecDeque};
 
 use super::frame::FrameView;
@@ -54,8 +54,8 @@ impl NativeQueue {
             && let Some(Value::String(uuid)) = obj.get("uuid")
             && !uuid.is_empty()
         {
-            if self.sent.insert(uuid.clone()) {
-                self.sent_order.push_back(uuid.clone());
+            if self.sent.insert(String::from(uuid.clone())) {
+                self.sent_order.push_back(String::from(uuid.clone()));
             }
             if self.sent.len() > 256 {
                 if let Some(oldest) = self.sent_order.pop_front() {
@@ -82,14 +82,14 @@ impl NativeQueue {
             {
                 self.interrupts.remove(&oldest);
             }
-            if self.interrupts.insert(id.clone()) {
-                self.interrupt_order.push_back(id.clone());
+            if self.interrupts.insert(String::from(id.clone())) {
+                self.interrupt_order.push_back(String::from(id.clone()));
             }
         }
         if kind == "control_response" && frame.dir == "recv" {
             let response = object(obj.get("response").unwrap_or(&Value::Null));
             if let Some(Value::String(request_id)) = response.get("request_id")
-                && self.interrupts.remove(request_id)
+                && self.interrupts.remove(request_id.as_str())
             {
                 self.interrupt_order.retain(|id| id != request_id);
                 if self.receipt_supported.unwrap_or(false)
@@ -111,11 +111,11 @@ impl NativeQueue {
             let mut uuids: Vec<String> = Vec::new();
             for v in list(obj.get("user_message_uuids").unwrap_or(&Value::Null)) {
                 if let Value::String(s) = v {
-                    uuids.push(s.clone());
+                    uuids.push(String::from(s.clone()));
                 }
             }
             if let Some(Value::String(s)) = obj.get("user_message_uuid") {
-                uuids.push(s.clone());
+                uuids.push(String::from(s.clone()));
             }
             for uuid in uuids {
                 self.sent.remove(&uuid);
@@ -190,7 +190,7 @@ fn parse_receipt(response: Option<&Value>) -> Option<Vec<String>> {
     let mut out = Vec::with_capacity(items.len());
     for item in items {
         match item {
-            Value::String(s) => out.push(s.clone()),
+            Value::String(s) => out.push(s.to_string()),
             _ => return None,
         }
     }
@@ -201,14 +201,14 @@ fn queue_overflow(root: &str, task: &str) -> Value {
     let mut map = Map::with_capacity(7);
     map.insert(
         "type".to_owned(),
-        Value::String("background.started".to_owned()),
+        Value::from("background.started".to_owned()),
     );
-    map.insert("agent".to_owned(), Value::String(root.to_owned()));
-    map.insert("task".to_owned(), Value::String(task.to_owned()));
-    map.insert("kind".to_owned(), Value::String("other".to_owned()));
+    map.insert("agent".to_owned(), Value::from(root.to_owned()));
+    map.insert("task".to_owned(), Value::from(task.to_owned()));
+    map.insert("kind".to_owned(), Value::from("other".to_owned()));
     map.insert(
         "title".to_owned(),
-        Value::String("Queued work correlation".to_owned()),
+        Value::from("Queued work correlation".to_owned()),
     );
     map.insert("internal".to_owned(), Value::Bool(true));
     map.insert("stoppable".to_owned(), Value::Bool(false));
@@ -219,18 +219,18 @@ fn queue_overflow_ended(task: &str) -> Value {
     let mut map = Map::with_capacity(3);
     map.insert(
         "type".to_owned(),
-        Value::String("background.ended".to_owned()),
+        Value::from("background.ended".to_owned()),
     );
-    map.insert("task".to_owned(), Value::String(task.to_owned()));
-    map.insert("status".to_owned(), Value::String("completed".to_owned()));
+    map.insert("task".to_owned(), Value::from(task.to_owned()));
+    map.insert("status".to_owned(), Value::from("completed".to_owned()));
     Value::Object(map)
 }
 
 fn queue_changed(root: &str, count: i64) -> Value {
     let mut map = Map::with_capacity(4);
-    map.insert("type".to_owned(), Value::String("queue.changed".to_owned()));
+    map.insert("type".to_owned(), Value::from("queue.changed".to_owned()));
     map.insert("count".to_owned(), Value::Number(count.into()));
-    map.insert("source".to_owned(), Value::String("provider".to_owned()));
+    map.insert("source".to_owned(), Value::from("provider".to_owned()));
     // Key order in the TypeScript emit is { type, agent?... }: check
     // translator: `state.emit({ type: "queue.changed", count, source: "provider" })`
     // has no agent. Keep insertion order type, count, source.

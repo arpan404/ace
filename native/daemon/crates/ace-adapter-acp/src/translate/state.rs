@@ -3,7 +3,7 @@
 
 use crate::translate::quirks::QuirksKind;
 use indexmap::{IndexMap, IndexSet};
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 #[derive(Debug, Clone)]
 pub struct StreamState {
@@ -45,14 +45,14 @@ pub struct ToolState {
     pub key: String,
     pub owner_key: String,
     pub owner_native_id: String,
-    pub data: Map<String, Value>,
+    pub data: Map,
     pub status: String,
     pub raw: Vec<Value>,
     pub input_raw: Option<Value>,
     pub initial_raw: Option<Value>,
-    pub original_input: Option<Map<String, Value>>,
+    pub original_input: Option<Map>,
     pub input_parts: Option<IndexMap<String, Value>>,
-    pub completed_input: Option<Map<String, Value>>,
+    pub completed_input: Option<Map>,
     pub finalized: bool,
     pub retired: bool,
     pub uncertain_shell: bool,
@@ -69,7 +69,7 @@ pub struct ToolState {
 pub struct RequestState {
     pub key: String,
     pub method: String,
-    pub params: Map<String, Value>,
+    pub params: Map,
     pub owner_key: String,
     pub owner_native_id: String,
     pub request: Value,
@@ -79,7 +79,7 @@ pub struct RequestState {
 #[derive(Debug, Clone)]
 pub struct SentRequest {
     pub method: String,
-    pub params: Map<String, Value>,
+    pub params: Map,
 }
 
 #[derive(Debug, Clone)]
@@ -188,7 +188,7 @@ impl TranslationState {
     pub fn key(&mut self, kind: &str) -> String {
         self.identity.cursor = self.identity.cursor.saturating_add(1);
         let generation =
-            serde_json::to_string(&self.identity.generation).unwrap_or_else(|_| "\"\"".to_owned());
+            ace_json::ser::to_string(&self.identity.generation).unwrap_or_else(|_| "\"\"".to_owned());
         format!(
             "{}:{}:{}:{}",
             self.root.key, generation, kind, self.identity.cursor
@@ -242,7 +242,7 @@ impl TranslationState {
     }
 
     pub(crate) fn uncertain_key(owner_native_id: &str, id: &str) -> String {
-        let key = serde_json::to_string(&(owner_native_id, id)).unwrap_or_default();
+        let key = ace_json::ser::to_string(&(owner_native_id, id)).unwrap_or_default();
         if key.is_empty() {
             format!("[{owner_native_id:?},{id:?}]")
         } else {

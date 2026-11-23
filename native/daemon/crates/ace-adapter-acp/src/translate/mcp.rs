@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //! MCP envelopes and arguments (`tools.ts` MCP half).
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
-pub(crate) fn mcp_envelope(input: &Map<String, Value>) -> Option<Map<String, Value>> {
-    let mut keys: Vec<&String> = input.keys().filter(|key| *key != "_toolName").collect();
+pub(crate) fn mcp_envelope(input: &Map) -> Option<Map> {
+    let mut keys: Vec<&ace_json::JsString> = input.keys().filter(|key| *key != "_toolName").collect();
     keys.sort();
     if keys.is_empty() {
         return None;
@@ -30,7 +30,7 @@ pub(crate) fn mcp_envelope(input: &Map<String, Value>) -> Option<Map<String, Val
 }
 
 /// MCP call arguments: unwrapped from a recognized envelope, else the input as sent.
-pub fn mcp_arguments(input: &Map<String, Value>) -> Value {
+pub fn mcp_arguments(input: &Map) -> Value {
     let Some(envelope) = mcp_envelope(input) else {
         return Value::Object(input.clone());
     };

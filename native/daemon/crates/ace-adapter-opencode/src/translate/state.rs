@@ -6,7 +6,7 @@
 use crate::translate::cache::{RecentMap, RecentSet};
 use indexmap::IndexMap;
 use serde::Serialize;
-use serde_json::value::RawValue;
+use ace_json::Raw;
 use std::collections::HashSet;
 use thiserror::Error;
 
@@ -25,8 +25,14 @@ pub enum StateError {
     Emit,
 }
 
-impl From<serde_json::Error> for StateError {
-    fn from(_: serde_json::Error) -> Self {
+impl From<ace_json::ser::Error> for StateError {
+    fn from(_: ace_json::ser::Error) -> Self {
+        StateError::Emit
+    }
+}
+
+impl From<ace_json::SyntaxError> for StateError {
+    fn from(_: ace_json::SyntaxError) -> Self {
         StateError::Emit
     }
 }
@@ -47,7 +53,7 @@ impl<'b> Out<'b> {
             self.buf.push(',');
         }
         self.first = false;
-        match serde_json::to_string(fact) {
+        match ace_json::ser::to_string(fact) {
             Ok(text) => {
                 self.buf.push_str(&text);
                 Ok(())
@@ -90,7 +96,7 @@ pub struct Tool {
     pub session: String,
     pub message: String,
     pub name: String,
-    pub input: Box<RawValue>,
+    pub input: Raw,
     pub live: bool,
     pub created: f64,
     /// The file changes an edit or write has reported with their patches.
@@ -118,9 +124,9 @@ pub struct ChildClaim {
 #[derive(Debug)]
 pub struct Pending {
     pub session: String,
-    pub data: Box<RawValue>,
+    pub data: Raw,
     pub typ: String,
-    pub resolution: Option<Box<RawValue>>,
+    pub resolution: Option<Raw>,
 }
 
 /// The translator's native session state.

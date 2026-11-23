@@ -5,7 +5,7 @@
 //! on every event and most evidence holds no secret. Recursion is bounded at
 //! 12 levels, lists and objects at 2,048 entries.
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 use std::borrow::Cow;
 
 const MAX_STRING: usize = 1 << 20;
@@ -19,12 +19,12 @@ pub fn sanitize<'a>(value: &'a Value, secrets: &[&str]) -> Cow<'a, Value> {
 
 fn sanitize_at<'a>(value: &'a Value, secrets: &[&str], depth: u32) -> Cow<'a, Value> {
     if depth > MAX_DEPTH {
-        return Cow::Owned(Value::String(String::from("[depth limit]")));
+        return Cow::Owned(Value::from(String::from("[depth limit]")));
     }
     match value {
         Value::String(text) => match sanitize_text(text, secrets) {
             Cow::Borrowed(_) => Cow::Borrowed(value),
-            Cow::Owned(clean) => Cow::Owned(Value::String(clean)),
+            Cow::Owned(clean) => Cow::Owned(Value::from(clean)),
         },
         Value::Array(items) => {
             let count = items.len().min(MAX_ENTRIES);
@@ -53,7 +53,7 @@ fn sanitize_at<'a>(value: &'a Value, secrets: &[&str], depth: u32) -> Cow<'a, Va
                 }
             }
             match clean {
-                Some(out) => Cow::Owned(Value::Array(out)),
+                Some(out) => Cow::Owned(Value::from(out)),
                 None => Cow::Borrowed(value),
             }
         }
@@ -64,19 +64,19 @@ fn sanitize_at<'a>(value: &'a Value, secrets: &[&str], depth: u32) -> Cow<'a, Va
 
 fn sanitize_object<'a>(
     value: &'a Value,
-    map: &'a Map<String, Value>,
+    map: &'a Map,
     secrets: &[&str],
     depth: u32,
 ) -> Cow<'a, Value> {
     let count = map.len().min(MAX_ENTRIES);
-    let mut clean: Option<Map<String, Value>> = if map.len() > MAX_ENTRIES {
+    let mut clean: Option<Map> = if map.len() > MAX_ENTRIES {
         Some(Map::new())
     } else {
         None
     };
     for (key, original) in map.iter().take(count) {
         let next = if is_secret_key(key) {
-            Cow::Owned(Value::String(String::from("[redacted]")))
+            Cow::Owned(Value::from(String::from("[redacted]")))
         } else {
             sanitize_at(original, secrets, depth + 1)
         };
@@ -259,7 +259,7 @@ fn has_suffixed(text: &str, head: &str, tail: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::sanitize;
-    use serde_json::json;
+    use ace_json::json;
 
     /// Opaque provider state is redacted under both its 2.0 and 2.1 names,
     /// text is kept.
@@ -327,8 +327,8 @@ mod tests {
     /// Evidence is bounded to 2,048 entries per list or object and 12 levels.
     #[test]
     fn evidence_is_bounded_in_width_and_depth() {
-        let wide: Vec<serde_json::Value> = (0..2050).map(|index| json!(index)).collect();
-        let fields: serde_json::Map<String, serde_json::Value> = wide
+        let wide: Vec<ace_json::Value> = (0..2050).map(|index| json!(index)).collect();
+        let fields: ace_json::Map = wide
             .iter()
             .enumerate()
             .map(|(index, value)| (format!("k{index}"), value.clone()))
@@ -339,7 +339,7 @@ mod tests {
         }
         let value = json!({ "wide": wide, "fields": fields, "deep": deep });
         let clean = sanitize(&value, &[]);
-        let text = serde_json::to_string(&clean).expect("sanitized evidence serializes");
+        let text = ace_json::ser::to_string(&clean).expect("sanitized evidence serializes");
         assert_eq!(clean["wide"].as_array().map(Vec::len), Some(2048));
         assert_eq!(text.matches("\"k").count(), 2048);
         assert!(text.contains("\"[depth limit]\""));

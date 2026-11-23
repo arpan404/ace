@@ -55,7 +55,7 @@ impl Raw {
         &self.0
     }
 
-    pub fn as_ref(&self) -> RawRef<'_> {
+    pub fn view(&self) -> RawRef<'_> {
         RawRef {
             text: &self.0,
             canonical: true,
@@ -63,11 +63,17 @@ impl Raw {
     }
 
     pub fn to_value(&self) -> Value {
-        self.as_ref().to_value()
+        self.view().to_value()
     }
 
     pub fn into_string(self) -> String {
         self.0.into_string()
+    }
+}
+
+impl AsRef<Raw> for Raw {
+    fn as_ref(&self) -> &Raw {
+        self
     }
 }
 
@@ -202,14 +208,14 @@ impl<'a> RawRef<'a> {
         self.as_js_string().is_some_and(|name| name == key)
     }
 
-    /// A string's text, borrowed when it has no escapes; `None` for other kinds and for a
-    /// string holding a lone surrogate (see [`RawRef::as_js_string`]).
+    /// A string's text, borrowed when it has no escapes; `None` for other kinds. A lone
+    /// surrogate reads as U+FFFD, as [`crate::JsString`] derefs; [`RawRef::as_js_string`] keeps it.
     pub fn as_str(&self) -> Option<Cow<'a, str>> {
         let inner = self.text.strip_prefix('"')?.strip_suffix('"')?;
         if !inner.contains('\\') {
             return Some(Cow::Borrowed(inner));
         }
-        self.as_js_string()?.into_string().ok().map(Cow::Owned)
+        self.as_js_string().map(|text| Cow::Owned(String::from(text)))
     }
 
     pub fn as_js_string(&self) -> Option<JsString> {

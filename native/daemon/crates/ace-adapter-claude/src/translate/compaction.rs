@@ -3,7 +3,7 @@
 //! Claude's compaction summary folds into the compaction's own item, never
 //! a message of its own.
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::json::{object, raw, str_of};
 use super::state::ClaudeState;
@@ -44,7 +44,7 @@ pub fn compact_boundary(state: &mut ClaudeState, data: &Value, seq: i64) {
     state.compactions.insert(item.clone(), boundary.clone());
     state.compaction = Some(item.clone());
     let mut draft = Map::with_capacity(4);
-    draft.insert("type".to_owned(), Value::String("compaction".to_owned()));
+    draft.insert("type".to_owned(), Value::from("compaction".to_owned()));
     draft.insert("complete".to_owned(), Value::Bool(true));
     if let Some(b) = before {
         draft.insert("tokensBefore".to_owned(), Value::Number(b.into()));
@@ -52,7 +52,7 @@ pub fn compact_boundary(state: &mut ClaudeState, data: &Value, seq: i64) {
     if let Some(a) = after {
         draft.insert("tokensAfter".to_owned(), Value::Number(a.into()));
     }
-    draft.insert("raw".to_owned(), Value::Array(vec![boundary]));
+    draft.insert("raw".to_owned(), Value::from(vec![boundary]));
     // Rebuild in TypeScript order: type, complete, tokensBefore?,
     // tokensAfter?, raw.
     let mut ordered = Map::with_capacity(draft.len());
@@ -74,7 +74,7 @@ fn only_text(data: &Value) -> Option<String> {
             if s.is_empty() {
                 None
             } else {
-                Some(s.clone())
+                Some(String::from(s.clone()))
             }
         }
         Some(Value::Array(blocks)) => {
@@ -134,19 +134,19 @@ pub fn compact_summary(state: &mut ClaudeState, data: &Value, seq: i64) -> bool 
     }
     raw_list.push(raw(data));
     let mut draft = Map::with_capacity(4);
-    draft.insert("type".to_owned(), Value::String("compaction".to_owned()));
+    draft.insert("type".to_owned(), Value::from("compaction".to_owned()));
     draft.insert("complete".to_owned(), Value::Bool(true));
-    draft.insert("summary".to_owned(), Value::String(summary));
-    draft.insert("raw".to_owned(), Value::Array(raw_list));
+    draft.insert("summary".to_owned(), Value::from(summary));
+    draft.insert("raw".to_owned(), Value::from(raw_list));
     state.emit(upsert(&root, &item, Value::Object(draft)));
     true
 }
 
 fn upsert(agent: &str, item: &str, draft: Value) -> Value {
     let mut map = Map::with_capacity(4);
-    map.insert("type".to_owned(), Value::String("item.upsert".to_owned()));
-    map.insert("agent".to_owned(), Value::String(agent.to_owned()));
-    map.insert("item".to_owned(), Value::String(item.to_owned()));
+    map.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+    map.insert("agent".to_owned(), Value::from(agent.to_owned()));
+    map.insert("item".to_owned(), Value::from(item.to_owned()));
     map.insert("draft".to_owned(), draft);
     Value::Object(map)
 }

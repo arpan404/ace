@@ -2,7 +2,7 @@
 //! Implicit turns opened by work after the prompt answered (`lifecycle.ts`).
 
 use crate::translate::state::TranslationState;
-use serde_json::Value;
+use ace_json::Value;
 
 /// Work after the root's prompt answered opens an implicit turn.
 pub fn settle_implicit_turn(state: &mut TranslationState, facts: &mut Vec<Value>) {

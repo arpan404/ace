@@ -3,7 +3,7 @@
 //! What a user message Claude Code wrote for the model reports, or nothing
 //! for any other text.
 
-use serde_json::Value;
+use ace_json::Value;
 
 use super::json::{object, str_of};
 use super::state::ClaudeState;

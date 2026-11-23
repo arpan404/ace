@@ -3,14 +3,14 @@
 //! Translators read native fields through these on every frame without
 //! copying the whole value; unknown shapes read as empty, never fatal.
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 use std::sync::LazyLock;
 
-static EMPTY_MAP: LazyLock<Map<String, Value>> = LazyLock::new(Map::new);
+static EMPTY_MAP: LazyLock<Map> = LazyLock::new(Map::new);
 static EMPTY_LIST: LazyLock<Vec<Value>> = LazyLock::new(Vec::new);
 
 /// The value's map if it is a JSON object, otherwise the shared empty one.
-pub fn object(value: &Value) -> &Map<String, Value> {
+pub fn object(value: &Value) -> &Map {
     match value {
         Value::Object(map) => map,
         _ => &EMPTY_MAP,
@@ -20,7 +20,7 @@ pub fn object(value: &Value) -> &Map<String, Value> {
 /// The value if it is a string, otherwise the fallback.
 pub fn string(value: &Value, fallback: &str) -> String {
     match value {
-        Value::String(s) => s.clone(),
+        Value::String(s) => s.to_string(),
         _ => fallback.to_owned(),
     }
 }
@@ -28,7 +28,7 @@ pub fn string(value: &Value, fallback: &str) -> String {
 /// The value's string, or empty.
 pub fn str_of(value: &Value) -> String {
     match value {
-        Value::String(s) => s.clone(),
+        Value::String(s) => s.to_string(),
         _ => String::new(),
     }
 }
@@ -56,7 +56,7 @@ pub fn number(value: &Value) -> f64 {
 /// Text of a value: a string, or the joined text of its blocks.
 pub fn text(value: &Value) -> String {
     match value {
-        Value::String(s) => s.clone(),
+        Value::String(s) => s.to_string(),
         Value::Array(items) => {
             let mut out = String::new();
             for item in items {
@@ -89,9 +89,9 @@ pub fn raw_named(data: &Value, name: Option<&str>) -> Value {
         .unwrap_or("claude");
     let kind = obj.get("type").and_then(|v| v.as_str()).unwrap_or(subtype);
     let mut map = Map::with_capacity(3);
-    map.insert("type".to_owned(), Value::String(kind.to_owned()));
+    map.insert("type".to_owned(), Value::from(kind.to_owned()));
     if let Some(n) = name {
-        map.insert("name".to_owned(), Value::String(n.to_owned()));
+        map.insert("name".to_owned(), Value::from(n.to_owned()));
     }
     map.insert("data".to_owned(), data.clone());
     Value::Object(map)

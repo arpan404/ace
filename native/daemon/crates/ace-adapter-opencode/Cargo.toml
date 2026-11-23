@@ -17,10 +17,9 @@ workspace = true
 ace-adapter-api = { path = "../ace-adapter-api" }
 # serde: facts and requests serialize straight into the output buffer, never via a Value tree.
 serde = { version = "1", features = ["derive"] }
-# serde_json: frames decode from Box<RawValue>; facts serialize without Value trees,
-# preserving the source object's key order (preserve_order) and parsing floats
-# exactly as JavaScript does (float_roundtrip).
-serde_json = { version = "1", features = ["raw_value", "preserve_order", "float_roundtrip"] }
+# ace-json: provider frames and facts as JavaScript-exact JSON (JSON.parse and
+# JSON.stringify semantics, no recursion, raw splices).
+ace-json = { path = "../ace-json" }
 # indexmap: translator maps keep TypeScript insertion order so fact order matches.
 indexmap = { version = "2" }
 # thiserror: the translator's typed internal errors, mapped to diagnostics, never thrown.

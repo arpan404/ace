@@ -2,7 +2,7 @@
 //! Tool detail normalization (the port of `tools.ts`).
 //! Only what ace renders is typed; everything else stays in raw.
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::json::{list, object, str_of};
 
@@ -26,8 +26,8 @@ fn todo_entry(value: &Value) -> Option<Value> {
     if let Some(Value::String(id)) = obj.get("id") {
         map.insert("id".to_owned(), Value::String(id.clone()));
     }
-    map.insert("content".to_owned(), Value::String(content.to_owned()));
-    map.insert("status".to_owned(), Value::String(status.to_owned()));
+    map.insert("content".to_owned(), Value::from(content.to_owned()));
+    map.insert("status".to_owned(), Value::from(status.to_owned()));
     Some(Value::Object(map))
 }
 
@@ -71,29 +71,29 @@ pub fn tool_detail(name: &str, value: &Value) -> Value {
         kind
     };
     let mut map = Map::new();
-    map.insert("kind".to_owned(), Value::String(kind.to_owned()));
+    map.insert("kind".to_owned(), Value::from(kind.to_owned()));
     match kind {
         "shell" => {
             map.insert(
                 "command".to_owned(),
-                Value::String(str_of(input.get("command").unwrap_or(&Value::Null))),
+                Value::from(str_of(input.get("command").unwrap_or(&Value::Null))),
             );
         }
         "file.read" => {
             map.insert(
                 "path".to_owned(),
-                Value::String(str_of(input.get("file_path").unwrap_or(&Value::Null))),
+                Value::from(str_of(input.get("file_path").unwrap_or(&Value::Null))),
             );
         }
         "file.edit" | "file.write" => {
             let mut change = Map::new();
             change.insert(
                 "path".to_owned(),
-                Value::String(str_of(input.get("file_path").unwrap_or(&Value::Null))),
+                Value::from(str_of(input.get("file_path").unwrap_or(&Value::Null))),
             );
             change.insert(
                 "kind".to_owned(),
-                Value::String(
+                Value::from(
                     if kind == "file.write" {
                         "add"
                     } else {
@@ -113,28 +113,28 @@ pub fn tool_detail(name: &str, value: &Value) -> Value {
             }
             map.insert(
                 "changes".to_owned(),
-                Value::Array(vec![Value::Object(change)]),
+                Value::from(vec![Value::Object(change)]),
             );
         }
         "search" => {
             let query = str_of(input.get("query").unwrap_or(&Value::Null));
             let pattern = str_of(input.get("pattern").unwrap_or(&Value::Null));
             let q = if !query.is_empty() { query } else { pattern };
-            map.insert("query".to_owned(), Value::String(q));
+            map.insert("query".to_owned(), Value::from(q));
             if name == "ToolSearch" {
-                map.insert("scope".to_owned(), Value::String("tools".to_owned()));
+                map.insert("scope".to_owned(), Value::from("tools".to_owned()));
             }
         }
         "web.search" => {
             let query = str_of(input.get("query").unwrap_or(&Value::Null));
             let pattern = str_of(input.get("pattern").unwrap_or(&Value::Null));
             let q = if !query.is_empty() { query } else { pattern };
-            map.insert("query".to_owned(), Value::String(q));
+            map.insert("query".to_owned(), Value::from(q));
         }
         "web.fetch" => {
             map.insert(
                 "url".to_owned(),
-                Value::String(str_of(input.get("url").unwrap_or(&Value::Null))),
+                Value::from(str_of(input.get("url").unwrap_or(&Value::Null))),
             );
         }
         "mcp" if name.starts_with("mcp__") => {
@@ -145,33 +145,33 @@ pub fn tool_detail(name: &str, value: &Value) -> Value {
             } else {
                 name.to_owned()
             };
-            map.insert("server".to_owned(), Value::String(server));
-            map.insert("tool".to_owned(), Value::String(tool));
+            map.insert("server".to_owned(), Value::from(server));
+            map.insert("tool".to_owned(), Value::from(tool));
             map.insert("arguments".to_owned(), value.clone());
         }
         "mcp" => {
-            map.insert("server".to_owned(), Value::String("claude".to_owned()));
-            map.insert("tool".to_owned(), Value::String(name.to_owned()));
+            map.insert("server".to_owned(), Value::from("claude".to_owned()));
+            map.insert("tool".to_owned(), Value::from(name.to_owned()));
             map.insert("arguments".to_owned(), value.clone());
         }
         "agent.spawn" => {
             map.insert(
                 "description".to_owned(),
-                Value::String(str_of(input.get("description").unwrap_or(&Value::Null))),
+                Value::from(str_of(input.get("description").unwrap_or(&Value::Null))),
             );
             map.insert(
                 "prompt".to_owned(),
-                Value::String(str_of(input.get("prompt").unwrap_or(&Value::Null))),
+                Value::from(str_of(input.get("prompt").unwrap_or(&Value::Null))),
             );
             let agent_type = str_of(input.get("subagent_type").unwrap_or(&Value::Null));
             if !agent_type.is_empty() {
-                map.insert("agentType".to_owned(), Value::String(agent_type));
+                map.insert("agentType".to_owned(), Value::from(agent_type));
             }
         }
         "agent.message" => {
             map.insert(
                 "message".to_owned(),
-                Value::String(str_of(input.get("message").unwrap_or(&Value::Null))),
+                Value::from(str_of(input.get("message").unwrap_or(&Value::Null))),
             );
         }
         "todo" => {
@@ -181,12 +181,12 @@ pub fn tool_detail(name: &str, value: &Value) -> Value {
                     todos.push(todo);
                 }
             }
-            map.insert("todos".to_owned(), Value::Array(todos));
+            map.insert("todos".to_owned(), Value::from(todos));
         }
         "plan" => {
             map.insert(
                 "markdown".to_owned(),
-                Value::String(str_of(input.get("plan").unwrap_or(&Value::Null))),
+                Value::from(str_of(input.get("plan").unwrap_or(&Value::Null))),
             );
         }
         _ => {}

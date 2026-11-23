@@ -2,7 +2,7 @@
 //! Agent registry: ensure and discover threads, replaying history.
 
 use ace_core::Fact;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::facts::fact;
 use super::helpers::{obj_map, str_empty};
@@ -51,7 +51,7 @@ pub fn parse_revision(value: Option<&Value>) -> Option<Revision> {
             let mut out = Vec::with_capacity(items.len());
             for item in items {
                 match item {
-                    Value::String(s) => out.push(s.clone()),
+                    Value::String(s) => out.push(s.to_string()),
                     _ => return None,
                 }
             }
@@ -81,7 +81,7 @@ struct SeenBody<'a> {
     role: Option<&'a str>,
 }
 
-fn agent_seen_body(seen: SeenBody<'_>) -> Map<String, Value> {
+fn agent_seen_body(seen: SeenBody<'_>) -> Map {
     let agent_key = seen.agent_key;
     let parent_key = seen.parent_key;
     let spawned_by = seen.spawned_by;
@@ -93,32 +93,32 @@ fn agent_seen_body(seen: SeenBody<'_>) -> Map<String, Value> {
     let name = seen.name;
     let role = seen.role;
     let mut body = Map::with_capacity(10);
-    body.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
+    body.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
     if let Some(parent) = parent_key {
-        body.insert("parent".to_owned(), Value::String(parent.to_owned()));
+        body.insert("parent".to_owned(), Value::from(parent.to_owned()));
     }
     if let Some(spawned_by) = spawned_by {
-        body.insert("spawnedBy".to_owned(), Value::String(spawned_by.to_owned()));
+        body.insert("spawnedBy".to_owned(), Value::from(spawned_by.to_owned()));
     }
-    body.insert("origin".to_owned(), Value::String(origin.to_owned()));
-    body.insert("fidelity".to_owned(), Value::String(fidelity.to_owned()));
+    body.insert("origin".to_owned(), Value::from(origin.to_owned()));
+    body.insert("fidelity".to_owned(), Value::from(fidelity.to_owned()));
     let mut native = Map::with_capacity(3);
-    native.insert("provider".to_owned(), Value::String("codex".to_owned()));
-    native.insert("nativeId".to_owned(), Value::String(native_id.to_owned()));
+    native.insert("provider".to_owned(), Value::from("codex".to_owned()));
+    native.insert("nativeId".to_owned(), Value::from(native_id.to_owned()));
     if let Some(path) = path {
-        native.insert("path".to_owned(), Value::String(path.to_owned()));
+        native.insert("path".to_owned(), Value::from(path.to_owned()));
     }
     body.insert("native".to_owned(), Value::Object(native));
-    body.insert("cwd".to_owned(), Value::String(cwd.to_owned()));
+    body.insert("cwd".to_owned(), Value::from(cwd.to_owned()));
     if let Some(name) = name
         && !name.is_empty()
     {
-        body.insert("name".to_owned(), Value::String(name.to_owned()));
+        body.insert("name".to_owned(), Value::from(name.to_owned()));
     }
     if let Some(role) = role
         && !role.is_empty()
     {
-        body.insert("role".to_owned(), Value::String(role.to_owned()));
+        body.insert("role".to_owned(), Value::from(role.to_owned()));
     }
     body
 }
@@ -135,7 +135,7 @@ impl CodexTranslator {
         id: &str,
         known: bool,
         facts: &mut Vec<Fact>,
-        metadata: &Map<String, Value>,
+        metadata: &Map,
         parent: Option<&str>,
     ) -> String {
         if self.agents.contains_key(id) {
@@ -191,7 +191,7 @@ impl CodexTranslator {
     pub fn discover_agent(
         &mut self,
         id: &str,
-        p: &Map<String, Value>,
+        p: &Map,
         facts: &mut Vec<Fact>,
         now: i64,
         options: DiscoverOptions<'_>,
@@ -224,10 +224,10 @@ impl CodexTranslator {
                 && current_model.as_deref() != Some(model_str.as_str())
             {
                 if let Some(agent) = self.agents.get_mut(id) {
-                    agent.model = Some(model_str.clone());
+                    agent.model = Some(String::from(model_str.clone()));
                 }
                 let mut body = Map::with_capacity(2);
-                body.insert("agent".to_owned(), Value::String(agent_key));
+                body.insert("agent".to_owned(), Value::from(agent_key));
                 body.insert("model".to_owned(), Value::String(model_str.clone()));
                 facts.push(fact("agent.linked", body));
             }
@@ -263,12 +263,12 @@ impl CodexTranslator {
                 agent.unknown_task = true;
             }
             let mut body = Map::with_capacity(6);
-            body.insert("agent".to_owned(), Value::String(self.root_key.clone()));
-            body.insert("task".to_owned(), Value::String(format!("unknown:{id}")));
-            body.insert("kind".to_owned(), Value::String("other".to_owned()));
+            body.insert("agent".to_owned(), Value::from(self.root_key.clone()));
+            body.insert("task".to_owned(), Value::from(format!("unknown:{id}")));
+            body.insert("kind".to_owned(), Value::from("other".to_owned()));
             body.insert(
                 "title".to_owned(),
-                Value::String("Subagent recovery".to_owned()),
+                Value::from("Subagent recovery".to_owned()),
             );
             body.insert("internal".to_owned(), Value::Bool(true));
             body.insert("stoppable".to_owned(), Value::Bool(false));
@@ -348,8 +348,8 @@ impl CodexTranslator {
             .unwrap_or((false, false, false, false));
         if unknown_task_now && !recovery_uncertain_now && (!buffer_lost_now || has_turns_now) {
             let mut body = Map::with_capacity(2);
-            body.insert("task".to_owned(), Value::String(format!("unknown:{id}")));
-            body.insert("status".to_owned(), Value::String("completed".to_owned()));
+            body.insert("task".to_owned(), Value::from(format!("unknown:{id}")));
+            body.insert("status".to_owned(), Value::from("completed".to_owned()));
             facts.push(fact("background.ended", body));
             if let Some(agent) = self.agents.get_mut(id) {
                 agent.unknown_task = false;
@@ -367,9 +367,9 @@ impl CodexTranslator {
             let mut body = Map::with_capacity(2);
             body.insert(
                 "task".to_owned(),
-                Value::String("codex:unknown-threads".to_owned()),
+                Value::from("codex:unknown-threads".to_owned()),
             );
-            body.insert("status".to_owned(), Value::String("completed".to_owned()));
+            body.insert("status".to_owned(), Value::from("completed".to_owned()));
             facts.push(fact("background.ended", body));
             self.unknown_guard = false;
         }

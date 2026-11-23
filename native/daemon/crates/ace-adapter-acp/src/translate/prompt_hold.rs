@@ -4,7 +4,7 @@
 use crate::translate::shell_settlement::holds_next_prompt;
 use crate::translate::state::TranslationState;
 use crate::translate::tools::tool_detail;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 /// Reports a root tool running with no prompt open as holding the next prompt.
 pub fn sync_prompt_hold(
@@ -39,13 +39,13 @@ pub fn sync_prompt_hold(
         let mut fact = Map::with_capacity(7);
         fact.insert(
             "type".to_owned(),
-            Value::String("background.started".to_owned()),
+            Value::from("background.started".to_owned()),
         );
-        fact.insert("agent".to_owned(), Value::String(owner_key));
-        fact.insert("task".to_owned(), Value::String(hold_key));
+        fact.insert("agent".to_owned(), Value::from(owner_key));
+        fact.insert("task".to_owned(), Value::from(hold_key));
         fact.insert(
             "kind".to_owned(),
-            Value::String(if kind_is_shell {
+            Value::from(if kind_is_shell {
                 "shell".to_owned()
             } else {
                 "other".to_owned()
@@ -53,7 +53,7 @@ pub fn sync_prompt_hold(
         );
         fact.insert(
             "title".to_owned(),
-            Value::String(if title.is_empty() {
+            Value::from(if title.is_empty() {
                 "Tool".to_owned()
             } else {
                 title
@@ -64,7 +64,7 @@ pub fn sync_prompt_hold(
             .get(tool_key)
             .map(|tool| tool.key.clone())
             .unwrap_or_default();
-        fact.insert("item".to_owned(), Value::String(item_key));
+        fact.insert("item".to_owned(), Value::from(item_key));
         fact.insert("stoppable".to_owned(), Value::Bool(false));
         fact.insert("blocksPrompts".to_owned(), Value::Bool(true));
         facts.push(Value::Object(fact));
@@ -80,10 +80,10 @@ pub fn sync_prompt_hold(
         let mut fact = Map::with_capacity(3);
         fact.insert(
             "type".to_owned(),
-            Value::String("background.ended".to_owned()),
+            Value::from("background.ended".to_owned()),
         );
-        fact.insert("task".to_owned(), Value::String(hold));
-        fact.insert("status".to_owned(), Value::String(status.to_owned()));
+        fact.insert("task".to_owned(), Value::from(hold));
+        fact.insert("status".to_owned(), Value::from(status.to_owned()));
         facts.push(Value::Object(fact));
     }
 }

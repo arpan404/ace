@@ -354,9 +354,25 @@ impl Serialize for Value {
     }
 }
 
+impl Serialize for crate::Map {
+    fn serialize<S: ser::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        let mut text = String::new();
+        crate::write::write_map(&mut text, self);
+        serializer.serialize_newtype_struct(RAW_TOKEN, &text)
+    }
+}
+
+impl Serialize for crate::Array {
+    fn serialize<S: ser::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        let mut text = String::new();
+        crate::write::write_items(&mut text, self);
+        serializer.serialize_newtype_struct(RAW_TOKEN, &text)
+    }
+}
+
 impl Serialize for JsString {
     fn serialize<S: ser::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
-        match self.as_str() {
+        match self.as_well_formed() {
             Some(text) => serializer.serialize_str(text),
             None => {
                 let mut text = String::new();

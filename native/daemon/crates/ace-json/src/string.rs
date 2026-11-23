@@ -2,8 +2,12 @@
 //! Strings as JavaScript holds them: a sequence of UTF-16 code units, where a lone surrogate
 //! (`"\ud800"`) is an ordinary string. Nearly every string is well-formed, so those stay a Rust
 //! `String` (cheap `&str` reads, byte-wise lookups); only a string holding a lone surrogate keeps
-//! its code units. The two forms never describe the same string, so equality and hashing can
-//! compare them form by form.
+//! its code units, beside a display text with U+FFFD for each lone surrogate. The two forms
+//! never describe the same string, so equality and hashing compare them form by form.
+//!
+//! A `JsString` derefs to its text, so code reads it as a `&str`; the text is exact for every
+//! well-formed string. Equality, order, length in code units, concatenation and serializing use
+//! the code units, so a lone surrogate survives a copy into another value and out to JSON.
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -17,8 +21,9 @@ pub struct JsString(Repr);
 #[derive(Clone)]
 enum Repr {
     Utf8(String),
-    /// Holds at least one lone surrogate; never a well-formed string.
-    Units(Box<[u16]>),
+    /// Holds at least one lone surrogate; never a well-formed string. `text` is the display
+    /// form, each lone surrogate replaced by U+FFFD.
+    Units { units: Box<[u16]>, text: String },
 }
 
 impl Default for Repr {
@@ -46,37 +51,46 @@ impl JsString {
         for decoded in char::decode_utf16(units.iter().copied()) {
             match decoded {
                 Ok(c) => text.push(c),
-                Err(_) => return JsString(Repr::Units(units.into())),
+                Err(_) => {
+                    let text = char::decode_utf16(units.iter().copied())
+                        .map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER))
+                        .collect();
+                    return JsString(Repr::Units {
+                        units: units.into(),
+                        text,
+                    });
+                }
             }
         }
         JsString(Repr::Utf8(text))
     }
 
     /// The text when the string is well-formed; `None` when it holds a lone surrogate.
-    pub fn as_str(&self) -> Option<&str> {
+    pub fn as_well_formed(&self) -> Option<&str> {
         match &self.0 {
             Repr::Utf8(text) => Some(text),
-            Repr::Units(_) => None,
+            Repr::Units { .. } => None,
         }
     }
 
-    /// The text, with each lone surrogate replaced by U+FFFD.
-    pub fn to_string_lossy(&self) -> Cow<'_, str> {
+    /// The text, each lone surrogate shown as U+FFFD (exact for a well-formed string).
+    pub fn as_str(&self) -> &str {
         match &self.0 {
-            Repr::Utf8(text) => Cow::Borrowed(text),
-            Repr::Units(units) => Cow::Owned(
-                char::decode_utf16(units.iter().copied())
-                    .map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER))
-                    .collect(),
-            ),
+            Repr::Utf8(text) => text,
+            Repr::Units { text, .. } => text,
         }
+    }
+
+    /// The text, each lone surrogate replaced by U+FFFD.
+    pub fn to_string_lossy(&self) -> Cow<'_, str> {
+        Cow::Borrowed(self.as_str())
     }
 
     /// The text, owned, when well-formed.
     pub fn into_string(self) -> Result<String, JsString> {
         match self.0 {
             Repr::Utf8(text) => Ok(text),
-            units => Err(JsString(units)),
+            units @ Repr::Units { .. } => Err(JsString(units)),
         }
     }
 
@@ -84,22 +98,27 @@ impl JsString {
     pub fn units(&self) -> Units<'_> {
         match &self.0 {
             Repr::Utf8(text) => Units::Utf8(text.encode_utf16()),
-            Repr::Units(units) => Units::Slice(units.iter()),
+            Repr::Units { units, .. } => Units::Slice(units.iter()),
         }
+    }
+
+    /// The UTF-16 code units, named as `str::encode_utf16` is so ported code reads the same.
+    pub fn encode_utf16(&self) -> Units<'_> {
+        self.units()
     }
 
     /// `string.length`: the count of UTF-16 code units.
     pub fn len_utf16(&self) -> usize {
         match &self.0 {
             Repr::Utf8(text) => text.encode_utf16().count(),
-            Repr::Units(units) => units.len(),
+            Repr::Units { units, .. } => units.len(),
         }
     }
 
     pub fn is_empty(&self) -> bool {
         match &self.0 {
             Repr::Utf8(text) => text.is_empty(),
-            Repr::Units(units) => units.is_empty(),
+            Repr::Units { units, .. } => units.is_empty(),
         }
     }
 
@@ -123,7 +142,7 @@ impl JsString {
     pub fn push_str(&mut self, more: &str) {
         match &mut self.0 {
             Repr::Utf8(text) => text.push_str(more),
-            Repr::Units(_) => self.push_js(&JsString::from(more)),
+            Repr::Units { .. } => self.push_js(&JsString::from(more)),
         }
     }
 
@@ -141,7 +160,7 @@ impl JsString {
     pub(crate) fn repr_units(&self) -> Option<&[u16]> {
         match &self.0 {
             Repr::Utf8(_) => None,
-            Repr::Units(units) => Some(units),
+            Repr::Units { units, .. } => Some(units),
         }
     }
 }
@@ -202,7 +221,7 @@ impl PartialEq for JsString {
     fn eq(&self, other: &JsString) -> bool {
         match (&self.0, &other.0) {
             (Repr::Utf8(a), Repr::Utf8(b)) => a == b,
-            (Repr::Units(a), Repr::Units(b)) => a == b,
+            (Repr::Units { units: a, .. }, Repr::Units { units: b, .. }) => a == b,
             _ => false,
         }
     }
@@ -212,19 +231,19 @@ impl Eq for JsString {}
 
 impl PartialEq<str> for JsString {
     fn eq(&self, other: &str) -> bool {
-        self.as_str() == Some(other)
+        self.as_well_formed() == Some(other)
     }
 }
 
 impl PartialEq<&str> for JsString {
     fn eq(&self, other: &&str) -> bool {
-        self.as_str() == Some(*other)
+        self.as_well_formed() == Some(*other)
     }
 }
 
 impl PartialEq<String> for JsString {
     fn eq(&self, other: &String) -> bool {
-        self.as_str() == Some(other.as_str())
+        self.as_well_formed() == Some(other.as_str())
     }
 }
 
@@ -256,7 +275,7 @@ impl Hash for JsString {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match &self.0 {
             Repr::Utf8(text) => hash_text(text, state),
-            Repr::Units(units) => {
+            Repr::Units { units, .. } => {
                 state.write_u8(0xfe);
                 for unit in units.iter() {
                     state.write_u16(*unit);
@@ -270,7 +289,7 @@ impl Hash for JsString {
 /// for characters above U+FFFF against U+E000..U+FFFF.
 impl Ord for JsString {
     fn cmp(&self, other: &JsString) -> Ordering {
-        if let (Some(a), Some(b)) = (self.as_str(), other.as_str())
+        if let (Some(a), Some(b)) = (self.as_well_formed(), other.as_well_formed())
             && (a.is_ascii() || b.is_ascii())
         {
             return a.cmp(b);
@@ -287,7 +306,36 @@ impl PartialOrd for JsString {
 
 impl fmt::Display for JsString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.to_string_lossy())
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::ops::Deref for JsString {
+    type Target = str;
+    fn deref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl AsRef<str> for JsString {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl From<JsString> for String {
+    /// The text, each lone surrogate replaced by U+FFFD.
+    fn from(text: JsString) -> String {
+        match text.0 {
+            Repr::Utf8(text) => text,
+            Repr::Units { text, .. } => text,
+        }
+    }
+}
+
+impl From<&JsString> for String {
+    fn from(text: &JsString) -> String {
+        text.as_str().to_owned()
     }
 }
 

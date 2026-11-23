@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use serde_json::Value;
+use ace_json::Value;
 
 /// At most 1024 ids; re-add moves to the end.
 pub struct RecentSet {
@@ -111,7 +111,7 @@ impl UnknownBuffers {
     }
 
     fn frame_bytes(data: &Value) -> usize {
-        match serde_json::to_string(data) {
+        match ace_json::ser::to_string(data) {
             Ok(text) => text.encode_utf16().count() * 2,
             Err(_) => 0,
         }
@@ -133,7 +133,7 @@ impl UnknownBuffers {
     pub fn push(&mut self, id: String, data: Value) {
         if !self.threads.contains_key(&id) {
             if self.threads.len() >= 256
-                && let Some(oldest) = self.threads.keys().next().cloned()
+                && let Some(oldest) = self.threads.keys().next().map(|key| key.to_string())
             {
                 if let Some(thread) = self.threads.remove(&oldest) {
                     for frame in thread.frames {

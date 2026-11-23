@@ -7,7 +7,7 @@ use crate::translate::data::{RawPayload, arr_in, fields, get, n_in, num_str, raw
 use crate::translate::state::{NativeState, Out, StateError};
 use crate::translate::tool::tool;
 use serde::Serialize;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 /// Where a text or reasoning block lives: its session and message.
 pub struct TextLoc<'a> {
@@ -21,7 +21,7 @@ pub fn text(
     state: &mut NativeState,
     typ: &str,
     loc: &TextLoc<'_>,
-    p: &Map<String, Value>,
+    p: &Map,
     evidence: &Value,
     out: &mut Out<'_>,
 ) -> Result<(), StateError> {
@@ -137,7 +137,7 @@ struct MessageOrigin<'a> {
 }
 
 /// What a synthetic message reports, read from its native metadata.
-pub fn synthetic_kind(metadata: &Map<String, Value>) -> Option<&'static str> {
+pub fn synthetic_kind(metadata: &Map) -> Option<&'static str> {
     match s_in(metadata, "source") {
         "shell" => Some("background_completion"),
         "subagent" => Some("subagent_result"),

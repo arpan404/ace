@@ -6,7 +6,7 @@ use crate::translate::data::{fields, get, n_in, n_in_fb, s_in, truthy};
 use crate::translate::state::{NativeState, Out, StateError};
 use indexmap::IndexMap;
 use serde::Serialize;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 impl NativeState {
     /// Start a turn, unless it is already running or ended.
@@ -53,7 +53,7 @@ impl NativeState {
     /// Settle an active turn from its authoritative idle snapshot.
     pub fn reconcile_outcome(
         &mut self,
-        info: &Map<String, Value>,
+        info: &Map,
         out: &mut Out<'_>,
     ) -> Result<(), StateError> {
         let id = s_in(info, "id");
@@ -80,7 +80,7 @@ impl NativeState {
     }
 
     /// Note a child first learned from an ancestry read that found it idle.
-    pub fn probed(&mut self, info: &Map<String, Value>) {
+    pub fn probed(&mut self, info: &Map) {
         let id = s_in(info, "id");
         let time = fields(get(info, "time"));
         let idle_at = n_in(time, "idle");

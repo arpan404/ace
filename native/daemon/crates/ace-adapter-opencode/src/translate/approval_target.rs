@@ -5,12 +5,12 @@
 
 use crate::translate::data::{arr, fields, get, utf16_len};
 use serde::Serialize;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 /// The exact input an approval decides on: a value, or a whole metadata map.
 pub enum ApprovalInput<'a> {
     Value(&'a Value),
-    Map(&'a Map<String, Value>),
+    Map(&'a Map),
 }
 
 impl Serialize for ApprovalInput<'_> {
@@ -71,7 +71,7 @@ fn edit_files(value: &Value) -> Option<Vec<&str>> {
 /// nothing when neither parses the way `ApprovalTarget.safeParse` requires.
 pub fn approval_target<'a>(
     action: &'a str,
-    metadata: &'a Map<String, Value>,
+    metadata: &'a Map,
     native_input: Option<&'a Value>,
     directory: Option<&'a str>,
 ) -> Option<ApprovalTarget<'a>> {
