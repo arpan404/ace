@@ -131,7 +131,7 @@ export function Describe(props: {
           )}
         </div>
         <aside className="mk-listing-preview" inert>
-          <span className="mk-label">In the Marketplace</span>
+          <span className="mk-label">In the Store</span>
           <Card entry={preview} form={cardForm([preview])} />
         </aside>
       </div>

@@ -47,26 +47,26 @@ layer keeps them visible, unanimated and in ace's colours whatever `suit.css` sa
 
 ## Window and regions
 
-| Part             | What and where                                                                                                              | States                                         | Variants          |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | ----------------- |
-| `app`            | The window's outer frame, behind the sidebar and the canvas. A region.                                                      |                                                |                   |
-| `rail`           | The narrow column of place glyphs at the sidebar's left. A region.                                                          |                                                |                   |
-| `rail-item`      | One place in the rail (Threads, Chats, Spade, Code review, Automations, Skills, Marketplace, Usage, Settings, the profile). | `active` (the open place)                      |                   |
-| `sidebar`        | The panel beside the rail: the thread list, Settings' pages, Code review's lists. A region.                                 |                                                |                   |
-| `sidebar-header` | The sidebar panel's title row (its title and search).                                                                       |                                                |                   |
-| `sidebar-footer` | An empty band along the sidebar panel's bottom edge, for decoration.                                                        |                                                |                   |
-| `sidebar-tabs`   | The Inbox, Snoozed and Settled pill at the thread list's foot.                                                              |                                                |                   |
-| `thread-list`    | The thread list's scrolling area.                                                                                           |                                                |                   |
-| `thread-row`     | One thread in the list, the filled row itself.                                                                              | `active` (open), `selected` (picked), `unread` |                   |
-| `thread-title`   | A thread row's title text.                                                                                                  |                                                |                   |
-| `thread-meta`    | A thread row's trailing status, PR or line counts (a task row's top line).                                                  |                                                |                   |
-| `project-header` | The row under the sidebar title with the project filter and New thread.                                                     |                                                |                   |
-| `header`         | The top bar over the main column. A region.                                                                                 |                                                |                   |
-| `header-title`   | The top bar's title (the thread's name).                                                                                    |                                                |                   |
-| `main`           | The main column's content area, under the header.                                                                           |                                                |                   |
-| `transcript`     | A thread's scrolling transcript. A region.                                                                                  |                                                |                   |
-| `right-panel`    | The thread's side or bottom panel (Changes, Files, Terminal, Browser).                                                      |                                                | `right`, `bottom` |
-| `panel-header`   | The side or bottom panel's tab strip row.                                                                                   |                                                |                   |
+| Part             | What and where                                                                                                        | States                                         | Variants          |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | ----------------- |
+| `app`            | The window's outer frame, behind the sidebar and the canvas. A region.                                                |                                                |                   |
+| `rail`           | The narrow column of place glyphs at the sidebar's left. A region.                                                    |                                                |                   |
+| `rail-item`      | One place in the rail (Threads, Chats, Spade, Code review, Automations, Skills, Store, Usage, Settings, the profile). | `active` (the open place)                      |                   |
+| `sidebar`        | The panel beside the rail: the thread list, Settings' pages, Code review's lists. A region.                           |                                                |                   |
+| `sidebar-header` | The sidebar panel's title row (its title and search).                                                                 |                                                |                   |
+| `sidebar-footer` | An empty band along the sidebar panel's bottom edge, for decoration.                                                  |                                                |                   |
+| `sidebar-tabs`   | The Inbox, Snoozed and Settled pill at the thread list's foot.                                                        |                                                |                   |
+| `thread-list`    | The thread list's scrolling area.                                                                                     |                                                |                   |
+| `thread-row`     | One thread in the list, the filled row itself.                                                                        | `active` (open), `selected` (picked), `unread` |                   |
+| `thread-title`   | A thread row's title text.                                                                                            |                                                |                   |
+| `thread-meta`    | A thread row's trailing status, PR or line counts (a task row's top line).                                            |                                                |                   |
+| `project-header` | The row under the sidebar title with the project filter and New thread.                                               |                                                |                   |
+| `header`         | The top bar over the main column. A region.                                                                           |                                                |                   |
+| `header-title`   | The top bar's title (the thread's name).                                                                              |                                                |                   |
+| `main`           | The main column's content area, under the header.                                                                     |                                                |                   |
+| `transcript`     | A thread's scrolling transcript. A region.                                                                            |                                                |                   |
+| `right-panel`    | The thread's side or bottom panel (Changes, Files, Terminal, Browser).                                                |                                                | `right`, `bottom` |
+| `panel-header`   | The side or bottom panel's tab strip row.                                                                             |                                                |                   |
 
 ## Transcript
 
@@ -171,7 +171,7 @@ canvas is a `page` as well (`thread` or `chat`).
 | `page-toolbar`  | A row of a page's actions or view switches.                                                                    |                                                                                                               |                                                             |
 | `page-body`     | A page's main content column.                                                                                  |                                                                                                               |                                                             |
 | `page-section`  | A titled group within a page.                                                                                  |                                                                                                               |                                                             |
-| `section-title` | A section's heading: a Settings group's title, a Usage or pull request section's, a Marketplace shelf's.       |                                                                                                               | `market` (a shelf), `quiet` (a small head inside an entry)  |
+| `section-title` | A section's heading: a Settings group's title, a Usage or pull request section's, a Store shelf's.             |                                                                                                               | `market` (a shelf), `quiet` (a small head inside an entry)  |
 | `list`          | A list of rows on a page.                                                                                      |                                                                                                               |                                                             |
 | `list-group`    | A labelled group of rows in a list (a week in History, a source in Skills).                                    |                                                                                                               |                                                             |
 | `list-row`      | One row in a list.                                                                                             | `selected`, `active`, `open`, `checked`, `disabled`, `unread`; a run's `waiting`, `working`, `done`, `failed` | a run's status, an activity's kind, `file`/`folder`         |
@@ -205,7 +205,7 @@ canvas is a `page` as well (`thread` or `chat`).
 | `review`                      | A pull request's Code tab (the review of its changes).                                     |
 | `automations`, `automation`   | Automations with none open; one automation or a new one.                                   |
 | `skills`, `skill`             | Skills' landing page; one skill or a new one.                                              |
-| `marketplace`                 | A place in the Marketplace modal: Discover, Looks, Bots, Tools, Apps, Installed, search.   |
+| `marketplace`                 | A place in the Store modal: Discover, Looks, Bots, Tools, Apps, Installed, search.         |
 | `market-entry`                | A page pushed over a place: an entry, its review, a publisher, a collection, Catalogs.     |
 | `usage`                       | Usage.                                                                                     |
 | `spade`                       | Spade, a bot or a club's conversation, and their pages.                                    |
@@ -234,16 +234,16 @@ A Spade conversation (docs/design/spade.md) reuses the parts above; these are wh
 | `tabs` / `tab`               | The computer's views.                                                                    | `selected` (tab)                                               | `computer` (tabs); the view's kind (tab)                             |
 | `list` / `list-row`          | Activity and its rows; a connected app, a routine, a file or folder.                     | activity: `working`, `done`, `failed`; routine: `checked` (on) | activity: the entry's kind; `connector`, `routine`, `file`, `folder` |
 
-## Marketplace
+## Store
 
-The Marketplace is a modal over the app (ADR 0168), opened from the rail, Spade, New bot,
+The Store is a modal over the app (ADR 0168), opened from the rail, Spade, New bot,
 Appearance and Skills, or by `?market=`. Each place or pushed page inside it is a `page` with its
 `data-page` (`marketplace`, `market-entry`).
 
 | Part            | Where                                                                                                      | States                        | Variants                                                                                                                                                      |
 | --------------- | ---------------------------------------------------------------------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `dialog`        | The modal itself, 90% of the window, a full-screen sheet on a phone.                                       |                               | `market`                                                                                                                                                      |
-| `page-toolbar`  | Its one bar: Marketplace, the places, search, Installed, you, Close.                                       |                               | `market`                                                                                                                                                      |
+| `page-toolbar`  | Its one bar: Store, the places, search, Installed, you, Close.                                             |                               | `market`                                                                                                                                                      |
 | `tab`           | A place in the bar, and Installed.                                                                         | `selected` (the open place)   | `installed`                                                                                                                                                   |
 | `search-field`  | The bar's search.                                                                                          |                               | `market`                                                                                                                                                      |
 | `market-hero`   | Discover's featured hero: the slides and the picks beside or under them.                                   |                               |                                                                                                                                                               |
@@ -253,7 +253,7 @@ Appearance and Skills, or by `?market=`. Each place or pushed page inside it is 
 | `list-row`      | A search result, an installed entry, an app, a trending row, a pick beside Discover's hero.                | `selected` (the pick shown)   | `market`, `market-installed`, `market-app`, `market-trending`, `market-pick`                                                                                  |
 | `avatar`        | A publisher's or your picture, or their initials; ace's own publisher draws ace's logo.                    |                               | `ace` (ace's logo for the official publisher)                                                                                                                 |
 | `market-try`    | Try it's floating bar while the app wears a Suit: its window, name, Undo and Keep it.                      |                               |                                                                                                                                                               |
-| `page-title`    | The bar's "Marketplace", a hero slide's name, a pushed page's heading.                                     |                               | `market` (the bar, a pushed page), `hero` (a slide)                                                                                                           |
+| `page-title`    | The bar's "Store", a hero slide's name, a pushed page's heading.                                           |                               | `market` (the bar, a pushed page), `hero` (a slide)                                                                                                           |
 | `tabs` / `tab`  | A word choice on a page: Installed's All · Updates, a Suit's Dark · Light preview, a listing's visibility. | `selected` (tab)              | `words` (tabs)                                                                                                                                                |
 | `section-title` | A shelf's heading ("New and notable"), a small head inside an entry or review.                             |                               | `market`, `quiet`                                                                                                                                             |
 | `link`          | A shelf's See all, a publisher's name that opens their page.                                               |                               | `publisher`                                                                                                                                                   |
@@ -420,14 +420,14 @@ reduce-motion frame.
   `header-title` `spade-pill`, raised cards are `card` `waiting` (`spade-question`,
   `spade-request`), and a bot's profile is `right-panel` `spade-profile` with its head, segments,
   sections and rows.
-- Version 1, 2026-11-15: the Marketplace's pages, `marketplace` (its lists) and `market-entry`
+- Version 1, 2026-11-15: the Store's pages, `marketplace` (its lists) and `market-entry`
   (an entry and its review, `data-variant` `review`). Its panel rows are `nav-item`s, its entry
   rows `list-row`s in a `list` `market`, and a review's switches are `settings-row`s.
-- Version 1, 2026-11-16: the Marketplace became a modal (see "Marketplace"). Added
+- Version 1, 2026-11-16: the Store became a modal (see "Store"). Added
   `market-hero`, `market-stage` and `market-try`; its panel's `nav-item`s are gone, and
   `marketplace` / `market-entry` now name its places and pushed pages.
 - Version 1, 2026-11-17: added `section-title` (Settings groups, Usage and pull request sections,
-  Marketplace shelves). The Marketplace names its titles (`page-title` `market`, `hero`), Installed
+  Store shelves). The Store names its titles (`page-title` `market`, `hero`), Installed
   (`tab`), See all and publishers (`link`) and Discover's picks (`list-row` `market-pick`). A card that is a small mark beside
   its words is `card` `market-lockup`; a choice while publishing is `card` `market-choice`. Filter
   menus are `button` `filter`; the composer's Access, When and the branch picker are `select`s; the panels' search toggle

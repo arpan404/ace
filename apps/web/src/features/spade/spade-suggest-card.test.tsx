@@ -55,7 +55,7 @@ test("a suggested package shows its signed face, publisher and asks, and Review 
   ).toBeTruthy();
 
   await userEvent.click(shown.getByRole("button", { name: "Review install" }));
-  // The Marketplace's own review, with its switches; nothing was installed or answered.
+  // The Store's own review, with its switches; nothing was installed or answered.
   const market = await findMarket();
   expect(await within(market).findByRole("switch", { name: "Gmail" })).toBeTruthy();
   expect(within(market).getByRole("button", { name: "Install" })).toBeTruthy();

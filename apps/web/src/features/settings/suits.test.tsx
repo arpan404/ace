@@ -66,7 +66,7 @@ test("themes and Suits are one set of looks, each Suit saying what it has", asyn
     "Neon pink over a violet dusk. Dark only",
   );
   expect(picked()).toEqual(["ace"]);
-  // The page says Look, not the format's name; only the Marketplace link names Suits.
+  // The page says Look, not the format's name; only the Store link names Suits.
   const main = screen.getByRole("main");
   expect(
     within(main)
