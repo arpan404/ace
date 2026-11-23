@@ -87,32 +87,55 @@ describe("long words", () => {
     "| South | €38 |",
   ].join("\n");
 
-  test("a reply with a heading or a table shows its first paragraph and a card holding all of it", () => {
+  test("a 30-line reply stays one message with every word and folds once finished", () => {
+    const long = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`).join("\n");
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.delta("r1", `<msg>${long}`);
+    const [streaming] = bots(c.bubbles());
+    expect(streaming).toMatchObject({ text: long, live: true });
+    expect(streaming?.fold).toBeUndefined();
+    c.stored({ type: "step_finished", reply: "r1", text: `<msg>${long}</msg>` });
+    c.stored({ type: "reply_finished", reply: "r1", text: "" });
+    const done = bots(c.bubbles());
+    expect(done).toHaveLength(1);
+    expect(done[0]).toMatchObject({ text: long, fold: true });
+    expect(done[0]?.doc).toBeUndefined();
+  });
+
+  test("a heading or table no longer turns a message into a document", () => {
     const c = conversation();
     c.stored({ type: "reply_started", reply: "r1" });
     c.stored({ type: "step_finished", reply: "r1", text: report });
     const [bubble] = bots(c.bubbles());
-    expect(bubble?.text).toBe("Here's what I found across the three suppliers.");
-    expect(bubble?.doc).toMatchObject({ title: "Prices", text: report });
-    expect(bubble?.doc?.preview).toContain("North");
+    expect(bubble?.text).toBe(report);
+    expect(bubble?.doc).toBeUndefined();
   });
 
-  test("a reply over twelve lines becomes a card too, and a short one stays a bubble", () => {
+  test("a short message doesn't fold, and a reply quoting a long one quotes its words", () => {
     const long = Array.from({ length: 14 }, (_, at) => `Line ${at + 1}`).join("\n");
     const c = conversation();
     c.stored({ type: "reply_started", reply: "r1" });
-    c.stored({ type: "step_finished", reply: "r1", text: long });
-    c.stored({ type: "reply_finished", reply: "r1", text: long });
+    c.stored({
+      type: "step_finished",
+      reply: "r1",
+      text: `<msg>Short and sweet.</msg><msg>${long}</msg>`,
+    });
+    c.stored({ type: "reply_finished", reply: "r1", text: "" });
     c.stored({ type: "reply_started", reply: "r2" });
-    c.stored({ type: "step_finished", reply: "r2", text: "Short and sweet." });
-    const [first, second] = bots(c.bubbles());
-    expect(first?.doc?.text).toBe(long);
-    expect(first?.doc?.title).toBe("Full reply");
-    expect(second).toMatchObject({ text: "Short and sweet." });
-    expect(second?.doc).toBeUndefined();
+    c.stored({
+      type: "step_finished",
+      reply: "r2",
+      text: '<msg reply="m2.2">About line 14.</msg>',
+    });
+    const [short, folded, answer] = bots(c.bubbles());
+    expect(short).toMatchObject({ text: "Short and sweet." });
+    expect(short?.fold).toBeUndefined();
+    expect(folded?.fold).toBe(true);
+    expect(answer?.quote?.text).toContain("Line 1");
   });
 
-  test("a document the bot wrote is a card with its title and no bubble of words", () => {
+  test("a <doc> the bot wrote is still a document card with its title and no bubble of words", () => {
     const c = conversation();
     c.stored({ type: "reply_started", reply: "r1" });
     c.stored({
