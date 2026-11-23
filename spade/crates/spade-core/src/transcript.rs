@@ -213,6 +213,24 @@ impl Transcript {
                     .push((call_id.clone(), helper.job.clone()));
                 self.asked.push((call_id.clone(), name.clone()));
             }
+            // A lane's call (ADR 0217 §4), asked here too: it waits until answered or the lane
+            // reports it no longer needs the person.
+            Known::ApprovalRequested {
+                call_id,
+                name,
+                lane: Some(lane),
+                ..
+            } => {
+                self.helper_awaiting
+                    .push((call_id.clone(), lane.task.clone()));
+                self.asked.push((call_id.clone(), name.clone()));
+            }
+            Known::WorkerReported(report)
+                if report.kind == crate::tree::Kind::Lane
+                    && report.state != crate::tree::ReportState::NeedsYou =>
+            {
+                self.helper_awaiting.retain(|(_, lane)| lane != &report.worker);
+            }
             Known::ApprovalRequested { call_id, name, .. } => {
                 self.paused = false;
                 if !self.stopping {
@@ -327,6 +345,10 @@ impl Transcript {
             | Known::WorkerStarted(_)
             | Known::WorkerReported(_)
             | Known::WorkerDetached { .. }
+            | Known::LaneOf(_)
+            | Known::LaneStarted(_)
+            | Known::ReplyMoved(_)
+            | Known::AskRouted(_)
             | Known::DecisionMade(_)
             | Known::AsksUpdated(_)
             | Known::AsksChecked(_)
@@ -563,6 +585,7 @@ mod tests {
             Event::reply_started("r1", "m"),
             step_with("r1", vec![call("c1")]),
             Event::Known(Known::ApprovalRequested {
+                lane: None,
                 reply: "r1".into(),
                 call_id: "c1".into(),
                 name: "send_email".into(),
@@ -591,6 +614,7 @@ mod tests {
             Event::reply_started("r1", "m"),
             step_with("r1", vec![call("c1")]),
             Event::Known(Known::ApprovalRequested {
+                lane: None,
                 reply: "r1".into(),
                 call_id: "c1".into(),
                 name: "send_email".into(),
@@ -629,6 +653,7 @@ mod tests {
             Event::reply_started("r1", "m"),
             step_with("r1", vec![call("c1")]),
             Event::Known(Known::ApprovalRequested {
+                lane: None,
                 reply: "r1".into(),
                 call_id: "c1".into(),
                 name: "send_email".into(),
@@ -947,6 +972,7 @@ mod tests {
     fn a_helpers_approval_keeps_the_bot_waiting_after_its_reply_and_ends_with_the_helper() {
         let asked = |call_id: &str| {
             Event::Known(Known::ApprovalRequested {
+                lane: None,
                 reply: "r1".into(),
                 call_id: call_id.into(),
                 name: "workspace_write".into(),

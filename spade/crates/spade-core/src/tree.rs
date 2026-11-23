@@ -37,6 +37,8 @@ pub enum Kind {
     Ace,
     /// A helper (ADR 0152).
     Helper,
+    /// A task lane (ADR 0217): the bot's own conversation for one of the person's tasks.
+    Lane,
 }
 
 impl Kind {
@@ -45,6 +47,7 @@ impl Kind {
             Self::Bot => "bot",
             Self::Ace => "ace",
             Self::Helper => "helper",
+            Self::Lane => "lane",
         }
     }
 }
@@ -556,6 +559,9 @@ pub fn reported(events: &[Event], worker: &str, epoch: &str, state: ReportState)
 
 /// A report as the model reads it: Spade's note, then the worker's words quoted as untrusted.
 pub fn report_text(report: &Report) -> String {
+    if report.kind == Kind::Lane {
+        return lane_report_text(report);
+    }
     let next = match report.state {
         ReportState::Done => "Read its checked outcome with worker_result.",
         ReportState::Finished => {
@@ -582,6 +588,38 @@ pub fn report_text(report: &Report) -> String {
         text.push_str(&format!(
             "\n<worker_words untrusted=\"true\">\n{quoted}\n</worker_words>"
         ));
+    }
+    text
+}
+
+/// A lane's report as main reads it (ADR 0217 §4): what to tell the person, then the lane's own
+/// last words. They are the bot's own work, so they are not marked untrusted as a worker's are;
+/// whatever untrusted content the lane read taints only the lane.
+fn lane_report_text(report: &Report) -> String {
+    let next = match report.state {
+        ReportState::Done | ReportState::Finished => {
+            "Tell the person what it did in a sentence or two, with its evidence; read more with \
+             tasks."
+        }
+        ReportState::NeedsYou => {
+            "It waits on the person: their answer shows in this chat's request strip."
+        }
+        ReportState::Failed => {
+            "Tell the person it stopped early and why, in a sentence; they can try it again."
+        }
+        ReportState::Stopped | ReportState::Stopping | ReportState::Other => "",
+    };
+    let mut text = format!(
+        "<task_report task=\"{}\" state=\"{}\" from=\"spade\">\n\
+         Your task {} reported: {} {next}\n</task_report>",
+        report.worker,
+        report.state.name(),
+        quoted_name(&report.name),
+        report.summary,
+    );
+    if let Some(words) = &report.words {
+        let quoted = serde_json::to_string(words).unwrap_or_default();
+        text.push_str(&format!("\n<task_words>\n{quoted}\n</task_words>"));
     }
     text
 }

@@ -489,3 +489,65 @@ fn an_effort_word_this_build_doesnt_know_is_skipped_and_the_rest_of_the_override
     assert_eq!(read.efforts, [(Role::Title, Effort::Low)].into());
     Ok(())
 }
+
+#[test]
+fn the_task_role_resolves_like_the_others_and_defaults_to_whatever_main_resolves_to() {
+    let none = Overrides::default();
+    // Unset: tasks run on the chat's model and route, fallbacks included, never the fast model.
+    assert_eq!(
+        choose("a/strong", &none, &none, &with_fast(), Role::Task),
+        ("a/strong".to_owned(), Source::Own)
+    );
+    let main_route = routes(&[(Role::Main, &["a/strong", "a/mid"])]);
+    assert_eq!(
+        route_of("a/strong", &main_route, &none, Role::Task),
+        ["a/strong", "a/mid"]
+    );
+    // The global choice, then the bot's own, win as for any role; a gone model is skipped.
+    let global = overrides(&[(Role::Task, "a/mid")]);
+    let bot = overrides(&[(Role::Task, "b/stronger")]);
+    let gone = overrides(&[(Role::Task, "gone/x")]);
+    assert_eq!(
+        choose("a/strong", &none, &global, &with_fast(), Role::Task),
+        ("a/mid".to_owned(), Source::Global)
+    );
+    assert_eq!(
+        choose("a/strong", &bot, &global, &with_fast(), Role::Task),
+        ("b/stronger".to_owned(), Source::Bot)
+    );
+    assert_eq!(
+        choose("a/strong", &gone, &global, &with_fast(), Role::Task),
+        ("a/mid".to_owned(), Source::Global)
+    );
+    assert_eq!(
+        route_of("a/strong", &bot, &global, Role::Task),
+        ["b/stronger"]
+    );
+}
+
+#[test]
+fn a_tasks_effort_follows_mains_until_the_person_sets_its_own() {
+    let none = Overrides::default();
+    assert_eq!(
+        effort_of(&none, &none, Role::Task),
+        (Effort::Medium, Source::Default)
+    );
+    // Changing main's effort changes tasks' too.
+    let main_high = efforts(&[(Role::Main, Effort::High)]);
+    assert_eq!(
+        effort_of(&main_high, &none, Role::Task),
+        (Effort::High, Source::Default)
+    );
+    // Its own effort, globally or per bot, beats main's.
+    let global = efforts(&[(Role::Task, Effort::Low)]);
+    assert_eq!(
+        effort_of(&main_high, &global, Role::Task),
+        (Effort::Low, Source::Global)
+    );
+    let bot = efforts(&[(Role::Main, Effort::High), (Role::Task, Effort::Max)]);
+    assert_eq!(
+        effort_of(&bot, &global, Role::Task),
+        (Effort::Max, Source::Bot)
+    );
+    assert_eq!(Role::parse("task"), Some(Role::Task));
+}

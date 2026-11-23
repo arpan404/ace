@@ -185,6 +185,19 @@ const known = z.discriminatedUnion("type", [
       .object({ job: z.string(), conversation: z.string(), call_id: z.string() })
       .nullish()
       .catch(undefined),
+    /**
+     * A task lane's call (ADR 0217 §4), asked here in main too: answered here, and the answer
+     * reaches the lane. `task` is the lane's id, `call_id` the call's id in the lane.
+     */
+    lane: z
+      .object({
+        task: z.string(),
+        conversation: z.string(),
+        call_id: z.string(),
+        title: z.string().catch(""),
+      })
+      .nullish()
+      .catch(undefined),
   }),
   /**
    * A plugin's server or hook the sandbox can't seal off asks to run outside it (ADR 0167): it

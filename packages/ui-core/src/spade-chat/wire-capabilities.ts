@@ -22,8 +22,11 @@ export const spadeWorkerStates = [
 ] as const;
 export type SpadeWorkerState = (typeof spadeWorkerStates)[number];
 
-/** A bot made with `bot_create`, or an ace thread started with `delegate`. */
-const workerKind = z.enum(["bot", "ace", "helper"]).catch("bot");
+/**
+ * A bot made with `bot_create`, an ace thread started with `delegate`, a helper, or a task lane
+ * (ADR 0217): one of the bot's own tasks, reported back to its main conversation.
+ */
+const workerKind = z.enum(["bot", "ace", "helper", "lane"]).catch("bot");
 
 /** What a wake is for (`wake::Purpose`), by its `kind`; an unknown one reads as a plain wait. */
 const purpose = z
@@ -85,4 +88,22 @@ export const spadeCapabilityEvents = [
   /** An owned service started: only its name is read, for the words of a wait on it. */
   z.object({ type: z.literal("service_started"), service: z.string(), name: words }),
   z.object({ type: z.literal("wake_cancelled"), wake: z.string() }),
+  /*
+   * Task lanes (ADR 0217), in main: `lane_started` where the bot started one (`moved_from` when
+   * Spade moved main's long work there, `queued` when every slot was taken), `reply_moved` where
+   * Spade moved main's reply to a lane and wrote its plain line, `ask_routed` right after a
+   * person's message a reply sent to a lane. A lane's report is a `worker_reported` of kind
+   * `lane`, whose `worker` is the lane's id.
+   */
+  z.object({
+    type: z.literal("lane_started"),
+    lane: z.string(),
+    conversation: words,
+    title: words,
+    asks: z.array(z.string()).catch([]).default([]),
+    moved_from: z.string().nullish().catch(undefined),
+    queued: z.boolean().catch(false).default(false),
+  }),
+  z.object({ type: z.literal("reply_moved"), reply: words, lane: z.string(), title: words }),
+  z.object({ type: z.literal("ask_routed"), lane: z.string(), title: words, message: words }),
 ] as const;

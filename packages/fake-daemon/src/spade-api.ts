@@ -10,6 +10,7 @@ import { FakeSpadeServices } from "./spade-services.ts";
 import { FakeSpadeOversight } from "./spade-oversight.ts";
 import { FakeSpadeSecurity } from "./spade-security.ts";
 import { contractsRoute, packageRoute } from "./spade-packages.ts";
+import { FakeSpadeLanes } from "./spade-lanes.ts";
 import { FakeSpadePanels } from "./spade-panels.ts";
 import { FakeSpadeRoutines } from "./spade-routines.ts";
 import { base64Bytes, sha256Hex } from "./sha256.ts";
@@ -187,6 +188,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly running: FakeSpadeRunning;
   /** Packaged bots' panels (ADR 0200 §5.2). */
   readonly panels: FakeSpadePanels;
+  /** Each bot's task lanes (ADR 0217); `stageFakeLanes` stores a realistic set. */
+  readonly lanes: FakeSpadeLanes;
   private readonly events = new Map<string, Stored[]>();
   private sequence = 0;
   private readonly spade: FakeSpade;
@@ -268,6 +271,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
     this.panels = new FakeSpadePanels({
       events: (conversation) => (this.events.get(conversation) ?? []).map((stored) => stored.event),
       store: (conversation, event) => this.store(conversation, event),
+    });
+    this.lanes = new FakeSpadeLanes({
+      store: (conversation, event, at) => this.store(conversation, event, at),
+      events: (conversation) => this.eventsOf(conversation),
+      now,
     });
     spade.serve(this);
   }
@@ -1255,6 +1263,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (!list) return problem(404, "No such conversation.");
     const agent = this.agents.find((candidate) => candidate.conversation === id);
     if (sub === "seen" && request.method === "PUT") return this.markSeen(id, list, request.body);
+    if (sub === "tasks" && request.method === "GET") return this.lanes.tasks(id);
     if (sub === "panels")
       return this.panels.conversationRoute(
         request.method,
