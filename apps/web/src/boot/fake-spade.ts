@@ -395,6 +395,12 @@ export function seedFakeSpade(
     reply: "r-garden",
     text: "Set for 6pm. I'll skip it if more than 5mm of rain falls first.",
   });
+  // A long answer, which folds after ten lines (ADR 0212 amendment 2).
+  here.store(garden.conversation, {
+    type: "user_message",
+    text: "What should I do in the garden in December?",
+  });
+  here.reply(garden, decemberPlan);
   here.proposals.set("garden", [
     {
       id: "sp_garden",
@@ -839,3 +845,28 @@ export const template = (
   model_kind: "capable",
   routines: [],
 });
+
+/** A long answer of the Garden bot's, past ten lines: it folds in its bubble. */
+const decemberPlan = [
+  "Here's the December plan for the south bed and the pots, in the order I'd do it.",
+  "",
+  "## Plant now",
+  "- **Garlic**: split the bulbs, cloves 15cm apart, pointy end up, 5cm deep",
+  "- **Broad beans**: two rows, 20cm apart, a cane at each end for string later",
+  "- **Shallots**: just the tips showing, so the birds can't pull them up",
+  "",
+  "## Protect",
+  "- Fleece over the lettuce on any night under 2°C",
+  "- Move the basil pots inside the porch; it won't survive a frost",
+  "- Mulch the strawberries with straw, about 5cm",
+  "",
+  "## Watering",
+  "Much less now. Once a week at most, in the morning so the leaves dry before dark, and never on a frosty day. I'll skip it whenever more than 5mm of rain is forecast.",
+  "",
+  "| Bed | Water | Next |",
+  "| --- | --- | --- |",
+  "| South | weekly | garlic in |",
+  "| Pots | when dry | move inside |",
+  "",
+  "I'll remind you on the 1st about the garlic, and again when the first frost is forecast.",
+].join("\n");
