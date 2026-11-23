@@ -7,6 +7,8 @@ struct SpadeModelsPage: View {
     let client: ClientModel
     @State private var load: SpadeSettingsLoad
     @State private var keying: SpadeKeyTarget?
+    /// The endpoint whose key choices are showing.
+    @State private var keyChoice: SpadeSettings.Endpoint?
     @State private var removing: SpadeSettings.Endpoint?
 
     init(client: ClientModel) {
@@ -72,28 +74,31 @@ struct SpadeModelsPage: View {
     /// Then the models, and removing the endpoint.
     @ViewBuilder private func endpointRows(_ endpoint: SpadeSettings.Endpoint) -> some View {
         if endpoint.key.canSet || endpoint.key.canRemove {
-            Menu {
-                if endpoint.key.canSet {
-                    Button {
-                        keying = SpadeKeyTarget(id: endpoint.id, name: endpoint.name, replacing: endpoint.key.set)
-                    } label: {
-                        Label { Text(endpoint.key.set ? "Replace key" : "Add key") } icon: { AceIcon(.key) }
-                    }
-                    .accessibilityIdentifier("spade.settings.key.edit.\(endpoint.id)")
-                }
-                if endpoint.key.canRemove {
-                    Button(role: .destructive) {
-                        load.change { await client.spadeSettingsKey(endpoint.id, key: nil) }
-                    } label: {
-                        Label { Text("Remove key") } icon: { AceIcon(.trash) }
-                    }
-                }
+            // The choices are a dialog, not a menu: a menu in this row renders its item visually
+            // but leaves it an empty cell in the accessibility tree, so VoiceOver cannot reach it.
+            Button {
+                keyChoice = endpoint
             } label: {
                 keyRow(endpoint, chevron: true)
             }
             .buttonStyle(.plain)
             .disabled(load.busy)
             .accessibilityIdentifier("spade.settings.key.\(endpoint.id)")
+            .confirmationDialog("Key", isPresented: Binding(get: { keyChoice?.id == endpoint.id },
+                                                           set: { if !$0, keyChoice?.id == endpoint.id { keyChoice = nil } }),
+                                titleVisibility: .hidden, presenting: keyChoice) { target in
+                if target.key.canSet {
+                    Button(target.key.set ? "Replace key" : "Add key") {
+                        keying = SpadeKeyTarget(id: target.id, name: target.name, replacing: target.key.set)
+                    }
+                    .accessibilityIdentifier("spade.settings.key.edit.\(target.id)")
+                }
+                if target.key.canRemove {
+                    Button("Remove key", role: .destructive) {
+                        load.change { await client.spadeSettingsKey(target.id, key: nil) }
+                    }
+                }
+            }
         } else {
             keyRow(endpoint, chevron: false).accessibilityIdentifier("spade.settings.key.\(endpoint.id)")
         }
