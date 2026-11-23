@@ -3,8 +3,10 @@ import Observation
 
 @MainActor @Observable final class BlockModel: Identifiable {
     let id: String
-    var row: BlockRow
-    init(id: String, row: BlockRow) { self.id = id; self.row = row }
+    var row: BlockRow { didSet { if row.room != room { room = row.room } } }
+    /// Observed apart from `row`, so the feed's spacing never re-reads on a block's live update.
+    private(set) var room: BlockRow.Room?
+    init(id: String, row: BlockRow) { self.id = id; self.row = row; self.room = row.room }
 }
 
 /// The open thread's blocks, composer controls, history paging and model list. Block identity
