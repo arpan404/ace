@@ -3863,15 +3863,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "spade-keychain-macos"
+version = "0.1.0"
+dependencies = [
+ "core-foundation 0.10.1",
+ "core-foundation-sys",
+ "security-framework",
+ "security-framework-sys",
+]
+
+[[package]]
 name = "spade-keys"
 version = "0.1.0"
 dependencies = [
  "apple-native-keyring-store",
  "keyring-core",
+ "nix 0.28.0",
+ "sha2 0.11.1",
+ "spade-keychain-macos",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tracing",
  "windows-native-keyring-store",
  "zbus-secret-service-keyring-store",
+ "zeroize",
 ]
 
 [[package]]
