@@ -9,6 +9,10 @@
  * Git command in the same call and `serial` turn, and is counted by reason; the shell's own
  * reasons are `injected` (a non-default `gitBinary` or an injected `spawn`) and
  * `directory_fd` (a held directory the supervisor can't spawn in yet).
+ *
+ * A read runs on a worker thread, never the JavaScript thread: the caller's `AbortSignal`
+ * and `GitCli`'s deadline stop it through a token the core polls, and the promise rejects
+ * with the same `git_cancelled`/`git_timeout` errors the CLI path raises.
  */
 import { Buffer } from "node:buffer";
 import {
@@ -18,7 +22,13 @@ import {
   type NativeBackend,
 } from "@ace/provider-kit/native-switches";
 import { textOutput } from "./cli.ts";
-import { countGitFallback, gitAddon, recordGitOp, throwGitError } from "./native-common.ts";
+import {
+  countGitFallback,
+  gitAddon,
+  recordGitOp,
+  reserveGitOpSeq,
+  throwGitError,
+} from "./native-common.ts";
 import type { Repository } from "./repository.ts";
 import { GitError } from "./types.ts";
 
@@ -36,30 +46,80 @@ type RefsOp = "listWorktrees" | "branches" | "branchRefs" | "resolveCommit" | "b
 export type CommitKind = { kind: "commit"; id: string } | { kind: "unborn" } | { kind: "missing" };
 
 interface Logged {
+  seq: number;
   op: RefsOp;
   selected: NativeBackend;
   completed: NativeBackend;
   fallback?: string;
 }
 
-function record({ op, selected, completed, fallback }: Logged): void {
-  recordGitOp({ op, part, selected, completed, ...(fallback === undefined ? {} : { fallback }) });
+function record({ seq, op, selected, completed, fallback }: Logged): void {
+  recordGitOp({
+    seq,
+    op,
+    part,
+    selected,
+    completed,
+    ...(fallback === undefined ? {} : { fallback }),
+  });
 }
 
-function fallbackReason(fallback: string, op: RefsOp, selected: NativeBackend): void {
-  record({ op, selected, completed: "typescript", fallback });
+function fallbackReason(seq: number, fallback: string, op: RefsOp, selected: NativeBackend): void {
+  record({ seq, op, selected, completed: "typescript", fallback });
   countGitFallback(fallback);
 }
 
 /**
- * Runs one ref process: native when the part is on and this call may use it, the same Git
+ * Runs one native read off the JavaScript thread. The caller's signal aborts it and the
+ * call's deadline stops it, both through the token the core polls; the promise then rejects
+ * with the error `GitCli` would raise for the same process.
+ */
+async function invoke(
+  timeoutMs: number,
+  args: readonly string[],
+  attempt: (token: number) => Promise<Buffer | string>,
+  signal?: AbortSignal,
+): Promise<Buffer | string> {
+  const addon = gitAddon();
+  const token = addon.gitRefsAbortToken();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  const stopped = new Promise<never>((_, reject) => {
+    if (signal?.aborted) {
+      addon.gitRefsAbort(token);
+      reject(new GitError("git_cancelled", "Git operation cancelled before dispatch"));
+      return;
+    }
+    onAbort = () => {
+      addon.gitRefsAbort(token);
+      reject(new GitError("git_cancelled", "Git operation cancelled"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    timer = setTimeout(() => {
+      addon.gitRefsAbort(token);
+      reject(new GitError("git_timeout", `Git exceeded ${timeoutMs}ms`, { args: [...args] }));
+    }, timeoutMs);
+    (timer as { unref?: () => void }).unref?.();
+  });
+  try {
+    return await Promise.race([attempt(token), stopped]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    if (onAbort !== undefined) signal?.removeEventListener("abort", onAbort);
+  }
+}
+
+/**
+ * Runs one ref read: native when the part is on and this call may use it, the same Git
  * command otherwise. `ineligible` names why a native selection may not run, and is recorded
  * as its fallback; `accept` reads the addon's reply and names the fallback it asked for.
  */
 async function run<T>(
+  repository: Repository,
   op: RefsOp,
   ineligible: string | undefined,
-  attempt: () => Buffer | string,
+  args: readonly string[],
+  attempt: (token: number) => Promise<Buffer | string>,
   typescript: () => Promise<T>,
   accept: (reply: Buffer | string) => { data: T } | { fallback: string },
   signal?: AbortSignal,
@@ -68,26 +128,34 @@ async function run<T>(
   if (signal?.aborted)
     throw new GitError("git_cancelled", "Git operation cancelled before dispatch");
   const selected: NativeBackend = gitCrossSelected() ?? "native";
+  // Reserved before the await: three listings of one `branchRefs` finish in any order, and
+  // the cross gate reads the selections in the order they were made.
+  const seq = reserveGitOpSeq();
   if (selected === "typescript") {
-    record({ op, selected, completed: "typescript" });
+    record({ seq, op, selected, completed: "typescript" });
     return typescript();
   }
   if (ineligible !== undefined) {
-    fallbackReason(ineligible, op, selected);
+    fallbackReason(seq, ineligible, op, selected);
     return typescript();
   }
   let accepted: { data: T } | { fallback: string };
   try {
-    accepted = accept(attempt());
+    accepted = accept(await invoke(repository.cli.timeoutMs, args, attempt, signal));
   } catch (error) {
-    record({ op, selected, completed: "native" });
+    record({ seq, op, selected, completed: "native" });
     throwGitError(error);
   }
   if ("fallback" in accepted) {
-    fallbackReason(accepted.fallback, op, selected);
+    if (accepted.fallback === "cancelled") {
+      // The caller's abort stopped the read: it is cancelled, never rerun on the CLI.
+      record({ seq, op, selected, completed: "native" });
+      throw new GitError("git_cancelled", "Git operation cancelled");
+    }
+    fallbackReason(seq, accepted.fallback, op, selected);
     return typescript();
   }
-  record({ op, selected, completed: "native" });
+  record({ seq, op, selected, completed: "native" });
   return accepted.data;
 }
 
@@ -128,19 +196,16 @@ export async function worktreeRecords(
   repo: string,
   signal?: AbortSignal,
 ): Promise<Buffer> {
+  const args = ["worktree", "list", "--porcelain", "-z"] as const;
   const typescript = async () =>
-    (
-      await repository.cli.call(
-        repo,
-        ["worktree", "list", "--porcelain", "-z"],
-        signal ? { signal } : {},
-      )
-    ).stdout;
+    (await repository.cli.call(repo, [...args], signal ? { signal } : {})).stdout;
   if (!gitPartOn(part)) return typescript();
   return run(
+    repository,
     "listWorktrees",
     injected(repository),
-    () => gitAddon().gitRefsWorktrees(repo),
+    args,
+    (token) => gitAddon().gitRefsWorktrees(token, repo),
     typescript,
     listingReply,
     signal,
@@ -173,9 +238,11 @@ export async function branchRefLines(
   };
   if (!gitPartOn(part)) return typescript();
   return run(
+    repository,
     "branchRefs",
     injected(repository),
-    () => gitAddon().gitRefsBranchListing(root, [...patterns], count),
+    args,
+    (token) => gitAddon().gitRefsBranchListing(token, root, [...patterns], count),
     typescript,
     (reply) => {
       const accepted = listingReply(reply);
@@ -189,19 +256,16 @@ export async function branchRefLines(
 /** `listBranches`: `for-each-ref --format=%(refname:short)` of local and remote branches. */
 export async function branchNameLines(repository: Repository, root: string): Promise<Buffer> {
   const patterns = ["refs/heads", "refs/remotes"] as const;
+  const args = ["for-each-ref", "--count=1001", "--format=%(refname:short)", ...patterns];
   const typescript = async () =>
-    (
-      await repository.cli.call(
-        root,
-        ["for-each-ref", "--count=1001", "--format=%(refname:short)", ...patterns],
-        { captureBytes: branchNamesBytes },
-      )
-    ).stdout;
+    (await repository.cli.call(root, args, { captureBytes: branchNamesBytes })).stdout;
   if (!gitPartOn(part)) return typescript();
   return run(
+    repository,
     "branches",
     injected(repository),
-    () => gitAddon().gitRefsBranchNames(root, [...patterns], 1001),
+    args,
+    (token) => gitAddon().gitRefsBranchNames(token, root, [...patterns], 1001),
     typescript,
     (reply) => {
       const accepted = listingReply(reply);
@@ -221,26 +285,31 @@ export async function resolveCommitRef(
   signal?: AbortSignal,
   directoryFd?: number,
 ): Promise<CommitKind> {
+  const args = ["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`];
   const typescript = async (): Promise<CommitKind> => {
-    const result = await repository.cli.call(
-      root,
-      ["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`],
-      { allowFailure: true, directoryFd, ...(signal ? { signal } : {}) },
-    );
+    const result = await repository.cli.call(root, args, {
+      allowFailure: true,
+      directoryFd,
+      ...(signal ? { signal } : {}),
+    });
     if (result.exitCode === 0) return { kind: "commit", id: textOutput(result) };
+    // Only HEAD has an unborn state; any other missing ref is a bad ref.
+    if (ref !== "HEAD") return { kind: "missing" };
     const symbolic = await repository.cli.call(root, ["symbolic-ref", "--quiet", "HEAD"], {
       allowFailure: true,
       directoryFd,
     });
-    return ref === "HEAD" && symbolic.exitCode === 0 ? { kind: "unborn" } : { kind: "missing" };
+    return symbolic.exitCode === 0 ? { kind: "unborn" } : { kind: "missing" };
   };
   if (!gitPartOn(part)) return typescript();
   const ineligible =
     injected(repository) ?? (directoryFd === undefined ? undefined : "directory_fd");
   return run(
+    repository,
     "resolveCommit",
     ineligible,
-    () => gitAddon().gitRefsCommit(root, ref),
+    args,
+    (token) => gitAddon().gitRefsCommit(token, root, ref),
     typescript,
     (reply) => valueReply<CommitKind>(reply),
     signal,
@@ -254,19 +323,21 @@ export async function branchCommit(
   ref: string,
   signal?: AbortSignal,
 ): Promise<string | undefined> {
+  const args = ["rev-parse", "--verify", "--quiet", "--end-of-options", `${ref}^{commit}`];
   const typescript = async () => {
-    const result = await repository.cli.call(
-      root,
-      ["rev-parse", "--verify", "--quiet", "--end-of-options", `${ref}^{commit}`],
-      { allowFailure: true, ...(signal ? { signal } : {}) },
-    );
+    const result = await repository.cli.call(root, args, {
+      allowFailure: true,
+      ...(signal ? { signal } : {}),
+    });
     return result.exitCode === 0 ? textOutput(result) : undefined;
   };
   if (!gitPartOn(part)) return typescript();
   return run(
+    repository,
     "branchHead",
     injected(repository),
-    () => gitAddon().gitRefsBranchHead(root, ref),
+    args,
+    (token) => gitAddon().gitRefsBranchHead(token, root, ref),
     typescript,
     (reply) => {
       const accepted = valueReply<string | null>(reply);

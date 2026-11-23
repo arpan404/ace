@@ -5,15 +5,19 @@
 //! shortening `%(refname:short)` prints.
 //!
 //! Committer dates come from the commit-graph when the repository has one Git would use, and
-//! from the commit object otherwise, as Git reads them; a ref whose object is missing defers
-//! the listing, because Git both words that differently per hash and fails the sort on it.
+//! from the ref's own object otherwise, after checking the object exists, as Git reads them.
+//! `%(committerdate)` never peels a tag: a ref to an annotated tag has no committerdate. A
+//! ref whose object is missing defers the listing, because Git both words that differently per
+//! hash and fails the date sort on it. Short names are judged against refs and root refs
+//! (`ORIG_HEAD`, `FETCH_HEAD`, …) alike, and `--count` applies before a dangling symbolic ref
+//! is skipped, as Git counts.
 
 use gix::bstr::{BStr, BString, ByteSlice};
 use gix::config::AsKey;
 use gix::objs::Exists;
 use gix::refs::TargetRef;
 
-use super::shorten;
+use super::{Cancel, root_ref, shorten};
 
 /// One ref of the repository: its name, symbolic target and referent object, without any
 /// object lookup so a listing only pays for the refs it prints.
@@ -34,19 +38,22 @@ pub(super) fn branch_refs(
     repo: &gix::Repository,
     patterns: &[String],
     count: u32,
+    cancel: &Cancel,
 ) -> Option<Vec<u8>> {
-    let entries = catalog(repo)?;
+    let entries = catalog(repo, cancel)?;
     let graph = repo.commit_graph_if_enabled().ok().flatten();
-    let mut listed = Vec::new();
-    for entry in entries
+    let mut listed: Vec<(i64, &Entry, gix::hash::ObjectId)> = Vec::new();
+    for (entry, target) in entries
         .iter()
         .filter(|entry| matches(entry.name.as_bytes(), patterns))
+        .filter_map(|entry| entry.target.map(|target| (entry, target)))
     {
-        let Some(target) = entry.target else {
-            continue;
-        };
+        if cancel.aborted() {
+            return None;
+        }
         match commit_of(repo, graph.as_ref(), target)? {
             Some((commit, time)) => listed.push((time, entry, commit)),
+            // Not a commit: the atom has no date, and Git sorts it with the empty ones.
             None => listed.push((0, entry, target)),
         }
     }
@@ -56,13 +63,16 @@ pub(super) fn branch_refs(
     }
     let mut out = Vec::new();
     for (_, entry, commit) in listed {
+        if cancel.aborted() {
+            return None;
+        }
         out.extend_from_slice(&entry.name);
         out.push(0);
         if let Some(symbolic) = &entry.symbolic {
             out.extend_from_slice(symbolic);
         }
         out.push(0);
-        let upstream = upstream(repo, &entries, entry, commit)?;
+        let upstream = upstream(repo, &entries, entry, commit, cancel)?;
         out.extend_from_slice(&upstream.short);
         out.push(0);
         out.extend_from_slice(&upstream.track);
@@ -76,30 +86,27 @@ pub(super) fn branch_names(
     repo: &gix::Repository,
     patterns: &[String],
     count: u32,
+    cancel: &Cancel,
 ) -> Option<Vec<u8>> {
-    let entries = catalog(repo)?;
-    let listed: Vec<&Entry> = entries
+    let entries = catalog(repo, cancel)?;
+    // Git skips a dangling symbolic ref while collecting, so it never uses a `--count` slot.
+    let mut listed: Vec<(&Entry, gix::hash::ObjectId)> = entries
         .iter()
         .filter(|entry| matches(entry.name.as_bytes(), patterns))
-        .take(if count > 0 {
-            count as usize
-        } else {
-            usize::MAX
-        })
+        .filter_map(|entry| entry.target.map(|target| (entry, target)))
         .collect();
+    if count > 0 {
+        listed.truncate(count as usize);
+    }
     let graph = repo.commit_graph_if_enabled().ok().flatten();
-    let exists = |name: &BStr| {
-        entries
-            .binary_search_by(|entry| entry.name.as_bstr().cmp(name))
-            .is_ok()
-    };
+    let exists = exists(repo, &entries);
     let mut out = Vec::new();
-    for entry in listed {
-        // A dangling symbolic ref is one Git skips; a ref whose object is gone is skipped or
-        // fatal depending on Git's hash and reader, so Git decides by running the command.
-        let Some(target) = entry.target else {
-            continue;
-        };
+    for (entry, target) in listed {
+        if cancel.aborted() {
+            return None;
+        }
+        // A ref whose object is gone is skipped or fatal depending on Git's hash and reader,
+        // so Git decides by running the command.
         if !present(repo, graph.as_ref(), target) {
             return None;
         }
@@ -110,9 +117,12 @@ pub(super) fn branch_names(
 }
 
 /// Every ref of the repository, name-sorted, with the ref-store facts each atom needs.
-fn catalog(repo: &gix::Repository) -> Option<Vec<Entry>> {
+fn catalog(repo: &gix::Repository, cancel: &Cancel) -> Option<Vec<Entry>> {
     let mut entries = Vec::new();
     for item in repo.references().ok()?.all().ok()? {
+        if cancel.aborted() {
+            return None;
+        }
         // Git warns about and skips a ref it cannot parse; so does the listing.
         let Ok(reference) = item else {
             continue;
@@ -133,13 +143,17 @@ fn catalog(repo: &gix::Repository) -> Option<Vec<Entry>> {
     Some(entries)
 }
 
-/// The commit a ref names and its committer time, or `None` for an object that isn't a
-/// commit; the outer `None` means the object is missing or unreadable and Git must answer.
+/// A ref's commit and committer time, or `None` for an object that isn't a commit; the outer
+/// `None` means Git must answer (the object is missing, or the read was cancelled).
 fn commit_of(
     repo: &gix::Repository,
     graph: Option<&gix::commitgraph::Graph>,
     target: gix::hash::ObjectId,
 ) -> Option<Option<(gix::hash::ObjectId, i64)>> {
+    // The graph lists commits Git can no longer read; the date atom still fails on those.
+    if !repo.objects.exists(target.as_ref()) {
+        return None;
+    }
     if let Some(commit) = graph.and_then(|graph| graph.commit_by_id(target)) {
         return Some(Some((
             target,
@@ -147,7 +161,7 @@ fn commit_of(
         )));
     }
     let object = repo.find_object(target).ok()?;
-    let Ok(commit) = object.peel_to_commit() else {
+    let Ok(commit) = object.try_into_commit() else {
         return Some(None);
     };
     let time = commit.time().map_or(0, |time| time.seconds);
@@ -162,6 +176,16 @@ fn present(
 ) -> bool {
     graph.is_some_and(|graph| graph.commit_by_id(target).is_some())
         || repo.objects.exists(target.as_ref())
+}
+
+/// Existence as Git's shortening sees it: a ref, or a root ref a bare name resolves to.
+fn exists<'a>(repo: &'a gix::Repository, entries: &'a [Entry]) -> impl Fn(&BStr) -> bool + 'a {
+    move |name| {
+        entries
+            .binary_search_by(|entry| entry.name.as_bstr().cmp(name))
+            .is_ok()
+            || root_ref(repo, name)
+    }
 }
 
 /// The object a ref resolves to, following symbolic refs (`git rev-parse <ref>` without `^{}`).
@@ -211,6 +235,7 @@ fn upstream(
     entries: &[Entry],
     entry: &Entry,
     commit: gix::hash::ObjectId,
+    cancel: &Cancel,
 ) -> Option<Upstream> {
     if !entry.is_branch() {
         return Some(Upstream::none());
@@ -227,11 +252,7 @@ fn upstream(
     let Some(merge) = merges.first() else {
         return Some(Upstream::none());
     };
-    let exists = |name: &BStr| {
-        entries
-            .binary_search_by(|entry| entry.name.as_bstr().cmp(name))
-            .is_ok()
-    };
+    let exists = exists(repo, entries);
     let full = if remote.as_bstr() == b"." {
         // A local upstream: Git expands the merge name like a revision would, and keeps it
         // as configured when it names no ref or names more than one.
@@ -244,7 +265,7 @@ fn upstream(
         tracked
     };
     let short = shorten(full.as_bstr(), &exists);
-    let track = track(repo, commit, full.as_bstr(), &exists)?;
+    let track = track(repo, commit, full.as_bstr(), &exists, cancel)?;
     Some(Upstream { short, track })
 }
 
@@ -307,6 +328,7 @@ fn track(
     branch: gix::hash::ObjectId,
     upstream: &BStr,
     exists: &impl Fn(&BStr) -> bool,
+    cancel: &Cancel,
 ) -> Option<Vec<u8>> {
     if !exists(upstream) {
         return Some(b"gone".to_vec());
@@ -318,8 +340,8 @@ fn track(
     }
     let bases = repo.merge_bases_many(branch, &[target]).ok()?;
     let hidden: Vec<gix::hash::ObjectId> = bases.iter().map(|base| base.detach()).collect();
-    let ahead = count(repo, branch, &hidden)?;
-    let behind = count(repo, target, &hidden)?;
+    let ahead = count(repo, branch, &hidden, cancel)?;
+    let behind = count(repo, target, &hidden, cancel)?;
     Some(match (ahead, behind) {
         (0, 0) => Vec::new(),
         (ahead, 0) => format!("ahead {ahead}").into_bytes(),
@@ -333,6 +355,7 @@ fn count(
     repo: &gix::Repository,
     tip: gix::hash::ObjectId,
     hidden: &[gix::hash::ObjectId],
+    cancel: &Cancel,
 ) -> Option<u64> {
     let mut commits = 0;
     for item in repo
@@ -341,6 +364,9 @@ fn count(
         .all()
         .ok()?
     {
+        if cancel.aborted() {
+            return None;
+        }
         item.ok()?;
         commits += 1;
     }

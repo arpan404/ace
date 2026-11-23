@@ -11,10 +11,13 @@ use std::path::{Path, PathBuf};
 use gix::bstr::{BString, ByteSlice};
 use gix::refs::TargetRef;
 
-use crate::refs::{Fallback, Outcome, open, reftable};
+use crate::refs::{Cancel, Fallback, Outcome, open, reftable, trim_ascii};
 
 /// The `worktree list --porcelain -z` bytes.
-pub fn worktrees(root: &str) -> Outcome<Vec<u8>> {
+pub fn worktrees(root: &str, cancel: &Cancel) -> Outcome<Vec<u8>> {
+    if cancel.aborted() {
+        return Outcome::fallback(Fallback::Cancelled);
+    }
     let Some(repo) = open(root) else {
         return Outcome::fallback(Fallback::Unreadable);
     };
@@ -39,6 +42,9 @@ pub fn worktrees(root: &str) -> Outcome<Vec<u8>> {
         return Outcome::fallback(Fallback::Unreadable);
     };
     for proxy in proxies {
+        if cancel.aborted() {
+            return Outcome::fallback(Fallback::Cancelled);
+        }
         // Git's own list spells a prunable worktree with a reason of its own wording.
         if proxy.is_prunable() {
             return Outcome::fallback(Fallback::WorktreeReason);
@@ -120,7 +126,8 @@ fn locked(proxy: &gix::worktree::Proxy<'_>) -> Result<Option<BString>, ()> {
         return Ok(None);
     }
     let bytes = std::fs::read(proxy.git_dir().join("locked")).map_err(|_| ())?;
-    let text = bytes.as_slice().trim();
+    // Git's `strbuf_trim` is byte `isspace`, never Unicode whitespace.
+    let text = trim_ascii(&bytes);
     // `gix`'s reason must be the file's text, or Git's wording is the one that prints.
     match proxy.lock_reason() {
         Some(reason) if reason.as_bstr() == text => Ok(Some(text.into())),

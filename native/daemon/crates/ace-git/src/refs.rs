@@ -9,11 +9,16 @@
 //! shared between callers and none is duplicated here.
 //!
 //! Anything `gix` cannot reproduce exactly is a fallback, never a guess: a reftable
-//! repository (`reftable`), a worktree whose prunable or locked reason `gix` cannot word as
-//! Git does (`worktree_reason`), and a repository `gix` cannot read (`unreadable`). The
-//! shell then runs the same Git command in the same `serial` turn. The remaining reasons in
-//! the guide are the shell's: a held directory (`directory_fd`) and an injected
-//! `gitBinary` or `spawn` (`injected`).
+//! repository (`reftable`), a repository whose object or ancestry view Git changes
+//! (`replace`, `grafts`, `shallow`), `core.warnAmbiguousRefs=false` shortening
+//! (`ambiguous_refs`), a worktree whose prunable or locked reason `gix` cannot word as Git
+//! does (`worktree_reason`), and a repository `gix` cannot read (`unreadable`). A read whose
+//! caller aborted it stops and answers `cancelled`. The shell then runs the same Git command
+//! in the same `serial` turn; the remaining reasons are the shell's: a held directory
+//! (`directory_fd`) and an injected `gitBinary` or `spawn` (`injected`).
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use gix::bstr::{BStr, ByteSlice};
 
@@ -24,10 +29,20 @@ mod listing;
 pub enum Fallback {
     /// A reftable repository: `gix` reads the file backend only.
     Reftable,
+    /// `refs/replace`: Git maps objects through replacements and `gix` does not.
+    Replace,
+    /// `info/grafts`: Git rewrites ancestry and `gix` does not.
+    Grafts,
+    /// A shallow repository: Git bounds ancestry and `gix` does not.
+    Shallow,
+    /// `core.warnAmbiguousRefs=false` shortens refs by other rules than Git's default.
+    AmbiguousRefs,
     /// A prunable worktree, or a lock reason `gix` doesn't word as Git does.
     WorktreeReason,
     /// A repository `gix` cannot open or read; Git decides what that means.
     Unreadable,
+    /// The caller's signal aborted the read; the answer is never used.
+    Cancelled,
 }
 
 impl Fallback {
@@ -43,8 +58,13 @@ impl Fallback {
     pub fn reason(self) -> &'static str {
         match self {
             Self::Reftable => "reftable",
+            Self::Replace => "replace",
+            Self::Grafts => "grafts",
+            Self::Shallow => "shallow",
+            Self::AmbiguousRefs => "ambiguous_refs",
             Self::WorktreeReason => "worktree_reason",
             Self::Unreadable => "unreadable",
+            Self::Cancelled => "cancelled",
         }
     }
 }
@@ -63,6 +83,32 @@ impl<T> Outcome<T> {
 
     pub(crate) fn fallback(reason: Fallback) -> Self {
         Self::Fallback(reason)
+    }
+}
+
+/// Cooperative cancellation of a read: the binding's abort token, polled in long walks so a
+/// cancelled call stops instead of holding a worker thread to the end.
+#[derive(Clone, Default)]
+pub struct Cancel {
+    flag: Option<Arc<AtomicBool>>,
+}
+
+impl Cancel {
+    /// A cancel token the binding aborts from the JavaScript thread.
+    pub fn new(flag: Arc<AtomicBool>) -> Self {
+        Self { flag: Some(flag) }
+    }
+
+    /// A read no caller can cancel, for tests and callers without a signal.
+    pub fn never() -> Self {
+        Self::default()
+    }
+
+    /// Whether the caller has aborted this read.
+    pub fn aborted(&self) -> bool {
+        self.flag
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::Relaxed))
     }
 }
 
@@ -114,12 +160,15 @@ pub fn reply<T: serde::Serialize>(outcome: &Outcome<T>) -> Result<String, crate:
 }
 
 /// The `rev-parse --verify <ref>^{commit}` answer and, on failure, the unborn check.
-pub fn resolve_commit(root: &str, reference: &str) -> Outcome<CommitResolution> {
+pub fn resolve_commit(root: &str, reference: &str, cancel: &Cancel) -> Outcome<CommitResolution> {
     let Some(repo) = open(root) else {
         return Outcome::fallback(Fallback::Unreadable);
     };
     if reftable(&repo) {
         return Outcome::fallback(Fallback::Reftable);
+    }
+    if let Some(reason) = object_view(&repo, cancel) {
+        return Outcome::fallback(reason);
     }
     if let Some(id) = commit_spec(&repo, reference) {
         return Outcome::data(CommitResolution::commit(id));
@@ -136,12 +185,18 @@ pub fn resolve_commit(root: &str, reference: &str) -> Outcome<CommitResolution> 
 
 /// The commit of a local or remote-tracking branch, or `None` when that ref is missing or
 /// doesn't peel to a commit (`rev-parse --verify --quiet <ref>^{commit}`).
-pub fn branch_head(root: &str, reference: &str) -> Outcome<Option<String>> {
+pub fn branch_head(root: &str, reference: &str, cancel: &Cancel) -> Outcome<Option<String>> {
+    if cancel.aborted() {
+        return Outcome::fallback(Fallback::Cancelled);
+    }
     let Some(repo) = open(root) else {
         return Outcome::fallback(Fallback::Unreadable);
     };
     if reftable(&repo) {
         return Outcome::fallback(Fallback::Reftable);
+    }
+    if let Some(reason) = object_view(&repo, cancel) {
+        return Outcome::fallback(reason);
     }
     let commit = repo
         .find_reference(reference)
@@ -152,29 +207,50 @@ pub fn branch_head(root: &str, reference: &str) -> Outcome<Option<String>> {
 }
 
 /// `for-each-ref`'s lines for `remote-branches.ts`'s format, in its sort order, with `--count`.
-pub fn branch_refs(root: &str, patterns: &[String], count: u32) -> Outcome<Vec<u8>> {
+pub fn branch_refs(
+    root: &str,
+    patterns: &[String],
+    count: u32,
+    cancel: &Cancel,
+) -> Outcome<Vec<u8>> {
     let Some(repo) = open(root) else {
         return Outcome::fallback(Fallback::Unreadable);
     };
     if reftable(&repo) {
         return Outcome::fallback(Fallback::Reftable);
     }
-    match listing::branch_refs(&repo, patterns, count) {
+    if ambiguous_shortening(&repo) {
+        return Outcome::fallback(Fallback::AmbiguousRefs);
+    }
+    if let Some(reason) = object_view(&repo, cancel) {
+        return Outcome::fallback(reason);
+    }
+    match listing::branch_refs(&repo, patterns, count, cancel) {
         Some(lines) => Outcome::data(lines),
+        None if cancel.aborted() => Outcome::fallback(Fallback::Cancelled),
         None => Outcome::fallback(Fallback::Unreadable),
     }
 }
 
 /// `for-each-ref`'s `%(refname:short)` lines, in ref name order, with `--count`.
-pub fn branch_names(root: &str, patterns: &[String], count: u32) -> Outcome<Vec<u8>> {
+pub fn branch_names(
+    root: &str,
+    patterns: &[String],
+    count: u32,
+    cancel: &Cancel,
+) -> Outcome<Vec<u8>> {
     let Some(repo) = open(root) else {
         return Outcome::fallback(Fallback::Unreadable);
     };
     if reftable(&repo) {
         return Outcome::fallback(Fallback::Reftable);
     }
-    match listing::branch_names(&repo, patterns, count) {
+    if ambiguous_shortening(&repo) {
+        return Outcome::fallback(Fallback::AmbiguousRefs);
+    }
+    match listing::branch_names(&repo, patterns, count, cancel) {
         Some(lines) => Outcome::data(lines),
+        None if cancel.aborted() => Outcome::fallback(Fallback::Cancelled),
         None => Outcome::fallback(Fallback::Unreadable),
     }
 }
@@ -191,6 +267,39 @@ pub(crate) fn reftable(repo: &gix::Repository) -> bool {
         .string("extensions.refstorage")
         .is_some_and(|value| value.as_bstr().eq_ignore_ascii_case(b"reftable"));
     configured || repo.git_dir().join("reftable").is_dir()
+}
+
+/// A repository feature that changes which object or ancestry Git reads: replacements,
+/// grafts and shallow boundaries. `gix` reads the objects as stored, so such a repository
+/// defers every read whose answer those features could change.
+pub(crate) fn object_view(repo: &gix::Repository, cancel: &Cancel) -> Option<Fallback> {
+    if cancel.aborted() {
+        return Some(Fallback::Cancelled);
+    }
+    match repo.is_shallow() {
+        Ok(true) => return Some(Fallback::Shallow),
+        Ok(false) => {}
+        Err(_) => return Some(Fallback::Unreadable),
+    }
+    if std::fs::metadata(repo.common_dir().join("info/grafts")).is_ok_and(|grafts| grafts.len() > 0)
+    {
+        return Some(Fallback::Grafts);
+    }
+    // Any ref under `refs/replace` maps objects for Git; the iterator reads no objects.
+    let Ok(platform) = repo.references() else {
+        // A ref store that cannot be read is Git's to word, and may hold a replacement.
+        return Some(Fallback::Unreadable);
+    };
+    match platform.prefixed("refs/replace") {
+        Ok(mut replacing) => replacing.next().is_some().then_some(Fallback::Replace),
+        Err(_) => Some(Fallback::Unreadable),
+    }
+}
+
+/// `core.warnAmbiguousRefs=false`: Git then shortens refs by its loose rules rather than the
+/// strict unambiguous one this port implements.
+fn ambiguous_shortening(repo: &gix::Repository) -> bool {
+    repo.config_snapshot().boolean("core.warnAmbiguousRefs") == Some(false)
 }
 
 /// Resolve `<reference>^{commit}` exactly as `rev-parse --verify` does.
@@ -247,9 +356,64 @@ fn expansions(name: &[u8]) -> [Vec<u8>; 6] {
     ]
 }
 
+/// A root ref: a file directly in the Git directory that holds a ref (`ORIG_HEAD`,
+/// `FETCH_HEAD`, or any other name Git resolves there). It makes its bare name ambiguous.
+pub(crate) fn root_ref(repo: &gix::Repository, name: &BStr) -> bool {
+    let name = name.as_bytes();
+    if name.is_empty() || name.contains(&b'/') || name.contains(&b'\\') {
+        return false;
+    }
+    root_ref_file(repo, name)
+}
+
+#[cfg(unix)]
+fn root_ref_file(repo: &gix::Repository, name: &[u8]) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let name = std::ffi::OsStr::from_bytes(name);
+    reads_ref(&repo.git_dir().join(name))
+}
+
+#[cfg(not(unix))]
+fn root_ref_file(repo: &gix::Repository, name: &[u8]) -> bool {
+    let name = std::str::from_utf8(name).unwrap_or_default();
+    !name.is_empty() && reads_ref(&repo.git_dir().join(name))
+}
+
+/// Whether a file's bytes name a ref: an object id, or `ref: <name>`.
+fn reads_ref(path: &std::path::Path) -> bool {
+    let Ok(bytes) = std::fs::read(path) else {
+        return false;
+    };
+    let first = bytes.split(|byte| *byte == b'\n').next().unwrap_or(&[]);
+    let text = first.trim_ascii();
+    if let Some(target) = text.strip_prefix(b"ref:") {
+        return !trim_ascii(target).is_empty();
+    }
+    let oid = text
+        .split(|byte| byte.is_ascii_whitespace())
+        .next()
+        .unwrap_or(&[]);
+    (oid.len() == 40 || oid.len() == 64) && oid.iter().all(u8::is_ascii_hexdigit)
+}
+
+/// Trim ASCII whitespace, including the vertical tab C's `isspace` counts and
+/// `u8::is_ascii_whitespace` does not.
+pub(crate) fn trim_ascii(bytes: &[u8]) -> &[u8] {
+    let is_space = |byte: &u8| byte.is_ascii_whitespace() || *byte == 0x0b;
+    let start = bytes
+        .iter()
+        .position(|byte| !is_space(byte))
+        .unwrap_or(bytes.len());
+    let end = bytes
+        .iter()
+        .rposition(|byte| !is_space(byte))
+        .map_or(start, |at| at + 1);
+    &bytes[start..end]
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Fallback, Outcome};
+    use super::{Cancel, Fallback, Outcome};
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -320,15 +484,15 @@ mod tests {
         std::fs::create_dir_all(scratch.git().join("reftable"))?;
         let root = root(&scratch);
         assert!(matches!(
-            crate::worktrees_gix::worktrees(&root),
+            crate::worktrees_gix::worktrees(&root, &Cancel::never()),
             Outcome::Fallback(Fallback::Reftable)
         ));
         assert!(matches!(
-            super::branch_refs(&root, &["refs/heads".to_owned()], 0),
+            super::branch_refs(&root, &["refs/heads".to_owned()], 0, &Cancel::never()),
             Outcome::Fallback(Fallback::Reftable)
         ));
         assert!(matches!(
-            super::resolve_commit(&root, "HEAD"),
+            super::resolve_commit(&root, "HEAD", &Cancel::never()),
             Outcome::Fallback(Fallback::Reftable)
         ));
         Ok(())
@@ -344,8 +508,79 @@ mod tests {
         scratch.write("worktrees/gone/gitdir", &format!("{}\n", gone.display()))?;
         scratch.write("worktrees/gone/HEAD", "ref: refs/heads/gone\n")?;
         assert!(matches!(
-            crate::worktrees_gix::worktrees(&root(&scratch)),
+            crate::worktrees_gix::worktrees(&root(&scratch), &Cancel::never()),
             Outcome::Fallback(Fallback::WorktreeReason)
+        ));
+        Ok(())
+    }
+
+    /// Git maps objects through `refs/replace`, grafts and shallow boundaries; `gix` reads the
+    /// stored objects, so those repositories defer.
+    #[test]
+    fn a_replaced_grafted_or_shallow_repository_defers_the_object_reads_to_git()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let scratch = Scratch::new()?;
+        repository(&scratch)?;
+        let root = root(&scratch);
+        scratch.write(
+            "refs/replace/0123456789012345678901234567890123456789",
+            "1111111111111111111111111111111111111111\n",
+        )?;
+        assert!(matches!(
+            super::resolve_commit(&root, "HEAD", &Cancel::never()),
+            Outcome::Fallback(Fallback::Replace)
+        ));
+        assert!(matches!(
+            super::branch_head(&root, "refs/heads/main", &Cancel::never()),
+            Outcome::Fallback(Fallback::Replace)
+        ));
+        assert!(matches!(
+            super::branch_refs(&root, &["refs/heads".to_owned()], 0, &Cancel::never()),
+            Outcome::Fallback(Fallback::Replace)
+        ));
+        std::fs::remove_dir_all(scratch.git().join("refs/replace"))?;
+        scratch.write("info/grafts", "1111111111111111111111111111111111111111\n")?;
+        assert!(matches!(
+            super::branch_head(&root, "refs/heads/main", &Cancel::never()),
+            Outcome::Fallback(Fallback::Grafts)
+        ));
+        std::fs::remove_file(scratch.git().join("info/grafts"))?;
+        scratch.write("shallow", "1111111111111111111111111111111111111111\n")?;
+        assert!(matches!(
+            super::resolve_commit(&root, "HEAD", &Cancel::never()),
+            Outcome::Fallback(Fallback::Shallow)
+        ));
+        Ok(())
+    }
+
+    /// Loose shortening (`core.warnAmbiguousRefs=false`) uses other rules than Git's default.
+    #[test]
+    fn loose_ambiguous_refs_defer_the_short_names_to_git() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let scratch = Scratch::new()?;
+        repository(&scratch)?;
+        scratch.write(
+            "config",
+            "[core]\n\trepositoryformatversion = 0\n\tbare = false\n\twarnAmbiguousRefs = false\n",
+        )?;
+        let root = root(&scratch);
+        assert!(matches!(
+            super::branch_names(&root, &["refs/heads".to_owned()], 0, &Cancel::never()),
+            Outcome::Fallback(Fallback::AmbiguousRefs)
+        ));
+        Ok(())
+    }
+
+    /// An aborted read stops before it opens the repository.
+    #[test]
+    fn an_aborted_read_reports_cancelled() -> Result<(), Box<dyn std::error::Error>> {
+        let scratch = Scratch::new()?;
+        repository(&scratch)?;
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let cancel = Cancel::new(flag);
+        assert!(matches!(
+            super::branch_head(&root(&scratch), "refs/heads/main", &cancel),
+            Outcome::Fallback(Fallback::Cancelled)
         ));
         Ok(())
     }

@@ -43,11 +43,23 @@ export interface GitDigestEntry {
 }
 
 interface GitAddon {
-  gitRefsWorktrees(root: string): Buffer | string;
-  gitRefsBranchListing(root: string, patterns: string[], count: number): Buffer | string;
-  gitRefsBranchNames(root: string, patterns: string[], count: number): Buffer | string;
-  gitRefsCommit(root: string, reference: string): string;
-  gitRefsBranchHead(root: string, reference: string): string;
+  gitRefsAbortToken(): number;
+  gitRefsAbort(token: number): void;
+  gitRefsWorktrees(token: number, root: string): Promise<Buffer | string>;
+  gitRefsBranchListing(
+    token: number,
+    root: string,
+    patterns: string[],
+    count: number,
+  ): Promise<Buffer | string>;
+  gitRefsBranchNames(
+    token: number,
+    root: string,
+    patterns: string[],
+    count: number,
+  ): Promise<Buffer | string>;
+  gitRefsCommit(token: number, root: string, reference: string): Promise<string>;
+  gitRefsBranchHead(token: number, root: string, reference: string): Promise<string>;
   gitCoreProbe(op: string): string;
   gitReadsProbe(op: string): string;
   gitWritesProbe(op: string): string;
@@ -153,11 +165,19 @@ function appendLine(path: string | undefined, line: string): void {
 let opSequence = 0;
 let digestOrder = 0;
 
-/** Records one dispatched operation for the cross gate (`ACE_GIT_OP_LOG`). */
-function appendOp(record: Omit<GitOpRecord, "seq" | "pid">): void {
+/**
+ * Reserves this call's place in the operation log at selection time, so concurrent calls
+ * (three listings of one `branchRefs`) record in the order their backends were chosen.
+ */
+export function reserveGitOpSeq(): number {
+  return opSequence++;
+}
+
+/** Appends one dispatched operation for the cross gate (`ACE_GIT_OP_LOG`). */
+function appendOp(record: Omit<GitOpRecord, "pid">): void {
   appendLine(
     process.env.ACE_GIT_OP_LOG,
-    JSON.stringify({ ...record, seq: opSequence++, pid: process.pid } satisfies GitOpRecord),
+    JSON.stringify({ ...record, pid: process.pid } satisfies GitOpRecord),
   );
 }
 
@@ -186,7 +206,7 @@ export function digestLogOn(): boolean {
 }
 
 /** Records one operation a part shell ran, for the cross gate (`ACE_GIT_OP_LOG`). */
-export function recordGitOp(record: Omit<GitOpRecord, "seq" | "pid">): void {
+export function recordGitOp(record: Omit<GitOpRecord, "pid">): void {
   appendOp(record);
 }
 
@@ -251,8 +271,9 @@ export async function runNativeOp<T>(
   typescript: () => Promise<T>,
 ): Promise<T> {
   const selected: NativeBackend = gitCrossSelected() ?? "native";
+  const seq = reserveGitOpSeq();
   if (selected === "typescript") {
-    appendOp({ op, part, selected, completed: "typescript" });
+    appendOp({ seq, op, part, selected, completed: "typescript" });
     return typescript();
   }
   try {
@@ -260,15 +281,15 @@ export async function runNativeOp<T>(
     // G5's comparison of a native-completed checkpoint against the CLI path
     // lands here with the native completion; G0 never completes natively.
     void gitVerify();
-    appendOp({ op, part, selected, completed: "native" });
+    appendOp({ seq, op, part, selected, completed: "native" });
     return value;
   } catch (error) {
     const deferral = stubDeferral(error);
     if (deferral === undefined) {
-      appendOp({ op, part, selected, completed: "native" });
+      appendOp({ seq, op, part, selected, completed: "native" });
       throwGitError(error);
     }
-    appendOp({ op, part, selected, completed: "typescript", fallback: "unimplemented" });
+    appendOp({ seq, op, part, selected, completed: "typescript", fallback: "unimplemented" });
     countFallback("unimplemented");
     return typescript();
   }
@@ -277,22 +298,23 @@ export async function runNativeOp<T>(
 /** The synchronous `runNativeOp`, for the calls that stay synchronous. */
 export function runNativeOpSync<T>(part: GitPart, op: string, typescript: () => T): T {
   const selected: NativeBackend = gitCrossSelected() ?? "native";
+  const seq = reserveGitOpSeq();
   if (selected === "typescript") {
-    appendOp({ op, part, selected, completed: "typescript" });
+    appendOp({ seq, op, part, selected, completed: "typescript" });
     return typescript();
   }
   try {
     const value = JSON.parse(attemptNative(part, op)) as T;
     void gitVerify();
-    appendOp({ op, part, selected, completed: "native" });
+    appendOp({ seq, op, part, selected, completed: "native" });
     return value;
   } catch (error) {
     const deferral = stubDeferral(error);
     if (deferral === undefined) {
-      appendOp({ op, part, selected, completed: "native" });
+      appendOp({ seq, op, part, selected, completed: "native" });
       throwGitError(error);
     }
-    appendOp({ op, part, selected, completed: "typescript", fallback: "unimplemented" });
+    appendOp({ seq, op, part, selected, completed: "typescript", fallback: "unimplemented" });
     countFallback("unimplemented");
     return typescript();
   }

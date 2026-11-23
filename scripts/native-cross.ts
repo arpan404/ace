@@ -12,7 +12,8 @@
  * from the per-operation log at `ACE_GIT_OP_LOG`, since `GitService`
  * instances boot no root: `ACE_GIT=<parts> bun scripts/native-cross.ts
  * ACE_GIT <file>`. A fallback the owning work item didn't list fails the run:
- * G0's `unimplemented` stub and G1's reasons (`reftable`, `worktree_reason`,
+ * G0's `unimplemented` stub and G1's reasons (`reftable`, `replace`, `grafts`,
+ * `shallow`, `ambiguous_refs`, `worktree_reason`, `unreadable`, `cancelled`,
  * `directory_fd`, `injected`). Each item adds the reasons it may produce.
  *
  * The switch's starting-on value comes from this environment (set
@@ -118,7 +119,13 @@ function assertAlternation(log: string, label: string): void {
 const listedFallbacks = new Set([
   "unimplemented",
   "reftable",
+  "replace",
+  "grafts",
+  "shallow",
+  "ambiguous_refs",
   "worktree_reason",
+  "unreadable",
+  "cancelled",
   "directory_fd",
   "injected",
 ]);
