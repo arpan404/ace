@@ -575,6 +575,20 @@ describe("the registry as its admins see it", () => {
     expect(empty.answer.status).toBe(400);
   });
 
+  it("shows a withdrawal only on the archive it names, not on other bytes at that version", async () => {
+    // Published by the first test here; a row naming other bytes at its version is not its.
+    await catalogueOf(market, "spade-skill")
+      .prepare(
+        `INSERT INTO pending_withdrawals (type, name, version, hash, reason, at)
+          VALUES ('spade-skill', ?1, '1.0.0', ?2, 'other bytes', 1)`,
+      )
+      .bind(`admin-held@${acme}`, "f".repeat(64))
+      .run();
+    const [version] = await versionsOf("admin-held");
+    expect(version).toBeDefined();
+    expect(version).not.toHaveProperty("withdrawal");
+  });
+
   it("says nothing is there to an admin who has left, or while standing can't be checked", async () => {
     const leaver = as("user_gone_admin", "admin");
     expect((await read(listing, leaver)).status).toBe(200);

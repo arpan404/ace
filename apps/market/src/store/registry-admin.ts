@@ -54,7 +54,7 @@ export async function registryVersions(dbs: Databases, org: string): Promise<Reg
               ROW_NUMBER() OVER (PARTITION BY v.name ORDER BY v.published DESC, v.version DESC) AS n
             FROM entries e JOIN versions v ON v.type = e.type AND v.name = e.name
             LEFT JOIN pending_withdrawals w
-              ON w.type = v.type AND w.name = v.name AND w.version = v.version
+              ON w.type = v.type AND w.name = v.name AND w.version = v.version AND w.hash = v.hash
             WHERE e.audience = ?1 AND e.archived = 0)
           WHERE n <= ${versionsShown} ORDER BY name, n LIMIT 100000`,
       )
