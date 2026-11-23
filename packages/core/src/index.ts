@@ -27,6 +27,18 @@ export {
 export { createThreadState as createThreadStateTs } from "./state.ts";
 export { nextDeadline as nextDeadlineTs, DeadlineIndex as DeadlineIndexTs } from "./deadlines.ts";
 import {
+  apply as applyTs,
+  FactBatch as FactBatchTs,
+} from "./reduce.ts";
+import { createThreadState as createThreadStateTs } from "./state.ts";
+import { nextDeadline as nextDeadlineTs, DeadlineIndex as DeadlineIndexTs } from "./deadlines.ts";
+import {
+  deriveAgentStatus as deriveAgentStatusTs,
+  deriveThreadStatus as deriveThreadStatusTs,
+  completionRelevanceReader as completionRelevanceReaderTs,
+} from "./status.ts";
+import { isActionableInteraction as isActionableInteractionTs } from "./human.ts";
+import {
   createThreadState as createThreadStateNative,
   apply as applyNative,
   FactBatch as FactBatchNative,
