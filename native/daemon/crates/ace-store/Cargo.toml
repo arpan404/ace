@@ -19,4 +19,7 @@ workspace = true
 libsqlite3-sys = { version = "0.39", features = ["bundled"] }
 # Native reads build wire JSON; RawValue keeps stored JSON as stored.
 serde_json = { version = "1", features = ["raw_value"] }
+# Text-stream bytes travel inside JSON; base64 carries SQLite BLOBs exactly, and a TEXT
+# value in a BLOB column stays a string so the shell's chunk check still rejects it.
+base64 = "0.22"
 

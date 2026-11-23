@@ -3,7 +3,7 @@
 //! around its batched body reads. Each returns one small JSON value; the shaping loop stays
 //! in TypeScript.
 
-use super::{FetchError, Result, all, one};
+use super::{FetchError, Result, all, int_json, one};
 use crate::{Connection, Value};
 use std::sync::Arc;
 
@@ -40,7 +40,11 @@ pub fn target(conn: &Arc<Connection>, thread_id: &str, around_seq: f64) -> Resul
         },
     };
     match seq {
-        Some(seq) => Ok(format!("{{\"targetSeq\":{seq}}}")),
+        Some(seq) => {
+            let mut map = serde_json::Map::with_capacity(1);
+            map.insert("targetSeq".to_owned(), int_json(seq));
+            serde_json::to_string(&map).map_err(|error| FetchError::Encode(error.to_string()))
+        }
         None => Ok("{\"targetSeq\":null}".to_owned()),
     }
 }
@@ -80,19 +84,16 @@ pub fn neighbor_seqs(
     for row in &newer {
         newer_out.push(row_seq(row)?);
     }
-    let older_json = older_out
-        .iter()
-        .map(|seq| seq.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
-    let newer_json = newer_out
-        .iter()
-        .map(|seq| seq.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
-    Ok(format!(
-        "{{\"older\":[{older_json}],\"newer\":[{newer_json}]}}"
-    ))
+    let mut map = serde_json::Map::with_capacity(2);
+    map.insert(
+        "older".to_owned(),
+        serde_json::Value::Array(older_out.into_iter().map(int_json).collect()),
+    );
+    map.insert(
+        "newer".to_owned(),
+        serde_json::Value::Array(newer_out.into_iter().map(int_json).collect()),
+    );
+    serde_json::to_string(&map).map_err(|error| FetchError::Encode(error.to_string()))
 }
 
 /// Whether older rows exist before `first` and newer rows after `last`: the loader's two

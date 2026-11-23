@@ -3,8 +3,11 @@
 //!
 //! Rust FETCHES, TypeScript SHAPES. Each function runs the same batched statements the
 //! TypeScript loaders ran, on the store's own connection, and returns the raw column values
-//! exactly as stored: stored JSON as strings, numbers as numbers, nulls as nulls. Nothing is
-//! parsed, decoded, budgeted or clipped here; TypeScript keeps every step after the fetch.
+//! exactly as stored: stored JSON and text as strings, safe integers and finite REALs as
+//! numbers, nulls as nulls. Values JSON cannot carry exactly (out-of-range integers,
+//! non-finite REALs, BLOBs) travel tagged so the shell restores or throws them exactly as
+//! node:sqlite does. Nothing is parsed, decoded, budgeted or clipped here; TypeScript keeps
+//! every step after the fetch.
 
 #[path = "items/fetch.rs"]
 mod fetch;
@@ -18,6 +21,7 @@ pub use nav::{existence, neighbor_seqs, target};
 pub use streams::{stream_bytes, stream_sizes};
 
 use crate::{Connection, Error as StoreError, Value};
+use base64::Engine as _;
 use std::sync::Arc;
 
 /// Why an item fetch failed. Shaping errors (capacity, missing bodies, clips) stay in
@@ -72,17 +76,61 @@ pub(crate) fn one(
     statement.step().map_err(FetchError::Store)
 }
 
-/// A fetched row as JSON: text as strings, integers and reals as numbers, blobs as base64
-/// strings (see `streams`), nulls as null. Stored JSON stays an opaque string; TypeScript
-/// parses it exactly as it does a node:sqlite row.
+/// A fetched row as JSON: text as strings, integers in JS safe range as numbers,
+/// integers outside it tagged so the shell throws exactly as node:sqlite does, finite REALs
+/// as numbers, non-finite REALs tagged so the shell restores them exactly, BLOBs tagged with
+/// their base64 so a TEXT value in a BLOB column stays a string, nulls as null. Stored JSON
+/// stays an opaque string; TypeScript parses it exactly as it does a node:sqlite row.
 pub(crate) fn cell_json(value: &Value) -> serde_json::Value {
     match value {
         Value::Null => serde_json::Value::Null,
-        Value::Integer(n) => serde_json::Value::Number(serde_json::Number::from(*n)),
-        Value::Real(n) => serde_json::Number::from_f64(*n)
-            .map_or(serde_json::Value::Null, serde_json::Value::Number),
+        Value::Integer(n) if (-SAFE..=SAFE).contains(n) => {
+            serde_json::Value::Number(serde_json::Number::from(*n))
+        }
+        Value::Integer(n) => tagged("i", &n.to_string()),
+        Value::Real(n) => serde_json::Number::from_f64(*n).map_or_else(
+            || {
+                tagged(
+                    "f",
+                    if n.is_nan() {
+                        "NaN"
+                    } else if *n > 0.0 {
+                        "Infinity"
+                    } else {
+                        "-Infinity"
+                    },
+                )
+            },
+            serde_json::Value::Number,
+        ),
         Value::Text(text) => serde_json::Value::String(text.clone()),
-        Value::Blob(bytes) => serde_json::Value::String(streams::encode_base64(bytes)),
+        Value::Blob(bytes) => tagged(
+            "b",
+            &base64::engine::general_purpose::STANDARD.encode(bytes),
+        ),
+    }
+}
+
+/// Largest magnitude a JavaScript number holds exactly; SQLite integers outside it cannot
+/// cross JSON without rounding, where node:sqlite throws `ERR_OUT_OF_RANGE` instead.
+const SAFE: i64 = (1 << 53) - 1;
+
+fn tagged(tag: &str, value: &str) -> serde_json::Value {
+    let mut map = serde_json::Map::with_capacity(1);
+    map.insert(
+        "$".to_owned() + tag,
+        serde_json::Value::String(value.to_owned()),
+    );
+    serde_json::Value::Object(map)
+}
+
+/// An integer for JSON: exact when a JavaScript number holds it, tagged otherwise so the
+/// shell throws exactly as node:sqlite does.
+pub(crate) fn int_json(n: i64) -> serde_json::Value {
+    if (-SAFE..=SAFE).contains(&n) {
+        serde_json::Value::Number(serde_json::Number::from(n))
+    } else {
+        tagged("i", &n.to_string())
     }
 }
 
