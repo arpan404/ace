@@ -487,7 +487,11 @@ struct ThreadView: View {
                          draftKey: forkKey ?? model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
                          suggester: suggester, suggestionHeight: max(AceDesign.Size.tap * 2, height * (request == nil ? 0.4 : 0.22)),
                          listAbove: hasStrip ? stripHeight : 0,
-                         run: runComposerAction, focusRequest: composerFocus) {
+                         run: runComposerAction, focusRequest: composerFocus,
+                         attachments: screen.attachments.isEmpty ? nil : ComposerMediaStrip(
+                             files: screen.attachments, inset: ComposerCapsuleMetrics.aboveInset,
+                             remove: { model.detach($0) }, retry: { model.retryAttachment($0) }, asText: { pasteAsText($0) }
+                         )) {
                 if let fork = screen.fork {
                     ForkStrip(fork: fork) { model.closeFork() }
                         .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
@@ -495,7 +499,7 @@ struct ThreadView: View {
                     // As the web's composer strip: the thread's automations, when nothing more urgent is there.
                     ThreadAutomationStrip(model: model, threadId: thread.id)
                 }
-                ComposerAccessories(model: model, screen: screen, problem: attachProblem, adding: pastesAdding, asText: { pasteAsText($0) }, threadId: thread.id)
+                ComposerAccessories(model: model, screen: screen, problem: attachProblem, adding: pastesAdding, threadId: thread.id)
             } leading: { pick in
                 AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, recall: true, ask: $askAttach)
                     .foregroundStyle(AceTheme.Colours.foreground)

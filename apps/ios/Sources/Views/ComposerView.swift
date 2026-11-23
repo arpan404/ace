@@ -5,8 +5,7 @@ import SwiftUI
 /// the microphone while there is nothing to send or stop, Send once there are words or chips, Stop
 /// while the tree works and the field is empty. A typed message steers or queues as the bridge
 /// directs. The words wrap and the capsule grows into a rounded shape concentric with its button,
-/// up to five lines, then scrolls. What rides above it (the files and chips on the next message)
-/// is `top`; the model lives in the thread's title, never here.
+/// up to five lines, then scrolls. Attachments sit inside the capsule above the field.
 struct ComposerView<Top: View, Leading: View>: View {
     let controls: ControlsRow?
     let stopping: Bool
@@ -48,7 +47,8 @@ struct ComposerView<Top: View, Leading: View>: View {
     var run: (String) -> Void = { _ in }
     /// Each new value brings the keyboard up with the caret at the end of the words.
     var focusRequest = 0
-    /// What sits just above the capsule: the files and chips on the next message, the fork.
+    var attachments: ComposerMediaStrip? = nil
+    /// What sits above the capsule, such as the message chips or the fork.
     @ViewBuilder var top: () -> Top
     /// The + at the row's start; it is handed what picking one of the + list's rows does.
     @ViewBuilder var leading: (_ pick: @escaping (SuggestionRow) -> Void) -> Leading
@@ -139,16 +139,19 @@ struct ComposerView<Top: View, Leading: View>: View {
     /// get the whole width, as the web's composer holds its + inside; wrapped words make it a
     /// rounded shape whose corners stay concentric with the buttons'.
     private var capsule: some View {
-        HStack(alignment: .bottom, spacing: AceTheme.Spacing.none) {
-            leading(pick)
-                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
-                .foregroundStyle(AceTheme.Colours.foreground)
-                .tint(AceTheme.Colours.foreground)
-                .buttonStyle(.plain)
-            input
-            action
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            attachments
+            HStack(alignment: .bottom, spacing: AceTheme.Spacing.none) {
+                leading(pick)
+                    .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
+                    .foregroundStyle(AceTheme.Colours.foreground)
+                    .tint(AceTheme.Colours.foreground)
+                    .buttonStyle(.plain)
+                input
+                action
+            }
+            .frame(minHeight: AceDesign.Size.tap)
         }
-        .frame(minHeight: AceDesign.Size.tap)
         .aceContainerShape(AceShape.field)
         .composerGlass(in: AceShape.field)
         .accessibilityElement(children: .contain)

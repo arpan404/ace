@@ -1,18 +1,12 @@
 import SwiftUI
 
-/// Just above the capsule, on the field's words' left edge: the files on the next message with
-/// their upload progress, then its chips (what it replies to, line comments, drawings) as one row
-/// of plain capsules, then the bridge's notice and a pick that couldn't be read. The capsule's own
-/// shape never changes for any of them. Every check (size, what the agent can read, which levels
-/// exist) is the bridge's; this view draws what the bridge says.
+/// Paste placeholders, message chips and notices above the composer.
 struct ComposerAccessories: View {
     @Bindable var model: ClientModel
     let screen: ThreadScreenModel
     let problem: String?
     /// Long pastes still being staged, in paste order: a placeholder each until its file is on.
     var adding: [PasteIntake.Adding] = []
-    /// A pasted file's words, handed back to the message as text; nil offers nothing.
-    var asText: ((String) -> Void)? = nil
     /// The thread the composer writes to, for the editor's code notes on its next message.
     var threadId: String? = nil
     private var codeNotes: [CodeNote] { threadId.map { model.codeNotes[$0] } ?? [] }
@@ -25,9 +19,9 @@ struct ComposerAccessories: View {
     private var hasChips: Bool { model.sheets.chip != nil || !screen.annotations.isEmpty || !screen.quotes.isEmpty || !codeNotes.isEmpty }
     /// Whether anything rides above the capsule at all.
     private var shows: Bool {
-        let files = !screen.attachments.isEmpty || !adding.isEmpty
+        let stagingPaste = !adding.isEmpty
         let lines = screen.attachmentsLocked != nil || notice != nil || continues != nil || problem != nil
-        return files || hasChips || lines
+        return stagingPaste || hasChips || lines
     }
     var body: some View {
         if shows {
@@ -46,9 +40,6 @@ struct ComposerAccessories: View {
                             .accessibilityIdentifier("composer.adding")
                         }
                     }
-                }
-                if !screen.attachments.isEmpty {
-                    ComposerMediaStrip(files: screen.attachments, remove: { model.detach($0) }, retry: { model.retryAttachment($0) }, asText: asText)
                 }
                 if hasChips {
                     ScrollView(.horizontal, showsIndicators: false) {
