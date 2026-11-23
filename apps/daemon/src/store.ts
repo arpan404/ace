@@ -8,8 +8,8 @@ import { LongThreadQueries } from "./long-thread/queries.ts";
 import { SidebarReads } from "./sidebar-reads.ts";
 import { CommandReceipts } from "./command-receipts.ts";
 import { EventWriter } from "./event-writer.ts";
-import { decodeThreadRow, threadRowColumns, threadRowSource } from "./thread-row.ts";
-import { ThreadCache, type FrozenThread } from "./thread-cache.ts";
+import { threadRowColumns, threadRowSource } from "./thread-row.ts";
+import { createStoreThreadCache, type FrozenThread, type ThreadCache } from "./thread-cache.ts";
 import { StreamSequences } from "./stream-sequences.ts";
 import { BoundedEvents } from "./bounded-events.ts";
 import { rolledBack, type LineageFile } from "./sequence-lineage.ts";
@@ -205,19 +205,10 @@ export class Store {
       inTransaction: () => this.transactionEvents !== undefined || this.db.isTransaction,
       generationChanged: () => this.threadReads.invalidateViews(),
     });
-    this.threads = new ThreadCache({
-      revision: (id) => {
-        const value = this.statement(
-          "SELECT revision FROM sidebar_thread_revisions WHERE thread_id = ?",
-        ).get(id)?.revision;
-        return typeof value === "number" ? value : undefined;
-      },
-      row: (id) =>
-        this.statement(
-          `SELECT ${threadRowColumns}, revisions.revision AS row_revision FROM ${threadRowSource} LEFT JOIN sidebar_thread_revisions AS revisions ON revisions.thread_id = threads.id WHERE threads.id = ?`,
-        ).get(id),
-      committed: () => !this.db.isTransaction || this.committedSnapshot,
-    });
+    this.threads = createStoreThreadCache(
+      (sql) => this.statement(sql),
+      () => !this.db.isTransaction || this.committedSnapshot,
+    );
     this.sidebarReads = new SidebarReads({
       statement: (sql) => this.statement(sql),
       snapshot: (read) => this.sidebarSnapshot(read),
@@ -1008,7 +999,7 @@ export class Store {
     const row = this.statement(
       `SELECT ${threadRowColumns} FROM ${threadRowSource} WHERE json_extract(imported,'$.sourceId')=?`,
     ).get(sourceId);
-    return row ? decodeThreadRow(row) : undefined;
+    return row ? this.threads.decodeCopy(row) : undefined;
   }
   createWorkspace(path: string, name: string, at = this.now()): WorkspaceId {
     return this.atomic(() => {
@@ -1172,7 +1163,7 @@ export class Store {
       `SELECT ${threadRowColumns} FROM ${threadRowSource} ORDER BY updated_at DESC, threads.id`,
     )
       .all()
-      .map((row) => decodeThreadRow(row));
+      .map((row) => this.threads.decodeCopy(row));
   }
   appendEvents(threadId: ThreadId, payloads: EventPayload[], at = this.now()): Event[] {
     return this.writeEvents(() => this.eventWriter.append(threadId, payloads, at));

@@ -23,6 +23,7 @@ import {
   WorkspaceId,
 } from "@ace/protocol";
 import type { Store } from "../store.ts";
+import { remoteChildTreeRoot } from "../tree-root.ts";
 import type { Engine } from "../engine/index.ts";
 import type { DelegationJournal } from "../agent-control/journal.ts";
 import { commandContext } from "../commands.ts";
@@ -197,6 +198,7 @@ export class TargetThreads {
             threadId: origin_thread,
             ...(name ? { hostName: name.slice(0, 256) } : {}),
           },
+          treeRootId: origin_thread,
         },
       ]);
     }
@@ -301,9 +303,13 @@ export class TargetThreads {
                 hostId: origin.hostId,
                 hostName: origin.hostName,
                 threadId: origin.threadId,
+                ...(typeof origin.rootThreadId === "string"
+                  ? { rootThreadId: origin.rootThreadId }
+                  : {}),
                 ...(origin.threadTitle ? { threadTitle: origin.threadTitle } : {}),
                 ...(origin.provider ? { provider: origin.provider } : {}),
               },
+              treeRootId: remoteChildTreeRoot(origin, threadId),
             },
           ]
         : []),

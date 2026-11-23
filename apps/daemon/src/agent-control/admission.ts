@@ -16,6 +16,7 @@ import type { DelegationDependencies } from "./delegations.ts";
 import type { DelegationJournal, DelegationReservation } from "./journal.ts";
 import { controlCommandId } from "./command-id.ts";
 import { turnFence } from "./turn-fence.ts";
+import { childTreeRoot } from "../tree-root.ts";
 
 /** Reserve durable capacity before asynchronous owners perform filesystem effects. */
 export class DelegationAdmission {
@@ -295,6 +296,9 @@ export class DelegationAdmission {
         prepared,
       );
       if (!result.ok) throw controlAdmissionError(result.error ?? "Child creation failed");
+      const treeRootId = childTreeRoot(this.deps.store.readThread(r.parentId));
+      if (treeRootId)
+        this.deps.store.appendEvents(r.childId, [{ type: "thread.updated", treeRootId }]);
       const child = this.deps.store.getThread(r.childId);
       if (!child) throw new Error("Child creation failed");
       return { record: r, child };
