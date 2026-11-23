@@ -353,27 +353,50 @@ impl Sources {
     }
 
     /// `source.dial`: (re)dial a scrcpy source's video handshake, after a restart under the
-    /// same source or a reopen. Unknown or ended sources stay as they are.
+    /// same source or a reopen. Unknown sources stay as they are; a source whose reader
+    /// ended (its token went with it) gets a fresh one, so it stays redialable after EOF.
     pub fn dial(&mut self, id: &Id, host: &str, port: u32, out: &mut Vec<Effect>) {
-        let live = self
+        let Some(target) = self
             .by_id
-            .get_mut(id.get())
-            .filter(|source| source.scrcpy.is_some() && !matches!(source.status, Status::Ended));
-        let Some(source) = live else {
+            .get(id.get())
+            .filter(|source| source.scrcpy.is_some())
+            .and_then(|source| source.scrcpy.clone())
+        else {
             return;
         };
-        let Some(token) = source.encoder else {
-            return;
-        };
-        if let Some(target) = source.scrcpy.as_mut() {
-            target.host = host.to_owned();
-            target.port = port;
+        if let Some(token) = self.by_id.get(id.get()).and_then(|source| source.encoder) {
+            return out.push(Effect::Encode(EncodeEffect::ScrcpyDial {
+                source: id.get().to_owned(),
+                token,
+                host: host.to_owned(),
+                port,
+                deadline_ms: target.deadline_ms,
+            }));
         }
-        out.push(Effect::Encode(EncodeEffect::ScrcpyDial {
+        if self.encoders() >= MAX_ENCODERS {
+            if let Some(source) = self.by_id.get_mut(id.get()) {
+                source.status = Status::Ended;
+            }
+            log(out, Level::Warn, "source.dial refused: encoder limit", id);
+            return status(out, id, Status::Ended, Some("encoder-limit"), None);
+        }
+        self.last_token += 1;
+        let token = self.last_token;
+        if let Some(source) = self.by_id.get_mut(id.get()) {
+            source.encoder = Some(token);
+            source.status = Status::Starting;
+            if let Some(target) = source.scrcpy.as_mut() {
+                target.host = host.to_owned();
+                target.port = port;
+            }
+        }
+        status(out, id, Status::Starting, None, None);
+        out.push(Effect::Encode(EncodeEffect::Scrcpy {
             source: id.get().to_owned(),
             token,
             host: host.to_owned(),
             port,
+            deadline_ms: target.deadline_ms,
         }));
     }
 

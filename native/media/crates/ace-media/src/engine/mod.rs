@@ -87,6 +87,7 @@ pub enum EncodeEffect {
         token: u64,
         host: String,
         port: u32,
+        deadline_ms: u64,
     },
     /// The daemon connected a scrcpy source's control socket: its reader may read the device
     /// name and codec id now.

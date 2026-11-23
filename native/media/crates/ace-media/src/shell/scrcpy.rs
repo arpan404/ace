@@ -111,6 +111,26 @@ impl ScrcpyReaders {
             let _ = self.outputs.try_send(failed(NOT_STARTED));
             return;
         };
+        if !self.spawn(
+            source,
+            token,
+            addr,
+            Duration::from_millis(deadline_ms),
+            now_ms,
+        ) {
+            let _ = self.outputs.try_send(failed(NOT_STARTED));
+        }
+    }
+
+    /// Starts one coordinating thread; false when the thread itself would not spawn.
+    fn spawn(
+        &mut self,
+        source: &str,
+        token: u64,
+        addr: SocketAddr,
+        deadline: Duration,
+        now_ms: u64,
+    ) -> bool {
         let (control_tx, control) = channel();
         let socket: Arc<Mutex<Option<TcpStream>>> = Arc::default();
         let outputs = self.outputs.clone();
@@ -134,7 +154,7 @@ impl ScrcpyReaders {
                             source: name,
                             token,
                             addr,
-                            deadline: Duration::from_millis(deadline_ms),
+                            deadline,
                         },
                         control,
                         outputs,
@@ -156,10 +176,9 @@ impl ScrcpyReaders {
                         thread,
                     },
                 );
+                true
             }
-            Err(_) => {
-                let _ = self.outputs.try_send(failed(NOT_STARTED));
-            }
+            Err(_) => false,
         }
     }
 
@@ -174,24 +193,52 @@ impl ScrcpyReaders {
     }
 
     /// A restart under the same source, or a reopen: dial this tunnel instead. An endpoint
-    /// that isn't the loopback adb forward ends the source at once.
-    pub fn dial(&mut self, token: u64, host: &str, port: u32, now_ms: u64) {
-        let Some(handle) = self.threads.get(&token) else {
-            return;
-        };
+    /// that isn't the loopback adb forward ends the source at once. A reader that is
+    /// already gone (it ended before) starts over under the same token.
+    pub fn dial(
+        &mut self,
+        token: u64,
+        source: &str,
+        host: &str,
+        port: u32,
+        deadline_ms: u64,
+        now_ms: u64,
+    ) {
         if dial_addr(host, port).is_none() {
-            let source = handle.source.clone();
-            self.end(token, now_ms);
-            let _ = self
-                .outputs
-                .try_send((source, token, Output::Failed(CLOSED.into())));
+            if let Some(handle) = self.threads.get(&token) {
+                let failed = (handle.source.clone(), token, Output::Failed(CLOSED.into()));
+                self.end(token, now_ms);
+                let _ = self.outputs.try_send(failed);
+            }
             return;
         }
-        let _ = handle.control.send(Control::Dial {
-            host: host.to_owned(),
-            port,
-        });
-        self.interrupt(token);
+        if self.threads.contains_key(&token) {
+            if let Some(handle) = self.threads.get(&token) {
+                let _ = handle.control.send(Control::Dial {
+                    host: host.to_owned(),
+                    port,
+                });
+            }
+            self.interrupt(token);
+            return;
+        }
+        let Some(addr) = dial_addr(host, port) else {
+            return;
+        };
+        // The open's deadline still bounds a redial: a fresh handshake, not forever.
+        if !self.spawn(
+            source,
+            token,
+            addr,
+            Duration::from_millis(deadline_ms),
+            now_ms,
+        ) {
+            let _ = self.outputs.try_send((
+                source.to_owned(),
+                token,
+                Output::Failed(NOT_STARTED.into()),
+            ));
+        }
     }
 
     /// The source closed: every unit read has gone out already, so the reader says so at once.
@@ -203,9 +250,11 @@ impl ScrcpyReaders {
     }
 
     pub fn close(&mut self, token: u64, now_ms: u64) {
-        if let Some(handle) = self.threads.remove(&token) {
+        if let Some(handle) = self.threads.get(&token) {
             let _ = handle.control.send(Control::Close);
-            self.interrupt(token);
+        }
+        self.interrupt(token);
+        if let Some(handle) = self.threads.remove(&token) {
             self.closing.push((handle.thread, now_ms));
         }
     }
@@ -222,9 +271,11 @@ impl ScrcpyReaders {
 
     /// Ends the thread without its message (an endpoint that was never dialled).
     fn end(&mut self, token: u64, now_ms: u64) {
-        if let Some(handle) = self.threads.remove(&token) {
+        if let Some(handle) = self.threads.get(&token) {
             let _ = handle.control.send(Control::Close);
-            self.interrupt(token);
+        }
+        self.interrupt(token);
+        if let Some(handle) = self.threads.remove(&token) {
             self.closing.push((handle.thread, now_ms));
         }
     }
@@ -242,9 +293,11 @@ impl ScrcpyReaders {
             .collect();
         let mut failed = Vec::with_capacity(wedged.len());
         for (token, since) in wedged {
-            if let Some(handle) = self.threads.remove(&token) {
+            if let Some(handle) = self.threads.get(&token) {
                 let _ = handle.control.send(Control::Close);
-                self.interrupt(token);
+            }
+            self.interrupt(token);
+            if let Some(handle) = self.threads.remove(&token) {
                 failed.push((handle.source, token));
                 self.closing.push((handle.thread, since));
             }

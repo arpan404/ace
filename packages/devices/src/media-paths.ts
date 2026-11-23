@@ -63,6 +63,10 @@ export function withMediaWant(
         },
       };
     },
+    // D1 reads it off the capture's media, through every wrapper.
+    ...(media.speaks === undefined
+      ? {}
+      : { speaks: (feature: MediaFeature) => media.speaks?.(feature) === true }),
   };
 }
 
@@ -88,6 +92,10 @@ export function withVideoStatus(
           producer.stopped?.(reason, kind);
         },
       }),
+    // D1 reads it off the capture's media, through every wrapper.
+    ...(media.speaks === undefined
+      ? {}
+      : { speaks: (feature: MediaFeature) => media.speaks?.(feature) === true }),
   };
 }
 

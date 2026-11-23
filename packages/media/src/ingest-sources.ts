@@ -701,8 +701,11 @@ export class IngestSources {
         port.speaks("privacy-open")
           ? { private: true }
           : {}),
-        // D1: a scrcpy source ace-media reads itself carries its handshake's deadline.
-        ...(producer.deadlineMs === undefined ? {} : { deadlineMs: producer.deadlineMs }),
+        // D1: a scrcpy source ace-media reads itself carries its handshake's deadline,
+        // and only to a build that agreed to the scrcpy reader.
+        ...(producer.deadlineMs === undefined || !port.speaks("scrcpy-video")
+          ? {}
+          : { deadlineMs: producer.deadlineMs }),
         origin: producer.origin,
         ...(producer.threadId === undefined ? {} : { threadId: producer.threadId }),
         ...(producer.tabId === undefined ? {} : { tabId: producer.tabId }),

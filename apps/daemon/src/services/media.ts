@@ -12,6 +12,7 @@ import type { MediaDeliveryPort } from "@ace/media/media-viewers";
 import { platformRouteCapabilities } from "@ace/media/routes";
 import { MediaRuntime } from "@ace/media/runtime";
 import { refusingRecorder, type MediaRecorder } from "@ace/media/tee-recordings";
+import type { MediaFeature } from "@ace/media/wire";
 import {
   mediaBinaryPath,
   nodeMediaHost,
@@ -133,6 +134,8 @@ export type DaemonMedia = BrowserMedia & {
    * added once it does.
    */
   attach(producer: IngestProducer): IngestSource;
+  /** Whether the running ace-media agreed to speak `feature` (`ready.features`). */
+  speaks(feature: MediaFeature): boolean;
   /** What ace-media runs on, kept across its restarts and before the runtime exists (empty). */
   acceleration: MediaAccelerationStore;
   /** ace-media's process while it runs. */
@@ -314,6 +317,8 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
     pictureCodecs: () => runtime?.pictureCodecs() ?? [],
     endpoint: () => runtime?.sources.endpoint(),
     attach: (producer) => attach(producer),
+    // D1: only while the runtime runs; before that the capture falls back to ingest.
+    speaks: (feature) => runtime?.supervisor.speaks(feature) ?? false,
   };
 
   function attach(producer: IngestProducer): IngestSource {

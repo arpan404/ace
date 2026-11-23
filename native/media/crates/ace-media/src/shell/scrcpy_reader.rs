@@ -278,23 +278,52 @@ fn wait_control(coordinator: &mut Coordinator) -> Next {
     }
 }
 
+/// What a bounded metadata read ended with.
+enum ReadError {
+    TimedOut,
+    Closed,
+}
+
 fn metadata(coordinator: &mut Coordinator) -> Next {
     let Some(remaining) = coordinator.remaining() else {
         return Next::Failed(NOT_STARTED);
     };
+    // One absolute deadline for the whole read: trickling bytes must not stretch it.
+    let end = Instant::now() + remaining;
     let mut meta = [0u8; DEVICE_NAME_LEN + 4];
-    let read = match coordinator.socket.as_mut() {
-        None => return Next::Failed(CLOSED),
-        Some(socket) => {
-            if socket.set_read_timeout(Some(remaining)).is_err() {
-                return Next::Failed(CLOSED);
+    let mut got = 0;
+    let read = loop {
+        if Instant::now() >= end {
+            break Err(ReadError::TimedOut);
+        }
+        let Some(socket) = coordinator.socket.as_mut() else {
+            break Err(ReadError::Closed);
+        };
+        if socket
+            .set_read_timeout(Some(end.saturating_duration_since(Instant::now())))
+            .is_err()
+        {
+            break Err(ReadError::Closed);
+        }
+        match socket.read(&mut meta[got..]) {
+            Ok(0) => break Err(ReadError::Closed),
+            Ok(read) => {
+                got += read;
+                if got >= meta.len() {
+                    break Ok(());
+                }
             }
-            socket.read_exact(&mut meta)
+            Err(error) if error.kind() == std::io::ErrorKind::TimedOut => {
+                break Err(ReadError::TimedOut);
+            }
+            Err(_) => break Err(ReadError::Closed),
         }
     };
-    if read.is_err() {
+    match read {
         // The server went away mid-handshake: fail at once, not at the deadline.
-        return Next::Failed(CLOSED);
+        Err(ReadError::Closed) => return Next::Failed(CLOSED),
+        Err(ReadError::TimedOut) => return Next::Failed(NOT_STARTED),
+        Ok(()) => {}
     }
     let mut name = [0u8; DEVICE_NAME_LEN];
     name.copy_from_slice(&meta[..DEVICE_NAME_LEN]);
@@ -331,7 +360,18 @@ fn stream(coordinator: &mut Coordinator) -> Next {
         Some(socket) => socket.read(&mut chunk),
     };
     match read {
-        Ok(0) => Next::Failed(CLOSED),
+        Ok(0) => match coordinator.control() {
+            // A shutdown (close, dial, drain) ends the read: honor control first.
+            Some(Control::Close) => Next::Closed,
+            Some(Control::Drain) => Next::Drained,
+            Some(Control::Dial { host, port }) => {
+                coordinator.redial(&host, port);
+                Next::Again
+            }
+            Some(Control::Connected) => Next::Again,
+            // The server went away mid-stream: fail at once, not at the deadline.
+            None => Next::Failed(CLOSED),
+        },
         Ok(read) => {
             let mut events = Vec::new();
             if coordinator
