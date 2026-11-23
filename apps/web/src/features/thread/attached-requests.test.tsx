@@ -72,7 +72,7 @@ test("an approval is answered on the card attached to the composer, never inside
   });
   const feed = screen.getByRole("feed", { name: "Transcript" });
   expect(within(feed).queryByRole("article", { name: /^Run rm -rf/ })).toBeNull();
-  expect(within(feed).getAllByText("Waiting for your approval")).toHaveLength(1);
+  expect(within(feed).queryByText("Waiting for your approval")).toBeNull();
 
   await userEvent.click(within(card).getByRole("button", { name: "Allow once" }));
   await waitFor(() => expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull());
@@ -336,7 +336,7 @@ for (const [decision, outcome] of [
     await app.open("/t/thread-checkout");
     const region = await stack();
     const feed = screen.getByRole("feed", { name: "Transcript" });
-    expect(await within(feed).findAllByText("Waiting for your approval")).toHaveLength(1);
+    expect(within(feed).queryByText("Waiting for your approval")).toBeNull();
     expect(within(feed).queryByRole("button", { name: "Allow once" })).toBeNull();
     expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
     await userEvent.click(within(region).getByRole("button", { name: decision }));

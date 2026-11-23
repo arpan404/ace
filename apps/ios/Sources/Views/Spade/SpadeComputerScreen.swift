@@ -15,8 +15,6 @@ struct SpadeComputerScreen: View {
     let face: SpadeModel.Face
     @Environment(\.scenePhase) private var scene
     @State private var screen = RemoteScreen()
-    /// The computer-use session the bot's thread holds, once found.
-    @State private var sessionId: String?
     @State private var windowSize: CGSize?
 
     private var words: String { kind == "browser" ? "browser" : "screen" }
@@ -41,7 +39,7 @@ struct SpadeComputerScreen: View {
         .navigationTitle("\(name)'s \(words)")
         .navigationBarTitleDisplayMode(.inline)
         .followsComputer(watch, model: model)
-        .task(id: "\(scene)-\(model.connection)-\(threadId ?? "")") { await follow() }
+        .task(id: "\(scene)-\(model.connection)-\(model.connectionEpoch)-\(threadId ?? "")") { await follow() }
         .onDisappear { stop() }
     }
 
@@ -60,11 +58,13 @@ struct SpadeComputerScreen: View {
                 if surface?.ownChrome == true {
                     note("\(name) is using a tab in your own Chrome.")
                 } else {
-                    BotBrowserSurface(model: model, threadId: threadId, interactive: watch.mayAct(model))
+                    BotBrowserSurface(model: model, threadId: threadId, interactive: showing && watch.mayAct(model),
+                                      mayAct: { showing && watch.mayAct(model) })
+                        .id("\(threadId)-\(model.connectionEpoch)")
                         .accessibilityLabel("\(name)'s browser")
                         .accessibilityIdentifier("spade.computer.browser.surface")
                 }
-            } else if let sessionId, screen.state(sessionId)?.lifecycle == "live" {
+            } else if let sessionId = screen.live.sessionId, screen.state(sessionId)?.lifecycle == "live" {
                 DeviceSurface(next: { screen.live.nextPicture() }, poster: { screen.live.nextPoster() }, interactive: false,
                               label: "\(name)'s screen", identifier: "spade.computer.screen.surface",
                               screenSize: { windowSize = $0 }) { _, _ in }
@@ -86,26 +86,29 @@ struct SpadeComputerScreen: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// The screen's pictures: the session the bot's thread holds, watched while the page shows.
-    /// The browser's open from its surface as it lays out.
+    /// The screen's pictures: on every refresh, the subscription open now (`live.sessionId`,
+    /// nil once one failed) is set to the session the bot's thread holds: none once the bot let
+    /// go, the new one when it moved, the same again after a failure. The browser opens from its
+    /// surface as it lays out, and closes with it.
     private func follow() async {
         guard showing else { stop(); return }
+        stop()
         guard kind == "screen", let threadId else { return }
         while !Task.isCancelled {
             await screen.refresh(model)
+            guard !Task.isCancelled else { return }
             let held = screen.states.first { $0.holder?.threadId == threadId }?.sessionId
-            if let held, held != sessionId {
-                if let sessionId { screen.unwatch(model, id: sessionId) }
-                sessionId = held
-                await screen.watch(model, id: held)
+            if held != screen.live.sessionId {
+                stop()
+                if let held { await screen.watch(model, id: held) }
+                guard !Task.isCancelled else { return }
             }
             do { try await Task.sleep(for: .seconds(2)) } catch { return }
         }
     }
 
     private func stop() {
-        if let sessionId { screen.unwatch(model, id: sessionId); self.sessionId = nil }
-        if kind == "browser", let threadId, model.browser.threadId == threadId { model.closeBrowser() }
+        if let sessionId = screen.live.sessionId { screen.unwatch(model, id: sessionId) }
     }
 }
 
@@ -116,26 +119,54 @@ private struct BotBrowserSurface: UIViewRepresentable {
     let threadId: String
     /// The person may act: touches go to the page.
     let interactive: Bool
+    let mayAct: @MainActor () -> Bool
 
-    final class Coordinator { var interactive = false }
+    final class Coordinator {
+        var mayAct: (@MainActor () -> Bool)?
+        /// The subscription this surface opened.
+        var opened: UUID?
+        /// Closes the browser if this subscription is still active.
+        var close: (@MainActor (UUID) -> Void)?
+    }
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> BrowserSurfaceView {
         let view = BrowserSurfaceView()
         let model = model, threadId = threadId, coordinator = context.coordinator
+        coordinator.close = { opened in if model.browser.subscription == opened { model.closeBrowser() } }
         view.nextPicture = { [weak browser = model.browser] in browser?.nextPicture() }
         view.nextPoster = { [weak browser = model.browser] in browser?.nextPoster() }
-        view.onInput = { inputs in if coordinator.interactive { model.browserInput(inputs) } }
+        view.onInput = { inputs in
+            guard let opened = coordinator.opened, model.browser.subscription == opened,
+                  coordinator.mayAct?() == true else { return }
+            model.browserInput(inputs)
+        }
         view.onMove = { zoom, offset in model.browser.movePicture(zoom: zoom, offset: offset) }
         view.onLayout = { size, scale, picture in
-            if model.browser.threadId != threadId { model.openBrowser(size: size, scale: scale, threadId: threadId) }
-            else { model.browserViewport(size: size, scale: scale, picture: picture) }
+            if coordinator.opened == nil {
+                guard model.browserSession != nil else { return }
+                model.openBrowser(size: size, scale: scale, threadId: threadId)
+                coordinator.opened = model.browser.subscription
+            } else if model.browser.subscription == coordinator.opened {
+                model.browserViewport(size: size, scale: scale, picture: picture)
+            }
         }
         return view
     }
 
     func updateUIView(_ view: BrowserSurfaceView, context: Context) {
-        context.coordinator.interactive = interactive
+        context.coordinator.mayAct = mayAct
         view.interactive = interactive
+    }
+
+    /// Leaving the page, or the app leaving the front, takes the surface down: the browser this
+    /// surface opened closes, and one another view opened since is left alone.
+    @MainActor static func dismantleUIView(_ view: BrowserSurfaceView, coordinator: Coordinator) {
+        coordinator.mayAct = nil
+        view.onLayout = { _, _, _ in }
+        view.textField.resignFirstResponder()
+        guard let opened = coordinator.opened else { return }
+        coordinator.opened = nil
+        coordinator.close?(opened)
     }
 }

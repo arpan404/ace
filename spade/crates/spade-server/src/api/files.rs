@@ -114,14 +114,24 @@ pub(super) async fn person_files(
     }
 }
 
+/// What a write may land on: anything (`None`), only the revision the person opened (`base`),
+/// or only an empty place (`if_absent`, a new file the person picked).
+#[derive(Default)]
+struct Expect {
+    base: Option<String>,
+    absent: bool,
+}
+
 /// Writes `bytes` at `path` as the person's, then tells the bot's computer. With `base`, only
-/// while the file is still that revision (`409 changed` otherwise, and nothing is written).
+/// while the file is still that revision; with `absent`, only while nothing is there (`409
+/// changed` otherwise, and nothing is written). Both are checked under the workspace's file
+/// lock, so a bot file tool can't land in between.
 async fn person_writes(
     state: AppState,
     id: String,
     path: String,
     bytes: Vec<u8>,
-    base: Option<String>,
+    expect: Expect,
 ) -> Response {
     if bytes.len() > LARGEST_UPLOAD {
         return too_large();
@@ -132,13 +142,17 @@ async fn person_writes(
     };
     person_files(&state, &id, workspace, move |workspace| {
         let path = workspace.normal(&path)?;
-        workspace.check_base(&path, base.as_deref())?;
-        let how = if workspace.revision(&path).ok().flatten().is_some() {
-            "changed"
-        } else {
+        workspace.check_base(&path, expect.base.as_deref())?;
+        let how = if expect.absent {
+            if !workspace.create_new_bytes(&path, &bytes, LARGEST_UPLOAD)? {
+                return Err(PathError::Changed(None));
+            }
             "new"
+        } else {
+            let existed = workspace.revision(&path).ok().flatten().is_some();
+            workspace.write_bytes(&path, &bytes, LARGEST_UPLOAD)?;
+            if existed { "changed" } else { "new" }
         };
-        workspace.write_bytes(&path, &bytes, LARGEST_UPLOAD)?;
         workspace.trust().record_person(&path, &bytes);
         Ok(vec![(path, how)])
     })
@@ -153,7 +167,13 @@ async fn write(
 ) -> Response {
     let base = body.base.clone();
     match body.bytes() {
-        Ok(bytes) => person_writes(state, id, at.path, bytes, base).await,
+        Ok(bytes) => {
+            let expect = Expect {
+                base,
+                absent: false,
+            };
+            person_writes(state, id, at.path, bytes, expect).await
+        }
         Err(response) => *response,
     }
 }
@@ -164,6 +184,9 @@ struct Upload {
     data_b64: String,
     #[serde(default)]
     base: Option<String>,
+    /// Only while nothing is at `path`: a new file must not replace one made meanwhile.
+    #[serde(default)]
+    if_absent: bool,
 }
 
 async fn upload(
@@ -172,7 +195,13 @@ async fn upload(
     Body(body): Body<Upload>,
 ) -> Response {
     match decode(&body.data_b64) {
-        Ok(bytes) => person_writes(state, id, body.path, bytes, body.base).await,
+        Ok(bytes) => {
+            let expect = Expect {
+                base: body.base,
+                absent: body.if_absent,
+            };
+            person_writes(state, id, body.path, bytes, expect).await
+        }
         Err(response) => *response,
     }
 }

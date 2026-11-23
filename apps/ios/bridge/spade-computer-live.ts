@@ -46,7 +46,8 @@ interface Watch {
   seq: number;
   /** Bytes put so far, the phone's canonical offset. */
   drawn: number;
-  decoder: TextDecoder;
+  /** The start of a UTF-8 sequence a frame cut, waiting for the rest in the next. */
+  carry: Uint8Array;
   /** Output put but not yet read by the pump, which keeps only a key's latest patch. */
   held: { offset: number; data: string; truncatedBefore: boolean } | undefined;
   retries: number;
@@ -56,6 +57,31 @@ interface Watch {
 }
 
 const utf8 = new TextEncoder();
+const utf8Text = new TextDecoder("utf-8", { ignoreBOM: true });
+
+const joined = (a: Uint8Array, b: Uint8Array) => {
+  if (a.length === 0) return b;
+  const both = new Uint8Array(a.length + b.length);
+  both.set(a);
+  both.set(b, a.length);
+  return both;
+};
+
+/**
+ * Where `bytes` stops being whole UTF-8: a sequence its last bytes begin but don't finish is
+ * left for the next frame, so a character the PTY's chunks cut in two draws once, whole.
+ */
+function utf8WholeEnd(bytes: Uint8Array): number {
+  for (let back = 1; back <= Math.min(4, bytes.length); back++) {
+    const byte = bytes[bytes.length - back] ?? 0;
+    // A continuation byte: look further back for the sequence's lead.
+    if ((byte & 0xc0) === 0x80) continue;
+    if (byte < 0xc2 || byte > 0xf4) return bytes.length;
+    const length = byte >= 0xf0 ? 4 : byte >= 0xe0 ? 3 : 2;
+    return length > back ? bytes.length - back : bytes.length;
+  }
+  return bytes.length;
+}
 
 export class SpadeComputerLive {
   readonly #live: Live;
@@ -82,7 +108,7 @@ export class SpadeComputerLive {
         agent: action.agentId,
         seq: 0,
         drawn: 0,
-        decoder: new TextDecoder(),
+        carry: new Uint8Array(),
         held: undefined,
         retries: 0,
       };
@@ -119,12 +145,18 @@ export class SpadeComputerLive {
           // A gap: the ring no longer held what came after the last one drawn.
           const gap = watch.seq > 0 && frame.seq > watch.seq + 1;
           watch.seq = frame.seq;
-          this.#emit(watch, watch.decoder.decode(frame.data, { stream: true }), gap);
+          // Across a gap the cut sequence's rest is gone: what was carried is dropped.
+          const whole = gap ? frame.data : joined(watch.carry, frame.data);
+          const end = utf8WholeEnd(whole);
+          watch.carry = whole.slice(end);
+          this.#emit(watch, utf8Text.decode(whole.subarray(0, end)), gap);
         } else if (frame.kind === "exit") {
+          const tail = utf8Text.decode(watch.carry);
+          watch.carry = new Uint8Array();
           const code = frame.code === undefined ? "" : ` (${frame.code})`;
           this.#emit(
             watch,
-            `\r\n\x1b[2m[The shell ended${code}. It starts again when used.]\x1b[0m\r\n`,
+            `${tail}\r\n\x1b[2m[The shell ended${code}. It starts again when used.]\x1b[0m\r\n`,
           );
         }
       },

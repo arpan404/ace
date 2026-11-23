@@ -232,3 +232,44 @@ test("delete removes the file it was asked about, and says so when it is already
     await ask({ type: "spade.files.revision", agentId: "writer", path: "old.log" }),
   ).toMatchObject({ ok: false, gone: true });
 });
+
+test("an upload never overwrites a file the bot makes after the phone looked", async () => {
+  const { ask, api, stage, staged } = await withBot({});
+  const file = stage("notes.md", "text/markdown", new TextEncoder().encode("mine"));
+  // The bot writes the file while the phone reads the picked one's bytes, after the check.
+  const read = staged.get.bind(staged);
+  staged.get = (id: string) => {
+    if (api.files.get("writer")?.["notes.md"] === undefined)
+      api.computer.botWrites("writer", "notes.md", "the bot's");
+    return read(id);
+  };
+
+  const answer = await ask({ type: "spade.files.upload", agentId: "writer", folder: "", file });
+
+  expect(answer).toMatchObject({ ok: false, changed: true, title: "Couldn't upload notes.md" });
+  expect(api.files.get("writer")?.["notes.md"]).toBe("the bot's");
+});
+
+test("an upload replaces a file only as the phone saw it", async () => {
+  const { ask, api, stage } = await withBot({ "notes.md": "old" });
+  const file = stage("notes.md", "text/markdown", new TextEncoder().encode("mine"));
+
+  expect(await ask({ type: "spade.files.upload", agentId: "writer", folder: "", file })).toEqual({
+    ok: true,
+  });
+  expect(api.files.get("writer")?.["notes.md"]).toBe("mine");
+});
+
+test("a file Spade gives no revision of can't be replaced, renamed or deleted from the phone", async () => {
+  const { ask, api, stage } = await withBot({ "big.bin": "x" });
+  api.computer.unrevised.add("big.bin");
+
+  expect(
+    await ask({ type: "spade.files.revision", agentId: "writer", path: "big.bin" }),
+  ).toMatchObject({ ok: false, title: "Spade can't check this file" });
+  const file = stage("big.bin", "application/octet-stream", new Uint8Array([1]));
+  expect(
+    await ask({ type: "spade.files.upload", agentId: "writer", folder: "", file }),
+  ).toMatchObject({ ok: false, title: "Couldn't upload big.bin" });
+  expect(api.files.get("writer")?.["big.bin"]).toBe("x");
+});

@@ -3,61 +3,6 @@ import SwiftUI
 /// Why a change to the bot's files can't be made now: the computer is changing hands.
 let spadeNotNowToChange = "Files can change once the computer is yours or shared again"
 
-/// A bot's computer as its pages follow it (web's `use-bot-computer.ts`): read while one of them
-/// shows with the app in front, and again right after Take over or Hand back. The person's input
-/// goes in only on Spade's word from a read that went, with no change of hands on its way and the
-/// phone connected: never from a stale read.
-@MainActor @Observable final class SpadeComputerWatch {
-    let agent: String
-    private(set) var state: SpadeComputerState?
-    /// The last read failed: what Spade said may be out of date until one goes.
-    private(set) var stale = false
-    /// Take over or Hand back is on its way.
-    private(set) var pending = false
-    /// What Take over or Hand back met, for the page's alert.
-    var problem: String?
-    /// Bumps on every read that counts; a read started before a newer one landed is dropped.
-    @ObservationIgnored private var generation = 0
-    static let every: Duration = .seconds(3)
-
-    init(agent: String) { self.agent = agent }
-
-    func mayAct(_ model: ClientModel) -> Bool {
-        state?.mayAct == true && !stale && !pending && model.connection == "ready" && model.canOperate
-    }
-
-    /// Read now, then every few seconds until the page goes or the app leaves the front.
-    func follow(_ model: ClientModel) async {
-        while !Task.isCancelled {
-            await read(model)
-            do { try await Task.sleep(for: Self.every) } catch { return }
-        }
-    }
-
-    func read(_ model: ClientModel) async {
-        generation += 1
-        let asked = generation
-        let reply = await model.spadeComputerRead(agent)
-        guard asked == generation, !Task.isCancelled else { return }
-        if let computer = reply.computer { state = computer; stale = false } else { stale = true }
-    }
-
-    /// Take over (the bot pauses until handed back), or hand back.
-    func take(_ model: ClientModel, _ take: Bool) async {
-        pending = true
-        generation += 1
-        let reply = await model.spadeComputerTake(agent, take: take)
-        pending = false
-        if let computer = reply.computer {
-            generation += 1
-            state = computer
-            stale = false
-        } else if let problem = reply.problem {
-            self.problem = problem
-        }
-    }
-}
-
 /// Who has the computer, under what it shows (web's `drive-line.tsx`): the bot's face, moving,
 /// and "Writer is using the browser" with Take over while it drives; "You have the browser" with
 /// Hand back once the person took over; "Stopping Writer…" while its work ends. While neither
@@ -80,7 +25,8 @@ struct SpadeDriveLineView: View {
                         .lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Button(action == "hand-back" ? "Hand back" : "Take over") {
-                        Task { await watch.take(model, action != "hand-back") }
+                        let take = action != "hand-back"
+                        Task { await watch.take(epoch: model.connectionEpoch) { await model.spadeComputerTake(watch.agent, take: take) } }
                     }
                     .buttonStyle(.secondaryAction)
                     .frame(minHeight: AceDesign.Size.tap)
@@ -114,9 +60,15 @@ private struct FollowsComputer: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .task(id: "\(scene)-\(model.connection)") {
+            .task(id: "\(scene)-\(model.connection)-\(model.connectionEpoch)") {
+                // The app left the front or the connection changed: what Spade said before may be
+                // out of date, so no input goes in until a fresh read.
+                watch.forget()
                 guard scene == .active, model.connection == "ready" else { return }
-                await watch.follow(model)
+                await watch.follow(epoch: model.connectionEpoch) { await model.spadeComputerRead(watch.agent) }
+            }
+            .task(id: watch.readAt) {
+                if let stamp = watch.readAt { await watch.expire(stamp) }
             }
             .alert("That didn't go", isPresented: Binding(get: { watch.problem != nil }, set: { if !$0 { watch.problem = nil } })) {
                 Button("Close", role: .cancel) { watch.problem = nil }

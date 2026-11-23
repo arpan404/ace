@@ -1049,7 +1049,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
         size: text.length,
         text,
         unreadable: null,
-        revision: fakeFileRevision(text),
+        revision: this.computer.unrevised.has(path) ? null : fakeFileRevision(text),
       });
     }
     const prefix = path ? `${path}/` : "";

@@ -5,7 +5,7 @@
     {
       "connector": "github",
       "issuer": "https://github.com/login/oauth",
-      "client_id": "",
+      "client_id": "Ov23liivRskgyvx0N8aU",
       "grant": "device",
       "scopes": ["repo", "read:org", "read:user", "user:email", "gist", "notifications", "project"],
       "source": "https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow"
