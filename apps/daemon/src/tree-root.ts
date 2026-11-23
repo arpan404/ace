@@ -1,5 +1,4 @@
-import type { StatementSync } from "node:sqlite";
-import { ThreadId, ThreadTransitionView, type MachineCallOrigin, type Thread } from "@ace/protocol";
+import type { MachineCallOrigin, Thread, ThreadId } from "@ace/protocol";
 
 const maxWalkHops = 32;
 
@@ -40,113 +39,55 @@ export function remoteChildTreeRoot(
   return origin.rootThreadId ?? origin.threadId;
 }
 
-interface AncestorMeta {
-  host?: string | undefined;
-  treeRootId?: ThreadId | undefined;
-  delegatedBy?: ThreadId | undefined;
-  startedBy?: ThreadId | undefined;
-  delegatedFrom?: { threadId: ThreadId; rootThreadId?: ThreadId | undefined } | undefined;
+export interface DelegationEdgeReader {
+  get(child: string): { parentId: ThreadId } | undefined;
 }
+
+export type TreeRootAncestor = Pick<
+  Thread,
+  "id" | "host" | "treeRootId" | "delegatedBy" | "startedBy" | "delegatedFrom"
+>;
 
 /**
  * Lazily resolves `treeRootId` for stored threads written before the field existed (ADR 0170).
- * Reads only indexed PK lookups (`delegated_threads.child_id`, `threads.id`) on cache miss, never
- * a startup or full-table pass.
+ * Reads ancestors through the store's decoded thread lookup and the injected delegation journal,
+ * never scanning history or re-validating stored columns.
  */
 export class TreeRootResolver {
-  private readonly statement: (sql: string) => StatementSync;
-  private hasDelegatedTable = false;
-  constructor(statement: (sql: string) => StatementSync) {
-    this.statement = statement;
+  private readonly readThread: (id: ThreadId) => TreeRootAncestor | undefined;
+  private journal: DelegationEdgeReader | undefined;
+  constructor(
+    readThread: (id: ThreadId) => TreeRootAncestor | undefined,
+    journal?: DelegationEdgeReader,
+  ) {
+    this.readThread = readThread;
+    this.journal = journal;
+  }
+  bindJournal(journal: DelegationEdgeReader): void {
+    this.journal = journal;
   }
   resolve(thread: Thread): Thread {
     if (thread.treeRootId !== undefined || thread.host !== undefined) return thread;
-    if (thread.delegatedFrom !== undefined) {
-      const root = thread.delegatedFrom.rootThreadId ?? thread.delegatedFrom.threadId;
-      return root === thread.id ? thread : { ...thread, treeRootId: root };
-    }
     const root = this.findRoot(thread);
     return root !== undefined && root !== thread.id ? { ...thread, treeRootId: root } : thread;
   }
-  private findRoot(thread: Thread): ThreadId | undefined {
-    const seen = new Set<string>([thread.id]);
-    let currentId: ThreadId = thread.id;
-    let hint: Pick<AncestorMeta, "delegatedBy" | "startedBy"> = {
-      delegatedBy: thread.delegatedBy,
-      startedBy: thread.startedBy,
-    };
+  private findRoot(start: TreeRootAncestor): ThreadId | undefined {
+    const seen = new Set<string>([start.id]);
+    let current: TreeRootAncestor = start;
     for (let hop = 0; hop < maxWalkHops; hop++) {
-      const edge = this.delegationEdge(currentId);
-      let nextParent: ThreadId | undefined;
-      if (edge) {
-        if (edge.rootId !== currentId && !seen.has(edge.rootId)) {
-          const rootMeta = this.readMeta(edge.rootId);
-          if (!rootMeta) return edge.rootId;
-          if (rootMeta.host === undefined) {
-            if (rootMeta.treeRootId !== undefined) return rootMeta.treeRootId;
-            if (rootMeta.delegatedFrom !== undefined)
-              return rootMeta.delegatedFrom.rootThreadId ?? rootMeta.delegatedFrom.threadId;
-            if (rootMeta.delegatedBy === undefined && rootMeta.startedBy === undefined)
-              return edge.rootId;
-            seen.add(edge.rootId);
-            currentId = edge.rootId;
-            hint = rootMeta;
-            continue;
-          }
-          // Recorded root is a hidden host thread: stop directly below it.
-          if (edge.parentId === edge.rootId) return currentId === thread.id ? undefined : currentId;
-        }
-        nextParent = edge.parentId;
-      } else {
-        nextParent = hint.delegatedBy ?? hint.startedBy;
-      }
-      if (!nextParent || seen.has(nextParent))
-        return currentId === thread.id ? undefined : currentId;
-      const parentMeta = this.readMeta(nextParent);
-      if (!parentMeta) return nextParent;
-      if (parentMeta.host !== undefined) return currentId === thread.id ? undefined : currentId;
-      if (parentMeta.treeRootId !== undefined) return parentMeta.treeRootId;
-      if (parentMeta.delegatedFrom !== undefined)
-        return parentMeta.delegatedFrom.rootThreadId ?? parentMeta.delegatedFrom.threadId;
-      seen.add(nextParent);
-      currentId = nextParent;
-      hint = parentMeta;
+      if (current.treeRootId !== undefined) return current.treeRootId;
+      if (current.delegatedFrom !== undefined)
+        return current.delegatedFrom.rootThreadId ?? current.delegatedFrom.threadId;
+      const parentId =
+        this.journal?.get(current.id)?.parentId ?? current.delegatedBy ?? current.startedBy;
+      if (parentId === undefined || seen.has(parentId))
+        return current.id === start.id ? undefined : current.id;
+      const parent = this.readThread(parentId);
+      if (parent === undefined) return parentId;
+      if (parent.host !== undefined) return current.id === start.id ? undefined : current.id;
+      seen.add(parentId);
+      current = parent;
     }
-    return currentId === thread.id ? undefined : currentId;
-  }
-  private delegationEdge(childId: ThreadId): { parentId: ThreadId; rootId: ThreadId } | undefined {
-    if (!this.hasDelegatedTable) {
-      const exists = this.statement(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'delegated_threads'",
-      ).get();
-      if (!exists) return undefined;
-      this.hasDelegatedTable = true;
-    }
-    const row = this.statement(
-      "SELECT parent_id, root_id FROM delegated_threads WHERE child_id = ?",
-    ).get(childId);
-    if (!row || typeof row.parent_id !== "string" || typeof row.root_id !== "string")
-      return undefined;
-    const parentId = ThreadId.safeParse(row.parent_id);
-    const rootId = ThreadId.safeParse(row.root_id);
-    if (!parentId.success || !rootId.success) return undefined;
-    return { parentId: parentId.data, rootId: rootId.data };
-  }
-  private readMeta(id: ThreadId): AncestorMeta | undefined {
-    const row = this.statement(
-      "SELECT json_extract(client, '$.host') AS host, transitions FROM threads WHERE id = ?",
-    ).get(id);
-    if (!row) return undefined;
-    const host = typeof row.host === "string" ? row.host : undefined;
-    if (row.transitions == null) return { host };
-    let parsed: ReturnType<typeof ThreadTransitionView.safeParse>;
-    try {
-      parsed = ThreadTransitionView.safeParse(JSON.parse(String(row.transitions)));
-    } catch {
-      return { host };
-    }
-    if (!parsed.success) return { host };
-    const { treeRootId, delegatedBy, startedBy, delegatedFrom } = parsed.data;
-    return { host, treeRootId, delegatedBy, startedBy, delegatedFrom };
+    return current.id === start.id ? undefined : current.id;
   }
 }

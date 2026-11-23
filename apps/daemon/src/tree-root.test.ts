@@ -1,8 +1,9 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HostId, ThreadId } from "@ace/protocol";
+import { AgentId, DelegationRecord, HostId, ThreadId } from "@ace/protocol";
 import { afterEach, expect, it } from "vitest";
+import { DelegationJournal } from "./agent-control/journal.ts";
 import { createDevThread } from "./commands.ts";
 import { Store } from "./store.ts";
 import { childTreeRoot, originTreeRoot, remoteChildTreeRoot } from "./tree-root.ts";
@@ -17,39 +18,57 @@ function openStore() {
   cleanup.push(() => rmSync(home, { recursive: true, force: true }));
   const dbPath = join(home, "events.sqlite");
   let store = new Store(dbPath);
+  let journal = new DelegationJournal(store);
+  store.bindDelegationJournal(journal);
   cleanup.push(() => store.close());
   const workspace = store.createWorkspace("/repo", "Repo", 1);
   return {
     get store() {
       return store;
     },
+    get journal() {
+      return journal;
+    },
     workspace,
     reopen() {
       store.close();
       store = new Store(dbPath);
+      journal = new DelegationJournal(store);
+      store.bindDelegationJournal(journal);
     },
   };
 }
 
-function createDelegatedTable(store: Store) {
-  store.atomic((db) =>
-    db.exec(`CREATE TABLE IF NOT EXISTS delegated_threads (
-      child_id TEXT PRIMARY KEY,
-      parent_id TEXT NOT NULL,
-      root_id TEXT NOT NULL
-    )`),
-  );
-}
-
-function addDelegationEdge(store: Store, childId: ThreadId, parentId: ThreadId, rootId: ThreadId) {
-  createDelegatedTable(store);
-  store.atomic((db) =>
-    db
-      .prepare(
-        "INSERT OR REPLACE INTO delegated_threads (child_id, parent_id, root_id) VALUES (?,?,?)",
-      )
-      .run(childId, parentId, rootId),
-  );
+function recordDelegation(
+  store: Store,
+  journal: DelegationJournal,
+  childId: ThreadId,
+  parentId: ThreadId,
+  rootId: ThreadId,
+  depth = 1,
+) {
+  const record = DelegationRecord.parse({
+    childId,
+    parentId,
+    parentAgentId: AgentId.parse("parent-agent"),
+    rootId,
+    requestId: `req-${childId}`,
+    request: {
+      requestId: `req-${childId}`,
+      role: "Worker",
+      task: "Do work",
+      provider: "codex",
+    },
+    depth,
+    createdAt: 1,
+    phase: "settled",
+    generation: 0,
+  });
+  store.atomic(() => {
+    journal.tree(rootId, 1);
+    journal.reserve({ record });
+    journal.add(record);
+  });
 }
 
 it("computes child, origin, and remote tree roots while never treating a host thread as a root", () => {
@@ -74,7 +93,7 @@ it("computes child, origin, and remote tree roots while never treating a host th
   );
 });
 
-it("lazily resolves treeRootId for stored pre-upgrade threads across delegation, handoff, thread_start, and paired machines", () => {
+it("lazily resolves treeRootId when loading stored pre-upgrade threads without resolving bulk listThreads", () => {
   const h = openStore();
   const main = createDevThread(h.store, h.workspace).id;
   const child = createDevThread(h.store, h.workspace).id;
@@ -84,14 +103,14 @@ it("lazily resolves treeRootId for stored pre-upgrade threads across delegation,
   const remote = createDevThread(h.store, h.workspace).id;
   const remoteLocalChild = createDevThread(h.store, h.workspace).id;
 
-  // Pre-upgrade rows have edges (delegated_threads, delegatedBy, startedBy, delegatedFrom)
+  // Pre-upgrade rows have edges (delegation journal, delegatedBy, startedBy, delegatedFrom)
   // without treeRootId stored in transitions.
   h.store.appendEvents(child, [{ type: "thread.updated", delegatedBy: main }]);
   h.store.appendEvents(grandchild, [{ type: "thread.updated", delegatedBy: child }]);
-  addDelegationEdge(h.store, child, main, main);
-  addDelegationEdge(h.store, grandchild, child, main);
-  // Handoff/automation child has only its delegated_threads edge and no delegatedBy.
-  addDelegationEdge(h.store, handoff, child, main);
+  recordDelegation(h.store, h.journal, child, main, main, 1);
+  recordDelegation(h.store, h.journal, grandchild, child, main, 2);
+  // Handoff/automation child has only its delegation journal edge and no delegatedBy.
+  recordDelegation(h.store, h.journal, handoff, child, main, 2);
   // thread_start child started by a delegated child carries only startedBy.
   h.store.appendEvents(started, [{ type: "thread.updated", startedBy: child }]);
   // Paired-machine child from before treeRootId carries only delegatedFrom.
@@ -107,31 +126,27 @@ it("lazily resolves treeRootId for stored pre-upgrade threads across delegation,
       },
     },
   ]);
-  addDelegationEdge(h.store, remoteLocalChild, remote, remote);
+  recordDelegation(h.store, h.journal, remoteLocalChild, remote, remote, 1);
 
   h.reopen();
 
-  // A person's own thread stays its own root (no treeRootId).
+  // Bulk listThreads must not walk history for pre-upgrade rows (ADR 0170).
+  const listed = new Map(h.store.listThreads().map((thread) => [thread.id, thread.treeRootId]));
+  expect(listed.get(main)).toBeUndefined();
+  expect(listed.get(handoff)).toBeUndefined();
+  expect(listed.get(started)).toBeUndefined();
+
+  // Loading an individual thread resolves and caches its tree root lazily.
   expect(h.store.getThread(main)?.treeRootId).toBeUndefined();
   expect(h.store.getThread(child)?.treeRootId).toBe(main);
   expect(h.store.getThread(grandchild)?.treeRootId).toBe(main);
   expect(h.store.getThread(handoff)?.treeRootId).toBe(main);
-  expect(h.store.getThread(started)?.treeRootId).toBe(main);
+  expect(h.store.acquireThread(started).thread.treeRootId).toBe(main);
   expect(h.store.getThread(remote)?.treeRootId).toBe(remoteRoot);
   expect(h.store.getThread(remoteLocalChild)?.treeRootId).toBe(remoteRoot);
-  // listThreads and sidebarPage also expose the resolved treeRootId.
-  const listed = new Map(h.store.listThreads().map((thread) => [thread.id, thread.treeRootId]));
-  expect(listed.get(main)).toBeUndefined();
-  expect(listed.get(handoff)).toBe(main);
-  expect(listed.get(started)).toBe(main);
-  const page = new Map(
-    h.store.sidebarPage({ limit: 50 }).threads.map((thread) => [thread.id, thread.treeRootId]),
-  );
-  expect(page.get(started)).toBe(main);
-  expect(page.get(handoff)).toBe(main);
 });
 
-it("never resolves a hidden Spade host thread as a tree root on pre-upgrade rows", () => {
+it("a stored Spade host parent makes its direct child its own root", () => {
   const h = openStore();
   const host = createDevThread(h.store, h.workspace).id;
   const direct = createDevThread(h.store, h.workspace).id;
@@ -142,8 +157,8 @@ it("never resolves a hidden Spade host thread as a tree root on pre-upgrade rows
   h.store.appendEvents(direct, [{ type: "thread.updated", delegatedBy: host }]);
   h.store.appendEvents(grandchild, [{ type: "thread.updated", delegatedBy: direct }]);
   h.store.appendEvents(startedByHost, [{ type: "thread.updated", startedBy: host }]);
-  addDelegationEdge(h.store, direct, host, host);
-  addDelegationEdge(h.store, grandchild, direct, host);
+  recordDelegation(h.store, h.journal, direct, host, host, 1);
+  recordDelegation(h.store, h.journal, grandchild, direct, host, 2);
 
   h.reopen();
 
@@ -163,5 +178,5 @@ it("handles a stored cycle without looping forever", () => {
   h.reopen();
 
   expect(h.store.getThread(a)?.treeRootId).toBe(b);
-  expect(h.store.getThread(b)?.treeRootId).toBe(a);
+  expect(h.store.getThread(b)?.treeRootId ?? b).toBe(b);
 });

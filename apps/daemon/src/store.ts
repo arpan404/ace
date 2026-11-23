@@ -8,8 +8,9 @@ import { LongThreadQueries } from "./long-thread/queries.ts";
 import { SidebarReads } from "./sidebar-reads.ts";
 import { CommandReceipts } from "./command-receipts.ts";
 import { EventWriter } from "./event-writer.ts";
-import { threadRowColumns, threadRowSource } from "./thread-row.ts";
+import { decodeThreadRow, threadRowColumns, threadRowSource } from "./thread-row.ts";
 import { createStoreThreadCache, type FrozenThread, type ThreadCache } from "./thread-cache.ts";
+import type { DelegationEdgeReader } from "./tree-root.ts";
 import { StreamSequences } from "./stream-sequences.ts";
 import { BoundedEvents } from "./bounded-events.ts";
 import { rolledBack, type LineageFile } from "./sequence-lineage.ts";
@@ -172,6 +173,7 @@ export class Store {
   /** A read-only snapshot opened outside any write sees committed data only. */
   private committedSnapshot = false;
   private readonly threads: ThreadCache;
+  private readonly bindTreeRoots: (journal: DelegationEdgeReader) => void;
   private readonly receipts: CommandReceipts;
   private readonly eventWriter: EventWriter;
   private publications: Event[][] = [];
@@ -205,10 +207,12 @@ export class Store {
       inTransaction: () => this.transactionEvents !== undefined || this.db.isTransaction,
       generationChanged: () => this.threadReads.invalidateViews(),
     });
-    this.threads = createStoreThreadCache(
+    const threadCache = createStoreThreadCache(
       (sql) => this.statement(sql),
       () => !this.db.isTransaction || this.committedSnapshot,
     );
+    this.threads = threadCache.threads;
+    this.bindTreeRoots = threadCache.bindDelegationJournal;
     this.sidebarReads = new SidebarReads({
       statement: (sql) => this.statement(sql),
       snapshot: (read) => this.sidebarSnapshot(read),
@@ -999,7 +1003,11 @@ export class Store {
     const row = this.statement(
       `SELECT ${threadRowColumns} FROM ${threadRowSource} WHERE json_extract(imported,'$.sourceId')=?`,
     ).get(sourceId);
-    return row ? this.threads.decodeCopy(row) : undefined;
+    return row ? decodeThreadRow(row) : undefined;
+  }
+  bindDelegationJournal(journal: DelegationEdgeReader): void {
+    this.bindTreeRoots(journal);
+    this.sidebarReads.invalidate();
   }
   createWorkspace(path: string, name: string, at = this.now()): WorkspaceId {
     return this.atomic(() => {
@@ -1163,7 +1171,7 @@ export class Store {
       `SELECT ${threadRowColumns} FROM ${threadRowSource} ORDER BY updated_at DESC, threads.id`,
     )
       .all()
-      .map((row) => this.threads.decodeCopy(row));
+      .map(decodeThreadRow);
   }
   appendEvents(threadId: ThreadId, payloads: EventPayload[], at = this.now()): Event[] {
     return this.writeEvents(() => this.eventWriter.append(threadId, payloads, at));

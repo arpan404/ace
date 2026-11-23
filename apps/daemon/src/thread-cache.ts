@@ -2,7 +2,7 @@ import type { SQLOutputValue, StatementSync } from "node:sqlite";
 import type { Thread } from "@ace/protocol";
 import { BoundedCache } from "@ace/provider-kit/bounded-cache";
 import { decodeThreadRow, threadRowColumns, threadRowSource } from "./thread-row.ts";
-import { TreeRootResolver } from "./tree-root.ts";
+import { TreeRootResolver, type DelegationEdgeReader } from "./tree-root.ts";
 
 export type FrozenThread = DeepReadonly<Thread>;
 type DeepReadonly<T> = T extends string | number | boolean | bigint | symbol | null | undefined
@@ -28,7 +28,7 @@ interface ThreadCacheSource {
   row(id: string): Record<string, SQLOutputValue> | undefined;
   /** True when this connection is reading committed data only, outside any write. */
   committed(): boolean;
-  /** Optional post-decode enrichment (e.g. lazy treeRootId resolution). */
+  /** Optional post-decode enrichment on cache miss (e.g. lazy treeRootId resolution). */
   enrich?(thread: Thread): Thread;
 }
 
@@ -54,6 +54,10 @@ export class ThreadCache {
     this.source = source;
     this.entries = new BoundedCache(maxEntries, maxBytes);
   }
+  /** Drop committed entries when enrichment sources change (e.g. journal bound at startup). */
+  clear(): void {
+    this.entries.clear();
+  }
   /** The store began its own write transaction; nothing else is open on the connection. */
   begin(): void {
     this.pending = new Map();
@@ -74,6 +78,18 @@ export class ThreadCache {
   /** Shared and deeply frozen; callers that need to change it use `getThread`'s copy. */
   read(id: string): FrozenThread | undefined {
     return this.lookup(id);
+  }
+  /** Read a thread's stored fields without re-entering enrichment; reuses any cached entry. */
+  peek(id: string): FrozenThread | undefined {
+    const revision = this.source.revision(id);
+    if (revision !== undefined) {
+      const hit = this.entries.get(id);
+      if (hit?.revision === revision) return hit.thread;
+      const pending = this.pending?.get(id);
+      if (pending?.revision === revision) return pending.thread;
+    }
+    const row = this.source.row(id);
+    return row ? decodeThreadRow(row) : undefined;
   }
   /** The caller's own mutable copy. */
   copy(id: string): Thread | undefined {
@@ -109,7 +125,12 @@ export class ThreadCache {
     written: Record<string, SQLOutputValue>,
   ): void {
     const before = this.pending?.get(id) ?? this.entries.get(id);
-    if (before) this.keep(id, revision, thread, { ...before.weights, ...weigh(written) });
+    if (!before) return;
+    const kept =
+      thread.treeRootId === undefined && before.thread.treeRootId !== undefined
+        ? { ...thread, treeRootId: before.thread.treeRootId }
+        : thread;
+    this.keep(id, revision, kept, { ...before.weights, ...weigh(written) });
   }
   /** As `remember`, for a thread the writer just created: `row` is every column it wrote. */
   rememberCreated(
@@ -122,10 +143,9 @@ export class ThreadCache {
   }
   private keep(id: string, revision: number, thread: Thread, weights: Record<string, number>) {
     if (!this.pending || this.pending.size >= 64) return;
-    const enriched = this.source.enrich ? this.source.enrich(thread) : thread;
     this.pending.set(id, {
       revision,
-      thread: deepFreeze(enriched),
+      thread: deepFreeze(thread),
       weights,
       bytes: total(weights),
     });
@@ -133,11 +153,6 @@ export class ThreadCache {
   /** Decode a row read together with its revision, reusing the cached copy for that revision. */
   decode(row: Record<string, SQLOutputValue>, revision: SQLOutputValue | undefined): FrozenThread {
     return this.decodeRow(row, revision);
-  }
-  /** Decode a row into a fresh mutable Thread without caching, applying any enrichment. */
-  decodeCopy(row: Record<string, SQLOutputValue>): Thread {
-    const decoded = decodeThreadRow(row);
-    return this.source.enrich ? this.source.enrich(decoded) : decoded;
   }
   private lookup(id: string): Thread | undefined {
     const revision = this.source.revision(id);
@@ -207,9 +222,8 @@ function total(weights: Readonly<Record<string, number>>): number {
 export function createStoreThreadCache(
   statement: (sql: string) => StatementSync,
   committed: () => boolean,
-): ThreadCache {
-  const treeRoots = new TreeRootResolver(statement);
-  return new ThreadCache({
+): { threads: ThreadCache; bindDelegationJournal(journal: DelegationEdgeReader): void } {
+  const threads = new ThreadCache({
     revision: (id) => {
       const value = statement(
         "SELECT revision FROM sidebar_thread_revisions WHERE thread_id = ?",
@@ -223,4 +237,12 @@ export function createStoreThreadCache(
     committed,
     enrich: (thread) => treeRoots.resolve(thread),
   });
+  const treeRoots = new TreeRootResolver((id) => threads.peek(id));
+  return {
+    threads,
+    bindDelegationJournal(journal) {
+      treeRoots.bindJournal(journal);
+      threads.clear();
+    },
+  };
 }
