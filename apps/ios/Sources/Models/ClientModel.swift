@@ -18,7 +18,7 @@ import QuartzCore
     /// Whether `metadata` came from this visit. A reopened thread keeps its last metadata for
     /// the title, but not its word on status until the current snapshot arrives.
     var metadataCurrent = false
-    var items: [String: ItemModel] = [:]
+    let items = TranscriptItems<ItemModel>()
     var order: [String] = []
     var interactions: [String: ApprovalRow] = [:]
     /// The browser-help request whose card last opened the browser (`BrowserHelpPick`).
@@ -50,13 +50,17 @@ import QuartzCore
     func reorder() {
         order = positions.keys.filter { items[$0] != nil }.sorted { (positions[$0] ?? 0) < (positions[$1] ?? 0) }
     }
-    /// Places new items, each already positioned. Items that all land after the last one shown,
-    /// as streaming adds them, join the end without sorting the rest; anything else reorders.
+    /// Pages and streams usually add at an edge. Sort only the new items in that case.
     func place(_ added: [String]) {
         let landed = added.compactMap { id in positions[id].map { (id, $0) } }.sorted { $0.1 < $1.1 }
-        let last = order.last.flatMap { positions[$0] } ?? Int.min
-        if let first = landed.first, first.1 <= last { reorder(); return }
-        order.append(contentsOf: landed.map(\.0))
+        guard let first = landed.first, let last = landed.last else { return }
+        if order.last.flatMap({ positions[$0] }).map({ $0 < first.1 }) ?? order.isEmpty {
+            order.append(contentsOf: landed.map(\.0))
+        } else if let start = order.first.flatMap({ positions[$0] }), last.1 < start {
+            order.insert(contentsOf: landed.map(\.0), at: 0)
+        } else {
+            reorder()
+        }
     }
 }
 
@@ -499,6 +503,16 @@ import QuartzCore
     /// nil when one was made against text other than the row it will show, held frames included.
     /// An edit without a row keeps every other field of the row it edits.
     private func resolveTextEdits(_ patches: [BridgePatch]) -> [BridgePatch]? {
+        // Only text edits can reject a frame. Holding a rollback copy for a page of full
+        // rows makes each batch insertion copy the rows accumulated in earlier frames.
+        let hasTextEdits = patches.contains { patch in
+            if case .itemText = patch { return true }
+            return false
+        }
+        if !hasTextEdits {
+            for patch in patches { batch.note(patch) }
+            return patches
+        }
         let mark = batch.mark()
         var resolved: [BridgePatch] = []
         resolved.reserveCapacity(patches.count)
@@ -726,7 +740,7 @@ import QuartzCore
                 }
                 guard let target = scoped(id, epoch) else { continue }
                 moving(target)
-                target.items.removeAll(keepingCapacity: true)
+                target.items.removeAll()
                 target.positions.removeAll(keepingCapacity: true)
                 target.order = []
                 target.interactions = [:]
@@ -755,7 +769,7 @@ import QuartzCore
                 guard let target = scoped(id, epoch) else { continue }
                 moving(target)
                 target.beginSnapshot(revision: revision, warm: true, before: before)
-                target.items.removeAll(keepingCapacity: true)
+                target.items.removeAll()
                 target.positions.removeAll(keepingCapacity: true)
                 target.order = []
                 target.interactions = [:]
@@ -771,8 +785,10 @@ import QuartzCore
                 guard let target = scoped(id, epoch) else { continue }
                 let live = target !== reading
                 if let row {
-                    if let item = target.items[itemId] { item.row = row; if live { streamedUpdates += 1 } }
-                    else {
+                    if let item = target.items[itemId] {
+                        if live || item.row != row { item.row = row }
+                        if live { streamedUpdates += 1 }
+                    } else {
                         moving(target)
                         target.items[itemId] = ItemModel(row)
                         if let index = row.index { target.positions[itemId] = index }
@@ -788,7 +804,7 @@ import QuartzCore
                     // Only a row this model holds can leave it.
                     guard target.items[itemId] != nil else { break }
                     moving(target)
-                    target.items.removeValue(forKey: itemId); target.positions.removeValue(forKey: itemId)
+                    target.items[itemId] = nil; target.positions.removeValue(forKey: itemId)
                     target.noteRemoval(id: itemId, seq: removal?.seq, reason: removal?.reason)
                     if live { reorder = true } else { readingReorder = true }
                 }

@@ -162,6 +162,13 @@ export class ThreadHost {
         payload.item.synthetic !== true)
     )
       this.workSeq = event.seq;
+    // Keep sequences in the same admission order as the projection, including
+    // an update that introduces a new item and a recreation after deletion.
+    if (
+      (payload.type === "item.created" || payload.type === "item.updated") &&
+      !Object.hasOwn(this.view.items, payload.item.id)
+    )
+      this.creation.set(payload.item.id, event.seq);
     applyDelivery(this.view, {
       type: "events",
       subscriptionId: "host",
@@ -169,7 +176,6 @@ export class ThreadHost {
       throughSeq: event.seq,
       events: [event],
     });
-    if (event.payload.type === "item.created") this.creation.set(event.payload.item.id, event.seq);
   }
   interaction(key: Key): Interaction | undefined {
     return Object.hasOwn(this.state.interactions, key) ? this.state.interactions[key] : undefined;

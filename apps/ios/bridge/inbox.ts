@@ -243,7 +243,7 @@ export function followInbox(
       // Only the daemon's own copy has a Settled section, so only it carries the daemon's total.
       // Chats are the Chats tab's (ADR 0099); Threads leaves them out, as the web's panel does.
       const projects = chats ? threads.filter((thread) => !isChatThread(thread)) : threads;
-      return inboxLayout(
+      const layout = inboxLayout(
         projects,
         unsent,
         now,
@@ -255,6 +255,12 @@ export function followInbox(
           attention: store.unconfirmed === true ? undefined : store.homeWindow?.attention,
         },
       );
+      // Thread ranks end in the machine and row ID. Both are already in the layout.
+      for (const section of layout.sections) {
+        if (section.key === "unsent") continue;
+        section.ranks = section.ranks.map((rank) => rank.slice(0, rank.indexOf("\u0000")));
+      }
+      return { ...layout, rankMachine: machineId };
     });
   };
   let chatQuery = "";
