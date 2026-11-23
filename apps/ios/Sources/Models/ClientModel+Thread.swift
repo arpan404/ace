@@ -13,10 +13,21 @@ extension ClientModel {
         // Code notes from the editor ride like quotes: a message of only notes can go.
         let quoted = !thread.screen.quotes.isEmpty || !codeNotes[thread.id].isEmpty
         guard !thread.screen.attachments.isEmpty || !thread.screen.annotations.isEmpty || quoted || sheets.chip != nil || words else { return false }
+        // The bridge takes no longer message: refused here, before any part of it goes.
+        guard text.utf16.count <= Self.messageLimit else {
+            error = Self.tooLongToSend
+            return false
+        }
+        // The notes leave this phone's disk before anything is dispatched, review comments too:
+        // a send that can't keep them in step sends nothing.
+        guard case .success(let flight) = takeCodeNotes(thread.id) else { return false }
         // Line comments on the chip go first, as the review's own message quoting file:line; the
         // words then steer into that turn or queue behind it.
         if sheets.chip != nil, thread.screen.controls?.continues != true {
-            guard await sendComments() else { return false }
+            guard await sendComments() else {
+                settleCodeNotes(flight, .refused)
+                return false
+            }
             if !words, !quoted, thread.screen.attachments.isEmpty, thread.screen.annotations.isEmpty { return true }
         }
         let id = admissions.nextId()
@@ -27,7 +38,7 @@ extension ClientModel {
         if let reply { action["reply"] = reply.payload }
         if !references.isEmpty { action["references"] = references }
         // The notes the bridge holds ride along; the answer names those it carried.
-        return await sendingCodeNotes(thread.id) {
+        let outcome = await { () async -> SendOutcome in
             defer { carriedNotes[id] = nil }
             guard continues else {
                 switch await admissions.outcome(id: id, dispatch: { threadAction(action) }) {
@@ -41,8 +52,13 @@ extension ClientModel {
             error = refused
             // The connection closed before the machine answered: it may have started the thread.
             return refused == CommandReceipts.closed ? .unknown : .refused
-        }
+        }()
+        settleCodeNotes(flight, outcome)
+        return outcome.saved
     }
+    /// The longest message the bridge takes, in UTF-16 units (`ThreadAction` in the bridge).
+    static let messageLimit = 100_000
+    static let tooLongToSend = "This message is too long to send. Shorten it to \(messageLimit.formatted()) characters."
     /// Stop the whole agent tree of the turn on screen.
     func stopTree() {
         guard canOperate, let thread, thread.screen.controls?.canStop == true, !thread.screen.stopping else { return }

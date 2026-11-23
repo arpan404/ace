@@ -6,7 +6,8 @@ import Foundation
 /// told about (a note made, its words changed, one removed, a message that took some) is written
 /// at once (`save`); a burst of moves while typing is written once, `delay` after its first
 /// (`changed`). A write that fails is kept and tried again, waiting twice as long each time up
-/// to `retryCap`, so a later success writes the newest notes.
+/// to `retryCap`, so a later success writes the newest notes. A write still waiting keeps the
+/// store alive until it lands, even once its account or machine is no longer loaded.
 @MainActor final class CodeNotesKept {
     private let file: DraftFile<CodeNotes>
     private let delay: Duration
@@ -64,11 +65,12 @@ import Foundation
 
     private func schedule(after wait: Duration) {
         guard saving == nil else { return }
-        saving = Task { [weak self] in
+        // Held strongly: what waits must reach the disk, even after the store was let go.
+        saving = Task { [self] in
             try? await Task.sleep(for: wait)
-            guard !Task.isCancelled, let self else { return }
-            self.saving = nil
-            self.flush()
+            guard !Task.isCancelled else { return }
+            saving = nil
+            flush()
         }
     }
 }

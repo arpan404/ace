@@ -118,3 +118,13 @@ test("a /goal is saved without the notes, and its admission names none, so they 
   expect(commands("thread.goal.set")).toHaveLength(1);
   expect(latest("thread.codeSent")).toBeUndefined();
 });
+
+test("a message too long to take is refused by its own request, so the phone gives its notes back", async () => {
+  const session = await thread();
+  session.handle({ type: "code.set", notes: [note("a", 1, "a.ts", [0, 0], "Why?", "x")] });
+  session.handle({ type: "send", text: "x".repeat(100_001), opposite: false, requestId: "long" });
+  await until(() => latest("admission", "long"), "the refusal");
+  expect(latest("admission", "long")).toMatchObject({ ok: false });
+  expect(String(latest("admission", "long")?.message)).toContain("too long");
+  expect(commands("thread.send")).toHaveLength(0);
+});

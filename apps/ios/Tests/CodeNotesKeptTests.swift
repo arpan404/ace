@@ -238,6 +238,48 @@ import Testing
         #expect(model.codeNotes["t"].count == CodeNotes.limit)
     }
 
+    @Test func aMessageTooLongToSendIsRefusedBeforeAnythingGoesAndKeepsItsNotes() async {
+        let root = directory()
+        let (model, _) = noted(root, ["Stays"])
+        model.open("t")
+        let saved = await model.sendMessage(String(repeating: "a", count: ClientModel.messageLimit + 1), alternate: false)
+        #expect(!saved)
+        #expect(model.error == ClientModel.tooLongToSend)
+        #expect(model.codeNotes["t"].map(\.comment) == ["Stays"])
+        #expect(kept(root) == ["Stays"])
+    }
+
+    @Test func notesThatCantLeaveTheDiskStopTheSendBeforeTheReviewCommentsGo() async throws {
+        let root = directory()
+        let (model, _) = noted(root, ["Stays"])
+        model.open("t")
+        // Review comments wait on the chip; were they sent first, the send would stop on them.
+        model.sheets.chip = CommentChipRow(count: 1, label: "1 comment", path: "a.ts")
+        model.codeNotesKept = CodeNotesKept(url: root.appendingPathComponent("notes.json"), delay: .seconds(60))
+        try FileManager.default.removeItem(at: root)
+        try Data().write(to: root)
+        #expect(!(await model.sendMessage("Fix these", alternate: false)))
+        #expect(model.error == CodeNoteRefusal.notSent.message)
+        #expect(model.codeNotes["t"].map(\.comment) == ["Stays"])
+    }
+
+    @Test func aStoreLetGoWithAWriteStillPendingWritesItOnceItCan() async throws {
+        let root = directory()
+        let url = root.appendingPathComponent("notes.json")
+        var notes = CodeNotes()
+        notes.add("t", path: "a.ts", first: 1, texts: ["x"], comment: "Rolled back", id: "n")
+        var store: CodeNotesKept? = CodeNotesKept(url: url, delay: .milliseconds(10))
+        try FileManager.default.createDirectory(at: root.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: root)
+        #expect(store?.save(notes) == false)
+        // A switch of account let the store go; its rollback must still reach the disk.
+        store = nil
+        try FileManager.default.removeItem(at: root)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for _ in 0..<300 where !FileManager.default.fileExists(atPath: url.path) { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(CodeNotesKept(url: url).load()["t"].map(\.comment) == ["Rolled back"])
+    }
+
     @Test func theMachinesAnswerNamesTheNotesAMessageCarried() throws {
         let json = #"{"type":"admission","id":"7","ok":true,"message":"","notes":["a","b"]}"#
         guard case .admission(let id, let ok, _, let notes) = try JSONDecoder().decode(BridgePatch.self, from: Data(json.utf8)) else {

@@ -75,51 +75,62 @@ extension ClientModel {
         keepCodeNotes()
         sendCodeNotes(thread)
     }
-    /// A message on `thread` is sent by `send`, and carries the notes the bridge holds. They leave
-    /// this phone's disk first, or the message doesn't go: a relaunch must never bring back a note
-    /// the machine has. The machine's answer settles them: a saved message drops those it names
-    /// as carried and gives back the rest (a /goal or an answer to a question carries none); a
-    /// refusal gives them all back; an unknown outcome (the runtime went first) keeps them off, so
-    /// a note is never sent twice. They go back to the account and machine they came from, and
-    /// count toward its limit meanwhile. The bridge keeps the list it had until the answer.
+    /// A message on `thread` is sent by `send`, and carries the notes the bridge holds: taken
+    /// first (`takeCodeNotes`), settled by the answer (`settleCodeNotes`).
     func sendingCodeNotes(_ thread: String, _ send: () async -> SendOutcome) async -> Bool {
+        guard case .success(let flight) = takeCodeNotes(thread) else { return false }
+        let outcome = await send()
+        settleCodeNotes(flight, outcome)
+        return outcome.saved
+    }
+    /// The notes a message is about to carry leave this phone's disk, or the message mustn't go:
+    /// a relaunch must never bring back a note the machine has. Nil when there are none. They
+    /// count toward the thread's limit while the message is in flight, and the bridge keeps the
+    /// list it had until the answer.
+    func takeCodeNotes(_ thread: String) -> Result<CodeNotesFlight?, CodeNoteRefusal> {
         let taken = codeNotes[thread]
-        guard !taken.isEmpty else { return await send().saved }
-        let epoch = codeNotesEpoch
-        let store = codeNotesKept
+        guard !taken.isEmpty else { return .success(nil) }
         codeNotes.clear(thread)
         guard keepCodeNotes() else {
             codeNotes.putBack(thread, taken)
             // What waits to be written is the kept list again, never the cleared one.
             keepCodeNotes()
             error = CodeNoteRefusal.notSent.message
-            return false
+            return .failure(.notSent)
         }
         codeNotesInFlight[thread, default: 0] += taken.count
-        let outcome = await send()
+        return .success(CodeNotesFlight(thread: thread, taken: taken, epoch: codeNotesEpoch, store: codeNotesKept))
+    }
+    /// The machine's answer settles a message's notes: a saved message drops those it names as
+    /// carried and gives back the rest (a /goal or an answer to a question carries none); a
+    /// refusal gives them all back; an unknown outcome (the runtime went first) keeps them off,
+    /// so a note is never sent twice. They go back to the account and machine they came from.
+    func settleCodeNotes(_ flight: CodeNotesFlight?, _ outcome: SendOutcome) {
+        guard let flight else { return }
+        let thread = flight.thread
         let back: [CodeNote]
         switch outcome {
         case .saved(let carried):
             let gone = Set(carried)
-            back = taken.filter { !gone.contains($0.id) }
-        case .refused: back = taken
+            back = flight.taken.filter { !gone.contains($0.id) }
+        case .refused: back = flight.taken
         case .unknown: back = []
         }
-        if codeNotesEpoch == epoch {
-            let left = (codeNotesInFlight[thread] ?? 0) - taken.count
+        if codeNotesEpoch == flight.epoch {
+            let left = (codeNotesInFlight[thread] ?? 0) - flight.taken.count
             codeNotesInFlight[thread] = left > 0 ? left : nil
             if !back.isEmpty {
                 codeNotes.putBack(thread, back)
                 keepCodeNotes()
             }
             sendCodeNotes(thread)
-        } else if !back.isEmpty, let store {
-            // Another principal's notes are loaded now: these go back to their own.
+        } else if !back.isEmpty, let store = flight.store {
+            // Another principal's notes are loaded now: these go back to their own. A write
+            // that fails keeps that store alive until it succeeds (`CodeNotesKept`).
             var kept = store.load()
             kept.putBack(thread, back)
             store.save(kept)
         }
-        return outcome.saved
     }
     /// Writes the notes now; false when they couldn't be (they're tried again). True when this
     /// connection keeps none (signed out).
@@ -196,6 +207,15 @@ enum CodeNoteRefusal: Error, Equatable {
         case .notSent: "Couldn't update the code notes on this phone, so the message wasn't sent. Try again."
         }
     }
+}
+
+/// The notes one message took, and where they came from.
+struct CodeNotesFlight {
+    let thread: String
+    let taken: [CodeNote]
+    /// The principal's notes loaded when they were taken (`ClientModel.codeNotesEpoch`).
+    let epoch: Int
+    let store: CodeNotesKept?
 }
 
 /// What became of a message that may carry code notes (`ClientModel.sendingCodeNotes`).
