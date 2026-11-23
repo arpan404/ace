@@ -12,10 +12,18 @@ afterEach(async () => {
 });
 
 /** A browser service that records the commands it ran; `open` waits for `opened`. */
-function stubBrowser(name: string, opened: Promise<void> = Promise.resolve()) {
+function stubBrowser(
+  name: string,
+  opened: Promise<void> = Promise.resolve(),
+  claimed: () => void = () => {},
+) {
   const ran: string[] = [];
   const browser = {
     open: () => opened,
+    claimTab: async () => {
+      claimed();
+      return { tabId: "t1", url: "about:blank", title: "" };
+    },
     execute: async () => {
       ran.push(name);
       return { ok: true };
@@ -69,6 +77,22 @@ it("a browser replaced while a call opened it refuses the call instead of runnin
   current = second.browser;
   opening.resolve();
   const result = await pending;
+  expect(result.isError).toBe(true);
+  expect(text(result)).toContain("browser_restarted");
+  expect(first.ran).toEqual([]);
+  expect(second.ran).toEqual([]);
+});
+
+it("a browser replaced between a call's steps refuses the rest of the call", async () => {
+  const second = stubBrowser("second");
+  let current: BrowserService;
+  // browser_open claims its tab, then navigates: the browser is replaced in between.
+  const first = stubBrowser("first", Promise.resolve(), () => {
+    current = second.browser;
+  });
+  current = first.browser;
+  const call = await tools(() => current);
+  const result = await call("browser_open", { url: "https://example.com/" });
   expect(result.isError).toBe(true);
   expect(text(result)).toContain("browser_restarted");
   expect(first.ran).toEqual([]);
