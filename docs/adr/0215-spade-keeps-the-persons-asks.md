@@ -1,4 +1,4 @@
-# 0214: Spade keeps the person's asks, and checks them before a reply ends
+# 0215: Spade keeps the person's asks, and checks them before a reply ends
 
 Status: accepted. Date: 2026-11-22. Decided by: the owner (2026-11-22: "our agents keep forgetting
 the things I told it previously", "the harness feels like making the agent weak in long horizon
