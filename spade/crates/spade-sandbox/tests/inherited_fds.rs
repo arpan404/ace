@@ -72,6 +72,7 @@ fn a_descriptor_left_open_in_the_parent_never_reaches_an_offline_or_read_only_ru
         toolchains: vec![],
         also_read: vec![],
         scratch: vec![],
+        runtime: vec![],
         proxy_port: None,
     });
     let read = runner

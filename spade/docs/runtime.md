@@ -59,11 +59,13 @@ The bot's workspace, its sandboxed shell and the services it owns.
 | `workspace_list` | `read` | 0.0.24 |
 | `workspace_read` | `read` | 0.0.24 |
 | `workspace_search` | `read` | 0.0.24 |
+| `workspace_find` | `read` | 0.0.24 |
 | `workspace_write` | `write_local` | 0.0.24 |
 | `workspace_edit` | `write_local` | 0.0.24 |
 | `document_read` | `read` | 0.0.24 |
 | `share_file` | `write_local` | 0.0.24 |
 | `shell` | `write_local` | 0.0.24 |
+| `python` | `write_local` | 0.0.24 |
 | `service_start` | `write_local` | 0.0.24 |
 | `service_status` | `read` | 0.0.24 |
 | `service_logs` | `read` | 0.0.24 |

@@ -25,7 +25,8 @@ pub struct Policy {
     pub deny: Vec<PathBuf>,
     /// The credential deny-list alone: closed again after [`Policy::reopen`], so nothing opens it.
     pub secrets: Vec<PathBuf>,
-    /// Read-only places inside ace's data opened after the deny-list: a plugin's own folder.
+    /// Read-only places opened after the deny-list: a plugin's own folder inside ace's data, and
+    /// Spade's own runtime folders inside its data (a bot's Python, ADR 0220).
     pub reopen: Vec<PathBuf>,
     /// Spade's own per-run folders, read-write after the deny-list like the workspace: a
     /// terminal's state files, which a command writes as it exits.
@@ -52,6 +53,9 @@ pub struct Facts {
     pub also_read: Vec<PathBuf>,
     /// Spade's own folders a run writes (inside Spade's data, never a credential place).
     pub scratch: Vec<PathBuf>,
+    /// Spade's own folders a run reads and runs programs from but never writes: a bot's Python
+    /// runtime (ADR 0220). Only places inside Spade's data, never a credential place.
+    pub runtime: Vec<PathBuf>,
     pub proxy_port: Option<u16>,
 }
 
@@ -99,6 +103,12 @@ impl Policy {
             .map(|p| real(p))
             .filter(|p| !secrets.iter().any(|s| p.starts_with(s)) && !p.starts_with(&spade_data))
             .collect();
+        // Spade's own runtime folders: only inside its data, never the data folder itself.
+        reopen.extend(facts.runtime.iter().map(|p| real(p)).filter(|p| {
+            p.starts_with(&spade_data)
+                && *p != spade_data
+                && !secrets.iter().any(|s| p.starts_with(s))
+        }));
         let mut scratch: Vec<PathBuf> = facts
             .scratch
             .iter()
@@ -198,6 +208,7 @@ mod tests {
             toolchains: vec![home.join(".cargo/bin")],
             also_read: vec![],
             scratch: vec![],
+            runtime: vec![],
             proxy_port: Some(9),
         }
     }
@@ -247,6 +258,23 @@ mod tests {
         assert_eq!(policy.reopen, vec![home.join(".ace/plugins/p1")]);
         assert!(policy.deny.contains(&home.join(".ace")));
         assert!(!policy.secrets.contains(&home.join(".ace")));
+    }
+
+    #[test]
+    fn a_runtime_folder_is_reopened_read_only_only_inside_spades_data() {
+        let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+        let mut facts = facts(dir.path());
+        let python = facts.spade_data.join("workspace/.python/bot1");
+        facts.runtime = vec![
+            python.clone(),
+            facts.spade_data.clone(),
+            facts.home.join("code/app"),
+            facts.home.join(".ssh/x"),
+        ];
+        let policy = Policy::build(&facts);
+        assert_eq!(policy.reopen, vec![real(&python)]);
+        assert!(!policy.write.contains(&real(&python)));
+        assert!(!policy.scratch.contains(&real(&python)));
     }
 
     #[test]

@@ -74,6 +74,13 @@ const tools: Record<string, ToolWords> = {
     doing: "Searching its files",
     done: "Searched its files",
   },
+  workspace_find: { base: "find files", doing: "Finding files", done: "Found files" },
+  // Python scripts it writes and runs (ADR 0220).
+  python: {
+    base: "run a Python script",
+    doing: "Running a Python script",
+    done: "Ran a Python script",
+  },
   workspace_write: { base: "write a file", doing: "Writing a file", done: "Wrote a file" },
   workspace_edit: { base: "change a file", doing: "Changing a file", done: "Changed a file" },
   // Bots it makes, and bots it adds to its clubs (ADR 0161).

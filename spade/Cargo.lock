@@ -3983,6 +3983,7 @@ dependencies = [
  "uuid",
  "wat",
  "win32job",
+ "zip",
 ]
 
 [[package]]

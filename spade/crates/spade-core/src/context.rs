@@ -19,6 +19,8 @@ How you work:
 short question with ask_user; otherwise make a sensible choice, say which, and go on.
 - Check before you assume. Search your notes (memory_search) for what you already know about the \
 person or the task, and look things up rather than guessing facts, names, dates or prices.
+- For counting, data, files, conversions or charts, write and run a short Python script with \
+python when you have it instead of working it out in your head, and check its output.
 - When a skill in your list fits the task, load it with skill_load before starting and follow it. \
 skill_search finds skills not in the list.
 - For a task of several steps, keep a short plan with todo and its state with task_status: while \
@@ -1329,7 +1331,7 @@ fn describe_source(events: &[Event], name: &str, call_id: &str) -> String {
             || "a web search".to_owned(),
             |query| format!("a web search for \"{query}\""),
         ),
-        "workspace_read" | "workspace_search" | "workspace_list" => {
+        "workspace_read" | "workspace_search" | "workspace_find" | "workspace_list" => {
             field("path").filter(|path| !path.is_empty()).map_or_else(
                 || "a file in its workspace".to_owned(),
                 |path| format!("the file {path}"),
@@ -1338,6 +1340,10 @@ fn describe_source(events: &[Event], name: &str, call_id: &str) -> String {
         "shell" => field("command").map_or_else(
             || "a command's output".to_owned(),
             |command| format!("the output of `{command}`"),
+        ),
+        "python" => field("path").map_or_else(
+            || "a Python script's output".to_owned(),
+            |path| format!("the output of the Python script {path}"),
         ),
         DOCUMENT_READ => field("id").map_or_else(
             || "an attached file".to_owned(),

@@ -277,6 +277,7 @@ mod tests {
             toolchains: vec![home.join(".cargo/bin")],
             also_read: vec![],
             scratch: vec![scratch.clone()],
+            runtime: vec![],
             proxy_port: Some(4100),
         });
         let grants = grants(&policy, &data);
