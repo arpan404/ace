@@ -69,6 +69,7 @@ fn a_second_compaction_only_cuts_after_the_first() {
         images_left_out: None,
         untrusted: false,
         carried: None,
+        asks: None,
     }));
     events.extend((10..12).flat_map(|n| turn(n, 50)));
     let second = plan(&events, 8_000, 10_000)
@@ -93,6 +94,7 @@ fn the_model_sees_the_summary_then_the_kept_turns_with_the_top_unchanged() {
         images_left_out: None,
         untrusted: false,
         carried: None,
+        asks: None,
     }));
     let after = context::prompt(context::SYSTEM, tools, &events);
 
@@ -372,6 +374,7 @@ fn right_after_a_compaction_the_old_prompt_size_does_not_compact_again() {
         images_left_out: None,
         untrusted: false,
         carried: None,
+        asks: None,
     }));
     assert_eq!(
         plan(&events, 8_000, 10_000),
@@ -585,6 +588,7 @@ fn compacted(keep_from: usize) -> Event {
         images_left_out: None,
         untrusted: false,
         carried: None,
+        asks: None,
     })
 }
 

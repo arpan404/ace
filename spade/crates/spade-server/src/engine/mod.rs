@@ -9,6 +9,7 @@ mod app_pages;
 mod app_pins;
 mod apps;
 mod archive;
+mod asks;
 mod autonomy;
 mod bots;
 mod brain;
@@ -195,6 +196,8 @@ struct Live {
     log: Mutex<turn_log::Log>,
     /// The bot's own words for its open reply: the line's headline or plan step (`said`).
     said: Mutex<said::Said>,
+    /// The person's asks as last read (ADR 0215), advanced over each step's new events.
+    asks: Mutex<Option<spade_core::asks::Ledger>>,
 }
 
 /// A conversation's events, shared without copying.
@@ -1140,6 +1143,7 @@ impl Engine {
                     hold: watch::channel(false).0,
                     log: Mutex::default(),
                     said: Mutex::default(),
+                    asks: Mutex::default(),
                 })
             })
             .clone()
