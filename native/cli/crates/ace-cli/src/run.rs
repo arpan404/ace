@@ -13,6 +13,7 @@ use cli_out::{
 };
 use cli_parse::{NounOnly, ParseResult, Parsed, Usage, parse};
 
+use crate::commands::machine;
 use crate::offline::{complete, home, run_completion, run_help, run_version};
 use crate::{completion, handover, help, help_json};
 
@@ -213,14 +214,14 @@ where
     if early_version(parsed) {
         return with_writers(make_out, make_err, |out, err| run_version(parsed, out, err));
     }
-    // An old spelling's notice or refusal belongs to the command it reaches; unported, it is
-    // the bundle's to print, once.
-    if parsed.alias.is_some() {
+    // An old spelling's notice or refusal belongs to the command it reaches; the machine
+    // group's own aliases run here, every other unported one is the bundle's to print, once.
+    if parsed.alias.is_some() && !machine::IDS.contains(&parsed.command.id) {
         return hand_over(os_args, &parsed.flags, make_out, make_err);
     }
     // Whoever runs it, the bundle decides what an unported command's missing arguments mean (a
     // person-only action refuses before it ever asks for one).
-    if !NATIVE_IDS.contains(&parsed.command.id) {
+    if !NATIVE_IDS.contains(&parsed.command.id) && !machine::IDS.contains(&parsed.command.id) {
         return hand_over(os_args, &parsed.flags, make_out, make_err);
     }
     if !parsed.missing.is_empty() {
@@ -260,6 +261,14 @@ where
                 return hand_over(os_args, &parsed.flags, make_out, make_err);
             }
             with_writers(make_out, make_err, |out, err| complete(&slot, out, err))
+        }
+        id if machine::IDS.contains(&id) => {
+            // A jq filter is compiled and run by jq itself, and a remote profile names another
+            // machine's daemon: the bundle owns both, so those hand over with no writer made.
+            if parsed.flags.has("jq") || parsed.flags.has("remote") {
+                return hand_over(os_args, &parsed.flags, make_out, make_err);
+            }
+            machine::dispatch(parsed, make_out, make_err)
         }
         _ => hand_over(os_args, &parsed.flags, make_out, make_err),
     }
