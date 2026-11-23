@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // The Rust `ace` CLI (ADR 0221): its own Cargo workspace, lockfile and pinned toolchain, with
@@ -22,11 +23,38 @@ if (!hasRustup)
   console.warn("check:cli: rustup not found, so running cargo from PATH, not the pinned toolchain");
 
 function cargo(args: string[]): void {
-  const env = { ...process.env, CARGO_BUILD_JOBS: process.env.CARGO_BUILD_JOBS ?? "4" };
-  // Clippy's lints change between releases: run the toolchain the workspace pins.
-  if (hasRustup)
+  // Clippy's lints change between releases: run the toolchain the workspace pins. Its bin dir
+  // goes first on PATH and its own cargo binary is preferred: `rustup run` resolves through
+  // PATH on some setups (Homebrew rustup), and cargo finds its subcommands (`cargo-clippy`,
+  // `cargo-fmt`) on PATH, so either can pick another toolchain's binaries and lints.
+  const bin = pinnedToolchainBin();
+  const env = {
+    ...process.env,
+    CARGO_BUILD_JOBS: process.env.CARGO_BUILD_JOBS ?? "4",
+    ...(bin === undefined ? {} : { PATH: `${bin}${delimiter}${process.env.PATH ?? ""}` }),
+  };
+  const command =
+    bin === undefined ? null : join(bin, `cargo${process.platform === "win32" ? ".exe" : ""}`);
+  if (command !== null && existsSync(command))
+    execFileSync(command, args, { cwd, env, stdio: "inherit" });
+  else if (hasRustup)
     execFileSync("rustup", ["run", pinned, "cargo", ...args], { cwd, env, stdio: "inherit" });
   else execFileSync("cargo", args, { cwd, env, stdio: "inherit" });
+}
+
+/** The pinned toolchain's bin dir when it is installed, else undefined. */
+function pinnedToolchainBin(): string | undefined {
+  try {
+    const home = process.env.RUSTUP_HOME ?? join(homedir(), ".rustup");
+    const toolchain = readdirSync(join(home, "toolchains")).find((name) =>
+      name.startsWith(`${pinned}-`),
+    );
+    const bin = toolchain === undefined ? undefined : join(home, "toolchains", toolchain, "bin");
+    if (bin !== undefined && existsSync(join(bin, "cargo"))) return bin;
+  } catch {
+    // No toolchain dir to read: fall through below.
+  }
+  return undefined;
 }
 
 execFileSync("bun", ["scripts/cli-table.ts", "--check"], { cwd: repo, stdio: "inherit" });
