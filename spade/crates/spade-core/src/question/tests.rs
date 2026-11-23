@@ -498,6 +498,7 @@ fn a_late_answer_after_a_compaction_cut_still_names_its_prompts() {
         images_left_out: None,
         untrusted: false,
         carried: None,
+        asks: None,
     }));
     events.push(k(Known::QuestionAnswered {
         call_id: "q1".into(),

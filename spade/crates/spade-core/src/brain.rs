@@ -102,6 +102,8 @@ pub fn next_turn(events: &[Event]) -> Option<Turn> {
     for event in &events[..since] {
         asking = still_asking(asking, event);
     }
+    // What the person typed while the turn ran reads as a steer (ADR 0215 §4).
+    let steers = crate::asks::steer::mid_turn(events, since);
     let parts: Vec<String> = events[since..]
         .iter()
         .enumerate()
@@ -117,6 +119,10 @@ pub fn next_turn(events: &[Event]) -> Option<Turn> {
                 // A late answer (ADR 0154) reaches the CLI as an endpoint model reads it.
                 Event::Known(known) if crate::question::is_late(known) => {
                     crate::question::late_text(events, known)
+                }
+                other if steers.contains(&(since + at)) => {
+                    turn_part(other, (since + at) as u64 + 1)
+                        .map(|text| crate::asks::steer::framed(&text))
                 }
                 other => turn_part(other, (since + at) as u64 + 1),
             }
@@ -146,7 +152,7 @@ pub fn next_turn(events: &[Event]) -> Option<Turn> {
 
 /// Whether a waiting `ask_user` question still takes the person's next typed message as its
 /// answer after `event`.
-fn still_asking(asking: bool, event: &Event) -> bool {
+pub(crate) fn still_asking(asking: bool, event: &Event) -> bool {
     match event {
         // An app's form is answered only on its card, never by a typed message.
         Event::Known(Known::QuestionAsked { call_id, .. }) => {
@@ -193,6 +199,8 @@ fn turn_part(event: &Event, seq: u64) -> Option<String> {
         }) => Some(context::job_result(job, name, content, *is_error)),
         // Spade carrying the bot's task on (ADR 0144) reaches a CLI turn the same way.
         Event::Known(Known::TaskContinued { nudge, .. }) => Some(nudge.clone()),
+        // The stop check's note (ADR 0215) too.
+        Event::Known(Known::AsksChecked(checked)) => Some(checked.note.clone()),
         // Spade's notes on the person's work at the bot's computer (ADR 0142, ADR 0143), with
         // their names as untrusted data, as an endpoint model reads them.
         Event::Known(Known::PersonActivity { text, data }) => {
@@ -431,7 +439,8 @@ mod tests {
 
         events.push(Event::user_message("And then?"));
         let second = next_turn(&events).ok_or("a second turn")?;
-        assert_eq!(second.message, "[m5] And then?");
+        // Sent while r1 still runs: a steer (ADR 0215 §4).
+        assert_eq!(second.message, "<steer>\n[m5] And then?\n</steer>");
         assert!(!second.changed);
         events.push(step(second.seen));
 

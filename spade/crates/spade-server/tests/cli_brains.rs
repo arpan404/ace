@@ -197,7 +197,15 @@ async fn start(
     tools: Vec<Arc<dyn Tool>>,
     turns: Vec<Vec<Act>>,
 ) -> Result<(Spade, Arc<Daemon>, String)> {
-    let spade = Spade::start_with(Vec::new(), tools, Options::default()).await?;
+    start_with(tools, turns, Options::default()).await
+}
+
+async fn start_with(
+    tools: Vec<Arc<dyn Tool>>,
+    turns: Vec<Vec<Act>>,
+    options: Options,
+) -> Result<(Spade, Arc<Daemon>, String)> {
+    let spade = Spade::start_with(Vec::new(), tools, options).await?;
     let (daemon, url) = fake_daemon().await?;
     daemon
         .turns
@@ -283,6 +291,44 @@ async fn a_bot_on_a_subscription_answers_through_ace_with_its_task_and_no_spend(
     assert_eq!(status, 200);
     assert_eq!(listed["providers"][0]["provider"], "codex");
     assert_eq!(listed["providers"][0]["accounts"][0]["id"], "work");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_cli_turn_ends_with_the_persons_asks_and_one_left_open_gets_one_more_turn() -> Result {
+    let options = Options {
+        limits: spade_server::engine::Limits {
+            asks: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let (spade, daemon, _) = start_with(
+        Vec::new(),
+        vec![vec![Act::Text("On it."), Act::Finish]],
+        options,
+    )
+    .await?;
+    let (_, chat) = cli_bot(&spade, "Keep my notes tidy").await?;
+    spade.say(&chat, "Tidy the March notes").await?;
+    let events = spade.wait_for(&chat, "reply_finished").await?;
+    let sent = requests(&daemon);
+    assert_eq!(sent.len(), 2, "one more turn for the open ask");
+    let first = sent[0]["message"].as_str().unwrap_or_default();
+    assert!(
+        first.starts_with("[m2] Tidy the March notes\n\n<asks from=\"spade\">")
+            && first.contains("- m2: \"Tidy the March notes\""),
+        "{first}"
+    );
+    let second = sent[1]["message"].as_str().unwrap_or_default();
+    assert!(second.contains("<asks_check from=\"spade\">"), "{second}");
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| e["type"] == "asks_checked")
+            .count(),
+        1
+    );
     Ok(())
 }
 

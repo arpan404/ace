@@ -5,6 +5,7 @@ mod ace;
 mod ace_link;
 mod ace_wait;
 mod apps;
+mod asks;
 mod bots;
 mod cards;
 mod cloud_account;
@@ -41,6 +42,7 @@ use spade_core::tools::{Registry, ToolDef};
 
 pub(crate) use ace::reattaches;
 pub use ace_link::{AceLink, AceTarget, GrantError, Retry, grant_slot};
+pub use asks::Asks;
 pub use bots::{BotMessage, BotsList, EngineHandle};
 pub use cards::CardShow;
 pub use cloud_account::CloudAccount;

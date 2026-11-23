@@ -181,6 +181,7 @@ fn deciding_reads_only_the_prompts_span_not_the_history_before_a_compaction() {
         images_left_out: None,
         untrusted: false,
         carried: None,
+        asks: None,
     }));
     for n in 100..104 {
         events.push(step(n, "read_file"));

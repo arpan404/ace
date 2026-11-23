@@ -153,6 +153,8 @@ async fn run(
         images_left_out: Some(context::images_to_leave_out(events, plan.keep_from)),
         untrusted,
         carried: Some(ledger),
+        // The person's asks as they stand, so a fold after this starts here (ADR 0215).
+        asks: Some(Box::new(engine.asks_of(id, events))),
     });
     match engine.record(id, &event) {
         Ok(_) => true,

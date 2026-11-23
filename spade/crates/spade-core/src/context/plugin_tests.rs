@@ -88,6 +88,7 @@ fn rules_stay_fixed_mid_conversation_and_are_due_again_only_after_a_compaction_o
         images_left_out: None,
         untrusted: false,
         carried: None,
+        asks: None,
     }));
     assert_eq!(
         crate::hooks::plugins_due(&events),
