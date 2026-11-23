@@ -5,7 +5,7 @@ struct RootView: View {
     @Bindable var machines: MachinesModel
     @Bindable var lock: AppLock
     @Environment(\.scenePhase) private var phase
-    @State private var backgrounded = false
+    @State private var keeper: BackgroundKeeper?
 
     var body: some View {
         ZStack {
@@ -18,13 +18,16 @@ struct RootView: View {
             if !lock.locked && !machines.loaded { await machines.load() }
         }
         .onChange(of: machines.machines.isEmpty) { _, empty in if !empty { lock.enable() } }
+        .onAppear { if keeper == nil { keeper = BackgroundKeeper.system { [machines] in machines.wake() } } }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.backgroundRefreshStatusDidChangeNotification)) { _ in
+            keeper?.refreshSetting(UIApplication.shared.backgroundRefreshStatus == .available)
+        }
         .onChange(of: phase) { _, phase in
+            keeper?.scene(phase == .active ? .active : phase == .background ? .background : .inactive)
             LaunchTrace.mark("scene", "\(phase)")
-            if phase == .background { lock.didEnterBackground(); machines.inbox.recordSeen(); backgrounded = true }
+            if phase == .background { lock.didEnterBackground(); machines.inbox.recordSeen() }
             if phase == .active {
                 lock.didBecomeActive()
-                // Inactive sits between background and active, so the visit is remembered.
-                if backgrounded { backgrounded = false; machines.wake() }
             }
         }
     }
