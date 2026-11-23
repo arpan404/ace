@@ -240,9 +240,12 @@ medians of 10 calls; CPU is per call.
   (`decode.ts:11`, `:109`), `parseIndex` and Zod (profile of six live diffs).
 - A process start is 5–10 ms of CPU; for everything but snapshots, status and `branchRefs` it is
   most of the call.
-- `gix` 0.91 in process on the same clone: status with untracked files 63–74 ms (git: 90–290 ms
-  standalone in the same minutes) at about the same CPU (spread over threads); `rev-parse HEAD`
-  0.05 ms, local branches with upstream 0.08 ms, all 460 refs 0.23 ms, worktree list under 0.01 ms.
+- `gix` 0.91 in process on the same clone: status with untracked files 48–74 ms over two runs
+  (Git through `GitService`: 181–216 ms) at about the same CPU, spread over threads;
+  `rev-parse HEAD` 0.05 ms, local branches with upstream 0.08 ms, all 460 refs 0.23 ms, worktree
+  list under 0.01 ms; blob ids of all 23,527 regular files (raw bytes, no filters) 487 ms on one
+  thread, 230 ms on four. Peak RSS of the probe process 50 MB; `git status` 14 MB, the snapshot's
+  `git add` 36 MB.
 
 ## 12. The tests that guard this, and which carry over
 
