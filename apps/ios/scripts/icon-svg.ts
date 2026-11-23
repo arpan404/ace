@@ -136,21 +136,31 @@ export interface SpadeTabFace {
  * with near-black outlines and pupils. In colour, so the tab bar shows it as is (an "original"
  * image), the same size as the line icons beside it.
  */
-export function spadeTabSvg(face: SpadeTabFace, size: number): string {
+export function spadeTabSvg(face: SpadeTabFace, size: number, blink = false): string {
   const head = "#9b9ba1";
   const paper = "#f6f6f7";
   const ink = "#141416";
   const outlines = face.eyes
-    .map((eye) => `<path d="${face.egg(eye.x, eye.y, face.eye.rx + face.ring, face.eye.ry + face.ring)}" fill="${ink}"/>`)
+    .map(
+      (eye) =>
+        `<path d="${face.egg(eye.x, eye.y, face.eye.rx + face.ring, (face.eye.ry + face.ring) * (blink ? 0.34 : 1))}" fill="${ink}"/>`,
+    )
     .join("");
-  const whites = face.eyes
-    .map((eye) => `<path d="${face.egg(eye.x, eye.y, face.eye.rx, face.eye.ry)}" fill="${paper}"/>`)
-    .join("");
-  const pupils = face.eyes
-    .map((eye) => {
-      const at = face.pupilAt(eye);
-      return `<ellipse cx="${round(at.x)}" cy="${round(at.y)}" rx="${round(face.pupil.rx)}" ry="${round(face.pupil.ry)}" fill="${ink}"/>`;
-    })
-    .join("");
+  const whites = blink
+    ? ""
+    : face.eyes
+        .map(
+          (eye) =>
+            `<path d="${face.egg(eye.x, eye.y, face.eye.rx, face.eye.ry)}" fill="${paper}"/>`,
+        )
+        .join("");
+  const pupils = blink
+    ? ""
+    : face.eyes
+        .map((eye) => {
+          const at = face.pupilAt(eye);
+          return `<ellipse cx="${round(at.x)}" cy="${round(at.y)}" rx="${round(face.pupil.rx)}" ry="${round(face.pupil.ry)}" fill="${ink}"/>`;
+        })
+        .join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10.6" fill="${head}"/><g transform="rotate(${face.tilt} 12 12)">${outlines}${whites}${pupils}</g></svg>\n`;
 }
