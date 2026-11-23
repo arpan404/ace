@@ -45,8 +45,7 @@ extension ConversationFeed {
         }) { _ in
             growth.windowHoldEnded()
             guard frozen else { return }
-            surface.thaw()
-            TranscriptJumpHooks.covered(false)
+            surface.thawAfterLayout { TranscriptJumpHooks.covered(false) }
         }
     }
 }

@@ -300,9 +300,10 @@ extension ConversationFeed {
             return settle.frame([Double(frame.minY), Double(intent.metrics.height)], placed: placed, at: time)
         }) { _ in
             guard frozen else { return }
-            surface.thaw()
-            TranscriptJumpHooks.covered(false)
-            TranscriptJumpHooks.note("hold end")
+            surface.thawAfterLayout {
+                TranscriptJumpHooks.covered(false)
+                TranscriptJumpHooks.note("hold end")
+            }
         }
     }
     /// The reader took the feed mid-hold: it's theirs as it is.

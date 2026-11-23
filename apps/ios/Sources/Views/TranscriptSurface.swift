@@ -27,6 +27,9 @@ import UIKit
     private var link: CADisplayLink?
     private var runs: [Run: (settle: (CFTimeInterval) -> TranscriptSettle.Outcome, done: (TranscriptSettle.Outcome) -> Void)] = [:]
     private var frozen: UIView?
+    /// Frames left before the frozen frame comes off (`thawAfterLayout`), and what runs then.
+    private var thawing = 0
+    private var thawed: (() -> Void)?
 
     /// The scroll view's offset from its content's top, in points.
     var offset: Double { Double(scroller?.contentOffset.y ?? 0) }
@@ -69,7 +72,11 @@ import UIKit
             runs[run] = nil
             done(outcome)
         }
-        if runs.isEmpty { stopLink() }
+        if thawing > 0 {
+            thawing -= 1
+            if thawing == 0 { thaw() }
+        }
+        if runs.isEmpty, thawing == 0 { stopLink() }
     }
 
     /// Ends `run` without its `done`.
@@ -104,6 +111,25 @@ import UIKit
     func thaw() {
         frozen?.removeFromSuperview()
         frozen = nil
+        thawing = 0
+        let after = thawed
+        thawed = nil
+        after?()
+    }
+
+    /// Takes the frozen frame off once the rows under it have laid out where the scroll now
+    /// stands: the layout is forced now and the frame stays a few more frames, so a lazy stack's
+    /// rows near the restored offset are in place when it goes, never blank or elsewhere. `then`
+    /// runs when it is off.
+    func thawAfterLayout(then: @escaping () -> Void) {
+        guard frozen != nil else { then(); return }
+        scroller?.layoutIfNeeded()
+        thawing = 3
+        thawed = then
+        guard link == nil else { return }
+        let link = CADisplayLink(target: SurfaceTicker(surface: self), selector: #selector(SurfaceTicker.tick(_:)))
+        link.add(to: .main, forMode: .common)
+        self.link = link
     }
 
     /// Moves the content `delta` points up the screen (down, when negative), within its scroll.

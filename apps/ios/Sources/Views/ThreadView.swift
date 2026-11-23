@@ -652,6 +652,7 @@ private struct FloatingBar<Bar: View>: ViewModifier {
     @ViewBuilder let bar: () -> Bar
     @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.displayScale) private var scale
     /// The area the bar rests at the foot of, keyboard ignored, in screen points.
     @State private var column: CGRect = .zero
     func body(content: Content) -> some View {
