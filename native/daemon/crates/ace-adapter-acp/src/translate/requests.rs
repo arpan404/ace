@@ -5,7 +5,7 @@ use crate::translate::approval::interaction_key;
 use crate::translate::data::{object, raw, string};
 use crate::translate::state::TranslationState;
 use crate::translate::tool_raw::retain_tool_raw;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 /// Open an incoming request. Returns true when the frame is handled.
 pub fn open_request(
@@ -13,7 +13,7 @@ pub fn open_request(
     shell_output: &mut crate::translate::shell_output::ShellOutput,
     id: &crate::translate::data::RpcId,
     method: &str,
-    params: &Map<String, Value>,
+    params: &Map,
     frame: &Value,
     facts: &mut Vec<Value>,
 ) -> bool {
@@ -86,13 +86,13 @@ pub fn open_request(
                 }
                 let mut draft = Map::with_capacity(1);
                 let mut call = Map::with_capacity(1);
-                call.insert("raw".to_owned(), Value::Array(tool.raw.clone()));
-                draft.insert("type".to_owned(), Value::String("tool_call".to_owned()));
+                call.insert("raw".to_owned(), Value::from(tool.raw.clone()));
+                draft.insert("type".to_owned(), Value::from("tool_call".to_owned()));
                 draft.insert("call".to_owned(), Value::Object(call));
                 let mut fact = Map::with_capacity(4);
-                fact.insert("type".to_owned(), Value::String("item.upsert".to_owned()));
-                fact.insert("agent".to_owned(), Value::String(tool.owner_key.clone()));
-                fact.insert("item".to_owned(), Value::String(tool.key.clone()));
+                fact.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+                fact.insert("agent".to_owned(), Value::from(tool.owner_key.clone()));
+                fact.insert("item".to_owned(), Value::from(tool.key.clone()));
                 fact.insert("draft".to_owned(), Value::Object(draft));
                 facts.push(Value::Object(fact));
                 return true;
@@ -112,10 +112,10 @@ pub fn open_request(
     {
         // The request's own call is what approving runs: it replaces what an earlier update said.
         let mut merged = call.clone();
-        merged.insert("toolCallId".to_owned(), Value::String(native_tool.clone()));
+        merged.insert("toolCallId".to_owned(), Value::from(native_tool.clone()));
         merged.insert(
             "sessionUpdate".to_owned(),
-            Value::String("tool_call_update".to_owned()),
+            Value::from("tool_call_update".to_owned()),
         );
         let merged_value = Value::Object(merged);
         crate::translate::update_tool::handle_tool_call(
@@ -194,17 +194,17 @@ pub fn open_request(
         let tool_snapshot = state.tools.get(&tool_key).cloned();
         if let Some(tool) = tool_snapshot {
             let mut draft = Map::with_capacity(2);
-            draft.insert("type".to_owned(), Value::String("tool_call".to_owned()));
+            draft.insert("type".to_owned(), Value::from("tool_call".to_owned()));
             let mut call = Map::with_capacity(1);
             call.insert(
                 "status".to_owned(),
-                Value::String("awaiting_approval".to_owned()),
+                Value::from("awaiting_approval".to_owned()),
             );
             draft.insert("call".to_owned(), Value::Object(call));
             let mut fact = Map::with_capacity(4);
-            fact.insert("type".to_owned(), Value::String("item.upsert".to_owned()));
-            fact.insert("agent".to_owned(), Value::String(owner_key.clone()));
-            fact.insert("item".to_owned(), Value::String(tool.key));
+            fact.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+            fact.insert("agent".to_owned(), Value::from(owner_key.clone()));
+            fact.insert("item".to_owned(), Value::from(tool.key));
             fact.insert("draft".to_owned(), Value::Object(draft));
             facts.push(Value::Object(fact));
         }
@@ -212,10 +212,10 @@ pub fn open_request(
     let mut fact = Map::with_capacity(7);
     fact.insert(
         "type".to_owned(),
-        Value::String("interaction.opened".to_owned()),
+        Value::from("interaction.opened".to_owned()),
     );
-    fact.insert("agent".to_owned(), Value::String(owner_key));
-    fact.insert("interaction".to_owned(), Value::String(interaction));
+    fact.insert("agent".to_owned(), Value::from(owner_key));
+    fact.insert("interaction".to_owned(), Value::from(interaction));
     fact.insert("blocking".to_owned(), Value::Bool(true));
     fact.insert("request".to_owned(), request_value);
     if let Some(tool_key) = state
@@ -225,18 +225,18 @@ pub fn open_request(
         .and_then(|req| req.tool_key.clone())
         && let Some(tool) = state.tools.get(&tool_key)
     {
-        fact.insert("item".to_owned(), Value::String(tool.key.clone()));
+        fact.insert("item".to_owned(), Value::from(tool.key.clone()));
     }
     fact.insert(
         "raw".to_owned(),
-        Value::Array(vec![raw(frame, method, None)]),
+        Value::from(vec![raw(frame, method, None)]),
     );
     facts.push(Value::Object(fact));
     true
 }
 
 /// The tool a request names, as a tool_call update.
-pub fn request_tool(method: &str, params: &Value) -> Option<Map<String, Value>> {
+pub fn request_tool(method: &str, params: &Value) -> Option<Map> {
     let params_map = object(params);
     let call = object(params_map.get("toolCall").unwrap_or(&Value::Null));
     let tool_call_id = {
@@ -254,15 +254,15 @@ pub fn request_tool(method: &str, params: &Value) -> Option<Map<String, Value>> 
     for (key, value) in call.iter() {
         out.insert(key.clone(), value.clone());
     }
-    out.insert("toolCallId".to_owned(), Value::String(tool_call_id));
+    out.insert("toolCallId".to_owned(), Value::from(tool_call_id));
     out.insert(
         "sessionUpdate".to_owned(),
-        Value::String("tool_call".to_owned()),
+        Value::from("tool_call".to_owned()),
     );
     let kind = string(call.get("kind").unwrap_or(&Value::Null));
     out.insert(
         "kind".to_owned(),
-        Value::String(if kind.is_empty() {
+        Value::from(if kind.is_empty() {
             "other".to_owned()
         } else {
             kind.to_owned()
@@ -271,7 +271,7 @@ pub fn request_tool(method: &str, params: &Value) -> Option<Map<String, Value>> 
     let title = string(call.get("title").unwrap_or(&Value::Null));
     out.insert(
         "title".to_owned(),
-        Value::String(if title.is_empty() {
+        Value::from(if title.is_empty() {
             method.to_owned()
         } else {
             title.to_owned()
@@ -280,7 +280,7 @@ pub fn request_tool(method: &str, params: &Value) -> Option<Map<String, Value>> 
     let status = string(call.get("status").unwrap_or(&Value::Null));
     out.insert(
         "status".to_owned(),
-        Value::String(if status.is_empty() {
+        Value::from(if status.is_empty() {
             "pending".to_owned()
         } else {
             status.to_owned()

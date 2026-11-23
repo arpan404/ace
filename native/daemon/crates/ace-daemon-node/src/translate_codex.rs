@@ -4,15 +4,18 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Mutex;
 
+use ace_json::Value;
 use napi_derive::napi;
 
+use crate::json_bind::write_values;
+
 fn quote_string(value: &str) -> String {
-    match serde_json::to_string(value) {
-        Ok(quoted) => quoted,
-        Err(_) => "\"unknown\"".to_owned(),
-    }
+    let mut quoted = String::with_capacity(value.len() + 2);
+    ace_json::write_str(&mut quoted, value);
+    quoted
 }
 
+/// Each fact as `{"type":…,…body}`: the type first, the body's canonical text spliced.
 fn facts_json(facts: &[ace_core::Fact]) -> String {
     let mut out = String::with_capacity(facts.len().saturating_mul(256).max(2));
     out.push('[');
@@ -20,7 +23,7 @@ fn facts_json(facts: &[ace_core::Fact]) -> String {
         if index > 0 {
             out.push(',');
         }
-        let body = fact.data.get().trim();
+        let body = fact.data.get();
         let quoted = quote_string(&fact.fact_type);
         if body.len() <= 2 {
             out.push_str("{\"type\":");
@@ -62,31 +65,23 @@ impl NativeCodexTranslator {
     #[napi(catch_unwind)]
     pub fn translate(&self, frame_json: String, now: f64) -> napi::Result<String> {
         let result = catch_unwind(AssertUnwindSafe(|| {
-            let parsed: serde_json::Value =
-                serde_json::from_str(&frame_json).unwrap_or(serde_json::Value::Null);
-            let map = parsed.as_object();
-            let dir = map
-                .and_then(|m| m.get("dir"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("recv")
-                .to_owned();
-            let channel = map
-                .and_then(|m| m.get("channel"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("stdio")
-                .to_owned();
-            let data = map
-                .and_then(|m| m.get("data"))
-                .cloned()
-                .unwrap_or(serde_json::Value::Null);
-            let seq = map
-                .and_then(|m| m.get("seq"))
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
-            let t = map
-                .and_then(|m| m.get("t"))
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0);
+            // Undecodable frame text reads as an empty frame, as before.
+            let mut root = match ace_json::parse(&frame_json) {
+                Ok(Value::Object(root)) => root,
+                _ => ace_json::Map::new(),
+            };
+            let text = |key: &str, fallback: &str| {
+                root.get(key)
+                    .and_then(Value::as_str)
+                    .unwrap_or(fallback)
+                    .to_owned()
+            };
+            let dir = text("dir", "recv");
+            let channel = text("channel", "stdio");
+            let seq = root.get("seq").and_then(|v| v.as_u64()).unwrap_or(0);
+            let t = root.get("t").and_then(|v| v.as_i64()).unwrap_or(0);
+            // The data moves out of the frame: no copy of the provider value.
+            let data = root.remove("data").unwrap_or(Value::Null);
             let frame = ace_adapter_codex::translate::ParsedFrame {
                 dir,
                 channel,
@@ -135,10 +130,9 @@ impl NativeCodexTranslator {
                 Err(poison) => poison.into_inner(),
             };
             let diagnostics = guard.take_diagnostics_value();
-            match serde_json::to_string(&diagnostics) {
-                Ok(json) => json,
-                Err(_) => "[]".to_owned(),
-            }
+            let mut json = String::new();
+            write_values(&mut json, &diagnostics);
+            json
         }));
         match result {
             Ok(json) => Ok(json),

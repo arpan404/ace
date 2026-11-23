@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Host logging can admit this adapter diagnostic without decoding frames.
 
-use serde_json::Value;
+use ace_json::Value;
 
 use super::helpers::{obj_map, str_empty};
 

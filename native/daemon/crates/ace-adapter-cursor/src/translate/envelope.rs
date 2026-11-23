@@ -3,45 +3,46 @@
 //! checks over exact UTF-16 units, plus the small concatenation helper for
 //! native ids and item keys.
 
-use super::json::{J, units_eq};
+use super::text::JsString;
+use super::text::{Value, units_eq};
 use super::{BudgetError, BudgetResult};
 
 /// A decoded SDK boundary envelope, borrowed from the frame's payload.
 pub struct Envelope<'a> {
-    pub generation: &'a [u16],
-    pub operation_id: &'a [u16],
-    pub command_id: Option<&'a [u16]>,
-    pub agent_id: Option<&'a [u16]>,
-    pub run_id: Option<&'a [u16]>,
-    pub kind: &'a [u16],
+    pub generation: &'a JsString,
+    pub operation_id: &'a JsString,
+    pub command_id: Option<&'a JsString>,
+    pub agent_id: Option<&'a JsString>,
+    pub run_id: Option<&'a JsString>,
+    pub kind: &'a JsString,
     pub segment: i64,
-    pub body: &'a J,
-    pub raw: Option<&'a J>,
+    pub body: &'a Value,
+    pub raw: Option<&'a Value>,
 }
 
 /// The string units, if the value is a string.
-pub fn string(value: &J) -> Option<&[u16]> {
+pub fn string(value: &Value) -> Option<&JsString> {
     match value {
-        J::Str(units) => Some(units),
+        Value::String(units) => Some(units),
         _ => None,
     }
 }
 
 /// Whether the value is a string equal to the ASCII literal.
-pub fn is(value: &J, lit: &str) -> bool {
-    matches!(value, J::Str(units) if units_eq(units, lit))
+pub fn is(value: &Value, lit: &str) -> bool {
+    matches!(value, Value::String(units) if units_eq(units, lit))
 }
 
 /// The decimal text of an integer, as units.
-pub fn num_units(value: i64) -> Vec<u16> {
+pub fn num_units(value: i64) -> JsString {
     value.to_string().encode_utf16().collect()
 }
 
 /// Concatenate unit slices, for native ids and item keys.
-pub fn cat(parts: &[&[u16]]) -> Vec<u16> {
-    let mut out = Vec::with_capacity(parts.iter().map(|part| part.len()).sum());
+pub fn cat(parts: &[&JsString]) -> JsString {
+    let mut out = JsString::new();
     for part in parts {
-        out.extend_from_slice(part);
+        out.push_js(part);
     }
     out
 }
@@ -54,7 +55,8 @@ fn is_trim(unit: u16) -> bool {
 }
 
 /// Trim the units the way the TypeScript `trim` does.
-pub fn trim_text(units: &[u16]) -> Vec<u16> {
+pub fn trim_text(text: &JsString) -> JsString {
+    let units: Vec<u16> = text.units().collect();
     let mut start = 0;
     while start < units.len() && is_trim(units[start]) {
         start += 1;
@@ -63,15 +65,15 @@ pub fn trim_text(units: &[u16]) -> Vec<u16> {
     while end > start && is_trim(units[end - 1]) {
         end -= 1;
     }
-    units[start..end].to_vec()
+    JsString::from_units(&units[start..end])
 }
 
 /// A native identity the translator routes on. Non-strings read as absent;
 /// empty or over-long identities exceed the SDK budget.
-pub fn native_identity(value: &J) -> BudgetResult<Option<Vec<u16>>> {
+pub fn native_identity(value: &Value) -> BudgetResult<Option<JsString>> {
     match value {
-        J::Str(text) => {
-            if text.is_empty() || text.len() > 512 {
+        Value::String(text) => {
+            if text.is_empty() || text.len_utf16() > 512 {
                 return Err(BudgetError::Exceeded);
             }
             Ok(Some(text.clone()))
@@ -80,9 +82,9 @@ pub fn native_identity(value: &J) -> BudgetResult<Option<Vec<u16>>> {
     }
 }
 
-fn identity(value: &J) -> Option<&[u16]> {
+fn identity(value: &Value) -> Option<&JsString> {
     match value {
-        J::Str(text) if !text.is_empty() && text.len() <= 512 => Some(text),
+        Value::String(text) if !text.is_empty() && text.len_utf16() <= 512 => Some(text),
         _ => None,
     }
 }
@@ -94,11 +96,12 @@ fn is_hex64(units: &[u16]) -> bool {
             .all(|unit| matches!(unit, 0x30..=0x39 | 0x61..=0x66))
 }
 
-fn pending_event(value: &J) -> bool {
-    let J::Str(text) = value else {
+fn pending_event(value: &Value) -> bool {
+    let Value::String(text) = value else {
         return false;
     };
-    if is_hex64(text) {
+    let text: Vec<u16> = text.units().collect();
+    if is_hex64(&text) {
         return true;
     }
     if text.len() == 129 && text[64] == 0x3a && is_hex64(&text[..64]) && is_hex64(&text[65..]) {
@@ -109,23 +112,23 @@ fn pending_event(value: &J) -> bool {
 
 /// Decode the envelope the TypeScript `Envelope.safeParse` accepts. Anything
 /// else is `None`, and the caller files a malformed-envelope notice.
-pub fn parse_envelope(value: &J) -> Option<Envelope<'_>> {
-    let J::Obj(_) = value else {
+pub fn parse_envelope(value: &Value) -> Option<Envelope<'_>> {
+    let Value::Object(_) = value else {
         return None;
     };
     match value.get("schemaVersion") {
-        Some(version) if version.as_int().is_ok_and(|version| version == 1) => {}
+        Some(version) if version.as_i64() == Some(1) => {}
         _ => return None,
     }
     let generation = value.get("generation").and_then(identity)?;
     let operation_id = value.get("operationId").and_then(identity)?;
     let kind = match value.get("kind") {
-        Some(J::Str(kind)) if !kind.is_empty() && kind.len() <= 128 => kind.as_slice(),
+        Some(Value::String(kind)) if !kind.is_empty() && kind.len_utf16() <= 128 => kind,
         _ => return None,
     };
     let segment = match value.get("segment") {
         Some(value) => {
-            let segment = value.as_int().ok()?;
+            let segment = value.as_i64()?;
             if segment < 0 {
                 return None;
             }
@@ -142,8 +145,8 @@ pub fn parse_envelope(value: &J) -> Option<Envelope<'_>> {
     }
     if let Some(value) = value.get("eventSeq")
         && !(value
-            .as_int()
-            .is_ok_and(|seq| (0..=100_000_000).contains(&seq)))
+            .as_i64()
+            .is_some_and(|seq| (0..=100_000_000).contains(&seq)))
     {
         return None;
     }
@@ -152,7 +155,7 @@ pub fn parse_envelope(value: &J) -> Option<Envelope<'_>> {
     {
         return None;
     }
-    if let Some(J::Arr(events)) = value.get("pendingEvents") {
+    if let Some(Value::Array(events)) = value.get("pendingEvents") {
         if events.len() > 64 || !events.iter().all(pending_event) {
             return None;
         }
@@ -160,7 +163,7 @@ pub fn parse_envelope(value: &J) -> Option<Envelope<'_>> {
         return None;
     }
     if let Some(raw) = value.get("raw")
-        && !matches!(raw, J::Obj(_))
+        && !matches!(raw, Value::Object(_))
     {
         return None;
     }

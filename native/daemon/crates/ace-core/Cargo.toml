@@ -17,7 +17,7 @@ workspace = true
 ace-protocol = { path = "../ace-protocol" }
 # serde: the fold's state and facts serialize for tests and for the facade's state refresh.
 serde = { version = "1", features = ["derive"] }
-# serde_json: facts and diagnostics keep provider data as JSON, never re-encoded.
-serde_json = { version = "1", features = ["raw_value"] }
+# ace-json: facts and diagnostics keep provider data as JavaScript-exact JSON, never re-encoded.
+ace-json = { path = "../ace-json" }
 # thiserror: the fold's typed errors (invalid facts are rejected, never fatal, in E4).
 thiserror = { version = "2" }

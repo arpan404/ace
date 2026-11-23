@@ -4,39 +4,39 @@
 //! (`recovered-tail.ts`).
 
 use super::envelope::{is, string};
-use super::json::{J, encode_units, units_eq};
+use super::text::{JsString, Value, units_eq};
 
-fn tool_update(body: &J) -> Option<J> {
+fn tool_update(body: &Value) -> Option<Value> {
     let call_id = string(body.get("call_id")?)?;
     let name = match body.get("name") {
-        Some(J::Str(name)) => name.clone(),
-        _ => encode_units("unknown"),
+        Some(Value::String(name)) => name.clone(),
+        _ => JsString::from("unknown"),
     };
-    let mut tool_call = vec![(encode_units("type"), J::Str(name))];
+    let mut tool_call = vec![(JsString::from("type"), Value::String(name))];
     if let Some(args) = body.get("args") {
-        tool_call.push((encode_units("args"), args.clone()));
+        tool_call.push((JsString::from("args"), args.clone()));
     }
     if let Some(result) = body.get("result") {
-        tool_call.push((encode_units("result"), result.clone()));
+        tool_call.push((JsString::from("result"), result.clone()));
     }
-    Some(J::Obj(vec![
+    Some(Value::from(vec![
         (
-            encode_units("type"),
-            J::Str(encode_units(
-                if is(body.get("status").unwrap_or(&J::Null), "running") {
+            JsString::from("type"),
+            Value::String(JsString::from(
+                if is(body.get("status").unwrap_or(&Value::Null), "running") {
                     "tool-call-started"
                 } else {
                     "tool-call-completed"
                 },
             )),
         ),
-        (encode_units("callId"), J::Str(call_id.to_vec())),
-        (encode_units("toolCall"), J::Obj(tool_call)),
+        (JsString::from("callId"), Value::String(call_id.clone())),
+        (JsString::from("toolCall"), Value::from(tool_call)),
     ]))
 }
 
 /// The update a stored SDK message came from; none for bookkeeping ones.
-pub fn stored_update(message: &J) -> Option<J> {
+pub fn stored_update(message: &Value) -> Option<Value> {
     let body = message;
     let kind = string(body.get("type")?)?;
     if units_eq(kind, "assistant") {
@@ -44,44 +44,55 @@ pub fn stored_update(message: &J) -> Option<J> {
             .get("message")
             .and_then(|message| message.get("content"))
         {
-            Some(J::Arr(content)) => content,
+            Some(Value::Array(content)) => content,
             _ => return None,
         };
-        let mut text = Vec::new();
+        let mut text = JsString::new();
         for part in content {
-            if !is(part.get("type").unwrap_or(&J::Null), "text") {
+            if !is(part.get("type").unwrap_or(&Value::Null), "text") {
                 continue;
             }
-            if let Some(part) = string(part.get("text").unwrap_or(&J::Null)) {
-                text.extend_from_slice(part);
+            if let Some(part) = string(part.get("text").unwrap_or(&Value::Null)) {
+                text.push_js(part);
             }
         }
         if text.is_empty() {
             return None;
         }
-        return Some(J::Obj(vec![
-            (encode_units("type"), J::Str(encode_units("text-delta"))),
-            (encode_units("text"), J::Str(text)),
+        return Some(Value::from(vec![
+            (
+                JsString::from("type"),
+                Value::String(JsString::from("text-delta")),
+            ),
+            (JsString::from("text"), Value::String(text)),
         ]));
     }
     if units_eq(kind, "thinking") {
         let text = match body.get("text") {
-            Some(value) => string(value).unwrap_or(&[]),
-            None => &[],
+            Some(value) => string(value).unwrap_or(JsString::empty()),
+            None => JsString::empty(),
         };
         if text.is_empty() {
             let mut update = vec![(
-                encode_units("type"),
-                J::Str(encode_units("thinking-completed")),
+                JsString::from("type"),
+                Value::String(JsString::from("thinking-completed")),
             )];
-            if let J::Num(duration) = body.get("thinking_duration_ms").unwrap_or(&J::Null) {
-                update.push((encode_units("thinkingDurationMs"), J::Num(duration.clone())));
+            if let Value::Number(duration) =
+                body.get("thinking_duration_ms").unwrap_or(&Value::Null)
+            {
+                update.push((
+                    JsString::from("thinkingDurationMs"),
+                    Value::Number(*duration),
+                ));
             }
-            return Some(J::Obj(update));
+            return Some(Value::from(update));
         }
-        return Some(J::Obj(vec![
-            (encode_units("type"), J::Str(encode_units("thinking-delta"))),
-            (encode_units("text"), J::Str(text.to_vec())),
+        return Some(Value::from(vec![
+            (
+                JsString::from("type"),
+                Value::String(JsString::from("thinking-delta")),
+            ),
+            (JsString::from("text"), Value::String(text.clone())),
         ]));
     }
     if units_eq(kind, "tool_call") {
@@ -89,32 +100,35 @@ pub fn stored_update(message: &J) -> Option<J> {
     }
     if units_eq(kind, "task") {
         let text = string(body.get("text")?)?;
-        return Some(J::Obj(vec![
-            (encode_units("type"), J::Str(encode_units("summary"))),
-            (encode_units("summary"), J::Str(text.to_vec())),
+        return Some(Value::from(vec![
+            (
+                JsString::from("type"),
+                Value::String(JsString::from("summary")),
+            ),
+            (JsString::from("summary"), Value::String(text.clone())),
         ]));
     }
     None
 }
 
 /// Why some of a recovered tail is not in the SDK's store, in plain words.
-pub fn store_gap(message: &J) -> Option<Vec<u16>> {
+pub fn store_gap(message: &Value) -> Option<JsString> {
     let body = message;
-    if !is(body.get("type").unwrap_or(&J::Null), "tool_call")
-        || is(body.get("status").unwrap_or(&J::Null), "running")
+    if !is(body.get("type").unwrap_or(&Value::Null), "tool_call")
+        || is(body.get("status").unwrap_or(&Value::Null), "running")
     {
         return None;
     }
-    let truncated = body.get("truncated").unwrap_or(&J::Null);
-    if matches!(truncated.get("args"), Some(J::Bool(true)))
-        || matches!(truncated.get("result"), Some(J::Bool(true)))
+    let truncated = body.get("truncated").unwrap_or(&Value::Null);
+    if matches!(truncated.get("args"), Some(Value::Bool(true)))
+        || matches!(truncated.get("result"), Some(Value::Bool(true)))
     {
-        return Some(encode_units(
+        return Some(JsString::from(
             "Cursor's saved session kept only a shortened copy of some tool input or output from that time.",
         ));
     }
-    if is(body.get("name").unwrap_or(&J::Null), "task") {
-        return Some(encode_units(
+    if is(body.get("name").unwrap_or(&Value::Null), "task") {
+        return Some(JsString::from(
             "What a subagent did step by step in that time is not in Cursor's saved session; only its result is.",
         ));
     }

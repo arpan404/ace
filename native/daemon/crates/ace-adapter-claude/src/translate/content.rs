@@ -2,7 +2,7 @@
 //! Message content (the port of `content.ts`: `tool` and `message`).
 //! Streaming lives in `stream.rs`, fact shapes in `drafts.rs`.
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 use std::collections::HashMap;
 
 use super::blocks::{MessageIndex, StreamState, match_block};
@@ -59,8 +59,8 @@ pub fn tool_call(
         state.keep_raw(&item_clone, frame_data, &agent_clone, Some(name))
     };
     let mut call = Map::with_capacity(6);
-    call.insert("title".to_owned(), Value::String(name.to_owned()));
-    call.insert("kind".to_owned(), Value::String(kind));
+    call.insert("title".to_owned(), Value::from(name.to_owned()));
+    call.insert("kind".to_owned(), Value::from(kind));
     if !settled_item {
         let status = if settled {
             "cancelled"
@@ -69,7 +69,7 @@ pub fn tool_call(
         } else {
             "running"
         };
-        call.insert("status".to_owned(), Value::String(status.to_owned()));
+        call.insert("status".to_owned(), Value::from(status.to_owned()));
     }
     if let Value::Object(detail_map) = detail {
         call.insert("detail".to_owned(), Value::Object(detail_map));
@@ -87,7 +87,7 @@ pub fn tool_call(
         }
     }
     let mut draft = Map::with_capacity(4);
-    draft.insert("type".to_owned(), Value::String("tool_call".to_owned()));
+    draft.insert("type".to_owned(), Value::from("tool_call".to_owned()));
     draft.insert("complete".to_owned(), Value::Bool(settled));
     draft.insert("call".to_owned(), Value::Object(ordered_call));
     state.emit(upsert(&agent_ref, &item, Value::Object(draft)));
@@ -128,7 +128,7 @@ pub fn message(
         Some(Value::String(s)) => {
             vec![text_block(s)]
         }
-        Some(Value::Array(items)) => items.clone(),
+        Some(Value::Array(items)) => items.to_vec(),
         _ => Vec::new(),
     };
     if role == "assistant" && !content.is_empty() {
@@ -194,11 +194,11 @@ pub fn message(
         {
             let mut details = Map::with_capacity(3);
             details.insert("code".to_owned(), Value::String(error_code.clone()));
-            details.insert("provider".to_owned(), Value::String("claude".to_owned()));
+            details.insert("provider".to_owned(), Value::from("claude".to_owned()));
             if let Some(model) = &state.model
                 && !model.is_empty()
             {
-                details.insert("model".to_owned(), Value::String(model.clone()));
+                details.insert("model".to_owned(), Value::from(model.clone()));
             }
             err = super::provider_error::with_details(err, Value::Object(details));
         }

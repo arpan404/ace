@@ -2,7 +2,7 @@
 //! Published payloads belong to canonical storage (`completed-tools.ts`).
 
 use crate::translate::state::{RETIRED_BYTES_LIMIT, RETIRED_COUNT_LIMIT, TranslationState};
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 pub fn retire_tool(state: &mut TranslationState, tool_key: &str) {
     let is_live = state.live_tools.contains(tool_key);
@@ -44,16 +44,13 @@ pub fn retire_tool(state: &mut TranslationState, tool_key: &str) {
         let mut input_entries: Vec<Value> = Vec::new();
         if let Some(parts) = tool.input_parts.as_ref() {
             for (key, value) in parts.iter() {
-                input_entries.push(Value::Array(vec![
-                    Value::String(key.clone()),
-                    value.clone(),
-                ]));
+                input_entries.push(Value::from(vec![Value::from(key.clone()), value.clone()]));
             }
         }
         let mut payload = Map::with_capacity(2);
         payload.insert("data".to_owned(), Value::Object(tool.data.clone()));
-        payload.insert("input".to_owned(), Value::Array(input_entries));
-        serde_json::to_string(&Value::Object(payload))
+        payload.insert("input".to_owned(), Value::from(input_entries));
+        ace_json::ser::to_string(&Value::Object(payload))
             .map(|text| text.len())
             .unwrap_or(0)
     };

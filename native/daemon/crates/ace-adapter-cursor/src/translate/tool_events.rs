@@ -6,16 +6,16 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::children::Children;
 use super::envelope::{cat, is, native_identity, string};
-use super::json::{J, encode_units, units_eq};
+use super::text::{JsString, Value, units_eq};
 use super::tool_names::{ARGS_BYTES, bounded_json, is_ace_call, utf16_slice};
 use super::tools::{tool_detail, tool_kind, tool_status};
 use super::transcript::Transcript;
 use super::{BudgetError, BudgetResult};
 
 pub(crate) struct Tool {
-    pub(crate) agent: Vec<u16>,
-    pub(crate) name: Vec<u16>,
-    pub(crate) args: Option<J>,
+    pub(crate) agent: JsString,
+    pub(crate) name: JsString,
+    pub(crate) args: Option<Value>,
     pub(crate) args_bytes: usize,
     pub(crate) terminal: bool,
     pub(crate) failed: bool,
@@ -25,9 +25,9 @@ pub(crate) struct Tool {
 
 /// The open tool calls of a turn, with their retained arguments.
 pub struct ToolEvents {
-    pub(crate) calls: BTreeMap<Vec<u16>, Tool>,
+    pub(crate) calls: BTreeMap<JsString, Tool>,
     retained_bytes: usize,
-    pub(crate) pending_by_owner: BTreeMap<Vec<u16>, BTreeSet<Vec<u16>>>,
+    pub(crate) pending_by_owner: BTreeMap<JsString, BTreeSet<JsString>>,
     limit: usize,
     retained_limit: usize,
 }
@@ -49,12 +49,12 @@ impl ToolEvents {
     }
 
     /// The owning agent of a tool call, if it is tracked.
-    pub fn agent_of(&self, call: &[u16]) -> Option<&[u16]> {
-        self.calls.get(call).map(|tool| tool.agent.as_slice())
+    pub fn agent_of(&self, call: &JsString) -> Option<&JsString> {
+        self.calls.get(call).map(|tool| &tool.agent)
     }
 
     pub fn trim(&mut self) {
-        let terminal: Vec<Vec<u16>> = self
+        let terminal: Vec<JsString> = self
             .calls
             .iter()
             .filter(|(_, tool)| tool.terminal)
@@ -70,19 +70,19 @@ impl ToolEvents {
     #[allow(clippy::too_many_arguments)]
     pub fn translate(
         &mut self,
-        body: &J,
-        agent: &[u16],
-        namespace: &[u16],
+        body: &Value,
+        agent: &JsString,
+        namespace: &JsString,
         event: Option<&super::envelope::Envelope>,
-        envelope: &J,
+        envelope: &Value,
         transcript: &mut Transcript,
         children: &mut Children,
-        operation: Option<&[u16]>,
+        operation: Option<&JsString>,
         segment: i64,
-        cwd: &[u16],
-        notice: &mut dyn FnMut(&[u16], &J, &str) -> J,
-    ) -> BudgetResult<Vec<J>> {
-        let kind = string(body.get("type").unwrap_or(&J::Null));
+        cwd: &JsString,
+        notice: &mut dyn FnMut(&JsString, &Value, &str) -> Value,
+    ) -> BudgetResult<Vec<Value>> {
+        let kind = string(body.get("type").unwrap_or(&Value::Null));
         if !kind.is_some_and(|kind| {
             units_eq(kind, "tool-call-started")
                 || units_eq(kind, "partial-tool-call")
@@ -90,21 +90,21 @@ impl ToolEvents {
         }) {
             return Ok(Vec::new());
         }
-        let call_id = native_identity(body.get("callId").unwrap_or(&J::Null))?;
+        let call_id = native_identity(body.get("callId").unwrap_or(&Value::Null))?;
         let Some(call_id) = call_id else {
             return Ok(vec![notice(
-                &encode_units("SDK tool update lacks native call identity"),
+                &JsString::from("SDK tool update lacks native call identity"),
                 envelope,
                 "warning",
             )]);
         };
-        let call = cat(&[namespace, &encode_units(":call:"), &call_id]);
-        let native = body.get("toolCall").unwrap_or(&J::Null);
+        let call = cat(&[namespace, &JsString::from(":call:"), &call_id]);
+        let native = body.get("toolCall").unwrap_or(&Value::Null);
         let existing_name = self.calls.get(&call).map(|tool| tool.name.clone());
-        let name = native_identity(native.get("name").unwrap_or(&J::Null))?
-            .or(native_identity(native.get("type").unwrap_or(&J::Null))?)
+        let name = native_identity(native.get("name").unwrap_or(&Value::Null))?
+            .or(native_identity(native.get("type").unwrap_or(&Value::Null))?)
             .or(existing_name)
-            .unwrap_or_else(|| encode_units("unknown"));
+            .unwrap_or_else(|| JsString::from("unknown"));
         if !self.calls.contains_key(&call) {
             if self.calls.len() + children.calls.len() >= self.limit {
                 return Err(BudgetError::Exceeded);
@@ -112,7 +112,7 @@ impl ToolEvents {
             self.calls.insert(
                 call.clone(),
                 Tool {
-                    agent: agent.to_vec(),
+                    agent: agent.clone(),
                     name: name.clone(),
                     args: None,
                     args_bytes: 0,
@@ -123,7 +123,7 @@ impl ToolEvents {
                 },
             );
             self.pending_by_owner
-                .entry(agent.to_vec())
+                .entry(agent.clone())
                 .or_default()
                 .insert(call.clone());
         }
@@ -144,17 +144,25 @@ impl ToolEvents {
             tool.args_bytes = args_bytes;
             tool.args = Some(args.clone());
         }
-        let result = native.get("result").unwrap_or(&J::Null);
-        let status_word = if is(body.get("type").unwrap_or(&J::Null), "tool-call-completed") {
-            encode_units("completed")
+        let result = native.get("result").unwrap_or(&Value::Null);
+        let status_word = if is(
+            body.get("type").unwrap_or(&Value::Null),
+            "tool-call-completed",
+        ) {
+            JsString::from("completed")
         } else {
-            encode_units("running")
+            JsString::from("running")
         };
         let status = tool_status(&status_word, result);
         let tool = self.calls.get_mut(&call).ok_or(BudgetError::Exceeded)?;
         tool.name = name.clone();
         tool.failed = tool.failed || status == "failed";
-        if tool.terminal && !is(body.get("type").unwrap_or(&J::Null), "tool-call-completed") {
+        if tool.terminal
+            && !is(
+                body.get("type").unwrap_or(&Value::Null),
+                "tool-call-completed",
+            )
+        {
             return Ok(Vec::new());
         }
         tool.terminal = tool.terminal || status != "running";
@@ -179,28 +187,28 @@ impl ToolEvents {
         let tool = self.calls.get_mut(&call).ok_or(BudgetError::Exceeded)?;
         if terminal && tool.surviving {
             tool.surviving = false;
-            facts.push(J::Obj(vec![
+            facts.push(Value::from(vec![
                 (
-                    encode_units("type"),
-                    J::Str(encode_units("background.ended")),
+                    JsString::from("type"),
+                    Value::String(JsString::from("background.ended")),
                 ),
                 (
-                    encode_units("task"),
-                    J::Str(cat(&[&encode_units("surviving:"), &call])),
+                    JsString::from("task"),
+                    Value::String(cat(&[&JsString::from("surviving:"), &call])),
                 ),
                 (
-                    encode_units("status"),
-                    J::Str(encode_units(if failed { "failed" } else { "completed" })),
+                    JsString::from("status"),
+                    Value::String(JsString::from(if failed { "failed" } else { "completed" })),
                 ),
             ]));
         }
         if tool_kind(&name) == "agent.spawn" {
-            let args = tool.args.clone().unwrap_or(J::Null);
+            let args = tool.args.clone().unwrap_or(Value::Null);
             facts.extend(children.ensure(&call, agent, &args, cwd)?);
             if terminal {
                 let child_result = children.result(&call, result, failed, cwd)?;
                 let settled = child_result.iter().any(|fact| {
-                    matches!(fact.get("type"), Some(J::Str(outcome)) if units_eq(outcome, "turn.ended"))
+                    matches!(fact.get("type"), Some(Value::String(outcome)) if units_eq(outcome, "turn.ended"))
                 });
                 let child_key = children.calls.get(&call).map(|child| child.key.clone());
                 if settled && let Some(child_key) = child_key {
@@ -212,54 +220,58 @@ impl ToolEvents {
             }
         }
         let tool = self.calls.get(&call).ok_or(BudgetError::Exceeded)?;
-        let detail = tool_detail(&name, tool.args.as_ref().unwrap_or(&J::Null), result);
+        let detail = tool_detail(&name, tool.args.as_ref().unwrap_or(&Value::Null), result);
         let ace = is_ace_call(&detail, tool_kind(&name), &tool.name);
         let real_error = if ace {
-            result.get("value").unwrap_or(&J::Null)
+            result.get("value").unwrap_or(&Value::Null)
         } else {
-            &J::Null
+            &Value::Null
         };
         let error_text = match real_error.get("content") {
-            Some(J::Arr(content)) => {
-                let mut joined: Vec<u16> = Vec::new();
+            Some(Value::Array(content)) => {
+                let mut joined = JsString::new();
                 for block in content {
-                    let text = string(block.get("text").unwrap_or(&J::Null)).unwrap_or(&[]);
+                    let text = string(block.get("text").unwrap_or(&Value::Null))
+                        .unwrap_or(JsString::empty());
                     if text.is_empty() {
                         continue;
                     }
                     if !joined.is_empty() {
-                        joined.push(0x0a);
+                        joined.push_str("\n");
                     }
-                    joined.extend_from_slice(text);
+                    joined.push_js(text);
                 }
                 utf16_slice(&joined, 4096)
             }
-            _ => string(real_error.get("message").unwrap_or(&J::Null))
-                .unwrap_or(&[])
-                .to_vec(),
+            _ => string(real_error.get("message").unwrap_or(&Value::Null))
+                .unwrap_or(JsString::empty())
+                .clone(),
         };
         let mut call_view = vec![
-            (encode_units("kind"), J::Str(encode_units(tool_kind(&name)))),
-            (encode_units("title"), J::Str(name.clone())),
             (
-                encode_units("status"),
-                J::Str(encode_units(if failed { "failed" } else { status })),
+                JsString::from("kind"),
+                Value::String(JsString::from(tool_kind(&name))),
             ),
-            (encode_units("detail"), detail),
+            (JsString::from("title"), Value::String(name.clone())),
             (
-                encode_units("raw"),
-                J::Arr(vec![
+                JsString::from("status"),
+                Value::String(JsString::from(if failed { "failed" } else { status })),
+            ),
+            (JsString::from("detail"), detail),
+            (
+                JsString::from("raw"),
+                Value::from(vec![
                     event
                         .and_then(|event| event.raw)
                         .cloned()
                         .unwrap_or_else(|| {
-                            J::Obj(vec![
+                            Value::from(vec![
                                 (
-                                    encode_units("type"),
-                                    J::Str(encode_units("cursor.sdk.tool")),
+                                    JsString::from("type"),
+                                    Value::String(JsString::from("cursor.sdk.tool")),
                                 ),
-                                (encode_units("name"), J::Str(name.clone())),
-                                (encode_units("data"), envelope.clone()),
+                                (JsString::from("name"), Value::String(name.clone())),
+                                (JsString::from("data"), envelope.clone()),
                             ])
                         }),
                 ]),
@@ -267,65 +279,78 @@ impl ToolEvents {
         ];
         if failed {
             call_view.push((
-                encode_units("error"),
-                J::Str(if error_text.is_empty() {
-                    encode_units("Cursor tool failed or was denied by execution policy")
+                JsString::from("error"),
+                Value::String(if error_text.is_empty() {
+                    JsString::from("Cursor tool failed or was denied by execution policy")
                 } else {
                     error_text
                 }),
             ));
         }
-        facts.push(J::Obj(vec![
-            (encode_units("type"), J::Str(encode_units("item.upsert"))),
-            (encode_units("agent"), J::Str(agent.to_vec())),
-            (encode_units("item"), J::Str(call.clone())),
+        facts.push(Value::from(vec![
             (
-                encode_units("draft"),
-                J::Obj(vec![
-                    (encode_units("type"), J::Str(encode_units("tool_call"))),
-                    (encode_units("complete"), J::Bool(terminal)),
-                    (encode_units("call"), J::Obj(call_view)),
+                JsString::from("type"),
+                Value::String(JsString::from("item.upsert")),
+            ),
+            (JsString::from("agent"), Value::String(agent.clone())),
+            (JsString::from("item"), Value::String(call.clone())),
+            (
+                JsString::from("draft"),
+                Value::from(vec![
+                    (
+                        JsString::from("type"),
+                        Value::String(JsString::from("tool_call")),
+                    ),
+                    (JsString::from("complete"), Value::Bool(terminal)),
+                    (JsString::from("call"), Value::from(call_view)),
                 ]),
             ),
         ]));
         if event.and_then(|event| event.raw).is_some() {
             facts.push(notice(
-                &encode_units(
+                &JsString::from(
                     "SDK semantic preview is bounded; full redacted raw data is retained in the referenced blob",
                 ),
                 envelope,
                 "warning",
             ));
         }
-        let truncation = native.get("truncated").unwrap_or(&J::Null);
-        if matches!(truncation.get("args"), Some(J::Bool(true)))
-            || matches!(truncation.get("result"), Some(J::Bool(true)))
+        let truncation = native.get("truncated").unwrap_or(&Value::Null);
+        if matches!(truncation.get("args"), Some(Value::Bool(true)))
+            || matches!(truncation.get("result"), Some(Value::Bool(true)))
         {
             facts.push(notice(
-                &encode_units("Cursor SDK tool args/result were truncated by the SDK"),
+                &JsString::from("Cursor SDK tool args/result were truncated by the SDK"),
                 envelope,
                 "warning",
             ));
         }
-        let result_value = result.get("value").unwrap_or(&J::Null);
+        let result_value = result.get("value").unwrap_or(&Value::Null);
         if tool_kind(&name) == "shell"
             && terminal
             && !self.calls.get(&call).ok_or(BudgetError::Exceeded)?.output
-            && !matches!(body.get("aceOutputStream"), Some(J::Bool(true)))
+            && !matches!(body.get("aceOutputStream"), Some(Value::Bool(true)))
         {
-            let mut output = string(result_value.get("stdout").unwrap_or(&J::Null))
-                .unwrap_or(&[])
-                .to_vec();
-            output.extend_from_slice(
-                string(result_value.get("stderr").unwrap_or(&J::Null)).unwrap_or(&[]),
+            let mut output = string(result_value.get("stdout").unwrap_or(&Value::Null))
+                .unwrap_or(JsString::empty())
+                .clone();
+            output.push_js(
+                string(result_value.get("stderr").unwrap_or(&Value::Null))
+                    .unwrap_or(JsString::empty()),
             );
             if !output.is_empty() {
-                facts.push(J::Obj(vec![
-                    (encode_units("type"), J::Str(encode_units("item.delta"))),
-                    (encode_units("agent"), J::Str(agent.to_vec())),
-                    (encode_units("item"), J::Str(call.clone())),
-                    (encode_units("field"), J::Str(encode_units("output"))),
-                    (encode_units("append"), J::Str(output)),
+                facts.push(Value::from(vec![
+                    (
+                        JsString::from("type"),
+                        Value::String(JsString::from("item.delta")),
+                    ),
+                    (JsString::from("agent"), Value::String(agent.clone())),
+                    (JsString::from("item"), Value::String(call.clone())),
+                    (
+                        JsString::from("field"),
+                        Value::String(JsString::from("output")),
+                    ),
+                    (JsString::from("append"), Value::String(output)),
                 ]));
                 self.calls
                     .get_mut(&call)

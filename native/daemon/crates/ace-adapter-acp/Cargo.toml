@@ -23,8 +23,9 @@ agent-client-protocol = "5"
 ace-core = { path = "../ace-core" }
 # serde: translator state and quirks serialize for tests and diagnostics.
 serde = { version = "1", features = ["derive"] }
-# serde_json: frames keep each message's encoding as Box<RawValue>; facts are built as JSON matching TypeScript field for field.
-serde_json = { version = "1", features = ["raw_value", "preserve_order"] }
+# ace-json: provider frames and facts as JavaScript-exact JSON (JSON.parse and
+# JSON.stringify semantics, no recursion, raw splices).
+ace-json = { path = "../ace-json" }
 # sha2: error and shell-output digests are SHA-256 hex, the same digest TypeScript records.
 sha2 = { version = "0.11" }
 # indexmap: translator maps and sets keep TypeScript insertion order so fact order matches.

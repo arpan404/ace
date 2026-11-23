@@ -2,7 +2,7 @@
 //! Turn bookkeeping on translator state (split from `state.rs`).
 
 use super::state::ADAPTER_WARNING;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::json::{get, object, raw, raw_named};
 use super::state::{ClaudeState, NativeTask};
@@ -40,9 +40,9 @@ impl ClaudeState {
             Value::Object(map) => map,
             _ => Map::new(),
         };
-        obj.insert("event".to_owned(), Value::String(event.to_owned()));
+        obj.insert("event".to_owned(), Value::from(event.to_owned()));
         let mut map = Map::with_capacity(2);
-        map.insert("type".to_owned(), Value::String(ADAPTER_WARNING.to_owned()));
+        map.insert("type".to_owned(), Value::from(ADAPTER_WARNING.to_owned()));
         map.insert("data".to_owned(), Value::Object(obj));
         self.diagnostics.push(Value::Object(map));
     }
@@ -94,7 +94,7 @@ impl ClaudeState {
             None => raw(data),
         };
         let mut map = Map::with_capacity(1);
-        map.insert("raw".to_owned(), Value::Array(vec![payload]));
+        map.insert("raw".to_owned(), Value::from(vec![payload]));
         Value::Object(map)
     }
 

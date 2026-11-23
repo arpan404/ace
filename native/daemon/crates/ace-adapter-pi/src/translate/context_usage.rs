@@ -2,8 +2,6 @@
 //! Context-usage sampling, mirroring `context-usage.ts`. The message is a
 //! JSON string; it decodes through raw maps, never `Value` trees.
 
-use std::collections::HashMap;
-
 /// A validated Pi context sample.
 #[derive(Debug, Clone)]
 pub struct ContextSample {
@@ -18,9 +16,9 @@ pub fn pi_context_sample(message: Option<&str>) -> Option<ContextSample> {
     if text.encode_utf16().count() > 4096 {
         return None;
     }
-    let map: HashMap<String, Box<serde_json::value::RawValue>> = serde_json::from_str(text).ok()?;
+    let map = super::native::parse_object_text(text)?;
     let type_raw = map.get("type")?;
-    let type_name: String = serde_json::from_str(type_raw.get()).ok()?;
+    let type_name: String = super::native::raw_as_str(type_raw)?;
     if type_name != "ace_context_usage" {
         return None;
     }
@@ -31,7 +29,7 @@ pub fn pi_context_sample(message: Option<&str>) -> Option<ContextSample> {
     }
     let model = match map.get("model") {
         Some(raw) => {
-            let model: String = serde_json::from_str(raw.get()).ok()?;
+            let model: String = super::native::raw_as_str(raw)?;
             if model.is_empty() || model.encode_utf16().count() > 1024 {
                 return None;
             }
@@ -46,10 +44,10 @@ pub fn pi_context_sample(message: Option<&str>) -> Option<ContextSample> {
     })
 }
 
-fn count_field(map: &HashMap<String, Box<serde_json::value::RawValue>>, key: &str) -> Option<u64> {
+fn count_field(map: &super::native::Fields, key: &str) -> Option<u64> {
     let raw = map.get(key)?;
     // Numbers only: strings, bools and null read as missing, mirroring zod.
-    let value: u64 = serde_json::from_str(raw.get()).ok()?;
+    let value: u64 = super::native::raw_as_u64(raw)?;
     const MAX_SAFE: u64 = 9_007_199_254_740_991;
     if value <= MAX_SAFE { Some(value) } else { None }
 }

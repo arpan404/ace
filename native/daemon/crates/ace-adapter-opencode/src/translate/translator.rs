@@ -7,8 +7,8 @@
 use crate::translate::data::Num;
 use crate::translate::data::{fields, s_in};
 use crate::translate::state::{NativeState, Out, StateError};
+use ace_json::{Map, Value};
 use serde::Serialize;
-use serde_json::{Map, Value};
 use std::collections::HashSet;
 
 pub(crate) const MAX_SAFE: f64 = 9_007_199_254_740_991.0;
@@ -29,12 +29,10 @@ pub(crate) enum OwnedDatum {
 impl Serialize for OwnedDatum {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
-            OwnedDatum::Verbatim(text) => {
-                match serde_json::from_str::<Box<serde_json::value::RawValue>>(text) {
-                    Ok(raw) => raw.serialize(serializer),
-                    Err(_) => serializer.serialize_none(),
-                }
-            }
+            OwnedDatum::Verbatim(text) => match ace_json::Raw::from_json(text) {
+                Ok(raw) => raw.serialize(serializer),
+                Err(_) => serializer.serialize_none(),
+            },
             OwnedDatum::Owned(value) => value.serialize(serializer),
         }
     }
@@ -74,11 +72,11 @@ impl Translator {
         out: &mut String,
     ) {
         out.push('[');
-        let root_value: Value = serde_json::from_str(frame_json).unwrap_or(Value::Null);
+        let root_value: Value = ace_json::parse(frame_json).unwrap_or(Value::Null);
         let root = fields(&root_value);
         let channel = s_in(root, "channel").to_owned();
         let dir = s_in(root, "dir").to_owned();
-        let data_value: Value = serde_json::from_str(data_json).unwrap_or(Value::Null);
+        let data_value: Value = ace_json::parse(data_json).unwrap_or(Value::Null);
         let data = fields(&data_value);
         self.diagnostics = vec![Diagnostic {
             typ: if s_in(data, "type").is_empty() {
@@ -104,17 +102,17 @@ impl Translator {
                     let mut warning = Map::new();
                     warning.insert(
                         String::from("event"),
-                        Value::String(String::from("translation-failed")),
+                        Value::from(String::from("translation-failed")),
                     );
                     warning.insert(
                         String::from("detail"),
-                        Value::String(String::from(
+                        Value::from(String::from(
                             "OpenCode data could not be translated; execution remains uncertain.",
                         )),
                     );
                     warning.insert(
                         String::from("frame"),
-                        Value::String(if s_in(data, "type").is_empty() {
+                        Value::from(if s_in(data, "type").is_empty() {
                             channel
                         } else {
                             s_in(data, "type").to_owned()
@@ -151,7 +149,7 @@ impl Translator {
                 typ: &diagnostic.typ,
                 data: &diagnostic.data,
             };
-            match serde_json::to_string(&json) {
+            match ace_json::ser::to_string(&json) {
                 Ok(text) => out.push_str(&text),
                 Err(_) => break,
             }
@@ -170,7 +168,7 @@ impl Translator {
             Some(messages) => messages.keys().map(String::as_str).collect(),
             None => Vec::new(),
         };
-        match serde_json::to_string(&messages) {
+        match ace_json::ser::to_string(&messages) {
             Ok(text) => out.push_str(&text),
             Err(_) => out.push_str("[]"),
         }

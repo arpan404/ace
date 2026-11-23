@@ -2,7 +2,7 @@
 //! Live methods: thread starts, names, interactive requests and turns.
 
 use ace_core::Fact;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::ParsedFrame;
 use super::facts::fact;
@@ -62,7 +62,7 @@ pub fn handle_method(
         return;
     }
     let native = match p.get("threadId") {
-        Some(Value::String(s)) => s.clone(),
+        Some(Value::String(s)) => s.to_string(),
         _ => translator.root.clone(),
     };
     if native.is_empty() {
@@ -104,15 +104,15 @@ pub fn handle_method(
         if !translator.unknown_guard {
             translator.unknown_guard = true;
             let mut body = Map::with_capacity(7);
-            body.insert("agent".to_owned(), Value::String(root));
+            body.insert("agent".to_owned(), Value::from(root));
             body.insert(
                 "task".to_owned(),
-                Value::String("codex:unknown-threads".to_owned()),
+                Value::from("codex:unknown-threads".to_owned()),
             );
-            body.insert("kind".to_owned(), Value::String("other".to_owned()));
+            body.insert("kind".to_owned(), Value::from("other".to_owned()));
             body.insert(
                 "title".to_owned(),
-                Value::String("Thread discovery".to_owned()),
+                Value::from("Thread discovery".to_owned()),
             );
             body.insert("internal".to_owned(), Value::Bool(true));
             body.insert("stoppable".to_owned(), Value::Bool(false));
@@ -136,7 +136,7 @@ pub fn handle_method(
         .unwrap_or_default();
     {
         let mut body = Map::with_capacity(1);
-        body.insert("agent".to_owned(), Value::String(agent_key.clone()));
+        body.insert("agent".to_owned(), Value::from(agent_key.clone()));
         facts.push(fact("signal", body));
     }
     if is_interactive_request(&method) {
@@ -189,9 +189,9 @@ pub fn handle_method(
             let mut body = Map::with_capacity(2);
             body.insert(
                 "interaction".to_owned(),
-                Value::String(format!("status:{native}")),
+                Value::from(format!("status:{native}")),
             );
-            body.insert("state".to_owned(), Value::String("cancelled".to_owned()));
+            body.insert("state".to_owned(), Value::from("cancelled".to_owned()));
             facts.push(fact("interaction.closed", body));
         }
         return;
@@ -199,8 +199,8 @@ pub fn handle_method(
     if method == "serverRequest/resolved" {
         let key = translator.interaction_key(p.get("requestId").unwrap_or(&Value::Null));
         let mut body = Map::with_capacity(2);
-        body.insert("interaction".to_owned(), Value::String(key.clone()));
-        body.insert("state".to_owned(), Value::String("resolved".to_owned()));
+        body.insert("interaction".to_owned(), Value::from(key.clone()));
+        body.insert("state".to_owned(), Value::from("resolved".to_owned()));
         facts.push(fact("interaction.closed", body));
         let (item, should_upsert) = match translator.agents.get(&native) {
             Some(agent) => match agent.requests.get(&key) {
@@ -215,14 +215,14 @@ pub fn handle_method(
         };
         if should_upsert {
             let mut call = Map::with_capacity(1);
-            call.insert("status".to_owned(), Value::String("succeeded".to_owned()));
+            call.insert("status".to_owned(), Value::from("succeeded".to_owned()));
             let mut draft = Map::with_capacity(3);
-            draft.insert("type".to_owned(), Value::String("tool_call".to_owned()));
+            draft.insert("type".to_owned(), Value::from("tool_call".to_owned()));
             draft.insert("complete".to_owned(), Value::Bool(true));
             draft.insert("call".to_owned(), Value::Object(call));
             let mut body = Map::with_capacity(3);
-            body.insert("agent".to_owned(), Value::String(agent_key.clone()));
-            body.insert("item".to_owned(), Value::String(item.clone()));
+            body.insert("agent".to_owned(), Value::from(agent_key.clone()));
+            body.insert("item".to_owned(), Value::from(item.clone()));
             body.insert("draft".to_owned(), Value::Object(draft));
             facts.push(fact("item.upsert", body));
         }
@@ -248,8 +248,8 @@ fn frame_to_value(frame: &ParsedFrame) -> Value {
     // The buffered frame replays through `handle`; keep its wire shape minimal
     // but sufficient: dir, channel and data. TS buffers the whole Frame.
     let mut map = Map::with_capacity(4);
-    map.insert("dir".to_owned(), Value::String(frame.dir.clone()));
-    map.insert("channel".to_owned(), Value::String(frame.channel.clone()));
+    map.insert("dir".to_owned(), Value::from(frame.dir.clone()));
+    map.insert("channel".to_owned(), Value::from(frame.channel.clone()));
     map.insert("data".to_owned(), frame.data.clone());
     Value::Object(map)
 }

@@ -2,7 +2,7 @@
 //! Background tasks (the port of `tasks.ts`).
 //! A subagent goes by the task Claude was given for it.
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::json::{object, str_of};
 use super::state::{ChildIdentity, ClaudeState, NativeTask};
@@ -114,18 +114,18 @@ fn background_started(
     let mut map = Map::with_capacity(9);
     map.insert(
         "type".to_owned(),
-        Value::String("background.started".to_owned()),
+        Value::from("background.started".to_owned()),
     );
-    map.insert("agent".to_owned(), Value::String(task.owner.clone()));
-    map.insert("task".to_owned(), Value::String(state.key("task", id)));
-    map.insert("kind".to_owned(), Value::String(kind.to_owned()));
-    map.insert("title".to_owned(), Value::String(title.to_owned()));
+    map.insert("agent".to_owned(), Value::from(task.owner.clone()));
+    map.insert("task".to_owned(), Value::from(state.key("task", id)));
+    map.insert("kind".to_owned(), Value::from(kind.to_owned()));
+    map.insert("title".to_owned(), Value::from(title.to_owned()));
     map.insert("stoppable".to_owned(), Value::Bool(true));
     if let Some(item) = &task.item {
-        map.insert("item".to_owned(), Value::String(item.clone()));
+        map.insert("item".to_owned(), Value::from(item.clone()));
     }
     if let Some(child) = &task.child {
-        map.insert("childAgent".to_owned(), Value::String(child.clone()));
+        map.insert("childAgent".to_owned(), Value::from(child.clone()));
     }
     let ambient = object(&task.data).get("ambient") == Some(&Value::Bool(true));
     map.insert("ambient".to_owned(), Value::Bool(ambient));
@@ -134,7 +134,7 @@ fn background_started(
     }
     map.insert(
         "raw".to_owned(),
-        Value::Array(vec![super::json::raw(original)]),
+        Value::from(vec![super::json::raw(original)]),
     );
     // Key order in TypeScript: type, agent, task, kind, title, stoppable,
     // item?, childAgent?, ambient, outputPath?, raw. Rebuild in order.
@@ -214,8 +214,8 @@ pub fn background_output(state: &mut ClaudeState, data: &Value, output: &str) {
         return;
     }
     let mut patch = Map::new();
-    patch.insert("task_id".to_owned(), Value::String(id.clone()));
-    patch.insert("output_file".to_owned(), Value::String(path));
+    patch.insert("task_id".to_owned(), Value::from(id.clone()));
+    patch.insert("output_file".to_owned(), Value::from(path));
     register(state, &Value::Object(patch), true);
 }
 
@@ -269,9 +269,9 @@ pub(crate) fn background_ended(task: &str, status: &str) -> Value {
     let mut map = Map::with_capacity(3);
     map.insert(
         "type".to_owned(),
-        Value::String("background.ended".to_owned()),
+        Value::from("background.ended".to_owned()),
     );
-    map.insert("task".to_owned(), Value::String(task.to_owned()));
-    map.insert("status".to_owned(), Value::String(status.to_owned()));
+    map.insert("task".to_owned(), Value::from(task.to_owned()));
+    map.insert("status".to_owned(), Value::from(status.to_owned()));
     Value::Object(map)
 }

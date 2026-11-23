@@ -2,7 +2,7 @@
 //! Native subscription rate limits (the port of `rate-limits.ts`).
 //! No invented token limit or model entitlement.
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::json::object;
 use super::state::ClaudeState;
@@ -37,7 +37,7 @@ fn parse_observation(info: &Value) -> Option<Observation> {
             if s.chars().count() > 256 {
                 return None;
             }
-            Some(s.clone())
+            Some(s.to_string())
         }
         Some(_) => return None,
     };
@@ -63,7 +63,7 @@ fn parse_observation(info: &Value) -> Option<Observation> {
     };
     let overage_status = match obj.get("overageStatus") {
         None | Some(Value::Null) => None,
-        Some(Value::String(s)) => Some(s.clone()),
+        Some(Value::String(s)) => Some(s.to_string()),
         Some(_) => return None,
     };
     if let Some(v) = obj.get("overageResetsAt")
@@ -153,10 +153,10 @@ pub fn clear_retry(state: &mut ClaudeState) {
 
 fn retry_fact(root: &str, on: &str, message: &str, until: Option<i64>) -> Value {
     let mut map = Map::with_capacity(5);
-    map.insert("type".to_owned(), Value::String("retry".to_owned()));
-    map.insert("agent".to_owned(), Value::String(root.to_owned()));
-    map.insert("on".to_owned(), Value::String(on.to_owned()));
-    map.insert("message".to_owned(), Value::String(message.to_owned()));
+    map.insert("type".to_owned(), Value::from("retry".to_owned()));
+    map.insert("agent".to_owned(), Value::from(root.to_owned()));
+    map.insert("on".to_owned(), Value::from(on.to_owned()));
+    map.insert("message".to_owned(), Value::from(message.to_owned()));
     if let Some(at) = until {
         map.insert("until".to_owned(), Value::Number(at.into()));
     }
@@ -165,14 +165,14 @@ fn retry_fact(root: &str, on: &str, message: &str, until: Option<i64>) -> Value 
 
 fn limit_cleared(root: &str) -> Value {
     let mut map = Map::with_capacity(2);
-    map.insert("type".to_owned(), Value::String("limit.cleared".to_owned()));
-    map.insert("agent".to_owned(), Value::String(root.to_owned()));
+    map.insert("type".to_owned(), Value::from("limit.cleared".to_owned()));
+    map.insert("agent".to_owned(), Value::from(root.to_owned()));
     Value::Object(map)
 }
 
 fn retry_cleared(root: &str) -> Value {
     let mut map = Map::with_capacity(2);
-    map.insert("type".to_owned(), Value::String("retry.cleared".to_owned()));
-    map.insert("agent".to_owned(), Value::String(root.to_owned()));
+    map.insert("type".to_owned(), Value::from("retry.cleared".to_owned()));
+    map.insert("agent".to_owned(), Value::from(root.to_owned()));
     Value::Object(map)
 }

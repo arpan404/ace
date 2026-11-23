@@ -2,7 +2,7 @@
 //! Send frames: remember the request so the reply can be correlated.
 
 use ace_core::Fact;
-use serde_json::Value;
+use ace_json::Value;
 
 use super::ParsedFrame;
 use super::helpers::{obj_map, str_empty};
@@ -16,11 +16,11 @@ pub fn handle_send(translator: &mut CodexTranslator, frame: &ParsedFrame, _facts
         if let Some(id_value) = id {
             let p = map.get("params").map(obj_map).cloned().unwrap_or_default();
             let lookup = match p.get("threadId") {
-                Some(Value::String(s)) => s.clone(),
+                Some(Value::String(s)) => s.to_string(),
                 _ => String::new(),
             };
             let native_param = match p.get("threadId") {
-                Some(Value::String(s)) => s.clone(),
+                Some(Value::String(s)) => s.to_string(),
                 _ => translator.root.clone(),
             };
             let observed_turn = translator

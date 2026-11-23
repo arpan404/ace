@@ -6,9 +6,9 @@
 
 use crate::translate::data::s_in;
 use crate::translate::state::{NativeState, Out, StateError};
+use ace_json::Map;
 use indexmap::IndexMap;
 use serde::Serialize;
-use serde_json::{Map, Value};
 
 #[derive(Serialize)]
 struct BackgroundStarted<'a> {
@@ -225,7 +225,7 @@ impl NativeState {
     /// Fold a synthetic completion into the child or shell it reports.
     pub fn completion(
         &mut self,
-        metadata: &Map<String, Value>,
+        metadata: &Map,
         created: f64,
         out: &mut Out<'_>,
     ) -> Result<(), StateError> {

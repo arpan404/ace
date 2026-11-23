@@ -2,14 +2,14 @@
 //! Dynamic provider data helpers (`data.ts`): read without copying,
 //! build raw payloads with TypeScript field order.
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 use std::sync::LazyLock;
 
-static EMPTY_MAP: LazyLock<Map<String, Value>> = LazyLock::new(Map::new);
+static EMPTY_MAP: LazyLock<Map> = LazyLock::new(Map::new);
 static EMPTY_LIST: LazyLock<Vec<Value>> = LazyLock::new(Vec::new);
 
 /// The value as an object, or the shared empty one.
-pub fn object(value: &Value) -> &Map<String, Value> {
+pub fn object(value: &Value) -> &Map {
     match value {
         Value::Object(map) => map,
         _ => &EMPTY_MAP,
@@ -35,10 +35,10 @@ pub fn list(value: &Value) -> &[Value] {
 /// A raw payload with TypeScript field order: type, data, then name.
 pub fn raw(data: &Value, typ: &str, name: Option<&str>) -> Value {
     let mut map = Map::with_capacity(3);
-    map.insert("type".to_owned(), Value::String(typ.to_owned()));
+    map.insert("type".to_owned(), Value::from(typ.to_owned()));
     map.insert("data".to_owned(), data.clone());
     if let Some(name) = name {
-        map.insert("name".to_owned(), Value::String(name.to_owned()));
+        map.insert("name".to_owned(), Value::from(name.to_owned()));
     }
     Value::Object(map)
 }
@@ -79,7 +79,7 @@ impl RpcId {
 /// Read an RPC id like the TypeScript `rpcId` helper.
 pub fn rpc_id(value: &Value) -> Option<RpcId> {
     match value {
-        Value::String(text) => Some(RpcId::Str(text.clone())),
+        Value::String(text) => Some(RpcId::Str(String::from(text.clone()))),
         Value::Number(number) => {
             if let Some(n) = number.as_i64() {
                 Some(RpcId::Int(n))
@@ -111,7 +111,7 @@ pub fn rpc_id(value: &Value) -> Option<RpcId> {
 #[cfg(test)]
 mod tests {
     use super::{RpcId, list, object, raw, rpc_id, string};
-    use serde_json::json;
+    use ace_json::json;
 
     #[test]
     fn non_objects_read_as_empty_without_copying_shape() {
@@ -124,7 +124,7 @@ mod tests {
     #[test]
     fn raw_orders_type_data_then_name() {
         let payload = raw(&json!({"a": 1}), "session/update", Some("n"));
-        let text = serde_json::to_string(&payload).unwrap_or_default();
+        let text = ace_json::ser::to_string(&payload).unwrap_or_default();
         assert_eq!(
             text,
             r#"{"type":"session/update","data":{"a":1},"name":"n"}"#

@@ -2,7 +2,7 @@
 //! Deltas: streaming text, reasoning and command output.
 
 use ace_core::Fact;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::facts::{fact, raw_payload};
 use super::helpers::{obj_map, str_empty};
@@ -20,16 +20,16 @@ fn delta_field(method: &str) -> Option<&'static str> {
 
 fn retry_cleared(agent_key: &str) -> Fact {
     let mut body = Map::with_capacity(1);
-    body.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
+    body.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
     fact("retry.cleared", body)
 }
 
 fn item_delta(agent_key: &str, item: &str, field: &str, append: &str) -> Fact {
     let mut body = Map::with_capacity(4);
-    body.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
-    body.insert("item".to_owned(), Value::String(item.to_owned()));
-    body.insert("field".to_owned(), Value::String(field.to_owned()));
-    body.insert("append".to_owned(), Value::String(append.to_owned()));
+    body.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
+    body.insert("item".to_owned(), Value::from(item.to_owned()));
+    body.insert("field".to_owned(), Value::from(field.to_owned()));
+    body.insert("append".to_owned(), Value::from(append.to_owned()));
     fact("item.delta", body)
 }
 
@@ -113,17 +113,14 @@ pub fn translate_delta(
         {
             facts.push(item_delta(&agent_key, &item, "output", &append));
             let mut body = Map::with_capacity(7);
-            body.insert("agent".to_owned(), Value::String(agent_key.clone()));
+            body.insert("agent".to_owned(), Value::from(agent_key.clone()));
             body.insert(
                 "task".to_owned(),
-                Value::String(super::helpers::shell_key(&item)),
+                Value::from(super::helpers::shell_key(&item)),
             );
-            body.insert("item".to_owned(), Value::String(item.clone()));
-            body.insert("kind".to_owned(), Value::String("shell".to_owned()));
-            body.insert(
-                "title".to_owned(),
-                Value::String("Command output".to_owned()),
-            );
+            body.insert("item".to_owned(), Value::from(item.clone()));
+            body.insert("kind".to_owned(), Value::from("shell".to_owned()));
+            body.insert("title".to_owned(), Value::from("Command output".to_owned()));
             body.insert("stoppable".to_owned(), Value::Bool(true));
             facts.push(fact("background.started", body));
             return;
@@ -135,10 +132,10 @@ pub fn translate_delta(
                 .is_some_and(|a| a.completed.has(&item));
             if !completed_has {
                 let mut data = Map::with_capacity(6);
-                data.insert("id".to_owned(), Value::String(item.clone()));
+                data.insert("id".to_owned(), Value::from(item.clone()));
                 data.insert(
                     "type".to_owned(),
-                    Value::String(
+                    Value::from(
                         if field == Some("output") {
                             "commandExecution"
                         } else {
@@ -147,9 +144,12 @@ pub fn translate_delta(
                         .to_owned(),
                     ),
                 );
-                data.insert("command".to_owned(), Value::String(String::new()));
-                data.insert("commandActions".to_owned(), Value::Array(Vec::new()));
-                data.insert("text".to_owned(), Value::String(String::new()));
+                data.insert("command".to_owned(), Value::from(String::new()));
+                data.insert(
+                    "commandActions".to_owned(),
+                    Value::Array(ace_json::Array::new()),
+                );
+                data.insert("text".to_owned(), Value::from(String::new()));
                 let draft = item_draft(&data, false, &Value::Object(data.clone()));
                 if let Some(agent) = translator.agents.get_mut(agent_native) {
                     agent.open.insert(
@@ -164,8 +164,8 @@ pub fn translate_delta(
                     agent.items.add(item.clone());
                 }
                 let mut body = Map::with_capacity(3);
-                body.insert("agent".to_owned(), Value::String(agent_key.clone()));
-                body.insert("item".to_owned(), Value::String(item.clone()));
+                body.insert("agent".to_owned(), Value::from(agent_key.clone()));
+                body.insert("item".to_owned(), Value::from(item.clone()));
                 body.insert("draft".to_owned(), draft);
                 // `item.reconciled` for output, `item.upsert` for plan, as TS does.
                 let fact_type = if field == Some("output") {
@@ -208,13 +208,13 @@ pub fn translate_delta(
                     .unwrap_or("")
                     .to_owned();
                 let mut draft = Map::with_capacity(4);
-                draft.insert("type".to_owned(), Value::String("notice".to_owned()));
-                draft.insert("level".to_owned(), Value::String("info".to_owned()));
-                draft.insert("text".to_owned(), Value::String(text));
+                draft.insert("type".to_owned(), Value::from("notice".to_owned()));
+                draft.insert("level".to_owned(), Value::from("info".to_owned()));
+                draft.insert("text".to_owned(), Value::from(text));
                 draft.insert("complete".to_owned(), Value::Bool(false));
                 let mut body = Map::with_capacity(3);
-                body.insert("agent".to_owned(), Value::String(agent_key.clone()));
-                body.insert("item".to_owned(), Value::String(stream.clone()));
+                body.insert("agent".to_owned(), Value::from(agent_key.clone()));
+                body.insert("item".to_owned(), Value::from(stream.clone()));
                 body.insert("draft".to_owned(), Value::Object(draft));
                 facts.push(fact("item.upsert", body));
                 if let Some(agent) = translator.agents.get_mut(agent_native)

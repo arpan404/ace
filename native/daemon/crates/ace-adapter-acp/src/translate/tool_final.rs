@@ -6,7 +6,7 @@ use crate::translate::quirks::QuirksKind;
 use crate::translate::state::ToolState;
 use crate::translate::tool_raw::complete_tool_raw;
 use crate::translate::tools::tool_detail;
-use serde_json::Value;
+use ace_json::Value;
 
 /// Every path picks MCP arguments from collected input once finalized.
 pub fn current_tool_detail(tool: &ToolState, quirks: QuirksKind) -> Value {

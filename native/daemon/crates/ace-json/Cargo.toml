@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-json"
+description = "JSON exactly as JavaScript's JSON.parse and JSON.stringify see it, for every daemon crate"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# indexmap: objects keep JavaScript's property order (insertion order after the array-index
+# keys) with hashed lookups; `shift_*` removal keeps the remaining order, as `delete` does.
+indexmap = { version = "2" }
+# foldhash: the objects' key hasher; fast on short keys, seeded per process.
+foldhash = { version = "0.2" }
+# ryu-js: Number::toString for f64 (shortest round-trip digits, ECMAScript exponent rules),
+# so serialized numbers are byte-identical to JSON.stringify.
+ryu-js = { version = "1" }
+# serde: a Serializer that writes JSON.stringify's bytes, for crates that build facts from
+# derived structs; Raw text splices into it verbatim.
+serde = { version = "1" }
+
+[dev-dependencies]
+# serde derive: the serializer test derives a struct.
+serde = { version = "1", features = ["derive"] }

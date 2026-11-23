@@ -2,17 +2,17 @@
 //! Provider errors (the port of `provider-error.ts`).
 //! Pure mapping from Claude's error code and text to an agent error.
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 pub fn claude_error(code: &str, text: &str, model: Option<&str>) -> Value {
     let mut reported = model.map(|s| s.to_owned());
     let start = text.find('{').unwrap_or(text.len());
     let json = &text[start..];
-    if let Ok(parsed) = serde_json::from_str::<Value>(json)
+    if let Ok(parsed) = ace_json::parse(json)
         && let Some(Value::String(m)) = parsed.get("model")
         && !m.is_empty()
     {
-        reported = Some(m.clone());
+        reported = Some(String::from(m.clone()));
     }
     if code == "unrecognized_model" || code == "model_not_found" {
         let title = match &reported {
@@ -88,11 +88,11 @@ fn error_value(
     details: Option<Value>,
 ) -> Value {
     let mut map = Map::with_capacity(6);
-    map.insert("kind".to_owned(), Value::String(kind.to_owned()));
-    map.insert("code".to_owned(), Value::String(code.to_owned()));
-    map.insert("title".to_owned(), Value::String(title.to_owned()));
-    map.insert("message".to_owned(), Value::String(message.to_owned()));
-    map.insert("detail".to_owned(), Value::String(detail.to_owned()));
+    map.insert("kind".to_owned(), Value::from(kind.to_owned()));
+    map.insert("code".to_owned(), Value::from(code.to_owned()));
+    map.insert("title".to_owned(), Value::from(title.to_owned()));
+    map.insert("message".to_owned(), Value::from(message.to_owned()));
+    map.insert("detail".to_owned(), Value::from(detail.to_owned()));
     if let Some(d) = details {
         map.insert("details".to_owned(), d);
     }

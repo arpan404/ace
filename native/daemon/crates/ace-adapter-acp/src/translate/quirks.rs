@@ -4,7 +4,7 @@
 //! binding, so the shell names one of these and Rust implements it.
 
 use crate::translate::data::{object, string};
-use serde_json::Value;
+use ace_json::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QuirksKind {
@@ -75,12 +75,12 @@ impl QuirksKind {
 }
 
 fn error_object(kind: &str, code: Option<&str>, message: &str) -> Value {
-    let mut map = serde_json::Map::with_capacity(3);
-    map.insert("kind".to_owned(), Value::String(kind.to_owned()));
+    let mut map = ace_json::Map::with_capacity(3);
+    map.insert("kind".to_owned(), Value::from(kind.to_owned()));
     if let Some(code) = code {
-        map.insert("code".to_owned(), Value::String(code.to_owned()));
+        map.insert("code".to_owned(), Value::from(code.to_owned()));
     }
-    map.insert("message".to_owned(), Value::String(message.to_owned()));
+    map.insert("message".to_owned(), Value::from(message.to_owned()));
     Value::Object(map)
 }
 

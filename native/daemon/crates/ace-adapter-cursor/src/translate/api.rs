@@ -3,8 +3,8 @@
 //! JSON in, its facts' JSON out, through one preallocated output buffer.
 //! Behaviour lives in the translator; this only translates values.
 
-use super::json::{J, write_json};
-use super::parse::parse_json;
+use super::text::parse_json;
+use super::text::{JsString, Value, write_json};
 use super::translator::CursorTranslator;
 
 /// Fold one frame's JSON into its facts' JSON array.
@@ -14,19 +14,16 @@ pub fn translate_json(translator: &mut CursorTranslator, frame_json: &str, now_m
         // Undecodable input fences the turn, as the TypeScript's throw does.
         Err(_) => return join_values(&translator.overflowed()),
     };
-    let data = frame.get("data").unwrap_or(&J::Null);
-    let checked = matches!(frame.get("checked"), Some(J::Bool(true)));
-    let seq = frame
-        .get("seq")
-        .and_then(|seq| seq.as_int().ok())
-        .unwrap_or(0);
+    let data = frame.get("data").unwrap_or(&Value::Null);
+    let checked = matches!(frame.get("checked"), Some(Value::Bool(true)));
+    let seq = frame.get("seq").and_then(|seq| seq.as_i64()).unwrap_or(0);
     let channel = match frame.get("channel") {
-        Some(J::Str(channel)) => channel.as_slice(),
-        _ => &[],
+        Some(Value::String(channel)) => channel,
+        _ => JsString::empty(),
     };
     let dir = match frame.get("dir") {
-        Some(J::Str(dir)) => dir.as_slice(),
-        _ => &[],
+        Some(Value::String(dir)) => dir,
+        _ => JsString::empty(),
     };
     if !checked && admission_exceeded(data) {
         return join_values(&translator.overflowed());
@@ -50,7 +47,7 @@ pub fn next_deadline_json() -> String {
 }
 
 /// One preallocated buffer for the facts array; values serialize, never re-encoded.
-fn join_values(values: &[J]) -> String {
+fn join_values(values: &[Value]) -> String {
     let mut out = String::with_capacity(values.len() * 128 + 2);
     out.push('[');
     for (index, value) in values.iter().enumerate() {
@@ -66,15 +63,15 @@ fn join_values(values: &[J]) -> String {
 /// Mirrors the shell's admission budgets on unadmitted frames: 1 MiB,
 /// 32,768 nodes, 64 levels. Past any of them the turn fences, as the
 /// TypeScript's throw does.
-fn admission_exceeded(value: &J) -> bool {
-    fn walk(value: &J, depth: usize, nodes: &mut usize) -> bool {
+fn admission_exceeded(value: &Value) -> bool {
+    fn walk(value: &Value, depth: usize, nodes: &mut usize) -> bool {
         *nodes += 1;
         if *nodes > 32_768 || depth > 64 {
             return true;
         }
         match value {
-            J::Arr(items) => items.iter().any(|item| walk(item, depth + 1, nodes)),
-            J::Obj(entries) => entries.iter().any(|(_, item)| walk(item, depth + 1, nodes)),
+            Value::Array(items) => items.iter().any(|item| walk(item, depth + 1, nodes)),
+            Value::Object(entries) => entries.iter().any(|(_, item)| walk(item, depth + 1, nodes)),
             _ => false,
         }
     }

@@ -2,8 +2,8 @@
 //! Native answers to validated resolutions (`interactions.ts` encode half).
 
 use crate::translate::approval::native_option_id;
-use crate::translate::data::{list, object, string};
-use serde_json::{Map, Value};
+use crate::translate::data::{list, object};
+use ace_json::{Map, Value};
 
 pub fn encode_resolution(
     method: &str,
@@ -12,7 +12,7 @@ pub fn encode_resolution(
     resolution: &Value,
     request: &Value,
 ) -> Option<Value> {
-    let published: Vec<Map<String, Value>> = list(
+    let published: Vec<Map> = list(
         object(published_params)
             .get("options")
             .unwrap_or(&Value::Null),
@@ -21,12 +21,11 @@ pub fn encode_resolution(
     .map(object)
     .cloned()
     .collect();
-    let native: Vec<Map<String, Value>> =
-        list(object(native_params).get("options").unwrap_or(&Value::Null))
-            .iter()
-            .map(object)
-            .cloned()
-            .collect();
+    let native: Vec<Map> = list(object(native_params).get("options").unwrap_or(&Value::Null))
+        .iter()
+        .map(object)
+        .cloned()
+        .collect();
     let native_for = |local: &str| {
         native_option_id(&published, &native, local).unwrap_or_else(|| local.to_owned())
     };
@@ -41,8 +40,8 @@ pub fn encode_resolution(
             .and_then(Value::as_str)
             .unwrap_or("");
         let mut outcome = Map::with_capacity(2);
-        outcome.insert("outcome".to_owned(), Value::String("selected".to_owned()));
-        outcome.insert("optionId".to_owned(), Value::String(native_for(option_id)));
+        outcome.insert("outcome".to_owned(), Value::from("selected".to_owned()));
+        outcome.insert("optionId".to_owned(), Value::from(native_for(option_id)));
         let mut out = Map::with_capacity(1);
         out.insert("outcome".to_owned(), Value::Object(outcome));
         return Some(Value::Object(out));
@@ -56,7 +55,7 @@ pub fn encode_resolution(
             let mut outcome = Map::with_capacity(1);
             outcome.insert(
                 "outcome".to_owned(),
-                Value::String(if method == "session/request_permission" {
+                Value::from(if method == "session/request_permission" {
                     "cancelled".to_owned()
                 } else {
                     "skipped".to_owned()
@@ -83,8 +82,8 @@ pub fn encode_resolution(
                 .and_then(Value::as_str)
                 .unwrap_or("");
             let mut outcome = Map::with_capacity(2);
-            outcome.insert("outcome".to_owned(), Value::String("selected".to_owned()));
-            outcome.insert("optionId".to_owned(), Value::String(native_for(selected)));
+            outcome.insert("outcome".to_owned(), Value::from("selected".to_owned()));
+            outcome.insert("optionId".to_owned(), Value::from(native_for(selected)));
             let mut out = Map::with_capacity(1);
             out.insert("outcome".to_owned(), Value::Object(outcome));
             return Some(Value::Object(out));
@@ -101,13 +100,13 @@ pub fn encode_resolution(
                     .collect();
                 let mut entry = Map::with_capacity(2);
                 entry.insert("questionId".to_owned(), Value::String(question_id.clone()));
-                entry.insert("selectedOptionIds".to_owned(), Value::Array(selected_ids));
+                entry.insert("selectedOptionIds".to_owned(), Value::from(selected_ids));
                 answers_out.push(Value::Object(entry));
             }
         }
         let mut outcome = Map::with_capacity(2);
-        outcome.insert("outcome".to_owned(), Value::String("answered".to_owned()));
-        outcome.insert("answers".to_owned(), Value::Array(answers_out));
+        outcome.insert("outcome".to_owned(), Value::from("answered".to_owned()));
+        outcome.insert("answers".to_owned(), Value::from(answers_out));
         let mut out = Map::with_capacity(1);
         out.insert("outcome".to_owned(), Value::Object(outcome));
         return Some(Value::Object(out));
@@ -123,7 +122,7 @@ pub fn encode_resolution(
             _ => "cancelled",
         };
         let mut outcome = Map::with_capacity(2);
-        outcome.insert("outcome".to_owned(), Value::String(outcome_text.to_owned()));
+        outcome.insert("outcome".to_owned(), Value::from(outcome_text.to_owned()));
         if let Some(Value::String(feedback)) = resolution_map.get("feedback") {
             outcome.insert("reason".to_owned(), Value::String(feedback.clone()));
         }

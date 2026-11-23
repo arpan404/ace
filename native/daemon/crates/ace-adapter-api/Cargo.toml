@@ -22,9 +22,9 @@ ace-protocol = { path = "../ace-protocol" }
 futures = { version = "0.3" }
 # serde: the adapter interface types serialize for tests and diagnostics.
 serde = { version = "1", features = ["derive"] }
-# serde_json: frames keep each message's encoding as Box<RawValue>; diagnostics
+# ace-json: frames keep each message's encoding as canonical Raw text; diagnostics
 # keep the redacted encoding without re-encoding it.
-serde_json = { version = "1", features = ["raw_value"] }
+ace-json = { path = "../ace-json" }
 # thiserror: one typed error enum for the crate, mapped in the binding.
 thiserror = { version = "2" }
 # base64: binary-elision measures the decoded bytes of base64 and data-URL strings.

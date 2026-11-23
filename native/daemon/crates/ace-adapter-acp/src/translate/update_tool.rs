@@ -11,7 +11,7 @@ use crate::translate::tool_raw::retain_tool_raw;
 use crate::translate::tool_text::{merge_tool_data, tool_error};
 use crate::translate::tools::{tool_detail, tool_status};
 use crate::translate::update::error_key;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 /// Handle `tool_call` and `tool_call_update`. Returns true when handled.
 pub fn handle_tool_call(
@@ -78,7 +78,7 @@ pub fn handle_tool_call(
         new_key
     };
     // Pending child linkage.
-    let pending_lookup = serde_json::to_string(&(agent_key, id.clone())).unwrap_or_default();
+    let pending_lookup = ace_json::ser::to_string(&(agent_key, id.clone())).unwrap_or_default();
     let pending_child = state.pending_children.get(&pending_lookup).cloned();
     if let Some(child_native) = pending_child.clone() {
         let child_key = state
@@ -103,15 +103,15 @@ pub fn handle_tool_call(
         state.child_tools.insert(child_native, tool_key.clone());
         state.pending_children.shift_remove(&pending_lookup);
         let mut linked = Map::with_capacity(4);
-        linked.insert("type".to_owned(), Value::String("agent.linked".to_owned()));
-        linked.insert("agent".to_owned(), Value::String(child_key));
-        linked.insert("parent".to_owned(), Value::String(agent_key.to_owned()));
+        linked.insert("type".to_owned(), Value::from("agent.linked".to_owned()));
+        linked.insert("agent".to_owned(), Value::from(child_key));
+        linked.insert("parent".to_owned(), Value::from(agent_key.to_owned()));
         let item_key = state
             .tools
             .get(&tool_key)
             .map(|tool| tool.key.clone())
             .unwrap_or_default();
-        linked.insert("spawnedBy".to_owned(), Value::String(item_key));
+        linked.insert("spawnedBy".to_owned(), Value::from(item_key));
         facts.push(Value::Object(linked));
     }
     // Merge and status.

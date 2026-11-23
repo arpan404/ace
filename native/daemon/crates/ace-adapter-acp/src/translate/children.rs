@@ -7,7 +7,7 @@ use crate::translate::child_spawn::background_child;
 use crate::translate::completed_tools::retire_tool;
 use crate::translate::data::{object, string};
 use crate::translate::state::TranslationState;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 pub fn child_update(
     state: &mut TranslationState,
@@ -63,7 +63,7 @@ pub fn child_update(
     }
     // Pending spawn tracking.
     let pending_key = if !native_tool.is_empty() && tool_key.is_none() {
-        Some(serde_json::to_string(&(parent_key, native_tool.clone())).unwrap_or_default())
+        Some(ace_json::ser::to_string(&(parent_key, native_tool.clone())).unwrap_or_default())
     } else {
         None
     };
@@ -117,23 +117,23 @@ pub fn child_update(
             let mut native = Map::with_capacity(2);
             native.insert(
                 "provider".to_owned(),
-                Value::String(state.quirks.provider().to_owned()),
+                Value::from(state.quirks.provider().to_owned()),
             );
-            native.insert("nativeId".to_owned(), Value::String(association.id.clone()));
+            native.insert("nativeId".to_owned(), Value::from(association.id.clone()));
             let mut seen = Map::with_capacity(10);
-            seen.insert("type".to_owned(), Value::String("agent.seen".to_owned()));
-            seen.insert("agent".to_owned(), Value::String(child.key.clone()));
-            seen.insert("parent".to_owned(), Value::String(parent_key.to_owned()));
+            seen.insert("type".to_owned(), Value::from("agent.seen".to_owned()));
+            seen.insert("agent".to_owned(), Value::from(child.key.clone()));
+            seen.insert("parent".to_owned(), Value::from(parent_key.to_owned()));
             if let Some(tool) = tool_snapshot.clone() {
-                seen.insert("spawnedBy".to_owned(), Value::String(tool.key.clone()));
+                seen.insert("spawnedBy".to_owned(), Value::from(tool.key.clone()));
             }
             seen.insert(
                 "origin".to_owned(),
-                Value::String("provider_subagent".to_owned()),
+                Value::from("provider_subagent".to_owned()),
             );
-            seen.insert("fidelity".to_owned(), Value::String("full".to_owned()));
+            seen.insert("fidelity".to_owned(), Value::from("full".to_owned()));
             seen.insert("native".to_owned(), Value::Object(native));
-            seen.insert("cwd".to_owned(), Value::String(state.cwd.clone()));
+            seen.insert("cwd".to_owned(), Value::from(state.cwd.clone()));
             if let Some(Value::String(name)) = update_map.get("name") {
                 seen.insert("role".to_owned(), Value::String(name.clone()));
             }
@@ -154,7 +154,7 @@ pub fn child_update(
                 title.to_owned()
             };
             if !name.is_empty() {
-                seen.insert("name".to_owned(), Value::String(name));
+                seen.insert("name".to_owned(), Value::from(name));
             }
             facts.push(Value::Object(seen));
         }
@@ -163,17 +163,17 @@ pub fn child_update(
         let tool_snapshot = state.tools.get(&tool_key).cloned();
         if let Some(tool) = tool_snapshot {
             let mut draft = Map::with_capacity(2);
-            draft.insert("type".to_owned(), Value::String("tool_call".to_owned()));
+            draft.insert("type".to_owned(), Value::from("tool_call".to_owned()));
             let mut call = Map::with_capacity(1);
             let mut detail = Map::with_capacity(2);
-            detail.insert("kind".to_owned(), Value::String("agent.spawn".to_owned()));
-            detail.insert("childAgent".to_owned(), Value::String(child_key.clone()));
+            detail.insert("kind".to_owned(), Value::from("agent.spawn".to_owned()));
+            detail.insert("childAgent".to_owned(), Value::from(child_key.clone()));
             call.insert("detail".to_owned(), Value::Object(detail));
             draft.insert("call".to_owned(), Value::Object(call));
             let mut fact = Map::with_capacity(4);
-            fact.insert("type".to_owned(), Value::String("item.upsert".to_owned()));
-            fact.insert("agent".to_owned(), Value::String(parent_key.to_owned()));
-            fact.insert("item".to_owned(), Value::String(tool.key.clone()));
+            fact.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+            fact.insert("agent".to_owned(), Value::from(parent_key.to_owned()));
+            fact.insert("item".to_owned(), Value::from(tool.key.clone()));
             fact.insert("draft".to_owned(), Value::Object(draft));
             facts.push(Value::Object(fact));
         }
@@ -205,11 +205,11 @@ pub fn child_update(
             let classified = state.quirks.classify_error(&segment).or_else(|| {
                 if stop == "refusal" {
                     let mut error = Map::with_capacity(2);
-                    error.insert("kind".to_owned(), Value::String("provider".to_owned()));
-                    error.insert("code".to_owned(), Value::String("refusal".to_owned()));
+                    error.insert("kind".to_owned(), Value::from("provider".to_owned()));
+                    error.insert("code".to_owned(), Value::from("refusal".to_owned()));
                     error.insert(
                         "message".to_owned(),
-                        Value::String("Subagent refused the prompt".to_owned()),
+                        Value::from("Subagent refused the prompt".to_owned()),
                     );
                     Some(Value::Object(error))
                 } else {
@@ -221,10 +221,10 @@ pub fn child_update(
             let error = if failed {
                 classified.or_else(|| {
                     let mut error = Map::with_capacity(2);
-                    error.insert("kind".to_owned(), Value::String("provider".to_owned()));
+                    error.insert("kind".to_owned(), Value::from("provider".to_owned()));
                     error.insert(
                         "message".to_owned(),
-                        Value::String(if segment.is_empty() {
+                        Value::from(if segment.is_empty() {
                             "Subagent failed".to_owned()
                         } else {
                             segment.clone()
@@ -292,9 +292,9 @@ pub fn child_update(
         let mut fact = Map::with_capacity(2);
         fact.insert(
             "type".to_owned(),
-            Value::String("agent.disconnected".to_owned()),
+            Value::from("agent.disconnected".to_owned()),
         );
-        fact.insert("agent".to_owned(), Value::String(child_key.clone()));
+        fact.insert("agent".to_owned(), Value::from(child_key.clone()));
         facts.push(Value::Object(fact));
         finish_child_tasks(state, &association.id, "unknown", facts);
         // Notice with the child as owner.

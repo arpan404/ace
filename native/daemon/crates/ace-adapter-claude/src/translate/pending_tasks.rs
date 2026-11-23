@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Deferred placeholder tasks (split from `pending-transcripts.rs`).
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::pending_transcripts::{Deferred, Overflow, PendingTranscripts, UNBOUND_GRACE_MS};
 use super::state::ClaudeState;
@@ -62,12 +62,12 @@ fn background_started(root: &str, task: &str) -> Value {
     let mut map = Map::with_capacity(6);
     map.insert(
         "type".to_owned(),
-        Value::String("background.started".to_owned()),
+        Value::from("background.started".to_owned()),
     );
-    map.insert("agent".to_owned(), Value::String(root.to_owned()));
-    map.insert("task".to_owned(), Value::String(task.to_owned()));
-    map.insert("kind".to_owned(), Value::String("subagent".to_owned()));
-    map.insert("title".to_owned(), Value::String("Subagent".to_owned()));
+    map.insert("agent".to_owned(), Value::from(root.to_owned()));
+    map.insert("task".to_owned(), Value::from(task.to_owned()));
+    map.insert("kind".to_owned(), Value::from("subagent".to_owned()));
+    map.insert("title".to_owned(), Value::from("Subagent".to_owned()));
     map.insert("stoppable".to_owned(), Value::Bool(false));
     Value::Object(map)
 }
@@ -76,10 +76,10 @@ pub(crate) fn background_ended(task: &str, status: &str) -> Value {
     let mut map = Map::with_capacity(3);
     map.insert(
         "type".to_owned(),
-        Value::String("background.ended".to_owned()),
+        Value::from("background.ended".to_owned()),
     );
-    map.insert("task".to_owned(), Value::String(task.to_owned()));
-    map.insert("status".to_owned(), Value::String(status.to_owned()));
+    map.insert("task".to_owned(), Value::from(task.to_owned()));
+    map.insert("status".to_owned(), Value::from(status.to_owned()));
     Value::Object(map)
 }
 
@@ -87,14 +87,14 @@ fn background_overflow(root: &str, task: &str) -> Value {
     let mut map = Map::with_capacity(7);
     map.insert(
         "type".to_owned(),
-        Value::String("background.started".to_owned()),
+        Value::from("background.started".to_owned()),
     );
-    map.insert("agent".to_owned(), Value::String(root.to_owned()));
-    map.insert("task".to_owned(), Value::String(task.to_owned()));
-    map.insert("kind".to_owned(), Value::String("other".to_owned()));
+    map.insert("agent".to_owned(), Value::from(root.to_owned()));
+    map.insert("task".to_owned(), Value::from(task.to_owned()));
+    map.insert("kind".to_owned(), Value::from("other".to_owned()));
     map.insert(
         "title".to_owned(),
-        Value::String("Unregistered subagent transcripts".to_owned()),
+        Value::from("Unregistered subagent transcripts".to_owned()),
     );
     map.insert("internal".to_owned(), Value::Bool(true));
     map.insert("stoppable".to_owned(), Value::Bool(false));
@@ -105,7 +105,7 @@ fn overflow_detail() -> Value {
     let mut map = Map::new();
     map.insert(
         "detail".to_owned(),
-        Value::String(
+        Value::from(
             "Deferred subagent transcripts exceeded their limit and were dropped. Unregistered subagent work holds the thread until the main turn ends and the subagent goes quiet, or the provider session exits."
                 .to_owned(),
         ),

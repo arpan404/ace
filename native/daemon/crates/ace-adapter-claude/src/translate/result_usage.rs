@@ -2,7 +2,7 @@
 //! Result usage accounting (the port of `result-usage.ts`).
 //! Bounded duplicate window plus the native monotonic result sequence.
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 use std::collections::HashSet;
 
 use super::json::{object, str_of};
@@ -34,9 +34,9 @@ impl ResultUsage {
         // string(new_conversation_id, string(uuid, epoch)): empty strings
         // are strings, so they win, exactly like the TypeScript.
         let epoch = match obj.get("new_conversation_id") {
-            Some(Value::String(s)) => s.clone(),
+            Some(Value::String(s)) => s.to_string(),
             _ => match obj.get("uuid") {
-                Some(Value::String(s)) => s.clone(),
+                Some(Value::String(s)) => s.to_string(),
                 _ => self.epoch.clone(),
             },
         };
@@ -99,8 +99,8 @@ impl ResultUsage {
         };
         if let Some(u) = usage {
             let mut map = Map::with_capacity(10);
-            map.insert("type".to_owned(), Value::String("usage".to_owned()));
-            map.insert("agent".to_owned(), Value::String(state.root.clone()));
+            map.insert("type".to_owned(), Value::from("usage".to_owned()));
+            map.insert("agent".to_owned(), Value::from(state.root.clone()));
             map.insert(
                 "inputTokens".to_owned(),
                 Value::Number(u.input_tokens.into()),
@@ -126,15 +126,15 @@ impl ResultUsage {
             }
             map.insert(
                 "counterMode".to_owned(),
-                Value::String("incremental".to_owned()),
+                Value::from("incremental".to_owned()),
             );
             map.insert(
                 "counterKey".to_owned(),
-                Value::String(format!("claude:result:{uuid}")),
+                Value::from(format!("claude:result:{uuid}")),
             );
-            map.insert("usageScope".to_owned(), Value::String("agent".to_owned()));
+            map.insert("usageScope".to_owned(), Value::from("agent".to_owned()));
             if let Some(model) = &state.model {
-                map.insert("model".to_owned(), Value::String(model.clone()));
+                map.insert("model".to_owned(), Value::from(model.clone()));
             }
             if let Some(cw) = context_window {
                 map.insert("contextWindow".to_owned(), Value::Number(cw.into()));
@@ -171,7 +171,7 @@ impl ResultUsage {
         let mut cached: i64 = 0;
         let mut written: i64 = 0;
         if let Some(map) = &models {
-            // BTreeMap iteration is sorted; the TypeScript iterates
+            // BTreeMap<String, Value> iteration is sorted; the TypeScript iterates
             // Object.entries in insertion order. Fixture order is stable and
             // each entry emits its own fact, so per-entry facts match; only
             // the cumulative sums could differ under duplicate keys, which
@@ -252,7 +252,7 @@ impl ResultUsage {
                 output_tokens,
                 cached,
                 written,
-                &Value::Number(n.clone()),
+                &Value::Number(*n),
             ));
         }
         facts

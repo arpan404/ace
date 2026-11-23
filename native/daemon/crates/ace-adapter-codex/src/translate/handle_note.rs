@@ -2,7 +2,7 @@
 //! Note frames: session scope, history, discovery, queue and exits.
 
 use ace_core::Fact;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::ParsedFrame;
 use super::facts::fact;
@@ -74,25 +74,26 @@ pub fn handle_note(
     }
     if event == "async-question-answered"
         && translator.async_owners.len() == 1
-        && let Some(key) = translator.async_owners.keys().next().cloned()
+        && let Some(key) = translator
+            .async_owners
+            .keys()
+            .next()
+            .map(|key| key.to_string())
     {
         translator.recorded_answer = Some(key);
     }
     if event == "discovery-start" {
         let task = match message.get("task") {
-            Some(Value::String(s)) => s.clone(),
+            Some(Value::String(s)) => s.to_string(),
             _ => "codex:discovery".to_owned(),
         };
         let mut body = Map::with_capacity(7);
-        body.insert(
-            "agent".to_owned(),
-            Value::String(translator.root_key.clone()),
-        );
-        body.insert("task".to_owned(), Value::String(task));
-        body.insert("kind".to_owned(), Value::String("other".to_owned()));
+        body.insert("agent".to_owned(), Value::from(translator.root_key.clone()));
+        body.insert("task".to_owned(), Value::from(task));
+        body.insert("kind".to_owned(), Value::from("other".to_owned()));
         body.insert(
             "title".to_owned(),
-            Value::String("Subagent discovery".to_owned()),
+            Value::from("Subagent discovery".to_owned()),
         );
         body.insert("internal".to_owned(), Value::Bool(true));
         body.insert("stoppable".to_owned(), Value::Bool(false));
@@ -100,7 +101,7 @@ pub fn handle_note(
     }
     if event == "discovery-finished" {
         let task = match message.get("task") {
-            Some(Value::String(s)) => s.clone(),
+            Some(Value::String(s)) => s.to_string(),
             _ => "codex:discovery".to_owned(),
         };
         if task == "codex:output-recovery" {
@@ -116,22 +117,22 @@ pub fn handle_note(
             let mut body = Map::with_capacity(2);
             body.insert(
                 "task".to_owned(),
-                Value::String("codex:unknown-threads".to_owned()),
+                Value::from("codex:unknown-threads".to_owned()),
             );
-            body.insert("status".to_owned(), Value::String("completed".to_owned()));
+            body.insert("status".to_owned(), Value::from("completed".to_owned()));
             facts.push(fact("background.ended", body));
             translator.unknown_guard = false;
         }
         let mut body = Map::with_capacity(2);
-        body.insert("task".to_owned(), Value::String(task));
-        body.insert("status".to_owned(), Value::String("completed".to_owned()));
+        body.insert("task".to_owned(), Value::from(task));
+        body.insert("status".to_owned(), Value::from("completed".to_owned()));
         facts.push(fact("background.ended", body));
     }
     if event == "queue-state"
         && let Some(Value::Number(count)) = message.get("count")
     {
         let mut queue_body = Map::with_capacity(1);
-        queue_body.insert("count".to_owned(), Value::Number(count.clone()));
+        queue_body.insert("count".to_owned(), Value::Number(*count));
         facts.push(fact("queue.changed", queue_body));
         if count.as_i64() == Some(0) {
             for agent in translator.agents.values_mut() {
@@ -149,7 +150,7 @@ pub fn handle_note(
         body.insert("deliberate".to_owned(), Value::Bool(translator.deliberate));
         body.insert(
             "message".to_owned(),
-            Value::String("Codex app-server exited".to_owned()),
+            Value::from("Codex app-server exited".to_owned()),
         );
         facts.push(fact("process.exited", body));
     }
@@ -157,8 +158,8 @@ pub fn handle_note(
         let interaction = str_empty(message.get("interaction")).to_owned();
         translator.close_async(&interaction);
         let mut body = Map::with_capacity(2);
-        body.insert("interaction".to_owned(), Value::String(interaction));
-        body.insert("state".to_owned(), Value::String("resolved".to_owned()));
+        body.insert("interaction".to_owned(), Value::from(interaction));
+        body.insert("state".to_owned(), Value::from("resolved".to_owned()));
         facts.push(fact("interaction.closed", body));
     }
     let _ = (now, list_of);

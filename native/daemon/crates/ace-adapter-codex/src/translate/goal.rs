@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Codex thread goals in ace's shape.
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::helpers::{obj_map, str_empty};
 
@@ -45,8 +45,8 @@ pub fn codex_goal(value: &Value) -> Option<Value> {
     let time_used = count_value(goal.get("timeUsedSeconds"));
     let created_at = count_value(goal.get("createdAt"));
     let mut map = Map::with_capacity(6);
-    map.insert("objective".to_owned(), Value::String(objective));
-    map.insert("status".to_owned(), Value::String(status.to_owned()));
+    map.insert("objective".to_owned(), Value::from(objective));
+    map.insert("status".to_owned(), Value::from(status.to_owned()));
     if let Some(v) = tokens_used {
         map.insert("tokensUsed".to_owned(), Value::Number(v.into()));
     }

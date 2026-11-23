@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Interaction resolutions (split from `interactions.rs`).
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::json::{object, str_of};
 
@@ -22,12 +22,12 @@ pub fn resolution_for(request: &Value, value: &Value, canonical: &Value) -> Valu
             let updated = object(result.get("updatedInput").unwrap_or(&Value::Null));
             let answers = object(updated.get("answers").unwrap_or(&Value::Null));
             let mut map = Map::with_capacity(3);
-            map.insert("kind".to_owned(), Value::String("question".to_owned()));
+            map.insert("kind".to_owned(), Value::from("question".to_owned()));
             let mut out = Map::with_capacity(answers.len());
             for (k, v) in answers {
                 match v {
                     Value::String(s) => {
-                        out.insert(k.clone(), Value::Array(vec![Value::String(s.clone())]));
+                        out.insert(k.clone(), Value::from(vec![Value::String(s.clone())]));
                     }
                     Value::Array(items) => {
                         let kept: Vec<Value> = items
@@ -37,10 +37,10 @@ pub fn resolution_for(request: &Value, value: &Value, canonical: &Value) -> Valu
                                 _ => None,
                             })
                             .collect();
-                        out.insert(k.clone(), Value::Array(kept));
+                        out.insert(k.clone(), Value::from(kept));
                     }
                     _ => {
-                        out.insert(k.clone(), Value::Array(Vec::new()));
+                        out.insert(k.clone(), Value::Array(ace_json::Array::new()));
                     }
                 }
             }
@@ -52,7 +52,7 @@ pub fn resolution_for(request: &Value, value: &Value, canonical: &Value) -> Valu
         }
         "plan_review" => {
             let mut map = Map::with_capacity(3);
-            map.insert("kind".to_owned(), Value::String("plan_review".to_owned()));
+            map.insert("kind".to_owned(), Value::from("plan_review".to_owned()));
             let decision = if allowed {
                 "approve"
             } else if result.get("interrupt") == Some(&Value::Bool(true)) {
@@ -60,24 +60,24 @@ pub fn resolution_for(request: &Value, value: &Value, canonical: &Value) -> Valu
             } else {
                 "reject"
             };
-            map.insert("decision".to_owned(), Value::String(decision.to_owned()));
-            map.insert("feedback".to_owned(), Value::String(message));
+            map.insert("decision".to_owned(), Value::from(decision.to_owned()));
+            map.insert("feedback".to_owned(), Value::from(message));
             Value::Object(map)
         }
         "elicitation" => {
             let mut map = Map::with_capacity(2);
-            map.insert("kind".to_owned(), Value::String("elicitation".to_owned()));
-            map.insert("action".to_owned(), Value::String("cancel".to_owned()));
+            map.insert("kind".to_owned(), Value::from("elicitation".to_owned()));
+            map.insert("action".to_owned(), Value::from("cancel".to_owned()));
             Value::Object(map)
         }
         _ => {
             let mut map = Map::with_capacity(3);
-            map.insert("kind".to_owned(), Value::String("approval".to_owned()));
+            map.insert("kind".to_owned(), Value::from("approval".to_owned()));
             map.insert(
                 "optionId".to_owned(),
-                Value::String(if allowed { "allow_once" } else { "deny" }.to_owned()),
+                Value::from(if allowed { "allow_once" } else { "deny" }.to_owned()),
             );
-            map.insert("message".to_owned(), Value::String(message));
+            map.insert("message".to_owned(), Value::from(message));
             Value::Object(map)
         }
     }
@@ -91,8 +91,8 @@ pub fn parse_resolution(value: &Value) -> Option<Value> {
         "approval" => {
             let option = obj.get("optionId").and_then(|v| v.as_str())?;
             let mut map = Map::with_capacity(3);
-            map.insert("kind".to_owned(), Value::String("approval".to_owned()));
-            map.insert("optionId".to_owned(), Value::String(option.to_owned()));
+            map.insert("kind".to_owned(), Value::from("approval".to_owned()));
+            map.insert("optionId".to_owned(), Value::from(option.to_owned()));
             if let Some(Value::String(m)) = obj.get("message") {
                 map.insert("message".to_owned(), Value::String(m.clone()));
             } else if obj.get("message").is_some() {
@@ -116,13 +116,13 @@ pub fn parse_resolution(value: &Value) -> Option<Value> {
                                 _ => return None,
                             }
                         }
-                        out.insert(k.clone(), Value::Array(kept));
+                        out.insert(k.clone(), Value::from(kept));
                     }
                     _ => return None,
                 }
             }
             let mut map = Map::with_capacity(4);
-            map.insert("kind".to_owned(), Value::String("question".to_owned()));
+            map.insert("kind".to_owned(), Value::from("question".to_owned()));
             map.insert("answers".to_owned(), Value::Object(out));
             if let Some(Value::Bool(d)) = obj.get("dismissed") {
                 map.insert("dismissed".to_owned(), Value::Bool(*d));
@@ -145,8 +145,8 @@ pub fn parse_resolution(value: &Value) -> Option<Value> {
                 return None;
             }
             let mut map = Map::with_capacity(3);
-            map.insert("kind".to_owned(), Value::String("plan_review".to_owned()));
-            map.insert("decision".to_owned(), Value::String(decision.to_owned()));
+            map.insert("kind".to_owned(), Value::from("plan_review".to_owned()));
+            map.insert("decision".to_owned(), Value::from(decision.to_owned()));
             if let Some(Value::String(f)) = obj.get("feedback") {
                 map.insert("feedback".to_owned(), Value::String(f.clone()));
             } else if obj.get("feedback").is_some() {
@@ -160,8 +160,8 @@ pub fn parse_resolution(value: &Value) -> Option<Value> {
                 return None;
             }
             let mut map = Map::with_capacity(3);
-            map.insert("kind".to_owned(), Value::String("elicitation".to_owned()));
-            map.insert("action".to_owned(), Value::String(action.to_owned()));
+            map.insert("kind".to_owned(), Value::from("elicitation".to_owned()));
+            map.insert("action".to_owned(), Value::from(action.to_owned()));
             if let Some(content) = obj.get("content") {
                 map.insert("content".to_owned(), content.clone());
             }
@@ -173,8 +173,8 @@ pub fn parse_resolution(value: &Value) -> Option<Value> {
                 return None;
             }
             let mut map = Map::with_capacity(2);
-            map.insert("kind".to_owned(), Value::String("browser_help".to_owned()));
-            map.insert("outcome".to_owned(), Value::String(outcome.to_owned()));
+            map.insert("kind".to_owned(), Value::from("browser_help".to_owned()));
+            map.insert("outcome".to_owned(), Value::from(outcome.to_owned()));
             Some(Value::Object(map))
         }
         _ => None,
@@ -196,9 +196,9 @@ pub fn parse_elicitation_request(value: &Value) -> Option<Value> {
         return None;
     }
     let mut map = Map::with_capacity(8);
-    map.insert("kind".to_owned(), Value::String("elicitation".to_owned()));
-    map.insert("server".to_owned(), Value::String(server.to_owned()));
-    map.insert("message".to_owned(), Value::String(message.to_owned()));
+    map.insert("kind".to_owned(), Value::from("elicitation".to_owned()));
+    map.insert("server".to_owned(), Value::from(server.to_owned()));
+    map.insert("message".to_owned(), Value::from(message.to_owned()));
     for key in ["url", "schema", "mode", "nativeId", "title", "description"] {
         if let Some(v) = obj.get(key) {
             if (key == "url" || key == "nativeId" || key == "title" || key == "description")

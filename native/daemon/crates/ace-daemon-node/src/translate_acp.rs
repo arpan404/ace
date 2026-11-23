@@ -5,8 +5,11 @@ use ace_adapter_acp::{
     AcpError,
     translate::{quirks::QuirksKind, state::TranslatorIdentity, translator::AcpTranslator},
 };
+use napi::Env;
 use napi_derive::napi;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+
+use crate::json_bind::{syntax_error, write_values};
 
 /// A native ACP translator handle.
 #[napi]
@@ -56,13 +59,13 @@ impl NativeAcpTranslator {
     }
 
     #[napi(catch_unwind)]
-    pub fn translate(&mut self, frame_json: String, now: f64) -> napi::Result<String> {
+    pub fn translate(&mut self, env: Env, frame_json: String, now: f64) -> napi::Result<String> {
+        let frame = ace_json::parse(&frame_json).map_err(|error| syntax_error(&env, &error))?;
         let outcome = catch_unwind(AssertUnwindSafe(|| {
-            let frame: serde_json::Value = serde_json::from_str(&frame_json)
-                .map_err(|error| map_error(AcpError::InvalidFrame(error.to_string())))?;
             let facts = self.inner.translate(&frame, now as i64);
-            serde_json::to_string(&facts)
-                .map_err(|error| map_error(AcpError::Serialize(error.to_string())))
+            let mut out = String::new();
+            write_values(&mut out, &facts);
+            Ok(out)
         }));
         match outcome {
             Ok(result) => result,
@@ -74,8 +77,9 @@ impl NativeAcpTranslator {
     pub fn tick(&mut self, now: f64) -> napi::Result<String> {
         let outcome = catch_unwind(AssertUnwindSafe(|| {
             let facts = self.inner.tick(now as i64);
-            serde_json::to_string(&facts)
-                .map_err(|error| map_error(AcpError::Serialize(error.to_string())))
+            let mut out = String::new();
+            write_values(&mut out, &facts);
+            Ok(out)
         }));
         match outcome {
             Ok(result) => result,
@@ -87,8 +91,9 @@ impl NativeAcpTranslator {
     pub fn take_diagnostics(&mut self) -> napi::Result<String> {
         let outcome = catch_unwind(AssertUnwindSafe(|| {
             let diagnostics = self.inner.take_diagnostics();
-            serde_json::to_string(&diagnostics)
-                .map_err(|error| map_error(AcpError::Serialize(error.to_string())))
+            let mut out = String::new();
+            write_values(&mut out, &diagnostics);
+            Ok(out)
         }));
         match outcome {
             Ok(result) => result,

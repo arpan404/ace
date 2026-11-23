@@ -3,7 +3,7 @@
 //! Keys stay namespaced per provider process because providers restart
 //! counters on resume; only core allocates ace ids.
 
-use serde_json::Value;
+use ace_json::Value;
 use std::collections::{HashMap, HashSet};
 
 use super::json::object;
@@ -145,7 +145,7 @@ impl ClaudeState {
     pub fn ensure_root(&mut self, data: &Value) {
         if self.seen.contains(&self.root) {
             if let Some(Value::String(cwd)) = object(data).get("cwd") {
-                self.cwd = cwd.clone();
+                self.cwd = String::from(cwd.clone());
             }
             return;
         }

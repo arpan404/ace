@@ -8,26 +8,20 @@ pub fn pi_turn_boundary(message: Option<&str>) -> Option<String> {
     if text.encode_utf16().count() > 512 {
         return None;
     }
-    let parsed: serde_json::Result<BoundaryMessage> = serde_json::from_str(text);
-    let boundary = match parsed {
-        Ok(value) => value,
-        Err(_) => return None,
+    let fields = super::native::parse_object_text(text)?;
+    // `type` must be a string; `entryId` a string when present, else empty.
+    let boundary_type = super::native::raw_as_str(fields.get("type")?)?;
+    let entry_id = match fields.get("entryId") {
+        Some(raw) => super::native::raw_as_str(raw)?,
+        None => String::new(),
     };
-    if boundary.boundary_type != "ace_turn_boundary" {
+    if boundary_type != "ace_turn_boundary" {
         return None;
     }
-    if !valid_entry_id(&boundary.entry_id) {
+    if !valid_entry_id(&entry_id) {
         return None;
     }
-    Some(boundary.entry_id)
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct BoundaryMessage {
-    #[serde(rename = "type")]
-    boundary_type: String,
-    #[serde(rename = "entryId", default)]
-    entry_id: String,
+    Some(entry_id)
 }
 
 fn valid_entry_id(id: &str) -> bool {

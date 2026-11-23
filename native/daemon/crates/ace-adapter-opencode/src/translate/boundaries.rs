@@ -5,7 +5,7 @@
 //! TypeScript schemas, so oversized or misshapen events fail the same way.
 
 use crate::translate::data::{fields, get, s_in, utf16_len};
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 use thiserror::Error;
 
 /// What a native envelope check can fail with. The translator maps every
@@ -21,8 +21,8 @@ pub enum BoundaryError {
 pub struct NativeEvent<'a> {
     pub id: &'a str,
     pub typ: &'a str,
-    pub data: &'a Map<String, Value>,
-    pub location: Option<&'a Map<String, Value>>,
+    pub data: &'a Map,
+    pub location: Option<&'a Map>,
     pub durable: Option<Durable<'a>>,
     /// The envelope's own creation time, when the provider sent one.
     pub created: Option<f64>,
@@ -83,7 +83,7 @@ pub fn parse_native_event(value: &Value) -> Result<NativeEvent<'_>, BoundaryErro
     })
 }
 
-fn parse_durable(cursor: &Map<String, Value>) -> Result<Durable<'_>, BoundaryError> {
+fn parse_durable(cursor: &Map) -> Result<Durable<'_>, BoundaryError> {
     let aggregate_id = match cursor.get("aggregateID") {
         Some(Value::String(id)) if bounded(id, 512) => id.as_str(),
         _ => return Err(BoundaryError::Event("durable.aggregateID")),
@@ -130,7 +130,7 @@ pub fn event_session(value: &Value) -> String {
 /// A validated session snapshot (`SessionInfo` in TypeScript).
 pub struct SessionInfo<'a> {
     pub id: &'a str,
-    pub values: &'a Map<String, Value>,
+    pub values: &'a Map,
 }
 
 /// Validate a session snapshot the way `SessionInfo.parse` does.
@@ -211,7 +211,7 @@ fn order_nested(key: &str, value: &Value) -> Value {
 }
 
 /// Validate a projected history message (`ProjectedMessage` in TypeScript).
-pub fn parse_projected_message(value: &Value) -> Result<&Map<String, Value>, BoundaryError> {
+pub fn parse_projected_message(value: &Value) -> Result<&Map, BoundaryError> {
     let message = fields(value);
     if !matches!(value, Value::Object(_)) {
         return Err(BoundaryError::Event("message"));

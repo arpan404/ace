@@ -5,7 +5,7 @@ use crate::translate::quirks::QuirksKind;
 use crate::translate::settlement::{shell_carried_across_turns, shell_survives_prompt};
 use crate::translate::tool_text::merge_tool_data;
 use crate::translate::tools::{tool_detail, tool_status};
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 use std::collections::{HashMap, HashSet};
 
 /// Whether a live tool holds the session's next prompt.
@@ -16,7 +16,7 @@ pub fn holds_next_prompt(prompt_open: bool, of_root: bool, survived_shell: bool)
 #[derive(Debug, Clone)]
 struct NativeTool {
     owner: String,
-    data: Map<String, Value>,
+    data: Map,
     status: String,
     shell: bool,
 }
@@ -46,7 +46,7 @@ impl ShellSettlement {
     }
 
     fn tool_key(owner: &str, id: &str) -> String {
-        serde_json::to_string(&(owner, id)).unwrap_or_default()
+        ace_json::ser::to_string(&(owner, id)).unwrap_or_default()
     }
 
     pub fn receive(&mut self, params: &Value) {

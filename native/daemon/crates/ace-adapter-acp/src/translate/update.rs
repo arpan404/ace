@@ -4,7 +4,7 @@
 use crate::translate::data::{object, raw};
 use crate::translate::state::TranslationState;
 use crate::translate::tool_text::todos;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
 pub fn error_key(text: &str) -> String {
@@ -76,54 +76,54 @@ pub fn plan_update(
             .unwrap_or_default()
     };
     let mut detail = Map::with_capacity(2);
-    detail.insert("kind".to_owned(), Value::String("todo".to_owned()));
+    detail.insert("kind".to_owned(), Value::from("todo".to_owned()));
     detail.insert(
         "todos".to_owned(),
-        Value::Array(todos(object(update).get("entries").unwrap_or(&Value::Null))),
+        Value::from(todos(object(update).get("entries").unwrap_or(&Value::Null))),
     );
     let mut call = Map::with_capacity(5);
-    call.insert("kind".to_owned(), Value::String("todo".to_owned()));
-    call.insert("title".to_owned(), Value::String("Plan".to_owned()));
-    call.insert("status".to_owned(), Value::String("succeeded".to_owned()));
+    call.insert("kind".to_owned(), Value::from("todo".to_owned()));
+    call.insert("title".to_owned(), Value::from("Plan".to_owned()));
+    call.insert("status".to_owned(), Value::from("succeeded".to_owned()));
     call.insert("detail".to_owned(), Value::Object(detail));
     call.insert(
         "raw".to_owned(),
-        Value::Array(vec![raw(frame, "session/update", None)]),
+        Value::from(vec![raw(frame, "session/update", None)]),
     );
     let mut draft = Map::with_capacity(3);
-    draft.insert("type".to_owned(), Value::String("tool_call".to_owned()));
+    draft.insert("type".to_owned(), Value::from("tool_call".to_owned()));
     draft.insert("complete".to_owned(), Value::Bool(true));
     draft.insert("call".to_owned(), Value::Object(call));
     // TypeScript order: type, complete, call{kind, title, status, detail, raw}.
     // Rebuild call in that order.
     let mut ordered_call = Map::with_capacity(5);
-    ordered_call.insert("kind".to_owned(), Value::String("todo".to_owned()));
-    ordered_call.insert("title".to_owned(), Value::String("Plan".to_owned()));
-    ordered_call.insert("status".to_owned(), Value::String("succeeded".to_owned()));
+    ordered_call.insert("kind".to_owned(), Value::from("todo".to_owned()));
+    ordered_call.insert("title".to_owned(), Value::from("Plan".to_owned()));
+    ordered_call.insert("status".to_owned(), Value::from("succeeded".to_owned()));
     ordered_call.insert(
         "detail".to_owned(),
         Value::Object({
             let mut detail = Map::with_capacity(2);
-            detail.insert("kind".to_owned(), Value::String("todo".to_owned()));
+            detail.insert("kind".to_owned(), Value::from("todo".to_owned()));
             detail.insert(
                 "todos".to_owned(),
-                Value::Array(todos(object(update).get("entries").unwrap_or(&Value::Null))),
+                Value::from(todos(object(update).get("entries").unwrap_or(&Value::Null))),
             );
             detail
         }),
     );
     ordered_call.insert(
         "raw".to_owned(),
-        Value::Array(vec![raw(frame, "session/update", None)]),
+        Value::from(vec![raw(frame, "session/update", None)]),
     );
     let mut ordered_draft = Map::with_capacity(3);
-    ordered_draft.insert("type".to_owned(), Value::String("tool_call".to_owned()));
+    ordered_draft.insert("type".to_owned(), Value::from("tool_call".to_owned()));
     ordered_draft.insert("complete".to_owned(), Value::Bool(true));
     ordered_draft.insert("call".to_owned(), Value::Object(ordered_call));
     let mut fact = Map::with_capacity(4);
-    fact.insert("type".to_owned(), Value::String("item.upsert".to_owned()));
-    fact.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
-    fact.insert("item".to_owned(), Value::String(plan_key));
+    fact.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+    fact.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
+    fact.insert("item".to_owned(), Value::from(plan_key));
     fact.insert("draft".to_owned(), Value::Object(ordered_draft));
     facts.push(Value::Object(fact));
     let _ = draft;
@@ -164,12 +164,12 @@ pub fn handle_update(
     shell_output: &mut crate::translate::shell_output::ShellOutput,
     agent_key: &str,
     agent_native_id: &str,
-    update: &serde_json::Value,
-    frame: &serde_json::Value,
-    facts: &mut Vec<serde_json::Value>,
+    update: &ace_json::Value,
+    frame: &ace_json::Value,
+    facts: &mut Vec<ace_json::Value>,
 ) -> bool {
     use crate::translate::data::{object, raw, string};
-    use serde_json::{Map, Value};
+    use ace_json::{Map, Value};
     let update_map = object(update);
     let kind = string(update_map.get("sessionUpdate").unwrap_or(&Value::Null)).to_owned();
     // Thread titles.
@@ -179,27 +179,24 @@ pub fn handle_update(
         && let Some(Value::String(title)) = update_map.get("title")
     {
         let mut draft = Map::with_capacity(6);
-        draft.insert("type".to_owned(), Value::String("notice".to_owned()));
-        draft.insert("code".to_owned(), Value::String("thread_title".to_owned()));
+        draft.insert("type".to_owned(), Value::from("notice".to_owned()));
+        draft.insert("code".to_owned(), Value::from("thread_title".to_owned()));
         draft.insert("title".to_owned(), Value::String(title.clone()));
         draft.insert("text".to_owned(), Value::String(title.clone()));
-        draft.insert("level".to_owned(), Value::String("info".to_owned()));
+        draft.insert("level".to_owned(), Value::from("info".to_owned()));
         draft.insert("complete".to_owned(), Value::Bool(true));
         // TS order: type, code, title, text, level, complete.
         let mut ordered = Map::with_capacity(6);
-        ordered.insert("type".to_owned(), Value::String("notice".to_owned()));
-        ordered.insert("code".to_owned(), Value::String("thread_title".to_owned()));
+        ordered.insert("type".to_owned(), Value::from("notice".to_owned()));
+        ordered.insert("code".to_owned(), Value::from("thread_title".to_owned()));
         ordered.insert("title".to_owned(), Value::String(title.clone()));
         ordered.insert("text".to_owned(), Value::String(title.clone()));
-        ordered.insert("level".to_owned(), Value::String("info".to_owned()));
+        ordered.insert("level".to_owned(), Value::from("info".to_owned()));
         ordered.insert("complete".to_owned(), Value::Bool(true));
         let mut fact = Map::with_capacity(4);
-        fact.insert("type".to_owned(), Value::String("item.upsert".to_owned()));
-        fact.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
-        fact.insert(
-            "item".to_owned(),
-            Value::String("provider:title".to_owned()),
-        );
+        fact.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+        fact.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
+        fact.insert("item".to_owned(), Value::from("provider:title".to_owned()));
         fact.insert("draft".to_owned(), Value::Object(ordered));
         facts.push(Value::Object(fact));
         let _ = draft;

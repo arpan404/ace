@@ -5,8 +5,8 @@
 use crate::translate::data::{fields, get, n_in, s_in, truthy};
 use crate::translate::state::{AgentMeta, NativeState, Out, StateError};
 use crate::translate::usage::{Model, linked_model};
+use ace_json::{Map, Value};
 use serde::Serialize;
-use serde_json::{Map, Value};
 
 #[derive(Serialize)]
 struct AgentSeen<'a> {
@@ -58,7 +58,7 @@ pub struct AgentLinked<'a> {
 
 impl NativeState {
     /// Note a session the snapshots report, claiming an ancestry child.
-    pub fn seen(&mut self, p: &Map<String, Value>, out: &mut Out<'_>) -> Result<(), StateError> {
+    pub fn seen(&mut self, p: &Map, out: &mut Out<'_>) -> Result<(), StateError> {
         let id = if s_in(p, "id").is_empty() {
             s_in(p, "sessionID").to_owned()
         } else {

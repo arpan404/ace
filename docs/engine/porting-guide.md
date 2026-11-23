@@ -53,11 +53,20 @@ Branch from `ace/rust-engine` once E0 has landed on it, one branch per work item
 7. **Bindings only translate.** Every `#[napi]` export catches panics (`catch_unwind`) and turns
    them into JS errors; it takes handles and plain values, calls your crate, and returns JSON
    strings or plain values. Behaviour lives in your crate, never in `ace-daemon-node`.
-8. **Lenient decoding** (ADR 0223 §3). Keep each frame's data as `Box<RawValue>`; match the
-   method or type string, then decode; unknown types become an `Unknown` variant with the raw
-   data; unknown fields stay (`#[serde(flatten)]`), never `deny_unknown_fields`. A translator
-   returns `Vec<Fact>`, never `Result`, and never panics on provider data: a failed decode is a
-   `malformed` diagnostic plus a `signal` fact, as the TypeScript does.
+8. **Lenient decoding** (ADR 0223 §3). Keep each frame's data as received (`ace_json::Raw`, or
+   a borrowed `RawRef` of the frame); match the method or type string, then decode; unknown
+   types become an `Unknown` variant with the raw data; unknown fields stay, never
+   `deny_unknown_fields`. A translator returns `Vec<Fact>`, never `Result`, and never panics on
+   provider data: a failed decode is a `malformed` diagnostic plus a `signal` fact, as the
+   TypeScript does.
+   **JSON goes through `ace-json`**, never serde_json, in every daemon crate: facts and native
+   keys must be byte-identical to what `JSON.parse`/`JSON.stringify` and JavaScript `Map`s
+   produce. Its `Value` keeps lone surrogates, JavaScript numbers (`1.0` is an integer, `1e21`
+   prints as JavaScript prints it), JavaScript key order and `JSON.parse`'s duplicate-key rule,
+   and nothing in it recurses past a bounded depth; `ace_json::ser::to_string` serializes
+   derived structs with the same rules. A TypeScript `Map` (or an object iterated in insertion
+   order) is an `IndexMap` removed from with `shift_remove`, never a `HashMap`. A value that
+   TypeScript ran through a zod `parse` comes out in the schema's key order, not the literal's.
 9. **Inject what you can't control.** No `SystemTime::now()`, no global RNG, no global runtime in
    logic: clock, ids, spawner and filesystem roots come in through the ports, as `EngineOptions`
    passes them today.

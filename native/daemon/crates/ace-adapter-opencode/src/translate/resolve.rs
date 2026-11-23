@@ -4,7 +4,7 @@
 
 use crate::translate::data::{arr_in, fields, get, s_in};
 use crate::translate::state::{Pending, StateError};
-use serde_json::Value;
+use ace_json::Value;
 use std::collections::BTreeMap;
 
 pub(crate) fn validate_resolution(value: &Value) -> Result<(), StateError> {
@@ -111,7 +111,7 @@ pub enum PermissionDecision {
 
 /// Answer a pending interaction the way `nativeResolution` does.
 pub fn native_resolution(choice: &Value, pending: &Pending) -> Result<NativeResolve, StateError> {
-    let pending_data: Value = serde_json::from_str(pending.data.get())?;
+    let pending_data: Value = ace_json::parse(pending.data.get())?;
     let data = fields(&pending_data);
     let id = s_in(data, "id").to_owned();
     let session_id = pending.session.clone();
@@ -135,7 +135,7 @@ pub fn native_resolution(choice: &Value, pending: &Pending) -> Result<NativeReso
             request_id: id,
             decision: choice,
             message: match decision.get("message") {
-                Some(Value::String(message)) => Some(message.clone()),
+                Some(Value::String(message)) => Some(String::from(message.clone())),
                 _ => None,
             },
         });
@@ -151,7 +151,7 @@ pub fn native_resolution(choice: &Value, pending: &Pending) -> Result<NativeReso
                     .iter()
                     .map(|entry| match entry {
                         Value::String(entry) => Value::String(entry.clone()),
-                        _ => Value::String(String::new()),
+                        _ => Value::from(String::new()),
                     })
                     .collect(),
                 _ => vec![],
@@ -159,11 +159,9 @@ pub fn native_resolution(choice: &Value, pending: &Pending) -> Result<NativeReso
             answer.insert(
                 key.clone(),
                 if s_in(f, "type") == "multiselect" {
-                    Value::Array(raw)
+                    Value::from(raw)
                 } else {
-                    raw.into_iter()
-                        .next()
-                        .unwrap_or(Value::String(String::new()))
+                    raw.into_iter().next().unwrap_or(Value::from(String::new()))
                 },
             );
         }
@@ -173,7 +171,7 @@ pub fn native_resolution(choice: &Value, pending: &Pending) -> Result<NativeReso
             form_id: id,
             cancel: dismissed,
             message: match decision.get("feedback") {
-                Some(Value::String(feedback)) => Some(feedback.clone()),
+                Some(Value::String(feedback)) => Some(String::from(feedback.clone())),
                 _ => None,
             },
             answer: Value::Object(answer.into_iter().collect()),
@@ -186,7 +184,7 @@ pub fn native_resolution(choice: &Value, pending: &Pending) -> Result<NativeReso
             form_id: id,
             cancel: s_in(decision, "action") != "accept",
             message: match content.get("feedback") {
-                Some(Value::String(feedback)) => Some(feedback.clone()),
+                Some(Value::String(feedback)) => Some(String::from(feedback.clone())),
                 _ => None,
             },
             answer: Value::Object(content.clone()),

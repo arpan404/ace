@@ -12,7 +12,7 @@
 //! Ported from `packages/provider-kit/src/binary-elision.ts`; the TypeScript
 //! module stays for the daemon code that still uses it.
 
-use serde_json::Value;
+use ace_json::{JsString, Value};
 use sha2::Digest as _;
 use std::borrow::Cow;
 
@@ -150,28 +150,20 @@ fn elide(value: &str) -> Cow<'_, str> {
     ))
 }
 
+/// Replace attachment strings in place, with a heap stack so deep values never recurse.
 fn elide_value(value: &mut Value) {
-    match value {
-        Value::String(text) => {
-            let elided = match elide(text) {
-                Cow::Owned(marker) => Some(marker),
-                Cow::Borrowed(_) => None,
-            };
-            if let Some(marker) = elided {
-                *text = marker;
+    let mut stack = vec![value];
+    while let Some(value) = stack.pop() {
+        match value {
+            Value::String(text) => {
+                if let Some(Cow::Owned(marker)) = text.as_well_formed().map(elide) {
+                    *text = JsString::from(marker);
+                }
             }
+            Value::Array(items) => stack.extend(items.iter_mut()),
+            Value::Object(map) => stack.extend(map.values_mut()),
+            _ => {}
         }
-        Value::Array(items) => {
-            for item in items {
-                elide_value(item);
-            }
-        }
-        Value::Object(map) => {
-            for (_, item) in map {
-                elide_value(item);
-            }
-        }
-        _ => {}
     }
 }
 
@@ -180,13 +172,13 @@ fn elide_value(value: &mut Value) {
 /// serialization for small values; only a value long enough to hold
 /// attachment bytes is visited string by string.
 pub fn elided_json(value: &Value) -> String {
-    let plain = serde_json::to_string(value).unwrap_or_else(|_| "null".to_owned());
+    let plain = ace_json::to_string(value);
     if plain.len() < BINARY_ELISION_CHARS {
         return plain;
     }
     let mut owned = value.clone();
     elide_value(&mut owned);
-    serde_json::to_string(&owned).unwrap_or_else(|_| "null".to_owned())
+    ace_json::to_string(&owned)
 }
 
 /// The SHA-256 of the bytes an elision marker stands for, or None for any
@@ -223,8 +215,8 @@ pub fn elided_digest(value: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::{BINARY_ELISION_CHARS, elided_digest, elided_json};
+    use ace_json::{Value, json};
     use base64::Engine as _;
-    use serde_json::{Value, json};
     use sha2::Digest as _;
 
     fn screenshot() -> (Vec<u8>, String) {
@@ -238,7 +230,7 @@ mod tests {
 
     fn strings(value: &Value, out: &mut Vec<String>) {
         match value {
-            Value::String(text) => out.push(text.clone()),
+            Value::String(text) => out.push(text.to_string()),
             Value::Array(items) => {
                 for item in items {
                     strings(item, out);
@@ -269,7 +261,7 @@ mod tests {
         });
         let payload = elided_json(&message);
         assert!(payload.len() < 4096, "attachments elide to markers");
-        let data: Value = serde_json::from_str(&payload).expect("markers stay valid JSON");
+        let data: Value = ace_json::parse(&payload).expect("markers stay valid JSON");
         let content = data
             .pointer("/message/content")
             .expect("structure survives");
@@ -306,7 +298,7 @@ mod tests {
                 { "type": "text", "text": code },
             ],
         });
-        let parsed: Value = serde_json::from_str(&elided_json(&message)).expect("stays JSON");
+        let parsed: Value = ace_json::parse(&elided_json(&message)).expect("stays JSON");
         assert_eq!(parsed, message);
     }
 
@@ -314,7 +306,7 @@ mod tests {
     fn short_base64_such_as_ids_and_tokens_is_never_elided() {
         let id = base64::engine::general_purpose::STANDARD.encode("tool-call-identifier");
         let value = json!({ "id": id, "n": 1 });
-        assert_eq!(elided_json(&value), serde_json::to_string(&value).unwrap());
+        assert_eq!(elided_json(&value), ace_json::to_string(&value));
         assert_eq!(elided_digest(&id), None);
     }
 }

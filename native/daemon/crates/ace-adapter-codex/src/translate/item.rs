@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Items: content parts, tool drafts and item drafts, same JSON as TypeScript.
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::command::command_detail;
 use super::content::{content, file_change, raw_array, raw_for};
@@ -26,10 +26,10 @@ pub fn tool_draft(
         .unwrap_or("")
         .to_owned();
     let mut call = Map::with_capacity(6);
-    call.insert("kind".to_owned(), Value::String(detail_kind));
-    call.insert("title".to_owned(), Value::String(title.to_owned()));
+    call.insert("kind".to_owned(), Value::from(detail_kind));
+    call.insert("title".to_owned(), Value::from(title.to_owned()));
     call.insert("detail".to_owned(), detail);
-    call.insert("status".to_owned(), Value::String(status.to_owned()));
+    call.insert("status".to_owned(), Value::from(status.to_owned()));
     call.insert("raw".to_owned(), raw_for(item_type, data, name));
     if item_type == "mcpToolCall" {
         let message = obj_map(data)
@@ -42,26 +42,26 @@ pub fn tool_draft(
             let truncated: String = message.chars().take(4096).collect();
             // Slice by chars approximates the TypeScript `slice(0, 4096)` on
             // UTF-16 units for the ASCII errors providers send.
-            call.insert("error".to_owned(), Value::String(truncated));
+            call.insert("error".to_owned(), Value::from(truncated));
         }
     }
     let mut draft = Map::with_capacity(3);
-    draft.insert("type".to_owned(), Value::String("tool_call".to_owned()));
+    draft.insert("type".to_owned(), Value::from("tool_call".to_owned()));
     draft.insert("complete".to_owned(), Value::Bool(complete));
     draft.insert("call".to_owned(), Value::Object(call));
     Value::Object(draft)
 }
 
 /// `itemDraft(item, complete)`: the same draft JSON the TypeScript builds.
-pub fn item_draft(item: &Map<String, Value>, complete: bool, item_value: &Value) -> Value {
+pub fn item_draft(item: &Map, complete: bool, item_value: &Value) -> Value {
     let item_type = str_empty(item.get("type"));
     if item_type == "userMessage" {
         let client_id = str_empty(item.get("clientId"));
         let mut draft = Map::with_capacity(6);
-        draft.insert("type".to_owned(), Value::String("message".to_owned()));
-        draft.insert("role".to_owned(), Value::String("user".to_owned()));
+        draft.insert("type".to_owned(), Value::from("message".to_owned()));
+        draft.insert("role".to_owned(), Value::from("user".to_owned()));
         if !client_id.is_empty() && utf16_len(client_id) <= 256 {
-            draft.insert("nativeId".to_owned(), Value::String(client_id.to_owned()));
+            draft.insert("nativeId".to_owned(), Value::from(client_id.to_owned()));
         }
         draft.insert("parts".to_owned(), content(item.get("content")));
         draft.insert("complete".to_owned(), Value::Bool(complete));
@@ -75,7 +75,7 @@ pub fn item_draft(item: &Map<String, Value>, complete: bool, item_value: &Value)
             let title = if text.is_empty() { "Question" } else { text };
             let status = if complete { "succeeded" } else { "running" };
             let mut detail = Map::with_capacity(1);
-            detail.insert("kind".to_owned(), Value::String("ask_user".to_owned()));
+            detail.insert("kind".to_owned(), Value::from("ask_user".to_owned()));
             return tool_draft(
                 Value::Object(detail),
                 title,
@@ -86,15 +86,15 @@ pub fn item_draft(item: &Map<String, Value>, complete: bool, item_value: &Value)
             );
         }
         let mut draft = Map::with_capacity(5);
-        draft.insert("type".to_owned(), Value::String("message".to_owned()));
-        draft.insert("role".to_owned(), Value::String("assistant".to_owned()));
+        draft.insert("type".to_owned(), Value::from("message".to_owned()));
+        draft.insert("role".to_owned(), Value::from("assistant".to_owned()));
         let mut part = Map::with_capacity(2);
-        part.insert("type".to_owned(), Value::String("text".to_owned()));
+        part.insert("type".to_owned(), Value::from("text".to_owned()));
         part.insert(
             "text".to_owned(),
-            Value::String(str_empty(item.get("text")).to_owned()),
+            Value::from(str_empty(item.get("text")).to_owned()),
         );
-        draft.insert("parts".to_owned(), Value::Array(vec![Value::Object(part)]));
+        draft.insert("parts".to_owned(), Value::from(vec![Value::Object(part)]));
         draft.insert("complete".to_owned(), Value::Bool(complete));
         draft.insert("raw".to_owned(), raw_array(item_type, item_value, None));
         return Value::Object(draft);
@@ -112,8 +112,8 @@ pub fn item_draft(item: &Map<String, Value>, complete: bool, item_value: &Value)
             }
         }
         let mut draft = Map::with_capacity(5);
-        draft.insert("type".to_owned(), Value::String("reasoning".to_owned()));
-        draft.insert("text".to_owned(), Value::String(texts.join("\n")));
+        draft.insert("type".to_owned(), Value::from("reasoning".to_owned()));
+        draft.insert("text".to_owned(), Value::from(texts.join("\n")));
         draft.insert("summary".to_owned(), Value::Bool(true));
         draft.insert("complete".to_owned(), Value::Bool(complete));
         draft.insert("raw".to_owned(), raw_array(item_type, item_value, None));
@@ -168,18 +168,18 @@ pub fn item_draft(item: &Map<String, Value>, complete: bool, item_value: &Value)
             _ => "file.edit",
         };
         let mut detail = Map::with_capacity(2);
-        detail.insert("kind".to_owned(), Value::String(detail_kind.to_owned()));
-        detail.insert("changes".to_owned(), Value::Array(changes));
+        detail.insert("kind".to_owned(), Value::from(detail_kind.to_owned()));
+        detail.insert("changes".to_owned(), Value::from(changes));
         Value::Object(detail)
     } else if item_type == "mcpToolCall" {
         name = item.get("tool");
         let mut detail = Map::with_capacity(4);
-        detail.insert("kind".to_owned(), Value::String("mcp".to_owned()));
+        detail.insert("kind".to_owned(), Value::from("mcp".to_owned()));
         detail.insert(
             "server".to_owned(),
-            Value::String(str_empty(item.get("server")).to_owned()),
+            Value::from(str_empty(item.get("server")).to_owned()),
         );
-        detail.insert("tool".to_owned(), Value::String(str_empty(name).to_owned()));
+        detail.insert("tool".to_owned(), Value::from(str_empty(name).to_owned()));
         detail.insert(
             "arguments".to_owned(),
             item.get("arguments").cloned().unwrap_or(Value::Null),
@@ -196,33 +196,33 @@ pub fn item_draft(item: &Map<String, Value>, complete: bool, item_value: &Value)
         title = tool.clone();
         if tool == "spawnAgent" {
             let mut detail = Map::with_capacity(3);
-            detail.insert("kind".to_owned(), Value::String("agent.spawn".to_owned()));
+            detail.insert("kind".to_owned(), Value::from("agent.spawn".to_owned()));
             if !child.is_empty() {
-                detail.insert("childAgent".to_owned(), Value::String(child));
+                detail.insert("childAgent".to_owned(), Value::from(child));
             }
             detail.insert(
                 "prompt".to_owned(),
-                Value::String(str_empty(item.get("prompt")).to_owned()),
+                Value::from(str_empty(item.get("prompt")).to_owned()),
             );
             Value::Object(detail)
         } else {
             let mut detail = Map::with_capacity(3);
-            detail.insert("kind".to_owned(), Value::String("agent.message".to_owned()));
+            detail.insert("kind".to_owned(), Value::from("agent.message".to_owned()));
             if !child.is_empty() {
-                detail.insert("targetAgent".to_owned(), Value::String(child));
+                detail.insert("targetAgent".to_owned(), Value::from(child));
             }
             detail.insert(
                 "message".to_owned(),
-                Value::String(str_empty(item.get("prompt")).to_owned()),
+                Value::from(str_empty(item.get("prompt")).to_owned()),
             );
             Value::Object(detail)
         }
     } else if item_type == "plan" {
         let mut detail = Map::with_capacity(2);
-        detail.insert("kind".to_owned(), Value::String("plan".to_owned()));
+        detail.insert("kind".to_owned(), Value::from("plan".to_owned()));
         detail.insert(
             "markdown".to_owned(),
-            Value::String(str_empty(item.get("text")).to_owned()),
+            Value::from(str_empty(item.get("text")).to_owned()),
         );
         Value::Object(detail)
     } else if item_type == "webSearch" {
@@ -249,8 +249,8 @@ pub fn item_draft(item: &Map<String, Value>, complete: bool, item_value: &Value)
                 query.to_owned()
             };
             let mut detail = Map::with_capacity(2);
-            detail.insert("kind".to_owned(), Value::String("web.search".to_owned()));
-            detail.insert("query".to_owned(), Value::String(query));
+            detail.insert("kind".to_owned(), Value::from("web.search".to_owned()));
+            detail.insert("query".to_owned(), Value::from(query));
             Value::Object(detail)
         } else {
             let url = action
@@ -259,8 +259,8 @@ pub fn item_draft(item: &Map<String, Value>, complete: bool, item_value: &Value)
                 .unwrap_or("")
                 .to_owned();
             let mut detail = Map::with_capacity(2);
-            detail.insert("kind".to_owned(), Value::String("web.fetch".to_owned()));
-            detail.insert("url".to_owned(), Value::String(url));
+            detail.insert("kind".to_owned(), Value::from("web.fetch".to_owned()));
+            detail.insert("url".to_owned(), Value::from(url));
             Value::Object(detail)
         }
     } else if item_type == "imageView" || item_type == "imageGeneration" {
@@ -271,9 +271,9 @@ pub fn item_draft(item: &Map<String, Value>, complete: bool, item_value: &Value)
         }
         .to_owned();
         let mut detail = Map::with_capacity(2);
-        detail.insert("kind".to_owned(), Value::String("image".to_owned()));
+        detail.insert("kind".to_owned(), Value::from("image".to_owned()));
         if !path.is_empty() {
-            detail.insert("path".to_owned(), Value::String(path));
+            detail.insert("path".to_owned(), Value::from(path));
         }
         title = if item_type == "imageView" {
             "Viewed image".to_owned()
@@ -286,7 +286,7 @@ pub fn item_draft(item: &Map<String, Value>, complete: bool, item_value: &Value)
             name = item.get("tool");
         }
         let mut detail = Map::with_capacity(1);
-        detail.insert("kind".to_owned(), Value::String("custom".to_owned()));
+        detail.insert("kind".to_owned(), Value::from("custom".to_owned()));
         Value::Object(detail)
     };
     tool_draft(detail, &title, item_value, status, item_type, name)

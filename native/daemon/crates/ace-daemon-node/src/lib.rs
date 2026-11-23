@@ -11,6 +11,7 @@ use std::sync::Arc;
 mod core;
 mod engine;
 mod items;
+mod json_bind;
 mod long_thread;
 mod session_acp;
 mod session_codex;

@@ -2,7 +2,7 @@
 //! Human-readable system notices (the port of `system-notices.ts`).
 //! Only documented system messages enter the transcript.
 
-use serde_json::Value;
+use ace_json::Value;
 
 use super::json::object;
 

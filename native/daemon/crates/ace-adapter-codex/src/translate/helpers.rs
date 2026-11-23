@@ -2,14 +2,14 @@
 //! Small JSON readers and native key helpers, ported from `native.ts`,
 //! `shell-command.ts` and the request/error helpers they use.
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 use std::sync::LazyLock;
 
-static EMPTY_MAP: LazyLock<Map<String, Value>> = LazyLock::new(Map::new);
+static EMPTY_MAP: LazyLock<Map> = LazyLock::new(Map::new);
 static EMPTY_VEC: LazyLock<Vec<Value>> = LazyLock::new(Vec::new);
 
 /// The value's map if it is a JSON object, otherwise the shared empty one.
-pub fn obj_map(value: &Value) -> &Map<String, Value> {
+pub fn obj_map(value: &Value) -> &Map {
     match value {
         Value::Object(map) => map,
         _ => &EMPTY_MAP,
@@ -51,7 +51,7 @@ fn js_typeof(value: &Value) -> &'static str {
 /// JavaScript `String(id)` for the JSON ids request keys see.
 fn js_string(value: &Value) -> String {
     match value {
-        Value::String(s) => s.clone(),
+        Value::String(s) => String::from(s.clone()),
         Value::Number(n) => n.to_string(),
         Value::Bool(b) => {
             if *b {

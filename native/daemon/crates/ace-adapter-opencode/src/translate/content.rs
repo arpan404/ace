@@ -5,8 +5,8 @@
 
 use crate::translate::data::{arr_in, fields, get, n_in, num_str, s_in, utf16_len};
 use crate::translate::state::{ChangeKind, FileChange};
+use ace_json::{Map, Value};
 use serde::Serialize;
-use serde_json::{Map, Value};
 
 /// The native key of a tool call: its session, message, and native id.
 pub fn tool_key(session: &str, message: &str, id: &str) -> String {
@@ -14,7 +14,7 @@ pub fn tool_key(session: &str, message: &str, id: &str) -> String {
 }
 
 /// The native key of a text or reasoning block.
-pub fn content_key(p: &Map<String, Value>) -> String {
+pub fn content_key(p: &Map) -> String {
     format!(
         "{}:{}:{}",
         s_in(p, "sessionID"),
@@ -44,7 +44,7 @@ fn change_kind(status: &str) -> ChangeKind {
 }
 
 /// The patches OpenCode reports once an edit or write ran.
-pub fn edit_changes(path: &str, meta: &Map<String, Value>) -> Option<Vec<FileChange>> {
+pub fn edit_changes(path: &str, meta: &Map) -> Option<Vec<FileChange>> {
     let files = arr_in(meta, "files");
     let changes: Vec<FileChange> = files
         .iter()
@@ -81,9 +81,9 @@ pub fn edit_changes(path: &str, meta: &Map<String, Value>) -> Option<Vec<FileCha
 mod tests {
     use super::edit_changes;
     use crate::translate::state::{ChangeKind, FileChange};
-    use serde_json::{Map, Value, json};
+    use ace_json::{Map, Value, json};
 
-    fn record(value: Value) -> Map<String, Value> {
+    fn record(value: Value) -> Map {
         match value {
             Value::Object(map) => map,
             _ => Map::new(),

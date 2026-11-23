@@ -5,7 +5,7 @@ use crate::translate::data::{list, object, string};
 use crate::translate::mcp::{mcp_arguments, mcp_envelope};
 use crate::translate::quirks::QuirksKind;
 use crate::translate::tool_text::todos;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 /// The tool status an update reports, keeping the previous when unmentioned.
 pub fn tool_status(update: &Value, previous: &str) -> String {
@@ -98,12 +98,12 @@ pub fn tool_detail(update: &Value, quirks: QuirksKind) -> Value {
                 let mut map = Map::with_capacity(4);
                 map.insert(
                     "path".to_owned(),
-                    Value::String(string(c.get("path").unwrap_or(&Value::Null)).to_owned()),
+                    Value::from(string(c.get("path").unwrap_or(&Value::Null)).to_owned()),
                 );
                 let old_text = c.get("oldText").unwrap_or(&Value::Null);
                 map.insert(
                     "kind".to_owned(),
-                    Value::String(if old_text.is_null() {
+                    Value::from(if old_text.is_null() {
                         "add".to_owned()
                     } else {
                         "update".to_owned()
@@ -118,7 +118,7 @@ pub fn tool_detail(update: &Value, quirks: QuirksKind) -> Value {
                 );
                 map.insert(
                     "newText".to_owned(),
-                    Value::String(string(c.get("newText").unwrap_or(&Value::Null)).to_owned()),
+                    Value::from(string(c.get("newText").unwrap_or(&Value::Null)).to_owned()),
                 );
                 Value::Object(map)
             })
@@ -135,10 +135,10 @@ pub fn tool_detail(update: &Value, quirks: QuirksKind) -> Value {
             "file.edit" | "file.write" | "file.delete" | "file.move"
         ) {
             let mut map = Map::with_capacity(2);
-            map.insert("kind".to_owned(), Value::String(kind.clone()));
+            map.insert("kind".to_owned(), Value::from(kind.clone()));
             map.insert(
                 "changes".to_owned(),
-                Value::Array(changes_for_kind(update, &kind)),
+                Value::from(changes_for_kind(update, &kind)),
             );
             return Value::Object(map);
         }
@@ -146,17 +146,17 @@ pub fn tool_detail(update: &Value, quirks: QuirksKind) -> Value {
     match kind.as_str() {
         "shell" => {
             let mut map = Map::with_capacity(4);
-            map.insert("kind".to_owned(), Value::String("shell".to_owned()));
+            map.insert("kind".to_owned(), Value::from("shell".to_owned()));
             map.insert(
                 "command".to_owned(),
-                Value::String(first_string(
+                Value::from(first_string(
                     input,
                     &["command", "CommandLine", "commandLine", "command_line"],
                 )),
             );
             let cwd = first_string(input, &["Cwd", "cwd", "working_dir", "workingDir"]);
             if !cwd.is_empty() {
-                map.insert("cwd".to_owned(), Value::String(cwd));
+                map.insert("cwd".to_owned(), Value::from(cwd));
             }
             if let Some(code) = output.get("exitCode").and_then(numeric_value)
                 && code.fract() == 0.0
@@ -165,14 +165,14 @@ pub fn tool_detail(update: &Value, quirks: QuirksKind) -> Value {
             {
                 // Preserve the provider's encoding: integers stay integers.
                 if let Some(Value::Number(original)) = output.get("exitCode") {
-                    map.insert("exitCode".to_owned(), Value::Number(original.clone()));
+                    map.insert("exitCode".to_owned(), Value::Number(*original));
                 }
             }
             Value::Object(map)
         }
         "file.read" => {
             let mut map = Map::with_capacity(2);
-            map.insert("kind".to_owned(), Value::String("file.read".to_owned()));
+            map.insert("kind".to_owned(), Value::from("file.read".to_owned()));
             let direct = first_string(input, &["path", "TargetFile", "file_path"]);
             let via_locations = string(
                 object(
@@ -186,7 +186,7 @@ pub fn tool_detail(update: &Value, quirks: QuirksKind) -> Value {
             .to_owned();
             map.insert(
                 "path".to_owned(),
-                Value::String(if direct.is_empty() {
+                Value::from(if direct.is_empty() {
                     via_locations
                 } else {
                     direct
@@ -196,16 +196,16 @@ pub fn tool_detail(update: &Value, quirks: QuirksKind) -> Value {
         }
         "file.edit" | "file.write" | "file.delete" | "file.move" => {
             let mut map = Map::with_capacity(2);
-            map.insert("kind".to_owned(), Value::String(kind.clone()));
+            map.insert("kind".to_owned(), Value::from(kind.clone()));
             map.insert(
                 "changes".to_owned(),
-                Value::Array(changes_for_kind(update, &kind)),
+                Value::from(changes_for_kind(update, &kind)),
             );
             Value::Object(map)
         }
         "search" => {
             let mut map = Map::with_capacity(3);
-            map.insert("kind".to_owned(), Value::String("search".to_owned()));
+            map.insert("kind".to_owned(), Value::from("search".to_owned()));
             let pattern = string(input.get("pattern").unwrap_or(&Value::Null));
             let query = string(input.get("query").unwrap_or(&Value::Null));
             let search_dir = string(input.get("SearchDirectory").unwrap_or(&Value::Null));
@@ -216,22 +216,22 @@ pub fn tool_detail(update: &Value, quirks: QuirksKind) -> Value {
             } else {
                 search_dir
             };
-            map.insert("query".to_owned(), Value::String(text.to_owned()));
+            map.insert("query".to_owned(), Value::from(text.to_owned()));
             if let Some(Value::Number(total)) = output.get("totalFiles")
                 && total.as_f64().is_some_and(|f| f.fract() == 0.0)
             {
-                map.insert("matches".to_owned(), Value::Number(total.clone()));
+                map.insert("matches".to_owned(), Value::Number(*total));
             }
             Value::Object(map)
         }
         "web.search" => {
             let mut map = Map::with_capacity(2);
-            map.insert("kind".to_owned(), Value::String("web.search".to_owned()));
+            map.insert("kind".to_owned(), Value::from("web.search".to_owned()));
             let query = string(input.get("query").unwrap_or(&Value::Null));
             let fallback = string(input.get("Query").unwrap_or(&Value::Null));
             map.insert(
                 "query".to_owned(),
-                Value::String(if query.is_empty() {
+                Value::from(if query.is_empty() {
                     fallback.to_owned()
                 } else {
                     query.to_owned()
@@ -241,12 +241,12 @@ pub fn tool_detail(update: &Value, quirks: QuirksKind) -> Value {
         }
         "web.fetch" => {
             let mut map = Map::with_capacity(2);
-            map.insert("kind".to_owned(), Value::String("web.fetch".to_owned()));
+            map.insert("kind".to_owned(), Value::from("web.fetch".to_owned()));
             let url = string(input.get("url").unwrap_or(&Value::Null));
             let fallback = string(input.get("Url").unwrap_or(&Value::Null));
             map.insert(
                 "url".to_owned(),
-                Value::String(if url.is_empty() {
+                Value::from(if url.is_empty() {
                     fallback.to_owned()
                 } else {
                     url.to_owned()
@@ -285,49 +285,53 @@ pub fn tool_detail(update: &Value, quirks: QuirksKind) -> Value {
                 }
             };
             let mut map = Map::with_capacity(4);
-            map.insert("kind".to_owned(), Value::String("mcp".to_owned()));
-            map.insert("server".to_owned(), Value::String(server));
-            map.insert("tool".to_owned(), Value::String(tool));
+            map.insert("kind".to_owned(), Value::from("mcp".to_owned()));
+            map.insert("server".to_owned(), Value::from(server));
+            map.insert("tool".to_owned(), Value::from(tool));
             map.insert("arguments".to_owned(), mcp_arguments(input));
             Value::Object(map)
         }
         "agent.spawn" => {
             let mut map = Map::with_capacity(4);
-            map.insert("kind".to_owned(), Value::String("agent.spawn".to_owned()));
+            map.insert("kind".to_owned(), Value::from("agent.spawn".to_owned()));
             map.insert(
                 "description".to_owned(),
-                Value::String(string(input.get("description").unwrap_or(&Value::Null)).to_owned()),
+                Value::from(string(input.get("description").unwrap_or(&Value::Null)).to_owned()),
             );
             map.insert(
                 "prompt".to_owned(),
-                Value::String(string(input.get("prompt").unwrap_or(&Value::Null)).to_owned()),
+                Value::from(string(input.get("prompt").unwrap_or(&Value::Null)).to_owned()),
             );
             let subagent = object(input.get("subagentType").unwrap_or(&Value::Null));
-            let agent_type = subagent.keys().next().cloned().unwrap_or_default();
-            map.insert("agentType".to_owned(), Value::String(agent_type));
+            let agent_type = subagent
+                .keys()
+                .next()
+                .map(|key| key.to_string())
+                .unwrap_or_default();
+            map.insert("agentType".to_owned(), Value::from(agent_type));
             Value::Object(map)
         }
         "plan" => {
             let mut map = Map::with_capacity(2);
-            map.insert("kind".to_owned(), Value::String("plan".to_owned()));
+            map.insert("kind".to_owned(), Value::from("plan".to_owned()));
             map.insert(
                 "markdown".to_owned(),
-                Value::String(string(input.get("plan").unwrap_or(&Value::Null)).to_owned()),
+                Value::from(string(input.get("plan").unwrap_or(&Value::Null)).to_owned()),
             );
             Value::Object(map)
         }
         "todo" => {
             let mut map = Map::with_capacity(2);
-            map.insert("kind".to_owned(), Value::String("todo".to_owned()));
+            map.insert("kind".to_owned(), Value::from("todo".to_owned()));
             map.insert(
                 "todos".to_owned(),
-                Value::Array(todos(input.get("todos").unwrap_or(&Value::Null))),
+                Value::from(todos(input.get("todos").unwrap_or(&Value::Null))),
             );
             Value::Object(map)
         }
         _ => {
             let mut map = Map::with_capacity(1);
-            map.insert("kind".to_owned(), Value::String(kind));
+            map.insert("kind".to_owned(), Value::from(kind));
             Value::Object(map)
         }
     }
@@ -343,12 +347,12 @@ fn changes_for_kind(update: &Value, kind: &str) -> Vec<Value> {
             let mut map = Map::with_capacity(4);
             map.insert(
                 "path".to_owned(),
-                Value::String(string(c.get("path").unwrap_or(&Value::Null)).to_owned()),
+                Value::from(string(c.get("path").unwrap_or(&Value::Null)).to_owned()),
             );
             let old_text = c.get("oldText").unwrap_or(&Value::Null);
             map.insert(
                 "kind".to_owned(),
-                Value::String(if old_text.is_null() {
+                Value::from(if old_text.is_null() {
                     "add".to_owned()
                 } else {
                     "update".to_owned()
@@ -363,17 +367,17 @@ fn changes_for_kind(update: &Value, kind: &str) -> Vec<Value> {
             );
             map.insert(
                 "newText".to_owned(),
-                Value::String(string(c.get("newText").unwrap_or(&Value::Null)).to_owned()),
+                Value::from(string(c.get("newText").unwrap_or(&Value::Null)).to_owned()),
             );
             Value::Object(map)
         })
         .collect()
 }
 
-fn first_string(input: &Map<String, Value>, keys: &[&str]) -> String {
+fn first_string(input: &Map, keys: &[&str]) -> String {
     for key in keys {
         if let Some(Value::String(text)) = input.get(*key) {
-            return text.clone();
+            return String::from(text.clone());
         }
     }
     String::new()

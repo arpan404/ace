@@ -3,7 +3,7 @@
 //! replaced, everything else keeps its value. The walk is iterative so any
 //! depth keeps its unrelated values.
 
-use serde_json::Value;
+use ace_json::Value;
 
 /// What a lease secret reads as once redacted.
 pub const LEASE_REDACTION: &str = "[ace lease redacted]";
@@ -53,21 +53,21 @@ fn redact_value_depth(data: &Value, secrets: &[&str], depth: usize) -> Value {
         return data.clone();
     }
     match data {
-        Value::String(text) => Value::String(redact_text(text, secrets)),
+        Value::String(text) => Value::from(redact_text(text, secrets)),
         Value::Array(items) => {
             let mut changed: Option<Vec<Value>> = None;
             for (index, item) in items.iter().enumerate() {
                 let next = redact_value_depth(item, secrets, depth.saturating_add(1));
                 if next != *item {
                     if changed.is_none() {
-                        changed = Some(items.clone());
+                        changed = Some(items.to_vec());
                     }
                     if let Some(out) = changed.as_mut() {
                         out[index] = next;
                     }
                 }
             }
-            changed.map_or_else(|| data.clone(), Value::Array)
+            changed.map_or_else(|| data.clone(), Value::from)
         }
         Value::Object(map) => {
             let mut key_changed = false;
@@ -83,7 +83,11 @@ fn redact_value_depth(data: &Value, secrets: &[&str], depth: usize) -> Value {
             for (index, (key, value)) in map.iter().enumerate() {
                 let next = redact_value_depth(value, secrets, depth.saturating_add(1));
                 if next != *value && value_changed.is_none() {
-                    value_changed = Some(map.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+                    value_changed = Some(
+                        map.iter()
+                            .map(|(k, v)| (k.to_string(), v.clone()))
+                            .collect(),
+                    );
                 }
                 if let Some(out) = value_changed.as_mut()
                     && let Some(entry) = out.get_mut(index)
@@ -96,11 +100,12 @@ fn redact_value_depth(data: &Value, secrets: &[&str], depth: usize) -> Value {
                 return data.clone();
             }
             // Reserve original keys so redacted keys cannot overwrite a field.
-            let used: std::collections::HashSet<String> = map.keys().cloned().collect();
+            let used: std::collections::HashSet<String> =
+                map.keys().map(|key| key.to_string()).collect();
             let mut suffixes: std::collections::HashMap<String, usize> =
                 std::collections::HashMap::new();
-            let mut copy = serde_json::Map::with_capacity(map.len());
-            let keys: Vec<String> = map.keys().cloned().collect();
+            let mut copy = ace_json::Map::with_capacity(map.len());
+            let keys: Vec<String> = map.keys().map(|key| key.to_string()).collect();
             for (position, key) in keys.iter().enumerate() {
                 let safe_key = redacted_keys
                     .get(position)
@@ -133,13 +138,13 @@ fn redact_value_depth(data: &Value, secrets: &[&str], depth: usize) -> Value {
 
 /// A frame's JSON with lease secrets redacted.
 pub fn redacted_frame_json(data: &Value, secrets: &[String]) -> (String, Value) {
-    let json = serde_json::to_string(data).unwrap_or_else(|_| "null".to_owned());
+    let json = ace_json::ser::to_string(data).unwrap_or_else(|_| "null".to_owned());
     let mut clean = true;
     for secret in secrets {
         if secret.is_empty() {
             continue;
         }
-        let escaped = serde_json::to_string(secret)
+        let escaped = ace_json::ser::to_string(secret)
             .map(|quoted| {
                 if quoted.len() >= 2 {
                     quoted[1..quoted.len() - 1].to_owned()
@@ -157,14 +162,14 @@ pub fn redacted_frame_json(data: &Value, secrets: &[String]) -> (String, Value) 
         return (json, data.clone());
     }
     let value = redact_lease(data, secrets);
-    let text = serde_json::to_string(&value).unwrap_or_else(|_| "null".to_owned());
+    let text = ace_json::ser::to_string(&value).unwrap_or_else(|_| "null".to_owned());
     (text, value)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{LEASE_REDACTION, redact_lease, redacted_frame_json};
-    use serde_json::{Value, json};
+    use ace_json::{Value, json};
 
     fn nested(depth: usize, leaf: Value) -> Value {
         let mut value = leaf;
@@ -187,20 +192,20 @@ mod tests {
             json!({"token": format!("Bearer {LEASE_REDACTION}"), "name": "deep"}),
         );
         assert_eq!(redacted, expected);
-        let text = serde_json::to_string(&redacted).unwrap_or_default();
+        let text = ace_json::ser::to_string(&redacted).unwrap_or_default();
         assert!(!text.contains("[depth limit]"));
     }
 
     #[test]
     fn secret_key_is_redacted_without_overwriting_an_existing_field() {
         let secret = "lease-0123456789abcdef".to_owned();
-        let mut input_map = serde_json::Map::new();
+        let mut input_map = ace_json::Map::new();
         input_map.insert(secret.clone(), Value::from(1));
         input_map.insert(LEASE_REDACTION.to_owned(), Value::from(2));
         input_map.insert("other".to_owned(), json!([secret.clone(), "x"]));
         let frame = Value::Object(input_map);
         let redacted = redact_lease(&frame, &[secret]);
-        let mut expected_map = serde_json::Map::new();
+        let mut expected_map = ace_json::Map::new();
         expected_map.insert(LEASE_REDACTION.to_owned(), Value::from(2));
         expected_map.insert(format!("{LEASE_REDACTION}#1"), Value::from(1));
         expected_map.insert("other".to_owned(), json!([LEASE_REDACTION, "x"]));
@@ -214,7 +219,7 @@ mod tests {
         let published = redacted_frame_json(&frame, &[secret]);
         assert_eq!(
             published.0,
-            serde_json::to_string(&frame).unwrap_or_default()
+            ace_json::ser::to_string(&frame).unwrap_or_default()
         );
         assert_eq!(published.1, frame);
     }
@@ -225,7 +230,7 @@ mod tests {
         for key in [secret, "lease\"with\\quote".to_owned()] {
             let value = format!("token {key}");
             let published = redacted_frame_json(&json!({"params": {"value": value}}), &[key]);
-            let parsed: Value = serde_json::from_str(&published.0).unwrap_or(Value::Null);
+            let parsed: Value = ace_json::parse(&published.0).unwrap_or(Value::Null);
             assert_eq!(
                 parsed,
                 json!({"params": {"value": format!("token {LEASE_REDACTION}")}})

@@ -5,53 +5,59 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::envelope::{cat, native_identity, string, trim_text};
-use super::json::{J, encode_units};
+use super::text::{JsString, Value};
 use super::{BudgetError, BudgetResult};
 
 /// A live provider subagent routed by its spawning task call.
 pub struct Child {
-    pub key: Vec<u16>,
-    pub parent: Vec<u16>,
-    pub call: Vec<u16>,
-    pub turn: Vec<u16>,
-    pub native: Option<Vec<u16>>,
+    pub key: JsString,
+    pub parent: JsString,
+    pub call: JsString,
+    pub turn: JsString,
+    pub native: Option<JsString>,
     pub background: bool,
     pub settled: bool,
     pub uncertain: bool,
     pub summary: bool,
-    pub description: Option<Vec<u16>>,
+    pub description: Option<JsString>,
 }
 
 impl Child {
-    pub(crate) fn surviving(&self, agent: &[u16]) -> J {
+    pub(crate) fn surviving(&self, agent: &JsString) -> Value {
         let title = match &self.description {
             Some(description) => description.clone(),
-            None => encode_units("Subagent"),
+            None => JsString::from("Subagent"),
         };
-        J::Obj(vec![
+        Value::from(vec![
             (
-                encode_units("type"),
-                J::Str(encode_units("background.started")),
+                JsString::from("type"),
+                Value::String(JsString::from("background.started")),
             ),
-            (encode_units("agent"), J::Str(agent.to_vec())),
+            (JsString::from("agent"), Value::String(agent.clone())),
             (
-                encode_units("task"),
-                J::Str(cat(&[&encode_units("background:"), &self.call])),
+                JsString::from("task"),
+                Value::String(cat(&[&JsString::from("background:"), &self.call])),
             ),
-            (encode_units("kind"), J::Str(encode_units("subagent"))),
-            (encode_units("title"), J::Str(title)),
-            (encode_units("childAgent"), J::Str(self.key.clone())),
-            (encode_units("item"), J::Str(self.call.clone())),
-            (encode_units("stoppable"), J::Bool(false)),
+            (
+                JsString::from("kind"),
+                Value::String(JsString::from("subagent")),
+            ),
+            (JsString::from("title"), Value::String(title)),
+            (
+                JsString::from("childAgent"),
+                Value::String(self.key.clone()),
+            ),
+            (JsString::from("item"), Value::String(self.call.clone())),
+            (JsString::from("stoppable"), Value::Bool(false)),
         ])
     }
 }
 
 /// Task-call-owned children with native-id linking and pending tracking.
 pub struct Children {
-    pub calls: BTreeMap<Vec<u16>, Child>,
-    pub(crate) native: BTreeMap<Vec<u16>, Vec<u16>>,
-    pub(crate) pending_by_parent: BTreeMap<Vec<u16>, BTreeSet<Vec<u16>>>,
+    pub calls: BTreeMap<JsString, Child>,
+    pub(crate) native: BTreeMap<JsString, JsString>,
+    pub(crate) pending_by_parent: BTreeMap<JsString, BTreeSet<JsString>>,
     limit: usize,
 }
 
@@ -67,34 +73,36 @@ impl Children {
 
     pub fn ensure(
         &mut self,
-        call: &[u16],
-        parent: &[u16],
-        args: &J,
-        cwd: &[u16],
-    ) -> BudgetResult<Vec<J>> {
+        call: &JsString,
+        parent: &JsString,
+        args: &Value,
+        cwd: &JsString,
+    ) -> BudgetResult<Vec<Value>> {
         if self.calls.contains_key(call) {
             let input = args;
-            let native = native_identity(input.get("agentId").unwrap_or(&J::Null))?
-                .or(native_identity(input.get("resume").unwrap_or(&J::Null))?);
+            let native = native_identity(input.get("agentId").unwrap_or(&Value::Null))?.or(
+                native_identity(input.get("resume").unwrap_or(&Value::Null))?,
+            );
             let existing = self.calls.get(call).ok_or(BudgetError::Exceeded)?;
             let (key, parent) = (existing.key.clone(), existing.parent.clone());
-            return self.link_by_key(call, native.as_deref(), cwd, &key, &parent);
+            return self.link_by_key(call, native.as_ref(), cwd, &key, &parent);
         }
         if self.calls.len() >= self.limit {
             return Err(BudgetError::Exceeded);
         }
         let input = args;
-        let key = cat(&[&encode_units("child:"), call]);
-        let native = native_identity(input.get("agentId").unwrap_or(&J::Null))?
-            .or(native_identity(input.get("resume").unwrap_or(&J::Null))?);
-        let description = string(input.get("description").unwrap_or(&J::Null))
+        let key = cat(&[&JsString::from("child:"), call]);
+        let native = native_identity(input.get("agentId").unwrap_or(&Value::Null))?.or(
+            native_identity(input.get("resume").unwrap_or(&Value::Null))?,
+        );
+        let description = string(input.get("description").unwrap_or(&Value::Null))
             .map(trim_text)
             .filter(|text| !text.is_empty());
         let child = Child {
             key: key.clone(),
-            parent: parent.to_vec(),
-            call: call.to_vec(),
-            turn: cat(&[&encode_units("task:"), call]),
+            parent: parent.clone(),
+            call: call.clone(),
+            turn: cat(&[&JsString::from("task:"), call]),
             native: native.clone(),
             background: false,
             settled: false,
@@ -102,112 +110,133 @@ impl Children {
             summary: false,
             description,
         };
-        self.calls.insert(call.to_vec(), child);
+        self.calls.insert(call.clone(), child);
         self.pending_by_parent
-            .entry(parent.to_vec())
+            .entry(parent.clone())
             .or_default()
-            .insert(call.to_vec());
+            .insert(call.clone());
         if let Some(native) = &native {
             self.native.insert(native.clone(), key.clone());
         }
-        let name =
-            string(input.get("description").unwrap_or(&J::Null)).filter(|name| !name.is_empty());
+        let name = string(input.get("description").unwrap_or(&Value::Null))
+            .filter(|name| !name.is_empty());
         let model =
-            string(input.get("model").unwrap_or(&J::Null)).filter(|model| !model.is_empty());
+            string(input.get("model").unwrap_or(&Value::Null)).filter(|model| !model.is_empty());
         let role = string(
             input
                 .get("subagentType")
-                .unwrap_or(&J::Null)
+                .unwrap_or(&Value::Null)
                 .get("kind")
-                .unwrap_or(&J::Null),
+                .unwrap_or(&Value::Null),
         )
         .filter(|role| !role.is_empty());
-        let mut native_ref = vec![(encode_units("provider"), J::Str(encode_units("cursor")))];
+        let mut native_ref = vec![(
+            JsString::from("provider"),
+            Value::String(JsString::from("cursor")),
+        )];
         if let Some(native) = &native {
-            native_ref.push((encode_units("nativeId"), J::Str(native.clone())));
+            native_ref.push((JsString::from("nativeId"), Value::String(native.clone())));
         }
         let mut seen = vec![
-            (encode_units("type"), J::Str(encode_units("agent.seen"))),
-            (encode_units("agent"), J::Str(key.clone())),
-            (encode_units("parent"), J::Str(parent.to_vec())),
-            (encode_units("spawnedBy"), J::Str(call.to_vec())),
             (
-                encode_units("origin"),
-                J::Str(encode_units("provider_subagent")),
+                JsString::from("type"),
+                Value::String(JsString::from("agent.seen")),
+            ),
+            (JsString::from("agent"), Value::String(key.clone())),
+            (JsString::from("parent"), Value::String(parent.clone())),
+            (JsString::from("spawnedBy"), Value::String(call.clone())),
+            (
+                JsString::from("origin"),
+                Value::String(JsString::from("provider_subagent")),
             ),
             (
-                encode_units("fidelity"),
-                J::Str(encode_units("placeholder")),
+                JsString::from("fidelity"),
+                Value::String(JsString::from("placeholder")),
             ),
-            (encode_units("cwd"), J::Str(cwd.to_vec())),
-            (encode_units("native"), J::Obj(native_ref)),
+            (JsString::from("cwd"), Value::String(cwd.clone())),
+            (JsString::from("native"), Value::from(native_ref)),
         ];
         if let Some(name) = name {
-            seen.push((encode_units("name"), J::Str(name.to_vec())));
+            seen.push((JsString::from("name"), Value::String(name.clone())));
         }
         if let Some(model) = model {
-            seen.push((encode_units("model"), J::Str(model.to_vec())));
+            seen.push((JsString::from("model"), Value::String(model.clone())));
         }
         if let Some(role) = role {
-            seen.push((encode_units("role"), J::Str(role.to_vec())));
+            seen.push((JsString::from("role"), Value::String(role.clone())));
         }
         Ok(vec![
-            J::Obj(seen),
-            J::Obj(vec![
-                (encode_units("type"), J::Str(encode_units("turn.started"))),
-                (encode_units("agent"), J::Str(key)),
+            Value::from(seen),
+            Value::from(vec![
                 (
-                    encode_units("nativeTurnId"),
-                    J::Str(cat(&[&encode_units("task:"), call])),
+                    JsString::from("type"),
+                    Value::String(JsString::from("turn.started")),
                 ),
-                (encode_units("trigger"), J::Str(encode_units("spawn"))),
+                (JsString::from("agent"), Value::String(key)),
+                (
+                    JsString::from("nativeTurnId"),
+                    Value::String(cat(&[&JsString::from("task:"), call])),
+                ),
+                (
+                    JsString::from("trigger"),
+                    Value::String(JsString::from("spawn")),
+                ),
             ]),
         ])
     }
 
     fn link_by_key(
         &mut self,
-        call: &[u16],
-        native: Option<&[u16]>,
-        cwd: &[u16],
-        child_key: &[u16],
-        parent: &[u16],
-    ) -> BudgetResult<Vec<J>> {
+        call: &JsString,
+        native: Option<&JsString>,
+        cwd: &JsString,
+        child_key: &JsString,
+        parent: &JsString,
+    ) -> BudgetResult<Vec<Value>> {
         let Some(native) = native else {
             return Ok(Vec::new());
         };
         let child = self.calls.get(call).ok_or(BudgetError::Exceeded)?;
-        if child.native.as_deref() == Some(native) {
+        if child.native.as_ref() == Some(native) {
             return Ok(Vec::new());
         }
         if child.native.is_some()
             || self
                 .native
                 .get(native)
-                .is_some_and(|linked| linked.as_slice() != child_key)
+                .is_some_and(|linked| linked != child_key)
         {
             return Err(BudgetError::Exceeded);
         }
         let child = self.calls.get_mut(call).ok_or(BudgetError::Exceeded)?;
-        child.native = Some(native.to_vec());
+        child.native = Some(native.clone());
         child.summary = true;
-        self.native.insert(native.to_vec(), child_key.to_vec());
-        Ok(vec![J::Obj(vec![
-            (encode_units("type"), J::Str(encode_units("agent.seen"))),
-            (encode_units("agent"), J::Str(child_key.to_vec())),
-            (encode_units("parent"), J::Str(parent.to_vec())),
-            (encode_units("spawnedBy"), J::Str(call.to_vec())),
+        self.native.insert(native.clone(), child_key.clone());
+        Ok(vec![Value::from(vec![
             (
-                encode_units("origin"),
-                J::Str(encode_units("provider_subagent")),
+                JsString::from("type"),
+                Value::String(JsString::from("agent.seen")),
             ),
-            (encode_units("fidelity"), J::Str(encode_units("summary"))),
-            (encode_units("cwd"), J::Str(cwd.to_vec())),
+            (JsString::from("agent"), Value::String(child_key.clone())),
+            (JsString::from("parent"), Value::String(parent.clone())),
+            (JsString::from("spawnedBy"), Value::String(call.clone())),
             (
-                encode_units("native"),
-                J::Obj(vec![
-                    (encode_units("provider"), J::Str(encode_units("cursor"))),
-                    (encode_units("nativeId"), J::Str(native.to_vec())),
+                JsString::from("origin"),
+                Value::String(JsString::from("provider_subagent")),
+            ),
+            (
+                JsString::from("fidelity"),
+                Value::String(JsString::from("summary")),
+            ),
+            (JsString::from("cwd"), Value::String(cwd.clone())),
+            (
+                JsString::from("native"),
+                Value::from(vec![
+                    (
+                        JsString::from("provider"),
+                        Value::String(JsString::from("cursor")),
+                    ),
+                    (JsString::from("nativeId"), Value::String(native.clone())),
                 ]),
             ),
         ])])
@@ -215,14 +244,14 @@ impl Children {
 
     pub fn link(
         &mut self,
-        call: &[u16],
-        native: Option<Vec<u16>>,
-        cwd: &[u16],
-    ) -> BudgetResult<Vec<J>> {
+        call: &JsString,
+        native: Option<JsString>,
+        cwd: &JsString,
+    ) -> BudgetResult<Vec<Value>> {
         let (key, parent) = match self.calls.get(call) {
             Some(child) => (child.key.clone(), child.parent.clone()),
             None => return Ok(Vec::new()),
         };
-        self.link_by_key(call, native.as_deref(), cwd, &key, &parent)
+        self.link_by_key(call, native.as_ref(), cwd, &key, &parent)
     }
 }

@@ -11,7 +11,7 @@ use crate::translate::tool::tool;
 use crate::translate::translator::Translator;
 use crate::translate::translator::{AgentGone, InputConsumed, InteractionExpired, MAX_SAFE, Retry};
 use crate::translate::usage::{Model, session_usage, step_context};
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 impl Translator {
     #[allow(clippy::too_many_lines)]
@@ -229,11 +229,7 @@ impl Translator {
         Ok(())
     }
 
-    pub(crate) fn shell_created(
-        &mut self,
-        p: &Map<String, Value>,
-        out: &mut Out<'_>,
-    ) -> Result<(), StateError> {
+    pub(crate) fn shell_created(&mut self, p: &Map, out: &mut Out<'_>) -> Result<(), StateError> {
         let info = fields(get(p, "info"));
         let id = s_in(info, "id").to_owned();
         let session = s_in(fields(get(info, "metadata")), "sessionID").to_owned();
@@ -272,7 +268,7 @@ impl Translator {
     pub(crate) fn shell_exited(
         &mut self,
         typ: &str,
-        p: &Map<String, Value>,
+        p: &Map,
         created: f64,
         out: &mut Out<'_>,
     ) -> Result<(), StateError> {
@@ -303,7 +299,7 @@ impl Translator {
     pub(crate) fn inbox_enqueued(
         &mut self,
         id: &str,
-        p: &Map<String, Value>,
+        p: &Map,
         created: f64,
         out: &mut Out<'_>,
     ) -> Result<(), StateError> {
@@ -331,7 +327,7 @@ impl Translator {
         &mut self,
         typ: &str,
         id: &str,
-        p: &Map<String, Value>,
+        p: &Map,
         created: f64,
         out: &mut Out<'_>,
     ) -> Result<(), StateError> {
@@ -368,7 +364,7 @@ impl Translator {
     pub(crate) fn synthetic(
         &mut self,
         id: &str,
-        p: &Map<String, Value>,
+        p: &Map,
         created: Option<f64>,
         out: &mut Out<'_>,
     ) -> Result<(), StateError> {

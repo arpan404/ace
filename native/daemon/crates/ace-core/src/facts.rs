@@ -3,7 +3,7 @@
 //! as a serde enum tagged by `type`. Translators return facts; only the core
 //! allocates ace ids.
 
-use serde_json::value::RawValue;
+use ace_json::Raw;
 
 /// A native fact key, namespaced per provider process (E4 refines this).
 pub type Key = String;
@@ -13,6 +13,7 @@ pub type Key = String;
 pub struct Fact {
     /// The fact's `type` tag, which the E4 enum matches on.
     pub fact_type: String,
-    /// The fact's body as JSON.
-    pub data: Box<RawValue>,
+    /// The fact's body as canonical JSON (`JSON.stringify`'s bytes), spliced into the
+    /// binding's output without re-encoding.
+    pub data: Raw,
 }

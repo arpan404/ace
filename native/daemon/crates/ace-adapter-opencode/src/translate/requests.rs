@@ -4,8 +4,8 @@
 
 use crate::translate::approval_target::ApprovalTarget;
 use crate::translate::data::{Num, arr_in, fields, get, s_in};
+use ace_json::{Map, Value};
 use serde::Serialize;
-use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
 /// A question option the person can pick.
@@ -167,7 +167,7 @@ pub(crate) enum RequestKind {
     Elicitation,
 }
 
-pub(crate) fn request_kind(form: &Map<String, Value>) -> RequestKind {
+pub(crate) fn request_kind(form: &Map) -> RequestKind {
     let metadata = fields(get(form, "metadata"));
     let field_list = arr_in(form, "fields");
     if s_in(metadata, "kind") == "question"
@@ -183,7 +183,7 @@ pub(crate) fn request_kind(form: &Map<String, Value>) -> RequestKind {
 }
 
 /// Read a form as the question or elicitation it describes.
-pub(crate) fn form_request<'a>(form: &'a Map<String, Value>) -> Request<'a> {
+pub(crate) fn form_request<'a>(form: &'a Map) -> Request<'a> {
     if request_kind(form) == RequestKind::Question {
         return Request::Question {
             questions: arr_in(form, "fields")
@@ -231,7 +231,7 @@ pub(crate) fn form_request<'a>(form: &'a Map<String, Value>) -> Request<'a> {
 }
 
 /// A generic form as renderable JSON Schema, or nothing renderable.
-fn elicitation_schema<'a>(form: &'a Map<String, Value>) -> Option<ElicitationSchema<'a>> {
+fn elicitation_schema<'a>(form: &'a Map) -> Option<ElicitationSchema<'a>> {
     let mut properties: BTreeMap<&'a str, Property<'a>> = BTreeMap::new();
     let mut required: Vec<&'a str> = Vec::new();
     for field in arr_in(form, "fields") {
@@ -267,7 +267,7 @@ fn elicitation_schema<'a>(form: &'a Map<String, Value>) -> Option<ElicitationSch
     })
 }
 
-fn field_property<'a>(field: &'a Map<String, Value>) -> Option<Property<'a>> {
+fn field_property<'a>(field: &'a Map) -> Option<Property<'a>> {
     let title = match field.get("title") {
         Some(Value::String(title)) if !title.is_empty() => Some(title.as_str()),
         _ => None,
@@ -281,7 +281,7 @@ fn field_property<'a>(field: &'a Map<String, Value>) -> Option<Property<'a>> {
             let mut values: Option<Vec<&str>> = None;
             let mut value_names: Option<Vec<&str>> = None;
             if !matches!(field.get("custom"), Some(Value::Bool(true))) {
-                let options: Vec<&Map<String, Value>> = arr_in(field, "options")
+                let options: Vec<&Map> = arr_in(field, "options")
                     .iter()
                     .filter_map(|option| {
                         let o = fields(option);

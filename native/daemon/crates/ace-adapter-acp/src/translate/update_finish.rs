@@ -6,7 +6,7 @@ use crate::translate::completed_tools::retire_tool;
 use crate::translate::shell_output::ShellOutput;
 use crate::translate::state::TranslationState;
 use crate::translate::tool_text::tool_title;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 /// Publish a tool update as an upsert.
 pub fn push_upsert(
@@ -33,23 +33,23 @@ pub fn push_upsert(
                 detail
                     .get("kind")
                     .cloned()
-                    .unwrap_or(Value::String(detail_kind.clone())),
+                    .unwrap_or(Value::from(detail_kind.clone())),
             );
-            call.insert("title".to_owned(), Value::String(title));
-            call.insert("status".to_owned(), Value::String(tool.status.clone()));
+            call.insert("title".to_owned(), Value::from(title));
+            call.insert("status".to_owned(), Value::from(tool.status.clone()));
             if let Some(error) = error {
-                call.insert("error".to_owned(), Value::String(error));
+                call.insert("error".to_owned(), Value::from(error));
             }
             let mut detail_value = detail.clone();
             if detail_kind == "agent.spawn"
                 && let Some(child_key) = tool.child_key.clone()
                 && let Some(detail_map) = detail_value.as_object_mut()
             {
-                detail_map.insert("childAgent".to_owned(), Value::String(child_key));
+                detail_map.insert("childAgent".to_owned(), Value::from(child_key));
             }
             call.insert("detail".to_owned(), detail_value);
             if !retained_raw {
-                call.insert("raw".to_owned(), Value::Array(tool.raw.clone()));
+                call.insert("raw".to_owned(), Value::from(tool.raw.clone()));
             }
             let mut ordered = Map::with_capacity(6);
             for key in ["kind", "title", "status", "error", "detail", "raw"] {
@@ -60,13 +60,13 @@ pub fn push_upsert(
             let complete =
                 !["pending", "running", "awaiting_approval"].contains(&tool.status.as_str());
             let mut draft = Map::with_capacity(3);
-            draft.insert("type".to_owned(), Value::String("tool_call".to_owned()));
+            draft.insert("type".to_owned(), Value::from("tool_call".to_owned()));
             draft.insert("complete".to_owned(), Value::Bool(complete));
             draft.insert("call".to_owned(), Value::Object(ordered));
             let mut fact = Map::with_capacity(4);
-            fact.insert("type".to_owned(), Value::String("item.upsert".to_owned()));
-            fact.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
-            fact.insert("item".to_owned(), Value::String(tool.key.clone()));
+            fact.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+            fact.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
+            fact.insert("item".to_owned(), Value::from(tool.key.clone()));
             fact.insert("draft".to_owned(), Value::Object(draft));
             facts.push(Value::Object(fact));
         }
@@ -126,12 +126,12 @@ pub fn settle_finish(
             let mut ended = Map::with_capacity(3);
             ended.insert(
                 "type".to_owned(),
-                Value::String("background.ended".to_owned()),
+                Value::from("background.ended".to_owned()),
             );
-            ended.insert("task".to_owned(), Value::String(task));
+            ended.insert("task".to_owned(), Value::from(task));
             ended.insert(
                 "status".to_owned(),
-                Value::String(
+                Value::from(
                     match status.as_str() {
                         "succeeded" => "completed",
                         "cancelled" => "stopped",
@@ -151,11 +151,11 @@ pub fn settle_finish(
             .unwrap_or_default();
         if ["succeeded", "failed", "declined", "cancelled"].contains(&status.as_str()) {
             let mut activity = Map::with_capacity(3);
-            activity.insert("type".to_owned(), Value::String("activity".to_owned()));
-            activity.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
+            activity.insert("type".to_owned(), Value::from("activity".to_owned()));
+            activity.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
             activity.insert(
                 "activity".to_owned(),
-                Value::String("starting_turn".to_owned()),
+                Value::from("starting_turn".to_owned()),
             );
             facts.push(Value::Object(activity));
         }

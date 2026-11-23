@@ -4,13 +4,13 @@
 //! native inputs and edit file metadata are.
 
 use crate::translate::data::{arr, fields, get, utf16_len};
+use ace_json::{Map, Value};
 use serde::Serialize;
-use serde_json::{Map, Value};
 
 /// The exact input an approval decides on: a value, or a whole metadata map.
 pub enum ApprovalInput<'a> {
     Value(&'a Value),
-    Map(&'a Map<String, Value>),
+    Map(&'a Map),
 }
 
 impl Serialize for ApprovalInput<'_> {
@@ -23,17 +23,48 @@ impl Serialize for ApprovalInput<'_> {
 }
 
 /// An exact provider input the approval decides on.
-#[derive(Serialize)]
 pub struct ApprovalTarget<'a> {
     tool: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
     cwd: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     command: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     paths: Option<Vec<&'a str>>,
     access: &'static str,
     input: ApprovalInput<'a>,
+    /// Whether the TypeScript built the target as a literal (the edit branch) rather than
+    /// through `ApprovalTarget.safeParse`, which emits the schema's key order.
+    literal: bool,
+}
+
+impl Serialize for ApprovalTarget<'_> {
+    /// The TypeScript's key order: the edit branch's literal is `tool, cwd, access, paths,
+    /// input`; zod's parse of the schema is `tool, command, cwd, paths, access, input`.
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("tool", self.tool)?;
+        if self.literal {
+            if let Some(cwd) = self.cwd {
+                map.serialize_entry("cwd", cwd)?;
+            }
+            map.serialize_entry("access", self.access)?;
+            if let Some(paths) = &self.paths {
+                map.serialize_entry("paths", paths)?;
+            }
+        } else {
+            if let Some(command) = self.command {
+                map.serialize_entry("command", command)?;
+            }
+            if let Some(cwd) = self.cwd {
+                map.serialize_entry("cwd", cwd)?;
+            }
+            if let Some(paths) = &self.paths {
+                map.serialize_entry("paths", paths)?;
+            }
+            map.serialize_entry("access", self.access)?;
+        }
+        map.serialize_entry("input", &self.input)?;
+        map.end()
+    }
 }
 
 fn units(text: &str) -> usize {
@@ -71,7 +102,7 @@ fn edit_files(value: &Value) -> Option<Vec<&str>> {
 /// nothing when neither parses the way `ApprovalTarget.safeParse` requires.
 pub fn approval_target<'a>(
     action: &'a str,
-    metadata: &'a Map<String, Value>,
+    metadata: &'a Map,
     native_input: Option<&'a Value>,
     directory: Option<&'a str>,
 ) -> Option<ApprovalTarget<'a>> {
@@ -84,6 +115,7 @@ pub fn approval_target<'a>(
             paths: Some(paths),
             access: "write",
             input: ApprovalInput::Map(metadata),
+            literal: true,
         });
     }
     // The metadata's own input when present (even null), else the tool's.
@@ -144,5 +176,6 @@ pub fn approval_target<'a>(
             "unknown"
         },
         input: ApprovalInput::Value(input_value),
+        literal: false,
     })
 }

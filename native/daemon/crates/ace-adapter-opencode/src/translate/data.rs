@@ -5,8 +5,8 @@
 //! else reads as the shared empty value. Nothing here copies.
 
 use ace_adapter_api::util::record::{NativeRecord, native_record};
+use ace_json::{Map, Value};
 use serde::Serializer;
-use serde_json::{Map, Value};
 
 /// The shared empty value non-values read as; returned by borrow, never copied.
 pub static NULL: Value = Value::Null;
@@ -17,7 +17,7 @@ pub fn fields(value: &Value) -> NativeRecord<'_> {
 }
 
 /// The value's field, or null when missing.
-pub fn get<'a>(map: &'a Map<String, Value>, key: &str) -> &'a Value {
+pub fn get<'a>(map: &'a Map, key: &str) -> &'a Value {
     match map.get(key) {
         Some(value) => value,
         None => &NULL,
@@ -33,12 +33,12 @@ pub fn s(value: &Value) -> &str {
 }
 
 /// A field as a string, or the empty fallback.
-pub fn s_in<'a>(map: &'a Map<String, Value>, key: &str) -> &'a str {
+pub fn s_in<'a>(map: &'a Map, key: &str) -> &'a str {
     s(get(map, key))
 }
 
 /// A field as a string, or the caller's fallback (nested `string(x, fb)`).
-pub fn s_in_fb<'a>(map: &'a Map<String, Value>, key: &str, fallback: &'a str) -> &'a str {
+pub fn s_in_fb<'a>(map: &'a Map, key: &str, fallback: &'a str) -> &'a str {
     match map.get(key) {
         Some(Value::String(text)) => text,
         _ => fallback,
@@ -54,12 +54,12 @@ pub fn n(value: &Value) -> f64 {
 }
 
 /// A field as a finite number, or zero.
-pub fn n_in(map: &Map<String, Value>, key: &str) -> f64 {
+pub fn n_in(map: &Map, key: &str) -> f64 {
     n(get(map, key))
 }
 
 /// A field as a finite number, or the caller's fallback.
-pub fn n_in_fb(map: &Map<String, Value>, key: &str, fallback: f64) -> f64 {
+pub fn n_in_fb(map: &Map, key: &str, fallback: f64) -> f64 {
     match map.get(key) {
         Some(Value::Number(number)) => number.as_f64().unwrap_or(fallback),
         _ => fallback,
@@ -75,7 +75,7 @@ pub fn arr(value: &Value) -> &[Value] {
 }
 
 /// A field as an array, or the empty one.
-pub fn arr_in<'a>(map: &'a Map<String, Value>, key: &str) -> &'a [Value] {
+pub fn arr_in<'a>(map: &'a Map, key: &str) -> &'a [Value] {
     arr(get(map, key))
 }
 
@@ -115,12 +115,10 @@ pub enum Datum<'a> {
 impl serde::Serialize for Datum<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
-            Datum::Verbatim(text) => {
-                match serde_json::from_str::<Box<serde_json::value::RawValue>>(text) {
-                    Ok(raw) => raw.serialize(serializer),
-                    Err(_) => serializer.serialize_none(),
-                }
-            }
+            Datum::Verbatim(text) => match ace_json::Raw::from_json(text) {
+                Ok(raw) => raw.serialize(serializer),
+                Err(_) => serializer.serialize_none(),
+            },
             Datum::Owned(value) => value.serialize(serializer),
         }
     }
