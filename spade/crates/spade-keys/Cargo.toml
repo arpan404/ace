@@ -1,7 +1,7 @@
 [package]
 name = "spade-keys"
 version = "0.1.0"
-description = "Spade's endpoint API keys in the OS keychain (ADR 0119)"
+description = "Spade's endpoint API keys in the OS keychain, read once per process (ADR 0119)"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -11,9 +11,13 @@ publish.workspace = true
 keyring-core.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt"] }
+tracing.workspace = true
+# Secrets held in memory are wiped when dropped (ADR 0119 amendment 2).
+zeroize = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "1", features = ["keychain"] }
+spade-keychain-macos = { path = "../spade-keychain-macos" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-native-keyring-store = "1"
@@ -21,8 +25,11 @@ windows-native-keyring-store = "1"
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] }
 
+[dev-dependencies]
+tempfile.workspace = true
+
 [target.'cfg(target_os = "macos")'.dev-dependencies]
-apple-native-keyring-store = { version = "1", features = ["keychain"] }
+spade-keychain-macos = { path = "../spade-keychain-macos" }
 
 [lints]
 workspace = true

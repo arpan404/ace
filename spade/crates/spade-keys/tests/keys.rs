@@ -91,8 +91,9 @@ fn an_empty_key_or_one_with_line_breaks_is_refused() -> Result {
 #[test]
 fn a_keychain_failure_never_carries_the_key() -> Result {
     let (keys, store) = mock_store()?;
-    keys.set("openai", "sk-secret-value")?;
+    // Stored by an earlier run: this process hasn't read it, so the read goes to the keychain.
     let entry = store.build(SERVICE, "endpoint:openai", None)?;
+    entry.set_password("sk-secret-value")?;
     let cred: &mock::Cred = entry
         .as_any()
         .downcast_ref()
@@ -115,27 +116,26 @@ fn a_keychain_failure_never_carries_the_key() -> Result {
 }
 
 /// Writes to the real keychain of whoever runs it, so it only runs by hand:
-/// `cargo test -p spade-keys --test keys -- --ignored`.
+/// `cargo test -p spade-keys --test keys -- --ignored`. Uses its own service, never Spade's. On
+/// macOS it also checks the entry is filed with Spade's access list and mark, and that a second
+/// process reads it back without a prompt (run it twice: the second run's first read must not
+/// ask).
 #[test]
 #[ignore = "touches the real OS keychain"]
 fn the_os_keychain_round_trips_a_key() -> Result {
-    let keys = KeyStore::with_store(platform()?, "dev.acehq.spade.test");
+    let keys = KeyStore::os("dev.acehq.spade.test")?;
     keys.set("round-trip", "test-only-key")?;
-    let read = keys.get("round-trip")?;
+    #[cfg(target_os = "macos")]
+    assert_eq!(
+        spade_keychain_macos::comment("dev.acehq.spade.test", "endpoint:round-trip")?.as_deref(),
+        Some(spade_keys::OWNED_MARK)
+    );
+    // A fresh store has nothing in memory, so this reads the keychain.
+    let read = KeyStore::os("dev.acehq.spade.test")?.get("round-trip")?;
     let deleted = keys.delete("round-trip")?;
     assert_eq!(read, Some("test-only-key".to_owned()));
     assert!(deleted);
     Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn platform() -> Result<Arc<CredentialStore>> {
-    Ok(apple_native_keyring_store::keychain::Store::new()?)
-}
-
-#[cfg(not(target_os = "macos"))]
-fn platform() -> Result<Arc<CredentialStore>> {
-    Err("the manual keychain check is wired for macOS only".into())
 }
 
 #[test]

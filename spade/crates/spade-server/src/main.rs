@@ -274,8 +274,19 @@ async fn run() -> Result<(), Failure> {
         e => other(e),
     })?;
 
-    let keychain = match KeyStore::os() {
-        Ok(store) => Some(store),
+    // A release Spade on the live home files its keychain entries under its own service; any
+    // other build or home under the dev one, so the two never touch each other's (ADR 0119
+    // amendment 2).
+    let user_home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" });
+    let placement = spade_keys::Placement::of_this_process(
+        &config.data_dir,
+        user_home.as_deref().map(std::path::Path::new),
+    );
+    let keychain = match KeyStore::os(placement.service()) {
+        Ok(store) => {
+            tracing::info!(service = store.service(), "keychain entries");
+            Some(store)
+        }
         Err(error) => {
             tracing::warn!(%error, "no keychain; endpoint keys come from the environment only");
             None

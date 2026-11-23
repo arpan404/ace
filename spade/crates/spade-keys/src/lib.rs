@@ -3,22 +3,28 @@
 //! Service on Linux. Keys are never written anywhere else, and no error or debug output ever
 //! contains one.
 //!
+//! Each secret is read from the store once per process and then kept in memory until Spade itself
+//! replaces or deletes it (ADR 0119 amendment 2). On macOS every entry Spade writes carries an
+//! access list trusting Spade by its code signature, so a signed update reads it without a prompt
+//! (see [`owner`]).
+//!
 //! The store is a value passed in, never a global, so tests use `keyring-core`'s in-memory mock
 //! and never touch a real keychain.
 
+mod cache;
 mod lookup;
+pub mod owner;
 mod presence;
 
+use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use keyring_core::{CredentialStore, Entry, Error};
 
 pub use lookup::{KeyRequest, Keys};
-
-/// The keychain service every Spade key is filed under.
-pub const SERVICE: &str = "dev.acehq.spade";
+pub use owner::{DEV_SERVICE, OWNED_MARK, Owner, Placement, SERVICE};
 
 /// The keychain account Spade's ace grant is filed under (docs/ace-integration.md).
 pub const ACE_GRANT: &str = "ace:grant";
@@ -46,6 +52,13 @@ pub struct KeyStore {
     service: String,
     /// Whether each endpoint has a key, as last read, shared by every clone.
     presence: Arc<presence::Presence>,
+    /// Secrets already read in this process, shared by every clone.
+    cache: Arc<cache::Cache>,
+    /// Writes entries with Spade's own access list, where the platform has one.
+    owner: Option<Arc<dyn Owner>>,
+    /// One lock per entry, held across each write of it, so filing an old entry again never
+    /// overwrites a newer secret. Per entry: a write stuck on a prompt holds up only its own.
+    writing: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
 }
 
 impl fmt::Debug for KeyStore {
@@ -57,9 +70,13 @@ impl fmt::Debug for KeyStore {
 }
 
 impl KeyStore {
-    /// This operating system's credential store.
-    pub fn os() -> Result<Self, KeyError> {
-        Ok(Self::with_store(platform_store()?, SERVICE))
+    /// This operating system's credential store, filed under `service` (see
+    /// [`Placement::service`]). On macOS, Spade owns the entries it writes.
+    pub fn os(service: &str) -> Result<Self, KeyError> {
+        let store = Self::with_store(platform_store()?, service);
+        #[cfg(target_os = "macos")]
+        let store = store.owned_by(Arc::new(owner::MacOwner));
+        Ok(store)
     }
 
     /// Keys in `store`, filed under `service`. Tests pass `keyring_core::mock::Store`.
@@ -68,114 +85,198 @@ impl KeyStore {
             store,
             service: service.to_owned(),
             presence: Arc::default(),
+            cache: Arc::default(),
+            owner: None,
+            writing: Arc::default(),
         }
+    }
+
+    /// The same store, with `owner` writing every entry and filing again, once, each entry it
+    /// didn't write that this process reads.
+    pub fn owned_by(mut self, owner: Arc<dyn Owner>) -> Self {
+        self.owner = Some(owner);
+        self
+    }
+
+    /// The service these keys are filed under.
+    pub fn service(&self) -> &str {
+        &self.service
     }
 
     /// The key for `endpoint`, if one is stored.
     pub fn get(&self, endpoint: &str) -> Result<Option<String>, KeyError> {
-        self.read(&self.entry(endpoint)?)
+        self.read(&endpoint_account(endpoint)?)
     }
 
     /// The ace grant the daemon of ace home `slot` handed Spade, if one is stored. Each ace home
     /// (a person's real one, a development one) has its own slot, so they never overwrite each
     /// other's grant.
     pub fn ace_grant(&self, slot: &str) -> Result<Option<String>, KeyError> {
-        self.read(&self.account(&format!("{ACE_GRANT}:{slot}"))?)
+        self.read(&format!("{ACE_GRANT}:{slot}"))
     }
 
     /// Stores the ace grant for `slot`, replacing any earlier one.
     pub fn set_ace_grant(&self, slot: &str, grant: &str) -> Result<(), KeyError> {
-        let grant = checked(grant)?;
-        self.account(&format!("{ACE_GRANT}:{slot}"))?
-            .set_password(grant)
-            .map_err(|error| classify(&error))
+        self.write(&format!("{ACE_GRANT}:{slot}"), checked(grant)?)
     }
 
     /// Forgets the ace grant for `slot`. Returns whether there was one.
     pub fn delete_ace_grant(&self, slot: &str) -> Result<bool, KeyError> {
-        Self::remove(&self.account(&format!("{ACE_GRANT}:{slot}"))?)
+        self.remove(&format!("{ACE_GRANT}:{slot}"))
     }
 
     /// A connector's secret of `kind` (`access`, `refresh`, `client_secret`), if stored
     /// (ADR 0131). Account `connector:<id>:<kind>`.
     pub fn connector_secret(&self, id: &str, kind: &str) -> Result<Option<String>, KeyError> {
-        self.read(&self.connector_entry(id, kind)?)
+        self.read(&connector_account(id, kind)?)
     }
 
     /// Stores a connector's secret of `kind`, replacing any earlier one.
     pub fn set_connector_secret(&self, id: &str, kind: &str, secret: &str) -> Result<(), KeyError> {
-        let secret = checked(secret)?;
-        self.connector_entry(id, kind)?
-            .set_password(secret)
-            .map_err(|error| classify(&error))
+        self.write(&connector_account(id, kind)?, checked(secret)?)
     }
 
     /// Forgets a connector's secret of `kind`. Returns whether there was one.
     pub fn delete_connector_secret(&self, id: &str, kind: &str) -> Result<bool, KeyError> {
-        Self::remove(&self.connector_entry(id, kind)?)
+        self.remove(&connector_account(id, kind)?)
     }
 
     /// The key that seals a signed-in account's tokens (ADR 0214), if stored: hex, one per
     /// account, under `oauth:<account id>`. The tokens themselves are sealed with it in Spade's
     /// data folder, so this entry stays small and its name a fixed length on every platform.
     pub fn sign_in_key(&self, account: &str) -> Result<Option<String>, KeyError> {
-        self.read(&self.sign_in_entry(account)?)
+        self.read(&sign_in_account(account)?)
     }
 
     /// Stores the key that seals `account`'s tokens, replacing any earlier one.
     pub fn set_sign_in_key(&self, account: &str, key: &str) -> Result<(), KeyError> {
-        let key = checked(key)?;
-        self.sign_in_entry(account)?
-            .set_password(key)
-            .map_err(|error| classify(&error))
+        self.write(&sign_in_account(account)?, checked(key)?)
     }
 
     /// Forgets the key that seals `account`'s tokens. Returns whether there was one.
     pub fn delete_sign_in_key(&self, account: &str) -> Result<bool, KeyError> {
-        Self::remove(&self.sign_in_entry(account)?)
-    }
-
-    fn sign_in_entry(&self, account: &str) -> Result<Entry, KeyError> {
-        if account.trim().is_empty() {
-            return Err(KeyError::Invalid("the account id is empty"));
-        }
-        self.account(&format!("oauth:{account}"))
+        self.remove(&sign_in_account(account)?)
     }
 
     /// An org host's audit key (ADR 0206 §4.2), the hex Ed25519 seed that signs its log's
     /// checkpoints, if one was made for organization `org`. Account `org-audit:<org>`.
     pub fn audit_key(&self, org: &str) -> Result<Option<String>, KeyError> {
-        self.read(&self.audit_entry(org)?)
+        self.read(&audit_account(org)?)
     }
 
     /// Stores the audit key for `org`, replacing any earlier one.
     pub fn set_audit_key(&self, org: &str, seed: &str) -> Result<(), KeyError> {
-        let seed = checked(seed)?;
-        self.audit_entry(org)?
-            .set_password(seed)
+        self.write(&audit_account(org)?, checked(seed)?)
+    }
+
+    /// `account`'s secret: from memory once this process has read or written it, otherwise from
+    /// the store. A secret read from the store for the first time is filed again, once, in the
+    /// background, if Spade's owner didn't write it.
+    fn read(&self, account: &str) -> Result<Option<String>, KeyError> {
+        let ticket = match self.cache.lookup(account) {
+            Ok(secret) => return Ok(Some(secret)),
+            Err(ticket) => ticket,
+        };
+        let secret = match self.entry_for(account)?.get_password() {
+            Ok(secret) => secret,
+            Err(Error::NoEntry) => return Ok(None),
+            Err(error) => return Err(classify(&error)),
+        };
+        self.cache.fill(account, ticket, &secret);
+        if self.owner.is_some() && self.cache.claim_adoption(account) {
+            self.adopt_later(account, ticket, &secret);
+        }
+        Ok(Some(secret))
+    }
+
+    /// Files `account` again with Spade's own access list, off the caller's thread, unless the
+    /// owner already wrote it or Spade has changed it since `ticket` was read. Bounded: at most
+    /// once per entry per process, and only entries under this store's own service.
+    fn adopt_later(&self, account: &str, ticket: cache::Ticket, secret: &str) {
+        let keys = self.clone();
+        let account = account.to_owned();
+        let secret = zeroize::Zeroizing::new(secret.to_owned());
+        let _ = std::thread::Builder::new()
+            .name("spade-key-owner".to_owned())
+            .spawn(move || keys.adopt(&account, ticket, &secret));
+    }
+
+    fn adopt(&self, account: &str, ticket: cache::Ticket, secret: &str) {
+        let Some(owner) = &self.owner else { return };
+        match owner.owns(&self.service, account) {
+            Ok(true) => return,
+            Ok(false) => {}
+            Err(error) => {
+                tracing::warn!(account, %error, "couldn't check a keychain entry's access list");
+                return;
+            }
+        }
+        let lock = self.write_lock(account);
+        let _writing = lock.lock().unwrap_or_else(|p| p.into_inner());
+        if !self.cache.unchanged(account, ticket) {
+            return;
+        }
+        if let Err(error) = owner.write(&self.service, account, secret) {
+            tracing::warn!(account, %error, "couldn't file a keychain entry with Spade's access list");
+            // The owner deletes before it adds: put the secret back as it was if that left none.
+            if let Ok(entry) = self.entry_for(account)
+                && matches!(entry.get_password(), Err(Error::NoEntry))
+                && let Err(error) = entry.set_password(secret)
+            {
+                tracing::error!(account, error = %describe(error.to_string()), "a keychain entry was lost while filing it again; add the key again");
+            }
+        } else {
+            tracing::info!(
+                account,
+                "keychain entry now trusts Spade by its code signature"
+            );
+        }
+    }
+
+    /// Stores `secret` under `account`: through the owner where there is one, falling back to a
+    /// plain store write if the owner's write fails.
+    fn write(&self, account: &str, secret: &str) -> Result<(), KeyError> {
+        let lock = self.write_lock(account);
+        let _writing = lock.lock().unwrap_or_else(|p| p.into_inner());
+        let owned = self
+            .owner
+            .as_ref()
+            .map(|owner| owner.write(&self.service, account, secret));
+        let written = match owned {
+            Some(Ok(())) => Ok(()),
+            Some(Err(error)) => {
+                tracing::warn!(account, %error, "keychain entry written without Spade's access list");
+                self.plain_write(account, secret)
+            }
+            None => self.plain_write(account, secret),
+        };
+        match &written {
+            Ok(()) => self.cache.put(account, secret),
+            // What the store now holds is unknown: read it again next time.
+            Err(_) => self.cache.forget(account),
+        }
+        written
+    }
+
+    fn plain_write(&self, account: &str, secret: &str) -> Result<(), KeyError> {
+        self.entry_for(account)?
+            .set_password(secret)
             .map_err(|error| classify(&error))
     }
 
-    fn audit_entry(&self, org: &str) -> Result<Entry, KeyError> {
-        if org.trim().is_empty() {
-            return Err(KeyError::Invalid("the organization id is empty"));
-        }
-        self.account(&format!("org-audit:{org}"))
-    }
-
-    fn connector_entry(&self, id: &str, kind: &str) -> Result<Entry, KeyError> {
-        if id.trim().is_empty() || kind.trim().is_empty() {
-            return Err(KeyError::Invalid("the connector id is empty"));
-        }
-        self.account(&format!("connector:{id}:{kind}"))
-    }
-
-    fn read(&self, entry: &Entry) -> Result<Option<String>, KeyError> {
-        match entry.get_password() {
-            Ok(key) => Ok(Some(key)),
-            Err(Error::NoEntry) => Ok(None),
+    /// Deletes `account`. Returns whether there was one.
+    fn remove(&self, account: &str) -> Result<bool, KeyError> {
+        let lock = self.write_lock(account);
+        let _writing = lock.lock().unwrap_or_else(|p| p.into_inner());
+        let removed = match self.entry_for(account)?.delete_credential() {
+            Ok(()) => Ok(true),
+            Err(Error::NoEntry) => Ok(false),
             Err(error) => Err(classify(&error)),
+        };
+        if removed.is_ok() {
+            self.cache.forget(account);
         }
+        removed
     }
 
     /// Whether a key is stored for `endpoint`, without returning it.
@@ -212,41 +313,56 @@ impl KeyStore {
 
     /// Stores `key` for `endpoint`, replacing any earlier one. Surrounding whitespace is removed.
     pub fn set(&self, endpoint: &str, key: &str) -> Result<(), KeyError> {
-        let key = checked(key)?;
-        self.entry(endpoint)?
-            .set_password(key)
-            .map_err(|error| classify(&error))?;
+        self.write(&endpoint_account(endpoint)?, checked(key)?)?;
         self.presence.note(endpoint, true);
         Ok(())
     }
 
     /// Deletes the key for `endpoint`. Returns whether there was one.
     pub fn delete(&self, endpoint: &str) -> Result<bool, KeyError> {
-        let removed = Self::remove(&self.entry(endpoint)?)?;
+        let removed = self.remove(&endpoint_account(endpoint)?)?;
         self.presence.note(endpoint, false);
         Ok(removed)
     }
 
-    fn remove(entry: &Entry) -> Result<bool, KeyError> {
-        match entry.delete_credential() {
-            Ok(()) => Ok(true),
-            Err(Error::NoEntry) => Ok(false),
-            Err(error) => Err(classify(&error)),
-        }
+    fn write_lock(&self, account: &str) -> Arc<Mutex<()>> {
+        let mut locks = self.writing.lock().unwrap_or_else(|p| p.into_inner());
+        locks.entry(account.to_owned()).or_default().clone()
     }
 
-    fn entry(&self, endpoint: &str) -> Result<Entry, KeyError> {
-        if endpoint.trim().is_empty() {
-            return Err(KeyError::Invalid("the endpoint id is empty"));
-        }
-        self.account(&format!("endpoint:{endpoint}"))
-    }
-
-    fn account(&self, account: &str) -> Result<Entry, KeyError> {
+    fn entry_for(&self, account: &str) -> Result<Entry, KeyError> {
         self.store
             .build(&self.service, account, None)
             .map_err(|error| classify(&error))
     }
+}
+
+fn endpoint_account(endpoint: &str) -> Result<String, KeyError> {
+    if endpoint.trim().is_empty() {
+        return Err(KeyError::Invalid("the endpoint id is empty"));
+    }
+    Ok(format!("endpoint:{endpoint}"))
+}
+
+fn connector_account(id: &str, kind: &str) -> Result<String, KeyError> {
+    if id.trim().is_empty() || kind.trim().is_empty() {
+        return Err(KeyError::Invalid("the connector id is empty"));
+    }
+    Ok(format!("connector:{id}:{kind}"))
+}
+
+fn sign_in_account(account: &str) -> Result<String, KeyError> {
+    if account.trim().is_empty() {
+        return Err(KeyError::Invalid("the account id is empty"));
+    }
+    Ok(format!("oauth:{account}"))
+}
+
+fn audit_account(org: &str) -> Result<String, KeyError> {
+    if org.trim().is_empty() {
+        return Err(KeyError::Invalid("the organization id is empty"));
+    }
+    Ok(format!("org-audit:{org}"))
 }
 
 /// A secret as stored: trimmed, not empty, one line, not huge.
