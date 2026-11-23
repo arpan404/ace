@@ -241,17 +241,13 @@ export async function scrcpyCapture(options: {
     control: Socket | undefined;
     /** True once control connected and the reader was told: that ack is this greeting's. */
     readyWaited: boolean;
-    /** The reader greeted this attempt: any end after that is the new reader's own. */
-    wasGreeted: boolean;
-    /**
-     * Armed after a dial: the reader the dial replaced may end before the new one greets,
-     * and that one end is forgiven, for this attempt only.
-     */
-    forgiveEnded: boolean;
+    /** The ace-media path whose reader greeted: control's ack goes to it alone. */
+    greetedOn: string | undefined;
   };
   let handshake: ScrcpyHandshake | undefined;
-  /** Greeted with no handshake armed yet (a reopen greets right after its point). */
-  let greetedEarly = false;
+  /** The path that greeted with no handshake armed yet (a reopen greets right after its
+   * point). */
+  let greetedEarly: string | undefined;
   const pathsFor = () =>
     (scrcpyPaths ??= media
       ? new DeviceVideoPaths({
@@ -326,22 +322,21 @@ export async function scrcpyCapture(options: {
   };
   /** D1: the tunnel the current handshake runs on, for failure texts. */
   let activeTunnel: ScrcpyTunnel | undefined;
-  const armHandshake = (redialled: boolean): ScrcpyHandshake => {
+  const armHandshake = (): ScrcpyHandshake => {
     const attempt: ScrcpyHandshake = {
       greeted: Promise.withResolvers<void>(),
       ready: Promise.withResolvers<string>(),
       control: undefined,
       readyWaited: false,
-      wasGreeted: false,
-      forgiveEnded: redialled,
+      greetedOn: undefined,
     };
     // Rejections always have a handler: a racing close or stop must never go unhandled.
     attempt.greeted.promise.catch(() => {});
     attempt.ready.promise.catch(() => {});
     handshake = attempt;
-    if (greetedEarly) {
-      greetedEarly = false;
-      attempt.wasGreeted = true;
+    if (greetedEarly !== undefined) {
+      attempt.greetedOn = greetedEarly;
+      greetedEarly = undefined;
       attempt.greeted.resolve();
     }
     return attempt;
@@ -372,14 +367,7 @@ export async function scrcpyCapture(options: {
     const pending = handshake;
     handshake = undefined;
     if (pending) {
-      // The reader this attempt's dial replaced can end before the new reader greets (its
-      // socket closed with the old tunnel): forgive that one end and keep waiting, bounded
-      // by the deadline. Once the new reader greeted, an end is its own.
-      if (pending.forgiveEnded && !pending.wasGreeted) {
-        pending.forgiveEnded = false;
-        handshake = pending;
-        return;
-      }
+      // Any end before ready fails this handshake, with today's text.
       const error =
         reason === "scrcpy-not-started"
           ? scrcpyDidNotStart(activeTunnel?.said() ?? "")
@@ -442,10 +430,10 @@ export async function scrcpyCapture(options: {
       schedule: (callback, ms) => runtime.after(ms, callback),
       scrcpy: {
         ...(deadlineMs === undefined ? {} : { deadlineMs }),
-        greeted: () => {
+        greeted: (path) => {
           const attempt = handshake;
           if (!attempt) {
-            greetedEarly = true;
+            greetedEarly = path;
             return;
           }
           if (attempt.readyWaited) {
@@ -455,7 +443,7 @@ export async function scrcpyCapture(options: {
             attempt.ready.reject(scrcpyClosedDuringStartup());
             return;
           }
-          attempt.wasGreeted = true;
+          attempt.greetedOn ??= path;
           attempt.greeted.resolve();
         },
         ready: (deviceName) => {
@@ -485,7 +473,6 @@ export async function scrcpyCapture(options: {
     port: number,
     paths: DeviceVideoPaths,
     deadline: number,
-    redialled: boolean,
   ): Promise<{ control: Socket; deviceName: string }> => {
     const remaining = () => Math.max(1, deadline - runtime.now());
     const failAt = (error: () => unknown): Promise<never> =>
@@ -501,7 +488,7 @@ export async function scrcpyCapture(options: {
         },
         () => new Promise<never>(() => {}),
       );
-    const attempt = armHandshake(redialled);
+    const attempt = armHandshake();
     // A close before ready ends the handshake the way a reset would: today's text.
     const onHandshakeClose = () => {
       if (handshake === attempt) {
@@ -552,7 +539,8 @@ export async function scrcpyCapture(options: {
       );
       if (attempt.control !== socket || socket.destroyed) throw scrcpyClosedDuringStartup();
       socket.once("close", onHandshakeClose);
-      paths.controlConnected();
+      // The ack goes to the path that greeted, never to one that replaced it since.
+      if (attempt.greetedOn !== undefined) paths.controlConnected(attempt.greetedOn);
       attempt.readyWaited = true;
       options.signal?.throwIfAborted();
       const deviceName = await abortRace(
@@ -656,7 +644,7 @@ export async function scrcpyCapture(options: {
       scrcpyPaths?.close();
       scrcpyPaths = undefined;
       repointQueued = false;
-      greetedEarly = false;
+      greetedEarly = undefined;
     }
     pathsD1 = wantD1;
     if (!wantD1) pathsFor();
@@ -692,18 +680,12 @@ export async function scrcpyCapture(options: {
       }
       if (!fresh) {
         // A greeting from before this dial came from a reader it replaces.
-        greetedEarly = false;
+        greetedEarly = undefined;
         source.dial("127.0.0.1", tunnel.port);
       }
       const deadline = runtime.now() + scrcpyMediaStartupMs;
       try {
-        const { control, deviceName } = await shakeHands(
-          tunnel,
-          tunnel.port,
-          source,
-          deadline,
-          !fresh,
-        );
+        const { control, deviceName } = await shakeHands(tunnel, tunnel.port, source, deadline);
         let closingTunnel: Promise<void> | undefined;
         const started: Link = {
           connection: {
@@ -881,7 +863,7 @@ export async function scrcpyCapture(options: {
     // A handshake still waiting ends now: its waits would otherwise hang until the deadline.
     const waiting = handshake;
     handshake = undefined;
-    greetedEarly = false;
+    greetedEarly = undefined;
     if (waiting) {
       const error = new DOMException("Device capture stopped", "AbortError");
       waiting.greeted.reject(error);

@@ -63,8 +63,8 @@ export type IngestProducer = {
   mediaReads?: boolean;
   /** D1: longest ace-media spends bringing this source's own picture, in milliseconds. */
   deadlineMs?: number;
-  /** D1: ace-media saw scrcpy's dummy byte; connect control now. */
-  greeted?: () => void;
+  /** D1: ace-media's reader on `path` saw scrcpy's dummy byte; connect control now. */
+  greeted?: (path: string) => void;
   /** D1: the scrcpy handshake finished; video follows on egress, under this device name. */
   ready?: (
     deviceName: string,
@@ -317,8 +317,12 @@ export type IngestSource = {
   encodes(encodes: EncodeSpec[]): void;
   /** For a JPEG source: the encode's next unit is a keyframe. */
   key(encode: number): void;
-  /** D1: the daemon connected scrcpy's control socket; read the name and codec now. */
-  controlConnected?: () => void;
+  /**
+   * D1: the daemon connected scrcpy's control socket for the reader on `path` that greeted;
+   * read the name and codec now. Dropped when `path` is no longer the source's open: the ack
+   * belongs to that reader's video socket, never to a replacement's.
+   */
+  controlConnected?: (path: string) => void;
   /** D1: re-dial the video handshake at an adb-forwarded tunnel, under the same source. */
   dial?: (host: string, port: number) => void;
   /**
@@ -404,9 +408,8 @@ export class IngestSources {
         if (live) this.#send({ type: "source.key", source: live.id, encode });
       },
       // D1: the daemon connected scrcpy's control socket; read the name and codec now.
-      controlConnected: () => {
-        const live = entry.live;
-        if (live) this.#send({ type: "source.controlConnected", source: live.id });
+      controlConnected: (path) => {
+        if (entry.live?.id === path) this.#send({ type: "source.controlConnected", source: path });
       },
       // D1: re-dial the video handshake at a tunnel, under the same source. The dial
       // sticks to the entry: a retired path still accepts it, and a reopen carries it.
@@ -589,7 +592,7 @@ export class IngestSources {
       return;
     }
     if (message.type === "source.greeted") {
-      if (entry.state === "ingest") entry.producer.greeted?.();
+      if (entry.state === "ingest") entry.producer.greeted?.(path.id);
       return;
     }
     if (message.type === "source.ready") {
@@ -627,6 +630,12 @@ export class IngestSources {
       return;
     }
     if (message.status === "ended" && message.reason !== undefined) {
+      // A source ace-media reads itself (a scrcpy device's video) stays open: its producer
+      // decides, and either redials it (`dial` revives its reader) or closes it.
+      if (entry.producer.mediaReads === true && entry.state === "ingest") {
+        entry.producer.refused?.(message.reason);
+        return;
+      }
       this.#leave(entry);
       entry.producer.refused?.(message.reason);
       if (message.reason !== noEncoderReason) return this.#failed(entry, message.reason);

@@ -126,8 +126,8 @@ export type DeviceVideoPathsOptions = {
   scrcpy?: {
     /** Longest ace-media spends bringing the picture, in milliseconds. */
     deadlineMs?: number;
-    /** ace-media saw the dummy byte: connect control now. */
-    greeted: () => void;
+    /** ace-media's reader on `path` saw the dummy byte: connect control now. */
+    greeted: (path: string) => void;
     /** The handshake finished: video follows, under this device name. */
     ready: (deviceName: string) => void;
     /** ace-media ended the source, mid-handshake or mid-stream. */
@@ -198,7 +198,7 @@ export class DeviceVideoPaths {
         ? {
             mediaReads: true,
             ...(scrcpy.deadlineMs === undefined ? {} : { deadlineMs: scrcpy.deadlineMs }),
-            greeted: () => scrcpy.greeted(),
+            greeted: (path) => scrcpy.greeted(path),
             ready: (deviceName) => {
               scrcpy.ready(deviceName);
             },
@@ -319,9 +319,10 @@ export class DeviceVideoPaths {
     return run;
   }
 
-  /** D1: the daemon connected scrcpy's control socket; read the name and codec now. */
-  controlConnected(): void {
-    this.#source.controlConnected?.();
+  /** D1: the daemon connected scrcpy's control socket for the reader on `path` that greeted;
+   * read the name and codec now. Dropped once that path has been replaced. */
+  controlConnected(path: string): void {
+    this.#source.controlConnected?.(path);
   }
 
   /** D1: re-dial the video handshake at an adb-forwarded tunnel, under the same source. */

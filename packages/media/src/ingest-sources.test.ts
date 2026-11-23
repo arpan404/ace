@@ -837,3 +837,46 @@ describe("agents' stills", () => {
     expect(takes(v)).toEqual([]);
   });
 });
+
+it("a scrcpy source ace-media reads itself stays open when its reader ends, and control's ack reaches only the open that greeted", () => {
+  const w = world();
+  w.state.capabilities = { ...capabilities, ingest: [...capabilities.ingest, "scrcpy"] };
+  const greetings: string[] = [];
+  const l = producer("scrcpy");
+  const source = w.sources.add({
+    ...l.p,
+    origin: { kind: "scrcpy", host: "127.0.0.1", port: 5000 },
+    mediaReads: true,
+    greeted: (path) => void greetings.push(path),
+  });
+  w.status("s1", "starting");
+  // Its reader ended (a restart closed the old tunnel): the producer decides, the open stays.
+  w.status("s1", "ended", "scrcpy-closed");
+  expect(l.refused).toEqual(["scrcpy-closed"]);
+  expect(w.closed()).toEqual([]);
+  // So the restart's dial reaches it and revives its reader.
+  source.dial?.("127.0.0.1", 5001);
+  expect(w.sent.at(-1)?.message).toEqual({
+    type: "source.dial",
+    source: "s1",
+    host: "127.0.0.1",
+    port: 5001,
+  });
+  w.sources.message({ type: "source.greeted", source: "s1" });
+  expect(greetings).toEqual(["s1"]);
+  // ace-media restarts between the greeting and control's connect: the new open never gets
+  // the ack meant for the reader that greeted.
+  w.sources.exited();
+  w.sources.replay();
+  const reopened = w.opened().at(-1)?.source ?? "";
+  expect(reopened).not.toBe("s1");
+  w.status(reopened, "starting");
+  const acks = () =>
+    w.sent.flatMap(({ message }) =>
+      message.type === "source.controlConnected" ? [message.source] : [],
+    );
+  source.controlConnected?.("s1");
+  expect(acks()).toEqual([]);
+  source.controlConnected?.(reopened);
+  expect(acks()).toEqual([reopened]);
+});

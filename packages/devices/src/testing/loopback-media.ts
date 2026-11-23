@@ -108,7 +108,7 @@ export async function loopbackMedia(
       // The dummy byte, before anything else.
       const dummy = await stream.read(1).catch(() => undefined);
       if (dummy === undefined || gen !== generation || closed) return;
-      producer.greeted?.();
+      producer.greeted?.(path);
       // The name and codec follow once the daemon connects control.
       const connected = await new Promise<boolean>((resolve, reject) => {
         control = () => resolve(true);
@@ -222,7 +222,9 @@ export async function loopbackMedia(
       codecs: () => {},
       encodes: () => {},
       key: () => {},
-      controlConnected: () => control?.(),
+      controlConnected: (greeted) => {
+        if (greeted === path) control?.();
+      },
       dial: (host, dialPort) => {
         if (host !== "127.0.0.1" && host !== "localhost") {
           fail("scrcpy-closed");
