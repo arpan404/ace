@@ -73,6 +73,10 @@ export const spadeCapabilityEvents = [
     name: words,
     state: z.enum(spadeWorkerStates).catch("other"),
     summary: words,
+    /** A failed worker's error, as the endpoint or a tool gave it: never Spade's words. */
+    error: z.string().nullish().catch(undefined),
+    /** What it reports may carry content from outside Spade. */
+    untrusted: z.boolean().catch(false).default(false),
   }),
   /** The bot will be woken: at `due_ms`, when `condition` happens, or both. */
   z.object({
@@ -119,6 +123,13 @@ export const spadeCapabilityEvents = [
     type: z.literal("lane_message"),
     text: words,
     untrusted: z.boolean().catch(false).default(false),
+  }),
+  /** In main: main sent a lane a message (`task_message`), handing it `asks`. */
+  z.object({
+    type: z.literal("lane_messaged"),
+    lane: z.string(),
+    title: words,
+    asks: z.array(z.string()).catch([]).default([]),
   }),
   /** The `title` role named a moved lane: its title from now on. */
   z.object({ type: z.literal("lane_titled"), lane: z.string(), title: words }),

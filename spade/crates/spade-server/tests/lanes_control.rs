@@ -344,3 +344,119 @@ async fn a_lanes_task_left_working_by_a_restart_after_its_reply_closed_carries_o
     assert_eq!(report["state"], "finished");
     Ok(())
 }
+
+#[tokio::test]
+async fn stop_on_the_bot_marks_every_queued_lane_in_one_write_or_none() -> Result {
+    let routes = vec![
+        route(
+            "Book flights to Lisbon",
+            vec![Script::reply("never").held(Duration::from_secs(30))],
+        ),
+        route("Renew the domain", vec![Script::reply("Renewed.")]),
+        route("Sort the inbox", vec![Script::reply("Sorted.")]),
+    ];
+    let mut main = warm_up();
+    main.extend([
+        Script::reply("")
+            .call(
+                "t1",
+                "task_start",
+                json!({ "title": "Book flights to Lisbon" }),
+            )
+            .call("t2", "task_start", json!({ "title": "Renew the domain" }))
+            .call("t3", "task_start", json!({ "title": "Sort the inbox" })),
+        Script::reply("Started all three."),
+    ]);
+    let options = with(Limits {
+        tasks_at_once: 1,
+        ..Default::default()
+    });
+    let spade = Spade::start_routed(routes, main, Vec::new(), options).await?;
+    let (_, conversation) = warm_bot(&spade).await?;
+    spade.say(&conversation, "Three errands, please.").await?;
+    let found = wait_tasks(&spade, &conversation, |t| {
+        t.len() == 3 && t.iter().filter(|t| t["state"] == "queued").count() == 2
+    })
+    .await?;
+    let domain = id_of(titled(&found, "Renew the domain"));
+    let inbox = id_of(titled(&found, "Sort the inbox"));
+    wait_count(&spade, &conversation, "reply_finished", 2).await?;
+    // The second queued lane's stop can't be written, as if Spade died between the two.
+    refuse(
+        &spade,
+        "no_inbox_stop",
+        &format!(
+            "json_extract(NEW.body, '$.type') = 'stop_requested' \
+             AND NEW.conversation_id = '{inbox}'"
+        ),
+    )?;
+    let path = format!("/v1/conversations/{conversation}/stop");
+    let (status, _) = spade.post(&path, json!({})).await?;
+    assert!(status >= 500, "{status}");
+    assert_eq!(
+        count(&spade.events(&domain).await?, "stop_requested"),
+        0,
+        "all of them or none"
+    );
+    allow(&spade, "no_inbox_stop")?;
+    let (status, body) = spade.post(&path, json!({})).await?;
+    assert_eq!(status, 202, "{body}");
+    wait_tasks(&spade, &conversation, |t| {
+        t.iter().all(|t| t["state"] == "stopped")
+    })
+    .await?;
+    for queued in [&domain, &inbox] {
+        assert_eq!(count(&spade.events(queued).await?, "reply_started"), 0);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_lane_reopened_while_its_report_goes_out_stays_live_and_the_bot_never_reads_idle()
+-> Result {
+    let routes = vec![route(
+        "Tidy the notes",
+        vec![
+            Script::reply("Tidied."),
+            Script::reply("Tidied again.").held(Duration::from_secs(2)),
+        ],
+    )];
+    let mut main = warm_up();
+    main.extend([
+        starts("t1", "Tidy the notes"),
+        Script::reply("Started."),
+        Script::reply("Tidied."),
+        Script::reply("Tidied again."),
+    ]);
+    let spade = Spade::start_routed(routes, main, Vec::new(), Options::default()).await?;
+    // Between reading the lane's settlement and its report going out, the person writes in it.
+    let engine = spade.engine.clone();
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let once = done.clone();
+    spade.engine.hold_registrations(Arc::new(move |what, id| {
+        if what == "lane_settled" && !once.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            let message = spade_server::engine::Outgoing {
+                text: "Tidy them once more.".to_owned(),
+                ..Default::default()
+            };
+            let _ = engine.send_message(id, message);
+        }
+    }));
+    let (agent, conversation) = warm_bot(&spade).await?;
+    spade.say(&conversation, "Tidy the notes.").await?;
+    let lane_id = id_of(
+        wait_tasks(&spade, &conversation, |t| !t.is_empty())
+            .await?
+            .first(),
+    );
+    wait_count(&spade, &lane_id, "reply_started", 2).await?;
+    // Its second reply runs: it is live, and the bot reads working.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        live_in_store(&spade)?.contains(&lane_id),
+        "dropped while it works"
+    );
+    assert_ne!(roster_state(&spade, &agent).await?["state"], "idle");
+    wait_count(&spade, &lane_id, "reply_finished", 2).await?;
+    Ok(())
+}

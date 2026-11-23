@@ -70,18 +70,6 @@ impl Engine {
         self.lane_row(id).is_some()
     }
 
-    /// The lanes of the bot conversation `main`, oldest first (the order queued ones start in).
-    pub(super) fn lanes_of(&self, main: &str) -> Vec<StoredHelper> {
-        self.store
-            .helpers_of(main)
-            .map(|rows| {
-                rows.into_iter()
-                    .filter(|row| row.profile == lane::PROFILE)
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
     /// The lanes of `main` that haven't ended, oldest first: what slots, roll-up, Stop, the
     /// tasks block and the tree read, never every lane the bot ran (ADR 0170).
     pub(super) fn live_lanes_of(&self, main: &str) -> Vec<StoredHelper> {
@@ -223,11 +211,14 @@ impl Engine {
                     epoch: "queued".to_owned(),
                     summary: "it was stopped before it began.".to_owned(),
                     words: None,
+                    error: None,
                 }
             }
             None => return,
         };
         let title = lane::title(&events).unwrap_or_else(|| "A task".to_owned());
+        // Tests order a reopen against this moment (`hold_registrations`, "lane_settled").
+        self.registering("lane_settled", id);
         let ended_state = settled.state != tree::ReportState::NeedsYou;
         let report = Event::Known(Known::WorkerReported(Report {
             worker: id.to_owned(),
@@ -237,19 +228,35 @@ impl Engine {
             epoch: settled.epoch,
             summary: settled.summary,
             words: settled.words,
+            error: settled.error,
+            // What it read that came from outside Spade may be in what it reports.
+            untrusted: !spade_core::context::untrusted_in_view(&events, &self.registry_for(id))
+                .is_empty(),
         }));
         let ended = ended_state;
         match self.deliver_as(&row.parent, &report, None) {
             // Reported (now or before): a lane that ended leaves the live list (ADR 0170), and
             // comes back when it opens a new reply.
-            Ok(_) if ended => {
-                if let Err(error) = self.store.set_lane_live(id, &row.parent, false) {
-                    tracing::error!(%error, "could not mark a task lane ended");
-                }
-            }
+            Ok(_) if ended => self.end_lane_if_unchanged(id, &row.parent, events.len()),
             Ok(_) => {}
             Err(StoreError::NoConversation(_)) => {}
             Err(error) => tracing::error!(%error, "could not report a task lane to its bot"),
+        }
+    }
+
+    /// Takes lane `id` off the live list, unless anything was stored in it since its settlement
+    /// was read from its first `seen` events: checked under the record lock every write to it
+    /// takes, so a reply the person opened meanwhile keeps it live (it is checked again when that
+    /// ends).
+    fn end_lane_if_unchanged(&self, id: &str, main: &str, seen: usize) {
+        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+        match self.load(id) {
+            Ok(events) if events.len() == seen => {
+                if let Err(error) = self.store.set_lane_live(id, main, false) {
+                    tracing::error!(%error, "could not mark a task lane ended");
+                }
+            }
+            _ => {}
         }
     }
 
@@ -257,18 +264,25 @@ impl Engine {
     /// one write first, so none is admitted into a slot a stopping lane frees; then each running
     /// one is stopped like any reply. Whether any was stopped.
     pub(in super::super) fn stop_lanes(self: &Arc<Self>, main: &str) -> Result<bool, StoreError> {
-        let lanes = self.lanes_of(main);
+        let lanes = self.live_lanes_of(main);
         if lanes.is_empty() {
             return Ok(false);
         }
+        // Every queued lane's stop in one write: a crash or a failed write leaves either all of
+        // them marked or none, never some free to start.
         let marked = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             let mut marked = Vec::new();
             for row in &lanes {
                 if helper::stage(&self.load(&row.conversation)?) == Stage::Queued {
-                    self.append(&row.conversation, &queued_stop())?;
                     marked.push(row.conversation.clone());
                 }
+            }
+            let marker = [queued_stop()];
+            let writes: Vec<(&str, &[Event])> =
+                marked.iter().map(|id| (id.as_str(), &marker[..])).collect();
+            if !writes.is_empty() {
+                self.append_across(&writes, &[])?;
             }
             marked
         };
@@ -318,19 +332,37 @@ impl Engine {
 
     /// The lanes that haven't ended, of every bot.
     pub(in super::super) fn live_lane_rows(&self) -> Vec<StoredHelper> {
-        self.all_lanes()
+        self.store.live_lanes(None).unwrap_or_default()
     }
 
-    /// Every lane's conversation, for checking owed reports when Spade opens.
-    pub(super) fn all_lanes(&self) -> Vec<StoredHelper> {
-        self.store
-            .helpers()
-            .map(|rows| {
-                rows.into_iter()
-                    .filter(|row| row.profile == lane::PROFILE)
-                    .collect()
-            })
-            .unwrap_or_default()
+    /// When Spade opens: a lane that still works (an open reply, a job, a wait) but isn't in the
+    /// live list, which a crash between two writes could leave, is put back, so the bot never
+    /// reads idle while it works. Only lanes whose last event leaves them possibly working are
+    /// read.
+    pub(in super::super) fn heal_live_lanes(&self) {
+        let candidates = match self.store.lanes_maybe_working() {
+            Ok(candidates) => candidates,
+            Err(error) => {
+                tracing::error!(%error, "could not look for task lanes to put back");
+                return;
+            }
+        };
+        for row in candidates {
+            let Ok(events) = self.load(&row.conversation) else {
+                continue;
+            };
+            let transcript = Transcript::fold(events.iter());
+            let working = transcript.busy()
+                || transcript.waiting_on_you()
+                || !spade_core::wake::open(events.iter()).is_empty();
+            if working
+                && let Err(error) = self
+                    .store
+                    .set_lane_live(&row.conversation, &row.parent, true)
+            {
+                tracing::error!(%error, "could not put a task lane back in the live list");
+            }
+        }
     }
 
     /// When Spade opens for work: every bot's lanes carry on (queued ones start as slots free),

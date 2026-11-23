@@ -523,12 +523,16 @@ impl Engine {
                 }
             }
             jobs::report_lost(&engine, &conversation.id)?;
+            // A lane's late answer whose copy here never closed closes now (ADR 0217 §4).
+            engine.reconcile_lane_cards(&events);
             // A goal that closed just before a stop (or a crash) is owed its episode.
             if spade_core::knowledge::episode::owed(&events) {
                 engine.owe_episodes(&conversation.id);
             }
         }
-        // A task lane's jobs lost with the old process are reported like any (ADR 0217 §6).
+        // A lane still working that a crash left off the live list is put back first; then its
+        // jobs lost with the old process are reported like any (ADR 0217 §6).
+        engine.heal_live_lanes();
         for lane in engine.live_lane_rows() {
             jobs::report_lost(&engine, &lane.conversation)?;
         }
@@ -1010,11 +1014,12 @@ impl Engine {
                     (false, self.append_as(id, &batch, ask)?)
                 } else {
                     // Stored together, so a crash can never keep the input without its reply.
+                    // The reply records the lane whose report alone opened it (ADR 0217 §2).
                     let model = self.reply_model(id);
-                    let started = Event::reply_started(self.ids.next("r"), model);
                     let mut batch = vec![event.clone()];
                     batch.extend(settled.iter().cloned());
-                    batch.push(started);
+                    let opener = spade_core::lane::opener_with(&events, &batch);
+                    batch.push(Event::reply_opened(self.ids.next("r"), model, opener));
                     (true, self.append_as(id, &batch, ask)?)
                 };
             if !matches!(stored, spade_store::Delivered::Stored(_)) {
@@ -1266,7 +1271,8 @@ impl Engine {
             let events = self.load(id)?;
             if needs_reply(&events) {
                 let model = self.reply_model(id);
-                self.append(id, &Event::reply_started(self.ids.next("r"), model))?;
+                let opener = spade_core::lane::opener(&events);
+                self.append(id, &Event::reply_opened(self.ids.next("r"), model, opener))?;
                 true
             } else {
                 Transcript::fold(events.iter()).open_reply().is_some()

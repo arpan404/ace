@@ -164,12 +164,15 @@ check of done and asks, takes the person's messages, and reports back to main.
   | `tasks`        | `task?`                    | each lane's row, its goal, plan, last words |
 
   `task` is a lane's id or its title. `asks` names main's asks (`m12`) the lane takes; with none,
-  `task_start` takes the newest open one. `task_stop` is refused unless `because` names a message
-  the person wrote in main since the task last started, reported or was sent a message. A
-  `task_start` run again finds its lane by the call's key. `task_message` stores main's words as
-  `lane_message {text, untrusted}` (the bot's, never the person's, tainting when main wrote them
-  with untrusted content in view); the person's own words for the asks it names go verbatim as
-  theirs. It and a routed reply store both sides in one write.
+  `task_start` takes the newest open one. `task_stop` is refused unless `because` names the
+  person's message that was given to that task (routed to it, or handed to it with
+  `task_message`), with nothing sent to the task, started or reported since. `task_message`
+  stores main's words as `lane_message {text, untrusted}` in the lane (the bot's, never the
+  person's, tainting when main wrote them with untrusted content in view) and `lane_messaged
+{lane, title, asks}` in main every time; the person's own words for the asks it names go
+  verbatim as theirs. It and a routed reply store both sides in one write. A reply a lane's
+  report opened records the lane on its `reply_started` (`lane`), which is what routes a reply
+  to its words.
 
 - **First events.** `lane_of {parent_conversation, call, title, asks, untrusted, moved_from?}`,
   then one message from the person quoting their asks verbatim, with Spade's note on the task and
@@ -213,6 +216,8 @@ message}` together and opens no reply; the lane gets the person's words (trusted
   on the person, never idle or done meanwhile. The roster adds `tasks` (lanes not ended).
 - **Reports.** A lane that settles stores one `worker_reported {kind: lane, worker: <lane>, …}`
   in main per state per epoch, read by main as `<task_report>`; a `stopped` one opens no reply.
+  A failed reply's error goes in `error`, never in Spade's `summary`, and a report with words,
+  an error or untrusted content in the lane's view (`untrusted`) taints main's turn.
   Every lane is checked when Spade opens, so a report owed from before a restart arrives once.
 - **Stop.** Stop on a lane (`POST /v1/conversations/{lane}/stop`) stops it alone; a queued one is
   marked and never starts. Stop on the bot stops every lane first, also when main itself runs

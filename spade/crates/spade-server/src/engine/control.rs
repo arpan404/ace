@@ -200,7 +200,8 @@ impl Engine {
         let admitted = self.admission.load(std::sync::atomic::Ordering::SeqCst) && !self.closed(id);
         if admitted && !self.deleting(id) && unanswered_after(&events, reply) {
             let model = self.reply_model(id);
-            let started = Event::reply_started(self.ids.next("r"), model);
+            let started =
+                Event::reply_opened(self.ids.next("r"), model, spade_core::lane::opener(&events));
             self.append_events(id, &[close.clone(), started])?;
         } else {
             self.append(id, close)?;

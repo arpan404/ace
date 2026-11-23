@@ -55,8 +55,10 @@ fn spec(name: &str) -> (&'static str, Value, Risk) {
             Risk::Write,
         ),
         lane::TASK_STOP => (
-            "Stops a task, only when the person asked for that: because is the id of their \
-             message asking for it (m12).",
+            "Stops a task, only when the person asked for that. First send the task their message \
+             with task_message (asks: [its id]); then because is that message's id (m12). \
+             Anything sent to or reported by the task since makes it stale. If they didn't ask, \
+             tell them instead; they can also press Stop on the task.",
             json!({ "type": "object", "properties": {
                 "task": { "type": "string", "description": TASK },
                 "because": { "type": "string" }

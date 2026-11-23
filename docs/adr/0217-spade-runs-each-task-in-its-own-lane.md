@@ -503,5 +503,12 @@ moved}`), and a running job's live handle moves to the lane under the lock a job
   `task_stop` needs the person's message from since the task last started or reported; lanes
   resume at open like conversations; `lanes_live` keeps hot paths and startup off ended lanes;
   `?ended=N` pages the task list.
+- **Closing check (#2672):** every queued lane's stop is one write; a lane's late answer that
+  never closed main's copy closes on a retry or when Spade opens; `task_stop` needs the person's
+  message given to that task, with nothing sent to it or reported since (`lane_messaged` marks
+  every `task_message`); a reply records the lane whose report opened it (`reply_started.lane`);
+  ending a lane is compare-and-delete under the record lock, and Spade puts back a working lane
+  missing from the live list when it opens; a failed report's error is `error`, untrusted, never
+  Spade's summary.
 - **Not built here:** the UI (a separate thread builds the popover, the lines and the pill against
   `GET /v1/conversations/{id}/tasks` and the events).

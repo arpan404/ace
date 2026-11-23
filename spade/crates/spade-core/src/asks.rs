@@ -269,6 +269,7 @@ impl Ledger {
             Known::LaneStarted(started) => self.hand_over(&started.asks),
             Known::ReplyMoved(moved) => self.hand_over(&moved.asks),
             Known::AskRouted(routed) => self.hand_over(std::slice::from_ref(&routed.message)),
+            Known::LaneMessaged(messaged) => self.hand_over(&messaged.asks),
             Known::UserMessage { .. } if persons => {
                 if let Some(words) = words_of(event) {
                     let id = crate::chat_markup::id(at as u64 + 1, 0);

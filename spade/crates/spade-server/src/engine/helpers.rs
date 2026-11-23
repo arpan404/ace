@@ -741,16 +741,7 @@ impl Engine {
     /// their events once Spade opens for work (`fill_slots`), rather than ending "unknown".
     pub(super) fn settle_helpers_after_restart(&self) -> Result<(), StoreError> {
         // A task lane that ended is settled already: only the live ones are read (ADR 0170).
-        let live: std::collections::HashSet<String> = self
-            .store
-            .live_lanes(None)?
-            .into_iter()
-            .map(|row| row.conversation)
-            .collect();
-        for helper in self.store.helpers()? {
-            if helper.profile == spade_core::lane::PROFILE && !live.contains(&helper.conversation) {
-                continue;
-            }
+        for helper in self.store.helpers_and_live_lanes()? {
             // A stop the bot stored that names this helper's job or reply holds, even when the
             // job's end was stored and the helper's own stop was not (a crash between the two):
             // recovery by the bot's open jobs alone never sees such a helper.

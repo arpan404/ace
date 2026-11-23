@@ -51,6 +51,10 @@ impl Engine {
             epoch: settled.epoch,
             summary: settled.summary,
             words: settled.words,
+            error: settled.error,
+            // What it read that came from outside Spade may be in what it reports.
+            untrusted: !spade_core::context::untrusted_in_view(&events, &self.registry_for(id))
+                .is_empty(),
         }));
         match self.deliver_as(&link.parent_conversation, &report, None) {
             Ok(_) => {}

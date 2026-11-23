@@ -173,6 +173,13 @@ pub struct Report {
     /// The worker's last reply, cut: untrusted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub words: Option<String>,
+    /// The error its reply failed with, as the endpoint or a tool gave it: never Spade's words,
+    /// so untrusted like `words`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// The worker had untrusted content in view when it settled: what it reports may carry it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub untrusted: bool,
 }
 
 /// A worker bot's link as it stands: `None` once detached (or never a worker).
@@ -425,6 +432,8 @@ pub struct Settled {
     pub epoch: String,
     pub summary: String,
     pub words: Option<String>,
+    /// The error a failed reply gave, kept out of Spade's own words.
+    pub error: Option<String>,
 }
 
 /// Whether the worker whose events these are has settled, and how. `None` while anything of it
@@ -451,6 +460,7 @@ pub fn settled(events: &[Event], around: Around) -> Option<Settled> {
                 "it waits on the person: an approval or a question.".to_owned()
             },
             words: None,
+            error: None,
         });
     }
     if transcript.busy() || around.children_working || around.carries_on {
@@ -490,18 +500,23 @@ pub fn settled(events: &[Event], around: Around) -> Option<Settled> {
                 },
             ),
         },
-        End::Failed(error) => (ReportState::Failed, format!("its reply failed: {error}.")),
+        End::Failed(_) => (ReportState::Failed, "its reply failed.".to_owned()),
         End::Interrupted => (
             ReportState::Failed,
             "its reply was cut off by a restart.".to_owned(),
         ),
         End::Stopped => (ReportState::Stopped, "it was stopped.".to_owned()),
     };
+    let error = match last_end(events) {
+        Some(End::Failed(error)) if !error.trim().is_empty() => Some(cut(&error, WORDS_CHARS)),
+        _ => None,
+    };
     Some(Settled {
         state,
         epoch: reply,
         summary,
         words: last_words(events),
+        error,
     })
 }
 
@@ -589,7 +604,25 @@ pub fn report_text(report: &Report) -> String {
             "\n<worker_words untrusted=\"true\">\n{quoted}\n</worker_words>"
         ));
     }
+    push_error(&mut text, report);
     text
+}
+
+/// The error a failed worker gave, quoted as untrusted: an endpoint's or a tool's words, never
+/// Spade's.
+fn push_error(text: &mut String, report: &Report) {
+    if let Some(error) = &report.error {
+        let quoted = serde_json::to_string(error).unwrap_or_default();
+        text.push_str(&format!(
+            "\n<worker_error untrusted=\"true\">\n{quoted}\n</worker_error>"
+        ));
+    }
+}
+
+/// Whether a report carries text from outside Spade: the worker's words, its error, or what it
+/// reported with untrusted content in view. The turn that reads it is untrusted.
+pub fn report_untrusted(report: &Report) -> bool {
+    report.words.is_some() || report.error.is_some() || report.untrusted
 }
 
 /// A lane's report as main reads it (ADR 0217 §4): what to tell the person, then the lane's own
@@ -619,8 +652,12 @@ fn lane_report_text(report: &Report) -> String {
     );
     if let Some(words) = &report.words {
         let quoted = serde_json::to_string(words).unwrap_or_default();
-        text.push_str(&format!("\n<task_words>\n{quoted}\n</task_words>"));
+        text.push_str(&format!(
+            "\n<task_words untrusted=\"{}\">\n{quoted}\n</task_words>",
+            report_untrusted(report)
+        ));
     }
+    push_error(&mut text, report);
     text
 }
 

@@ -582,6 +582,10 @@ pub enum Known {
     ReplyStarted {
         reply: String,
         model: String,
+        /// The task lane (ADR 0217) whose report opened this reply, when one did: a person's
+        /// reply to this reply's words goes to that lane.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lane: Option<String>,
     },
     /// Spade paused the open reply for a planned restart (an update or a stop): nothing of it was
     /// running when this was stored. It stays open and resumes from its events when Spade starts.
@@ -840,6 +844,8 @@ pub enum Known {
     /// Main's words to one of its lanes (`task_message`, ADR 0217 §3): the bot's, never the
     /// person's. It steers the lane's turn or opens its next reply, like a job's result.
     LaneMessage(crate::lane::Message),
+    /// In main: main sent a lane a message (`task_message`, ADR 0217 §3), with the asks it took.
+    LaneMessaged(crate::lane::Messaged),
     /// A choice the bot made on the person's behalf, with its reason (ADR 0165, `decision_log`).
     /// Shown in digests and the activity log; the model reads only its call's result.
     DecisionMade(crate::decision::Decision),
@@ -1315,6 +1321,20 @@ impl Event {
         Self::Known(Known::ReplyStarted {
             reply: reply.into(),
             model: model.into(),
+            lane: None,
+        })
+    }
+
+    /// A reply's start that records the task lane whose report opened it (ADR 0217 §2).
+    pub fn reply_opened(
+        reply: impl Into<String>,
+        model: impl Into<String>,
+        lane: Option<String>,
+    ) -> Self {
+        Self::Known(Known::ReplyStarted {
+            reply: reply.into(),
+            model: model.into(),
+            lane,
         })
     }
 

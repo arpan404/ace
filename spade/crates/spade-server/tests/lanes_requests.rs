@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use spade_core::tools::Risk;
-use spade_testkit::Script;
+use spade_testkit::{Route, Script};
 use support::lanes::*;
 use support::{FakeTool, Options, Result, Spade, types};
 
@@ -383,5 +383,160 @@ async fn main_steering_a_lane_reaches_it_as_the_bots_words_never_as_the_persons(
         .map(|s| s.body.to_string())
         .unwrap_or_default();
     assert!(read.contains("task_message from=\\\"bot\\\""), "{read}");
+    Ok(())
+}
+
+/// A lane that asks the person without waiting, and main's copy of the card.
+async fn deferred_lane_card(spade: &Spade, conversation: &str) -> Result<(String, String)> {
+    spade.say(conversation, "File the receipts.").await?;
+    let events = wait_count(spade, conversation, "question_deferred", 1).await?;
+    let asked = events
+        .iter()
+        .find(|e| e["type"] == "question_asked")
+        .cloned()
+        .unwrap_or_default();
+    let lane_id = asked["lane"]["task"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let call = asked["call_id"].as_str().unwrap_or_default().to_owned();
+    Ok((lane_id, call))
+}
+
+fn receipts() -> (Vec<Route>, Vec<Script>) {
+    let routes = vec![route(
+        "File the receipts",
+        vec![
+            Script::reply("").call(
+                "q1",
+                "ask_user",
+                json!({ "question": "Which folder?", "wait": false }),
+            ),
+            Script::reply("Filing them meanwhile."),
+            Script::reply("Filed in Archive."),
+        ],
+    )];
+    let mut main = warm_up();
+    main.extend([
+        starts("t1", "File the receipts"),
+        Script::reply("Started."),
+        Script::reply("Filed."),
+        Script::reply("Filed in Archive."),
+    ]);
+    (routes, main)
+}
+
+fn closed_in_main(events: &[Value], call: &str) -> bool {
+    events
+        .iter()
+        .any(|e| e["type"] == "question_answered" && e["call_id"] == call)
+}
+
+#[tokio::test]
+async fn a_late_answer_whose_copy_in_main_never_closed_closes_when_asked_again() -> Result {
+    let (routes, main) = receipts();
+    let spade = Spade::start_routed(routes, main, Vec::new(), Options::default()).await?;
+    let (_, conversation) = warm_bot(&spade).await?;
+    let (lane_id, call) = deferred_lane_card(&spade, &conversation).await?;
+    // The answer reaches the lane; main's copy can't be closed, as if Spade died in between.
+    refuse(
+        &spade,
+        "no_main_close",
+        &format!(
+            "json_extract(NEW.body, '$.type') = 'question_answered' \
+             AND NEW.conversation_id = '{conversation}'"
+        ),
+    )?;
+    let path = format!("/v1/conversations/{conversation}/questions/{call}");
+    let (status, _) = spade.post(&path, json!({ "answers": ["Archive"] })).await?;
+    assert_eq!(status, 202);
+    wait_count(&spade, &lane_id, "question_answered", 1).await?;
+    assert!(!closed_in_main(&spade.events(&conversation).await?, &call));
+    allow(&spade, "no_main_close")?;
+    // Asked again, main's copy closes as the lane's did, instead of a stuck card.
+    let (status, body) = spade.post(&path, json!({ "answers": ["Archive"] })).await?;
+    assert_eq!(status, 202, "{body}");
+    assert!(closed_in_main(&spade.events(&conversation).await?, &call));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_late_answer_whose_copy_in_main_never_closed_closes_when_spade_opens() -> Result {
+    let (routes, main) = receipts();
+    let spade = Spade::start_routed(routes, main, Vec::new(), Options::default()).await?;
+    let (_, conversation) = warm_bot(&spade).await?;
+    let (lane_id, call) = deferred_lane_card(&spade, &conversation).await?;
+    refuse(
+        &spade,
+        "no_main_close",
+        &format!(
+            "json_extract(NEW.body, '$.type') = 'question_answered' \
+             AND NEW.conversation_id = '{conversation}'"
+        ),
+    )?;
+    let path = format!("/v1/conversations/{conversation}/questions/{call}");
+    let (status, _) = spade.post(&path, json!({ "answers": ["Archive"] })).await?;
+    assert_eq!(status, 202);
+    wait_count(&spade, &lane_id, "question_answered", 1).await?;
+    allow(&spade, "no_main_close")?;
+    let spade = spade
+        .restart_routed(
+            Vec::new(),
+            vec![Script::reply("ok")],
+            Vec::new(),
+            Options::default(),
+        )
+        .await?;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !closed_in_main(&spade.events(&conversation).await?, &call) {
+        if Instant::now() > deadline {
+            return Err("main's copy never closed".into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_lanes_failure_reports_its_error_as_untrusted_never_as_spades_words() -> Result {
+    let routes = vec![route(
+        "Renew the domain",
+        vec![Script::failing(400), Script::failing(400)],
+    )];
+    let mut main = warm_up();
+    main.extend([
+        starts("t1", "Renew the domain"),
+        Script::reply("Started."),
+        Script::reply("The renewal stopped early."),
+    ]);
+    let spade = Spade::start_routed(routes, main, Vec::new(), Options::default()).await?;
+    let (_, conversation) = warm_bot(&spade).await?;
+    spade.say(&conversation, "Renew the domain.").await?;
+    let events = wait_count(&spade, &conversation, "worker_reported", 1).await?;
+    let report = events
+        .iter()
+        .find(|e| e["type"] == "worker_reported")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(report["state"], "failed");
+    let error = report["error"].as_str().unwrap_or_default().to_owned();
+    assert!(!error.is_empty(), "{report}");
+    assert!(
+        !report["summary"]
+            .as_str()
+            .unwrap_or_default()
+            .contains(&error),
+        "{report}"
+    );
+    wait_count(&spade, &conversation, "reply_finished", 3).await?;
+    let read = spade
+        .fake
+        .seen()
+        .iter()
+        .rev()
+        .map(|s| s.body.to_string())
+        .find(|b| b.contains("task_report"))
+        .unwrap_or_default();
+    assert!(read.contains("worker_error untrusted"), "{read}");
     Ok(())
 }

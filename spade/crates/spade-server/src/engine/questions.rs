@@ -51,7 +51,20 @@ impl Engine {
         let (target, inner) = self
             .lane_question(id, call_id)
             .unwrap_or_else(|| (id.to_owned(), call_id.to_owned()));
-        let answered = self.answer_card(&target, &inner, reply)?;
+        let answered = match self.answer_card(&target, &inner, reply) {
+            // The lane's card took an answer whose copy in main never closed (a crash between
+            // the two writes): asked again, main's copy closes as the lane's did.
+            Err(QuestionError::NotOpen) if target != id => {
+                return match self.lane_card_closed(&target, &inner) {
+                    Some(closed) => {
+                        self.close_in_main(&target, &inner, &closed);
+                        Ok(())
+                    }
+                    None => Err(QuestionError::NotOpen),
+                };
+            }
+            other => other?,
+        };
         if let Some((answered, false)) = answered
             && self.is_lane(&target)
         {

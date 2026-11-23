@@ -402,7 +402,9 @@ async fn outage(
 /// now.
 fn turn_model(engine: &Engine, id: &str, events: &[Event], reply: &str) -> String {
     let started = events.iter().find_map(|event| match event {
-        Event::Known(Known::ReplyStarted { reply: r, model }) if r == reply => Some(model.clone()),
+        Event::Known(Known::ReplyStarted {
+            reply: r, model, ..
+        }) if r == reply => Some(model.clone()),
         _ => None,
     });
     match started {
