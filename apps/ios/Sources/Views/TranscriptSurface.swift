@@ -95,7 +95,9 @@ import UIKit
     /// Freezes what is drawn now over the feed, under the header and the composer. False when
     /// there is no drawn feed to freeze.
     func freeze() -> Bool {
-        guard frozen == nil, let scroller, let parent = scroller.superview, scroller.window != nil,
+        // A still frame over a feed under a finger or a fling would hide it moving.
+        guard frozen == nil, let scroller, !scroller.isDragging, !scroller.isDecelerating,
+              let parent = scroller.superview, scroller.window != nil,
               let still = scroller.snapshotView(afterScreenUpdates: false) else { return false }
         still.frame = scroller.frame
         still.isUserInteractionEnabled = false

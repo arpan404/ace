@@ -287,43 +287,11 @@ extension ConversationFeed {
             TranscriptJumpHooks.landed { Double(intent.metrics.bottom) }
         }
     }
-    /// An older page is about to join above the reader's line. What is drawn is frozen over the
-    /// feed while its rows land and measure; each frame the row on top is put back at its height
-    /// on screen from its own measured frame, then the feed thaws (`TranscriptSurface`).
+    /// An older page is about to join above the reader's line. The collection's layout keeps the
+    /// reader's row where it is on screen as the page lands (ADR 0222), so nothing is frozen or
+    /// moved here: a hold that shifted the offset each frame fought a fling still decelerating.
     func holdOlderPage() {
-        // Under VoiceOver and Switch Control the feed makes no automatic corrections, so none here
-        // either.
-        guard intent.olderPage, !surface.running(.page), !Self.assistiveScrolling, let top = currentTopRow(),
-              let held = anchor.keeper.frames.inContent(top.rowID) else {
-            TranscriptJumpHooks.note("hold skipped page=\(intent.olderPage) running=\(surface.running(.page)) top=\(currentTopRow() != nil)")
-            return
-        }
-        let onScreen = Double(held.minY) - surface.offset
-        // A feed still hidden on open has nothing drawn to freeze: its row is held all the same,
-        // and the reveal, running on its own, shows it once both have settled.
-        let frozen = revealed
-        if frozen {
-            guard surface.freeze() else { TranscriptJumpHooks.note("hold not frozen"); return }
-            TranscriptJumpHooks.covered(true)
-            TranscriptJumpHooks.note("hold start")
-        }
         intent.olderPage = false
-        let anchor = anchor, intent = intent, surface = surface
-        var settle = TranscriptSettle(at: CACurrentMediaTime())
-        surface.untilSettled(.page, { time in
-            guard let frame = anchor.keeper.frames.inContent(top.rowID) else {
-                return settle.frame([], placed: false, at: time)
-            }
-            let drift = Double(frame.minY) - surface.offset - onScreen
-            let placed = abs(drift) < TranscriptSettle.tolerance
-            if !placed { surface.shift(by: drift) }
-            return settle.frame([Double(frame.minY), Double(intent.metrics.height)], placed: placed, at: time)
-        }) { _ in
-            guard frozen else { return }
-            surface.thaw()
-            TranscriptJumpHooks.covered(false)
-            TranscriptJumpHooks.note("hold end")
-        }
     }
     /// The reader took the feed mid-hold: it's theirs as it is.
     /// An assistive technology may scroll the feed without a touch it can see.
