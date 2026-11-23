@@ -52,10 +52,7 @@ export async function main(input: readonly string[]): Promise<void> {
       });
     // Chat moved to the apps (ADR 0221 §1): for one release the old spelling says where.
     if (parsed.kind === "retired")
-      throw new CliFailure("needs-human", parsed.message, undefined, {
-        code: "person_only",
-        hint: parsed.hint,
-      });
+      throw usageFailure(parsed.message, { code: "retired_command", hint: parsed.hint });
     if (parsed.kind === "noun") {
       if (parsed.flags.help || outputMode(parsed.flags) !== "json")
         return await emit(args, nounPage(table, parsed.words));
