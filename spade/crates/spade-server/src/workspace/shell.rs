@@ -248,6 +248,11 @@ pub enum By {
     Plugin,
 }
 
+/// What a run's caller keeps alive for exactly as long as the run's processes: released only once
+/// everything the run started has ended, even when the caller stopped waiting (a Python run's
+/// hold on its environment, ADR 0220).
+pub type Hold = Option<Box<dyn std::any::Any + Send>>;
+
 /// How long the check at the spawn may take.
 const ADMIT_TIME: Duration = Duration::from_secs(10);
 

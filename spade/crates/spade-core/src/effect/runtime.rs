@@ -175,6 +175,7 @@ pub const TOOLS: &[Tool] = &[
     spade(crate::task::TASK_STATUS, Task),
     spade(crate::self_edit::TASK_UPDATE, Task),
     spade("todo", Task),
+    added(crate::asks::ASKS, Task, PHASE_2),
     spade(crate::self_edit::PROFILE_UPDATE, Task),
     spade("memory_save", Memory),
     spade("memory_update", Memory),
@@ -194,11 +195,13 @@ pub const TOOLS: &[Tool] = &[
     spade("workspace_list", Files),
     spade("workspace_read", Files),
     spade("workspace_search", Files),
+    spade("workspace_find", Files),
     spade("workspace_write", Files),
     spade("workspace_edit", Files),
     spade(crate::context::DOCUMENT_READ, Files),
     spade("share_file", Files),
     spade("shell", Files),
+    spade("python", Files),
     spade("service_start", Files),
     spade("service_status", Files),
     spade("service_logs", Files),
@@ -268,6 +271,11 @@ pub const INTERNAL: &[&str] = &[
     "skill_load",
     "skill_propose",
     "skill_feedback",
+    // A bot's task lanes (ADR 0217): main's own coordination, not a packaged bot's API yet.
+    crate::lane::TASK_START,
+    crate::lane::TASK_MESSAGE,
+    crate::lane::TASK_STOP,
+    crate::lane::TASKS,
 ];
 
 /// A name that left the API, kept working as another tool (§4.3).

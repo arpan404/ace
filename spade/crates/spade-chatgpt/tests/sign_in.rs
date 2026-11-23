@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use spade_chatgpt::{Accounts, BearerError, Config, Finish, Flows, Method, SignedIn};
+use spade_chatgpt::{Accounts, BearerError, Config, Finish, Flows, Method, SignedIn, Vault};
 use spade_connect::oauth::pkce::Random;
 use spade_keys::{KeyStore, SERVICE};
 use spade_testkit::FakeSignIn;
@@ -16,7 +16,29 @@ struct Setup {
     fake: FakeSignIn,
     flows: Arc<Flows>,
     keys: KeyStore,
+    /// The folder the sealed sign-ins rest in.
+    dir: tempfile::TempDir,
     now: Arc<AtomicI64>,
+}
+
+impl Setup {
+    /// The account's kept tokens, read back as Spade reads them.
+    fn kept(&self, account: &str) -> Result<Option<(String, String)>> {
+        let vault = Vault::new(
+            self.dir.path(),
+            self.keys.clone(),
+            Arc::new(Counter(AtomicUsize::new(7))),
+        );
+        Ok(vault.read(account)?)
+    }
+
+    fn kept_refresh(&self, account: &str) -> Result<Option<String>> {
+        Ok(self.kept(account)?.map(|(_, refresh)| refresh))
+    }
+
+    fn kept_access(&self, account: &str) -> Result<Option<String>> {
+        Ok(self.kept(account)?.map(|(access, _)| access))
+    }
 }
 
 /// Counts up, so every random value differs.
@@ -45,8 +67,14 @@ async fn setup() -> Result<Setup> {
         wait: Duration::from_secs(20),
         backend: "http://127.0.0.1:9/".to_owned(),
     };
+    let dir = tempfile::tempdir()?;
+    let vault = Vault::new(
+        dir.path(),
+        keys.clone(),
+        Arc::new(Counter(AtomicUsize::new(100))),
+    );
     let accounts = Arc::new(Accounts::new(
-        Some(keys.clone()),
+        Some(vault),
         config,
         Arc::new(move || clock_now.load(Ordering::SeqCst)),
     )?);
@@ -55,6 +83,7 @@ async fn setup() -> Result<Setup> {
         fake,
         flows,
         keys,
+        dir,
         now,
     })
 }
@@ -145,10 +174,7 @@ async fn a_browser_sign_in_comes_back_to_the_loopback_and_keeps_its_tokens_in_th
     let who = seen.lock().unwrap_or_else(|p| p.into_inner()).clone();
     assert_eq!(who[0].email.as_deref(), Some("sam@example.com"));
     assert_eq!(who[0].plan.as_deref(), Some("plus"));
-    assert_eq!(
-        s.keys.sign_in_secret("chatgpt", "refresh")?.as_deref(),
-        Some("refresh-1")
-    );
+    assert_eq!(s.kept_refresh("chatgpt")?.as_deref(), Some("refresh-1"));
     // The view never carries a token.
     let shown = serde_json::to_string(&ended)?;
     assert!(
@@ -229,11 +255,11 @@ async fn an_access_token_near_its_end_is_refreshed_once_and_the_new_tokens_are_k
     assert_ne!(a, first);
     assert_eq!(s.fake.refreshes(), vec!["refresh-0".to_owned()]);
     assert_eq!(
-        s.keys.sign_in_secret("chatgpt", "refresh")?.as_deref(),
+        s.kept_refresh("chatgpt")?.as_deref(),
         Some("refresh-101"),
         "a rotated refresh token is kept"
     );
-    assert_eq!(s.keys.sign_in_secret("chatgpt", "access")?, Some(a));
+    assert_eq!(s.kept_access("chatgpt")?, Some(a));
     Ok(())
 }
 
@@ -245,12 +271,12 @@ async fn a_refused_refresh_signs_the_account_out_and_its_tokens_go() -> Result {
     s.fake.kill("refresh-0");
     s.now.store(10_000, Ordering::SeqCst);
     let error = accounts.bearer("chatgpt").await.err().ok_or("no error")?;
-    assert!(matches!(error, BearerError::SignedOut(_)), "{error:?}");
-    assert_eq!(s.keys.sign_in_secret("chatgpt", "refresh")?, None);
-    assert_eq!(s.keys.sign_in_secret("chatgpt", "access")?, None);
+    assert!(matches!(error, BearerError::SignedOut(..)), "{error:?}");
+    assert_eq!(s.kept_refresh("chatgpt")?, None);
+    assert_eq!(s.kept_access("chatgpt")?, None);
     // Signed out stays signed out, with no call to the server.
     let again = accounts.bearer("chatgpt").await.err().ok_or("no error")?;
-    assert!(matches!(again, BearerError::SignedOut(_)));
+    assert!(matches!(again, BearerError::SignedOut(..)));
     Ok(())
 }
 
@@ -263,7 +289,7 @@ async fn signing_out_forgets_the_tokens_and_another_account_keeps_its_own() -> R
     assert!(accounts.forget("chatgpt").await?);
     assert!(matches!(
         accounts.bearer("chatgpt").await,
-        Err(BearerError::SignedOut(_))
+        Err(BearerError::SignedOut(..))
     ));
     assert!(accounts.bearer("chatgpt-2").await.is_ok());
     Ok(())
@@ -524,7 +550,7 @@ async fn a_sign_in_whose_tokens_name_different_accounts_keeps_nothing() -> Resul
     let ended = until_ended_within(&s.flows, &flow.id, Duration::from_secs(10)).await?;
     assert_eq!(ended.state, "failed");
     assert!(seen.lock().unwrap_or_else(|p| p.into_inner()).is_empty());
-    assert_eq!(s.keys.sign_in_secret("chatgpt", "refresh")?, None);
+    assert_eq!(s.kept_refresh("chatgpt")?, None);
     Ok(())
 }
 
@@ -552,19 +578,56 @@ async fn a_call_from_before_a_sign_out_and_a_new_sign_in_never_gets_the_new_cred
 }
 
 #[tokio::test]
-async fn a_refresh_that_failed_is_shared_with_every_call_reporting_the_same_token() -> Result {
+async fn a_failed_refresh_is_shared_only_with_calls_already_waiting_and_a_later_one_retries()
+-> Result {
     let s = setup().await?;
     let accounts = s.flows.accounts().clone();
     accounts.keep("chatgpt", &signed(&s.fake)).await?;
     let held = accounts.current_bearer("chatgpt").await?;
     s.fake.refresh_down();
-    for _ in 0..3 {
-        let again = accounts
-            .bearer_after_rejection("chatgpt", &held.token, held.generation)
-            .await;
-        assert!(matches!(again, Err(BearerError::Failed(_))), "{again:?}");
+    s.fake.hold_refreshes(Duration::from_millis(300));
+    // Three calls report the same token while one refresh runs: one attempt for all of them.
+    let report = || accounts.bearer_after_rejection("chatgpt", &held.token, held.generation);
+    let (a, b, c) = tokio::join!(report(), report(), report());
+    for got in [a, b, c] {
+        assert!(matches!(got, Err(BearerError::Failed(_))), "{got:?}");
     }
     assert_eq!(s.fake.refresh_attempts(), 1);
+    // A report after that failure tries again, and recovers once the server does.
+    s.fake.refresh_up();
+    let later = report().await?;
+    assert_ne!(later.token, held.token);
+    assert_eq!(s.fake.refresh_attempts(), 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_sign_out_waits_for_a_send_under_way_and_no_send_starts_after_it() -> Result {
+    let s = setup().await?;
+    let accounts = s.flows.accounts().clone();
+    accounts.keep("chatgpt", &signed(&s.fake)).await?;
+    let held = accounts.current_bearer("chatgpt").await?;
+    let sending = accounts.dispatching("chatgpt", held.generation).await?;
+    let signing_out = {
+        let accounts = accounts.clone();
+        tokio::spawn(async move { accounts.forget("chatgpt").await })
+    };
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+    assert!(
+        !signing_out.is_finished(),
+        "the sign-out overtook a send on the wire"
+    );
+    drop(sending);
+    signing_out.await??;
+    assert!(
+        accounts
+            .dispatching("chatgpt", held.generation)
+            .await
+            .is_err(),
+        "a send under the old credential started after the sign-out"
+    );
     Ok(())
 }
 

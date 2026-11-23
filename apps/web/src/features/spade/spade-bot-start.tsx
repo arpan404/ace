@@ -254,7 +254,7 @@ function NewBotConversation(props: {
     setChosen(next);
     setStartRoutines(true);
   };
-  // How it talks, when the person chose under More settings; else left to the bot.
+  // How it talks, when the person chose it at the top; else left to the bot.
   const [personality, setPersonality] = useState<SpadePersonality>();
   // Apps connected from the template's suggestions, given to the bot once it is made.
   const [apps, setApps] = useState<readonly string[]>([]);

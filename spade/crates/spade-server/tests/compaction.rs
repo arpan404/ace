@@ -75,10 +75,11 @@ async fn past_the_high_mark_the_next_turn_compacts_and_the_model_sees_the_summar
         summary.contains("Plan a trip to Oxford") && summary.contains("Book a hotel"),
         "{summary}"
     );
-    assert_eq!(
-        compacted.map(|e| e["tokens_before"].clone()),
-        Some(json!(111))
-    );
+    // The reported 111, plus an estimate of what was stored after it (ADR 0216).
+    let before = compacted
+        .and_then(|e| e["tokens_before"].as_u64())
+        .unwrap_or(0);
+    assert!((111..150).contains(&before), "{before}");
     assert_eq!(
         compacted.map(|e| e["images_left_out"].clone()),
         Some(json!(0)),
@@ -93,14 +94,18 @@ async fn past_the_high_mark_the_next_turn_compacts_and_the_model_sees_the_summar
         .unwrap_or(Value::Null);
     let people = person_texts(&last);
     assert!(people[0].starts_with("<summary>"), "{people:?}");
+    // The compacted message is no longer a turn of its own: it is quoted word for word inside
+    // the summary (ADR 0216), and only the newer message follows the summary as a turn.
+    let joined = people.join("\n\n");
+    let (summary, turns) = joined.split_once("</summary>").unwrap_or_default();
     assert!(
-        people.iter().any(|t| t.contains("Where should I stay?")),
-        "{people:?}"
+        summary.contains("word for word")
+            && summary.contains("The person wrote:\n> How do I get to Oxford?\n"),
+        "{summary}"
     );
-    assert!(
-        !people.iter().any(|t| t.contains("How do I get to Oxford?")),
-        "{people:?}"
-    );
+    assert!(turns.contains("Where should I stay?"), "{turns}");
+    assert!(!turns.contains("How do I get to Oxford?"), "{turns}");
+    assert!(!summary.contains("Where should I stay?"), "{summary}");
     Ok(())
 }
 

@@ -48,6 +48,8 @@ struct ChangesSheet: View {
     struct Composing: Identifiable {
         let path: String; let side: String; let start: Int; let end: Int; let current: String
         var editing: ChangesReview.Draft?
+        /// The new side's lines whole, when they can take a note for the agent instead.
+        var noteLines: [String]? = nil
         var id: String { "\(path)#\(side)#\(start)-\(end)#\(editing?.key ?? "")" }
     }
 
@@ -108,7 +110,8 @@ struct ChangesSheet: View {
                 switch layer {
                 case .compose(let item):
                     ReviewComposer(model: model, path: item.path, side: item.side, start: item.start, end: item.end,
-                                   current: item.current, editing: item.editing)
+                                   current: item.current, editing: item.editing,
+                                   note: item.noteLines.flatMap { lines in model.thread.map { ReviewComposer.Note(thread: $0.id, lines: lines) } })
                         .onDisappear { selection = nil }
                 case .replies(let draft):
                     ReviewRepliesSheet(model: model, draft: draft)
@@ -129,6 +132,9 @@ struct ChangesSheet: View {
             if let initial { model.sheet(["kind": "changes.scope", "scope": "working-tree"]); open(initial) }
         }
         .onDisappear { model.sheet(["kind": "changes", "open": false]) }
+        // An open file's rows read again (a change on disk, more paged in): the thread's notes
+        // on it stay, move or turn outdated by them.
+        .onChange(of: notedFiles, initial: true) { checkNotes() }
         // Asked for while the sheet is already open.
         .onChange(of: scope) { _, asked in
             guard let asked else { return }
@@ -283,6 +289,22 @@ struct ChangesSheet: View {
         Color.clear.frame(height: AceDesign.Size.floatingBarClearance)
     }
 
+    // MARK: Code notes
+
+    /// The open files the thread has notes on, each with what its rows were read from. Uncommitted
+    /// only: a turn's line numbers aren't the checkout's.
+    private var notedFiles: [String] {
+        guard commentable, let thread = model.thread?.id, !model.codeNotes[thread].isEmpty else { return [] }
+        return model.sheets.files.values.filter { !model.codeNotes.on(thread, path: $0.path).isEmpty }
+            .map { "\($0.path)#\($0.version)#\($0.part)#\($0.pages)#\($0.rows)" }.sorted()
+    }
+    private func checkNotes() {
+        guard commentable, let thread = model.thread?.id else { return }
+        for header in model.sheets.files.values where header.state == "ready" && !model.codeNotes.on(thread, path: header.path).isEmpty {
+            model.diffShown(thread, path: header.path, lines: ChangesRow.newSide(model.sheets.rows(header)))
+        }
+    }
+
     // MARK: Actions
 
     private func scope(_ id: String) {
@@ -313,7 +335,9 @@ struct ChangesSheet: View {
         guard let selection else { return }
         let rows = model.sheets.files[selection.path].map { model.sheets.rows($0) } ?? []
         let current = rows.filter { selection.contains($0, in: selection.path) }.map(\.text).joined(separator: "\n")
-        presented = .compose(Composing(path: selection.path, side: selection.side, start: selection.start, end: selection.end, current: current))
+        let noteLines = selection.side == "new" ? ChangesRow.newLines(rows, start: selection.start, end: selection.end) : nil
+        presented = .compose(Composing(path: selection.path, side: selection.side, start: selection.start, end: selection.end, current: current,
+                                       noteLines: noteLines))
     }
     private func edit(_ draft: ChangesReview.Draft) {
         presented = .compose(Composing(path: draft.path, side: draft.side, start: draft.start, end: draft.end, current: draft.suggestion ?? "", editing: draft))

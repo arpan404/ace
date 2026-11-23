@@ -375,10 +375,9 @@ export function spadeFirstUsableModel(endpoints: readonly SpadeEndpoint[]): stri
 }
 
 /**
- * Whether a bot's model (`endpoint/model`, or a subscription's `cli:…`) can answer now: `ready`;
- * `none` when no model is chosen, its endpoint is gone, or the endpoint has no key; `checking`
- * while its key isn't known yet (the keychain hasn't answered). A subscription's model is its
- * CLI's to answer for.
+ * Whether a bot's model (`endpoint/model`) can answer now: `ready`; `none` when no model is
+ * chosen, its endpoint is gone (an old coding subscription's `cli:…` included, ADR 0219), or the
+ * endpoint has no key; `checking` while its key isn't known yet (the keychain hasn't answered).
  */
 export function spadeModelState(
   model: string,
@@ -386,7 +385,6 @@ export function spadeModelState(
 ): "ready" | "none" | "checking" {
   const chosen = model.trim();
   if (!chosen) return "none";
-  if (chosen.startsWith("cli:")) return "ready";
   const id = chosen.slice(0, Math.max(0, chosen.indexOf("/")));
   const endpoint = endpoints.find((each) => each.id === id);
   if (!endpoint) return "none";

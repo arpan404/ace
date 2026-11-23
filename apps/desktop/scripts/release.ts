@@ -3,6 +3,7 @@ import { mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ReleaseVersion } from "@ace/protocol";
+import { shippedExecutableName, type AceProcess } from "@ace/service/process-names";
 import {
   checksumList,
   combineStaged,
@@ -33,6 +34,9 @@ import {
   signingIdentity,
   worktreeClean,
 } from "./release-tools.ts";
+
+/** A native's name inside the packaged macOS app. */
+const shipped = (name: AceProcess) => shippedExecutableName(name, "darwin");
 
 /**
  * Desktop releases built, signed and notarized on this Mac and published as a GitHub release,
@@ -170,9 +174,9 @@ async function build(version: string): Promise<void> {
         packagedMac
           ? {
               ...process.env,
-              ACE_MEDIA_BIN: join(packagedMac, "Contents/Resources/media/ace-media"),
-              ACE_FILES_BIN: join(packagedMac, "Contents/Resources/files/ace-files"),
-              ACE_HISTORY_BIN: join(packagedMac, "Contents/Resources/history/ace-history"),
+              ACE_MEDIA_BIN: join(packagedMac, "Contents/Resources/media", shipped("media")),
+              ACE_FILES_BIN: join(packagedMac, "Contents/Resources/files", shipped("files")),
+              ACE_HISTORY_BIN: join(packagedMac, "Contents/Resources/history", shipped("history")),
             }
           : process.env,
       );

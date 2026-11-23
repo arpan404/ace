@@ -75,7 +75,11 @@ import XCTest
             XCTAssertTrue(app.staticTexts["Then update the docs"].waitForExistence(timeout: 5))
         }
         app.buttons["thread.menu"].tap()
-        XCTAssertTrue(app.buttons["Stop all agents"].waitForExistence(timeout: 10))
+        // The menu is longer than a phone screen and loads only its visible items, so it is
+        // scrolled to Stop all agents, whose section sits at its foot.
+        let stop = app.threadMenuItem("thread.stopAll")
+        XCTAssertTrue(stop.waitForExistence(timeout: 10), "the working thread's menu offers Stop all agents")
+        XCTAssertTrue(stop.isHittable)
         screenshot("thread-menu")
     }
     /// While the subagents work, their tree is the pill's: the thread's end clears the pill and

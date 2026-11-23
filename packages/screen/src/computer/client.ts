@@ -45,6 +45,8 @@ export interface ComputerClientOptions {
    * and release held keys. Unset elsewhere, where SIGTERM lets it do that.
    */
   stopGraceMs?: number;
+  /** How long a stopping helper may take to exit before it is force-killed. */
+  forceKillMs?: number;
   /** How long an app's helper may sit idle before it exits. */
   idleMs?: number;
   /** App helpers kept alive at once. */
@@ -81,6 +83,10 @@ export function defaultDeadlineMs(op: string): number {
 
 interface Entry {
   connection: HelperConnection;
+  /** The app's retired connection when this one was made: its helper waits for that one's. */
+  before: HelperConnection | undefined;
+  /** Whether this connection ever spawned a helper; one that never did retires nothing. */
+  spawned: boolean;
   idle: boolean;
   /** Use order, for least-recently-used eviction. */
   used: number;
@@ -90,6 +96,12 @@ interface Entry {
 export class ComputerClient {
   private readonly options: ComputerClientOptions;
   private readonly entries = new Map<string, Entry>();
+  /** Dropped connections whose helper has not exited yet; the app's next helper waits. */
+  /**
+   * Per app, the dropped connection whose helper may still run: at most one, since a successor
+   * spawns only once it has exited. Cleared when that helper exits.
+   */
+  private readonly retiring = new Map<string, HelperConnection>();
   private readonly scheduler: Scheduler;
   private uses = 0;
   private closed = false;
@@ -143,13 +155,26 @@ export class ComputerClient {
     const entry: Entry = {
       connection: new HelperConnection({
         start: async () => {
+          if (entry.connection.isClosed())
+            throw new ComputerError("closed", "Computer use stopped.");
+          const before = entry.before;
+          if (before) {
+            // Fails at once with helper_stopping while the old helper refuses to die.
+            await before.stopped();
+            if (this.retiring.get(key) === before) this.retiring.delete(key);
+          }
           const env = (await this.options.environment?.()) ?? process.env;
           const command = await this.options.helper();
-          return (this.options.spawnHelper ?? defaultSpawn)(
+          // Dropped while the helper was resolved: its successor may be starting already.
+          if (entry.connection.isClosed())
+            throw new ComputerError("closed", "Computer use stopped.");
+          const child = (this.options.spawnHelper ?? defaultSpawn)(
             command,
             ["--computer", ...(this.options.helperArgs ?? [])],
             env,
           );
+          entry.spawned = true;
+          return child;
         },
         nextId: this.options.nextId,
         scheduler: this.scheduler,
@@ -157,6 +182,9 @@ export class ComputerClient {
         graceMs: this.options.graceMs ?? 3_000,
         ...(this.options.stopGraceMs !== undefined
           ? { stopGraceMs: this.options.stopGraceMs }
+          : {}),
+        ...(this.options.forceKillMs !== undefined
+          ? { forceKillMs: this.options.forceKillMs }
           : {}),
         idle: (idle) => this.idleChanged(key, entry, idle),
         ...(this.options.timing
@@ -172,6 +200,9 @@ export class ComputerClient {
             }
           : {}),
       }),
+      // Captured before this entry is listed: it never waits for itself.
+      before: this.retiring.get(key),
+      spawned: false,
       // About to take a request: never the one trimmed to make room for itself.
       idle: false,
       used: ++this.uses,
@@ -211,6 +242,13 @@ export class ComputerClient {
     entry.stopIdle();
     this.entries.delete(key);
     entry.connection.close();
+    // One that never spawned leaves the app's retired connection, if any, as it is.
+    if (!entry.spawned) return;
+    const retired = entry.connection;
+    this.retiring.set(key, retired);
+    void retired.gone().then(() => {
+      if (this.retiring.get(key) === retired) this.retiring.delete(key);
+    });
   }
 }
 

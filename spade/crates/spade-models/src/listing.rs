@@ -100,6 +100,10 @@ async fn fetch_noting(
         .await
         .map_err(|e| scrub(format!("could not reach the endpoint: {}", reason(&e))))?;
     let status = response.status();
+    // Noted before the body is read: a refusal cut short or too large is still that refusal.
+    if !status.is_success() {
+        *refused = Some(status.as_u16());
+    }
     if status.is_redirection() {
         return Err(format!(
             "the endpoint redirected ({}); Spade does not follow redirects with your key, so set the \
@@ -129,14 +133,58 @@ async fn fetch_noting(
         }
     }
     if !status.is_success() {
-        *refused = Some(status.as_u16());
         let detail = message_in(&body).map_or_else(String::new, |m| format!(": {m}"));
         return Err(scrub(format!(
             "the endpoint answered {}{detail}",
             status.as_u16()
         )));
     }
-    parse(&body, bounds.max_models)
+    let listed = parse(&body, bounds.max_models)?;
+    Ok(listed
+        .into_iter()
+        .filter(|model| !carries_secret(model, &secrets))
+        .collect())
+}
+
+/// A listed model that would carry a secret onward if kept: one that names the key or a header
+/// value anywhere in what the endpoint sent, or whose id or name reads like a credential. Its
+/// id could become a bot's model and be stored and shown (ADR 0119), so it is never offered.
+fn carries_secret(model: &Listed, secrets: &[&str]) -> bool {
+    let sent = model.raw.to_string();
+    secrets
+        .iter()
+        .filter(|secret| secret.len() >= 8)
+        .any(|secret| sent.contains(secret) || model.id.contains(secret))
+        || credential_like(&model.id)
+        || model.name.as_deref().is_some_and(credential_like)
+}
+
+/// Text that reads like an API key or token: a known key prefix with a long body after it, or a
+/// long unbroken run of letters and digits mixed, which no model's name is.
+pub(crate) fn credential_like(text: &str) -> bool {
+    const PREFIXES: [&str; 9] = [
+        "sk-",
+        "sk_",
+        "ghp_",
+        "gho_",
+        "github_pat_",
+        "xoxb-",
+        "xoxp-",
+        "AKIA",
+        "AIza",
+    ];
+    let tokens = text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'));
+    let prefixed = tokens.clone().any(|token| {
+        PREFIXES
+            .iter()
+            .any(|prefix| token.starts_with(prefix) && token.len() >= prefix.len() + 16)
+    });
+    prefixed
+        || text.split(|c: char| !c.is_ascii_alphanumeric()).any(|run| {
+            run.len() >= 40
+                && run.chars().any(|c| c.is_ascii_digit())
+                && run.chars().any(|c| c.is_ascii_alphabetic())
+        })
 }
 
 pub(crate) fn reason(error: &reqwest::Error) -> &'static str {
@@ -311,6 +359,29 @@ mod tests {
         assert_eq!(parse(body, 2).map(|m| m.len()), Ok(2));
         assert!(parse(b"<html>", 10).is_err());
         assert!(parse(br#"{"data":"nope"}"#, 10).is_err());
+    }
+
+    #[test]
+    fn ids_that_read_like_credentials_are_told_from_model_names() {
+        for id in [
+            "sk-proj-abcdefghijklmnop1234",
+            "models/ghp_0123456789abcdefABCDEF",
+            "x/AKIAIOSFODNN7EXAMPLE1234",
+            "a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0e1",
+        ] {
+            assert!(credential_like(id), "{id}");
+        }
+        for id in [
+            "kimi-k2",
+            "claude-sonnet-4-5-20250929",
+            "accounts/fireworks/models/llama-v3p1-405b-instruct",
+            "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
+            "ft:gpt-4o-mini-2024-07-18:acme:support:9abcdEFG",
+            "gpt-4o-mini-transcribe",
+            "sk-short",
+        ] {
+            assert!(!credential_like(id), "{id}");
+        }
     }
 
     #[test]

@@ -41,7 +41,7 @@ export class DelegationJournal {
     this.store = store;
     this.unreadable = unreadable;
     this.origins = new DelegationOrigins(store);
-    store.atomic((db) =>
+    store.atomic((db) => {
       db.exec(`
       CREATE TABLE IF NOT EXISTS delegation_trees (
         root_id TEXT PRIMARY KEY REFERENCES threads(id), started_at INTEGER NOT NULL,
@@ -99,8 +99,10 @@ export class DelegationJournal {
       CREATE TABLE IF NOT EXISTS agent_thread_metadata (
         thread_id TEXT PRIMARY KEY REFERENCES threads(id), snoozed_until INTEGER
       );
-    `),
-    );
+    `);
+      const edgeQuery = "SELECT record FROM delegated_threads WHERE child_id=?";
+      this.statements.set(edgeQuery, db.prepare(edgeQuery));
+    });
     // Owners of delegations made before they were kept, once (`DelegationOrigins.backfill`).
     if (!this.origins.backfilled())
       this.origins.backfill([

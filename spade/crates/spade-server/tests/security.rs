@@ -21,6 +21,29 @@ use support::sandbox::{
 use support::{Result, types};
 
 #[tokio::test]
+async fn removing_a_default_twice_keeps_it_removed_and_restoring_needs_standing() -> Result {
+    let w = world(true, vec![], |_| vec![]).await?;
+    let path = format!("/v1/agents/{}/security/network", w.bot);
+    let site = "github.com";
+    let edit = |action| json!({"mode": "site_edit", "site": {"action": action, "entry": site}});
+    let (status, view) = w.spade.put_unstamped(&path, edit("remove_default")).await?;
+    assert_eq!(status, 200, "{view}");
+    let (status, view) = w.spade.put_unstamped(&path, edit("remove_default")).await?;
+    assert_eq!(status, 200, "{view}");
+    assert_eq!(view["network"]["dropped"], json!([site]));
+
+    let (status, view) = w
+        .spade
+        .put_unstamped(&path, edit("restore_default"))
+        .await?;
+    assert_eq!(status, 403, "{view}");
+    let (status, view) = w.spade.put(&path, edit("restore_default")).await?;
+    assert_eq!(status, 200, "{view}");
+    assert_eq!(view["network"]["dropped"], json!([]));
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_sandboxed_command_runs_without_a_review_and_cannot_reach_outside_its_folder() -> Result {
     let w = world(true, vec![], |at| {
         vec![

@@ -13,6 +13,8 @@ enum SettingsRoute: Hashable {
     /// A machine's settings page from Settings' search, opened with `row` in view (none when empty).
     case machineSetting(machine: String, page: String, title: String, row: String)
     case licences
+    /// Settings › Organization (ADR 0206 amendment 4): its pages, and one of them.
+    case organization, organizationPage(OrganizationPage)
 }
 
 /// What More's Pull requests asks of the inbox: a thread or New thread opens there, after More
@@ -140,6 +142,7 @@ struct SettingsSheet: View {
                     link(.account, "Profile", .userCircle, id: "settings.account")
                 } header: { InsetHeader("You") }
                 .insetRowBackground()
+                OrganizationSettingsRow()
                 Section {
                     link(.machines, "Machines", .laptop, value: inbox.sessions.count.formatted(), id: "settings.machines")
                     if notifications != nil {
@@ -256,6 +259,8 @@ struct SettingsSheet: View {
                 SettingsPageView(model: client, page: page, title: title, focus: row.isEmpty ? nil : row)
             }
         case .licences: LicencesView()
+        case .organization: OrganizationPagesView()
+        case .organizationPage(let page): OrganizationPageView(page: page, inbox: inbox)
         }
     }
 

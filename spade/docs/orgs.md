@@ -101,8 +101,8 @@ The policy (`spade_core::org::Policy`) is read leniently and authorizes strictly
 build doesn't know reads as the narrowest rule of its kind. Members never turn on `pay`,
 `send_as_person` or `publish`. Full access needs the policy's leave (`full_access: admins` or
 `approvers`) and an owner or admin who configures the bot, stamped; even then no outward step
-runs without a member's say (above). A shared bot's step fails, saying why, when its model is a
-coding subscription or an endpoint the policy doesn't list.
+runs without a member's say (above). A shared bot's step fails, saying why, when its model is on
+an endpoint the policy doesn't list.
 
 Packages on an org host (any bot, shared or not): an install (`POST /v1/agents` with a package)
 and an update or rollback (`POST /v1/agents/{id}/package`) are refused (`403`, the policy's

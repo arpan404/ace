@@ -7,6 +7,7 @@ import type {
   SpadeAskKind,
   SpadeOutsideAsk,
   SpadeRequest,
+  SpadeLaneAsking,
 } from "./fold.ts";
 import type { SpadeRememberedNote } from "./notes.ts";
 import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts";
@@ -27,7 +28,8 @@ import {
   spadeMessageId,
   spadePlainChat,
 } from "./chat-markup.ts";
-import { spadeDocCard, spadeLongWords, type SpadeDocCard } from "./documents-in-chat.ts";
+import { spadeDocCard, type SpadeDocCard } from "./documents-in-chat.ts";
+import { spadeMayFold } from "./long-messages.ts";
 import { spadeQuoteOf, spadeSaid, type SpadeQuote, type SpadeSaid } from "./replies.ts";
 
 /*
@@ -74,8 +76,10 @@ type SpadeBubbleOf =
       contract?: SpadeContractAsked;
       /** Its message id, which the person's Reply quotes (ADR 0212 §3). */
       id?: string;
-      /** Long words as a document card under it (ADR 0212 §5). */
+      /** A `<doc>` it wrote, as a document card (ADR 0212 §5). */
       doc?: SpadeDocCard;
+      /** Long enough to fold past twenty lines (ADR 0212 amendment 2, `spadeMayFold`). */
+      fold?: true;
     }
   | {
       kind: "bot";
@@ -104,16 +108,25 @@ type SpadeBubbleOf =
       /** The earlier message it replies to: a small quoted line above it. */
       quote?: SpadeQuote;
       /**
-       * Long words as a document card under the bubble (ADR 0212 §5): a `<doc>` the bot wrote,
-       * whose bubble then has no words, or a message too long for one, whose bubble keeps its
-       * first paragraph. The card holds all of it.
+       * A `<doc>` the bot wrote, as a document card (ADR 0212 §5); its bubble then has no words.
+       * A message, however long, is never one.
        */
       doc?: SpadeDocCard;
+      /**
+       * Finished and long enough that it may draw past twenty lines: the client shows its first twenty
+       * and Show more when it does (ADR 0212 amendment 2). Never while it streams.
+       */
+      fold?: true;
       /**
        * The last words of a finished reply to a message another bot sent, which went back to
        * that bot: one quiet line under it says "Replied to Quill".
        */
       repliedTo?: { id: string; name: string };
+      /**
+       * In a task's transcript: the bot's main chat wrote this to the task (ADR 0217), not a
+       * reply of the task's; `untrusted` when untrusted content was in view as it was written.
+       */
+      fromChat?: { untrusted: boolean };
     }
   /**
    * The notes Spade recalled for the message a finished reply answered (ADR 0128), by id: one
@@ -138,7 +151,7 @@ type SpadeBubbleOf =
   /** "Remembered: …": a note the bot saved or rewrote, which the person may open to edit. */
   | { kind: "remembered"; key: string; note: SpadeRememberedNote; turn?: string }
   /** An event that is nobody's words: one quiet line (`spadeQuietLine`), never a bubble. */
-  | { kind: "quiet"; key: string; quiet: SpadeQuiet; turn?: string }
+  | { kind: "quiet"; key: string; quiet: SpadeQuiet; turn?: string; id?: string }
   /** "Updated its task: …", with the change behind See change and Undo. */
   | { kind: "task-changed"; key: string; task: string; previous: string; why: string }
   /** "Made a new bot: Research · …", with Open and Undo. */
@@ -229,6 +242,8 @@ type SpadeBubbleOf =
       definition?: string;
       /** A helper's call (ADR 0152): its task. */
       helper: { job: string; task: string } | undefined;
+      /** A task lane's call (ADR 0217 §4): the task that asked, which the card leads with. */
+      lane?: SpadeLaneAsking;
       state: "open";
     }
   /**
@@ -363,6 +378,21 @@ export function spadeBubbleStep(
     bubbles.push(entry);
     return;
   }
+  if (entry.kind === "lane-message") {
+    bubbles.push({
+      kind: "bot",
+      key: entry.key,
+      text: entry.text,
+      live: false,
+      end: undefined,
+      failure: undefined,
+      images: [],
+      documents: [],
+      fromChat: { untrusted: entry.untrusted },
+      ...stamp(entry.at),
+    });
+    return;
+  }
   if (entry.kind === "job") {
     arrived(pass);
     hold(pass.held, entry.key, entry.files);
@@ -396,7 +426,13 @@ export function spadeBubbleStep(
   }
   if (entry.kind === "quiet") {
     pass.onlyGroups = false;
-    bubbles.push({ kind: "quiet", key: entry.key, quiet: entry.quiet, ...stamp(entry.at) });
+    bubbles.push({
+      kind: "quiet",
+      key: entry.key,
+      quiet: entry.quiet,
+      ...(entry.id ? { id: entry.id } : {}),
+      ...stamp(entry.at),
+    });
     return;
   }
   if (entry.kind === "handback") {
@@ -623,6 +659,7 @@ function askBubble(
       ? { definition: waiting.definition ?? request.definition }
       : {}),
     helper: waiting.helper ?? request.helper,
+    ...((waiting.lane ?? request.lane) ? { lane: waiting.lane ?? request.lane } : {}),
     state: "open",
   };
 }
@@ -677,12 +714,13 @@ function replyBubbles(
     segments.forEach((segment, index) => {
       const id = seq === undefined ? undefined : spadeMessageId(seq, index);
       const quote = segment.reply === undefined ? undefined : said.quote(segment.reply);
-      const long = segment.kind === "msg" ? spadeLongWords(segment.text) : undefined;
-      const doc = segment.kind === "doc" ? spadeDocCard(segment.title, segment.text) : long?.doc;
-      push(segment.kind === "doc" ? "" : (long?.summary ?? segment.text), live && !!segment.open, {
+      const open = live && !!segment.open;
+      const doc = segment.kind === "doc" ? spadeDocCard(segment.title, segment.text) : undefined;
+      push(doc ? "" : segment.text, open, {
         ...(id ? { id } : {}),
         ...(quote ? { quote } : {}),
         ...(doc ? { doc } : {}),
+        ...(!doc && !open && spadeMayFold(segment.text) ? { fold: true as const } : {}),
       });
       if (id) said.add(id, segment.title ?? segment.text, { kind: "bot" });
     });
@@ -803,23 +841,23 @@ function otherBubbles(
   const base = seq ? Number(seq.slice(1)) : undefined;
   spadeChatSegments(text).forEach((segment, index) => {
     const id = base === undefined ? undefined : spadeMessageId(base, index);
-    const long = segment.kind === "msg" ? spadeLongWords(segment.text) : undefined;
-    const doc = segment.kind === "doc" ? spadeDocCard(segment.title, segment.text) : long?.doc;
+    const doc = segment.kind === "doc" ? spadeDocCard(segment.title, segment.text) : undefined;
     bubbles.push({
       kind: "other",
       key: index ? `${key}:${index + 1}` : key,
       agent: { id: agent.id, name: agent.name },
-      text: segment.kind === "doc" ? "" : (long?.summary ?? segment.text),
+      text: doc ? "" : segment.text,
       ...(id ? { id } : {}),
       ...(doc ? { doc } : {}),
+      ...(!doc && spadeMayFold(segment.text) ? { fold: true as const } : {}),
       ...stamp(at),
     });
     if (id) said.add(id, segment.title ?? segment.text, { kind: "member", name: agent.name });
   });
 }
 
-/** What a bot bubble may carry beyond its words: its id, its quote and its document card. */
-type BotExtra = { id?: string; quote?: SpadeQuote; doc?: SpadeDocCard };
+/** What a bot bubble may carry beyond its words: its id, quote, document card and fold. */
+type BotExtra = { id?: string; quote?: SpadeQuote; doc?: SpadeDocCard; fold?: true };
 
 interface Held {
   paths: string[];

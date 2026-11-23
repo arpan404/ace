@@ -210,9 +210,28 @@ const MIGRATIONS: &[Migration] = &[
         backfill: None,
     },
     Migration {
+        // ADR 0217: the task lanes that haven't ended, so nothing reads every lane a bot ever
+        // ran. New and empty, so its index costs nothing at open (ADR 0170).
+        sql: crate::helpers::LANES_LIVE,
+        backfill: None,
+    },
+    Migration {
+        // ADR 0217: the task lanes whose requests have copies in their bot's conversation, so
+        // Spade reconciles only those when it opens. New and empty (ADR 0170).
+        sql: crate::helpers::LANE_COPIES,
+        backfill: None,
+    },
+    Migration {
         // ADR 0214: how an account signs in when not with a key (a ChatGPT sign-in), with the
         // facts that are not secrets. One nullable column: nothing is rewritten.
         sql: "ALTER TABLE endpoints ADD COLUMN sign_in TEXT;",
+        backfill: None,
+    },
+    Migration {
+        // ADR 0214: an endpoint id, once removed, is never given out again, so an account's id
+        // names one account for good. A new table only: nothing is rewritten.
+        sql: "CREATE TABLE retired_endpoints (id TEXT PRIMARY KEY, retired_ms INTEGER NOT NULL)
+              WITHOUT ROWID;",
         backfill: None,
     },
 ];

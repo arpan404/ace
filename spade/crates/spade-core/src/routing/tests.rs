@@ -120,19 +120,15 @@ fn the_verifier_and_the_reviewer_default_to_the_strongest_model_in_use_never_a_w
         );
     }
     // An unpriced bot can't be compared: its own model verifies, and the fast model reviews,
-    // as it did before; a subscription bot's reviewer is the fast endpoint model, never the
-    // subscription, which a review can't run on.
+    // as it did before.
     assert_eq!(
         choose("local/llama", &none, &none, &with_fast(), Role::Verify),
         ("local/llama".to_owned(), Source::Own)
     );
-    for own in ["local/llama", "cli:codex/gpt-6.2-sol"] {
-        assert_eq!(
-            choose(own, &none, &none, &with_fast(), Role::Review),
-            ("a/fast".to_owned(), Source::Default),
-            "{own}"
-        );
-    }
+    assert_eq!(
+        choose("local/llama", &none, &none, &with_fast(), Role::Review),
+        ("a/fast".to_owned(), Source::Default)
+    );
 }
 
 #[test]
@@ -153,23 +149,6 @@ fn the_bots_override_beats_the_global_one_and_a_gone_model_is_skipped() {
         choose("a/strong", &gone, &global, &defaults, Role::Helper),
         ("local/llama".to_owned(), Source::Global)
     );
-}
-
-#[test]
-fn one_shot_roles_never_run_on_a_subscription() {
-    let bot = overrides(&[(Role::Compact, "cli:codex/gpt-6.1-sol")]);
-    let none = Overrides::default();
-    let mut models = table();
-    models.0.insert("cli:codex/gpt-6.1-sol", None);
-    let routing = Routing {
-        own: "a/strong",
-        bot: &bot,
-        global: &none,
-        defaults: &with_fast(),
-        models: &models,
-    };
-    assert_eq!(routing.resolve(Role::Compact).model, "a/fast");
-    assert!(routing.pick("cli:codex/gpt-6.1-sol").is_err());
 }
 
 #[test]
@@ -282,6 +261,8 @@ fn overrides_round_trip_as_role_names() {
         allowed: None,
         escalate: Some(true),
         efforts: BTreeMap::new(),
+        context_tokens: None,
+        age_results: None,
     };
     let text = serde_json::to_string(&stored).unwrap_or_default();
     assert_eq!(
@@ -359,15 +340,9 @@ fn a_route_skips_gone_models_and_holds_at_most_four() {
 }
 
 #[test]
-fn a_route_never_gains_a_subscription() {
+fn a_route_skips_an_old_subscription_reference() {
     let none = Overrides::default();
-    // A bot on a subscription runs on it alone, whatever routes the person set.
-    let global = routes(&[(Role::Main, &["a/mid", "local/llama"])]);
-    assert_eq!(
-        route_of("cli:codex/gpt-6.1-sol", &none, &global, Role::Main),
-        ["cli:codex/gpt-6.1-sol"]
-    );
-    // A subscription stored in a route (by hand, or an older build) is never tried.
+    // A subscription stored in a route by an older build (ADR 0133) is never tried.
     let stored = routes(&[
         (Role::Main, &["cli:claude/opus", "a/mid"]),
         (Role::Helper, &["cli:codex/gpt-6.1-sol"]),
@@ -513,4 +488,66 @@ fn an_effort_word_this_build_doesnt_know_is_skipped_and_the_rest_of_the_override
     assert_eq!(read.escalate, Some(true));
     assert_eq!(read.efforts, [(Role::Title, Effort::Low)].into());
     Ok(())
+}
+
+#[test]
+fn the_task_role_resolves_like_the_others_and_defaults_to_whatever_main_resolves_to() {
+    let none = Overrides::default();
+    // Unset: tasks run on the chat's model and route, fallbacks included, never the fast model.
+    assert_eq!(
+        choose("a/strong", &none, &none, &with_fast(), Role::Task),
+        ("a/strong".to_owned(), Source::Own)
+    );
+    let main_route = routes(&[(Role::Main, &["a/strong", "a/mid"])]);
+    assert_eq!(
+        route_of("a/strong", &main_route, &none, Role::Task),
+        ["a/strong", "a/mid"]
+    );
+    // The global choice, then the bot's own, win as for any role; a gone model is skipped.
+    let global = overrides(&[(Role::Task, "a/mid")]);
+    let bot = overrides(&[(Role::Task, "b/stronger")]);
+    let gone = overrides(&[(Role::Task, "gone/x")]);
+    assert_eq!(
+        choose("a/strong", &none, &global, &with_fast(), Role::Task),
+        ("a/mid".to_owned(), Source::Global)
+    );
+    assert_eq!(
+        choose("a/strong", &bot, &global, &with_fast(), Role::Task),
+        ("b/stronger".to_owned(), Source::Bot)
+    );
+    assert_eq!(
+        choose("a/strong", &gone, &global, &with_fast(), Role::Task),
+        ("a/mid".to_owned(), Source::Global)
+    );
+    assert_eq!(
+        route_of("a/strong", &bot, &global, Role::Task),
+        ["b/stronger"]
+    );
+}
+
+#[test]
+fn a_tasks_effort_follows_mains_until_the_person_sets_its_own() {
+    let none = Overrides::default();
+    assert_eq!(
+        effort_of(&none, &none, Role::Task),
+        (Effort::Medium, Source::Default)
+    );
+    // Changing main's effort changes tasks' too.
+    let main_high = efforts(&[(Role::Main, Effort::High)]);
+    assert_eq!(
+        effort_of(&main_high, &none, Role::Task),
+        (Effort::High, Source::Default)
+    );
+    // Its own effort, globally or per bot, beats main's.
+    let global = efforts(&[(Role::Task, Effort::Low)]);
+    assert_eq!(
+        effort_of(&main_high, &global, Role::Task),
+        (Effort::Low, Source::Global)
+    );
+    let bot = efforts(&[(Role::Main, Effort::High), (Role::Task, Effort::Max)]);
+    assert_eq!(
+        effort_of(&bot, &global, Role::Task),
+        (Effort::Max, Source::Bot)
+    );
+    assert_eq!(Role::parse("task"), Some(Role::Task));
 }

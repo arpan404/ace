@@ -19,7 +19,6 @@ import type { ServerOptions } from "./server-options.ts";
 import { webHttp } from "./web-http.ts";
 import { orgHttpGate, type HttpGateDeps } from "./org-access/http-gate.ts";
 import { serverTrees } from "./org-access/store-trees.ts";
-import { brainPathPrefix } from "./spade/brain-http.ts";
 import {
   accountGrantHttp,
   accountGrantPath,
@@ -44,9 +43,6 @@ function mcpFirst(options: ServerOptions, next: Handler): Handler {
     const path = (request.url ?? "/").split("?")[0];
     const serve = options.mcp?.handleHttp;
     if (path === "/mcp" && serve) return serve(request, response);
-    // Spade's bots' turns on the person's subscriptions (ADR 0133), with Spade's grant.
-    const brains = options.spadeBrains;
-    if (path?.startsWith(brainPathPrefix) && brains) return brains(request, response);
     // A machine grant for Spade Cloud (ADR 0140), with Spade's grant.
     const spadeAccount = path === accountGrantPath ? accountGrant() : undefined;
     if (spadeAccount) return spadeAccount(request, response);

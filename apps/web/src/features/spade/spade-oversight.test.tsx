@@ -159,12 +159,16 @@ test("a report's chip on the bot's bubble opens the report in its files", async 
   });
   await userEvent.click(await botRow("Scout"));
   const chat = within(await screen.findByRole("feed", { name: "Conversation with Scout" }));
+  const bubble = await chat.findByRole("article", { name: "Scout" });
   await userEvent.click(
-    await chat.findByRole("button", { name: "Open research/2026-11-12-fares.md" }),
+    within(bubble).getByRole("button", { name: "Open research/2026-11-12-fares.md" }),
   );
-  expect((await screen.findByLabelText("research/2026-11-12-fares.md")).textContent).toContain(
-    "Lisbon is cheapest.",
-  );
+  const files = within(await screen.findByRole("tabpanel", { name: "Files" }));
+  expect(
+    await files.findByRole("tab", { name: /2026-11-12-fares\.md/, selected: true }),
+  ).toBeTruthy();
+  expect(await files.findByRole("heading", { name: "Fares" })).toBeTruthy();
+  expect(files.getByText("Lisbon is cheapest.")).toBeTruthy();
 });
 
 test("Settings › Spade tells Spade the person's zone and keeps the totals, not each bot's, and no cap", async () => {

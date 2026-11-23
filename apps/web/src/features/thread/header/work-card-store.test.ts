@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   createWorkCardStore,
+  workCardColumnWidth,
   workCardFitsSide,
   workCardMinColumn,
   workCardWidth,
@@ -8,13 +9,20 @@ import {
 
 const column = 760;
 
-test("wide and mid-width areas float the card at the side", () => {
+test("a wide area keeps the full reading column beside the card", () => {
   expect(workCardFitsSide(1800, column)).toBe(true);
-  expect(workCardFitsSide(1000, column)).toBe(true);
+  expect(workCardColumnWidth(1800, column)).toBe(column);
 });
 
-test("at the minimum the card still floats at the side", () => {
-  expect(workCardFitsSide(workCardMinColumn + workCardWidth + 48, column)).toBe(true);
+test("a mid-width area docks the card beside a narrowed column", () => {
+  expect(workCardFitsSide(1000, column)).toBe(true);
+  expect(workCardColumnWidth(1000, column)).toBe(1000 - workCardWidth - 48);
+});
+
+test("at the minimum the column reads at its narrowest", () => {
+  const area = workCardMinColumn + workCardWidth + 48;
+  expect(workCardFitsSide(area, column)).toBe(true);
+  expect(workCardColumnWidth(area, column)).toBe(workCardMinColumn);
 });
 
 test("below the minimum the card leaves the side for the header popover", () => {
@@ -37,7 +45,7 @@ test("a card left open comes back docked on the next thread screen", () => {
   before.toggle();
   const next = createWorkCardStore(memory(first.saved.open).memory);
   next.setSide(true);
-  expect(next.get()).toEqual({ open: true, side: true });
+  expect(next.get()).toEqual({ open: true, side: true, wanted: true });
 });
 
 test("a card closed on purpose stays closed on the next thread screen", () => {
@@ -48,13 +56,14 @@ test("a card closed on purpose stays closed on the next thread screen", () => {
   const next = createWorkCardStore(memory(first.saved.open).memory);
   next.setSide(true);
   expect(next.get().open).toBe(false);
+  expect(next.get().wanted).toBe(false);
 });
 
-test("a remembered card never comes back as the popover in a narrow area", () => {
+test("a remembered card never comes back as the popover in a narrow area, while staying wanted", () => {
   const { saved, memory: remembered } = memory(true);
   const store = createWorkCardStore(remembered);
   store.setSide(false);
-  expect(store.get().open).toBe(false);
+  expect(store.get()).toEqual({ open: false, side: false, wanted: true });
   // The person's choice is kept for a thread screen with room.
   expect(saved.open).toBe(true);
 });
@@ -66,10 +75,10 @@ test("a docked card squeezed out by a narrow area is still open on the next thre
   before.toggle();
   // The next thread's side panel opens and squeezes the area for a moment.
   before.setSide(false);
-  expect(before.get().open).toBe(false);
+  expect(before.get()).toEqual({ open: false, side: false, wanted: true });
   const next = createWorkCardStore(memory(first.saved.open).memory);
   next.setSide(true);
-  expect(next.get()).toEqual({ open: true, side: true });
+  expect(next.get()).toEqual({ open: true, side: true, wanted: true });
 });
 
 test("a squeezed-out card docks again once the area has room", () => {
@@ -78,14 +87,14 @@ test("a squeezed-out card docks again once the area has room", () => {
   store.toggle();
   store.setSide(false);
   store.setSide(true);
-  expect(store.get()).toEqual({ open: true, side: true });
+  expect(store.get()).toEqual({ open: true, side: true, wanted: true });
 });
 
 test("a remembered card waits for room when the first measure is narrow", () => {
   const store = createWorkCardStore(memory(true).memory);
   store.setSide(false);
   store.setSide(true);
-  expect(store.get()).toEqual({ open: true, side: true });
+  expect(store.get()).toEqual({ open: true, side: true, wanted: true });
 });
 
 test("a card closed while squeezed out stays closed when the room comes back", () => {
@@ -94,6 +103,7 @@ test("a card closed while squeezed out stays closed when the room comes back", (
   store.setSide(false);
   store.toggle();
   store.setOpen(false);
+  expect(store.get()).toEqual({ open: false, side: false, wanted: false });
   store.setSide(true);
   expect(store.get().open).toBe(false);
   expect(saved.open).toBe(false);

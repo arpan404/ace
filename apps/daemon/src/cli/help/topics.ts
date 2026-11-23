@@ -57,7 +57,7 @@ nothing ever waits for input and tools like ace sim and ace browser know your th
     permissions are the person's: ace request allow|deny|answer, ace config set|unset and
     ace feature|spade on|off exit 2 (code person_only) from your shell. Hand back to the
     person instead; they answer in the app, on a paired device or in their own terminal.
-  - In the Marketplace you may read, search, check, make and publish drafts, and read your
+  - In the Store you may read, search, check, make and publish drafts, and read your
     status and versions. Everything else (installing, removing, withdrawing, transfers,
     sources, listings, visibility) is the person's and becomes a request in your thread
     (ace help publishing).`,
@@ -76,8 +76,8 @@ On a remote, --project takes a project id from ace project list; paths are refus
   },
   {
     name: "publishing",
-    summary: "Publishing Suits, skills and bots to the Marketplace",
-    text: `  ace store check ./my-suit --type suit                  the Marketplace's checks, here
+    summary: "Publishing Suits, skills and bots to the Store",
+    text: `  ace store check ./my-suit --type suit                  the Store's checks, here
   ace store publish suit ./my-suit --version 1.2.0 --draft
                                                          a draft and its scan
   ace store draft publish DRAFT                          publish it
@@ -97,11 +97,11 @@ request too.`,
   },
   {
     name: "store-maintainer",
-    summary: "The Marketplace's maintainer tools",
+    summary: "The Store's maintainer tools",
     text: `Maintainer tool: needs ACE_MARKET_SIGNER_TOKEN and a signing key.
 
 ace store maintainer COMMAND talks to store.acehq.dev directly, never through the daemon
-or an ace account, and sends the signer token there only. A development Marketplace must be
+or an ace account, and sends the signer token there only. A development Store must be
 named with --dev-market URL (https, or http on this machine). --json and --jq work as
 everywhere.
 

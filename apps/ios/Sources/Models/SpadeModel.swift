@@ -54,6 +54,8 @@ import Observation
         let state: String
         let line: String
         let pinned: Bool
+        /// When the person pinned it (ms): the pin strip shows the oldest pin first.
+        var pinnedAt: Double? = nil
         /// "Shared in Acme Robotics" for a bot an organization shares (ADR 0206 §2.3).
         var shared: String? = nil
         /// Its latest activity (ms): the list across machines orders by it within a rank.
@@ -62,6 +64,14 @@ import Observation
         var createdAt: Double? = nil
         /// Its state's place in the list, lowest first (`spadeRowRank`).
         var rank: Int? = nil
+        var depth: Int? = nil
+        var parent: Parent? = nil
+        var familyRoot: String? = nil
+
+        struct Parent: Decodable, Equatable, Sendable {
+            let id: String
+            let name: String
+        }
     }
     /// Where the person's machines chose Spade lives (ADR 0187), as one machine holds it.
     struct HostRecord: Decodable, Equatable, Sendable {
@@ -157,18 +167,21 @@ import Observation
         /// `attached` names what isn't drawn; `images` and `files` are drawn as a thread's are,
         /// and `voice` is a recording to play (its words are `text`).
         case person(text: String, sending: Bool, attached: String?, images: [AttachmentLine], files: [AttachmentLine], voice: Voice?)
-        /// `images` and `files`: what the reply's tools showed the person, after its words.
-        case bot(text: String, live: Bool, end: End?, images: [AttachmentLine], files: [AttachmentLine])
+        /// `images` and `files`: what the reply's tools showed the person, after its words;
+        /// `fold`: finished and long enough to fold past ten lines (`SpadeFoldedWords`).
+        case bot(text: String, live: Bool, fold: Bool, end: End?, images: [AttachmentLine], files: [AttachmentLine])
         /// `approvers`: on a shared bot's request, who may answer it.
         case ask(callId: String, sentence: String, detail: String?, reason: String?, always: Bool, approvers: String?)
         case question(SpadeQuestionCard)
         /// A member's message in a group: its name above the first of a run, its face by the last.
-        case member(name: String, text: String, face: Face, first: Bool, last: Bool)
+        case member(name: String, text: String, fold: Bool, face: Face, first: Bool, last: Bool)
         case workers(Workers)
+        /// A reply that changed the bot's files: its steps in one line, and what undo can reach.
+        case changes(SpadeChanges)
         case note(text: String)
 
         private enum Keys: String, CodingKey {
-            case kind, text, sending, attached, images, files, voice, live, end, callId, sentence, detail, reason, always, approvers, name, face, first, last
+            case kind, text, sending, attached, images, files, voice, live, fold, end, callId, sentence, detail, reason, always, approvers, name, face, first, last
         }
         init(from decoder: any Decoder) throws {
             let box = try decoder.container(keyedBy: Keys.self)
@@ -182,6 +195,7 @@ import Observation
                                voice: try box.decodeIfPresent(Voice.self, forKey: .voice))
             case "bot":
                 self = .bot(text: text, live: try box.decodeIfPresent(Bool.self, forKey: .live) ?? false,
+                            fold: try box.decodeIfPresent(Bool.self, forKey: .fold) ?? false,
                             end: try box.decodeIfPresent(End.self, forKey: .end),
                             images: try box.decodeIfPresent([AttachmentLine].self, forKey: .images) ?? [],
                             files: try box.decodeIfPresent([AttachmentLine].self, forKey: .files) ?? [])
@@ -195,8 +209,11 @@ import Observation
                 self = .question(try SpadeQuestionCard(from: decoder))
             case "workers":
                 self = .workers(try Workers(from: decoder))
+            case "changes":
+                self = .changes(try SpadeChanges(from: decoder))
             case "member":
                 self = .member(name: try box.decode(String.self, forKey: .name), text: text,
+                               fold: try box.decodeIfPresent(Bool.self, forKey: .fold) ?? false,
                                face: try box.decode(Face.self, forKey: .face),
                                first: try box.decodeIfPresent(Bool.self, forKey: .first) ?? true,
                                last: try box.decodeIfPresent(Bool.self, forKey: .last) ?? true)
@@ -319,8 +336,9 @@ struct SpadeOutcome: Decodable, Sendable {
     let at: Int?
     /// A task's save: the task as Spade stored it.
     let task: String?
+    let reviewAgain: Bool?
     init(ok: Bool, title: String? = nil, message: String? = nil, at: Int? = nil, task: String? = nil) {
-        self.ok = ok; self.title = title; self.message = message; self.at = at; self.task = task
+        self.ok = ok; self.title = title; self.message = message; self.at = at; self.task = task; self.reviewAgain = nil
     }
     /// Why it failed, in one line; nil when it went.
     var problem: String? {

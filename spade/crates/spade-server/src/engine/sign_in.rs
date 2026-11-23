@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, Weak};
 
 use spade_chatgpt::{BearerError, FlowView, Flows, Method, SignedIn};
-use spade_models::{Bearers, Credential};
+use spade_models::{Bearers, Credential, DispatchGuard};
 use spade_store::{StoreError, StoredEndpoint, StoredModel, StoredSignIn};
 
 use super::{EndpointError, EndpointView, Engine};
@@ -32,6 +32,12 @@ impl Engine {
         if self.sign_ins.set(flows.clone()).is_err() {
             return;
         }
+        // What a restored or copied home says is signed in is checked against what it really
+        // keeps, off the async workers (the keychain may prompt).
+        let checking = Arc::clone(self);
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn_blocking(move || checking.reconcile_sign_ins());
+        }
         let engine: Weak<Self> = Arc::downgrade(self);
         let accounts = flows.accounts().clone();
         let backend = accounts.config().backend.clone();
@@ -44,9 +50,9 @@ impl Engine {
                     token: bearer.token,
                     generation: bearer.generation,
                 }),
-                Err(BearerError::SignedOut(line)) => {
+                Err(BearerError::SignedOut(line, generation)) => {
                     if let Some(engine) = engine.upgrade() {
-                        let _ = engine.mark_signed_in(&id, false);
+                        let _ = engine.record_signed_out(&id, generation);
                     }
                     Err(line)
                 }
@@ -72,7 +78,16 @@ impl Engine {
                     answer(engine, id, got)
                 })
             },
-            move |id, generation| current_accounts.is_current(id, generation),
+            move |id, generation| {
+                let accounts = current_accounts.clone();
+                Box::pin(async move {
+                    accounts
+                        .dispatching(&id, generation)
+                        .await
+                        .map(|leave| Box::new(leave) as DispatchGuard)
+                        .map_err(|e| e.to_string())
+                })
+            },
         ));
     }
 
@@ -166,14 +181,19 @@ impl Engine {
         if stored.sign_in.is_none() {
             return Err(invalid("that account uses a key; remove its key instead"));
         }
-        if let Some(flows) = self.sign_ins.get() {
-            flows
-                .accounts()
-                .forget(id)
-                .await
-                .map_err(|e| EndpointError::Keychain(e.to_string()))?;
+        match self.sign_ins.get() {
+            Some(flows) => {
+                let generation = flows
+                    .accounts()
+                    .sign_out(id)
+                    .await
+                    .map_err(|e| EndpointError::Keychain(e.to_string()))?;
+                self.record_signed_out(id, generation)?;
+            }
+            None => {
+                self.forget_sign_in(id)?;
+            }
         }
-        self.mark_signed_in(id, false)?;
         self.endpoint_views()?
             .into_iter()
             .find(|v| v.stored.id == id)
@@ -187,7 +207,7 @@ impl Engine {
         let forgot = match self.sign_ins.get() {
             Some(flows) => flows.accounts().forget_now(id).map_err(|e| e.to_string()),
             None => match &self.keychain {
-                Some(keychain) => keychain.delete_sign_in(id).map_err(|e| e.to_string()),
+                Some(keychain) => keychain.delete_sign_in_key(id).map_err(|e| e.to_string()),
                 None => Ok(false),
             },
         };
@@ -202,21 +222,45 @@ impl Engine {
             .ok_or(EndpointError::NotFound)
     }
 
-    /// Records whether an account's tokens are in the keychain.
-    fn mark_signed_in(&self, id: &str, signed_in: bool) -> Result<(), StoreError> {
+    /// Records that an account is signed out, as of credential `generation`: only while that is
+    /// still its generation, so a sign-in that came since is never marked signed out.
+    pub fn record_signed_out(&self, id: &str, generation: u64) -> Result<(), StoreError> {
         let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+        let current = self
+            .sign_ins
+            .get()
+            .is_none_or(|flows| flows.accounts().is_current(id, generation));
+        if !current {
+            return Ok(());
+        }
         let Some(mut stored) = self.store.endpoints()?.into_iter().find(|e| e.id == id) else {
             return Ok(());
         };
-        let Some(sign_in) = stored.sign_in.as_mut() else {
+        let Some(sign_in) = stored.sign_in.as_mut().filter(|s| s.signed_in) else {
             return Ok(());
         };
-        if sign_in.signed_in == signed_in {
-            return Ok(());
-        }
-        sign_in.signed_in = signed_in;
+        sign_in.signed_in = false;
         self.store.update_endpoint(&stored)?;
         Ok(())
+    }
+
+    /// Marks signed out every account the database says is signed in but whose sign-in isn't
+    /// whole where it rests (no key, no sealed file): a home restored to another machine, say.
+    /// Blocking: reads the keychain.
+    pub fn reconcile_sign_ins(&self) {
+        let Some(flows) = self.sign_ins.get() else {
+            return;
+        };
+        let accounts = flows.accounts();
+        for row in self.store.endpoints().unwrap_or_default() {
+            if !row.sign_in.as_ref().is_some_and(|s| s.signed_in) {
+                continue;
+            }
+            let generation = accounts.generation(&row.id);
+            if let Ok(false) = accounts.kept_whole(&row.id) {
+                let _ = self.record_signed_out(&row.id, generation);
+            }
+        }
     }
 
     /// Accounts that sign in but are signed out now: never picked as a default.
@@ -250,38 +294,56 @@ impl Engine {
             signed_in: true,
         };
         let (id, added) = self.reserve_sign_in(wanted.as_deref(), &done, &accounts)?;
-        if let Err(error) = accounts.keep(&id, &done.tokens).await {
-            if added {
-                let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
-                let _ = self.store.delete_endpoint(&id);
-                let _ = self.sync_endpoints();
+        // From here to the commit below, this sign-in holds its reservation: the row under an
+        // id no other account ever had or will have, so whatever happens to it, the cleanup
+        // touches only what this sign-in made.
+        let generation = match accounts.keep(&id, &done.tokens).await {
+            Ok(generation) => generation,
+            Err(error) => {
+                // A new account's reservation goes with whatever it wrote (one entry: all or
+                // nothing); an account being renewed keeps the tokens it had.
+                if added {
+                    let _ = accounts.forget(&id).await;
+                    let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+                    let _ = self.store.delete_endpoint(&id, self.now_ms());
+                    let _ = self.sync_endpoints();
+                }
+                return Err(error.to_string());
             }
-            return Err(error.to_string());
-        }
-        let kept = {
+        };
+        flows.after_keep(&id).await;
+        // Committed only while these tokens are still the account's: a sign-out or removal that
+        // came in between wins, and the account is never shown signed in without them.
+        let committed = {
             let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
-            match self
+            let row = self
                 .store
                 .endpoints()
                 .map_err(|e| e.to_string())?
                 .into_iter()
                 .find(|e| e.id == id)
-            {
-                Some(mut row) if !self.retiring(&id) => {
+                .filter(|_| !self.retiring(&id));
+            match row {
+                Some(_) if !accounts.is_current(&id, generation) => Some(false),
+                Some(mut row) => {
                     row.sign_in = Some(facts);
                     self.store
                         .update_endpoint(&row)
                         .map_err(|e| e.to_string())?;
                     self.sync_endpoints().map_err(|e| e.to_string())?;
-                    true
+                    Some(true)
                 }
-                _ => false,
+                None => None,
             }
         };
-        if !kept {
-            // Removed while it signed in: the tokens just kept go too.
-            let _ = accounts.forget(&id).await;
-            return Err("the account was removed while signing in".to_owned());
+        match committed {
+            Some(true) => {}
+            Some(false) => return Err("the account was signed out while signing in".to_owned()),
+            None => {
+                // Removed while it signed in: the tokens just kept go too.
+                let _ = accounts.forget(&id).await;
+                return Err("the account was removed while signing in".to_owned());
+            }
         }
         if added {
             self.save_listed_models(&id).await;
@@ -322,13 +384,10 @@ impl Engine {
         if let Some(row) = endpoints.iter().find(|e| same(e) && !self.retiring(&e.id)) {
             return Ok((row.id.clone(), false));
         }
-        let id = self.free_sign_in_id(&endpoints);
+        let id = self.fresh_sign_in_id(&endpoints)?;
         // Named for the provider, never the email: the name shows to every caller, the email only
         // to the person.
-        let name = match id.strip_prefix(CHATGPT).and_then(|n| n.strip_prefix('-')) {
-            Some(n) => format!("ChatGPT {n}"),
-            None => "ChatGPT".to_owned(),
-        };
+        let name = sign_in_name(&endpoints);
         let row = StoredEndpoint {
             id: id.clone(),
             name,
@@ -377,18 +436,45 @@ impl Engine {
         let _ = self.sync_endpoints();
     }
 
-    /// `chatgpt`, else `chatgpt-2` and on: free in the database and not being removed.
-    fn free_sign_in_id(&self, endpoints: &[StoredEndpoint]) -> String {
+    /// A new account's id: `chatgpt-<16 characters>`, never one any endpoint has or ever had
+    /// (removed ids are retired for good), so a sign-in, its tokens and every call on it name
+    /// one account only.
+    fn fresh_sign_in_id(&self, endpoints: &[StoredEndpoint]) -> Result<String, String> {
         let taken: HashSet<&str> = endpoints.iter().map(|e| e.id.as_str()).collect();
-        (1..)
-            .map(|n| {
-                if n == 1 {
-                    CHATGPT.to_owned()
-                } else {
-                    format!("{CHATGPT}-{n}")
-                }
-            })
-            .find(|id| !taken.contains(id.as_str()) && !self.retiring(id))
-            .unwrap_or_else(|| CHATGPT.to_owned())
+        for _ in 0..16 {
+            let unique = self.ids.next("");
+            let tail: String = unique
+                .chars()
+                .filter(char::is_ascii_alphanumeric)
+                .collect::<String>()
+                .to_ascii_lowercase();
+            // Sixteen random characters: unique across every Spade home on the machine, since
+            // a sign-in's key in the keychain is filed by this id alone.
+            let short = &tail[tail.len().saturating_sub(16)..];
+            let id = format!("{CHATGPT}-{short}");
+            let retired = self
+                .store
+                .endpoint_retired(&id)
+                .map_err(|e| e.to_string())?;
+            if !taken.contains(id.as_str()) && !retired && !self.retiring(&id) {
+                return Ok(id);
+            }
+        }
+        Err("no free account id; try again".to_owned())
     }
+}
+
+/// A new ChatGPT account's name: `ChatGPT`, else `ChatGPT 2` and on, the first not shown already.
+fn sign_in_name(endpoints: &[StoredEndpoint]) -> String {
+    let names: HashSet<&str> = endpoints.iter().map(|e| e.name.as_str()).collect();
+    (1..)
+        .map(|n| {
+            if n == 1 {
+                "ChatGPT".to_owned()
+            } else {
+                format!("ChatGPT {n}")
+            }
+        })
+        .find(|name| !names.contains(name.as_str()))
+        .unwrap_or_else(|| "ChatGPT".to_owned())
 }

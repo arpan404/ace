@@ -11,8 +11,8 @@ import type { PairedStanding } from "./socket.ts";
  *   ace session. One it can't prove with is a session from before standing was kept, or a
  *   machine another account owns, so the way is to sign in again, or the computer;
  * - a market that wants a person's grant (§6) needs a grant for an intent the app derives from
- *   the person's own publish operation, made with the app's own ace session. The phone sends no
- *   publish, so the way is the computer;
+ *   the person's own publish operation, made with the app's own ace session. A paired phone holds
+ *   no such session, so for those (a withdrawal, a handle change) the way is the computer;
  * - otherwise the socket proved, or hasn't said yet, and Confirm it's you sends the change again,
  *   once: a retry refused again stops with its sentence and no way.
  *
@@ -46,16 +46,19 @@ export interface PersonFacts {
 const computer: Readonly<Record<string, string>> = {
   install: "Install this from ace on your computer.",
   turnOnForBots: "Turn this on from ace on your computer.",
+  publish: "Do this from ace on your computer: the Store wants you to confirm it there.",
 };
 
 const pairAgain: Readonly<Record<string, string>> = {
   install: "Pair this iPhone again to install here.",
   turnOnForBots: "Pair this iPhone again to turn this on here.",
+  publish: "Pair this iPhone again to publish from it.",
 };
 
 const signInAgain: Readonly<Record<string, string>> = {
   install: "Sign in to ace again on this iPhone, or install this from ace on your computer.",
   turnOnForBots: "Sign in to ace again on this iPhone, or turn this on from ace on your computer.",
+  publish: "Sign in to ace again on this iPhone, or publish this from ace on your computer.",
 };
 
 /** `refusal` as the phone offers it, when it was refused for the person's standing. */

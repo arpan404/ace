@@ -98,7 +98,7 @@ export async function orgSignerRoute(
       const key = storedKey(org, route);
       const db = await registryCatalogue(context, audience, key);
       if (!db) return notFound();
-      const result = await decideHold(db, key, "hold", context.now);
+      const result = await decideHold(db, key, "hold", context.now, decision.data.scan);
       if (result === "done") {
         await usageChanged(context, db, key);
         if (decision.data.scan)

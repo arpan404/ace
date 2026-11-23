@@ -132,8 +132,7 @@ stored while the bot isn't working: it waits for its next turn. It opens no repl
 - `data` holds the names, `changed: path` or `went to: address`, kept apart exactly as a
   hand-back's are, and makes the event untrusted content like a fetched page.
 - The model reads `<person_activity from="spade">…</person_activity>`, then, with data,
-  `<activity_data untrusted="true">` with the names as a JSON array. A bot on a subscription
-  (CLI brain) gets the same text in its next turn's message, once, as it gets a hand-back note.
+  `<activity_data untrusted="true">` with the names as a JSON array.
 - What was gathered lives in memory: a restart loses a summary not yet offered.
 
 In exclusive mode none of this is gathered: the take-over record collects it for the hand-back
@@ -172,8 +171,7 @@ The daemon keeps each bot's browser and screen in a hidden thread of its own
 (`packages/protocol/src/spade-computer.ts`).
 
 - **Acting for a bot.** Every ace MCP `tools/call` Spade makes for a bot carries
-  `_meta: {"ace/acting-for": "<agent id>"}`. CLI bots' `spade_call`s that reach ace's tools carry
-  it too. The id comes from the call's key, which Spade made for the turn, never from the model's
+  `_meta: {"ace/acting-for": "<agent id>"}`. The id comes from the call's key, which Spade made for the turn, never from the model's
   arguments. ace honours it on Spade's grant only.
 - **Modes.** Every `spade.computer.drive` names both `driver` and `mode`: `person` with
   `exclusive` for a take-over, `bot` with `cowork` for a hand-back. A daemon that knows modes goes

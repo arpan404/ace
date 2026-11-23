@@ -122,7 +122,7 @@ async function readMarket(
 
 async function readGit(
   store: MarketStore,
-  git: GitCatalogs,
+  git: Pick<GitCatalogs, "read">,
   source: StoredSource,
   now: number,
 ): Promise<StoredSource> {
@@ -143,12 +143,15 @@ async function readGit(
   return { ...source, commit };
 }
 
-/** Reads one source; on failure keeps its listing and records why. */
+/**
+ * Reads one source; on failure keeps its listing and records why. What the person changed while
+ * it read stands: a source turned off stays off, and one removed isn't brought back.
+ */
 export async function refreshSource(
   deps: {
     store: MarketStore;
     http: MarketHttp | undefined;
-    git: GitCatalogs;
+    git: Pick<GitCatalogs, "read">;
     keys: MarketKeySet;
     trust: Trust;
     now: () => number;
@@ -170,6 +173,12 @@ export async function refreshSource(
       problem: (error instanceof Error ? error.message : "The read failed").slice(0, 500),
     };
   }
+  const now = deps.store.source(source.id);
+  if (!now) {
+    await deps.store.removeSource(source.id);
+    return next;
+  }
+  next = { ...next, enabled: now.enabled };
   deps.store.saveSource(next);
   return next;
 }

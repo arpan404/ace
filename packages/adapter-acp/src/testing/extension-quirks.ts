@@ -17,6 +17,7 @@ export const extensionQuirks: AcpQuirks = {
     if (name === "generateImage") return "image";
     return undefined;
   },
+  cancelNotice: () => false,
   classifyError(text) {
     return text.startsWith("\n\nError: ")
       ? { kind: "provider", message: text.slice(9) }

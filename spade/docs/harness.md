@@ -5,31 +5,36 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 
 ## Events added for turns
 
-| Type                                         | Fields                                                                                  | Meaning                                                                                                                                                                                                                                                                                                                                        |
-| -------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `user_message`                               | `text`, `context?`                                                                      | `context` (time, memories) is fixed when stored, so the prompt rebuilds to the same bytes                                                                                                                                                                                                                                                      |
-| `skills_indexed`                             | `text`                                                                                  | The skill index, stored before the first model call and again after each compaction; the latest is in effect                                                                                                                                                                                                                                   |
-| `plugins_started`                            | `rules`, `added?`                                                                       | The bot's plugin rules and `SessionStart` text, stored like the skill index and after `plugins_changed`; the latest is in effect ([plugins.md](plugins.md))                                                                                                                                                                                    |
-| `plugins_changed`                            |                                                                                         | The person changed which plugins the bot may use; its rules are stored again before the next model call                                                                                                                                                                                                                                        |
-| `hook_ran`                                   | `hook`, `target`, `outcomes[]`                                                          | What the bot's plugin hooks answered at one event, stored once so a restart never runs them again ([plugins.md](plugins.md))                                                                                                                                                                                                                   |
-| `memory_indexed`                             | `text`                                                                                  | The notes index for the cached top, fixed before the first model call and after each compaction (memory.md)                                                                                                                                                                                                                                    |
-| `question_asked`                             | `reply`, `call_id`, `question`, `questions`                                             | `ask_user` asked a card; the turn waits unless a `question_deferred` follows ([questions.md](questions.md))                                                                                                                                                                                                                                    |
-| `question_deferred`                          | `call_id`, `by_bot?`                                                                    | Left for later; the call is answered at once                                                                                                                                                                                                                                                                                                   |
-| `question_answered`                          | `call_id`, `answers`, `late?`, `typed?`                                                 | The person's checked answers. A `late` one is delivered like a job result, read as a `<question_answer>`                                                                                                                                                                                                                                       |
-| `question_dismissed`                         | `call_id`, `late?`                                                                      | Never mind; a `late` one is delivered like a late answer                                                                                                                                                                                                                                                                                       |
-| `step_finished`                              | `reply`, `text`, `calls[]`, `thoughts[]`, `usage`, `cost_micros`, `seen`                | One model call ended. `thoughts` are kept whole (signed and redacted thinking, `reasoning_content`) and sent back as they came; `seen` is how many events its prompt was built from                                                                                                                                                            |
-| `approval_requested`                         | `reply`, `call_id`, `name`, `arguments`                                                 | The gate is waiting on the person                                                                                                                                                                                                                                                                                                              |
-| `approval_answered`                          | `reply`, `call_id`, `allowed`, `always`                                                 | `always` allows that tool for the rest of the conversation                                                                                                                                                                                                                                                                                     |
-| `tool_started` / `tool_finished`             | `reply`, `call_id`, `name`, (`content`, `is_error`)                                     | A tool ran                                                                                                                                                                                                                                                                                                                                     |
-| `context_compacted`                          | `summary`, `keep_from`, `tokens_before`, `carried?`                                     | The model now sees `summary`, then events from index `keep_from`. `carried` is its "already carried out" list, carried forward by the next compaction                                                                                                                                                                                          |
-| `command_ran`                                | `reply`, `call_id`, `contained`, `exit_code?`, `timed_out?`, `reached[]`, `refused[]`   | Where a `shell` command ran and how: `contained` when Spade's sandbox held it, the hosts it reached and the ones the network policy refused (`{host, port, reason}`). Stored right after its `tool_finished` (or, for a command that became a job, before its `job_finished`); the model never reads it, the app shows it in the reply's steps |
-| `job_started`                                | `reply`, `job`, `name`                                                                  | A background tool's call was handed to a job (its `tool_finished` says so at once)                                                                                                                                                                                                                                                             |
-| `job_finished`                               | `job`, `name`, `content`, `is_error`, `untrusted?`, `cost_micros?`                      | The job ended; the model reads it as a `<job_result>`. Stored once per job. `untrusted` taints the turn that reads it ([helpers.md](helpers.md))                                                                                                                                                                                               |
-| `stop_requested`                             | `reply?`, `jobs[]`                                                                      | The person pressed Stop on that reply and those jobs. They stop; a result of a named job, or of a job the reply started, opens no reply. Later work is untouched                                                                                                                                                                               |
-| `turn_paused`                                | `reply`                                                                                 | Spade paused the open reply for an update or a stop, with nothing of it running. It stays open (the conversation still reads as working) and resumes from its events on start                                                                                                                                                                  |
-| `wake_set` / `wake_fired` / `wake_cancelled` | `wake`, `reply`, `purpose`, `due_ms?`, `condition?`, `reason` / `cause`, `note?` / `by` | Every timed or event-driven resume: a sleep, a wait, a turn waiting out an outage, a parked job, a task parked for its check. Fires once ([autonomy.md](autonomy.md))                                                                                                                                                                          |
-| `task_parked` (retired)                      | `reason`, `until_ms?`, `why`                                                            | Stored by earlier builds for a task waiting on a cap. Still read and ignored: when Spade opens the task is planned again                                                                                                                                                                                                                       |
-| `turn_parked` (retired)                      | `reply`, `until_ms`, `round`, `why`                                                     | Stored by earlier builds for a turn waiting for its endpoint. Still read: the reply stays open across a restart, waits until `until_ms`, and `round` counts toward the backoff                                                                                                                                                                 |
+| Type                                         | Fields                                                                                  | Meaning                                                                                                                                                                                                                                                                                                                                                            |
+| -------------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `user_message`                               | `text`, `context?`                                                                      | `context` (time, memories) is fixed when stored, so the prompt rebuilds to the same bytes                                                                                                                                                                                                                                                                          |
+| `skills_indexed`                             | `text`                                                                                  | The skill index, stored before the first model call and again after each compaction; the latest is in effect                                                                                                                                                                                                                                                       |
+| `plugins_started`                            | `rules`, `added?`                                                                       | The bot's plugin rules and `SessionStart` text, stored like the skill index and after `plugins_changed`; the latest is in effect ([plugins.md](plugins.md))                                                                                                                                                                                                        |
+| `plugins_changed`                            |                                                                                         | The person changed which plugins the bot may use; its rules are stored again before the next model call                                                                                                                                                                                                                                                            |
+| `hook_ran`                                   | `hook`, `target`, `outcomes[]`                                                          | What the bot's plugin hooks answered at one event, stored once so a restart never runs them again ([plugins.md](plugins.md))                                                                                                                                                                                                                                       |
+| `memory_indexed`                             | `text`                                                                                  | The notes index for the cached top, fixed before the first model call and after each compaction (memory.md)                                                                                                                                                                                                                                                        |
+| `question_asked`                             | `reply`, `call_id`, `question`, `questions`                                             | `ask_user` asked a card; the turn waits unless a `question_deferred` follows ([questions.md](questions.md))                                                                                                                                                                                                                                                        |
+| `question_deferred`                          | `call_id`, `by_bot?`                                                                    | Left for later; the call is answered at once                                                                                                                                                                                                                                                                                                                       |
+| `question_answered`                          | `call_id`, `answers`, `late?`, `typed?`                                                 | The person's checked answers. A `late` one is delivered like a job result, read as a `<question_answer>`                                                                                                                                                                                                                                                           |
+| `question_dismissed`                         | `call_id`, `late?`                                                                      | Never mind; a `late` one is delivered like a late answer                                                                                                                                                                                                                                                                                                           |
+| `step_finished`                              | `reply`, `text`, `calls[]`, `thoughts[]`, `usage`, `cost_micros`, `seen`                | One model call ended. `thoughts` are kept whole (signed and redacted thinking, `reasoning_content`) and sent back as they came; `seen` is how many events its prompt was built from                                                                                                                                                                                |
+| `approval_requested`                         | `reply`, `call_id`, `name`, `arguments`                                                 | The gate is waiting on the person                                                                                                                                                                                                                                                                                                                                  |
+| `approval_answered`                          | `reply`, `call_id`, `allowed`, `always`                                                 | `always` allows that tool for the rest of the conversation                                                                                                                                                                                                                                                                                                         |
+| `tool_started` / `tool_finished`             | `reply`, `call_id`, `name`, (`content`, `is_error`)                                     | A tool ran                                                                                                                                                                                                                                                                                                                                                         |
+| `context_compacted`                          | `summary`, `keep_from`, `tokens_before`, `carried?`, `asks?`                            | The model now sees `summary`, then events from index `keep_from`. `carried` is its "already carried out" list and the person's messages kept word for word (`said`, `said_earlier`), carried forward by the next compaction; `asks` is the person's asks as they stood, where the next fold starts (ADR 0215)                                                      |
+| `results_aged`                               | `before`                                                                                | With aging turned on, tool results before index `before` that may age show as stubs from now on ([ADR 0216](../../docs/adr/0216-spade-compacts-late-and-keeps-the-persons-words.md)); stored in batches                                                                                                                                                            |
+| `asks_updated`                               | `call_id`, `changes[]`                                                                  | What one `asks` call changed in the person's asks, as Spade accepted it; the ledger reads only this (ADR 0215)                                                                                                                                                                                                                                                     |
+| `asks_checked`                               | `reply`, `asks[]`, `note`                                                               | The stop check ran in `reply`, naming those open asks; the model reads `note` as Spade's, and the reply takes one more step                                                                                                                                                                                                                                        |
+| `asks_reminded`                              | `reply`, `steers[]`, `note`                                                             | The first step that read these steers made calls but didn't answer them; the model reads `note` as Spade's (ADR 0215 §4)                                                                                                                                                                                                                                           |
+| `asks_noted`                                 | the ledger                                                                              | A copy of the person's asks, stored every 500 events it reads, so a fold after a restart reads only what came since (ADR 0215)                                                                                                                                                                                                                                     |
+| `command_ran`                                | `reply`, `call_id`, `contained`, `exit_code?`, `timed_out?`, `reached[]`, `refused[]`   | Where a `shell` command (or a `python` run) ran and how: `contained` when Spade's sandbox held it, the hosts it reached and the ones the network policy refused (`{host, port, reason}`). Stored right after its `tool_finished` (or, for a command that became a job, before its `job_finished`); the model never reads it, the app shows it in the reply's steps |
+| `job_started`                                | `reply`, `job`, `name`                                                                  | A background tool's call was handed to a job (its `tool_finished` says so at once)                                                                                                                                                                                                                                                                                 |
+| `job_finished`                               | `job`, `name`, `content`, `is_error`, `untrusted?`, `cost_micros?`                      | The job ended; the model reads it as a `<job_result>`. Stored once per job. `untrusted` taints the turn that reads it ([helpers.md](helpers.md))                                                                                                                                                                                                                   |
+| `stop_requested`                             | `reply?`, `jobs[]`                                                                      | The person pressed Stop on that reply and those jobs. They stop; a result of a named job, or of a job the reply started, opens no reply. Later work is untouched                                                                                                                                                                                                   |
+| `turn_paused`                                | `reply`                                                                                 | Spade paused the open reply for an update or a stop, with nothing of it running. It stays open (the conversation still reads as working) and resumes from its events on start                                                                                                                                                                                      |
+| `wake_set` / `wake_fired` / `wake_cancelled` | `wake`, `reply`, `purpose`, `due_ms?`, `condition?`, `reason` / `cause`, `note?` / `by` | Every timed or event-driven resume: a sleep, a wait, a turn waiting out an outage, a parked job, a task parked for its check. Fires once ([autonomy.md](autonomy.md))                                                                                                                                                                                              |
+| `task_parked` (retired)                      | `reason`, `until_ms?`, `why`                                                            | Stored by earlier builds for a task waiting on a cap. Still read and ignored: when Spade opens the task is planned again                                                                                                                                                                                                                                           |
+| `turn_parked` (retired)                      | `reply`, `until_ms`, `round`, `why`                                                     | Stored by earlier builds for a turn waiting for its endpoint. Still read: the reply stays open across a restart, waits until `until_ms`, and `round` counts toward the backoff                                                                                                                                                                                     |
 
 `reply_finished` closes a turn whose last step made no tool calls; its `cost_micros` is the
 turn's total.
@@ -61,6 +66,31 @@ builds with budgets and caps, are read as raw data and fold to nothing ([ADR 016
   after any running tools' results, and after the step it arrived during. A turn finishes only if
   nothing arrived after its last step's prompt was built (`seen`), checked under the same lock that
   decides steer-or-start, so a message is never lost.
+- **The person's asks** ([ADR 0215](../../docs/adr/0215-spade-keeps-the-persons-asks.md),
+  `spade_core::asks`): every message from the person (for a worker, its maker's) opens an ask,
+  marked when it came while a reply ran. The bot sorts and closes asks with the `asks` tool
+  (open, split, done, dropped, changed, waiting, chat, and standing instructions it records and
+  lifts); while untrusted content is in the prompt's view (the rule notes follow) it may only change states, and only a later message from the person lifts a standing instruction. Each model call ends
+  with a short `<asks>` block rebuilt from the ledger: standing instructions, open asks newest
+  first (at most 12, the rest counted), then new messages not yet sorted. It is never stored and
+  comes after everything stored, so every earlier byte is what the previous call sent and the
+  provider's cached prefix holds. A `cli:` brain gets it at the end of each turn's message; a helper gets none. The
+  ledger is folded from its latest stored copy (`asks_noted` or a compaction's, looked for in
+  the last 2,000 events) and kept in memory per conversation, so a step reads only the events
+  since the last one.
+- **Steers** (ADR 0215 §4): a message the person types while a reply runs (not a typed answer
+  to a waiting card) reads to the model as `<steer>…</steer>`, in the place steering puts it,
+  and to a `cli:` brain the same way. The bot is told to answer it in words and record it with
+  `asks` in its next step. When that step made calls but said nothing to the person or left the
+  steer unsorted, Spade stores `asks_reminded` before the next call, whose note the model reads
+  as Spade's: once per steer, never a loop. A reading step with no calls ends the reply, where
+  the stop check names an unsorted steer.
+- **The stop check:** when a step makes no calls and the ledger has an open ask (unsorted ones
+  count) that no earlier check named, Spade stores `asks_checked` and runs one more step with a
+  note naming them: finish them, or mark each with a reason. A step that only answers it with
+  `asks` calls ends the reply once they are answered. At most once per reply, and never while a
+  question the bot asked waits on the person, for a paused bot, a stopped reply, while Spade
+  pauses, or for a helper. A reply whose last step has no words keeps its latest words.
 - **Call ids:** a provider may reuse ids across steps (`call_0` in every reply); a reused id is
   replaced before the step is stored, so results and approvals never match the wrong call.
 - **Background tools:** a tool marked `background` answers its call at once and runs as a job
@@ -114,17 +144,33 @@ outage, attempt, error}, due_ms}`, and waits for it: 1, 2, 4 … minutes, at mos
   approval pauses at once. The pause is stored as `turn_paused`. Stop on a paused reply closes it as
   stopped. The rules are in `spade_core::maintenance`.
 
+## Task lanes
+
+Main's own reply that runs long moves to a task lane of the bot's ([workers.md](workers.md),
+"Lanes"; ADR 0217 §2a). At a step boundary (`Next::CallModel`, after the stop check and the asks
+reminder) a reply that has taken 8 steps or run 2 minutes in this worker, with nothing waiting on
+the person and no job or wait of its own open, is moved in one write under the record lock: the
+lane's row and first events, and in main `lane_started`, `reply_moved` and the reply's close
+(`reply_finished` with no text). The turn ends; the lane's turn worker carries the same reply on
+from its next step. `Limits::move_long_work` turns this on (Spade does; tests choose). A lane's
+own work never moves, and `task::next` never carries a moved task on in main.
+
+Each step of main's ends with a `<tasks>` block after the `<asks>` block while lanes haven't
+ended: one line each with its id, state, title and the asks it owns, read from the events.
+
 ## Tools
 
 Spade's own tools are always offered in full, in name order: `web_search` (ace cloud search,
 then the model endpoint's own), `web_fetch` (one page as text, a window at a time, refusing local and private addresses),
-`todo`, `task_status` (the bot's task state; while `working`, Spade starts its next step after a
+`todo`, `asks` (the person's asks, answered by Spade from the events, ADR 0215), `task_status` (the bot's task state; while `working`, Spade starts its next step after a
 reply, [autonomy.md](autonomy.md)), `sleep_until` and `wait_for` (the bot ends its turn and is
 woken at a time or by an event; with the deferred `wake_cancel` and the service tools, ADR 0160,
 autonomy.md), `research` (a background job that reads many sources and writes a cited report,
 [oversight.md](oversight.md)), `helper` (a background job that hands part of the work to a
 short-lived helper with a fresh context, in a hidden conversation of its own,
-[helpers.md](helpers.md)), the workspace tools and `shell` ([workspace.md](workspace.md)), and `skill_search`,
+[helpers.md](helpers.md)), the workspace tools, `shell` and `python` ([workspace.md](workspace.md);
+the system prompt's "How you work" tells the bot to write and run a short Python script for counting,
+data, files, conversions and charts rather than work them out, ADR 0220), and `skill_search`,
 `skill_load`, `skill_propose` and `skill_feedback`, over Spade's own skill store, which mirrors
 ace's library while ace is there and works without it (workspace.md, "Spade's skill store").
 Output from `web_search`,
@@ -160,13 +206,42 @@ meanwhile are found with `skill_search`, which ranks by text and then by the bot
 (workspace.md, "Ranking"). `skill_load` puts a skill's other files in
 the bot's workspace at `skills/<name>/`.
 
+## Old results age out
+
+Off by default: models see every tool result whole. A person who wants a long task's prompt smaller
+and cheaper turns on `age_results` for a bot or for every bot (model roles settings; ADR 0216), and
+old tool results then show as stubs. Before each model call, after the compaction check, the engine
+stores `results_aged { before }` when a batch is
+due: the boundary is the start of the 4th latest step, moved back until at least 8 results follow
+it, and a batch is due once the results between the previous boundary and it that may age add up to
+64,000 characters. A result before the boundary shows as one line: the tool, its arguments
+(shortened), its size, and `history_read {"from": <position>, "count": 1}`, `history_search` or
+calling the tool again to get it back. A conversation not offered `history_read` ages nothing.
+Never aged: errors, results of 2,000 characters or less,
+results with images, `ask_user`, `skill_load` and `tool_search` results; the person's and the
+bot's own words are not results and are always whole. Between two batches the prompt only grows at
+its end, so the provider's cache holds; a batch rewrites the cache from its first newly aged result,
+once (the ADR measures it). Deciding reads only the events since the latest boundary or compaction
+cut.
+
 ## Compaction
 
-Before each model call, if the endpoint's last reported prompt is at least 75% of the budget
-(the model's own context window, 200,000 tokens for a model that doesn't say, capped only by
-`SPADE_CONTEXT_TOKENS` when the person sets it as a cost choice; ADR 0158), the engine compacts: it cuts
+Before each model call, if the next request's prompt reaches 90% of the smallest context window
+among the models that may serve the step (the turn's model and its fallbacks; 200,000 tokens for a
+model that doesn't say, capped by `SPADE_CONTEXT_TOKENS` when the person sets it as a cost choice),
+or the lower cap the person set as `context_tokens` for the bot or for every bot on the model roles
+settings (none by default, at least 16,000; ADR 0158, ADR 0216), the engine compacts. The prompt's size is estimated (`compaction::prompt_estimate`): what the latest
+step since the last compaction reported, plus a token per 4 characters of everything stored after
+it; with no report since the last compaction, the shown span's text alone, so a size from before a
+compaction never counts. `tokens_before` stores that estimate. The cut is sized against the shown
+span only (the latest summary and the events from its cut), never the history before it. A step's
+own fresh results are never cut or aged, so when they overflow the window by themselves the request
+still goes out over it, as before ADR 0216; bounding them is
+[#2669](https://github.com/arpan404/ace/issues/2669). It cuts
 at a person's message sent while no tool call was waiting for its result, so recent turns of about
-35% are kept. It asks the conversation's own model for a JSON summary by appending the request to
+35% of the window are kept (the same share of a lower cap as 35% is of 90%). It asks the conversation's own model for
+a JSON summary (goal, decisions with who made them, open commitments, facts, open questions,
+references, notes) by appending the request to
 the current prompt with the same tools (no typed-output option, which would change the request and
 miss the cache), counts that call's cost like any other, appends the writes already carried out
 (from the events, never the summary), and stores `context_compacted`. The list stays bounded over
@@ -177,8 +252,19 @@ characters cut to 80 plus its length, lists cut to their first 8 items and the w
 characters. Writes since the previous summary and jobs still running are always listed; past
 16,000 characters the oldest carried lines fold into a count that points at `history_search`. A job
 listed as still running is looked at again at the next compaction (done, unknown, or dropped if it
-failed). A summary stored before `carried` existed makes the next compaction walk from the start,
-once. Compaction is the one place earlier prompt bytes change: the system prompt and
+failed). The person's own messages from the summarised span are kept word for word in the stored
+summary, under the model's summary, and carried forward the same way (`said` on `carried`). Only
+messages the person wrote count: here or in an ace thread (labelled so), never another bot's, a
+routine's or one that came through a group, and none in a helper's conversation, whose brief is
+the bot's. Each is quoted as its own block, every line starting `> `, under `[#position] The person
+wrote:`, so nothing inside one passes for another or for Spade's words. A message over 3,000
+characters keeps its start and its position; past 24,000 characters the newest message stays, then
+standing instructions (a message under 600 characters with "always", "never", "from now on", …),
+then the rest, newest first, and the oldest fold into a count that points at `history_search`. The
+list is worked out before the summary is asked for, and the request names the messages kept only in
+part and how many are not kept, so the summary holds their requirements. A compaction that cannot
+be stored is not reported as done, so the turn goes on rather than paying for the summary again. A summary stored
+before `carried` existed makes the next compaction walk from the start, once. Compaction is the one place earlier prompt bytes change: the system prompt and
 tools stay cached, the conversation before the cut becomes the summary. If the summary fails, older turns are left out with a note saying
 so. `POST /v1/conversations/{id}/compact` with an optional `{"focus": "…"}` compacts between
 turns (409 mid-reply).

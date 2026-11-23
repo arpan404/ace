@@ -20,6 +20,12 @@ pub struct Limits {
     pub max_parallel_tools: usize,
     /// Helpers of one bot that run at once (`SPADE_HELPERS_AT_ONCE`); the rest wait queued.
     pub helpers_at_once: usize,
+    /// Task lanes of one bot with a reply open at once (`SPADE_TASKS_AT_ONCE`, ADR 0217); the
+    /// rest wait queued.
+    pub tasks_at_once: usize,
+    /// Main's own reply moves to a task lane once it runs long (ADR 0217 §2a). On in Spade;
+    /// a test's turns stay where they are unless it turns this on.
+    pub move_long_work: bool,
     /// How long a call holds the turn. A call still running then moves to the background as a
     /// job, whose result arrives as a `<job_result>`; the turn carries on meanwhile.
     pub foreground: Duration,
@@ -55,6 +61,10 @@ pub struct Limits {
     /// Each bot's knowledge base, in bytes, when the person set no size for it
     /// (`SPADE_KNOWLEDGE_BYTES`, ADR 0164).
     pub knowledge_bytes: u64,
+    /// Keep the person's asks in front of the model (ADR 0215): the block at the end of each
+    /// call and the stop check. On in Spade as it runs (`main.rs`); off by default, so a scripted
+    /// test's steps and prompts are only its own unless it turns this on.
+    pub asks: bool,
 }
 
 impl Default for Limits {
@@ -62,6 +72,8 @@ impl Default for Limits {
         Self {
             max_parallel_tools: 16,
             helpers_at_once: spade_core::helper::MOST_RUNNING,
+            tasks_at_once: spade_core::lane::MOST_RUNNING,
+            move_long_work: false,
             foreground: Duration::from_secs(30),
             result_chars: 20_000,
             longest_message: 100_000,
@@ -77,6 +89,7 @@ impl Default for Limits {
             move_pre_commit: Duration::from_secs(2 * 60 * 60),
             workers_at_once: 32,
             knowledge_bytes: spade_core::knowledge::DEFAULT_BYTES,
+            asks: false,
         }
     }
 }
@@ -158,8 +171,6 @@ pub struct AgentView {
     pub questions_for_later: usize,
     /// `{"spending", "review"}` (ADR 0135).
     pub oversight: serde_json::Value,
-    /// Why its latest reply on a subscription failed, until a later one works (ADR 0133).
-    pub problem: Option<String>,
 }
 
 /// Why an agent could not be created, changed or deleted.
@@ -175,9 +186,6 @@ pub enum AgentError {
     /// The bot has workers (ADR 0161): the person says whether they stop or keep working.
     #[error("this bot has {0} workers; say whether to stop them or keep them as their own bots")]
     HasWorkers(usize),
-    /// A subscription chosen before the person acknowledged what it means (ADR 0205 §1).
-    #[error("{text}")]
-    Terms { provider: String, text: String },
     #[error(transparent)]
     Image(#[from] ImageError),
     #[error(transparent)]
@@ -295,8 +303,6 @@ pub struct Activity {
     /// Question cards left for later (ADR 0154): deferred and not yet answered or dismissed.
     /// They never make the bot read as waiting.
     pub questions_for_later: usize,
-    /// Why the latest reply on a subscription failed, until a later one works (ADR 0133).
-    pub problem: Option<String>,
     /// Why the latest reply failed, while that is how the latest one ended (ADR 0200 §6.2).
     pub failure: Option<String>,
     /// The bot's task as it last said (ADR 0144).
@@ -316,6 +322,8 @@ pub struct Activity {
     pub ace_working: bool,
     /// Its worker bots that have not settled (ADR 0161); 0 before the tree is rolled up.
     pub workers: usize,
+    /// Its task lanes that haven't ended (ADR 0217); 0 before the tree is rolled up.
+    pub tasks: usize,
     /// The bots on this machine its open contract calls wait on, by id (ADR 0200 §6.2).
     pub calls: Vec<String>,
     /// Its open contract calls to bots of other machines, by call id (ADR 0200 §6.2).

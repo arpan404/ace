@@ -373,6 +373,7 @@ pub(super) fn asked(reply: &str, call_id: &str, why: String, card: Connect) -> E
     let summary = connect::summary(&card, &why);
     let later = card.way == Way::Later;
     Event::Known(Known::QuestionAsked {
+        lane: None,
         reply: reply.to_owned(),
         call_id: call_id.to_owned(),
         question: summary,

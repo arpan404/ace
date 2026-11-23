@@ -2,7 +2,7 @@ import { createContext, useContext } from "react";
 import type { MarketEntryKey, MarketPage, MarketPlace, MarketView } from "./market-address.ts";
 
 /*
- * How a page inside the Marketplace modal moves: push a page over the place, go back, change
+ * How a page inside the Store modal moves: push a page over the place, go back, change
  * place, close, and try a Suit on. The modal provides it; pages only call it.
  */
 
@@ -28,7 +28,7 @@ export const MarketNavContext = createContext<MarketNav | undefined>(undefined);
 
 export function useMarketNav(): MarketNav {
   const nav = useContext(MarketNavContext);
-  if (!nav) throw new Error("useMarketNav outside the Marketplace modal");
+  if (!nav) throw new Error("useMarketNav outside the Store modal");
   return nav;
 }
 

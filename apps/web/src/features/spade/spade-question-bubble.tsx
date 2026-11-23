@@ -1,3 +1,4 @@
+import { useTaskTitle } from "./lanes/lanes-context.ts";
 import {
   spadeAnswerWords,
   spadeCardAnswers,
@@ -54,15 +55,13 @@ export function SpadeQuestionBubble(props: {
   /** Resolves with undefined once sent, else what to say under the card ("" for nothing). */
   onReply(callId: string, reply: QuestionReply): Promise<string | undefined>;
 }) {
+  // A task's card, asked in main too, leads with the task (ADR 0217 §4).
+  const task = useTaskTitle(props.item.lane);
+  const botName = task ?? props.botName;
   const ask = spadeConnectOf(props.item.questions);
   if (ask)
     return (
-      <SpadeConnectBubble
-        item={props.item}
-        ask={ask}
-        botName={props.botName}
-        onReply={props.onReply}
-      />
+      <SpadeConnectBubble item={props.item} ask={ask} botName={botName} onReply={props.onReply} />
     );
   const suggest = spadeSuggestOf(props.item.questions);
   if (suggest)
@@ -70,16 +69,18 @@ export function SpadeQuestionBubble(props: {
       <SpadeSuggestBubble
         item={props.item}
         ask={suggest}
-        botName={props.botName}
+        botName={botName}
         onReply={props.onReply}
       />
     );
-  return <QuestionCard {...props} />;
+  return <QuestionCard {...props} botName={botName} task={task} />;
 }
 
 function QuestionCard(props: {
   item: Card;
   botName: string;
+  /** The task that asks, shown before its question. */
+  task?: string | undefined;
   onReply(callId: string, reply: QuestionReply): Promise<string | undefined>;
 }) {
   const { item } = props;
@@ -119,6 +120,7 @@ function QuestionCard(props: {
       <OpenCard
         item={item}
         label={label}
+        task={props.task}
         // Opened again from its line, Answer later folds it back; it is for later already.
         onFold={item.standing === "deferred" ? () => setOpened(false) : undefined}
         onReply={props.onReply}
@@ -130,6 +132,8 @@ function QuestionCard(props: {
 function OpenCard(props: {
   item: Card;
   label: string;
+  /** The task that asks (ADR 0217 §4), named before the question. */
+  task?: string | undefined;
   /** Fold it back to its line (a card already for later). */
   onFold: (() => void) | undefined;
   onReply(callId: string, reply: QuestionReply): Promise<string | undefined>;
@@ -236,6 +240,7 @@ function OpenCard(props: {
           )
         }
       >
+        {props.task && <p className="text-muted-foreground">{props.task} asks</p>}
         <SpadeBubbleText text={current.prompt} />
       </NeedsYouLine>
       {(!loneConfirm || problem) && (

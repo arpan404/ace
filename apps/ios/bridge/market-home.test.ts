@@ -55,13 +55,12 @@ const source = (extra: Partial<MarketSource> & Pick<MarketSource, "id">): Market
 
 const now = Date.UTC(2026, 10, 21, 15, 0);
 
-test("a row carries the link it is shared by, naming a git catalog's entry by its source", () => {
+test("a market row carries the link it is shared by; a git catalog's entry has none", () => {
   expect(entryRow(summary("spade-skill", "triage-mail")).link).toBe(
     "ace://market?at=skill/triage-mail",
   );
-  expect(entryRow(summary("spade-bot", "inbox", { source: "git:abc" })).link).toBe(
-    "ace://market?at=bot/inbox@git:abc",
-  );
+  // A git catalog's id is made on the machine that added it, so nobody else could open it.
+  expect(entryRow(summary("spade-bot", "inbox", { source: "git:abc" })).link).toBeNull();
   expect(entryRow(summary("suit", "harbour-dusk")).link).toBe("ace://market?at=suit/harbour-dusk");
 });
 
@@ -122,7 +121,7 @@ test("sources list the market first and only git catalogs can be removed", () =>
     { now },
   );
   expect(answer.sources.map((row) => [row.id, row.title, row.removable])).toEqual([
-    ["market", "ace Marketplace", false],
+    ["market", "ace Store", false],
     ["git:abc", "https://example.com/catalog.git", true],
   ]);
   expect(answer.stale).toBeNull();

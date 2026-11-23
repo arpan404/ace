@@ -1,11 +1,13 @@
 # 0133: Spade's bots can think with the person's subscriptions, through their CLIs
 
-Status: accepted. Date: 2026-11-12. Decided by: the owner (2026-11-12: build "subscriptions
+Status: superseded by [ADR 0219](0219-spade-bots-never-run-on-coding-cli-subscriptions.md)
+(2026-11-22): bots never run on coding CLI subscriptions, and what this record built is removed.
+Kept as history. Date: 2026-11-12. Decided by: the owner (2026-11-12: build "subscriptions
 through your CLIs" end to end, as `spade/docs/design.md`, "CLI brains", planned). Builds on
 [ADR 0002](0002-local-cli-providers.md), [ADR 0121](0121-the-daemon-hosts-spade.md) (its host thread),
 [ADR 0123](0123-spade-runs-as-its-own-service.md), [ADR 0126](0126-spade-agents.md) and
-[ADR 0127](0127-spade-main-bot-and-chat.md). The API is in
-[spade/docs/cli-brains.md](../../spade/docs/cli-brains.md).
+[ADR 0127](0127-spade-main-bot-and-chat.md). Its API doc,
+`spade/docs/cli-brains.md`, was removed with it.
 
 ## Context
 

@@ -5,12 +5,46 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::context;
-use crate::event::{Event, Known};
+use crate::event::{CarriedLedger, Event, Known};
 
-/// Compact once the prompt reaches this share of the budget...
-pub const HIGH: f64 = 0.75;
-/// ...keeping recent turns worth about this share, so one compaction lasts many turns.
+/// Compact once the next prompt reaches this share of the smallest window on the step's route
+/// (ADR 0216): late enough that a model with a large window uses most of it...
+pub const HIGH: f64 = 0.90;
+/// ...keeping recent turns worth about this share of the window, so one compaction lasts many
+/// turns.
 pub const LOW: f64 = 0.35;
+
+/// What a conversation's prompt may grow to before it compacts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Budget {
+    /// The model's own context window: the hard ceiling.
+    pub window: u32,
+    /// A lower cap the person set (`context_tokens`, ADR 0216); `u32::MAX` for none.
+    pub working: u32,
+}
+
+impl Budget {
+    /// A budget bounded by the window alone: what a conversation gets unless the person set a
+    /// lower cap.
+    pub fn window(window: u32) -> Self {
+        Self {
+            window,
+            working: u32::MAX,
+        }
+    }
+
+    /// The prompt size that compacts: [`HIGH`] of the window, or the person's cap when that is
+    /// smaller.
+    pub fn trigger(self) -> f64 {
+        f64::from(self.working).min(f64::from(self.window) * HIGH)
+    }
+
+    /// About what a compaction keeps: the same share of the trigger as [`LOW`] is of [`HIGH`]
+    /// ([`LOW`] of the window when the person set no cap).
+    fn kept(self) -> f64 {
+        self.trigger() * (LOW / HIGH)
+    }
+}
 
 /// The part of the conversation a compaction keeps word for word.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,7 +60,12 @@ pub struct Plan {
 /// Too many images to show also compacts, whatever the size: that is the only point where which
 /// older images are left out may change.
 pub fn plan(events: &[Event], prompt_tokens: u32, budget: u32) -> Option<Plan> {
-    let full = budget > 0 && f64::from(prompt_tokens) >= f64::from(budget) * HIGH;
+    plan_within(events, prompt_tokens, Budget::window(budget))
+}
+
+/// [`plan`] against the person's cap as well as the window (ADR 0216).
+pub fn plan_within(events: &[Event], prompt_tokens: u32, budget: Budget) -> Option<Plan> {
+    let full = budget.window > 0 && f64::from(prompt_tokens) >= budget.trigger();
     if !full && !context::too_many_images(events) {
         return None;
     }
@@ -48,13 +87,23 @@ pub fn plan(events: &[Event], prompt_tokens: u32, budget: u32) -> Option<Plan> {
         _ => None,
     });
     let starts = safe_starts(events, already);
-    // Size each candidate's kept part in proportion to the reported prompt, by text length.
-    let sizes: Vec<usize> = events.iter().map(text_len).collect();
-    let total: usize = sizes.iter().sum::<usize>().max(1);
-    let target = f64::from(budget) * LOW;
-    let after = already.unwrap_or(0);
+    // Size each candidate's kept part in proportion to the prompt, by text length: only what the
+    // prompt shows counts (the latest summary, then the events from its cut), an aged result as
+    // its stub. Suffix sums are taken once, so each candidate costs nothing more.
+    let after = already.unwrap_or(0).min(events.len());
+    let summary = events.iter().rev().find_map(|event| match event {
+        Event::Known(Known::ContextCompacted { summary, .. }) => Some(summary.len()),
+        _ => None,
+    });
+    let aged = crate::aging::boundary(events);
+    let mut suffix = vec![0usize; events.len() - after + 1];
+    for at in (after..events.len()).rev() {
+        suffix[at - after] = suffix[at - after + 1] + shown_len(&events[at], at < aged);
+    }
+    let total = (suffix[0] + summary.unwrap_or(0)).max(1);
+    let target = budget.kept();
     let fits = |start: usize| {
-        let kept: usize = sizes[start..].iter().sum();
+        let kept = suffix[start.saturating_sub(after).min(suffix.len() - 1)];
         f64::from(prompt_tokens) * (kept as f64 / total as f64) <= target
     };
     // A cut at the very start would summarise nothing.
@@ -139,6 +188,64 @@ pub fn safe_starts(events: &[Event], after: Option<usize>) -> Vec<usize> {
     starts
 }
 
+/// About how much of the prompt `event` takes: its text, or an aged result's stub.
+fn shown_len(event: &Event, before_aging: bool) -> usize {
+    match event {
+        Event::Known(Known::ToolFinished {
+            name,
+            content,
+            is_error,
+            images,
+            ..
+        }) if before_aging
+            && crate::aging::may_age(name, content, *is_error, !images.is_empty()) =>
+        {
+            crate::aging::STUB_CHARS
+        }
+        event => text_len(event),
+    }
+}
+
+/// Characters per token when a prompt's size is estimated rather than reported.
+pub const CHARS_PER_TOKEN: usize = 4;
+
+/// About how many tokens the next request's prompt holds (ADR 0216): what the latest step since
+/// the last compaction reported for its prompt, plus an estimate for everything stored since
+/// (its own reply, the results and messages that came after). With no step since the last
+/// compaction that reported a size, the shown span's text alone (the summary and the events from
+/// its cut), so a size from before a compaction never counts. Reads only the shown span.
+pub fn prompt_estimate(events: &[Event]) -> u32 {
+    let compaction = events
+        .iter()
+        .rposition(|e| matches!(e, Event::Known(Known::ContextCompacted { .. })));
+    let floor = compaction.map_or(0, |at| at + 1);
+    let reported = (floor..events.len())
+        .rev()
+        .find_map(|at| match &events[at] {
+            Event::Known(Known::StepFinished { usage, .. }) => usage.input.map(|input| (at, input)),
+            _ => None,
+        });
+    let aged = crate::aging::boundary(events);
+    let chars = |from: usize| -> usize {
+        (from..events.len())
+            .map(|at| shown_len(&events[at], at < aged))
+            .sum()
+    };
+    let tokens = match reported {
+        Some((at, input)) => u64::from(input) + (chars(at) / CHARS_PER_TOKEN) as u64,
+        None => {
+            let (from, summary) = match compaction.map(|at| &events[at]) {
+                Some(Event::Known(Known::ContextCompacted {
+                    keep_from, summary, ..
+                })) => (*keep_from, summary.len()),
+                _ => (0, 0),
+            };
+            ((chars(from.min(events.len())) + summary) / CHARS_PER_TOKEN) as u64
+        }
+    };
+    u32::try_from(tokens).unwrap_or(u32::MAX)
+}
+
 fn text_len(event: &Event) -> usize {
     match event {
         Event::Known(known) => match known {
@@ -153,7 +260,8 @@ fn text_len(event: &Event) -> usize {
                         .sum::<usize>()
             }
             Known::ToolFinished { content, .. } => content.len(),
-            Known::ContextCompacted { summary, .. } => summary.len(),
+            // Only the latest summary is shown, and it is counted once, where it is shown.
+            Known::ContextCompacted { .. } => 0,
             _ => 0,
         },
         Event::Unknown(_) => 0,
@@ -167,6 +275,10 @@ pub struct Summary {
     pub goal: String,
     /// What the person and Spade agreed.
     pub decisions: Vec<String>,
+    /// What Spade told the person it would do and has not done yet (ADR 0216). Missing from a
+    /// reply that leaves them out.
+    #[serde(default)]
+    pub commitments: Vec<String>,
     /// What was learned, each with where it came from.
     pub facts: Vec<String>,
     /// Open questions and the next steps.
@@ -181,16 +293,26 @@ pub struct Summary {
 
 /// The request appended to the conversation's own prompt, so its input is mostly cache reads.
 pub fn request(focus: Option<&str>) -> String {
+    request_keeping(focus, &CarriedLedger::default())
+}
+
+/// [`request`] knowing what this compaction keeps of the person's words (`ledger`, computed
+/// first): it says they are kept beside the summary only when some are, and names the ones kept
+/// only in part or not at all, whose requirements the summary must hold.
+pub fn request_keeping(focus: Option<&str>, ledger: &CarriedLedger) -> String {
+    let kept = said::kept_note(ledger);
     let focus = focus
         .filter(|f| !f.trim().is_empty())
         .map(|f| format!(" Keep in particular: {f}."))
         .unwrap_or_default();
     format!(
         "Summarise this conversation so far so it can continue without the earlier messages. \
-         Be specific and brief: the goal, decisions made, facts learned with their sources, open \
-         questions and next steps, and ids, links and paths still needed.{focus} Do not call any \
-         tool. Reply with only a JSON object with the keys goal (a string) and decisions, facts, \
-         open, references and notes (arrays of strings). notes holds what is worth remembering \
+         Be specific and brief: the goal, every decision made and who made it, open commitments \
+         (what you told the person you would do and have not done yet), facts learned with their \
+         sources, open questions and next steps, and ids, links and paths still needed.{kept}\
+         {focus} Do not call any \
+         tool. Reply with only a JSON object with the keys goal (a string) and decisions, \
+         commitments, facts, open, references and notes (arrays of strings). notes holds what is worth remembering \
          beyond this conversation: facts about the person, their standing preferences and lasting \
          decisions, one short self-contained sentence each, leaving out what your notes already \
          say and anything only this task needs."
@@ -214,6 +336,7 @@ pub fn render(summary: &Summary, carried_out: &[String]) -> String {
     );
     for (title, items) in [
         ("Decisions", &summary.decisions),
+        ("Commitments still owed", &summary.commitments),
         ("Facts", &summary.facts),
         ("Open", &summary.open),
         ("References", &summary.references),
@@ -226,6 +349,18 @@ pub fn render(summary: &Summary, carried_out: &[String]) -> String {
         }
     }
     out.push_str(&carried_section(carried_out));
+    out
+}
+
+/// The whole text a compaction stores (ADR 0216): the summary (or `left_out` when the model
+/// wrote none), the person's messages kept word for word, then the writes already carried out.
+pub fn written(summary: Option<&Summary>, left_out: &str, ledger: &CarriedLedger) -> String {
+    let mut out = match summary {
+        Some(summary) => render(summary, &[]),
+        None => format!("{left_out}\n"),
+    };
+    out.push_str(&said::section(&ledger.said, ledger.said_earlier));
+    out.push_str(&carried_section(&lines(ledger)));
     out
 }
 
@@ -242,7 +377,8 @@ pub fn carried_section(carried_out: &[String]) -> String {
 }
 
 mod carried;
-pub use carried::{carried_out, ledger, lines};
+pub mod said;
+pub use carried::{brief, carried_out, ledger, lines};
 
 #[cfg(test)]
 mod tests;

@@ -3732,12 +3732,16 @@ dependencies = [
  "base64",
  "futures-util",
  "keyring-core",
+ "libc",
  "reqwest",
+ "ring",
  "serde",
  "serde_json",
  "spade-connect",
  "spade-keys",
+ "spade-sandbox-windows",
  "spade-testkit",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -4004,6 +4008,7 @@ dependencies = [
  "uuid",
  "wat",
  "win32job",
+ "zip",
 ]
 
 [[package]]

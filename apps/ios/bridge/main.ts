@@ -7,6 +7,7 @@ import { z } from "zod";
 import { DeviceId, HostId, InstallId, PairingLinkProof, SettingsValues } from "@ace/protocol";
 import { agentName } from "@ace/ui-core";
 import { call, scheduler } from "./host.ts";
+import { keepMemberStanding, nativeMemberProver } from "./member-standing.ts";
 import { ProjectManage } from "./project-manage.ts";
 import { PatchPump } from "./patches.ts";
 import { followInbox, inboxAction, makeActivityGeneration, type InboxFollow } from "./inbox.ts";
@@ -18,7 +19,8 @@ import { SubagentRetries } from "./subagent-retries.ts";
 import { routeThreadAction } from "./thread-route.ts";
 import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
-import { nativeTransport, socketEvent, type PairedStanding } from "./socket.ts";
+import { nativeTransport, socketEvent, type PairedStanding, type StandingRoute } from "./socket.ts";
+import { StandingBook } from "./standing-book.ts";
 import {
   accountCredential,
   accountGate,
@@ -77,6 +79,8 @@ import { nativeLoopbackHost } from "./device-host.ts";
 import { openPhoneTunnel } from "./machine-tunnel-open.ts";
 import { benchLoopback, startLoopbackBench } from "./tunnel-bench.ts";
 import { EarlyActions } from "./early-actions.ts";
+import { SpadeDaemonLive } from "@ace/client/spade-live";
+import { SpadeComputerLive, SpadeComputerLiveAction } from "./spade-computer-live.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -174,10 +178,14 @@ let services: NativeServices | undefined;
 let pairedStanding: PairedStanding | undefined;
 /** Which route this runtime's socket proves standing on: a pairing's key, or the account's grant. */
 let standingRoute: "paired" | "account" = "paired";
+/** What each socket to this machine proved; the newest verdict is the one reported. */
+const standings = new StandingBook();
 let inbox: InboxFollow | undefined;
 /** What each needs-you row waits on, and answers to it (`inbox-needs.ts`). */
 let needs: NeedsFollow | undefined;
 let terminal: NativeTerminal | undefined;
+/** The Spade bot terminal on screen, live (`spade-computer-live.ts`). */
+let spadeComputer: SpadeComputerLive | undefined;
 let browser: BrowserLive | undefined;
 let devices: NativeDevices | undefined;
 let screen: NativeScreen | undefined;
@@ -257,9 +265,22 @@ async function start(json: string): Promise<void> {
   const paired = config.paired;
   pairedStanding = undefined;
   standingRoute = paired || !config.account ? "paired" : "account";
-  const standing = (state: PairedStanding) => {
-    pairedStanding = state;
-    pump.put("standing", () => ({ type: "standing", state }));
+  standings.clear();
+  const standing = (
+    state: PairedStanding | undefined,
+    source: { socket: string; route: StandingRoute },
+  ) => {
+    standings.set(source.socket, state, source.route);
+    const active = standings.active();
+    pairedStanding = active?.state;
+    // The route the verdict went over, once one has: a paired machine on its relay fallback
+    // proves as the account's device, not with its paired key.
+    if (active) standingRoute = active.route === "relay" ? "account" : "paired";
+    pump.put("standing", () => ({
+      type: "standing",
+      state: active?.state,
+      route: active?.route,
+    }));
   };
   const account = config.account ? accountGate(() => call("credential")) : undefined;
   gate = account;
@@ -357,6 +378,9 @@ async function start(json: string): Promise<void> {
     keptValue("runAlerts"),
   );
   const owner = client;
+  // An organization's host: the member's standing is kept proven on each socket (ADR 0206 §2.2).
+  // Native signs only for a machine it reaches as a member, so a personal one sends nothing.
+  if (account) keepMemberStanding(client, nativeMemberProver(call), scheduler);
   const activityGeneration = makeActivityGeneration();
   connection.subscribe(() => {
     if (connection.getSnapshot() !== "ready") return;
@@ -392,6 +416,12 @@ async function start(json: string): Promise<void> {
   outside = new OutsideWatch(client, pump, preview, () => host.now());
   outside.start();
   spade?.stop();
+  spadeComputer?.stop();
+  spadeComputer = new SpadeComputerLive(
+    new SpadeDaemonLive(client, () => host.uuid()),
+    pump,
+    scheduler.set,
+  );
   spade = new NativeSpade(client, pump, {
     now: () => host.now(),
     id: () => host.uuid(),
@@ -649,6 +679,12 @@ function handle(raw: unknown): void {
     const panel = WorkspaceAction.safeParse(raw);
     if (panel.success) {
       if (workspace) void workspace.handle(panel.data).catch(error);
+      else error();
+      return;
+    }
+    const spadeComputerAction = SpadeComputerLiveAction.safeParse(raw);
+    if (spadeComputerAction.success) {
+      if (spadeComputer) spadeComputer.handle(spadeComputerAction.data);
       else error();
       return;
     }

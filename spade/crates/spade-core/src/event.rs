@@ -61,6 +61,14 @@ pub enum Known {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         change: Option<Box<TaskChange>>,
     },
+    /// The bot's model was a coding subscription (`cli:…`, ADR 0133), which bots no longer think
+    /// with (ADR 0219): Spade moved it to `to`, the person's default model, or to none (`""`), so
+    /// it waits for them to pick one. `line` is what its chat shows, once.
+    ModelReplaced {
+        from: String,
+        to: String,
+        line: String,
+    },
     /// This bot made a standing bot for the person (ADR 0161, amendment 1): its chat shows it with
     /// Open and Undo.
     BotMade {
@@ -166,6 +174,9 @@ pub enum Known {
         /// escalation level is `ask`, not `block` (ADR 0165). Its `question_deferred` follows.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         later: bool,
+        /// Set when a task lane (ADR 0217 §4) asked: asked in main too, answered there.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lane: Option<Box<crate::lane::Ask>>,
     },
     /// The question is left for later (ADR 0154): by the person (**Answer later**), or by the
     /// bot asking with `wait: false` (`by_bot`). The call is answered at once and the turn goes
@@ -256,6 +267,9 @@ pub enum Known {
         /// conversation, the person answers it there, and the answer reaches the helper.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         helper: Option<Box<HelperAsk>>,
+        /// Set when a task lane (ADR 0217) made the call: asked in main too, answered there.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lane: Option<Box<crate::lane::Ask>>,
         /// Where the call was decided to run when the person was asked: the most their answer
         /// lets it run (ADR 0171, amendment 4). A call that would run anywhere wider at the
         /// launch doesn't run on it. Absent for older events and calls that run nothing.
@@ -568,6 +582,10 @@ pub enum Known {
     ReplyStarted {
         reply: String,
         model: String,
+        /// The task lane (ADR 0217) whose report opened this reply, when one did: a person's
+        /// reply to this reply's words goes to that lane.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lane: Option<String>,
     },
     /// Spade paused the open reply for a planned restart (an update or a stop): nothing of it was
     /// running when this was stored. It stays open and resumes from its events when Spade starts.
@@ -658,6 +676,15 @@ pub enum Known {
         /// before it was stored; the next compaction then walks from the start once.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         carried: Option<CarriedLedger>,
+        /// The person's asks as they stood (ADR 0215), so the next fold starts here.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        asks: Option<Box<crate::asks::Ledger>>,
+    },
+    /// Tool results before `before` (an event index) show as short stubs in later prompts, all
+    /// but the ones that never age (ADR 0216). Stored in batches, so prompts stay byte-stable
+    /// between them.
+    ResultsAged {
+        before: usize,
     },
     /// A message in a group's transcript (ADR 0132): the person's (`from` is `None`) or a bot's
     /// answer to an ask.
@@ -798,9 +825,42 @@ pub enum Known {
     WorkerDetached {
         by: String,
     },
+    /// This conversation is one of its bot's task lanes (ADR 0217): the first event of it.
+    LaneOf(crate::lane::Link),
+    /// The bot started a task lane (ADR 0217), by `task_start` or by moving main's long work.
+    LaneStarted(crate::lane::Started),
+    /// Spade moved this reply's work to a lane (ADR 0217 §2a); the reply's close follows it in
+    /// the same write. The app shows Spade's plain line for it.
+    ReplyMoved(crate::lane::Moved),
+    /// The person's message just before this went to a lane by `reply_to` (ADR 0217 §2), with
+    /// no model call: main keeps it as the person's bubble, the lane as the person's message.
+    AskRouted(crate::lane::Routed),
+    /// A lane's title from the `title` role, stored in main and in the lane (ADR 0217 §2a); it
+    /// replaces the first line it started with.
+    LaneTitled(crate::lane::Titled),
+    /// A lane wrote a file another lane still working wrote too (ADR 0217 §3): a note to the
+    /// writing lane and a line in main, never a lock.
+    LanesOverlapped(crate::lane::Overlap),
+    /// Main's words to one of its lanes (`task_message`, ADR 0217 §3): the bot's, never the
+    /// person's. It steers the lane's turn or opens its next reply, like a job's result.
+    LaneMessage(crate::lane::Message),
+    /// In main: main sent a lane a message (`task_message`, ADR 0217 §3), with the asks it took.
+    LaneMessaged(crate::lane::Messaged),
+    /// In main: a lane ended (stopped, failed, finished), so main's copies of its open requests
+    /// close: its approvals and question cards there can no longer be answered (ADR 0217 §4).
+    LaneRequestsClosed(crate::lane::RequestsClosed),
     /// A choice the bot made on the person's behalf, with its reason (ADR 0165, `decision_log`).
     /// Shown in digests and the activity log; the model reads only its call's result.
     DecisionMade(crate::decision::Decision),
+    /// What one `asks` call changed in the person's asks (ADR 0215).
+    AsksUpdated(crate::asks::Updated),
+    /// The stop check ran in a reply (ADR 0215 §3); the model reads its note as Spade's.
+    AsksChecked(crate::asks::Checked),
+    /// A steer's first answering step left it unanswered (ADR 0215 §4); read like `asks_checked`.
+    AsksReminded(crate::asks::Reminded),
+    /// A copy of the person's asks (ADR 0215), stored every few hundred events so a fold after a
+    /// restart reads only what came since.
+    AsksNoted(Box<crate::asks::Ledger>),
     /// The bot arrived from another machine (ADR 0187): consent given there doesn't count here,
     /// so no answer before this event is remembered (`since_arrival`).
     Arrived {
@@ -1264,6 +1324,20 @@ impl Event {
         Self::Known(Known::ReplyStarted {
             reply: reply.into(),
             model: model.into(),
+            lane: None,
+        })
+    }
+
+    /// A reply's start that records the task lane whose report opened it (ADR 0217 §2).
+    pub fn reply_opened(
+        reply: impl Into<String>,
+        model: impl Into<String>,
+        lane: Option<String>,
+    ) -> Self {
+        Self::Known(Known::ReplyStarted {
+            reply: reply.into(),
+            model: model.into(),
+            lane,
         })
     }
 
@@ -1296,6 +1370,22 @@ pub struct CarriedLedger {
     /// Older writes no longer listed one by one, so the list stays bounded over weeks.
     #[serde(default, skip_serializing_if = "is_none_earlier")]
     pub earlier: u64,
+    /// The person's own messages from every compacted span, word for word (ADR 0216), oldest
+    /// first; `said_earlier` counts older ones no longer listed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub said: Vec<Said>,
+    #[serde(default, skip_serializing_if = "is_none_earlier")]
+    pub said_earlier: u64,
+}
+
+/// A message of the person's a compaction keeps word for word: its position and text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Said {
+    pub seq: u64,
+    pub text: String,
+    /// Where the person wrote it, when not in this conversation ("an ace thread").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via: Option<String>,
 }
 
 fn is_none_earlier(n: &u64) -> bool {
@@ -1318,127 +1408,4 @@ pub struct CarriedWrite {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn known_events_round_trip_through_json() {
-        let event = Event::Known(Known::ReplyFinished {
-            reply: "r1".into(),
-            text: "Hi".into(),
-            input_tokens: Some(11),
-            output_tokens: None,
-            cost_micros: 42,
-        });
-        assert_eq!(Event::from_json(event.to_json()), event);
-        assert_eq!(event.to_json()["type"], "reply_finished");
-    }
-
-    #[test]
-    fn an_event_from_a_newer_spade_is_kept_not_dropped() {
-        let raw = json!({ "type": "tool_called", "tool": "web_search" });
-        assert_eq!(Event::from_json(raw.clone()), Event::Unknown(raw.clone()));
-        assert_eq!(Event::from_json(raw.clone()).to_json(), raw);
-    }
-
-    #[test]
-    fn a_reply_to_round_trips_and_one_that_cant_be_read_leaves_the_message_readable() {
-        let raw = json!({ "type": "user_message", "text": "That one",
-                          "reply_to": { "id": "m12", "text": "Tuesday?", "mine": false } });
-        let Event::Known(Known::UserMessage { reply_to, .. }) = Event::from_json(raw.clone())
-        else {
-            panic!("a reply is a message");
-        };
-        let to = reply_to.unwrap_or_else(|| panic!("its quote"));
-        assert_eq!(
-            (to.id.as_str(), to.text.as_str(), to.mine),
-            ("m12", "Tuesday?", false)
-        );
-        assert_eq!(Event::from_json(raw.clone()).to_json(), raw);
-        for broken in [json!("m12"), json!({ "id": 12 }), json!(null)] {
-            let raw = json!({ "type": "group_message", "run": "r", "text": "Hi",
-                              "reply_to": broken });
-            assert!(matches!(
-                Event::from_json(raw),
-                Event::Known(Known::GroupMessage { reply_to: None, .. })
-            ));
-        }
-        assert!(
-            Event::user_message("Hi")
-                .to_json()
-                .get("reply_to")
-                .is_none()
-        );
-    }
-
-    fn failed_kind(raw: Value) -> Option<FailureKind> {
-        match Event::from_json(raw) {
-            Event::Known(Known::ReplyFailed { kind, .. }) => Some(kind),
-            _ => None,
-        }
-    }
-
-    #[test]
-    fn a_failed_reply_stored_before_kinds_existed_or_with_a_newer_kind_reads_as_other() {
-        let old = json!({ "type": "reply_failed", "reply": "r1", "text": "", "error": "boom" });
-        assert_eq!(failed_kind(old), Some(FailureKind::Other));
-        let newer = json!({ "type": "reply_failed", "reply": "r1", "text": "", "error": "boom",
-                            "kind": "solar_flare" });
-        assert_eq!(failed_kind(newer), Some(FailureKind::Other));
-        let known = json!({ "type": "reply_failed", "reply": "r1", "text": "", "error": "boom",
-                            "kind": "rate_limited", "endpoint": "fake" });
-        assert_eq!(failed_kind(known), Some(FailureKind::RateLimited));
-    }
-
-    #[test]
-    fn a_call_that_never_got_an_answer_is_unreachable_and_a_refused_key_is_the_keys() {
-        use spade_models::ModelError;
-        let refused = |status: Option<u16>| ModelError::Unanswered {
-            model: "fake/m".into(),
-            message: String::new(),
-            transient: false,
-            retry_after: None,
-            status,
-        };
-        assert_eq!(FailureKind::of(&refused(None)), FailureKind::Unreachable);
-        assert_eq!(FailureKind::of(&refused(Some(401))), FailureKind::Key);
-        assert_eq!(
-            FailureKind::of(&refused(Some(429))),
-            FailureKind::RateLimited
-        );
-        assert_eq!(FailureKind::of(&refused(Some(500))), FailureKind::Model);
-        let missing = ModelError::MissingKey {
-            endpoint: "fake".into(),
-            var: None,
-        };
-        assert_eq!(FailureKind::of(&missing), FailureKind::Key);
-    }
-
-    #[test]
-    fn a_reply_without_a_usable_model_fails_as_no_model_and_says_what_to_do() {
-        use spade_models::ModelError;
-        let unchosen = ModelError::UnknownModel(String::new());
-        assert_eq!(FailureKind::of(&unchosen), FailureKind::NoModel);
-        assert!(
-            unchosen
-                .to_string()
-                .contains("no model is chosen yet: choose one")
-        );
-        let gone = ModelError::UnknownModel("old/m".into());
-        assert_eq!(FailureKind::of(&gone), FailureKind::NoModel);
-        assert_eq!(
-            gone.to_string(),
-            "old/m is not a model on one of your endpoints"
-        );
-        let stored = Event::Known(Known::ReplyFailed {
-            reply: "r1".into(),
-            text: String::new(),
-            error: unchosen.to_string(),
-            kind: FailureKind::NoModel,
-            endpoint: None,
-        })
-        .to_json();
-        assert_eq!(stored["kind"], "no_model");
-    }
-}
+mod tests;

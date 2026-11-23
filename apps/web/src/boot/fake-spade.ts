@@ -66,27 +66,6 @@ export function seedFakeSpade(
   };
   here.endpoints.push(endpoint);
   here.newBotModel = "openrouter/anthropic/claude-sonnet-5.5";
-  // The person's subscriptions, as ace lists them (ADR 0133).
-  here.subscriptions = [
-    {
-      provider: "codex",
-      name: "Codex",
-      accounts: [
-        { id: "work", label: "Work" },
-        { id: "personal", label: "Personal" },
-      ],
-      models: [
-        { id: "gpt-6.1-sol", name: "GPT-6.1 Sol" },
-        { id: "gpt-6.1-luna", name: "GPT-6.1 Luna" },
-      ],
-    },
-    {
-      provider: "claude",
-      name: "Claude Code",
-      accounts: [{ id: "claude-cli-default", label: null }],
-      models: [{ id: "opus-5.5", name: "Opus 5.5" }],
-    },
-  ];
   here.liveModels.set("openrouter", [
     // A model that turns speech into words, for the mic's one-click setup (ADR 0134, amended).
     { id: "openai/whisper-1", name: "Whisper" },
@@ -173,8 +152,7 @@ export function seedFakeSpade(
   const garden = here.addAgent({
     id: "garden",
     name: "Garden",
-    model: "cli:codex@work/gpt-6.1-sol",
-    problem: "Codex is signed out. Sign in to it in ace, then send again.",
+    model: "openrouter/anthropic/claude-sonnet-5.5",
     avatar: {
       kind: "character",
       v: 1,
@@ -395,6 +373,12 @@ export function seedFakeSpade(
     reply: "r-garden",
     text: "Set for 6pm. I'll skip it if more than 5mm of rain falls first.",
   });
+  // A long answer, which folds after ten lines (ADR 0212 amendment 2).
+  here.store(garden.conversation, {
+    type: "user_message",
+    text: "What should I do in the garden in December?",
+  });
+  here.reply(garden, decemberPlan);
   here.proposals.set("garden", [
     {
       id: "sp_garden",
@@ -839,3 +823,28 @@ export const template = (
   model_kind: "capable",
   routines: [],
 });
+
+/** A long answer of the Garden bot's, past ten lines: it folds in its bubble. */
+const decemberPlan = [
+  "Here's the December plan for the south bed and the pots, in the order I'd do it.",
+  "",
+  "## Plant now",
+  "- **Garlic**: split the bulbs, cloves 15cm apart, pointy end up, 5cm deep",
+  "- **Broad beans**: two rows, 20cm apart, a cane at each end for string later",
+  "- **Shallots**: just the tips showing, so the birds can't pull them up",
+  "",
+  "## Protect",
+  "- Fleece over the lettuce on any night under 2°C",
+  "- Move the basil pots inside the porch; it won't survive a frost",
+  "- Mulch the strawberries with straw, about 5cm",
+  "",
+  "## Watering",
+  "Much less now. Once a week at most, in the morning so the leaves dry before dark, and never on a frosty day. I'll skip it whenever more than 5mm of rain is forecast.",
+  "",
+  "| Bed | Water | Next |",
+  "| --- | --- | --- |",
+  "| South | weekly | garlic in |",
+  "| Pots | when dry | move inside |",
+  "",
+  "I'll remind you on the 1st about the garlic, and again when the first frost is forecast.",
+].join("\n");

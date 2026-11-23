@@ -17,9 +17,9 @@ use spade_server::presets;
 use spade_server::research::{LiveWeb, ResearchTool};
 use spade_server::skill_store::SkillStore;
 use spade_server::tools::{
-    AceLink, AceTarget, ConnectorSource, DecisionLog, EngineHandle, Retry, SkillLibrary, SkillLoad,
-    SkillSearch, TaskGoal, TaskPlan, TaskStatus, Todo, Tool, ToolSource, Toolbox, WebFetch,
-    WebSearch,
+    AceLink, AceTarget, Asks, ConnectorSource, DecisionLog, EngineHandle, Retry, SkillLibrary,
+    SkillLoad, SkillSearch, TaskGoal, TaskPlan, TaskStatus, Todo, Tool, ToolSource, Toolbox,
+    WebFetch, WebSearch,
 };
 use spade_server::workspace::shell::Shell;
 use spade_server::workspace::{Workspaces, workspace_tools};
@@ -212,8 +212,9 @@ fn usage(flag: &std::ffi::OsStr) -> std::process::ExitCode {
 
 /// The server: logging, then `run` on the runtime `main` built.
 async fn serve_main() -> std::process::ExitCode {
-    // The HTML parser's own logs carry page text, so they are dropped by a separate layer that no
-    // RUST_LOG setting can turn back on.
+    // The HTML parser's own logs carry page text and the model SDK's carry failed calls'
+    // response bodies (which may echo a key or token), so they are dropped by a separate layer
+    // that no RUST_LOG setting can turn back on.
     tracing_subscriber::registry()
         // Plain text when not on a terminal: the service writes to a log file.
         .with(
@@ -221,7 +222,7 @@ async fn serve_main() -> std::process::ExitCode {
                 .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stdout())),
         )
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
-        .with(filter_fn(|meta| !spade_fetch::is_parser_log(meta.target())))
+        .with(filter_fn(|meta| spade_server::logging::kept(meta.target())))
         .init();
     match run().await {
         Ok(()) => std::process::ExitCode::SUCCESS,
@@ -355,6 +356,7 @@ async fn run() -> Result<(), Failure> {
         Arc::new(TaskGoal),
         Arc::new(TaskPlan),
         Arc::new(DecisionLog),
+        Arc::new(Asks),
     ];
     let workspaces = Workspaces::new(home.dir.join("workspace"));
     // Each bot's commands, services and plugin servers run in its OS sandbox, with their traffic
@@ -578,8 +580,16 @@ async fn run() -> Result<(), Failure> {
     .map_err(other)?;
     bots.set(&engine);
     // ChatGPT sign-ins (ADR 0214): tokens in the keychain only; none without one.
+    // Tokens rest sealed in the home's data folder, their key per account in the keychain.
+    let vault = keychain.clone().map(|keys| {
+        spade_chatgpt::Vault::new(
+            home.dir.join("sign-ins"),
+            keys,
+            Arc::new(spade_connect::OsRandom),
+        )
+    });
     match spade_chatgpt::Accounts::new(
-        keychain.clone(),
+        vault,
         spade_chatgpt::Config::openai(),
         Arc::new(|| {
             std::time::SystemTime::now()
@@ -652,11 +662,6 @@ async fn run() -> Result<(), Failure> {
     let address = listener.local_addr().map_err(other)?;
     connectors.set_listening(address);
     connectors.start();
-    // Bots on the person's subscriptions run their turns through ace (ADR 0133). Set before
-    // work opens, so a turn resumed at start finds ace.
-    if let Some(link) = ace.clone() {
-        engine.set_brains(Arc::new(move || link.brains()));
-    }
     spade_server::startup::finish(
         engine.clone(),
         ace.clone(),
@@ -775,9 +780,14 @@ fn limits(config: &Config) -> Limits {
     Limits {
         max_parallel_tools: config.parallel_tools.unwrap_or(defaults.max_parallel_tools),
         helpers_at_once: config.helpers_at_once.unwrap_or(defaults.helpers_at_once),
+        tasks_at_once: config.tasks_at_once.unwrap_or(defaults.tasks_at_once),
         workers_at_once: config.workers_at_once.unwrap_or(defaults.workers_at_once),
         context_budget: config.context_tokens.unwrap_or(defaults.context_budget),
         knowledge_bytes: config.knowledge_bytes.unwrap_or(defaults.knowledge_bytes),
+        // The person's asks are always kept (ADR 0215).
+        asks: true,
+        // Main's long work moves to a task lane (ADR 0217 §2a).
+        move_long_work: true,
         ..defaults
     }
 }

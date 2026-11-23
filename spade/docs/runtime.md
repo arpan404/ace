@@ -25,6 +25,7 @@ The bot's goal, plan and where its task stands; its own task and face.
 | `task_status` | `write_local` | 0.0.24 |
 | `task_update` | `write_local` | 0.0.24 |
 | `todo` | `write_local` | 0.0.24 |
+| `asks` | `write_local` | 0.0.25 |
 | `profile_update` | `write_local` | 0.0.24 |
 
 ## `memory`
@@ -58,11 +59,13 @@ The bot's workspace, its sandboxed shell and the services it owns.
 | `workspace_list` | `read` | 0.0.24 |
 | `workspace_read` | `read` | 0.0.24 |
 | `workspace_search` | `read` | 0.0.24 |
+| `workspace_find` | `read` | 0.0.24 |
 | `workspace_write` | `write_local` | 0.0.24 |
 | `workspace_edit` | `write_local` | 0.0.24 |
 | `document_read` | `read` | 0.0.24 |
 | `share_file` | `write_local` | 0.0.24 |
 | `shell` | `write_local` | 0.0.24 |
+| `python` | `write_local` | 0.0.24 |
 | `service_start` | `write_local` | 0.0.24 |
 | `service_status` | `read` | 0.0.24 |
 | `service_logs` | `read` | 0.0.24 |
@@ -178,4 +181,4 @@ None. `spade.v1` is the first version.
 
 ## Not part of the API
 
-Harness internals (compaction, titles, the check of done) and these tools, which may change in any build: `decision_log`, `skill_search`, `skill_load`, `skill_propose`, `skill_feedback`.
+Harness internals (compaction, titles, the check of done) and these tools, which may change in any build: `decision_log`, `skill_search`, `skill_load`, `skill_propose`, `skill_feedback`, `task_start`, `task_message`, `task_stop`, `tasks`.

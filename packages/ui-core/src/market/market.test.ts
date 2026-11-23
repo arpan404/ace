@@ -16,6 +16,8 @@ import {
   needCatalogue,
   needDefaults,
   replacesLine,
+  registryFailure,
+  registryVersionRow,
   reviewFromLine,
   reviewHeading,
   runDetail,
@@ -93,7 +95,7 @@ test("an update accepted while its bot works isn't offered again until a newer o
 });
 
 test.each([
-  ["unavailable", "read", "The Marketplace can't be reached right now."],
+  ["unavailable", "read", "The Store can't be reached right now."],
   ["not_found", "remove", "It isn't installed anymore."],
   ["not_found", "read", "This entry isn't listed anymore."],
   ["invalid", "add", "That isn't a git catalog's https address."],
@@ -235,4 +237,64 @@ test("a plugin's runs and an update's changes read as rows", () => {
     "https://x.dev/mcp",
   );
   expect(changeTitle({ change: "added", path: "run.sh" })).toBe("Added run.sh");
+});
+
+test("a registry version says its state and scan, and offers withdraw only while it can be withdrawn", () => {
+  const base = { version: "1.1.0", hash: "a".repeat(64), size: 1, published: 1, held: false };
+  const live = registryVersionRow({
+    ...base,
+    status: "live",
+    scan: { verdict: "pass", scanner: 1 },
+  });
+  expect(live).toEqual({ state: "Live", scan: "Scan passed", canWithdraw: true });
+  expect(
+    registryVersionRow({
+      ...base,
+      status: "waiting",
+      held: true,
+      scan: { verdict: "warn", scanner: 1 },
+    }),
+  ).toMatchObject({ state: "Held for ace's review", scan: "Scan warned", canWithdraw: true });
+  expect(
+    registryVersionRow({
+      ...base,
+      status: "blocked",
+      reason: "Reads .env",
+      scan: { verdict: "block", scanner: 1 },
+    }),
+  ).toEqual({
+    state: "Blocked",
+    scan: "Scan blocked it",
+    detail: "Reads .env",
+    canWithdraw: false,
+  });
+  expect(registryVersionRow({ ...base, status: "withdrawn", reason: "Old" })).toMatchObject({
+    state: "Withdrawn",
+    scan: "Not scanned",
+    detail: "Old",
+    canWithdraw: false,
+  });
+  // Asked for and not signed: still offered, and not asked again.
+  expect(
+    registryVersionRow({ ...base, status: "live", withdrawal: { reason: "Leaks a token", at: 2 } }),
+  ).toMatchObject({
+    state: "Withdrawal waiting for the registry's signer",
+    detail: "Leaks a token",
+    canWithdraw: false,
+  });
+});
+
+test("a registry's refusals say what the person can do", () => {
+  expect(registryFailure(new MarketFailure("forbidden"))).toBe(
+    "Your role doesn't let you manage this organization's registry.",
+  );
+  expect(registryFailure(new MarketFailure("not_found"))).toBe(
+    "This organization has no registry yet, or that version is gone.",
+  );
+  expect(registryFailure(new MarketFailure("person_grant"))).toBe(
+    "Sign in to ace in this app to manage the registry.",
+  );
+  expect(registryFailure(new MarketFailure("unavailable"))).toBe(
+    "The Store can't be reached right now.",
+  );
 });

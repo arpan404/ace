@@ -43,7 +43,7 @@ export function spadeStateLines(state: SpadeState, color = false): string[] {
 }
 
 export function featureLines(features: Readonly<Record<"spade" | "marketplace", boolean>>) {
-  return [`Spade: ${onOff(features.spade)}`, `Marketplace: ${onOff(features.marketplace)}`];
+  return [`Spade: ${onOff(features.spade)}`, `Store: ${onOff(features.marketplace)}`];
 }
 
 /** The JSON the first CLI printed for `ace features on|off X`, unchanged. */
@@ -56,8 +56,8 @@ export function featureJson(result: FeatureSwitch) {
 export function featureWords(result: FeatureSwitch): string {
   if (result.feature === "marketplace")
     return result.on
-      ? "The Marketplace is turned on."
-      : "The Marketplace is turned off. What you installed from it keeps working.";
+      ? "The Store is turned on."
+      : "The Store is turned off. What you installed from it keeps working.";
   if (result.on)
     return result.started
       ? result.live

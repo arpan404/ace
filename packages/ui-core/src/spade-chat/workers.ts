@@ -11,7 +11,7 @@ import { spadeNeedsYouWords } from "./needs-you.ts";
  */
 
 export interface SpadeWorkerNode {
-  kind: "bot" | "helper" | "ace";
+  kind: "bot" | "helper" | "ace" | "lane";
   /** A bot's agent id, an ace child's thread id, a helper's job. */
   id: string;
   name: string;
@@ -36,7 +36,7 @@ export interface SpadeWorkerNode {
 const micros = z.number().nonnegative().nullish().catch(undefined);
 
 const nodeShape = z.object({
-  kind: z.enum(["bot", "helper", "ace"]),
+  kind: z.enum(["bot", "helper", "ace", "lane"]),
   id: z.string().min(1),
   name: z.string().nullish().catch(undefined),
   conversation: z.string().nullish().catch(undefined),

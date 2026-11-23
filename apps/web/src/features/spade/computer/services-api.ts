@@ -6,7 +6,7 @@ import {
 } from "@ace/ui-core/spade-chat";
 import { segment, spadeHttp, type SpadeTarget } from "../spade-requests.ts";
 
-/* A bot's services (ADR 0160): the list, a service's output, and Stop. */
+/* A bot's services (ADR 0160): the list, a service's output, Stop, and Start for an ended one. */
 
 const base = (bot: string) => `/v1/agents/${segment(bot)}/services`;
 
@@ -36,4 +36,9 @@ export async function readServiceLines(
 
 export async function stopService(target: SpadeTarget, bot: string, service: string) {
   await spadeHttp(target, "DELETE", `${base(bot)}/${segment(service)}`);
+}
+
+/** Starts an ended service again with the command, folder and verdict it started with. */
+export async function startService(target: SpadeTarget, bot: string, service: string) {
+  await spadeHttp(target, "POST", `${base(bot)}/${segment(service)}/start`);
 }

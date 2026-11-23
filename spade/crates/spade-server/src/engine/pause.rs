@@ -157,7 +157,7 @@ impl Engine {
 
     /// Whether no turn of `id` may start now: the person has its computer, or paused it.
     pub(super) fn closed(&self, id: &str) -> bool {
-        self.held(id) || self.paused(id) || self.held_by_terms(id)
+        self.held(id) || self.paused(id)
     }
 
     /// Changes the stored pauses with `change`, read and written under the agent lock in one
@@ -228,14 +228,17 @@ impl Engine {
         if let Some(code) = self.code() {
             code.retire(agent);
         }
-        if let Some(paused) = self.pauses().as_mut() {
-            paused.insert(
-                agent.to_owned(),
-                Paused {
-                    conversation: conversation.to_owned(),
-                    at_ms,
-                },
-            );
+        {
+            let _order = lock(&self.record_lock);
+            if let Some(paused) = self.pauses().as_mut() {
+                paused.insert(
+                    agent.to_owned(),
+                    Paused {
+                        conversation: conversation.to_owned(),
+                        at_ms,
+                    },
+                );
+            }
         }
         self.end_work(conversation, Self::hold_wakes)?;
         self.announce(conversation);

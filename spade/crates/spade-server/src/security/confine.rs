@@ -69,6 +69,18 @@ impl Confine for Security {
             Kind::Terminal { scratch } => (commands_policy, Vec::new(), vec![scratch.clone()]),
             Kind::Plugin { root } => (plugins_policy, vec![root.clone()], Vec::new()),
         };
+        // Spade's Python (ADR 0220): the machine's environments and the bot's own staged
+        // scripts, which its commands read and run and nothing in any sandbox writes. Named only
+        // once they exist, so a bot that never ran Python opens nothing.
+        let runtime = match kind {
+            Kind::Command | Kind::Terminal { .. } => {
+                crate::workspace::python::readable(&self.workspaces, &bot)
+                    .into_iter()
+                    .filter(|path| path.is_dir())
+                    .collect()
+            }
+            Kind::Plugin { .. } => Vec::new(),
+        };
         let run = self.ids.next("run");
         self.issuing(&bot);
         let ticket = match (&self.proxy, network.mode) {
@@ -85,6 +97,7 @@ impl Confine for Security {
             toolchains: toolchain_dirs.clone(),
             also_read,
             scratch,
+            runtime,
             proxy_port: ticket
                 .as_ref()
                 .and(self.proxy.as_ref())
@@ -262,6 +275,7 @@ impl Confine for Security {
             toolchains: Vec::new(),
             also_read: reads.reads,
             scratch: Vec::new(),
+            runtime: Vec::new(),
             proxy_port: None,
         });
         // A read-only run writes nowhere, so Spade makes no temporary folder for it. Creating one

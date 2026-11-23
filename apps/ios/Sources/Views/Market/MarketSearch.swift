@@ -54,7 +54,7 @@ struct MarketTypeMenu: View {
 /// Search results on the machine's copy of the index (spec item 1): ranked rows, the type
 /// filter narrowing them, and No results when there are none; with the machine offline and
 /// nothing kept, that the marketplace is offline. `reviewedOnly` keeps entries ace reviewed, as a
-/// category lists them.
+/// category lists them. Reaching the last row reads the next page, until there are no more.
 struct MarketSearchResults: View {
     let model: ClientModel
     let query: String
@@ -63,7 +63,32 @@ struct MarketSearchResults: View {
     var reviewedOnly = false
     /// Bumped by pull to refresh: reads again past the phone's kept answer.
     var refreshes = 0
+    private struct Scope: Hashable {
+        let query: String
+        let type: String?
+        let category: String?
+        let reviewedOnly: Bool
+    }
+
+    var body: some View {
+        MarketSearchPages(model: model, query: query, filter: filter, category: category,
+                          reviewedOnly: reviewedOnly, refreshes: refreshes)
+            .id(Scope(query: query, type: filter.type, category: category, reviewedOnly: reviewedOnly))
+    }
+}
+
+private struct MarketSearchPages: View {
+    let model: ClientModel
+    let query: String
+    let filter: MarketTypeFilter
+    let category: String?
+    let reviewedOnly: Bool
+    let refreshes: Int
     @State private var page: MarketSearchPage?
+    /// The rows of the pages read past the first, and where the page after them starts.
+    @State private var more: [MarketListing] = []
+    @State private var next: Int?
+    @State private var loadingMore = false
     @State private var problem: MarketRefusal?
     /// The refresh the last read answered, so a new pull reads past the kept answer.
     @State private var answered = 0
@@ -73,7 +98,8 @@ struct MarketSearchResults: View {
     }
     private var rows: [MarketListing] {
         guard let page else { return [] }
-        return reviewedOnly ? page.rows.filter(\.reviewed) : page.rows
+        let seen = Set(page.rows.map(\.id))
+        return page.rows + more.filter { !seen.contains($0.id) }
     }
 
     var body: some View {
@@ -85,6 +111,10 @@ struct MarketSearchResults: View {
                 ForEach(rows) { listing in
                     MarketRow(listing: listing).padding(.horizontal, AceDesign.Space.margin)
                     Divider().padding(.leading, AceDesign.Space.margin)
+                }
+                if let next {
+                    SkeletonRows(count: 1, label: "Loading more results")
+                        .task(id: next) { await readMore(from: next) }
                 }
             } else if page != nil || problem?.offline == true {
                 empty.padding(.vertical, AceDesign.Space.section)
@@ -115,13 +145,36 @@ struct MarketSearchResults: View {
     private func read() async {
         do {
             let fresh = refreshes != answered
-            page = try await model.marketSearch(query: query, type: filter.type, category: category, fresh: fresh)
+            let read = try await model.marketSearch(query: query, type: filter.type, category: category,
+                                                    reviewedOnly: reviewedOnly, fresh: fresh)
+            guard !Task.isCancelled else { return }
+            page = read
+            more = []
+            next = read.offline ? nil : read.next
             answered = refreshes
             problem = nil
         } catch let refusal as MarketRefusal {
             // Another query's rows never stand in for this one: offline, it says so instead.
             if !Task.isCancelled { page = nil; problem = refusal }
         } catch {}
+    }
+
+    /// The page after the rows shown, appended; a failed read stops loading more until the next
+    /// search, so the list never spins on a machine that went away.
+    private func readMore(from offset: Int) async {
+        guard !loadingMore else { return }
+        loadingMore = true
+        defer { loadingMore = false }
+        do {
+            let read = try await model.marketSearch(query: query, type: filter.type, category: category,
+                                                    offset: offset, reviewedOnly: reviewedOnly)
+            guard !Task.isCancelled, next == offset else { return }
+            more += read.rows
+            next = read.offline ? nil : read.next
+        } catch is CancellationError {
+        } catch {
+            if !Task.isCancelled, next == offset { next = nil }
+        }
     }
 }
 

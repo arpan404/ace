@@ -360,6 +360,10 @@ enum BridgePatch: Decodable, Sendable {
     case fragment(BridgeFragment)
     /// A new list: the ids of every row that follows (nil from older bridges, which clear all).
     case inboxReset([String]?)
+    /// Whether the list is the daemon's current one and holds every thread (no older page left).
+    case inboxFresh(confirmed: Bool, complete: Bool)
+    /// Whether a thread outside the loaded list exists on the machine, read by its id.
+    case inboxLocated(String, Bool?)
     case inbox(String, ThreadRow?)
     /// What a needs-you row waits on, by thread id (`inbox-needs.ts`); empty once nothing does.
     case needs(String, InboxNeeds)
@@ -388,8 +392,10 @@ enum BridgePatch: Decodable, Sendable {
     case connectionEvent(String)
     case pending(String, PendingRow?)
     case error(String)
-    case receipt(String, Bool, String)
-    case admission(String, Bool, String)
+    /// Id, ok, the refusal's words, and the code notes a started thread or fork carried.
+    case receipt(String, Bool, String, [String])
+    /// Id, ok, the refusal's words, and the code notes a saved message carried.
+    case admission(String, Bool, String, [String])
     /// A message's full words for the edit sheet, or an edit's answer (`bridge/queued-words.ts`,
     /// `bridge/send-recovery.ts`): ok, the words when read, and why not when not.
     case words(String, Bool, String?, String, Int?)
@@ -406,7 +412,7 @@ enum BridgePatch: Decodable, Sendable {
     case chatSections(InboxLayout)
     case problem(ProblemNotice?)
     /// Whether a paired machine's socket proved the person's standing (`bridge/paired-standing.ts`).
-    case standing(PairedStanding)
+    case standing(PairedStanding?, StandingRoute?)
     case machineStatus(MachineStatusInfo)
     case machineProviders(MachineProvidersInfo)
     /// The chats this machine's runtime keeps on the phone (`bridge/chat-cache.ts`).
@@ -469,7 +475,7 @@ enum BridgePatch: Decodable, Sendable {
     /// The history window put everything a read changed (`bridge/native-transcript.ts`).
     case readingSettled(String, Int)
 
-    private enum Keys: String, CodingKey { case type, id, ids, row, words, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, asking, lockedUntil, sheet, path, diff, generation, look, glyph, text, revision, before, seq, reason, outcome, view, socket, tail }
+    private enum Keys: String, CodingKey { case type, id, ids, row, words, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, asking, lockedUntil, sheet, path, diff, generation, look, glyph, text, revision, before, seq, reason, outcome, view, socket, tail, route, notes, confirmed, complete, found }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -484,6 +490,8 @@ enum BridgePatch: Decodable, Sendable {
         case "terminal.output": self = .terminal(try TerminalOutputPatch(from: decoder))
         case "fragment": self = .fragment(try BridgeFragment(from: decoder))
         case "inbox.reset": self = .inboxReset(try box.decodeIfPresent([String].self, forKey: .ids))
+        case "inbox.fresh": self = .inboxFresh(confirmed: try box.decode(Bool.self, forKey: .confirmed), complete: try box.decode(Bool.self, forKey: .complete))
+        case "inbox.located": self = .inboxLocated(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(Bool.self, forKey: .found))
         case "inbox.row": self = .inbox(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(ThreadRow.self, forKey: .row))
         case "inbox.needs": self = .needs(try box.decode(String.self, forKey: .id), try InboxNeeds(from: decoder))
         case "inbox.needs.context": self = .needsWords(try box.decode(String.self, forKey: .id), try box.decode(String.self, forKey: .words))
@@ -524,12 +532,14 @@ enum BridgePatch: Decodable, Sendable {
                                socket: try box.decodeIfPresent(Int.self, forKey: .socket))
         case "pending": self = .pending(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(PendingRow.self, forKey: .row))
         case "error": self = .error(try box.decode(String.self, forKey: .message))
-        case "receipt": self = .receipt(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
+        case "receipt": self = .receipt(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message),
+                                        try box.decodeIfPresent([String].self, forKey: .notes) ?? [])
         case "words":
             let ok = try box.decode(Bool.self, forKey: .ok)
             self = .words(try box.decode(String.self, forKey: .id), ok, ok ? try box.decodeIfPresent(String.self, forKey: .text) : nil,
                           try box.decode(String.self, forKey: .message), try box.decodeIfPresent(Int.self, forKey: .revision))
-        case "admission": self = .admission(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
+        case "admission": self = .admission(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message),
+                                            try box.decodeIfPresent([String].self, forKey: .notes) ?? [])
         case "inbox.bulk.final": self = .bulkFinal(try box.decode(String.self, forKey: .id), try box.decode(BulkOutcome.self, forKey: .outcome))
         case "thread.block":
             let (id, epoch) = try scope()
@@ -549,7 +559,8 @@ enum BridgePatch: Decodable, Sendable {
         case "inbox.sections": self = .inboxSections(try InboxLayout(from: decoder))
         case "chats.sections": self = .chatSections(try InboxLayout(from: decoder))
         case "connection.problem": self = .problem(try box.decodeIfPresent(ProblemNotice.self, forKey: .problem))
-        case "standing": self = .standing(try box.decode(PairedStanding.self, forKey: .state))
+        case "standing": self = .standing(try box.decodeIfPresent(PairedStanding.self, forKey: .state),
+                            try box.decodeIfPresent(StandingRoute.self, forKey: .route))
         case "machine.status": self = .machineStatus(try MachineStatusInfo(from: decoder))
         case "machine.providers": self = .machineProviders(try MachineProvidersInfo(from: decoder))
         case "cache.usage": self = .cacheUsage(try CacheUsage(from: decoder))
@@ -601,6 +612,8 @@ enum BridgePatch: Decodable, Sendable {
 /// when it has no key for the machine (paired before it named one) or the machine refused it
 /// (paired from an ordinary link). Installing bots and plugins there needs it.
 enum PairedStanding: String, Decodable, Sendable { case proven, missing }
+/// The route the verdict's socket took: `relay` is ace's relay, where the proof is the account's.
+enum StandingRoute: String, Decodable, Sendable { case direct, relay }
 
 /// What a machine's runtime read from `host.identity`: the icon name of its mark, the daemon's
 /// own id, the paths it serves and its own name (absent from older daemons and bridges).

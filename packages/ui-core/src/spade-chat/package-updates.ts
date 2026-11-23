@@ -1,5 +1,5 @@
 import type { MarketBotUpdate } from "@ace/protocol/marketplace";
-import { effectWords, type SpadeDeclaredEffect } from "./packages.ts";
+import { effectKeyWords, effectLimits, effectWords, type SpadeDeclaredEffect } from "./packages.ts";
 
 /*
  * What a package update or rollback changes in plain sentences (ADR 0200 §6.1), pure: what it
@@ -14,10 +14,21 @@ const fieldWords = {
   personality: ["How it talks changes.", "You changed how it talks, so that stays."],
 } as const;
 
-/** What an update or rollback changes, and what stays because the person or the bot changed it. */
+type KeyedEffect = SpadeDeclaredEffect & { key: string };
+
+/** An effect's words with what it is held to: "Uses deploy without asking, env matching staging". */
+const heldWords = (row: SpadeDeclaredEffect) => [effectWords(row), ...effectLimits(row)].join(", ");
+
+/**
+ * What an update or rollback changes, and what stays because the person or the bot changed it.
+ * Every effect it adds, changes or takes away is named: one it asks for more starts off, one
+ * the version before asked for that this one doesn't is turned off, and, given the effects of
+ * the version in use (`before`), one under the same key that now reaches or allows otherwise.
+ */
 export function updateSentences(
   update: Pick<MarketBotUpdate, "plan" | "asksMore">,
-  effects: readonly (SpadeDeclaredEffect & { key: string })[],
+  effects: readonly KeyedEffect[],
+  before: readonly KeyedEffect[] = [],
 ): { changes: string[]; kept: string[]; more: string[] } {
   const { plan } = update;
   const changes: string[] = [];
@@ -54,15 +65,20 @@ export function updateSentences(
   const more = [
     ...plan.asks_more.map((key) => {
       const row = effects.find((each) => each.key === key);
-      return `${row ? effectWords(row) : key}. Off until you turn it on.`;
+      return `${row ? heldWords(row) : effectKeyWords(key)}. Off until you turn it on.`;
     }),
     ...update.asksMore,
   ];
-  if (plan.off.length)
+  for (const key of plan.off) {
+    const row = before.find((each) => each.key === key);
     changes.push(
-      plan.off.length === 1
-        ? "It no longer asks for one thing the version before did; that's turned off."
-        : `It no longer asks for ${plan.off.length} things the version before did; those are turned off.`,
+      `No longer asks for this, so it's turned off: ${row ? heldWords(row) : effectKeyWords(key)}.`,
     );
+  }
+  for (const row of effects) {
+    const was = before.find((each) => each.key === row.key);
+    if (was && heldWords(was) !== heldWords(row))
+      changes.push(`Changes what it asks for: ${heldWords(row)}. Before: ${heldWords(was)}.`);
+  }
   return { changes, kept, more };
 }

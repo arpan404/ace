@@ -47,6 +47,13 @@ export class FakeSpade {
     this.server = server;
   }
 
+  /** The paths of the live streams open now that start with `prefix`, as the clients asked. */
+  openStreams(prefix = ""): string[] {
+    return [...this.streams.values()]
+      .map((stream) => stream.path)
+      .filter((path) => path.startsWith(prefix));
+  }
+
   /** Sends a frame to every open stream whose path starts with `prefix`. */
   emit(prefix: string, event: string, data: unknown): void {
     for (const [requestId, stream] of this.streams)

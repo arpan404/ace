@@ -77,7 +77,7 @@ test("LM Studio is offered under From even when it isn't running, filled in with
 test("the model picker offers a running Ollama's models, and picking one chooses it", async () => {
   const { spade } = await spadeApp("/spade", withLocal);
   await openNew("New bot");
-  await userEvent.click(await screen.findByRole("button", { name: "More settings" }));
+  // A new bot's model is at the top of its page, with how it runs.
   await userEvent.click(await screen.findByRole("button", { name: "Model" }));
   const local = within(await screen.findByRole("group", { name: "On this computer" }));
   await userEvent.click(local.getByRole("option", { name: /^qwen3:8b/ }));
@@ -95,7 +95,7 @@ test("a local model that didn't call tools in Spade's check isn't taken as a bot
     here.localChecks.set("gemma3:4b", "failed");
   });
   await openNew("New bot");
-  await userEvent.click(await screen.findByRole("button", { name: "More settings" }));
+  // A new bot's model is at the top of its page, with how it runs.
   await userEvent.click(await screen.findByRole("button", { name: "Model" }));
   const local = within(await screen.findByRole("group", { name: "On this computer" }));
   await userEvent.click(local.getByRole("option", { name: /^gemma3:4b/ }));

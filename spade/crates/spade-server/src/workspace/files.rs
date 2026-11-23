@@ -21,9 +21,6 @@ pub const READ_LINES: usize = 400;
 pub const MOST_READ_LINES: usize = 2_000;
 /// Longest line a read shows; the rest is cut.
 const LINE_CHARS: usize = 2_000;
-/// Most matches a search returns, and the largest file it looks in.
-const MOST_MATCHES: usize = 200;
-const LARGEST_SEARCHED: u64 = 2 * 1024 * 1024;
 /// Most files a search, or a look for changed files, opens.
 pub(super) const MOST_WALKED: usize = 5_000;
 
@@ -68,22 +65,20 @@ pub struct FileView {
     pub revision: Option<String>,
 }
 
-/// What a search found: its lines for the model, and each file it quoted, with its hash.
-pub struct Found {
-    pub text: String,
-    pub files: Vec<(String, String)>,
-}
-
 /// `O_NONBLOCK`, so opening a FIFO (or any special file) never waits for a writer.
 #[cfg(any(target_os = "linux", target_os = "android"))]
-const NONBLOCK: i32 = 0o4000;
+pub(super) const NONBLOCK: i32 = 0o4000;
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
-const NONBLOCK: i32 = 0x0004;
+pub(super) const NONBLOCK: i32 = 0x0004;
 
 /// Opens `path` under `at` for reading without ever blocking, and answers it only when the
 /// opened handle is a regular file: a folder, FIFO, socket or device is refused, so reading,
 /// searching or downloading can never hang a worker.
-fn open_regular(at: &Dir, path: &Path, relative: &str) -> Result<cap_std::fs::File, PathError> {
+pub(super) fn open_regular(
+    at: &Dir,
+    path: &Path,
+    relative: &str,
+) -> Result<cap_std::fs::File, PathError> {
     let mut options = OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -189,6 +184,19 @@ impl Workspace {
         Ok(bytes)
     }
 
+    /// The first [`super::reading::HEAD`] bytes of a file (fewer when it is shorter).
+    pub fn head(&self, relative: &str) -> Result<Vec<u8>, PathError> {
+        let cleaned = clean(relative)?;
+        if cleaned.as_os_str().is_empty() {
+            return Err(PathError::Io("that is the workspace itself".to_owned()));
+        }
+        let file = open_regular(&self.dir()?, &cleaned, relative)?;
+        let mut head = Vec::new();
+        file.take(super::reading::HEAD as u64)
+            .read_to_end(&mut head)?;
+        Ok(head)
+    }
+
     /// A text file's content.
     pub fn text(&self, relative: &str) -> Result<String, PathError> {
         let bytes = self.read_file(relative, LARGEST_TEXT)?;
@@ -277,9 +285,18 @@ impl Workspace {
     /// Answers `false`, writing nothing, when the name is taken (by a file, a folder or a link),
     /// so two writers racing for one name never overwrite each other.
     pub fn create_new(&self, relative: &str, content: &str) -> Result<bool, PathError> {
-        if content.len() > LARGEST_WRITE {
+        self.create_new_bytes(relative, content.as_bytes(), LARGEST_WRITE)
+    }
+
+    pub fn create_new_bytes(
+        &self,
+        relative: &str,
+        content: &[u8],
+        largest: usize,
+    ) -> Result<bool, PathError> {
+        if content.len() > largest {
             return Err(PathError::Io(format!(
-                "that is {} bytes; files are written {LARGEST_WRITE} bytes at most",
+                "that is {} bytes; files are written {largest} bytes at most",
                 content.len()
             )));
         }
@@ -304,9 +321,7 @@ impl Workspace {
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
             Err(error) => return Err(PathError::at(relative, error)),
         };
-        let written = file
-            .write_all(content.as_bytes())
-            .and_then(|()| file.sync_all());
+        let written = file.write_all(content).and_then(|()| file.sync_all());
         if let Err(error) = written {
             let _ = at.remove_file(&name);
             return Err(PathError::at(relative, error));
@@ -314,143 +329,18 @@ impl Workspace {
         Ok(true)
     }
 
-    /// Replaces the one place `old` appears in `relative` with `new`. Answers the file's text
-    /// before and after.
+    /// Applies `changes` to `relative`'s text, all or none (see `edits.rs`). Answers the file's
+    /// text before and after, and how many places changed.
     pub fn edit(
         &self,
         relative: &str,
-        old: &str,
-        new: &str,
-    ) -> Result<(String, String), PathError> {
-        if old.is_empty() {
-            return Err(PathError::Io("give the text to replace".to_owned()));
-        }
+        changes: &[super::edits::Change],
+    ) -> Result<(String, String, usize), PathError> {
         let text = self.text(relative)?;
-        match text.matches(old).count() {
-            0 => Err(PathError::Io(format!(
-                "that text is not in {relative}; read it again and copy it exactly"
-            ))),
-            1 => {
-                let changed = text.replacen(old, new, 1);
-                self.write(relative, &changed)?;
-                Ok((text, changed))
-            }
-            many => Err(PathError::Io(format!(
-                "that text appears {many} times in {relative}; include more around it so it \
-                 appears once"
-            ))),
-        }
-    }
-
-    /// Every regular file under the workspace (links not followed), with its handle's folder.
-    fn walk(
-        &self,
-        start: &str,
-        mut visit: impl FnMut(&Dir, &str, &str) -> bool,
-    ) -> Result<(), PathError> {
-        let cleaned = clean(start)?;
-        let dir = self.dir()?;
-        let mut stack = vec![shown(&cleaned)];
-        let mut opened = 0;
-        while let Some(path) = stack.pop() {
-            let at = folder(&dir, Path::new(&path), &path)?;
-            let mut names: Vec<String> = at
-                .entries()?
-                .filter_map(Result::ok)
-                .map(|e| e.file_name().to_string_lossy().into_owned())
-                .collect();
-            names.sort();
-            let mut folders = Vec::new();
-            for name in names {
-                let Ok(meta) = at.symlink_metadata(&name) else {
-                    continue;
-                };
-                let full = if path.is_empty() {
-                    name.clone()
-                } else {
-                    format!("{path}/{name}")
-                };
-                if meta.file_type().is_symlink() {
-                    continue;
-                }
-                if meta.is_dir() {
-                    folders.push(full);
-                    continue;
-                }
-                // Pipes, sockets and devices are never opened.
-                if !meta.is_file() {
-                    continue;
-                }
-                opened += 1;
-                if opened > MOST_WALKED || !visit(&at, &name, &full) {
-                    return Ok(());
-                }
-            }
-            stack.extend(folders.into_iter().rev());
-        }
-        Ok(())
-    }
-
-    /// Lines containing `needle` under `relative`, as `path:line: text`, links not followed.
-    pub fn search(
-        &self,
-        relative: &str,
-        needle: &str,
-        ignore_case: bool,
-    ) -> Result<Found, PathError> {
-        if needle.is_empty() {
-            return Err(PathError::Io("give the text to look for".to_owned()));
-        }
-        let wanted = if ignore_case {
-            needle.to_lowercase()
-        } else {
-            needle.to_owned()
-        };
-        let mut lines = Vec::new();
-        let mut files = Vec::new();
-        self.walk(relative, |at, name, full| {
-            let Ok(mut file) = open_regular(at, Path::new(name), full) else {
-                return true;
-            };
-            if file.metadata().map(|m| m.len()).unwrap_or(u64::MAX) > LARGEST_SEARCHED {
-                return true;
-            }
-            let mut bytes = Vec::new();
-            if file.read_to_end(&mut bytes).is_err() {
-                return true;
-            }
-            let Ok(text) = std::str::from_utf8(&bytes) else {
-                return true;
-            };
-            let mut quoted = false;
-            for (number, line) in text.lines().enumerate() {
-                let haystack = if ignore_case {
-                    line.to_lowercase()
-                } else {
-                    line.to_owned()
-                };
-                if haystack.contains(&wanted) {
-                    quoted = true;
-                    let shown: String = line.chars().take(400).collect();
-                    lines.push(format!("{full}:{}: {shown}", number + 1));
-                    if lines.len() == MOST_MATCHES {
-                        lines.push(format!("[Stopped at {MOST_MATCHES} matches.]"));
-                        files.push((full.to_owned(), trust::hash(&bytes)));
-                        return false;
-                    }
-                }
-            }
-            if quoted {
-                files.push((full.to_owned(), trust::hash(&bytes)));
-            }
-            true
-        })?;
-        let text = if lines.is_empty() {
-            format!("No line contains {needle:?}.")
-        } else {
-            lines.join("\n")
-        };
-        Ok(Found { text, files })
+        let (changed, places) =
+            super::edits::apply(relative, &text, changes, LARGEST_WRITE).map_err(PathError::Io)?;
+        self.write(relative, &changed)?;
+        Ok((text, changed, places))
     }
 
     /// Whether `relative` names a regular file reached through real folders only: no link on

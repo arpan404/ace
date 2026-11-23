@@ -82,7 +82,11 @@ pub struct Flows {
     starting: tokio::sync::Mutex<()>,
     /// Held while a finished sign-in is kept as an account, so two never pick the same id.
     keeping: tokio::sync::Mutex<()>,
+    after_keep: Mutex<Option<AfterKeep>>,
 }
+
+/// A test's step between keeping a sign-in's tokens and committing its account.
+pub type AfterKeep = Arc<dyn Fn(String) -> BoxFuture<'static, ()> + Send + Sync>;
 
 impl Flows {
     pub fn new(accounts: Arc<Accounts>, random: Arc<dyn Random>) -> Arc<Self> {
@@ -93,11 +97,30 @@ impl Flows {
             count: Default::default(),
             starting: tokio::sync::Mutex::default(),
             keeping: tokio::sync::Mutex::default(),
+            after_keep: Mutex::default(),
         })
     }
 
     pub fn accounts(&self) -> &Arc<Accounts> {
         &self.accounts
+    }
+
+    /// For tests: run `hook` with the account id once a sign-in's tokens are kept and before its
+    /// account is committed, so a test can act in between.
+    pub fn set_after_keep(&self, hook: AfterKeep) {
+        *self.after_keep.lock().unwrap_or_else(|p| p.into_inner()) = Some(hook);
+    }
+
+    /// Runs the test hook set with [`Flows::set_after_keep`], if any.
+    pub async fn after_keep(&self, account: &str) {
+        let hook = self
+            .after_keep
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        if let Some(hook) = hook {
+            hook(account.to_owned()).await;
+        }
     }
 
     /// Held by whoever keeps a finished sign-in as an account, for as long as that takes.

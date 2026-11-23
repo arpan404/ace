@@ -106,6 +106,11 @@ export const MachineCallOrigin = z.object({
   hostId: HostId,
   hostName: z.string().min(1).max(256),
   threadId: ThreadId,
+  /**
+   * Top thread of the calling thread's agent tree, or null when the caller is a hidden host
+   * thread whose remote child should start its own tree. Absent on older machines.
+   */
+  rootThreadId: ThreadId.nullable().optional(),
   threadTitle: z.string().max(256),
   /** The calling agent, so each remote agent holds its own leases there (ADR 0105). */
   agentId: AgentId.optional(),

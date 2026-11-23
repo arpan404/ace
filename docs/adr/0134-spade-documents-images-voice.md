@@ -3,7 +3,9 @@
 Status: accepted. Date: 2026-11-12. Decided by: the owner (2026-11-12: build documents, images
 and voice for Spade end to end, server and app). Builds on [ADR 0119](0119-spade-endpoint-keys.md),
 [ADR 0126](0126-spade-agents.md), [ADR 0127](0127-spade-main-bot-and-chat.md),
-[ADR 0128](0128-spade-memory.md) and [ADR 0130](0130-spade-skills-and-workspace.md).
+[ADR 0128](0128-spade-memory.md) and [ADR 0130](0130-spade-skills-and-workspace.md). Amended
+in place on 2026-11-19 (voice as a conversation) and 2026-11-22 (the iPhone asks Spade through
+Siri).
 
 ## Context
 
@@ -194,3 +196,29 @@ speech and spoken conversation are now in scope). The iPhone app is not part of 
 
 Consequences: a speech model is billed per call like transcription. `spade/docs/media.md`
 describes `POST /v1/speech`; `docs/design/spade.md` the composer and settings.
+
+## Amendment, 2026-11-22: the iPhone asks Spade through Siri
+
+Decided by: the owner (2026-11-22, "complete all" on the iPhone parity plan, #2223 and #2544).
+It brings one narrow iPhone case into the 2026-11-19 amendment, which left the iPhone out.
+Spoken replies, hands-free conversation and the speech engines in that amendment stay desktop
+and web only.
+
+6. **Ask Spade from Siri and Shortcuts.** "Ask Spade …" and "Tell Spade …" (`AskSpadeIntent`)
+   take the person's words, spoken to Siri or typed in Shortcuts, and send them as a plain
+   message to the main Spade on the machine the fleet chose to host it (ADR 0187, the rule the
+   Spade tab follows). The phone never sends to another machine's Spade instead: when that
+   machine can't be reached, or none can, Siri says so in one sentence and nothing is sent.
+   Siri reads back the first sentence of Spade's reply when the reply comes within the time the
+   intent has. Otherwise Siri says Spade is on it, and the phone keeps waiting while iOS lets it,
+   then posts the reply as a local notification. Siri does the speaking: the phone adds no
+   speech engine, and Spade's speech model isn't used.
+
+7. **Talk to Spade from the Action button and Control Center.** `TalkToSpadeIntent` opens the app
+   on Spade's conversation with the voice recorder already recording (#2536's recorder). The
+   recording is a voice message like any other, sent when the person lets go.
+
+Consequences: the phone's Siri path waits on Spade's events through the bridge (`spade.ask`,
+`spade.reply`), polling the conversation's events after the person's message. A reply that
+finishes after iOS suspends the app reaches the person in the conversation, not as a notification,
+until the daemon delivers Spade's alerts to the phone (ADR 0195 lists that as not built).

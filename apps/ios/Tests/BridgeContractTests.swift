@@ -17,31 +17,32 @@ import SQLite3
         }
         defer { Task { try? await stage("accept"); await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
         await model.connect(target: try target(), directory: root)
-        try await until { model.connection == "ready" }
+        try await until("approval fixture connection is ready") { model.connection == "ready" }
         try await stage("create")
         model.open("ios-retry")
-        try await until { model.thread?.approvals.isEmpty == false }
+        try await until("approval thread is loaded") { model.thread?.loaded == true && model.thread?.approvals.isEmpty == false }
         let approval = try #require(model.thread?.approvals.first)
         let option = try #require(approval.options.first)
-        model.network(false)
-        try await until { model.connection == "offline" }
+        // Disconnecting makes the thread sync again. Its approval guard would reject the
+        // answer before it reached SQLite, so exercise both failures on the confirmed thread.
         try sql("CREATE TRIGGER reject_records BEFORE INSERT ON records BEGIN SELECT RAISE(ABORT,'contract write failure'); END;", in: root)
         model.approve(approval, option: option)
-        #expect(model.approvalSubmissions[approval.id] != nil)
-        try await until("approval unlocks after failed persistence") { model.error != nil && model.approvalSubmissions[approval.id] == nil }
+        #expect(model.approvalSubmissions[approval.id]?.phase == .saving)
+        try await until("approval unlocks after failed persistence") {
+            model.error == "Could not save the request on this device. Your draft is still available."
+                && model.approvalSubmissions[approval.id] == nil
+        }
         #expect(model.thread?.interactions[approval.id]?.state == "pending")
         try sql("DROP TRIGGER reject_records;", in: root)
         try await stage("refuse")
         model.error = nil
         model.approve(approval, option: option)
-        try await until { model.approvalSubmissions[approval.id]?.phase == .waiting }
-        #expect(model.thread?.interactions[approval.id]?.state == "pending")
-        model.network(true)
+        #expect(model.approvalSubmissions[approval.id]?.phase == .saving)
         try await until("approval unlocks after refused receipt") { model.error == "contract_refused" && model.approvalSubmissions[approval.id] == nil }
         #expect(model.thread?.interactions[approval.id]?.state == "pending")
         try await stage("accept")
         model.approve(approval, option: option)
-        try await until { model.thread?.interactions[approval.id]?.state == "resolved" }
+        try await until("retried approval resolves") { model.thread?.interactions[approval.id]?.state == "resolved" }
         #expect(model.thread?.approvals.isEmpty == true)
         #expect(model.approvalSubmissions[approval.id] == nil)
     }

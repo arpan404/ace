@@ -31,8 +31,8 @@ function browserTab() {
 }
 
 /**
- * Settings › Apps with the Marketplace off, where Connect an app opens Spade's own catalogue
- * dialog; with it on, the Marketplace's Apps is the one catalogue (its own test below).
+ * Settings › Apps with the Store off, where Connect an app opens Spade's own catalogue
+ * dialog; with it on, the Store's Apps is the one catalogue (its own test below).
  */
 const appsSettings = (seeding: (api: FakeSpadeApi) => void) =>
   spadeApp("/settings/spade/apps", seeding, {
@@ -582,7 +582,7 @@ test("each app shows its own mark, and a server added by address its first lette
   await waitFor(() => expect(tile("nas.local")?.textContent).toBe("N"));
 });
 
-test("with the Marketplace on, Connect an app opens its Apps, the one catalogue", async () => {
+test("with the Store on, Connect an app opens its Apps, the one catalogue", async () => {
   const history = createMemoryHistory({ initialEntries: ["/settings/spade/apps"] });
   await spadeApp("/settings/spade/apps", seed, {
     history,

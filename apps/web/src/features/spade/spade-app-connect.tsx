@@ -9,7 +9,7 @@ import { Refusal } from "./spade-settings-rows.tsx";
 import { connectProgress, useConnectApp } from "./use-connect-app.ts";
 
 /*
- * Connecting one app, the same everywhere it's offered (the Marketplace's Apps and an app's page,
+ * Connecting one app, the same everywhere it's offered (the Store's Apps and an app's page,
  * Settings › Apps, a bot's Apps): one button in words (Connect, Reconnect, Add a key), then
  * the sign-in followed in place in one line with Cancel, a failure that says what fixes it with
  * Try again, and the connection handed to `onConnected`. A key is typed inline and sent once.

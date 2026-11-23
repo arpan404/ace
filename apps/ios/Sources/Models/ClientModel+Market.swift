@@ -16,9 +16,10 @@ private struct MarketOutcome: Decodable {
 extension ClientModel {
     /// One market operation, its answer decoded as `T` or its refusal thrown as `MarketRefusal`.
     /// `confirmed` is the person's Confirm it's you: the bridge sends that change once more only.
+    /// `request` adds the bridge's own fields to the request beside the operation.
     func market<T: Decodable>(_ operation: [String: Any], as type: T.Type, fresh: Bool = false,
-                              confirmed: Bool = false) async throws -> T {
-        var payload = marketPayload(operation, fresh: fresh)
+                              confirmed: Bool = false, request: [String: Any] = [:]) async throws -> T {
+        var payload = marketPayload(operation, fresh: fresh).merging(request) { $1 }
         if confirmed { payload["confirmed"] = true }
         let changes = marketChanges(operation["op"])
         // Not connected: a change can't leave the phone, so nothing changed.
@@ -55,12 +56,15 @@ extension ClientModel {
     var keptMarketDiscover: MarketDiscover? { keptMarket(["op": "discover"], as: MarketDiscover.self) }
     func marketHome(fresh: Bool = false) async throws -> MarketHome { try await market(["op": "home"], as: MarketHome.self, fresh: fresh) }
     var keptMarketHome: MarketHome? { keptMarket(["op": "home"], as: MarketHome.self) }
+    /// One page of results from `offset`; `reviewedOnly` lists only what ace reviewed, filtered by
+    /// the bridge before the page is cut, as a category lists them.
     func marketSearch(query: String, type: String? = nil, category: String? = nil, offset: Int = 0,
-                      fresh: Bool = false) async throws -> MarketSearchPage {
+                      reviewedOnly: Bool = false, fresh: Bool = false) async throws -> MarketSearchPage {
         var operation: [String: Any] = ["op": "search", "query": query, "offset": offset]
         if let type { operation["type"] = type }
         if let category { operation["category"] = category }
-        return try await market(operation, as: MarketSearchPage.self, fresh: fresh)
+        return try await market(operation, as: MarketSearchPage.self, fresh: fresh,
+                                request: reviewedOnly ? ["reviewedOnly": true] : [:])
     }
     func marketPublisher(_ handle: String, fresh: Bool = false) async throws -> MarketPublisherPage {
         try await market(["op": "publisher", "handle": handle], as: MarketPublisherPage.self, fresh: fresh)
@@ -157,7 +161,7 @@ private func marketKept(_ op: Any?) -> Bool {
     return ["discover", "home", "search", "read", "publisher", "sources", "installed"].contains(op)
 }
 
-private func marketAnswer<T: Decodable>(_ value: ServiceValue, as type: T.Type) throws -> T {
+func marketAnswer<T: Decodable>(_ value: ServiceValue, as type: T.Type) throws -> T {
     let outcome = try value.decode(MarketOutcome.self)
     guard outcome.ok else {
         throw MarketRefusal(code: outcome.code ?? "failed", message: outcome.message ?? "The machine refused that.",

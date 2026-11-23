@@ -1009,13 +1009,13 @@ Beta features and whether each is on.
 
 Turn a Beta feature on.
 
-- `FEATURE`: spade or marketplace
+- `FEATURE`: spade or store
 
 ### `ace feature off FEATURE`
 
 Turn a Beta feature off.
 
-- `FEATURE`: spade or marketplace
+- `FEATURE`: spade or store
 
 ### `ace automation list`
 

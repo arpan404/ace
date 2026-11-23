@@ -59,7 +59,7 @@ export function ProfilePersonality(props: { bot: RosterBot }) {
 
 /**
  * How a bot talks, as three rows: its tone, humour and emoji. Controlled: the profile saves each
- * change, New bot's More settings keeps it for the bot it makes.
+ * change, the new bot page keeps it for the bot it makes.
  */
 export function PersonalityRows(props: {
   value: SpadePersonality;

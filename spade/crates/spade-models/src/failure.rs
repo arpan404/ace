@@ -143,11 +143,13 @@ fn unanswered(error: &genai::Error) -> Option<Unanswered<'_>> {
     }
 }
 
-/// The request never got a response: it could not connect or could not be sent. A body cut
-/// short or unreadable (`is_body`, `is_decode`) came after a response, so the endpoint answered
-/// and may have billed it; that is never sent again.
+/// The request never reached the endpoint: no connection was made. Anything later (a body cut
+/// short or unreadable, a reset mid-request) may have been billed and is never sent again.
 fn not_sent(error: &reqwest::Error) -> bool {
-    (error.is_connect() || error.is_request()) && !error.is_body() && !error.is_decode()
+    // Only a connection never made proves nothing was sent. Any other request error (a reset,
+    // a connection closed before the answer) may come after the endpoint ran and billed it, so
+    // it is never taken as unsent and never sent again.
+    error.is_connect() && !error.is_body() && !error.is_decode()
 }
 
 /// A timeout, a rate limit or the server's own trouble passes; a bad request or a refused key

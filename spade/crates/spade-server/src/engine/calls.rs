@@ -63,7 +63,9 @@ pub(super) async fn handle_calls(
     // A helper (ADR 0152) answers to its bot: the bot's "always" answers hold
     // for it, and what it would ask is asked in the bot's conversation.
     let helper = engine.helper_of(id);
-    let bot_events = helper
+    // A task lane (ADR 0217) answers to its bot the same way.
+    let owner = engine.hidden_of(id);
+    let bot_events = owner
         .as_ref()
         .map(|h| engine.load(&h.parent).unwrap_or_default());
     let untrusted = context::untrusted_turn(events, &registry);
@@ -123,6 +125,7 @@ pub(super) async fn handle_calls(
                 }
                 Ok(ask) => {
                     let mut asked = vec![Event::Known(Known::QuestionAsked {
+                        lane: None,
                         reply: reply.to_owned(),
                         call_id: pending.call.id.clone(),
                         question: ask.summary(),
@@ -135,7 +138,9 @@ pub(super) async fn handle_calls(
                             by_bot: true,
                         }));
                     }
-                    match engine.record_all_unless_stopped(id, reply, &asked) {
+                    // A lane's question is asked in main too, in the same write, where the
+                    // person answers it (ADR 0217 §4).
+                    match engine.ask_question(id, reply, &asked) {
                         Ok(true) => {}
                         Ok(false) => return Handled::Stopped,
                         Err(error) => return Handled::Failed(error.to_string()),
@@ -181,6 +186,19 @@ pub(super) async fn handle_calls(
             // The task's goal and plan (ADR 0159) are answered from the events.
             Status::New if spade_core::goal::is_tool(&name) => {
                 match engine.goal_call(id, reply, &name, &arguments) {
+                    Ok(Some(output)) => {
+                        finish_tool(engine, id, reply, &pending.call, &name, output).await;
+                    }
+                    Ok(None) => return Handled::Stopped,
+                    Err(error) => return Handled::Failed(error.to_string()),
+                }
+            }
+            // The person's asks (ADR 0215) are answered from the events.
+            Status::New if name == spade_core::asks::ASKS => {
+                // The bot's own words wait while untrusted content is in view, as notes do,
+                // including when only a compaction's summary still carries it.
+                let tainted = untrusted_memory || summary_only;
+                match engine.asks_call(id, reply, &pending.call.id, &arguments, tainted) {
                     Ok(Some(output)) => {
                         finish_tool(engine, id, reply, &pending.call, &name, output).await;
                     }
@@ -336,7 +354,7 @@ pub(super) async fn handle_calls(
                             }
                         }
                     };
-                    let always = match (&helper, &bot_events) {
+                    let always = match (&owner, &bot_events) {
                         (Some(h), Some(owned)) => {
                             always_in(id, events, &transcript)
                                 || always_in(&h.parent, owned, &Transcript::fold(owned.as_slice()))
@@ -880,6 +898,7 @@ pub(super) async fn handle_calls(
                                 _ => None,
                             };
                             let asked = Event::Known(Known::ApprovalRequested {
+                                lane: None,
                                 reply: reply.to_owned(),
                                 call_id: pending.call.id.clone(),
                                 name,
@@ -905,8 +924,8 @@ pub(super) async fn handle_calls(
                                 effect: asked_effect,
                             });
                             // Never asked once the reply is stopped, so no answer can allow it.
-                            let recorded = match &helper {
-                                Some(helper) => engine.ask_for_helper(helper, reply, &asked),
+                            let recorded = match &owner {
+                                Some(owner) => engine.ask_for_helper(owner, reply, &asked),
                                 None => engine.record_unless_stopped(id, reply, &asked),
                             };
                             match recorded {

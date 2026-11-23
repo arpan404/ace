@@ -23,11 +23,8 @@ pub const SERVICE: &str = "dev.acehq.spade";
 /// The keychain account Spade's ace grant is filed under (docs/ace-integration.md).
 pub const ACE_GRANT: &str = "ace:grant";
 
-/// The longest key accepted. Sign-in tokens are JSON Web Tokens, which run to a few kilobytes.
-const LONGEST: usize = 16_384;
-
-/// The kinds of sign-in token kept per account (ADR 0214).
-pub const SIGN_IN_KINDS: [&str; 2] = ["access", "refresh"];
+/// The longest key accepted.
+const LONGEST: usize = 8192;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum KeyError {
@@ -118,39 +115,31 @@ impl KeyStore {
         Self::remove(&self.connector_entry(id, kind)?)
     }
 
-    /// A sign-in token of `kind` (`access`, `refresh`) for account `endpoint`, if stored
-    /// (ADR 0214). Account `oauth:<endpoint>:<kind>`.
-    pub fn sign_in_secret(&self, endpoint: &str, kind: &str) -> Result<Option<String>, KeyError> {
-        self.read(&self.sign_in_entry(endpoint, kind)?)
+    /// The key that seals a signed-in account's tokens (ADR 0214), if stored: hex, one per
+    /// account, under `oauth:<account id>`. The tokens themselves are sealed with it in Spade's
+    /// data folder, so this entry stays small and its name a fixed length on every platform.
+    pub fn sign_in_key(&self, account: &str) -> Result<Option<String>, KeyError> {
+        self.read(&self.sign_in_entry(account)?)
     }
 
-    /// Stores a sign-in token of `kind`, replacing any earlier one.
-    pub fn set_sign_in_secret(
-        &self,
-        endpoint: &str,
-        kind: &str,
-        secret: &str,
-    ) -> Result<(), KeyError> {
-        let secret = checked(secret)?;
-        self.sign_in_entry(endpoint, kind)?
-            .set_password(secret)
+    /// Stores the key that seals `account`'s tokens, replacing any earlier one.
+    pub fn set_sign_in_key(&self, account: &str, key: &str) -> Result<(), KeyError> {
+        let key = checked(key)?;
+        self.sign_in_entry(account)?
+            .set_password(key)
             .map_err(|error| classify(&error))
     }
 
-    /// Forgets every sign-in token of account `endpoint`. Returns whether there was one.
-    pub fn delete_sign_in(&self, endpoint: &str) -> Result<bool, KeyError> {
-        let mut any = false;
-        for kind in SIGN_IN_KINDS {
-            any |= Self::remove(&self.sign_in_entry(endpoint, kind)?)?;
-        }
-        Ok(any)
+    /// Forgets the key that seals `account`'s tokens. Returns whether there was one.
+    pub fn delete_sign_in_key(&self, account: &str) -> Result<bool, KeyError> {
+        Self::remove(&self.sign_in_entry(account)?)
     }
 
-    fn sign_in_entry(&self, endpoint: &str, kind: &str) -> Result<Entry, KeyError> {
-        if endpoint.trim().is_empty() || kind.trim().is_empty() {
+    fn sign_in_entry(&self, account: &str) -> Result<Entry, KeyError> {
+        if account.trim().is_empty() {
             return Err(KeyError::Invalid("the account id is empty"));
         }
-        self.account(&format!("oauth:{endpoint}:{kind}"))
+        self.account(&format!("oauth:{account}"))
     }
 
     /// An org host's audit key (ADR 0206 §4.2), the hex Ed25519 seed that signs its log's

@@ -20,7 +20,8 @@ use crate::effort::{self, Refusals, Sent};
 use crate::error::{self, ModelError};
 use crate::listing::{self, ListBounds, Listed};
 use crate::prompt::{Delta, Generated, Message, Prompt, Reply, ToolCall, Usage};
-use crate::signed::{Bearers, Signed};
+use crate::signed::{Bearers, DispatchGuard, Signed};
+use crate::waits::{Activity, StreamWaits};
 use crate::{failure, thoughts, typed};
 use spade_keys::{KeyRequest, Keys};
 
@@ -37,12 +38,14 @@ pub struct Models {
     pub(crate) http: reqwest::Client,
     pub(crate) listing: ListBounds,
     refusals: Refusals,
+    /// How long a signed-in account's stream may take (ADR 0214).
+    waits: Arc<RwLock<StreamWaits>>,
     /// Access tokens for accounts that sign in (ADR 0214), set by the server.
     pub(crate) bearers: Arc<RwLock<Option<Bearers>>>,
 }
 
 /// A streamed reply, its first item already read.
-type Deltas = Pin<Box<dyn Stream<Item = Result<Delta, ModelError>> + Send>>;
+pub(crate) type Deltas = Pin<Box<dyn Stream<Item = Result<Delta, ModelError>> + Send>>;
 
 /// Sent to an endpoint that needs no key (a local server), which ignores it.
 pub const KEYLESS: &str = "no-key";
@@ -56,6 +59,10 @@ struct Call {
     streamed_only: bool,
     /// For a signed-in account: it, and the credential this call carries.
     signed: Option<Signed>,
+    /// For a signed-in account: leave to send, held until the request is on the wire.
+    held: Option<DispatchGuard>,
+    /// For a signed-in account: every token this call sent, taken out of what comes back.
+    secrets: Vec<String>,
 }
 
 /// A model resolved once for every try of one call (ADR 0213): a try that drops the effort goes
@@ -76,6 +83,8 @@ struct Resolved {
     streamed_only: bool,
     /// For a signed-in account: it, and the credential this call carries.
     signed: Option<Signed>,
+    /// Every token this call sent so far (the first, and one a refresh gave).
+    sent: Vec<String>,
 }
 
 impl Resolved {
@@ -100,6 +109,8 @@ impl Resolved {
             options,
             streamed_only: self.streamed_only,
             signed: self.signed.clone(),
+            held: None,
+            secrets: self.sent.clone(),
         }
     }
 }
@@ -130,8 +141,14 @@ impl Models {
             http,
             listing: ListBounds::default(),
             refusals: Refusals::default(),
+            waits: Arc::default(),
             bearers: Arc::default(),
         })
+    }
+
+    /// How long a signed-in account's stream may take (ADR 0214).
+    pub fn set_stream_waits(&self, waits: StreamWaits) {
+        *self.waits.write().unwrap_or_else(|p| p.into_inner()) = waits;
     }
 
     /// How much of an endpoint's model list is read, and for how long.
@@ -300,10 +317,11 @@ impl Models {
         let mut refusal: Option<ModelError> = None;
         let mut refreshed = false;
         loop {
+            let mut call = resolved.call(send);
             if let Some(signed) = &resolved.signed {
-                self.still_current(signed)?;
+                call.held = Some(self.dispatch(signed).await?);
             }
-            match once(resolved.call(send)).await {
+            match once(call).await {
                 Ok(answered) => {
                     if refusal.is_some() {
                         self.refusals.remember(&resolved.key, send);
@@ -316,7 +334,12 @@ impl Models {
                     };
                     refreshed = true;
                     let credential = self.after_rejection(&signed).await?;
+                    // The same token again would be the same request: the 401 stands.
+                    if credential.token == signed.credential.token {
+                        return Err(error);
+                    }
                     resolved.target.auth = AuthData::from_single(credential.token.clone());
+                    resolved.sent.push(credential.token.clone());
                     resolved.signed = Some(Signed {
                         credential,
                         ..signed
@@ -332,6 +355,8 @@ impl Models {
                         None => return Err(first),
                     }
                 }
+                // A failure that may have been billed is the answer, whatever came before it.
+                Err(error) if error.may_have_billed() => return Err(error),
                 // Anything else (a rate limit, an outage) says nothing about the setting.
                 Err(error) => return Err(refusal.unwrap_or(error)),
             }
@@ -403,13 +428,17 @@ impl Models {
     {
         if call.streamed_only {
             let reference = call.reference.clone();
+            let secrets = call.secrets.clone();
             let stream = self
                 .stream_once(call, prompt, Some(typed::spec::<T>()?.into()))
                 .await?;
             let reply = fold(reference.clone(), stream).await?;
+            // Parsed only once the account's tokens are out of its decoded strings too.
+            let text = crate::scrub::decoded_text(&reply.text, &secrets);
             return Ok(Generated {
-                value: typed::parse(&reference, &reply.text)
-                    .map_err(|e| error::charged(e, reply.usage))?,
+                // What didn't parse is never repeated: it may echo the account's token.
+                value: typed::parse(&reference, &text)
+                    .map_err(|e| error::charged(fixed_shape(e), reply.usage))?,
                 usage: reply.usage,
             });
         }
@@ -450,8 +479,24 @@ impl Models {
         prompt: &Prompt,
         format: Option<genai::chat::ChatResponseFormat>,
     ) -> Result<Deltas, ModelError> {
+        let mut call = call;
+        // A signed-in account's send: timed by its waits, its leave to send held until the
+        // backend's first frame (its answer's headers and first event), and no longer.
+        if let Some(held) = call.held.take() {
+            let activity = Activity::new();
+            let tap = activity.clone();
+            call.options = call.options.with_raw_frame_fn(move |_, _| tap.touch());
+            let model = call.reference.clone();
+            let secrets = std::mem::take(&mut call.secrets);
+            let raw = Box::pin(self.open_stream(call, prompt, format).await?);
+            // The call's own tokens never get out, whatever the backend echoes.
+            let stream: Deltas = Box::pin(crate::scrub::stream(raw, secrets));
+            let waits = *self.waits.read().unwrap_or_else(|p| p.into_inner());
+            return crate::waits::timed(stream, held, activity, waits, model).await;
+        }
         let mut stream = Box::pin(self.open_stream(call, prompt, format).await?);
-        match stream.next().await {
+        let first = stream.next().await;
+        match first {
             Some(Err(error)) => Err(error),
             first => Ok(Box::pin(futures_util::stream::iter(first).chain(stream))),
         }
@@ -595,8 +640,30 @@ impl Models {
             ),
             effort,
             streamed_only,
+            sent: token
+                .iter()
+                .map(|signed| signed.credential.token.clone())
+                .collect(),
             signed: token,
         })
+    }
+}
+
+/// A shape error in fixed words, for a signed-in account's reply.
+fn fixed_shape(error: ModelError) -> ModelError {
+    match error {
+        ModelError::Shape {
+            model,
+            type_name,
+            usage,
+            ..
+        } => ModelError::Shape {
+            model,
+            type_name,
+            reason: "the reply was not in the shape asked for".to_owned(),
+            usage,
+        },
+        other => other,
     }
 }
 

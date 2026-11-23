@@ -130,10 +130,22 @@ impl Store {
         Ok(endpoints)
     }
 
-    /// Adds an endpoint and its models; refused if the id is taken.
+    /// Adds an endpoint and its models; refused if the id is taken or was ever retired: an id
+    /// names one endpoint for good (ADR 0214).
     pub fn insert_endpoint(&self, endpoint: &StoredEndpoint) -> Result<()> {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
+        let retired = tx
+            .query_row(
+                "SELECT 1 FROM retired_endpoints WHERE id = ?1",
+                params![endpoint.id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if retired {
+            return Err(StoreError::Exists(endpoint.id.clone()));
+        }
         let inserted = tx.execute(
             "INSERT OR IGNORE INTO endpoints
              (id, name, format, base_url, headers, session_header, needs_key, key_env, created_ms,
@@ -184,12 +196,31 @@ impl Store {
         Ok(changed > 0)
     }
 
-    /// Deletes an endpoint and its saved models. Returns whether it existed.
-    pub fn delete_endpoint(&self, id: &str) -> Result<bool> {
-        let changed = self
-            .lock()?
-            .execute("DELETE FROM endpoints WHERE id = ?1", params![id])?;
+    /// Deletes an endpoint and its saved models, and retires its id for good at `at_ms`.
+    /// Returns whether it existed.
+    pub fn delete_endpoint(&self, id: &str, at_ms: i64) -> Result<bool> {
+        let mut connection = self.lock()?;
+        let tx = connection.transaction()?;
+        let changed = tx.execute("DELETE FROM endpoints WHERE id = ?1", params![id])?;
+        tx.execute(
+            "INSERT OR IGNORE INTO retired_endpoints (id, retired_ms) VALUES (?1, ?2)",
+            params![id, at_ms],
+        )?;
+        tx.commit()?;
         Ok(changed > 0)
+    }
+
+    /// Whether `id` was once an endpoint's and was removed: it is never given out again.
+    pub fn endpoint_retired(&self, id: &str) -> Result<bool> {
+        Ok(self
+            .lock()?
+            .query_row(
+                "SELECT 1 FROM retired_endpoints WHERE id = ?1",
+                params![id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
     }
 
     /// Saves or replaces a model on `endpoint`. Returns whether the endpoint exists.

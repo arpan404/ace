@@ -20,6 +20,8 @@ struct SearchHome: View {
     /// The app has a lock, so Search finds App lock.
     var hasLock = false
     @State private var openPulls: Int?
+    /// The Marketplace pushed onto Search's own stack, on this machine (spec: Search pushes it).
+    @State private var market: MarketPush?
     @FocusState private var fieldFocused: Bool
     private var text: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
 
@@ -27,9 +29,9 @@ struct SearchHome: View {
         NavigationStack {
             Group {
                 if text.isEmpty {
-                    SearchStart(inbox: inbox, openPulls: openPulls, actions: actions, query: $query)
+                    SearchStart(inbox: inbox, openPulls: openPulls, actions: pushing, query: $query)
                 } else {
-                    InboxSearchList(inbox: inbox, query: $query, includes: { _ in true }, openTitle: openTitle, actions: actions, hasLock: hasLock)
+                    InboxSearchList(inbox: inbox, query: $query, includes: { _ in true }, openTitle: openTitle, actions: pushing, hasLock: hasLock)
                 }
             }
             .background(AceTheme.Colours.background)
@@ -38,6 +40,7 @@ struct SearchHome: View {
             .toolbar { account }
             .searchable(text: $query, placement: Self.fieldPlacement, prompt: Text("Threads, pull requests, settings"))
             .searchFocused($fieldFocused)
+            .navigationDestination(item: $market) { MarketplaceView(inbox: inbox, machine: $0.machine) }
         }
         .onChange(of: focusAsks) { fieldFocused = true }
         .task(id: inbox.sessions.map { "\($0.hostId):\($0.client.connection)" }) {
@@ -47,7 +50,35 @@ struct SearchHome: View {
     }
 }
 
+/// The machine the Marketplace pushed from Search opens on.
+private struct MarketPush: Identifiable, Hashable {
+    let machine: String
+    var id: String { machine }
+}
+
 extension SearchHome {
+    /// Search's actions, with Marketplace pushed onto Search's stack instead of opened in a sheet;
+    /// every other place opens as the home opens it.
+    fileprivate var pushing: SearchActions {
+        let place = actions.place
+        return SearchActions(open: actions.open, command: actions.command, project: actions.project,
+                             newThreadIn: actions.newThreadIn, archived: actions.archived,
+                             place: { searchPlace in
+                                 if searchPlace == .market, let machine = SearchHome.marketMachine(inbox) {
+                                     market = MarketPush(machine: machine)
+                                 } else {
+                                     place(searchPlace)
+                                 }
+                             },
+                             pull: actions.pull)
+    }
+
+    /// The machine Marketplace opens on, as the home's places choose it: the first that can act,
+    /// else the first paired.
+    @MainActor static func marketMachine(_ inbox: MachineInbox) -> String? {
+        inbox.sessions.first { $0.client.canOperate }?.hostId ?? inbox.sessions.first?.hostId
+    }
+
     /// Search's field is pinned open in the navigation drawer, at the top as on every iOS this
     /// runs on, rather than waiting collapsed or moving into the tab bar's search tab.
     static var fieldPlacement: SearchFieldPlacement { .navigationBarDrawer(displayMode: .always) }

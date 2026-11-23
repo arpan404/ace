@@ -24,18 +24,21 @@ clients do, rather than only through the Codex CLI.
 ## Decision
 
 1. **An account is an endpoint.** Spade's endpoints (ADR 0126) already have their own id, key and
-   models, and nothing stopped two from the same preset. Each one is now shown as an *account* of
-   a *provider*: the preset it was made from (`openai`, `anthropic`, `opencode-go`, …), or its
+   models, and nothing stopped two from the same preset. Each one is now shown as an _account_ of
+   a _provider_: the preset it was made from (`openai`, `anthropic`, `opencode-go`, …), or its
    own address for one added from scratch. A provider holds any number of accounts. An account
    signs in one of three ways: an API key (ADR 0119), none (a local server), or a ChatGPT
    sign-in (below).
 2. **The reference names the account.** A model reference stays `<account>/<model>`, where
    `<account>` is the endpoint id: unique across every provider, picked when the account is added
-   (a slug of its name, `-2` and on when taken) and never changed after. Renaming an account
-   changes only the name people see. So every reference stored before this
+   (a slug of its name, `-2` and on when taken) and never changed after. An id is never reused:
+   once its endpoint is removed it is retired for good, so an id names one account, and its
+   credentials, sign-ins and calls, for as long as Spade runs. Renaming an account changes only
+   the name people see. So every reference stored before this
    (`opencode-go/deepseek-v4.1-flash`, a bot's model, a role's model, a default) reads as it did,
    with no migration and no rewrite of history (ADR 0170). A ChatGPT sign-in account's id is
-   `chatgpt`, then `chatgpt-2` and on. Subscriptions through a CLI keep
+   `chatgpt-` and sixteen random characters (unique across every Spade home on the machine, since
+   its key in the keychain is filed by this id alone), shown as `ChatGPT`, `ChatGPT 2` and on. Subscriptions through a CLI keep
    `cli:<provider>@<account>/<model>` (ADR 0133) unchanged; those accounts stay ace's
    (ADR 0018, 0138) and Spade does not copy them.
 3. **Spade signs in to OpenAI.** Spade runs OpenAI's sign-in for ChatGPT accounts itself: a
@@ -47,15 +50,27 @@ clients do, rather than only through the Codex CLI.
    that account's backend lists for it. Calls go to the ChatGPT backend's Responses route with
    the account's token. Usage and limit errors are read leniently and shown as one plain line
    ("This ChatGPT account reached its usage limit; it resets at 14:00.").
-4. **Where sign-in tokens live: the keychain only.** ADR 0119's exception now covers OAuth
-   tokens Spade obtains itself: stored in the OS credential store under
-   `oauth:<account>:access` and `oauth:<account>:refresh`, held in memory while in use, and never
-   written to SQLite, the event log, logs, traces, crash reports, settings files or sync, never
-   returned by any API, and never sent to the relay or ace's cloud. Only facts that are not
-   secrets (email, plan, the ChatGPT account id) are kept in Spade's database. Signing out deletes
-   the tokens and keeps the account, so bots on it say "signed out" until the person signs in
-   again; removing the account deletes both. Tests use `keyring-core`'s mock store and a local
-   fake sign-in server, never a real keychain or a real OpenAI login.
+4. **Where sign-in tokens live: sealed, with the key in the keychain.** ADR 0119's exception now
+   covers OAuth tokens Spade obtains itself. Each account's two tokens are sealed together
+   (ChaCha20-Poly1305, the account id bound in) in one file in the home's data folder
+   (`sign-ins/<account id>`, owner-only), replaced whole by renaming a new file over it, so the
+   pair is always written and read together. The sealing key, 32 random bytes per account, is
+   the only secret in the OS credential store, under `oauth:<account id>`: small, with a
+   fixed-length name, so every platform's store takes it (Windows limits a secret to 2,560 bytes
+   and a name to 513). Tokens are held in memory while in use, and never written to SQLite, the
+   event log, logs, traces, crash reports, settings files or sync, never returned by any API, and
+   never sent to the relay or ace's cloud. Only facts that are not secrets (email, plan, the
+   ChatGPT account id) are kept in Spade's database. Signing out deletes the sealed file and its
+   key and keeps the account, so bots on it say "signed out" until the person signs in again;
+   removing the account deletes both too (the key first, so a file left behind never opens
+   again). The folder and each file are owner-only from the moment they are made (`0700`/`0600`
+   on Unix, a protected owner-and-system DACL on Windows); a sealed file is read only when it is
+   a plain file of a sealed pair's size, never through a link or a pipe. An account the database
+   says is signed in but whose key or file is missing (a home restored elsewhere) is marked
+   signed out when Spade starts. Whatever the backend echoes, the tokens a call sent are taken
+   out of its answer (text, reasoning, tool arguments, typed values) before anything sees it.
+   Tests use `keyring-core`'s mock store and a local fake
+   sign-in server, never a real keychain or a real OpenAI login.
 5. **The person opts in knowingly.** Using a ChatGPT sign-in outside OpenAI's own Codex clients
    may conflict with OpenAI's terms. The sign-in screen says so in one plain sentence, and Spade
    refuses to start a sign-in the person has not confirmed (`terms_read: true`). The CLI route
@@ -64,6 +79,19 @@ clients do, rather than only through the Codex CLI.
    its accounts (add, rename, remove, sign in and out, which bots use it) and each account's
    models; the defaults (new bots, fast work, roles) pick from them. Each bot and each role picks
    an account's model, so it picks provider, account and model at once.
+
+7. **A copy of a home shares its sign-ins.** A sign-in's key is filed by its account id, which
+   is random and never reused, so two homes on one machine never meet in the keychain. A copy of
+   a home's folder holds the same account ids and sealed files, so it opens the same sign-ins,
+   just as it already resumes the same work: a copy of a live home is never run (the project's
+   standing rule). Nothing here guards against that. API keys stay filed by endpoint id as
+   before; that they are shared across homes predates this decision (issue #2651).
+8. **A signed-in call's waits.** A call holds the account's dispatch gate until the backend's
+   first frame (its headers and first event) arrives, at most two minutes, so a sign-out never
+   overtakes a send and a backend that never answers can't hold one off for longer. After that
+   the answer lives as long as frames keep coming (heartbeats and comments count), up to ten
+   minutes apart and an hour in all, so a model that reasons quietly is never cut off. A call
+   ended by any of these waits may have run and been billed: it is never sent again.
 
 ## Consequences
 

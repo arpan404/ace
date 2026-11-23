@@ -1,5 +1,7 @@
 import {
   spadeBotRow,
+  spadeBotFamilies,
+  spadeExpandedBotRow,
   spadeGroupRow,
   spadeByState,
   spadeFailureSentence,
@@ -53,6 +55,8 @@ export interface SpadeListRow {
   state: SpadeRowState;
   line: string;
   pinned: boolean;
+  /** When the person pinned it (ms), for the pin strip's order, oldest first; null when it isn't. */
+  pinnedAt: number | null;
   /** "Shared in Acme Robotics" for a bot an organization shares (ADR 0206 §2.3); null otherwise. */
   shared: string | null;
   /** Its latest activity (ms): the merged list across machines orders by it within a rank. */
@@ -61,6 +65,10 @@ export interface SpadeListRow {
   createdAt: number;
   /** Its state's place in the list (`spadeRowRank`), lowest first. */
   rank: number;
+  depth: 0 | 1;
+  parent: { id: string; name: string } | null;
+  /** The top-level bot under which the whole family is displayed. */
+  familyRoot: string | null;
 }
 
 /**
@@ -109,10 +117,15 @@ export function spadeListRows(
     reach.bots === "away" ? { ...face, away: true } : face;
   const still = { state: "idle" as const, status: undefined };
   const { answering, unconfirmed, place } = placeOf(reach.bots, machine);
-  const bots = agents.map((agent) => {
+  const listBot = (
+    agent: SpadeAgent,
+    familyRoot: string | null,
+    expanded = false,
+  ): SpadeListRow => {
     const shown = answering ? agent : { ...agent, ...still };
-    const row = spadeBotRow({ ...shown, ...place });
-    const listed: SpadeListRow = {
+    const status = spadeBotRow({ ...shown, ...place });
+    const row = expanded ? spadeExpandedBotRow(status) : status;
+    return {
       id: agent.id,
       conversation: agent.conversation,
       name: agent.name || "Untitled bot",
@@ -121,20 +134,32 @@ export function spadeListRows(
       group: null,
       faces: [dim(botFace(agent))],
       state: row.state,
-      line: unconfirmed ?? workerWaitLine(shown, row.line),
+      line: unconfirmed ?? row.line,
       pinned: agent.pinnedAt !== undefined,
+      pinnedAt: agent.pinnedAt ?? null,
       shared: agent.kind === "main" ? null : sharedIn(agent.id),
       at: agent.lastActivity,
       createdAt: agent.createdAt,
       rank: spadeRowRank[row.state],
+      depth: familyRoot === null ? 0 : 1,
+      parent: agent.parent ?? null,
+      familyRoot,
     };
-    return { listed, at: agent.lastActivity };
-  });
+  };
+  const families = spadeBotFamilies(agents, (_agent, id) => id);
+  const workersOf = new Map(families.map(({ root, workers }) => [root.id, workers]));
+  const bots = families.map(({ root, workers }) =>
+    listBot(
+      root,
+      null,
+      workers.some((worker) => worker.pinnedAt === undefined),
+    ),
+  );
   const clubs = groups.map((group) => {
     const club = placeOf(reach.groups, machine);
     const shown = club.answering ? group : { ...group, ...still };
     const row = spadeGroupRow({ ...shown, ...club.place });
-    const listed: SpadeListRow = {
+    return {
       id: `group:${group.id}`,
       conversation: group.conversation,
       name: group.name,
@@ -145,31 +170,32 @@ export function spadeListRows(
       state: row.state,
       line: club.unconfirmed ?? row.line,
       pinned: group.pinnedAt !== undefined,
+      pinnedAt: group.pinnedAt ?? null,
       shared: null,
       at: group.lastActivity,
       createdAt: group.createdAt,
       rank: spadeRowRank[row.state],
-    };
-    return { listed, at: group.lastActivity };
+      depth: 0,
+      parent: null,
+      familyRoot: null,
+    } satisfies SpadeListRow;
   });
-  const main = bots.filter(({ listed }) => listed.main);
-  const rest = spadeByState(
-    [...bots.filter(({ listed }) => !listed.main), ...clubs],
-    ({ listed }) => listed.state,
-    ({ at }) => at,
-  );
-  return [...main, ...rest].map(({ listed }) => listed);
-}
-
-/**
- * A bot waiting on a worker it started: the row names that, since the request is the worker's,
- * shown on the workers row in the bot's chat (`spade-worker-rows.ts`). Spade's own status for
- * such a wait is generic ("A worker is waiting for you"), so it is replaced too.
- */
-function workerWaitLine(agent: SpadeAgent, line: string): string {
-  return agent.state === "waiting" && agent.waitingFor === "worker"
-    ? "An agent it started needs you"
-    : line;
+  const ordered = (rows: readonly SpadeListRow[]) =>
+    spadeByState(
+      rows,
+      (row) => row.state,
+      (row) => row.at,
+    );
+  const main = bots.filter((bot) => bot.main);
+  const rest = ordered([...bots.filter((bot) => !bot.main), ...clubs]);
+  const rows: SpadeListRow[] = [];
+  for (const root of [...main, ...rest]) {
+    rows.push(root);
+    if (root.group !== null) continue;
+    const workers = workersOf.get(root.id) ?? [];
+    for (const worker of ordered(workers.map((bot) => listBot(bot, root.id)))) rows.push(worker);
+  }
+  return rows;
 }
 
 /** What the Spade tab says about Spade itself while it isn't ready, and whether it offers Turn on. */
@@ -199,6 +225,11 @@ export type SpadeBubbleRow =
       text: string;
       /** Still being written. */
       live: boolean;
+      /**
+       * Finished and long enough that it may draw past twenty lines: the phone shows its first twenty
+       * and Show more when it does (ADR 0212 amendment 2).
+       */
+      fold: boolean;
       /** How it ended when it didn't finish on its own; `alert` when it failed. */
       end: { text: string; alert: boolean } | null;
       /** What its tools showed the person, after its words: pictures, and documents that open. */
@@ -220,6 +251,17 @@ export type SpadeBubbleRow =
   | SpadeQuestionCardRow
   /** The workers one call started, each as it stands now (ADR 0161). */
   | SpadeWorkersRow
+  /**
+   * A reply that changed the bot's files (ADR 0167): its steps in one quiet line (`text`, which
+   * an older phone shows as a note), undoing the whole reply from its first such step, or one
+   * step that changed files.
+   */
+  | {
+      kind: "changes";
+      text: string;
+      undo: { from: number; stays: string[] };
+      steps: { from: number; line: string; detail: string | null }[];
+    }
   /** Anything that is nobody's words: one quiet line between bubbles. */
   | { kind: "note"; text: string };
 
@@ -278,7 +320,15 @@ export function spadeBubbleRow(
       const images = spadeImageLines(bubble.images);
       const files = spadeDocumentLines(bubble.documents);
       if (!bubble.text && !end && !images.length && !files.length) return undefined;
-      return { kind: "bot", text: bubble.text, live: bubble.live, end, images, files };
+      return {
+        kind: "bot",
+        text: bubble.text,
+        live: bubble.live,
+        fold: Boolean(bubble.fold),
+        end,
+        images,
+        files,
+      };
     }
     case "ask": {
       const card = spadeRequestCard(bubble.name, bubble.arguments, who);
@@ -311,6 +361,20 @@ export function spadeBubbleRow(
       return undefined;
     case "files":
       return { kind: "note", text: bubble.paths.join(", ") };
+    // Only a reply undo can reach shows its steps: the rest of the work isn't drawn here yet.
+    case "steps":
+      return bubble.undo
+        ? {
+            kind: "changes",
+            text: bubble.summary,
+            undo: { from: bubble.undo.from, stays: [...new Set(bubble.undo.stays)] },
+            steps: bubble.steps.flatMap((step) =>
+              step.undoFrom === undefined
+                ? []
+                : [{ from: step.undoFrom, line: step.line, detail: step.detail ?? null }],
+            ),
+          }
+        : undefined;
     case "question":
       return spadeQuestionCardRow(bubble, who);
   }

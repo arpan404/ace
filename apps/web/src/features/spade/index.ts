@@ -16,7 +16,7 @@ export { SpadeProviderScreen } from "./spade-provider-page.tsx";
 export { BotStreamsContext, type BotStreams } from "./computer/bot-streams.ts";
 /** This machine's bots, as Spade lists them (a plugin's review picks which get it). */
 export { readAgents } from "./spade-api.ts";
-/** The catalogue of apps and the person's connectors, for the Marketplace's Apps. */
+/** The catalogue of apps and the person's connectors, for the Store's Apps. */
 export { useSpadeConnectors } from "./spade-connector-api.ts";
 
 // For the `@` picker and the transcript's bot replies (ADR 0198).

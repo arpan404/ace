@@ -94,11 +94,13 @@ import { ProviderServices } from "./provider-services.ts";
 import type { NativeReads, ReadKey, ReadTicket } from "./native-reads.ts";
 import { NativeProjectRequest, type ProjectManage } from "./project-manage.ts";
 import { answerFleet, NativeFleetRequest } from "./fleet-admin.ts";
+import { NativeOrganization, NativeOrganizationRequest } from "./organization.ts";
 import { combineFleetMap, FleetMapCombineRequest } from "./fleet-map.ts";
 import { FleetMapPartRequest, readFleetMapPart } from "./fleet-map-part.ts";
 import { answerOutside, NativeOutsideRequest } from "./outside-clients.ts";
 import type { InboxRequests } from "./inbox-manage.ts";
 import { NativeMarket, NativeMarketRequest, pauseOn } from "./market.ts";
+import { NativePublish, NativePublishRequest } from "./market-publishing.ts";
 import type { SocketStanding } from "./market-person.ts";
 import { NativeSkillLibrary, NativeSkillsRequest } from "./skill-library.ts";
 import { NativePluginsRequest, NativeSkillPlugins } from "./skill-plugins.ts";
@@ -193,6 +195,9 @@ export class NativeServices {
   readonly plugins: NativeSkillPlugins;
   /** The marketplace through this machine's daemon (`market.ts`). */
   readonly market: NativeMarket;
+  readonly organization: NativeOrganization;
+  /** Publishing and managing listings through this machine's daemon (`market-publishing.ts`). */
+  readonly publish: NativePublish;
   readonly automations: NativeAutomations | undefined;
   readonly now: () => number;
   constructor(
@@ -221,11 +226,17 @@ export class NativeServices {
     this.reads = reads;
     this.skills = new NativeSkillLibrary(owner, now);
     this.plugins = new NativeSkillPlugins(owner);
+    this.organization = new NativeOrganization(owner, { id: () => host.uuid(), now });
     this.market = new NativeMarket(
       owner,
       now,
       pauseOn((delayMs, callback) => scheduler.set(delayMs, callback)),
       (id) => this.spade?.bot(id)?.name,
+      standing,
+    );
+    this.publish = new NativePublish(
+      owner,
+      pauseOn((delayMs, callback) => scheduler.set(delayMs, callback)),
       standing,
     );
     this.automations = automations;
@@ -328,6 +339,12 @@ export class NativeServices {
         );
         return;
       }
+      const organization = NativeOrganizationRequest.safeParse(raw);
+      if (organization.success) {
+        const answer = await this.organization.answer(organization.data, controller.signal);
+        this.#reply(id, true, answer, "");
+        return;
+      }
       const fleet = NativeFleetRequest.safeParse(raw);
       if (fleet.success) {
         this.#reply(id, true, await answerFleet(this.owner, fleet.data), "");
@@ -384,6 +401,11 @@ export class NativeServices {
       const market = NativeMarketRequest.safeParse(raw);
       if (market.success) {
         this.#answer(id, raw, await this.market.answer(market.data, controller.signal), read);
+        return;
+      }
+      const publish = NativePublishRequest.safeParse(raw);
+      if (publish.success) {
+        this.#answer(id, raw, await this.publish.answer(publish.data, controller.signal), read);
         return;
       }
       const message = NativeMessageRequest.safeParse(raw);

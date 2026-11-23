@@ -92,4 +92,22 @@ import Testing
         reads.land(try Self.read("Draft and post, weekly"), ticket: ticket4)
         #expect(reads.profile?.details.task == "Draft and post, weekly")
     }
+
+    @Test func aDecisionsChangeQuotesItAheadOfWhatThePersonTyped() {
+        #expect(SpadeQuote.into("", quote: "> Tag it 2.0.0") == "> Tag it 2.0.0\n\n")
+        #expect(SpadeQuote.into(" use 2.1 \n", quote: "> Tag it 2.0.0") == "> Tag it 2.0.0\n\nuse 2.1")
+    }
+
+    @Test func aSpadeWithoutPermissionsAnswersNoneRatherThanFailing() throws {
+        let none = try JSONDecoder().decode(SpadePart<SpadePermissions>.self, from: Data(#"{"ok":true,"part":null}"#.utf8))
+        #expect(none.ok && none.part == nil && none.problem == nil)
+        let refused = try JSONDecoder().decode(SpadePart<SpadePermissions>.self,
+                                               from: Data(#"{"ok":false,"title":"Couldn't change the permission","message":"Confirm it's you."}"#.utf8))
+        #expect(refused.problem == "Couldn't change the permission. Confirm it's you.")
+    }
+
+    @Test func aMoveIdIsOnePlainLowercaseNameAsSpadeTakesIt() throws {
+        let uuid = try #require(UUID(uuidString: "0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9"))
+        #expect(SpadeProfileAccess.moveId(uuid) == "mv_0a1b2c3d4e5f60718293a4b5c6d7e8f9")
+    }
 }

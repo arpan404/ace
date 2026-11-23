@@ -117,6 +117,8 @@ export type SpadeGroupBubbleRow =
       kind: "member";
       name: string;
       text: string;
+      /** Long enough to fold past twenty lines (ADR 0212 amendment 2). */
+      fold: boolean;
       face: SpadeFaceRow;
       /** First of the member's run: its name shows above. */
       first: boolean;
@@ -146,6 +148,7 @@ export function spadeGroupRows(
             kind: "member",
             name: row.bot.name || "Bot",
             text: row.text,
+            fold: Boolean(row.fold),
             face: faceOf(group, row.bot, agents, hostId),
             first: row.first,
             last: row.last,
@@ -198,5 +201,42 @@ export function spadeGroupHead(
         }
       : null,
     waiting: waiter && own ? { name: own.name || named, conversation: own.conversation } : null,
+  };
+}
+
+/** A member as a group's profile lists it: its bot, its machine (null for the group's own), its face. */
+export interface SpadeGroupMemberRow {
+  agent: string;
+  machine: string | null;
+  name: string;
+  face: SpadeFaceRow;
+  away: boolean;
+}
+
+/**
+ * A group's profile (ADR 0132): its name, its lead and its members in the group's order, each
+ * with the face and name the roster has for it on this machine, else what the group kept.
+ */
+export function spadeGroupProfileRow(
+  group: SpadeGroup,
+  agents: readonly SpadeAgent[],
+  hostId?: string,
+) {
+  const members: SpadeGroupMemberRow[] = group.members.map((member) => ({
+    agent: member.agent,
+    machine: machineKey(member.machine, hostId),
+    name:
+      rosterAgent(agents, member.agent, member.machine, hostId)?.name ||
+      member.name ||
+      member.agent,
+    face: memberFace(member, agents, hostId),
+    away: member.away,
+  }));
+  return {
+    id: group.id,
+    name: group.name,
+    conversation: group.conversation,
+    lead: { agent: group.lead.agent, machine: machineKey(group.lead.machine, hostId) },
+    members,
   };
 }

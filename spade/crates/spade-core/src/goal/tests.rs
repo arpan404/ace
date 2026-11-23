@@ -575,6 +575,7 @@ fn the_prompt_top_carries_the_plan_from_the_latest_compaction_only() {
         images_left_out: None,
         untrusted: false,
         carried: None,
+        asks: None,
     });
     chat.events.push(compacted.clone());
     let pinned = view::pinned(&chat.events).must();

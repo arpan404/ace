@@ -12,7 +12,11 @@ struct SpadeComposer: View {
     let answering: Bool
     /// Files and voice go with the message (a bot's chat); a group's takes words only.
     let attaches: Bool
+    /// The recorder starts as the composer shows (Talk to Spade).
+    var records = false
     @Binding var problem: String?
+    /// Words the profile asked to quote into the field (a decision's Change); taken once, then nil.
+    var quoted: Binding<String?> = .constant(nil)
     /// Spade's answer to one message.
     let send: (SpadeComposerPicks.Outgoing) async -> SpadeOutcome
     /// A message went: the chat shows its end.
@@ -21,6 +25,7 @@ struct SpadeComposer: View {
     @State private var draft = ""
     @State private var picks = SpadeComposerPicks()
     @State private var recorder = SpadeVoiceRecorder()
+    @State private var recordedAtOnce = false
     /// Why the last pick couldn't be read (`AttachMenu`).
     @State private var pickProblem: String?
     @FocusState private var typing: Bool
@@ -60,6 +65,18 @@ struct SpadeComposer: View {
             .padding(.bottom, AceDesign.Space.related)
         }
         .onDisappear { recorder.cancel() }
+        // Once: coming back to this chat from another doesn't record again.
+        .task {
+            guard records, !recordedAtOnce else { return }
+            recordedAtOnce = true
+            await recorder.start()
+        }
+        .onChange(of: quoted.wrappedValue, initial: true) { _, quote in
+            guard let quote else { return }
+            draft = SpadeQuote.into(draft, quote: quote)
+            quoted.wrappedValue = nil
+            typing = true
+        }
     }
 
     /// One line above the field: Spade's refusal, a pick that couldn't be read, or why the

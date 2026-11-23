@@ -1,5 +1,6 @@
 import { spadeAppOfTool, spadeAppToolPhrase } from "./app-request-words.ts";
 import { spadeRecord } from "./json.ts";
+import { spadeRequestAct } from "./request-acts.ts";
 import { spadeToolWords } from "./words.ts";
 
 /*
@@ -205,6 +206,14 @@ export function spadeRequestCard(
   // A connected app's tool, in words: "list your shared Notion pages".
   const ofApp = spadeAppOfTool(name);
   const appName = ofApp && options.appName?.(ofApp.connection);
+  // What the call does, when its arguments say: it names its own recipient.
+  const act = spadeRequestAct(name, args, options.effect);
+  if (act)
+    return {
+      sentence: `${who} wants to ${act}.`,
+      detail: detailOf(name, args, options),
+      always: alwaysTools.has(name),
+    };
   const titled = options.title?.(name);
   const base =
     ofApp && appName

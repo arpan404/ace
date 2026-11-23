@@ -1,4 +1,5 @@
 import { CardFace } from "./spade-card.tsx";
+import { LaneQuietLine, OverlapQuietLine } from "./lanes/lane-line.tsx";
 import { SpadeAgentCard, type SpadeCardChoose } from "./spade-agent-card.tsx";
 import { SpadeNoticeRow } from "./spade-notice-row.tsx";
 import type { BotFaceState } from "@ace/ui-core/bot-face";
@@ -41,6 +42,7 @@ import { whenIdle } from "@/lib/idle.ts";
 import { useSeconds } from "@/lib/time.ts";
 import { useHeldPhrase } from "./use-held-phrase.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
+import { SpadeFold } from "./spade-fold.tsx";
 import { chatBubble, framed, inputBubble, mineBubble } from "./spade-bubble-style.ts";
 import { BubbleFrame, Failure, FileChips, SpeakerLine, WorkingLine } from "./spade-chat-parts.tsx";
 import { useShowWork } from "./spade-show-work.ts";
@@ -585,6 +587,12 @@ function RunItem(props: {
           Replied to {item.repliedTo.name}
         </p>
       );
+      // In a task's transcript, the bot's main chat wrote this to the task (ADR 0217).
+      const fromChat = item.fromChat && (
+        <p data-from-chat="" className="ml-1 text-xs leading-4 text-subtle-foreground">
+          From the chat{item.fromChat.untrusted ? " · Untrusted" : ""}
+        </p>
+      );
       if (doc && !words)
         return (
           <div className="flex w-full min-w-0 flex-col items-start gap-(--chat-run-gap)">
@@ -602,6 +610,7 @@ function RunItem(props: {
             {media}
             {item.files && <FileChips paths={item.files} onOpen={handlers.onOpenFile} />}
             {replied}
+            {fromChat}
           </div>
         );
       return (
@@ -627,12 +636,14 @@ function RunItem(props: {
                 className={cn(chatBubble, framed)}
               >
                 {item.text && (
-                  <SpadeBubbleText
-                    text={item.text}
-                    stream={item.key}
-                    streaming={item.live}
-                    keep={handlers.keep}
-                  />
+                  <SpadeFold fold={item.fold}>
+                    <SpadeBubbleText
+                      text={item.text}
+                      stream={item.key}
+                      streaming={item.live}
+                      keep={handlers.keep}
+                    />
+                  </SpadeFold>
                 )}
                 {item.end === "failed" && item.failure ? (
                   <Failure
@@ -665,6 +676,7 @@ function RunItem(props: {
           {words && media}
           {item.files && <FileChips paths={item.files} onOpen={handlers.onOpenFile} />}
           {replied}
+          {fromChat}
         </div>
       );
     }
@@ -687,7 +699,9 @@ function RunItem(props: {
         >
           {item.text && (
             <div {...part("spade-message", undefined, "other")} className={cn(inputBubble, framed)}>
-              <SpadeBubbleText text={item.text} />
+              <SpadeFold fold={item.fold}>
+                <SpadeBubbleText text={item.text} />
+              </SpadeFold>
             </div>
           )}
           {item.doc && <DocumentCard doc={item.doc} />}
@@ -874,6 +888,17 @@ function Single(props: {
     case "quiet": {
       const { onOpenBot, onOpenWork } = props.handlers;
       const quiet = item.quiet;
+      // A task's line opens the task, and carries its step while it runs (ADR 0217 §7).
+      if (quiet.kind === "lane" || quiet.kind === "lanes-overlapped")
+        return (
+          <div className={cn("flex", space)}>
+            {quiet.kind === "lane" ? (
+              <LaneQuietLine quiet={quiet} id={item.id} />
+            ) : (
+              <OverlapQuietLine quiet={quiet} />
+            )}
+          </div>
+        );
       // A bot worker's line opens its chat, a goal's or a check's opens Work; an ace worker's
       // is a note where it happened.
       const worker = quiet.kind === "worker-reported" && !quiet.ace ? quiet.worker : undefined;
