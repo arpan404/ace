@@ -75,6 +75,8 @@ export interface ThreadInit {
   startedByClient?: Thread["startedByClient"];
   /** The thread on a paired machine whose agent delegated this one here. */
   delegatedFrom?: Thread["delegatedFrom"];
+  /** Top thread of this thread's agent tree, when it belongs to one; absent on a root thread. */
+  treeRootId?: string;
   /** A delegated child still waiting for one of its parent's run slots, with its task. */
   queuedLaunch?: Thread["queuedLaunch"];
   /** A conversation an agent started is a task from its start, as the daemon records it. */

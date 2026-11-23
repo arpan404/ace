@@ -9,6 +9,7 @@ import {
   useWorkCardState,
   useWorkCardStore,
 } from "./work-card-store.ts";
+import { useWorkCardSide } from "./work-card-tree.tsx";
 
 /** The reading column's widest, when its token can't be read (tests have no layout). */
 const fallbackColumn = 760;
@@ -68,6 +69,7 @@ const ownEscape = '[role="menu"], [role="listbox"], [role="dialog"], [role="aler
  */
 export function WorkSide(props: { threadId: string }) {
   const store = useWorkCardStore();
+  const lastSide = useWorkCardSide();
   const { open, side } = useWorkCardState(store);
   const probe = useRef<HTMLDivElement>(null);
   const card = useRef<HTMLDivElement>(null);
@@ -81,7 +83,9 @@ export function WorkSide(props: { threadId: string }) {
       // The token lives on the root: the area carries the docked `--column` override itself.
       const column = readColumn();
       const width = element.getBoundingClientRect().width;
-      store.setSide(workCardFitsSide(width, column));
+      const fits = workCardFitsSide(width, column);
+      lastSide.remember(fits);
+      store.setSide(fits);
       const state = store.get();
       const host = element.parentElement;
       if (!host) return;
@@ -95,7 +99,7 @@ export function WorkSide(props: { threadId: string }) {
       observer.disconnect();
       store.attachArea(null);
     };
-  }, [store]);
+  }, [store, lastSide]);
   const shown = open && side;
   const presence = usePresence(shown);
   // Opening or closing without a resize still reserves or releases the column's room. A resize
@@ -104,6 +108,9 @@ export function WorkSide(props: { threadId: string }) {
   useLayoutEffect(() => {
     const area = probe.current?.parentElement ?? null;
     if (!area || !store) return;
+    const live = store.get();
+    // If `measure()` just updated the store in this commit, wait for the re-render with fresh `shown`.
+    if (shown !== (live.open && live.side)) return;
     if (!shown) {
       clearDocked(area);
       return;
@@ -112,7 +119,7 @@ export function WorkSide(props: { threadId: string }) {
     applyDocked(area, width, readColumn());
   }, [shown, store]);
   // Once opened, the card stays mounted while hidden: a form it opened outlives the card.
-  const [opened, setOpened] = useState(false);
+  const [opened, setOpened] = useState(shown);
   if (shown && !opened) setOpened(true);
   useEffect(() => {
     const element = card.current;
