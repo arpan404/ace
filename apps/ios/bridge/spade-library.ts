@@ -135,7 +135,7 @@ export async function searchLibrary(
   agent: string,
   main: boolean,
   query: string,
-): Promise<{ groups: SpadeLibraryGroup[]; failed: boolean; nothing: string | null }> {
+): Promise<{ found: SpadeLibraryGroup[]; failed: boolean; nothing: string | null }> {
   const base = `/v1/agents/${segment(agent)}`;
   const [notes, shared, pages, past, folder, store] = await Promise.all([
     part(ask, searched(`${base}/notes`, query), parseSpadeNotes),
@@ -215,7 +215,7 @@ export async function searchLibrary(
   ];
   const shown = groups.filter((group) => group.rows.length > 0);
   const nothing = !shown.length && !failed ? `Nothing matches “${query}”.` : null;
-  return fit({ groups: shown, failed, nothing }, shown);
+  return fit({ found: shown, failed, nothing }, shown);
 }
 
 /** The longest part of a piece of past work the page carries. */

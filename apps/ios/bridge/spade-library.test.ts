@@ -76,10 +76,10 @@ test("a search returns web's groups in web's order, leaving out the ones with no
 
   const answer = await ask({ type: "spade.library.search", agentId: "writer", query: "release" });
 
-  if (!("groups" in answer)) throw new Error(JSON.stringify(answer));
+  if (!("found" in answer)) throw new Error(JSON.stringify(answer));
   expect(answer.failed).toBe(false);
   expect(answer.nothing).toBeNull();
-  expect(answer.groups.map((group) => [group.name, group.rows.map((row) => row.title)])).toEqual([
+  expect(answer.found.map((group) => [group.name, group.rows.map((row) => row.title)])).toEqual([
     ["Notes", ["Release notes go out on Fridays."]],
     ["Pages", ["Release checklist"]],
     ["Past work", ["Shipped the release notes"]],
@@ -88,7 +88,7 @@ test("a search returns web's groups in web's order, leaving out the ones with no
     ["Skills", ["Release notes"]],
   ]);
   // A page's line is its body as plain words.
-  expect(answer.groups[1]?.rows[0]?.line).toBe("Steps Tag the release");
+  expect(answer.found[1]?.rows[0]?.line).toBe("Steps Tag the release");
 });
 
 test("a search that matches nothing says so once", async () => {
@@ -100,7 +100,7 @@ test("a search that matches nothing says so once", async () => {
 
   expect(answer).toMatchObject({
     ok: true,
-    groups: [],
+    found: [],
     failed: false,
     nothing: "Nothing matches “zebra”.",
   });

@@ -52,7 +52,7 @@ struct SpadeLibraryAnswer: Decodable, Sendable {
     // `spade.task.history`
     let versions: [SpadeTaskVersion]?
     // `spade.library.search`
-    let groups: [SpadeLibraryGroup]?
+    let found: [SpadeLibraryGroup]?
     let failed: Bool?
     /// "Nothing matches “zebra”." once, when nothing anywhere does.
     let nothing: String?
@@ -64,7 +64,7 @@ struct SpadeLibraryAnswer: Decodable, Sendable {
     var problem: String? { SpadeOutcome(ok: ok, title: title, message: message).problem }
 
     static func refused(_ title: String, _ message: String?) -> SpadeLibraryAnswer {
-        SpadeLibraryAnswer(ok: false, title: title, message: message, versions: nil, groups: nil, failed: nil,
+        SpadeLibraryAnswer(ok: false, title: title, message: message, versions: nil, found: nil, failed: nil,
                            nothing: nil, episodes: nil, more: nil, episode: nil)
     }
 }

@@ -62,7 +62,7 @@ struct SpadeLibraryResults: View {
                     if let nothing = answer.nothing {
                         Section { SpadeProfileNone(text: nothing) }
                     }
-                    ForEach(answer.groups ?? []) { group in
+                    ForEach(answer.found ?? []) { group in
                         Section(group.name) {
                             ForEach(group.rows) { SpadeLibraryRowView(scope: scope, row: $0) }
                             if group.more > 0 { SpadeProfileNone(text: "\(group.more) more on the computer") }
