@@ -7,7 +7,7 @@ const target = fileURLToPath(
 const wrappers = ["/provider-kit/src/sqlite.ts", "/provider-kit/src/native-node-sqlite.ts"];
 
 /**
- * With `ACE_STORE=native` (ADR 0222), resolve `node:sqlite` to the native store's stand-in in a
+ * With `ACE_STORE=native` (ADR 0222), point `node:sqlite` imports at the native store's stand-in in a
  * test project, so tests that open the database themselves share the store's SQLite library.
  * Unset, the project is returned as it is.
  */
@@ -21,10 +21,15 @@ export function storeSwitch<T extends object>(project: T): T {
       {
         name: "ace-store-switch",
         enforce: "pre",
-        resolveId(source: string, importer: string | undefined) {
-          if (source !== "node:sqlite" || !importer) return null;
-          const path = importer.replaceAll("\\", "/");
-          return wrappers.some((wrapper) => path.endsWith(wrapper)) ? null : target;
+        // Builtins never reach resolveId (Vitest externalizes them), so the import is rewritten.
+        transform(code: string, id: string) {
+          const path = id.replaceAll("\\", "/");
+          if (!code.includes('"node:sqlite"') || wrappers.some((wrapper) => path.endsWith(wrapper)))
+            return null;
+          return {
+            code: code.replaceAll('from "node:sqlite"', `from ${JSON.stringify(target)}`),
+            map: null,
+          };
         },
       },
     ],
