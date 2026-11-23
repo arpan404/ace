@@ -115,6 +115,7 @@ impl Engine {
             title,
             asks,
             moved_from: None,
+            adopt_jobs: Vec::new(),
         };
         match self.open_lane(main, key, self.ids.next("l"), |_| {
             Some((opened, first, Vec::new()))
@@ -153,6 +154,28 @@ impl Engine {
         lane_id: String,
         build: impl FnOnce(&[Event]) -> Option<(Opened, Vec<Event>, Vec<Event>)>,
     ) -> Result<Option<StoredHelper>, ToolOutput> {
+        let row = self.store_lane(main, call, lane_id, build)?;
+        if row.is_some() {
+            self.lane_opened(main);
+        }
+        Ok(row)
+    }
+
+    /// After a lane was stored: it starts if a slot is free, and main's state goes out.
+    fn lane_opened(self: &Arc<Self>, main: &str) {
+        self.fill_lanes(main);
+        self.announce(main);
+    }
+
+    /// The write of [`Engine::open_lane`] alone, under the record lock: the lane's row and first
+    /// events and main's record of it. `Some` with the lane this call made or found.
+    fn store_lane(
+        self: &Arc<Self>,
+        main: &str,
+        call: &str,
+        lane_id: String,
+        build: impl FnOnce(&[Event]) -> Option<(Opened, Vec<Event>, Vec<Event>)>,
+    ) -> Result<Option<StoredHelper>, ToolOutput> {
         let created = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             if self.deleting(main) {
@@ -164,6 +187,7 @@ impl Engine {
             let Some((opened, first, then_main)) = build(&events) else {
                 return Ok(None);
             };
+            let opened_adopt = opened.adopt_jobs.clone();
             let reply = Transcript::fold(events.iter())
                 .open_reply()
                 .and_then(|m| m.reply.clone())
@@ -199,7 +223,9 @@ impl Engine {
             }));
             let mut parent = vec![started];
             parent.extend(then_main);
-            let stored = self.store.create_lane(&row, &first, &parent, self.now_ms());
+            let stored =
+                self.store
+                    .create_lane(&row, &first, &parent, &opened_adopt, self.now_ms());
             // Dropped whether or not the write succeeded: a failed write may still have landed.
             self.forget_activity(main);
             self.forget_activity(&row.conversation);
@@ -214,11 +240,7 @@ impl Engine {
             }
         };
         match created {
-            Ok(Some(row)) => {
-                self.fill_lanes(main);
-                self.announce(main);
-                Ok(Some(row))
-            }
+            Ok(Some(row)) => Ok(Some(row)),
             // Made meanwhile by another run of this call: that one is the lane.
             Ok(None) => match self.store.helper_for_job(main, call) {
                 Ok(found) => Ok(found),
@@ -246,7 +268,10 @@ impl Engine {
 
     /// Moves main's open `reply` to a lane when it is due (ADR 0217 §2a): `true` once moved, and
     /// the turn ends. Decided and stored under the record lock, so a message or a Stop that comes
-    /// at the same moment lands before the move (and is carried into the lane) or after it.
+    /// at the same moment lands before the move (and is carried into the lane) or after it. The
+    /// reply's jobs and wakes move with it, under the lock a job takes to store its end, so
+    /// each job reports exactly once, to main before the move or to the lane after it. Jobs whose
+    /// work main tracks (ace's `delegate` and `wait`, contract calls) stay with main.
     pub(in super::super) fn move_if_due(
         self: &Arc<Self>,
         main: &str,
@@ -256,7 +281,7 @@ impl Engine {
         if self.hidden_of(main).is_some() || !self.limits.move_long_work {
             return false;
         }
-        // A cheap look first, without the lock: most steps are nowhere near a move.
+        // A cheap look first, without the locks: most steps are nowhere near a move.
         match self.load(main) {
             Ok(events) if lane::move_due(&events, reply, elapsed_ms) => {}
             _ => return false,
@@ -264,6 +289,11 @@ impl Engine {
         let registry = self.registry_for(main);
         let lane_id = self.ids.next("l");
         let call = format!("moved.{reply}");
+        // The lock a job takes to store its end, then (in `open_lane`) the record lock: the order
+        // starting a job and Stop take them in.
+        let live = self.live(main);
+        let mut live_jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
+        let mut work: Option<(Vec<String>, Vec<String>)> = None;
         let build = |events: &[Event]| {
             if !lane::move_due(events, reply, elapsed_ms)
                 || spade_core::turn::stop_requested(events, reply)
@@ -271,6 +301,16 @@ impl Engine {
                 return None;
             }
             let (mut moved, asks) = lane::moved(events, reply)?;
+            let (candidates, mut kept, wakes) = lane::work_of(events, reply, stays_with_main);
+            // A job already storing its result reports to main: it stays.
+            let (jobs, finishing): (Vec<String>, Vec<String>) =
+                candidates.into_iter().partition(|job| {
+                    !matches!(
+                        live_jobs.get(job),
+                        Some(super::super::jobs::Job::Finishing { .. })
+                    )
+                });
+            kept.extend(finishing);
             let title = match moved.first() {
                 Some(Event::Known(Known::UserMessage { text, .. })) => lane::title_of(text),
                 _ => lane::title_of(""),
@@ -292,36 +332,90 @@ impl Engine {
             };
             let mut first = vec![Event::Known(Known::LaneOf(link))];
             first.append(&mut moved);
-            let then_main = vec![
-                Event::Known(Known::ReplyMoved(Moved {
-                    reply: reply.to_owned(),
-                    lane: lane_id.clone(),
-                    title: title.clone(),
-                    asks: asks.clone(),
-                })),
-                Event::Known(Known::ReplyFinished {
-                    reply: reply.to_owned(),
-                    text: String::new(),
-                    input_tokens: None,
-                    output_tokens: None,
-                    cost_micros: 0,
-                }),
-            ];
+            // The jobs that stay are closed in the lane with words saying where they are.
+            for job in &kept {
+                first.push(Event::Known(Known::JobFinished {
+                    job: job.clone(),
+                    name: super::super::wakes::job_name(events, job),
+                    content: lane::KEPT_JOB.to_owned(),
+                    is_error: false,
+                    uncertain: false,
+                    files: Vec::new(),
+                    untrusted: false,
+                    cost_micros: None,
+                }));
+            }
+            let mut then_main = vec![Event::Known(Known::ReplyMoved(Moved {
+                reply: reply.to_owned(),
+                lane: lane_id.clone(),
+                title: title.clone(),
+                asks: asks.clone(),
+                jobs: jobs.clone(),
+                kept_jobs: kept.clone(),
+                wakes: wakes.clone(),
+            }))];
+            then_main.extend(wakes.iter().map(|wake| {
+                Event::Known(Known::WakeCancelled {
+                    wake: wake.clone(),
+                    by: spade_core::wake::CancelledBy::Moved,
+                })
+            }));
+            then_main.push(Event::Known(Known::ReplyFinished {
+                reply: reply.to_owned(),
+                text: String::new(),
+                input_tokens: None,
+                output_tokens: None,
+                cost_micros: 0,
+            }));
             let opened = Opened {
                 title,
                 asks,
                 moved_from: Some(reply.to_owned()),
+                adopt_jobs: jobs.clone(),
             };
+            work = Some((jobs, wakes));
             Some((opened, first, then_main))
         };
         let moved = matches!(
-            self.open_lane(main, &call, lane_id.clone(), build),
+            self.store_lane(main, &call, lane_id.clone(), build),
             Ok(Some(row)) if row.conversation == lane_id
         );
-        if moved {
-            self.name_lane(main, &lane_id);
+        if !moved {
+            return false;
         }
-        moved
+        let (jobs, wakes) = work.unwrap_or_default();
+        {
+            let lane_live = self.live(&lane_id);
+            let mut lane_jobs = lane_live.jobs.lock().unwrap_or_else(|p| p.into_inner());
+            let mut homes = self
+                .lanes
+                .moved_jobs
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            for job in &jobs {
+                if let Some(running) = live_jobs.remove(job) {
+                    lane_jobs.insert(job.clone(), running);
+                }
+                homes.insert(format!("{main}.{job}"), lane_id.clone());
+            }
+        }
+        drop(live_jobs);
+        self.lane_opened(main);
+        // Helpers those jobs run answer to the lane now; what was known of them is read again.
+        for helper in self.store.helpers_of(&lane_id).unwrap_or_default() {
+            self.forget_hidden(&helper.conversation);
+        }
+        // The wakes fire in the lane now.
+        let opens = self
+            .load(&lane_id)
+            .map(|events| spade_core::wake::open(events.iter()))
+            .unwrap_or_default();
+        for open in opens.into_iter().filter(|o| wakes.contains(&o.wake)) {
+            self.disarm(main, &open.wake);
+            self.arm(&lane_id, open);
+        }
+        self.name_lane(main, &lane_id);
+        true
     }
 
     /// Names a moved lane with the `title` role, in the background (ADR 0217 §2a): the lane runs
@@ -376,11 +470,19 @@ impl Engine {
     }
 }
 
-/// What `lane_started` says of a lane being opened.
+/// What `lane_started` says of a lane being opened, and the jobs whose helpers it takes over.
 struct Opened {
     title: String,
     asks: Vec<String>,
     moved_from: Option<String>,
+    adopt_jobs: Vec<String>,
+}
+
+/// Jobs whose work main tracks in its own events, so they stay with main when its reply moves:
+/// ace's `delegate` and `wait` (its children are main's) and contract calls (their callees answer
+/// main's call).
+fn stays_with_main(name: &str) -> bool {
+    name == spade_core::contract::CONTRACT_CALL || crate::tools::reattaches(name)
 }
 
 /// The verbatim words of the person's message `id` (`m<seq>`) in `events`.

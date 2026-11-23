@@ -469,13 +469,32 @@ Where it differs from the text above:
 - **One event for the move.** `lane_moved` and `reply_moved` are one event, `reply_moved {reply,
 lane, title, asks}`, followed by the reply's close as `reply_finished` with no text, in the
   same write as the lane. The app writes Spade's plain line from it.
-- **What moves.** A reply moves only at a boundary where none of its jobs or waits is open, so
-  nothing it started can still report to main; jobs and wakes moving with it are not built.
-- **Titles** are the person's first line, cut; the `title` role is not called at the boundary.
+- **What moves.** The reply's background jobs and its open wakes move with it, in the same write:
+  `reply_moved` lists them (`jobs`, `wakes`), main closes the wakes (`wake_cancelled {by:
+moved}`), and a running job's live handle moves to the lane under the lock a job takes to
+  store its end, so it reports exactly once, to main before the move or to the lane after it.
+  A helper's row moves to the lane; its requests still show in main, as the lane's. Two kinds
+  stay with main, listed as `kept_jobs`: ace's `delegate` and `wait` (main's events track the ace
+  children, their Stop and their reattachment after a restart) and contract calls (the callee
+  answers main's call, and its Stop and delivery are keyed to main). Moving those would leave
+  main reading a child or callee that is no longer its, or a lane waiting on a result keyed to
+  main. The lane reads a closing note for each kept job, and main's `<moved>` note asks main to
+  send the lane what it needs when the result comes. A job already storing its result when the
+  move lands stays too.
+- **Titles.** A lane `task_start` opens keeps the title main gave it. A moved lane runs under the
+  person's first line at once; a background call to the `title` role then names it
+  (`lane_titled {lane, title}` in main and the lane). A failed call keeps the first line.
 - **Main's tasks block** closes every step's prompt after the `<asks>` block while lanes haven't
   ended, rather than being pinned after compactions.
 - **A lane's prompt.** Its system prompt and offered tools are main's byte for byte; what it is
   told about its task sits in its first message's context. A lane's call to a lane tool is refused.
-- **Not built yet:** a lane's `ask_user` questions shown in main (they show in the lane, and the
-  bot reads waiting), the overlap note, and the UI (a separate thread builds the popover, the
-  lines and the pill against `GET /v1/conversations/{id}/tasks` and the events).
+- **Questions** are asked in main as approvals are: `question_asked.lane`, call id
+  `<lane>.<call>`, answered in main and sent to the lane's card; an answer given in the lane
+  closes main's copy.
+- **Overlaps** are noted as `lanes_overlapped {lane, title, path, other, other_title}` in the
+  writing lane and in main, from the paths of `workspace_write`, `workspace_edit` and a job's
+  kept files. A shell command's writes are not seen.
+- **A lane's goal** reads at `GET /v1/conversations/{lane}/task`, the body `GET
+/v1/agents/{id}/task` answers.
+- **Not built here:** the UI (a separate thread builds the popover, the lines and the pill against
+  `GET /v1/conversations/{id}/tasks` and the events).

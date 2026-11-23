@@ -296,6 +296,16 @@ const known = z.discriminatedUnion("type", [
     call_id: z.string(),
     question: z.string().catch(""),
     questions: z.unknown().optional(),
+    /** A task lane's card (ADR 0217 §4), asked here in main too: answered here, sent to the lane. */
+    lane: z
+      .object({
+        task: z.string(),
+        conversation: z.string(),
+        call_id: z.string(),
+        title: z.string().catch(""),
+      })
+      .nullish()
+      .catch(undefined),
   }),
   /** Left for later, by the person or by the bot asking without waiting. */
   z.object({

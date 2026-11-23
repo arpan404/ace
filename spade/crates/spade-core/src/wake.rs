@@ -181,6 +181,8 @@ pub enum CancelledBy {
     Stop,
     /// Spade itself: a wake an earlier build set for spend (ADR 0166).
     Spade,
+    /// The work that set it moved to a task lane, where it is open now (ADR 0217 §2a).
+    Moved,
     #[serde(other)]
     Other,
 }

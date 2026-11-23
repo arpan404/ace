@@ -99,4 +99,26 @@ import Foundation
         #expect(!picked.contains(added, in: "b.ts"))
         #expect(!picked.contains(removed, in: "a.ts"))
     }
+
+    @Test func aNoteForTheAgentFromChangesTakesWholeNewLinesAndTurnsOutdatedWhenTheyChange() {
+        func row(_ i: Int, _ kind: String, old: Int?, new: Int?, _ text: String, clipped: Bool = false) -> ChangesRow {
+            ChangesRow(i: i, kind: kind, old: old, new: new, text: text, length: text.utf16.count, clipped: clipped, count: nil)
+        }
+        let rows = [row(0, "context", old: 4, new: 4, "let sum = 0"), row(1, "del", old: 5, new: nil, "sum += 1"),
+                    row(2, "add", old: nil, new: 5, "sum += price"), row(3, "add", old: nil, new: 6, "return sum")]
+        let texts = ChangesRow.newLines(rows, start: 5, end: 6)
+        #expect(texts == ["sum += price", "return sum"])
+        // A line not loaded yet, or shortened for display, can't be noted.
+        #expect(ChangesRow.newLines(rows, start: 5, end: 7) == nil)
+        #expect(ChangesRow.newLines([rows[2], row(3, "add", old: nil, new: 6, "ret", clipped: true)], start: 5, end: 6) == nil)
+
+        var notes = CodeNotes()
+        notes.add("t", path: "a.ts", first: 5, texts: texts ?? [], comment: "Round it", id: "n")
+        notes.shown("t", path: "a.ts", lines: ChangesRow.newSide(rows))
+        #expect(notes["t"].first?.outdated == false)
+        // The agent edited the lines: the diff read again shows other code there.
+        let edited = [rows[0], row(1, "add", old: nil, new: 5, "sum += round(price)"), row(2, "add", old: nil, new: 6, "return sum")]
+        notes.shown("t", path: "a.ts", lines: ChangesRow.newSide(edited))
+        #expect(notes["t"].first?.outdated == true)
+    }
 }

@@ -2,6 +2,8 @@ import { FakeSpadeTasks } from "./spade-self-edit.ts";
 import { fakeSpadeQuoted } from "./spade-quoted.ts";
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
 import { FakeSpadeComputer, fakeFileRevision, fakeStale } from "./spade-computer.ts";
+import { FakeSpadePlugins } from "./spade-plugins.ts";
+import { fakeMoveRoute } from "./spade-moves.ts";
 import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
 import { FakeSpadeKnowledge } from "./spade-knowledge.ts";
 import { FakeSpadeNotes } from "./spade-notes.ts";
@@ -166,6 +168,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly requests: FakeSpadeRequest[] = [];
   /** The person's connected apps and each bot's allow list (ADR 0131). */
   readonly connectors = new FakeSpadeConnectors();
+  readonly plugins = new FakeSpadePlugins();
   /** Caps, the review and the activity log (ADR 0135). */
   readonly oversight = new FakeSpadeOversight();
   /** The sandbox, and each bot's network, grants, egress log and checkpoints (ADR 0167). */
@@ -597,6 +600,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
     }
     if (root === "agents" && id && sub === "skill-proposals")
       return this.proposalRoute(request.method, id, subId, body);
+    if (root === "agents" && id && sub === "plugins")
+      return this.plugins.route(request.method, id, body);
     if (root === "agents" && id && sub === "connectors") {
       const agent = this.agents.find((candidate) => candidate.id === id);
       if (!agent) return problem(404, "No such agent.");
@@ -742,42 +747,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
       this.acceptances.set(id, body);
       return reply({ accepted: true });
     }
-    if (root === "agents" && id && (sub === "move" || sub === "arrival")) {
-      const agent = this.agents.find((candidate) => candidate.id === id);
-      if (!agent) return problem(404, "No such agent.");
-      if (sub === "arrival") {
-        agent.arrived = null;
-        return { status: 204 };
-      }
-      if (request.method === "DELETE") {
-        agent.move = null;
-        return reply({ move: null });
-      }
-      if (request.method === "GET") return reply({ move: agent.move ?? null });
-      if (subId === "check") return reply({ checking: true });
-      if (agent.state !== "idle")
-        return problem(
-          409,
-          `${agent.name} is working; it can move once that ends, or once you stop it.`,
-        );
-      if (typeof body.move !== "string") return problem(400, "Name the move.");
-      const to = String(body.to);
-      agent.move = {
-        id: body.move,
-        to: { host: to, name: this.machineNames.get(to) ?? to },
-        state: "sending",
-        from: this.here ?? "this-mac",
-        via: `dev-${this.here ?? "this-mac"}`,
-        digest: "a".repeat(64),
-        replaces: agent.kind === "main" ? "main" : "bot",
-        sent: 3,
-        total: 12,
-        waiting: false,
-        problem: null,
-        can_cancel: true,
-      };
-      return reply({ move: agent.move }, 202);
-    }
+    if (root === "agents" && id && (sub === "move" || sub === "arrival"))
+      return fakeMoveRoute(this, request.method, id, sub, subId, body);
     if (root === "agents") return this.agentRoute(request.method, id, body, query);
     if (root === "routines" && id) return this.routines.route(request.method, id, sub, body);
     if (root === "connectors")
@@ -981,6 +952,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
           return problem(400, "style.accent is one colour, like #2f7bea");
         agent.style = { accent: accent === null ? null : accent.toLowerCase(), chosen: true };
       }
+      // As Spade: how it talks, kept as sent and taken from its next turn.
+      if (body.personality && typeof body.personality === "object")
+        agent.personality = body.personality as Json;
       // As Spade: a task change is kept with who made it and why.
       if (typeof body.task === "string")
         this.tasks.change(
@@ -1040,7 +1014,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
         size: text.length,
         text,
         unreadable: null,
-        revision: fakeFileRevision(text),
+        revision: this.computer.unrevised.has(path) ? null : fakeFileRevision(text),
       });
     }
     const prefix = path ? `${path}/` : "";

@@ -122,6 +122,15 @@ impl Engine {
         found
     }
 
+    /// Forgets what is known of `id`'s row, after its parent changed (ADR 0217 §2a).
+    pub(super) fn forget_hidden(&self, id: &str) {
+        self.helpers
+            .known
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(id);
+    }
+
     /// The tools `id` may use: a helper's are its bot's, narrowed by its profile.
     pub(super) fn registry_for(&self, id: &str) -> Registry {
         // A worker's tools are never more than its parent's (ADR 0161).
@@ -580,6 +589,8 @@ impl Engine {
             stopped: *stopped,
             effect: *effect,
         });
+        // A lane's main, told after the lock when the call was asked there too.
+        let mut also: Option<String> = None;
         {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             let events = self.load(&helper.conversation)?;
@@ -588,8 +599,34 @@ impl Engine {
             }
             self.append(&helper.conversation, asked)?;
             self.append(&helper.parent, &mirror)?;
+            // A helper that moved with main's work to a lane (ADR 0217 §2a) asks in main too,
+            // where the person answers, as the lane's.
+            if !is_lane && let Some(lane) = self.lane_row(&helper.parent) {
+                let mut in_main = mirror.clone();
+                if let Event::Known(Known::ApprovalRequested {
+                    call_id: c,
+                    helper: h,
+                    lane: l,
+                    ..
+                }) = &mut in_main
+                {
+                    *c = format!("{}.{c}", helper.parent);
+                    *h = None;
+                    *l = Some(Box::new(spade_core::lane::Ask {
+                        task: helper.parent.clone(),
+                        conversation: helper.conversation.clone(),
+                        call_id: call_id.clone(),
+                        title: self.lane_title(&helper.parent),
+                    }));
+                }
+                self.append(&lane.parent, &in_main)?;
+                also = Some(lane.parent);
+            }
         }
         self.announce(&helper.parent);
+        if let Some(main) = also {
+            self.announce(&main);
+        }
         Ok(true)
     }
 
@@ -663,6 +700,23 @@ impl Engine {
                 by: None,
             }),
         )?;
+        // A helper that moved with main's work to a lane (ADR 0217 §2a) asked in the lane too:
+        // that copy is answered as well.
+        if let Some(moved) = self.helper_of(&ask.conversation)
+            && self.is_lane(&moved.parent)
+            && moved.parent != bot
+        {
+            self.append(
+                &moved.parent,
+                &Event::Known(Known::ApprovalAnswered {
+                    reply: moved.reply.clone(),
+                    call_id: mirrored_id(&moved.job, &ask.call_id),
+                    allowed,
+                    always,
+                    by: None,
+                }),
+            )?;
+        }
         self.live(&ask.conversation).wake.notify_one();
         Ok(())
     }

@@ -8,7 +8,9 @@ import SwiftUI
 /// (`MarkdownTableView`): fitted to that width, and scrolling sideways only when its words can't fit.
 ///
 /// A streaming message reaches markit at a steady pace (`StreamPace`) rather than on every delta,
-/// and markit reparses only its open last blocks; finished text shows at once. Links open through
+/// and markit reparses only its open last blocks; finished text shows at once. Its tables are
+/// cut out reading on from the last update (`MarkdownBlocks.Splitter`), and a growing table is
+/// read only in its new rows (`MarkdownTableReader`). Links open through
 /// the environment's `openURL` (a thread routes local links to its files, `fileLinks`); a file
 /// reference opens as such a link. Forge text (`ForgeText`) uses GitHub's flavour with its own
 /// link rules (`route`), ticks task boxes (`onTask`) and draws diagrams (`renderDiagram`).
@@ -41,6 +43,8 @@ struct AceMarkdown: View {
     /// What the pace last drew while streaming; nil once the text is finished.
     @State private var paced: String?
     @State private var wake: Task<Void, Never>?
+    /// Cuts the text into prose and tables, reading on from the last cut as the text grows.
+    @State private var splitter = MarkdownBlocks.Splitter()
 
     /// The web's rule (DESIGN.md §4 Code): a block past 22 lines shows its first 20 until opened.
     static let collapse = MarkitCodeCollapse(collapseAbove: 22, visibleLines: 20)
@@ -81,7 +85,7 @@ struct AceMarkdown: View {
         // Tables are ace's own (`MarkdownTableView`), between the prose markit draws. Task boxes
         // tick by their offset in the whole text, so text that ticks them stays in one piece.
         let shown = streaming ? (paced ?? text) : text
-        let pieces = onTask == nil ? MarkdownBlocks.split(shown) : [.prose(shown)]
+        let pieces = onTask == nil ? splitter.split(shown) : [.prose(shown)]
         VStack(alignment: .leading, spacing: theme.blockSpacing) {
             ForEach(pieces.indices, id: \.self) { index in
                 switch pieces[index] {

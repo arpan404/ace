@@ -70,6 +70,16 @@ struct AceAccountAPI: Sendable {
         return standing
     }
     /// Machines signed in to the account, most recently seen first.
+    /// A five-minute `member` grant for one of an organization's hosts (ADR 0206 §2.2): bound to
+    /// that host, this phone and `key`, the public half of the phone's key for the host. The host
+    /// admits a member only with one, never with a device grant.
+    func memberGrant(token: String, org: String, host: String, deviceId: String, key: String) async throws(AccountGrantError) -> AceGrant {
+        guard Self.isOrgId(org) else { throw .refused }
+        let body = try? JSONEncoder().encode(["kind": "member", "org": org, "host": host, "subject": deviceId, "key": key])
+        let grant: AceGrant = try await call("grants", method: "POST", token: token, body: body)
+        guard !grant.token.isEmpty, grant.token.utf8.count <= 2048 else { throw .refused }
+        return grant
+    }
     func machines(token: String) async throws(AccountGrantError) -> [AceMachine] {
         struct List: Decodable { let machines: [AceMachine] }
         let list: List = try await call("machines", method: "GET", token: token)
@@ -81,7 +91,7 @@ struct AceAccountAPI: Sendable {
         let _: Ignored = try await call("machines/\(hostId)", method: "DELETE", token: token)
     }
 
-    fileprivate struct Ignored: Decodable {}
+    struct Ignored: Decodable {}
     private func call<T: Decodable>(_ path: String, method: String, token: String, body: Data? = nil) async throws(AccountGrantError) -> T {
         var request = AceCloudRequest.make(
             url: origin.appending(path: "v1/\(path)"),
@@ -159,8 +169,18 @@ extension AceAccountAPI {
     }
     /// Leave: deletes the person's membership on the backend, nothing on the phone.
     func leave(token: String, org: String, account: String) async throws(AceOrgError) {
-        guard Self.isOrgId(org), let segment = account.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else { throw .refused("invalid") }
-        let _: Ignored = try await orgCall("orgs/\(org)/members/\(segment)", method: "DELETE", token: token)
+        // The same path Remove uses: an account id's `_` (`user_01…`) is never escaped.
+        let _: Ignored = try await orgCall(try Self.orgPath(org, "members", account), method: "DELETE", token: token)
+    }
+    /// A five-minute market grant from the person's own session for one market request (`action`,
+    /// as the bridge's `registryIntent` names it), acting in `org` (ADR 0206 amendment 5).
+    func marketGrant(token: String, org: String, action: String, deviceId: String) async throws(AceOrgError) -> String {
+        guard Self.isOrgId(org) else { throw .refused("invalid") }
+        let fields = ["kind": "device", "subject": deviceId, "purpose": "market-publish", "org": org, "action": action]
+        let body = try? JSONEncoder().encode(fields)
+        let grant: AceGrant = try await orgCall("grants", method: "POST", token: token, body: body)
+        guard !grant.token.isEmpty, grant.token.utf8.count <= 4096 else { throw .refused("invalid") }
+        return grant.token
     }
     /// `org_` and up to 64 letters or digits, as the backend names organizations.
     static func isOrgId(_ id: String) -> Bool {
@@ -168,7 +188,7 @@ extension AceAccountAPI {
     }
 
     private struct Refusal: Decodable { let error: String }
-    private func orgCall<T: Decodable>(_ path: String, method: String, token: String, body: Data? = nil) async throws(AceOrgError) -> T {
+    func orgCall<T: Decodable>(_ path: String, method: String, token: String, body: Data? = nil) async throws(AceOrgError) -> T {
         var request = AceCloudRequest.make(
             url: origin.appending(path: "v1/\(path)"),
             timeoutInterval: 15,

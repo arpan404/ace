@@ -25,7 +25,30 @@ use spade_store::{StoreError, StoredHelper};
 use super::Engine;
 use super::roster::State as Activity;
 
+/// Lanes' state the engine keeps in memory.
+#[derive(Default)]
+pub(super) struct Shared {
+    /// Jobs that moved with main's work, by `<main>.<job>`: the lane they report to now. Their
+    /// running task still knows them by main, so it looks here (ADR 0217 §2a).
+    moved_jobs: std::sync::Mutex<std::collections::HashMap<String, String>>,
+}
+
 impl Engine {
+    /// The lane job `job` of `id` moved to, if it moved.
+    pub(super) fn moved_job(&self, id: &str, job: &str) -> Option<String> {
+        self.lanes
+            .moved_jobs
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(&format!("{id}.{job}"))
+            .cloned()
+    }
+
+    /// Where job `job` started in `id` lives now: the lane it moved to, else `id`.
+    pub(super) fn job_home(&self, id: &str, job: &str) -> String {
+        self.moved_job(id, job).unwrap_or_else(|| id.to_owned())
+    }
+
     /// The lane whose conversation is `id`, if it is one.
     pub(super) fn lane_row(&self, id: &str) -> Option<StoredHelper> {
         self.hidden_of(id)

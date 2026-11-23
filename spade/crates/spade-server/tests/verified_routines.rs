@@ -86,6 +86,14 @@ async fn fired(spade: &Spade) -> Result<(String, String)> {
         .as_str()
         .unwrap_or_default()
         .to_owned();
+    // Installed without starting its routines, so it's paused, and Run now refuses a paused routine.
+    let (status, body) = spade
+        .patch(
+            &format!("/v1/routines/{routine}"),
+            json!({ "paused": false }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
     let (status, body) = spade
         .post(&format!("/v1/routines/{routine}/run"), json!({}))
         .await?;

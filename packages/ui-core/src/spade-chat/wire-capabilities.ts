@@ -106,6 +106,26 @@ export const spadeCapabilityEvents = [
     moved_from: z.string().nullish().catch(undefined),
     queued: z.boolean().catch(false).default(false),
   }),
-  z.object({ type: z.literal("reply_moved"), reply: words, lane: z.string(), title: words }),
+  /** `jobs` and `wakes` moved with the work; `kept_jobs` stayed with main (ace, contract calls). */
+  z.object({
+    type: z.literal("reply_moved"),
+    reply: words,
+    lane: z.string(),
+    title: words,
+    jobs: z.array(z.string()).catch([]).default([]),
+    kept_jobs: z.array(z.string()).catch([]).default([]),
+    wakes: z.array(z.string()).catch([]).default([]),
+  }),
+  /** The `title` role named a moved lane: its title from now on. */
+  z.object({ type: z.literal("lane_titled"), lane: z.string(), title: words }),
+  /** A lane wrote a file another working lane wrote too: a line, never a lock. */
+  z.object({
+    type: z.literal("lanes_overlapped"),
+    lane: z.string(),
+    title: words,
+    path: words,
+    other: z.string(),
+    other_title: words,
+  }),
   z.object({ type: z.literal("ask_routed"), lane: z.string(), title: words, message: words }),
 ] as const;

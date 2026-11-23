@@ -418,3 +418,31 @@ fn a_lane_that_writes_a_file_another_working_lane_wrote_is_told_once() {
         "noted once"
     );
 }
+
+#[test]
+fn a_moved_replys_jobs_move_except_those_main_tracks_and_its_wakes_go_with_it() {
+    let mut events = vec![person("Draft the note."), started("r1")];
+    for (job, name) in [("j1", "fetch_report"), ("j2", "delegate"), ("j3", "helper")] {
+        events.push(e(
+            json!({ "type": "job_started", "reply": "r1", "job": job, "name": name }),
+        ));
+    }
+    events.push(e(
+        json!({ "type": "job_finished", "job": "j3", "name": "helper",
+                          "content": "done", "is_error": false }),
+    ));
+    events.push(e(json!({ "type": "wake_set", "wake": "w1", "reply": "r1",
+                          "purpose": { "kind": "sleep" }, "due_ms": 5, "reason": "later" })));
+    events.push(e(json!({ "type": "wake_set", "wake": "w2", "reply": "r0",
+                          "purpose": { "kind": "sleep" }, "due_ms": 5, "reason": "older" })));
+    let (moved, kept, wakes) = work_of(&events, "r1", |name| name == "delegate");
+    assert_eq!(moved, ["j1"], "an ended job is nobody's");
+    assert_eq!(kept, ["j2"]);
+    assert_eq!(wakes, ["w1"], "only the moved reply's own wakes");
+    // Main no longer holds the moved job open.
+    events.push(e(
+        json!({ "type": "reply_moved", "reply": "r1", "lane": "l1", "title": "T",
+                          "jobs": ["j1"], "kept_jobs": ["j2"], "wakes": ["w1"] }),
+    ));
+    assert_eq!(Transcript::fold(&events).jobs, ["j2"]);
+}

@@ -188,6 +188,14 @@ export class NativeSpade {
     this.refresh();
   }
 
+  /** The person's messages Siri's asks already took, by conversation route and seq (`spade-ask.ts`). */
+  readonly askClaims = new Set<string>();
+
+  /** Resolves after `ms` on the runtime's own timers, for a request that waits on Spade. */
+  pause(ms: number): Promise<void> {
+    return new Promise((resolve) => void this.deps.later(ms, resolve));
+  }
+
   /** The open conversation's follow, for sends that should show at once. */
   follow(conversationId: string): SpadeConversationFollow | undefined {
     return this.chat.follow(conversationId);

@@ -155,10 +155,21 @@ export function aceOrgClient(options: { origin: string; fetch: typeof fetch }) {
     async policy(token: string, id: string, signal: AbortSignal) {
       return AceOrgPolicyVersion.parse(await call(`${org(id)}/policy`, "GET", token, signal));
     },
-    /** Saves the next version; `policy_changed` when another admin saved one first. */
-    async setPolicy(token: string, id: string, policy: AceOrgPolicy, signal: AbortSignal) {
+    /**
+     * Saves the version after `base`, the one the edit started from; `policy_changed` when the
+     * stored version is no longer `base` (another admin saved first).
+     */
+    async setPolicy(
+      token: string,
+      id: string,
+      edit: { policy: AceOrgPolicy; base: number },
+      signal: AbortSignal,
+    ) {
       return AceOrgPolicyVersion.parse(
-        await call(`${org(id)}/policy`, "PUT", token, signal, { policy }),
+        await call(`${org(id)}/policy`, "PUT", token, signal, {
+          policy: edit.policy,
+          version: edit.base,
+        }),
       );
     },
   };

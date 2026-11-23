@@ -481,17 +481,24 @@ impl Connectors {
             .unwrap_or_else(|| Access::default_for(is_main))
     }
 
-    /// Sets what a bot may use. Every named connector must exist.
+    /// Sets what a bot may use. Missing connectors can be retained, but never newly granted.
     pub fn set_access(&self, agent: &str, access: Access) -> Result<(), ConnectError> {
+        let records = lock(&self.records);
+        let mut current = lock(&self.access);
         if let Access::Only(ids) = &access {
-            let records = lock(&self.records);
-            if let Some(unknown) = ids.iter().find(|id| !records.iter().any(|r| &&r.id == id)) {
+            let saved = match current.get(agent) {
+                Some(Access::Only(saved)) => Some(saved),
+                _ => None,
+            };
+            if let Some(unknown) = ids.iter().find(|id| {
+                !saved.is_some_and(|saved| saved.contains(*id))
+                    && !records.iter().any(|record| &record.id == *id)
+            }) {
                 return Err(ConnectError::Invalid(format!(
                     "no connector named {unknown}"
                 )));
             }
         }
-        let mut current = lock(&self.access);
         let mut next = current.clone();
         next.insert(agent.to_owned(), access);
         records::save_access(&self.store, &next).map_err(ConnectError::Failed)?;

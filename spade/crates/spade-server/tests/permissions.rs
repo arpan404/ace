@@ -134,3 +134,37 @@ async fn letting_bots_use_an_app_on_the_never_use_list_needs_the_persons_say() -
     assert_eq!(machine["permissions"]["never_apps"], json!(fewer));
     Ok(())
 }
+
+#[tokio::test]
+async fn a_never_use_list_changed_from_a_stale_copy_is_refused_and_keeps_what_another_device_added()
+-> Result {
+    let w = world(false, vec![], |_| vec![]).await?;
+    let (_, machine) = w.spade.get("/v1/security").await?;
+    let seen: Vec<String> = serde_json::from_value(machine["permissions"]["never_apps"].clone())?;
+    // The desktop adds Signal; the phone, still holding the list before it, adds Notes.
+    let mut desktop = seen.clone();
+    desktop.push("Signal".into());
+    let (status, _) = w
+        .spade
+        .put(
+            "/v1/security/never-apps",
+            json!({ "apps": desktop, "expected": seen }),
+        )
+        .await?;
+    assert_eq!(status, 200);
+    let mut phone = seen.clone();
+    phone.push("Notes".into());
+    let (status, refused) = w
+        .spade
+        .put(
+            "/v1/security/never-apps",
+            json!({ "apps": phone, "expected": seen }),
+        )
+        .await?;
+    assert_eq!(status, 409, "{refused}");
+    let (_, machine) = w.spade.get("/v1/security").await?;
+    let held: Vec<String> = serde_json::from_value(machine["permissions"]["never_apps"].clone())?;
+    assert!(held.iter().any(|app| app == "Signal"), "{held:?}");
+    assert!(!held.iter().any(|app| app == "Notes"), "{held:?}");
+    Ok(())
+}

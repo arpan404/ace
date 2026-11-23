@@ -88,6 +88,54 @@ pub struct Moved {
     /// The asks the reply owned, the lane's now.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub asks: Vec<String>,
+    /// The reply's background jobs that moved with it: their results reach the lane.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub jobs: Vec<String>,
+    /// The reply's jobs that stayed with main (ace's `delegate` and `wait`, contract calls):
+    /// main hears their results and sends the lane what it needs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kept_jobs: Vec<String>,
+    /// The reply's open wakes, the lane's now.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub wakes: Vec<String>,
+}
+
+/// What of main's open `reply` is still running: its jobs that move with it, those `keeps` says
+/// stay with main (by tool name), and the wakes that move (its own, and retries of moved jobs).
+pub fn work_of(
+    events: &[Event],
+    reply: &str,
+    keeps: impl Fn(&str) -> bool,
+) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let open = Transcript::fold(events).jobs;
+    let (mut moved, mut kept) = (Vec::new(), Vec::new());
+    for event in events {
+        if let Event::Known(Known::JobStarted {
+            job,
+            reply: r,
+            name,
+        }) = event
+            && r == reply
+            && open.contains(job)
+            && !moved.contains(job)
+            && !kept.contains(job)
+        {
+            match keeps(name) {
+                true => kept.push(job.clone()),
+                false => moved.push(job.clone()),
+            }
+        }
+    }
+    let wakes = crate::wake::open(events)
+        .into_iter()
+        .filter(|w| {
+            w.reply == reply
+                || matches!(&w.purpose, crate::wake::Purpose::Retry { job: Some(job), .. }
+                    if moved.contains(job))
+        })
+        .map(|w| w.wake)
+        .collect();
+    (moved, kept, wakes)
 }
 
 /// `ask_routed`, in main: the person's message `message` went to `lane` by its `reply_to`.
@@ -473,9 +521,9 @@ pub fn move_due(events: &[Event], reply: &str, elapsed_ms: i64) -> bool {
     if transcript.open_reply().and_then(|m| m.reply.as_deref()) != Some(reply) {
         return false;
     }
+    // Jobs and wakes move with it (or stay with main, named); only the person holds it here.
     let waiting = !transcript.awaiting.is_empty() || transcript.asking();
-    let open_work = !transcript.jobs.is_empty() || !crate::wake::open(events).is_empty();
-    !waiting && !open_work && steps > 0
+    !waiting && steps > 0
 }
 
 /// Whether main's task was last set in a reply Spade moved to a lane (ADR 0217 §2a): the lane
@@ -633,16 +681,30 @@ pub fn asked_for_lane(events: &[Event], call_id: &str) -> bool {
     })
 }
 
+/// What a lane reads for a job of the moved reply that stayed with main (ADR 0217 §2a).
+pub const KEPT_JOB: &str = "This job stayed with the main conversation, which tracks its work; \
+     main hears its result and sends you what you need with task_message.";
+
 /// What main's model reads for a moved reply or a routed message (ADR 0217 §2, §2a).
 pub fn note(event: &Known) -> String {
     match event {
-        Known::ReplyMoved(moved) => format!(
-            "<moved task=\"{}\" from=\"spade\">\nThis was taking a while, so Spade moved the work \
-             to its own task, {}, which carries on from here; the person was told. You are free \
-             to talk.\n</moved>",
-            moved.lane,
-            quoted(&moved.title)
-        ),
+        Known::ReplyMoved(moved) => {
+            let kept = match moved.kept_jobs.is_empty() {
+                true => String::new(),
+                false => format!(
+                    " Jobs {} stayed with you: when their results come, send the task what it \
+                     needs with task_message.",
+                    moved.kept_jobs.join(", ")
+                ),
+            };
+            format!(
+                "<moved task=\"{}\" from=\"spade\">\nThis was taking a while, so Spade moved the \
+                 work to its own task, {}, which carries on from here with its jobs and waits; the \
+                 person was told. You are free to talk.{kept}\n</moved>",
+                moved.lane,
+                quoted(&moved.title)
+            )
+        }
         Known::LanesOverlapped(overlap) => format!(
             "<overlap task=\"{}\" path={} from=\"spade\">\nThe task {} wrote {}, which the task \
              {}, still working, wrote too. Nothing stops either; check the file holds what both \

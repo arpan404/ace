@@ -87,12 +87,14 @@ impl Store {
 
     /// Creates a task lane (ADR 0217) as [`Store::create_helper`] does, and stores `parent_events`
     /// in its bot's conversation in the same write, so a crash never keeps one without the other.
+    /// The helpers of `adopt_jobs` (main's jobs that move with it) become the lane's.
     /// `None` (nothing written) when the call already made its lane.
     pub fn create_lane(
         &self,
         lane: &StoredHelper,
         first: &[Event],
         parent_events: &[Event],
+        adopt_jobs: &[String],
         now_ms: i64,
     ) -> Result<Option<(Vec<StoredEvent>, Vec<StoredEvent>)>> {
         let mut connection = self.lock()?;
@@ -100,6 +102,14 @@ impl Store {
         let Some(own) = insert_hidden(&tx, lane, first, now_ms)? else {
             return Ok(None);
         };
+        // The helpers of jobs that moved with main's work answer to the lane now, a rerun too.
+        for job in adopt_jobs {
+            tx.execute(
+                "UPDATE helpers SET parent_id = ?1
+                 WHERE parent_id = ?2 AND (job = ?3 OR job = ?3 || '~2')",
+                params![lane.conversation, lane.parent, job],
+            )?;
+        }
         let parent = crate::append_in(&tx, &lane.parent, parent_events, now_ms)?;
         tx.commit()?;
         Ok(Some((own, parent)))

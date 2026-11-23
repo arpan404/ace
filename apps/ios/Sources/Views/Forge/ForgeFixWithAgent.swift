@@ -21,6 +21,11 @@ struct ForgeFixer {
         return try? await client.read(read, as: ForgePullPage.self)
     }
 
+    /// The thread working on the pull request, which takes its code notes; nil when none is linked.
+    @MainActor func thread(_ client: ClientModel, _ target: ForgePullTarget) async -> ForgeRelatedThread? {
+        await page(client, target)?.threads.first { !$0.archived }
+    }
+
     /// Hands `request` on; false when nothing could take it.
     @MainActor func fix(_ request: String, client: ClientModel, target: ForgePullTarget, drafts: ThreadDrafts?) async -> Bool {
         guard client.canOperate, let page = await page(client, target) else { return false }

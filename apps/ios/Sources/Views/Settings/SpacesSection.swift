@@ -3,8 +3,8 @@ import SwiftUI
 /// Settings › Account's spaces (ADR 0206 §1.4): Personal and each organization the person
 /// belongs to with their role, the one shown ticked; a tap switches. New organization makes one
 /// the person owns. Leave is an organization row's swipe and long-press action, and deletes
-/// nothing on the phone. An organization's own pages are on desktop and the web, so an admin
-/// gets one row saying so.
+/// nothing on the phone. An admin of the shown organization gets a row to its Settings ›
+/// Organization pages.
 struct SpacesSection: View {
     let spaces: SpacesModel
     @State private var creating = false
@@ -25,10 +25,8 @@ struct SpacesSection: View {
                     .aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(AceDesign.Ink.muted)
             }
-            if let manage = Spaces.manageLine(spaces.shown) {
-                Text(manage)
-                    .aceFont(AceDesign.TextRole.meta)
-                    .foregroundStyle(AceDesign.Ink.muted)
+            if let org = spaces.shown?.org, OrgRoles.isAdmin(org.role) {
+                GroupLink(.organization) { InsetRow("Manage \(org.name)", icon: .slidersHorizontal) }
                     .accessibilityIdentifier("account.spaces.manage")
             }
             Button { name = ""; creating = true } label: { AddRow("New organization") }
@@ -50,7 +48,7 @@ struct SpacesSection: View {
             .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             .accessibilityIdentifier("account.spaces.create.confirm")
         } message: {
-            Text("You'll be its owner. Invite people and add machines on desktop or the web.")
+            Text("You'll be its owner. Invite people from Settings › Organization, and add machines from each machine.")
         }
         .confirmationDialog(leaving.map { "Leave \($0.name)?" } ?? "", isPresented: leaveQuestion, titleVisibility: .visible) {
             if let org = leaving {

@@ -183,13 +183,24 @@ message}` together and opens no reply; the lane gets the person's words (trusted
   reads a `<routed>` note there. A message written in a lane's own conversation (`POST
 /v1/conversations/{lane}/messages`, `202`) steers it, or opens its next reply once it ended.
 - **Main's long work** moves to a lane by itself ([harness.md](harness.md), "Task lanes"); main
-  stores `reply_moved {reply, lane, title, asks}` and the app writes Spade's plain line for it.
+  stores `reply_moved {reply, lane, title, asks, jobs, kept_jobs, wakes}` and the app writes
+  Spade's plain line for it. The reply's background jobs (a helper's row with them) and its
+  wakes move to the lane; ace's `delegate`/`wait` and contract calls stay with main, which reads
+  a `<moved>` note asking it to pass their results on. A moved lane is named by the `title` role
+  in the background (`lane_titled {lane, title}`), keeping the person's first line on failure.
 - **Slots.** At most `SPADE_TASKS_AT_ONCE` (16) lanes of a bot have a reply open. One more is
   stored queued (`lane_started.queued`) and starts, oldest first, when one ends.
 - **Requests.** A lane's approval is stored in the lane and in main in the same write
   (`approval_requested.lane {task, conversation, call_id, title}`, call id `<lane>.<call>`) and
   answered in main; the answer reaches the lane, and "always" lands in main. Main reads waiting
-  until it is answered or the lane reports something other than `needs_you`.
+  until it is answered or the lane reports something other than `needs_you`. A lane's `ask_user`
+  card is asked the same way (`question_asked.lane`, call id `<lane>.<call>`, answered at main's
+  `/questions/{call}` and sent on to the lane); answered in the lane, main's copy closes. A
+  helper that moved with main's work asks in main as the lane's.
+- **Overlaps.** At each step boundary a lane's written files (`workspace_write`,
+  `workspace_edit`, a job's kept files) are checked against its bot's other working lanes'. A
+  shared path is stored once as `lanes_overlapped {lane, title, path, other, other_title}` in the
+  writing lane (read as an `<overlap>` warning) and in main. No lock.
 - **State.** `lane::state`: `queued`, `working`, `needs_you`, `done` (its check passed),
   `finished`, `failed`, `stopped`. The bot rolls its lanes up like workers: working while one
   works or is queued, waiting (`waiting_for: "task"`, "A task is waiting for you") while one waits
@@ -210,14 +221,14 @@ progress: {done, total, verified} | null, plan_step, started_ms, ended_ms, cost_
 moved, model, report}]}`, ordered needs you, running, ended, queued (oldest first in each).
 - A lane's conversation is read with `/events` and `/live`, written to with `/messages`, stopped
   with `/stop` and tried again with `/retry`, like any.
+- `GET /v1/conversations/{lane}/task` → the lane's `{task}`, as `GET /v1/agents/{id}/task`
+  answers a bot's; `404` for a conversation that is no lane.
 - `GET /v1/agents/{id}/tree` lists lanes as nodes `{kind: "lane", id, name, conversation, state,
 needs_you, progress, cost_micros, children: []}`.
 
 ## Not built yet
 
-- Lanes: a lane's `ask_user` questions shown in main; jobs and wakes moving with main's moved
-  work (a reply with one open does not move); the overlap note when two lanes write one path;
-  the `title` role naming a lane (its title is the person's first line).
+- Lanes: a shell command's writes are not part of the overlap note.
 - A worker's questions routed to its maker; they go to the person.
 - Workers on other machines.
 - ace children's state between ace's waits; delegated threads are not in ace's event stream.
