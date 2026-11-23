@@ -14,11 +14,33 @@ use cli_out::{
 use cli_parse::{NounOnly, ParseResult, Parsed, Usage, parse};
 
 use crate::offline::{complete, home, run_completion, run_help, run_version};
-use crate::{completion, handover, help, help_json};
+use crate::{commands::providers, completion, handover, help, help_json};
 
 /// The commands this binary answers itself. Every other id hands over; each of these must exist
 /// in the table, which `check:cli` proves.
-const NATIVE_IDS: &[&str] = &["home", "help", "version", "completion", "complete"];
+const NATIVE_IDS: &[&str] = &[
+    "home",
+    "help",
+    "version",
+    "completion",
+    "complete",
+    "provider.list",
+    "provider.show",
+    "provider.capabilities",
+    "model.list",
+    "account.status",
+    "account.logout",
+    "account.machine-code.clear",
+    "machine.list",
+    "device.list",
+    "device.revoke",
+    "remote.list",
+    "remote.use",
+    "remote.remove",
+    "mcp.list",
+    "mcp.add",
+    "mcp.revoke",
+];
 
 /// Runs one command line, returning the outcome whose exit code ends the process.
 ///
@@ -261,6 +283,9 @@ where
             }
             with_writers(make_out, make_err, |out, err| complete(&slot, out, err))
         }
+        id if providers::IDS.contains(&id) => with_writers(make_out, make_err, |out, err| {
+            providers::dispatch(parsed, out, err)
+        }),
         _ => hand_over(os_args, &parsed.flags, make_out, make_err),
     }
 }
