@@ -26,8 +26,8 @@ const agentId = z.string().min(1).max(256);
 const name = z.string().trim().min(1).max(spadeGroupNameMax);
 
 /** A member as Spade takes it: `machine` is its bot's host id, absent for the group's own. */
-const member = z.object({ agent: agentId, machine: z.string().min(1).max(256).optional() });
-const members = z.array(member).min(1).max(spadeGroupMembersMax);
+const memberRef = z.object({ agent: agentId, machine: z.string().min(1).max(256).optional() });
+const members = z.array(memberRef).min(1).max(spadeGroupMembersMax);
 
 /** A message the person posts to a group: it starts a run its lead answers. */
 const SpadeGroupSendRequest = z.object({
@@ -56,7 +56,7 @@ export const spadeGroupRequests = spadeRequestArea(
       type: z.literal("spade.group.edit"),
       groupId,
       name: name.optional(),
-      memberEdit: z.object({ action: z.enum(["add", "remove"]), member }).optional(),
+      memberEdit: z.object({ action: z.enum(["add", "remove"]), member: memberRef }).optional(),
       lead: agentId.optional(),
     }),
     /** Deletes the group and its conversation; its bots stay. */
@@ -117,7 +117,7 @@ export const spadeGroupRequests = spadeRequestArea(
             const roster = group.members.map(({ agent, machine }) =>
               machine === null ? { agent } : { agent, machine },
             );
-            const matches = (ref: z.infer<typeof member>) =>
+            const matches = (ref: z.infer<typeof memberRef>) =>
               ref.agent === memberEdit.member.agent && ref.machine === memberEdit.member.machine;
             if (memberEdit.action === "add" && !roster.some(matches))
               roster.push(memberEdit.member);
