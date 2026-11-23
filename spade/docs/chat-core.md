@@ -101,16 +101,16 @@ Local HTTP on `SPADE_LISTEN` (loopback). Every request except `/health` carries
 `Authorization: Bearer <token>`; the token is in `<data dir>/token` (mode 0600), written at
 startup, so only processes that can read the person's files can talk to Spade.
 
-| Method and path                             | Body                | Answer                                                                                              |
-| ------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------- |
-| `GET /health`                               |                     | `{"ok":true,"version","api"}`; `api` is the HTTP API version (1)                                    |
-| `GET /v1/conversations`                     |                     | `[{id, title, updated_at, answering}]`, newest first                                                |
-| `POST /v1/conversations`                    |                     | `410`: each agent has one conversation, created with it ([agents.md](agents.md))                    |
-| `GET /v1/conversations/{id}/events?after=N` |                     | `[{seq, at, event}]` after `seq` N                                                                  |
-| `POST /v1/conversations/{id}/messages`      | `{text, reply_to?}` | `202`; while a reply is open the message steers it; `reply_to`: Messages, ids and replies above     |
-| `POST /v1/conversations/{id}/stop`          |                     | `202`; `404` when nothing is answering                                                              |
-| `POST /v1/conversations/{id}/retry`         | `{reply}`           | `202`: Try again, below; `409` when `reply` isn't the last reply or didn't fail, or a reply is open |
-| `GET /v1/conversations/{id}/live?after=N`   |                     | Server-sent events, below                                                                           |
+| Method and path                             | Body      | Answer                                                                                              |
+| ------------------------------------------- | --------- | --------------------------------------------------------------------------------------------------- |
+| `GET /health`                               |           | `{"ok":true,"version","api"}`; `api` is the HTTP API version (1)                                    |
+| `GET /v1/conversations`                     |           | `[{id, title, updated_at, answering}]`, newest first                                                |
+| `POST /v1/conversations`                    |           | `410`: each agent has one conversation, created with it ([agents.md](agents.md))                    |
+| `GET /v1/conversations/{id}/events?after=N` |           | `[{seq, at, event}]` after `seq` N                                                                  |
+| `POST /v1/conversations/{id}/messages`      | `{text, reply_to?}` | `202`; while a reply is open the message steers it; `reply_to`: Messages, ids and replies above |
+| `POST /v1/conversations/{id}/stop`          |           | `202`; `404` when nothing is answering                                                              |
+| `POST /v1/conversations/{id}/retry`         | `{reply}` | `202`: Try again, below; `409` when `reply` isn't the last reply or didn't fail, or a reply is open |
+| `GET /v1/conversations/{id}/live?after=N`   |           | Server-sent events, below                                                                           |
 
 Live stream frames (`event:` name, JSON `data:`):
 
