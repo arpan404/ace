@@ -239,14 +239,50 @@ working-tree-encoding` over `C`. The set `L` that Git adds itself is: every path
   the native attempt is discarded (reason `hash_mismatch`).
 - **N14.** Git takes the rows (`update-index -z --index-info`, changed rows only, so the cache
   tree stays valid) and adds `L` itself (`add --all --pathspec-from-file`, `:(literal)` paths).
-- **N15.** Before S11–S13 run, the observed inputs are revalidated: HEAD's tree id and the
-  person's index file (device, inode, size, mtime) as at S3; every `.gitattributes` in `C`,
-  `info/attributes` and the config sources' stamp as at N10–N11; the nested scan run again. Any
-  change discards the temporary index and runs S4–S13 on the CLI path once (reason
-  `inputs_changed`).
-- The person's index is read only by Git (`ls-files`), so a published index is read while another
-  Git holds `index.lock` (`snapshot-index.process.test.ts:217`). All writes are Git processes under
-  the lease the CLI path takes; the native step adds no writer.
+- **N15. Revalidation, after N14 and before S11.** Every input the attempt observed is read
+  again and compared:
+  - from S3: HEAD's target and tree id, and the person's index file (device, inode, size, mtime,
+    ctime); the index is read only by Git (`ls-files`), so a published index is still read while
+    another Git holds `index.lock`, as today (`snapshot-index.process.test.ts:217`);
+  - from S7 and N9: the nested scan, and the candidate set `C` itself (`ls-files --cached --others
+--exclude-standard` again; any added, removed or reclassified path is drift);
+  - the ignore inputs: every `.gitignore` in a directory of `C` or its ancestors,
+    `info/exclude`, and `core.excludesFile`;
+  - from N10–N11: every `.gitattributes` in those directories, `info/attributes`, and the config
+    sources' stamp;
+  - from N12: the (device, inode, size, mtime, ctime) of every path Rust hashed, statted again
+    now, not only across its read.
+
+  Any difference is drift: the attempt's temporary index is discarded and the snapshot restarts
+  **from S1** (sparse check, a new temporary index, a fresh S3 of HEAD and the index), on the CLI
+  path, once (reason `inputs_changed`). After S11 nothing reads the parent checkout's files again,
+  so the tree is the checkout as of N15's reads; a change after N15 is a later change, as for any
+  snapshot.
+
+- All writes are Git processes under the lease the CLI path takes; the native step adds no writer.
+
+### 5a. Restore's safety capture (hard rules)
+
+The ace lease fences ace's own Git, not an editor, an agent's shell or another Git client. Restore
+moves the checkout from the safety tree to the target with `read-tree --reset -u`
+(`restore-nested.ts:55`–`:79`), which overwrites, without checking, a path whose bytes changed
+after the safety capture. So:
+
+1. **Restore's safety capture always runs the CLI snapshot (S1–S13 with `git add`)**, in G5 and
+   after G6, whatever `ACE_GIT` says. `snapshot-hash` never produces a safety tree. Changing this
+   needs an amendment of this ADR.
+2. **A safety capture is valid through the destructive step only if, immediately before
+   `read-tree --reset -u`, every path that differs between the safety tree and the target (and its
+   ancestors) still holds the safety tree's bytes and mode**: the core hashes exactly those paths
+   with Git (`hash-object --stdin-paths`, with the filters `git add` applied) and compares them with
+   the safety tree's entries, and checks the person's index and HEAD as at the capture. On drift it
+   takes a new safety capture from S1 and checks again, twice at most, then fails without touching
+   the checkout. This check is new behaviour for both backends: it lands in TypeScript first, with
+   its own test, then G5 ports it; until then G5's restore is today's, step for step.
+3. **The window left** is between that check and Git's writes of the same files (milliseconds,
+   proportional to the differing paths). It can't be fenced without the other writer's
+   cooperation; the daemon's callers keep pausing their own agents while restoring (README,
+   "All operations serialize…"), and the safety checkpoint stays the recovery point.
 
 ### 6. Refs and worktrees keep their callers' contracts
 
@@ -267,33 +303,65 @@ only in a mode or a line ending the checkout normalizes back, or that holds an e
 the restore then leaves, passes it. Since restore trusts the safety tree (fact 5), the gate adds the
 minimum that compares, and it adds no test case or fixture: the existing ones are what is compared.
 
-- **Write digests.** With `ACE_GIT_DIGEST_LOG`, the shell appends, for every checkpoint, commit,
-  merge commit, restore and worktree write, the operation, its order in the test, and the trees it
-  produced (the checkpoint's tree; HEAD's tree after a commit; after a restore, the tree a fresh
-  CLI snapshot of the checkout gives). `scripts/native-git-digest.ts <file>` runs the file with
-  the parts off and on, with the clock and ids the tests already inject, and fails unless the two
-  logs are identical. A write part ships only when every file of its proof list passes this.
+- **Two logs, compared separately.** With `ACE_GIT_DIGEST_LOG`, the shell appends, after every
+  write and every failed write, two records: the **state digest** (below) and the **completion
+  record** (the returned value through `ace-json`, with commit ids replaced by their position in
+  the test's commit order; the error code and the names of `details`' keys; the cleanup receipt's
+  status). `scripts/native-git-digest.ts <file>` runs the file with the parts off and on, with the
+  clock and ids the tests already inject, and fails unless both logs are identical, record for
+  record. A write part ships only when every file of its proof list passes.
+- **The state digest** is read with Git and the filesystem, never with a fresh snapshot, so
+  nothing is normalized:
+  - refs: HEAD (symbolic target, or detached), every ref under `refs/heads`, `refs/remotes`,
+    `refs/tags`, `refs/stash` and `refs/ace`, each commit written as tree id, parents (as positions
+    or fixture ids), author and committer names and emails, and message bytes; dates only where the
+    test injects the clock;
+  - the person's index: `ls-files --stage -z` (mode, id, stage, path, so conflict stages show) and
+    `ls-files -v -z` (assume-unchanged and skip-worktree flags);
+  - operation state: presence and bytes of `MERGE_HEAD`, `MERGE_MSG`, `MERGE_MODE`, `AUTO_MERGE`,
+    `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `rebase-merge/`, `rebase-apply/`, `sequencer/`;
+  - the checkout: every path outside `.git`, ignored files included, with type, mode bits, a hash
+    of its raw bytes, and symlink targets;
+  - worktree registrations (`worktree list --porcelain -z`, paths relative to the fixture) and
+    `config --local --list`;
+  - for pushes and fetches, the same ref listing of the fixture's remote.
+- **Operation postconditions** each write must also meet, checked from the digest: a commit moves
+  only HEAD's branch to a commit whose parents are the old HEAD (and `MERGE_HEAD` for a merge
+  commit) and leaves no operation state; stage and unstage change only the index rows of the
+  named paths; a merge start writes `MERGE_HEAD` and the conflict stages and an abort removes them
+  and restores index and checkout; `takeSide` and `writeResolution` collapse that path's stages; a
+  fetch changes only remote-tracking refs; a worktree removal leaves its branch; a checkpoint adds
+  its two refs and leaves the person's index, HEAD and stash byte for byte; a restore leaves HEAD
+  and the index, and the checkout's raw bytes equal the target's checkout with ignored files kept;
+  a failed write leaves the digest as it was before the call, unless today's TypeScript leaves a
+  documented partial state (restore's safety ref), which must then be identical too.
 - **Snapshot verify.** `ACE_GIT_VERIFY=strict` makes every native snapshot also run S9–S13 on the
   CLI path over a copy of the same temporary index, in the same `serial` turn, and fail on any
   difference of tree id or error code, naming the differing paths (`git diff-tree`). G6 passes
   every snapshot (a) file under it. `ACE_GIT_VERIFY=shadow` does the same in a daemon, keeps the
   CLI's tree, and counts differences: the measurement on this repository and the main checkout's
   read-only clones (question 5) runs in shadow.
-- **Both directions.** `ACE_NATIVE_CROSS=ACE_GIT` alternates the backend per call;
-  `scripts/native-cross.ts` runs each file twice, starting native and starting TypeScript, so a
-  checkpoint written by one is the safety or target tree of the other's restore in one of the two
-  runs. List: `checkpoints.process`, `snapshot-index.process`, `workspace-revision.process`,
-  `nested.process`, `diff.process`, `transfer-capture.process`, `untracked-links.process`,
-  `audit-restore.process`, `credential-restoration.process`.
-- **Which backend completed.** The cross and digest logs record, per operation, the backend
-  selected, the backend that completed it and any fallback reason. The gate fails on a fallback
-  the porting guide doesn't list for that file, so a native selection can't pass by silently
-  running the CLI.
+- **Both directions, proven by the pairs that happened.** `ACE_NATIVE_CROSS=ACE_GIT` alternates
+  the backend per call; `scripts/native-cross.ts` runs each file twice, starting native and
+  starting TypeScript. The log names, for every checkpoint, its producer backend, and for every
+  use of it (list, diff, restore as safety or target) the consumer backend. The script fails
+  unless, over the two runs, each of these pairs occurred at least once in the file: native →
+  TypeScript and TypeScript → native, for checkpoint → diff and checkpoint → restore. List:
+  `checkpoints.process`, `snapshot-index.process`, `workspace-revision.process`, `nested.process`,
+  `diff.process`, `transfer-capture.process`, `untracked-links.process`, `audit-restore.process`,
+  `credential-restoration.process`.
+- **Native coverage is counted, not assumed.** Every log records per operation the backend
+  selected, the one that completed it and any fallback reason. The porting guide lists, per test
+  (not per file), the fallbacks it expects, with their reason and count; the gate fails on any
+  other fallback, on an expected one that didn't occur, and on any test whose selected-native
+  operations completed natively zero times. A file passes only with at least one native
+  completion per test that selected native.
 - **CLI contract tests stay CLI contract tests.** Files that inject a fake `gitBinary`
   (`malformed.process.test.ts:24`, `:66` and the 17 others) prove the Rust parsers against the
   same fake output; `snapshot-hash` and `status-gix` never run with a non-default binary, so the
   fake stays what is exercised.
-- Justification against "tests move, they don't multiply": the digests and verify mode compare
+- Justification against "tests move, they don't multiply": the digests, postconditions and verify
+  mode compare
   outputs of the existing tests and add none; they guard data a person can lose, which outranks
   the rule's purpose (no duplicate suites).
 
@@ -314,6 +382,35 @@ minimum that compares, and it adds no test case or fixture: the existing ones ar
 - **`ForgeStore`, `ForgeIntents`, reply receipts** move onto `ace-store`'s connection with the same
   tables and rows, behind `ACE_FORGE_STORE=native` (needs `ACE_STORE=native`); rows written by one
   backend are read by the other (ADR 0223 §8's per-boot cross gate).
+
+### 8a. Nothing either core keeps carries a credential
+
+ADR 0002 stands: ace reads no CLI configuration, keychain or token file and stores no token. But
+the daemon's own environment can hold one (`GH_TOKEN`, `GITLAB_TOKEN`, a CI token the person
+exported), the CLIs pass the environment on, and a CLI can echo a credential back (an error that
+quotes a URL with `user:token@`, a body that includes an auth header). So:
+
+1. **The supervisor's records are metadata.** The inventory and escapee journals keep pid, start
+   identity, uid, group, owner, an executable name and the working directory, as
+   `process-inventory.ts:15`–`:24` does today, and nothing else: never argv, never an
+   environment value, never stdin. The name is the executable's basename (`gh`, `git`), never a
+   request path. Diagnostics name the command and the outcome, never its arguments.
+2. **Redaction is value-based as well as pattern-based, and has one owner.** `@ace/redaction`
+   already masks exact environment values and their JSON-escaped spellings
+   (`createEnvironmentMatcher`, `packages/redaction/src/environment.ts:19`, used by git's failure
+   text, `packages/git/src/failure-text.ts:7`). Forge's `redact.ts` duplicates a pattern subset
+   (`redact.ts:2`–`:6`, `:20`–`:22`) and misses a credential echoed as a bare value. The fix lands
+   in TypeScript first, with its own test: forge redacts through `@ace/redaction` with the child's
+   environment as the matcher's values, and its host patterns (`gh*_`, `github_pat_`, `Bearer`,
+   key names) move into `@ace/redaction`'s patterns, adding GitLab's `glpat-`/`gloas-`/`glrt-` and
+   URL user-info. The values exist only in the matcher, for the request's lifetime: never written,
+   logged or put in an error; the daemon already holds them in its environment, so nothing is
+   collected (ADR 0002).
+3. **Redaction comes first.** Every reply, stderr tail and diagnostic is redacted before it is
+   cached (`GhApi`'s ETag and GraphQL caches, list caches), kept as `raw`, written to a log, put
+   in an error's `details`, or serialized for JavaScript. The Rust cores redact through
+   **`ace-redaction`**, a port of `@ace/redaction` (F0 owns it; its 11 test files move with it),
+   shared by `ace-git` and `ace-forge`.
 
 ### 9. Crates
 
@@ -336,25 +433,47 @@ and `ace-daemon-node/src/forge/`.
 
 ### 10. Phases, each shippable alone, each switch off by default
 
-| Phase | What moves                                                                                                                                             | Switch                                        | Needs                          | Proven by (class (a) files unless noted)                                                                                   | Ships when                                                                                                                   |
-| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| G0/F0 | Crates, bindings, switches, the JS port bridge, digest and verify logs, `deny.toml` ban; no behaviour                                                  | none                                          | ADR 0223 E0                    | `check:daemon-native`, `cargo deny check`                                                                                  | always                                                                                                                       |
-| G1    | Ref, branch and worktree-list reads on `gix`, inside today's TypeScript service                                                                        | `ACE_GIT=refs`                                | G0                             | git status, worktree and remote rows (22 files)                                                                            | no slower per call; zero (a) diffs; no unlisted fallback                                                                     |
-| G2    | The git core: process layer, `serial`, `ReadGate`, leases, quarantine, healing, execution policy, config facts, errors                                 | `ACE_GIT=core`                                | G0, ADR 0223 E2                | git process-boundary, lease and non-executing rows (21 files), with injected ports bridged                                 | zero (a) diffs both ways; Windows VM run of the lease and timeout files                                                      |
-| G3    | Every read on the core: status, info, summaries, diffs and patches, history, revision lines, conflicts, worktree metadata, publication scans           | `ACE_GIT=core,reads`                          | G2                             | git status, history, diff, conflict and transfer-read rows, and the 39 daemon files using `GitService`                     | zero (a) diffs; the ops bench no slower                                                                                      |
-| G4    | Writes that make no checkpoint: commits, stage, unstage, merges, stack replays, branches, worktrees, fetch, push, clone, init, transfers, publications | `ACE_GIT=core,reads,writes`                   | G3                             | the worktree, remote, transfer, merge and source-control rows                                                              | zero (a) diffs; digests identical (§7) for every commit, merge and worktree write                                            |
-| G5    | Checkpoints, live diffs, `workspaceRevision`, restore: the CLI snapshot ported step for step (§5 S1–S13)                                               | `ACE_GIT=core,reads,writes,checkpoints`       | G4                             | the snapshot and restore-audit rows (17 files), the non-executing row; §7's digests, cross list both ways                  | digests identical on every file of the list; cross runs pass both ways                                                       |
-| G6    | `snapshot-hash`: §5 N9–N15                                                                                                                             | `+snapshot-hash`                              | G5                             | as G5, plus `ACE_GIT_VERIFY=strict` over every snapshot (a) file; shadow on this repository and the main checkout's clones | zero verify differences; shadow clean; the bench shows the gain with equivalent work. Restore's safety capture switches last |
-| G7    | `status-gix` for display reads (`changed-files.ts:181`, `:241`, `:256`, `:288`, `:302`, `repositoryInfo`); never for a read that precedes a write      | `+status-gix`                                 | G1, G3, the owner (question 4) | the status rows; `ACE_GIT_VERIFY=strict` compares the decoded status with the CLI's                                        | lower wall, no more CPU, zero verify differences                                                                             |
-| F1    | Forge transport: runner, `GhApi`, write classification, `MutationDispatch`, admission, pinned identities, redaction, errors, readiness                 | `ACE_FORGE=<host>` (transport for that host)  | F0, ADR 0223 E2                | forge transport and write-certainty rows (20 files)                                                                        | zero (a) diffs both ways; transport bench no slower                                                                          |
-| F2    | GitHub: `GitHubForge`, inbox, repositories, reviews, status revisions, list caches, media, file contents, stacks                                       | `ACE_FORGE=github`                            | F1                             | the GitHub review and browsing rows (27 files) and the daemon files using `fakeGh`                                         | zero (a) diffs both ways; `bench/status.ts` no slower                                                                        |
-| F3–F5 | GitLab; Gitea and Forgejo; Bitbucket and Origin                                                                                                        | `ACE_FORGE=gitlab`, `tea`, `bitbucket,origin` | F1                             | each host's row                                                                                                            | zero (a) diffs both ways                                                                                                     |
-| F6    | The pure helpers in Rust for the forge's own use; the daemon's imports native with the switch                                                          | with F2                                       | F1                             | the 9 pure files against both                                                                                              | zero diffs                                                                                                                   |
-| F7    | `ForgeStore`, `ForgeIntents`, reply receipts on `ace-store`                                                                                            | `ACE_FORGE_STORE=native`                      | F2, `ACE_STORE=native`         | `review*`, `reply-expiry`, `write-dispatch` and the daemon's PR-link tests; per-boot cross gate                            | rows identical both ways                                                                                                     |
+| Phase | What moves                                                                                                                                             | Switch                                        | Needs                          | Proven by (class (a) files unless noted)                                                                                   | Ships when                                                                                                      |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| G0/F0 | Crates, bindings, switches, the JS port bridge, digest and verify logs, `deny.toml` ban; no behaviour                                                  | none                                          | ADR 0223 E0                    | `check:daemon-native`, `cargo deny check`                                                                                  | always                                                                                                          |
+| G1    | Ref, branch and worktree-list reads on `gix`, inside today's TypeScript service                                                                        | `ACE_GIT=refs`                                | G0                             | git status, worktree and remote rows (22 files)                                                                            | no slower per call; zero (a) diffs; no unlisted fallback                                                        |
+| G2    | The git core: process layer, `serial`, `ReadGate`, leases, quarantine, healing, execution policy, config facts, errors                                 | `ACE_GIT=core`                                | G0, ADR 0223 E2                | git process-boundary, lease and non-executing rows (21 files), with injected ports bridged                                 | zero (a) diffs both ways; Windows VM run of the lease and timeout files                                         |
+| G3    | Every read on the core: status, info, summaries, diffs and patches, history, revision lines, conflicts, worktree metadata, publication scans           | `ACE_GIT=core,reads`                          | G2                             | git status, history, diff, conflict and transfer-read rows, and the 39 daemon files using `GitService`                     | zero (a) diffs; the ops bench no slower                                                                         |
+| G4    | Writes that make no checkpoint: commits, stage, unstage, merges, stack replays, branches, worktrees, fetch, push, clone, init, transfers, publications | `ACE_GIT=core,reads,writes`                   | G3                             | the worktree, remote, transfer, merge and source-control rows                                                              | zero (a) diffs; digests identical (§7) for every commit, merge and worktree write                               |
+| G5    | Checkpoints, live diffs, `workspaceRevision`, restore: the CLI snapshot ported step for step (§5 S1–S13), restore under §5a                            | `ACE_GIT=core,reads,writes,checkpoints`       | G4                             | the snapshot and restore-audit rows (17 files), the non-executing row; §7's digests, cross list both ways                  | digests identical on every file of the list; cross runs pass both ways                                          |
+| G6    | `snapshot-hash`: §5 N9–N15                                                                                                                             | `+snapshot-hash`                              | G5                             | as G5, plus `ACE_GIT_VERIFY=strict` over every snapshot (a) file; shadow on this repository and the main checkout's clones | zero verify differences; shadow clean; §10a's bench shows the gain. Never restore's safety capture (§5a rule 1) |
+| G7    | `status-gix` for display reads (`changed-files.ts:181`, `:241`, `:256`, `:288`, `:302`, `repositoryInfo`); never for a read that precedes a write      | `+status-gix`                                 | G1, G3, the owner (question 4) | the status rows; `ACE_GIT_VERIFY=strict` compares the decoded status with the CLI's                                        | lower wall, no more CPU, zero verify differences                                                                |
+| F1    | Forge transport: runner, `GhApi`, write classification, `MutationDispatch`, admission, pinned identities, redaction, errors, readiness                 | `ACE_FORGE=<host>` (transport for that host)  | F0, ADR 0223 E2                | forge transport and write-certainty rows (20 files)                                                                        | zero (a) diffs both ways; transport bench no slower                                                             |
+| F2    | GitHub: `GitHubForge`, inbox, repositories, reviews, status revisions, list caches, media, file contents, stacks                                       | `ACE_FORGE=github`                            | F1                             | the GitHub review and browsing rows (27 files) and the daemon files using `fakeGh`                                         | zero (a) diffs both ways; `bench/status.ts` no slower                                                           |
+| F3–F5 | GitLab; Gitea and Forgejo; Bitbucket and Origin                                                                                                        | `ACE_FORGE=gitlab`, `tea`, `bitbucket,origin` | F1                             | each host's row                                                                                                            | zero (a) diffs both ways                                                                                        |
+| F6    | The pure helpers in Rust for the forge's own use; the daemon's imports native with the switch                                                          | with F2                                       | F1                             | the 9 pure files against both                                                                                              | zero diffs                                                                                                      |
+| F7    | `ForgeStore`, `ForgeIntents`, reply receipts on `ace-store`                                                                                            | `ACE_FORGE_STORE=native`                      | F2, `ACE_STORE=native`         | `review*`, `reply-expiry`, `write-dispatch` and the daemon's PR-link tests; per-boot cross gate                            | rows identical both ways                                                                                        |
 
 G1 and F1 can be built in parallel; G2 and F1 both wait on ADR 0223 E2. The CLI path is never
 removed: it is what `snapshot-hash` and `status-gix` fall back to, and what every phase keeps for
 held directories until the supervisor spawns by descriptor.
+
+### 10a. The equivalent-work bench
+
+No phase claims a saving from a part of the work. Before G6 (and G7) ships, its builder extends
+`packages/git/benchmark-ops.ts` and reports, switch off and on, three runs each, with the load
+average:
+
+- **What is timed**: the public calls end to end (`createCheckpoint`, `diff` HEAD → working tree,
+  `workspaceRevision`, `restoreCheckpoint`, and for G7 `checkoutSummary` and `sourceControlState`),
+  so every Git step, Rust hashing, conversion handed to Git, object writes by Git, revalidation and
+  crossing are inside the number; `ACE_GIT_VERIFY` off.
+- **What is reported** per call: wall p50 and p90; the daemon process's CPU (which includes Rust's
+  threads); the Git children's CPU; peak RSS of the daemon and of its children; Git processes;
+  loose objects written; each Git step's time; fallbacks by reason; time queued behind `serial`,
+  `ReadGate` and the native semaphore.
+- **Where**: this repository's 23,528-file clone and the main checkout's clone, read-only (question
+  5); a 100,000-file synthetic repository (`benchmark.ts 100000`); and a variant of each with
+  `text=auto` on a fifth of the files and CRLF in some, so the `L` share is measured; plus a
+  concurrent run (two roots' checkpoints and a status at once).
+- **The claim**: a saving is claimed only if p50 wall and total CPU (daemon plus children) are both
+  lower in all three runs on every repository; otherwise the phase ships as no slower, or doesn't
+  ship.
 
 ### 11. Tests move, they don't multiply
 
@@ -394,6 +513,12 @@ commit saying which. §7's digests and verify mode are the one comparison, justi
 - **Review (2026-11-23)**: forge staying TypeScript was supported before the owner's decision;
   native snapshots are blocked until restore safety and backend parity are shown, which §5 and §7
   now specify.
+- **Re-review of b685c2bd1c (2026-11-23)**: proceed with the CLI-backed ports behind opt-in
+  switches; G6 and default-on writes stay blocked. Round 3 adds full input revalidation with a
+  restart from S1 (§5 N15), the hard rules for restore's safety capture (§5a), operation
+  postconditions and separate completion records (§7), proof of the backend pairs that occurred
+  and of native coverage per test (§7), credentials kept out of journals, caches and output
+  (§8a), and the end-to-end bench (§10a). G0 and G1 start from the current guides.
 
 ## Questions for the owner
 
