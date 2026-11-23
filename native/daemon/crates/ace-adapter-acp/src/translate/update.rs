@@ -113,9 +113,7 @@ pub fn waits_on_background_child(state: &TranslationState, agent_key: &str) -> b
         if let Some(tool) = state.tools.get(tool_key)
             && tool.owner_key == *agent_key
             && let Some(child_native) = tool.child_native_id.clone()
-            && let Some(child) = state
-                .agents
-                .get(&ace_json::JsString::from(child_native.as_str()))
+            && let Some(child) = state.agents.get(&child_native)
             && child.background
             && !child.terminal
         {
@@ -142,7 +140,7 @@ pub fn handle_update(
     state: &mut TranslationState,
     shell_output: &mut crate::translate::shell_output::ShellOutput,
     agent_key: &str,
-    agent_native_id: &str,
+    agent_native_id: &ace_json::JsString,
     update: &ace_json::Value,
     frame: &ace_json::Value,
     facts: &mut Vec<ace_json::Value>,

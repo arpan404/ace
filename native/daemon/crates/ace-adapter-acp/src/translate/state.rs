@@ -41,22 +41,22 @@ pub struct AgentState {
 
 #[derive(Debug, Clone)]
 pub struct ToolState {
-    pub native_id: String,
+    pub native_id: JsString,
     pub key: String,
     pub owner_key: String,
-    pub owner_native_id: String,
+    pub owner_native_id: JsString,
     pub data: Map,
     pub status: String,
     pub raw: Vec<Value>,
     pub input_raw: Option<Value>,
     pub initial_raw: Option<Value>,
     pub original_input: Option<Map>,
-    pub input_parts: Option<IndexMap<String, Value>>,
+    pub input_parts: Option<IndexMap<JsString, Value>>,
     pub completed_input: Option<Map>,
     pub finalized: bool,
     pub retired: bool,
     pub uncertain_shell: bool,
-    pub child_native_id: Option<String>,
+    pub child_native_id: Option<JsString>,
     pub child_key: Option<String>,
     pub task: Option<String>,
     pub carried: bool,
@@ -67,11 +67,11 @@ pub struct ToolState {
 
 #[derive(Debug, Clone)]
 pub struct RequestState {
-    pub key: String,
+    pub key: JsString,
     pub method: String,
     pub params: Map,
     pub owner_key: String,
-    pub owner_native_id: String,
+    pub owner_native_id: JsString,
     pub request: Value,
     pub tool_key: Option<String>,
 }
@@ -95,20 +95,20 @@ pub struct TranslationState {
     /// Agent key to native session id, so updates holding the key (as the
     /// TypeScript holds the agent) resolve in O(1) instead of scanning.
     pub agents_by_key: IndexMap<String, JsString>,
-    pub owned_tools: IndexMap<String, IndexMap<String, String>>,
-    pub tools_by_native: IndexMap<String, String>,
+    pub owned_tools: IndexMap<String, IndexMap<JsString, String>>,
+    pub tools_by_native: IndexMap<JsString, String>,
     pub tools: IndexMap<String, ToolState>,
     pub uncertain_shells: IndexMap<String, ToolState>,
     pub live_tools: IndexSet<String>,
     pub retired_tools: IndexMap<String, usize>,
     pub retired_bytes: usize,
-    pub child_background_tools: IndexMap<String, IndexSet<String>>,
+    pub child_background_tools: IndexMap<JsString, IndexSet<String>>,
     pub background_tools: IndexSet<String>,
-    pub pending_children: IndexMap<String, String>,
-    pub child_tools: IndexMap<String, String>,
-    pub requests: IndexMap<String, RequestState>,
-    pub sent: IndexMap<String, SentRequest>,
-    pub loads: IndexSet<String>,
+    pub pending_children: IndexMap<String, JsString>,
+    pub child_tools: IndexMap<JsString, String>,
+    pub requests: IndexMap<JsString, RequestState>,
+    pub sent: IndexMap<JsString, SentRequest>,
+    pub loads: IndexSet<JsString>,
     pub cancelling: IndexSet<String>,
     pub root: AgentState,
     pub quirks: QuirksKind,
@@ -128,8 +128,11 @@ pub(crate) const UNCERTAIN_SHELL_LIMIT: usize = 256;
 pub(crate) const RETIRED_COUNT_LIMIT: usize = 1024;
 pub(crate) const RETIRED_BYTES_LIMIT: usize = 1024 * 1024;
 
-pub fn rpc_key(id: &crate::translate::data::RpcId) -> String {
-    format!("{}:{}", id.typeof_name(), id.display())
+pub fn rpc_key(id: &crate::translate::data::RpcId) -> JsString {
+    let mut key = JsString::from(id.typeof_name());
+    key.push_str(":");
+    key.push_js(&id.display());
+    key
 }
 
 impl TranslationState {
@@ -248,10 +251,17 @@ impl TranslationState {
         self.root.implicit_turn = false;
     }
 
-    pub(crate) fn uncertain_key(owner_native_id: &str, id: &str) -> String {
+    pub(crate) fn uncertain_key(owner_native_id: &JsString, id: &JsString) -> String {
+        // JSON text of the pair: lone surrogates escape as \ud800, so distinct
+        // ids keep distinct keys the way `JSON.stringify` does in TypeScript.
         let key = ace_json::ser::to_string(&(owner_native_id, id)).unwrap_or_default();
         if key.is_empty() {
-            format!("[{owner_native_id:?},{id:?}]")
+            let mut fallback = String::from("[");
+            fallback.push_str(&ace_json::ser::to_string(owner_native_id).unwrap_or_default());
+            fallback.push(',');
+            fallback.push_str(&ace_json::ser::to_string(id).unwrap_or_default());
+            fallback.push(']');
+            fallback
         } else {
             key
         }

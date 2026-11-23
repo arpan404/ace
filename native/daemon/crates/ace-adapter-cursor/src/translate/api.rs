@@ -25,10 +25,11 @@ pub fn translate_json(translator: &mut CursorTranslator, frame_json: &str, now_m
         Some(Value::String(dir)) => dir,
         _ => JsString::empty(),
     };
-    // TypeScript checks the channel (and the fenced flag) before admitting
-    // the payload: a non-SDK frame never fences, however large.
+    // TypeScript resets per-frame state before its channel guard, then
+    // returns for a non-SDK frame without fencing: a non-SDK frame never
+    // fences, however large. Go through the translator so its reset runs.
     if !units_eq(channel, "sdk") {
-        return join_values(&[]);
+        return join_values(&translator.translate_frame(data, seq, channel, dir, now_ms));
     }
     if !checked && admission_exceeded(data) {
         return join_values(&translator.overflowed());

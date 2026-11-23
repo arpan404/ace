@@ -174,7 +174,7 @@ pub struct Retry {
     pub on: String,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub attempt: Option<i64>,
+    pub attempt: Option<f64>,
 }
 
 #[derive(Serialize)]

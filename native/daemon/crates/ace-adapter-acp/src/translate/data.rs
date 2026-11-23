@@ -2,7 +2,7 @@
 //! Dynamic provider data helpers (`data.ts`): read without copying,
 //! build raw payloads with TypeScript field order.
 
-use ace_json::{Map, Value};
+use ace_json::{JsString, Map, Number, Value};
 use std::sync::LazyLock;
 
 static EMPTY_MAP: LazyLock<Map> = LazyLock::new(Map::new);
@@ -54,7 +54,7 @@ pub fn raw(data: &Value, typ: &str, name: Option<&str>) -> Value {
 /// An RPC id when the value is a string or a finite number.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RpcId {
-    Str(String),
+    Str(JsString),
     Int(i64),
     FloatBits(u64),
 }
@@ -67,14 +67,16 @@ impl RpcId {
         }
     }
 
-    pub fn display(&self) -> String {
+    pub fn display(&self) -> JsString {
         match self {
             RpcId::Str(text) => text.clone(),
-            RpcId::Int(n) => n.to_string(),
+            // `String(id)` in TypeScript: JavaScript number printing, so even
+            // an integral id goes through the f64 text (1e21, large rounding).
+            RpcId::Int(n) => JsString::from(Number::from(*n).to_string()),
             RpcId::FloatBits(bits) => {
                 // `String(id)` in TypeScript: JavaScript number printing.
                 let value = f64::from_bits(*bits);
-                ace_json::Number::from_f64_lossy(value).to_string()
+                JsString::from(Number::from_f64_lossy(value).to_string())
             }
         }
     }
@@ -83,7 +85,7 @@ impl RpcId {
 /// Read an RPC id like the TypeScript `rpcId` helper.
 pub fn rpc_id(value: &Value) -> Option<RpcId> {
     match value {
-        Value::String(text) => Some(RpcId::Str(String::from(text.clone()))),
+        Value::String(text) => Some(RpcId::Str(text.clone())),
         Value::Number(number) => {
             if let Some(n) = number.as_i64() {
                 Some(RpcId::Int(n))

@@ -142,7 +142,7 @@ pub fn end_prompt(
                 let is_placeholder = state.tools.get(&tool_key).is_some_and(|_| {
                     child_native
                         .as_ref()
-                        .and_then(|id| state.agents.get(&ace_json::JsString::from(id.as_str())))
+                        .and_then(|id| state.agents.get(id))
                         .is_some_and(|child| child.placeholder)
                 });
                 if is_placeholder {
@@ -152,7 +152,7 @@ pub fn end_prompt(
                 let _ = child_key;
                 child_native
                     .as_ref()
-                    .and_then(|id| state.agents.get(&ace_json::JsString::from(id.as_str())))
+                    .and_then(|id| state.agents.get(id))
                     .is_some_and(|child| !child.terminal)
             });
         if !cancelled && has_terminal_child {
@@ -211,11 +211,7 @@ pub fn end_prompt(
             .tools
             .get(&tool_key)
             .and_then(|tool| tool.child_native_id.clone())
-            .and_then(|native_id| {
-                state
-                    .agents
-                    .get(&ace_json::JsString::from(native_id.as_str()))
-            })
+            .and_then(|native_id| state.agents.get(&native_id))
             .is_some_and(|child| child.placeholder);
         if has_placeholder_child {
             placeholder_child(state, &tool_key, facts);
@@ -279,7 +275,7 @@ pub fn end_prompt(
         facts.push(Value::Object(wake));
     }
     // Close open permission requests.
-    let open: Vec<String> = state
+    let open: Vec<ace_json::JsString> = state
         .requests
         .iter()
         .filter(|(_, request)| cancelled || request.owner_key == *agent_key)

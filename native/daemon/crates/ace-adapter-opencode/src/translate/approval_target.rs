@@ -4,7 +4,7 @@
 //! native inputs and edit file metadata are.
 
 use crate::translate::data::{arr, fields, get, utf16_len};
-use ace_json::{Map, Value};
+use ace_json::{JsString, Map, Value};
 use serde::Serialize;
 
 /// The exact input an approval decides on: a value, or a whole metadata map.
@@ -27,7 +27,7 @@ pub struct ApprovalTarget<'a> {
     tool: &'a str,
     cwd: Option<&'a str>,
     command: Option<&'a str>,
-    paths: Option<Vec<&'a str>>,
+    paths: Option<Vec<&'a JsString>>,
     access: &'static str,
     input: ApprovalInput<'a>,
     /// Whether the TypeScript built the target as a literal (the edit branch) rather than
@@ -71,9 +71,13 @@ fn units(text: &str) -> usize {
     utf16_len(text)
 }
 
+fn units_js(text: &JsString) -> usize {
+    text.len_utf16()
+}
+
 /// The files OpenCode reports an edit over, each named with its own patch
 /// status (`files` in TypeScript).
-fn edit_files(value: &Value) -> Option<Vec<&str>> {
+fn edit_files(value: &Value) -> Option<Vec<&JsString>> {
     let files = arr(value);
     if files.is_empty() || files.len() > 128 {
         return None;
@@ -87,10 +91,12 @@ fn edit_files(value: &Value) -> Option<Vec<&str>> {
         match (entry.get("file"), entry.get("status")) {
             (Some(Value::String(path)), Some(Value::String(status)))
                 if !path.is_empty()
-                    && units(path) <= 4096
+                    && units_js(path) <= 4096
                     && (status == "modified" || status == "added") =>
             {
-                paths.push(path.as_str());
+                // Keep the exact JS string: a lone surrogate path must not
+                // become U+FFFD the way `as_str` would.
+                paths.push(path);
             }
             _ => return None,
         }
@@ -130,12 +136,12 @@ pub fn approval_target<'a>(
     if action.is_empty() || units(action) > 256 {
         return None;
     }
-    let path = match input.get("path").or_else(|| input.get("filePath")) {
-        Some(Value::String(path)) if !path.is_empty() => Some(path.as_str()),
+    let path: Option<&JsString> = match input.get("path").or_else(|| input.get("filePath")) {
+        Some(Value::String(path)) if !path.is_empty() => Some(path),
         _ => None,
     };
     if let Some(path) = path
-        && units(path) > 4096
+        && units_js(path) > 4096
     {
         return None;
     }
@@ -151,7 +157,7 @@ pub fn approval_target<'a>(
     let command = if action == "shell" || action == "bash" {
         match input.get("command") {
             Some(Value::String(command)) => {
-                if units(command) > 32768 {
+                if units_js(command) > 32768 {
                     return None;
                 }
                 Some(command.as_str())

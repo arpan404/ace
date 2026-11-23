@@ -107,7 +107,12 @@ pub fn redact_lease(data: &Value, secrets: &[String]) -> Value {
                 if safe_key != *key {
                     let mut suffix = suffixes.get(&safe_key).copied().unwrap_or(1);
                     while used.contains(&target) || seen.contains(&target) {
-                        target = JsString::from(format!("{}#{}", safe_key.as_str(), suffix));
+                        // Keep lone surrogates exact: append `#n` by code units,
+                        // as `` `${safeKey}#${suffix++}` `` does in TypeScript.
+                        let mut suffixed = safe_key.clone();
+                        suffixed.push_str("#");
+                        suffixed.push_str(&suffix.to_string());
+                        target = suffixed;
                         suffix += 1;
                     }
                     suffixes.insert(safe_key, suffix);

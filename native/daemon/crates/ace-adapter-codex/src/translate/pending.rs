@@ -27,7 +27,7 @@ struct BufferedFrame {
 }
 
 pub struct PendingCompletions {
-    requests: HashMap<String, Request>,
+    requests: HashMap<ace_json::JsString, Request>,
     buffers: HashMap<String, Buffer>,
 }
 
@@ -53,7 +53,7 @@ impl PendingCompletions {
         }
     }
 
-    pub fn open(&mut self, key: String, native: String, observed_turn: Option<String>) {
+    pub fn open(&mut self, key: ace_json::JsString, native: String, observed_turn: Option<String>) {
         self.requests.insert(
             key,
             Request {
@@ -134,7 +134,7 @@ impl PendingCompletions {
 
     pub fn resolve(
         &mut self,
-        key: &str,
+        key: &ace_json::JsString,
         acknowledged: Option<&str>,
         latest_turn: Option<&str>,
     ) -> Option<ResolveResult> {

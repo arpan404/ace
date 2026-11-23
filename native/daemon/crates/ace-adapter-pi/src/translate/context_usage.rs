@@ -17,7 +17,7 @@ pub fn pi_context_sample(message: Option<&str>) -> Option<ContextSample> {
         return None;
     }
     let map = super::native::parse_object_text(text)?;
-    let type_raw = map.get("type")?;
+    let type_raw = super::native::field(&map, "type")?;
     let type_name: String = super::native::raw_as_str(type_raw)?;
     if type_name != "ace_context_usage" {
         return None;
@@ -27,7 +27,7 @@ pub fn pi_context_sample(message: Option<&str>) -> Option<ContextSample> {
     if context_window == 0 {
         return None;
     }
-    let model = match map.get("model") {
+    let model = match super::native::field(&map, "model") {
         Some(raw) => {
             let model: String = super::native::raw_as_str(raw)?;
             if model.is_empty() || model.encode_utf16().count() > 1024 {
@@ -45,7 +45,7 @@ pub fn pi_context_sample(message: Option<&str>) -> Option<ContextSample> {
 }
 
 fn count_field(map: &super::native::Fields, key: &str) -> Option<u64> {
-    let raw = map.get(key)?;
+    let raw = super::native::field(map, key)?;
     // Numbers only: strings, bools and null read as missing, mirroring zod.
     let value: u64 = super::native::raw_as_u64(raw)?;
     const MAX_SAFE: u64 = 9_007_199_254_740_991;

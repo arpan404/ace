@@ -18,12 +18,12 @@ pub fn retain_tool_raw(
         let parts = tool.input_parts.get_or_insert_with(indexmap::IndexMap::new);
         let mut changed = false;
         for (key, data) in input.iter() {
-            let previous = parts.get(key.as_str());
+            let previous = parts.get(key);
             if previous.is_none_or(|old| old != data) {
                 tool.completed_input = None;
                 changed = true;
             }
-            parts.insert(String::from(key.clone()), data.clone());
+            parts.insert(key.clone(), data.clone());
         }
         let _ = changed;
         if tool.original_input.is_none() && !input.is_empty() {
