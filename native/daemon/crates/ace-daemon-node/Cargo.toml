@@ -17,8 +17,12 @@ crate-type = ["cdylib"]
 
 [dependencies]
 ace-store = { path = "../ace-store" }
+# ace-adapter-claude: the claude translator this binding drives (E1); behaviour lives there.
+ace-adapter-claude = { path = "../ace-adapter-claude" }
 napi = { version = "3", default-features = false, features = ["napi8"] }
 napi-derive = "3"
+# serde_json: the binding moves frames and facts across N-API as JSON strings.
+serde_json = { version = "1" }
 
 [build-dependencies]
 napi-build = "2"

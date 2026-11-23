@@ -31,6 +31,9 @@ version = "0.1.0"
 dependencies = [
  "ace-adapter-api",
  "ace-supervisor",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -89,10 +92,12 @@ dependencies = [
 name = "ace-daemon-node"
 version = "0.1.0"
 dependencies = [
+ "ace-adapter-claude",
  "ace-store",
  "napi",
  "napi-build",
  "napi-derive",
+ "serde_json",
 ]
 
 [[package]]
