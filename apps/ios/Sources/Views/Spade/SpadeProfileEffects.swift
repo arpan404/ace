@@ -37,7 +37,7 @@ struct SpadeProfileEffects: View {
                 Text("What \(scope.name)'s package says it does. Off, it can't.")
             }
         }
-        .confirmationDialog(granting.map { "Let \(scope.name) do this?" } ?? "", isPresented: grantingShown,
+        .confirmationDialog(granting.map { _ in "Let \(scope.name) do this?" } ?? "", isPresented: grantingShown,
                             titleVisibility: .visible, presenting: granting) { effect in
             Button("Turn on") { turn(effect, on: true) }
         } message: { effect in
