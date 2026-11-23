@@ -74,13 +74,19 @@ it("browser tools stay listed while the browser is down, and work once a retry b
   cleanups.push(() => rm(home, { recursive: true, force: true }));
   const config = readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" });
   let failed = false;
-  // The browser's retry waits for the test, so the first calls surely meet no browser.
+  // The browser's first retry waits for the test, so the first calls surely meet no browser.
   const retry = Promise.withResolvers<void>();
+  let gated = true;
+  // The failed attempt is over, its start and cleanup included: a retry then really runs.
+  const failedAttemptOver = Promise.withResolvers<void>();
   const daemon = await startDaemon({
     engine: noProviderDiscovery,
     config,
     startup: {
       retryDelaysMs: [10, 10, 10],
+      onAttempt(name, running) {
+        if (name === "browser" && !running) failedAttemptOver.resolve();
+      },
       // The browser's first start runs past its deadline at once, as a stuck start would.
       schedule(name, expire, milliseconds) {
         if (name === "browser" && !failed) {
@@ -88,7 +94,8 @@ it("browser tools stay listed while the browser is down, and work once a retry b
           queueMicrotask(expire);
           return () => {};
         }
-        if (name === "retry browser") {
+        if (name === "retry browser" && gated) {
+          gated = false;
           let live = true;
           void retry.promise.then(() => live && expire());
           return () => void (live = false);
@@ -132,6 +139,7 @@ it("browser tools stay listed while the browser is down, and work once a retry b
   expect(down.failed).toBe(true);
   expect(down.text).toContain("browser_unavailable");
 
+  await failedAttemptOver.promise;
   retry.resolve();
   await expect.poll(browserState, { timeout: 10_000, interval: 20 }).toBe("ready");
 
