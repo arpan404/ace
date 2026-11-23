@@ -20,9 +20,9 @@ use crate::home::Local;
 use crate::http::exchange_ticket_with_tls;
 use crate::profile::DirectRemote;
 use crate::protocol::{
-    Credential, DEFAULT_HANDSHAKE_TIMEOUT, DEFAULT_REQUEST_TIMEOUT, MAX_FRAME_BYTES, Reply,
-    Welcome, decode_welcome, encode_hello, encode_request_into, expected_reply_types,
-    inject_request_id, parse_outgoing_request_meta, parse_server_envelope,
+    Credential, DEFAULT_HANDSHAKE_TIMEOUT, DEFAULT_REQUEST_TIMEOUT, MAX_FRAME_BYTES,
+    MAX_SEND_BYTES, Reply, Welcome, decode_welcome, encode_hello, encode_request_into,
+    expected_reply_types, inject_request_id, parse_outgoing_request_meta, parse_server_envelope,
     verify_entities_page_owner,
 };
 use crate::stream::{TransportStream, connect_local_tcp, remaining_until};
@@ -289,6 +289,113 @@ impl Connection {
             &["cli.result"],
             timeout,
         )
+    }
+
+    /// Sends a durable `{"type":"command","command":{...}}` frame and waits for its
+    /// `commandResult` with the same `commandId`.
+    ///
+    /// `frame_json` is the full command frame (with `type` and `command`); `command_id` is the
+    /// command's id for correlation. An `error` frame with the same `commandId` and
+    /// `retryable: true` resends the frame and keeps waiting; any other `error` with the same
+    /// `commandId` fails as [`WireError::Daemon`]. Anything else is ignored, as the TypeScript
+    /// client's durable wait is. Matches `client.command` in `packages/client/src/client-core.ts`
+    /// and the receipt rules in `apps/daemon/src/cli/mutations.ts`.
+    pub fn command_raw_with_timeout(
+        &mut self,
+        frame_json: &str,
+        command_id: &str,
+        timeout: Duration,
+    ) -> Result<Box<serde_json::value::RawValue>, WireError> {
+        let deadline = Instant::now() + timeout;
+        if frame_json.len() > MAX_SEND_BYTES {
+            return Err(WireError::Limit {
+                detail: "Command exceeds send limit".into(),
+            });
+        }
+        self.send_buf.clear();
+        self.send_buf.push_str(frame_json);
+        send_text(&mut self.ws, &self.send_buf, deadline, "Command")?;
+        loop {
+            let effective = self
+                .fragments
+                .earliest_deadline()
+                .map_or(deadline, |frag| frag.min(deadline));
+            let line = read_next_line(
+                &mut self.ws,
+                &mut self.frame_buf,
+                effective,
+                "Command",
+                true,
+            )
+            .map_err(|err| match err {
+                ReadError::Wire(WireError::Timeout { .. })
+                    if self.fragments.check_expired(Instant::now()).is_err()
+                        && Instant::now() < deadline =>
+                {
+                    WireError::Offline {
+                        detail: "Fragments timed out".into(),
+                    }
+                }
+                other => read_error_to_wire(other),
+            })?;
+            let envelope = parse_server_envelope(line)?;
+            let msg_type = envelope.msg_type.as_ref();
+            if msg_type == "snapshot.part" {
+                continue;
+            }
+            if msg_type == "entities.page.part" {
+                if self
+                    .fragments
+                    .add_entities_page_part(line, Instant::now())
+                    .is_err()
+                {
+                    continue;
+                }
+                continue;
+            }
+            if msg_type == "welcome" {
+                return Err(WireError::Protocol {
+                    detail: "Second welcome".into(),
+                });
+            }
+            if msg_type == "error" && envelope.command_id.as_deref() == Some(command_id) {
+                if envelope.retryable == Some(true) {
+                    send_text(&mut self.ws, frame_json, deadline, "Command")?;
+                    continue;
+                }
+                if envelope.code.as_deref() == Some("unauthorized") {
+                    return Err(WireError::Auth {
+                        detail: envelope
+                            .message
+                            .map_or_else(|| "Unauthorized".into(), std::borrow::Cow::into_owned),
+                        revoked: false,
+                    });
+                }
+                return Err(WireError::Daemon {
+                    code: envelope
+                        .code
+                        .map_or_else(|| "daemon".into(), std::borrow::Cow::into_owned),
+                    message: envelope
+                        .message
+                        .map_or_else(String::new, std::borrow::Cow::into_owned),
+                });
+            }
+            if msg_type == "error" && envelope.code.as_deref() == Some("unauthorized") {
+                return Err(WireError::Auth {
+                    detail: envelope
+                        .message
+                        .map_or_else(|| "Unauthorized".into(), std::borrow::Cow::into_owned),
+                    revoked: false,
+                });
+            }
+            if msg_type == "commandResult" && envelope.command_id.as_deref() == Some(command_id) {
+                let raw =
+                    RawValue::from_string(line.to_owned()).map_err(|err| WireError::Protocol {
+                        detail: format!("Malformed commandResult: {err}"),
+                    })?;
+                return Ok(raw);
+            }
+        }
     }
 
     /// Sends an application-level `{"type":"ping"}` and waits for `{"type":"pong"}`.
