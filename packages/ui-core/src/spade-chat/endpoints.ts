@@ -80,6 +80,11 @@ export interface SpadeSignedInAccount {
   email: string | undefined;
   plan: string | undefined;
   signedIn: boolean;
+  /**
+   * When it reached its plan's usage limit, the time (ms) the limit lifts; undefined when it
+   * isn't at one, or Spade doesn't say (`limited_until`).
+   */
+  limitedUntil: number | undefined;
 }
 
 /** An endpoint template the person can add from. */
@@ -177,7 +182,12 @@ const endpointShape = z.object({
   provider: optionalText,
   auth: z.enum(["key", "none", "chatgpt"]).nullish().catch(undefined),
   account: z
-    .object({ email: optionalText, plan: optionalText, signed_in: z.boolean().catch(false) })
+    .object({
+      email: optionalText,
+      plan: optionalText,
+      signed_in: z.boolean().catch(false),
+      limited_until: z.number().int().positive().nullish().catch(undefined),
+    })
     .nullish()
     .catch(undefined),
   used_by: z.array(z.unknown()).catch([]).default([]),
@@ -214,6 +224,7 @@ export function parseSpadeEndpointValue(raw: unknown): SpadeEndpoint | undefined
             plan: endpoint.account?.plan || undefined,
             // Signed in only when Spade says so: an account it can't vouch for isn't offered.
             signedIn: endpoint.account?.signed_in === true,
+            limitedUntil: endpoint.account?.limited_until ?? undefined,
           }
         : undefined,
     usedBy: endpoint.used_by.filter((name): name is string => typeof name === "string"),
