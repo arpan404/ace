@@ -96,10 +96,33 @@ test("a refusal that comes after the view stopped waiting still replaces a gone 
   expect(media.begin("thread").fields.media).toBeUndefined();
 });
 
-test("a late refusal of a superseded subscribe changes nothing", () => {
+test("a late refusal proving the still-bound connection gone replaces it, though a retry already went out", () => {
   const { media, refreshed } = healthy();
   const old = media.begin("thread");
   media.abandon("thread", old.generation);
+  // The retry after its timeout names the same connection.
+  const retry = media.begin("thread");
+  media.failed("thread", old.generation, refusal);
+  expect(refreshed).toEqual(["mc_aaaaaaaaaa"]);
+  // The retry's own delivery is the retry's: the late reply settled nothing of it.
+  expect(media.generation("thread")).toBe(retry.generation);
+});
+
+test("a late refusal of a connection that is no longer the binding changes nothing", () => {
+  let connection = "mc_aaaaaaaaaa";
+  const refreshed: string[] = [];
+  const media = new MediaSubscriptions();
+  media.use({
+    binding: () => ({ connection }),
+    codecs: () => [],
+    watch: () => () => {},
+    onStream: () => () => {},
+    ack: () => true,
+    refresh: (asked) => void refreshed.push(asked),
+  });
+  const old = media.begin("thread");
+  media.abandon("thread", old.generation);
+  connection = "mc_bbbbbbbbbb";
   media.begin("thread");
   media.failed("thread", old.generation, refusal);
   expect(refreshed).toEqual([]);

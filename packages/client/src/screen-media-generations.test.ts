@@ -385,6 +385,20 @@ describe("screen pictures across a media rebind", () => {
     expect(view.pendingTimers()).toBe(1);
   });
 
+  it("a late refusal proving the bound connection gone replaces it even after the retry went out", async () => {
+    const view = harness();
+    view.client.retainStream("app");
+    view.timeOut();
+    await flush();
+    // The retry after the timeout goes out, naming the same connection.
+    view.timeOut();
+    await flush();
+    expect(view.subscribes).toHaveLength(2);
+    view.reply(view.subscribes[0]!, "gone");
+    await flush();
+    expect(view.refreshed).toEqual(["mc_aaaaaaaaaa"]);
+  });
+
   it("a fresh subscribe cancels the retry it supersedes on the clock", async () => {
     const view = harness();
     view.client.retainStream("app");
