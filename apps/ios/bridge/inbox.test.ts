@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-const { pumpFrames, pumpTimers } = await vi.hoisted(async () => {
+const { pumpFrames, pumpTimers, pumpBytes } = await vi.hoisted(async () => {
   const { createNodeHost } = await import("@ace/native-host/node");
   const frames: Record<string, unknown>[][] = [];
+  const bytes: number[] = [];
   const timers = new Map<string, () => void>();
   const host = createNodeHost({
     now: () => 0,
     emit: (frame) => {
+      bytes.push(Buffer.byteLength(frame));
       frames.push(JSON.parse(frame) as Record<string, unknown>[]);
     },
   });
@@ -22,7 +24,7 @@ const { pumpFrames, pumpTimers } = await vi.hoisted(async () => {
       },
     },
   });
-  return { pumpFrames: frames, pumpTimers: timers };
+  return { pumpFrames: frames, pumpTimers: timers, pumpBytes: bytes };
 });
 
 import { CommandId, DeviceId, InteractionRequest, ThreadId } from "@ace/protocol";
@@ -599,6 +601,56 @@ describe("inbox rows on the phone", () => {
 });
 
 describe("inbox traffic", () => {
+  test("25 updates among 300 threads fit the busy inbox bridge byte budget", async () => {
+    pumpFrames.length = 0;
+    pumpTimers.clear();
+    const { daemon, client } = sheetFixture();
+    closers.push(() => client.close());
+    for (let index = 0; index < 300; index++)
+      finished(daemon, `ios-busy-${index}`, `Busy thread ${index + 1}: tidy module ${index % 37}`);
+    await client.start();
+    const pump = new PatchPump();
+    closers.push(followInbox(client, "mac", pump, new TestClock()));
+    const list = client.threads();
+    closers.push(() => list.release());
+    await until(() => list.store.loaded, "list loaded");
+    while (list.store.homeWindow?.before) await client.threadsMore();
+    await drivePumpUntil(
+      pump,
+      () =>
+        new Set(patchesOf<DeliveredInboxRowPatch>("inbox.row").map((patch) => patch.id)).size ===
+        300,
+      "300 rows",
+    );
+    const drain = async () => {
+      let done = false;
+      void pump.drained().then(() => {
+        done = true;
+      });
+      await drivePumpUntil(pump, () => done, "pump drained");
+    };
+    await drain();
+    const mark = pumpBytes.length;
+    for (let index = 0; index < 25; index++) {
+      const id = `ios-busy-${index * 7}`;
+      daemon.apply(id, [
+        { type: "turn.started", agent: "root", nativeTurnId: "busy", trigger: "user" },
+      ]);
+      await drivePumpUntil(
+        pump,
+        () =>
+          patchesOf<DeliveredInboxRowPatch>("inbox.row").some(
+            (patch) => patch.id === id && patch.row?.state === "working",
+          ),
+        id,
+      );
+      await drain();
+    }
+    const bytes = pumpBytes.slice(mark).reduce((sum, size) => sum + size, 0);
+    console.info(`busy inbox: ${bytes} physical bytes for 25 updates`);
+    expect(bytes).toBeLessThan(600_000);
+  });
+
   test("one thread starting work among many re-sends only that thread's row", async () => {
     const { daemon, sink } = await following((seed) => {
       for (let index = 0; index < 40; index++) finished(seed, `busy-${index}`, `Busy ${index}`);
