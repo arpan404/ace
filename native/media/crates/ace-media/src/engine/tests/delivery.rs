@@ -344,6 +344,30 @@ fn a_view_takes_the_nearest_encode_a_producer_sends_when_it_doesnt_follow_the_pl
 }
 
 #[test]
+fn a_view_on_a_fallback_encode_keeps_playing_through_deltas_that_carry_no_codec() {
+    let mut engine = watched(json!({ "kind": "screen", "sessionId": "screen-1" }));
+    // The producer ignores the plan: its own encode 4, in an H.264 profile the viewer doesn't
+    // name but its family it decodes.
+    let mut key = h264(true, 1, 1, Vec::new());
+    key.encode = 4;
+    key.codec_string = "avc1.640033".into();
+    assert_eq!(binaries(&ingest(&mut engine, 1, key, NOW)).len(), 1);
+    // serve-sim names the codec only on keyframes: a delta of the same encode carries none.
+    let mut delta = h264(false, 2, 1, Vec::new());
+    delta.encode = 4;
+    delta.codec_string = String::new();
+    let effects = ingest(&mut engine, 1, delta, at(1_100));
+    assert_eq!(binaries(&effects).len(), 1, "the delta reached the view");
+    assert!(
+        !effects.iter().any(|e| matches!(
+            e,
+            Effect::Normal(FromMedia::ViewerPlaying { playing: false, .. })
+        )),
+        "the view was told it stopped: {effects:?}"
+    );
+}
+
+#[test]
 fn a_piece_carries_the_units_capture_time_on_the_wall_clock() {
     let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
     let stamped = |unit: &mut MediaFrame, at: f64| {
