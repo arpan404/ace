@@ -51,13 +51,33 @@ export const workCardMinColumn = 560;
  */
 export const workCardGaps = 48;
 /**
- * Room for the side card: it floats over the column's edge, never moving it, once the area holds
- * the narrowest comfortable column (`workCardMinColumn`) with the card and its gaps. Below that
- * the card opens as the header's popover instead.
+ * The room the docked card reserves on the thread area's right: its width plus its edge and
+ * its gap to the column. Published as `--work-reserve` (and mirrored to `--summary-inset` so
+ * the composer and pills recentre on their existing path) while docked. It is applied inside
+ * the scrolled content -- the column settles left by half of it -- never as padding on the
+ * area or the scroller, so the scrollbar stays at the area's far right edge.
+ */
+export const workCardReserve = workCardWidth + 24;
+
+/**
+ * Room for the side card beside a reading column that makes room for it: the column narrows
+ * from `column` px down to `workCardMinColumn` px, and column + card + gaps must fit the area.
+ * A 760px column with the 280px card needs 1088px to stay full; it narrows to 560px at 888px,
+ * and below that the card opens as the header's popover instead.
  */
 export function workCardFitsSide(areaWidth: number, column: number): boolean {
   const min = Math.min(column, workCardMinColumn);
   return areaWidth >= min + workCardWidth + workCardGaps;
+}
+
+/**
+ * The reading column's outer width while the card is docked: the full `column` px where it
+ * fits beside the card, otherwise whatever is left after the card and its gaps (down to
+ * `workCardMinColumn` px; `workCardFitsSide` is false past that). Set as the area's `--column`
+ * override, so the transcript and the composer narrow together and stay aligned.
+ */
+export function workCardColumnWidth(areaWidth: number, column: number): number {
+  return Math.min(column, areaWidth - workCardWidth - workCardGaps);
 }
 
 /**
