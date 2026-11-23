@@ -563,3 +563,15 @@ test("pinning a bot Spade no longer has says so in the person's words", async ()
     title: "Couldn't pin",
   });
 });
+
+test("the phone refuses to pin the main agent before the roster loads", async () => {
+  const { api, ask } = await setUp((fake) => {
+    fake.addAgent({ id: "main-bot", name: "Spade", kind: "main", pinned_at: null });
+  });
+  expect(await ask({ type: "spade.pin", agentId: "main-bot", pinned: true })).toMatchObject({
+    ok: false,
+    title: "Couldn't pin",
+    message: "Spade already has its own place in the list.",
+  });
+  expect(api.agents.find((agent) => agent.id === "main-bot")?.pinned_at).toBeNull();
+});

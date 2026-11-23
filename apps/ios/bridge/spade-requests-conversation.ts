@@ -1,4 +1,4 @@
-import { SpadeRequestError, parseSpadeEvents } from "@ace/ui-core/spade-chat";
+import { SpadeRequestError, parseSpadeAgents, parseSpadeEvents } from "@ace/ui-core/spade-chat";
 import { z } from "zod";
 import {
   SpadeDraftWire,
@@ -177,6 +177,11 @@ export const spadeConversationRequests = spadeRequestArea(
         return undo(spade, request, ask);
       case "spade.pin":
         try {
+          const agents = parseSpadeAgents(await ask("GET", "/v1/agents"));
+          if (!agents) throw new Error("Spade's bots couldn't be read.");
+          const bot = agents.find((agent) => agent.id === request.agentId);
+          if (!bot) throw new Error("Spade hasn't listed this bot.");
+          if (bot.kind === "main") throw new Error("Spade already has its own place in the list.");
           await ask("PUT", `/v1/agents/${segment(request.agentId)}/pin`, {
             pinned: request.pinned,
           });
