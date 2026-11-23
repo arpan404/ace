@@ -120,13 +120,13 @@ fn arg_ref(route: Option<Route>, index: usize) -> Option<RefKind> {
 /// What the table says about the word being typed. Pure.
 #[must_use]
 pub fn slot(input: &[&str]) -> Slot {
-    let last = input.last().copied().unwrap_or(":");
-    let current = last.strip_prefix(':').unwrap_or(last);
-    let typed = if last.starts_with(':') {
-        &input[..input.len() - 1]
-    } else {
-        input
+    // With nothing typed yet, the last word is an empty `:` prefix over no words: the top of the
+    // table, exactly as `__complete` and `__complete --` ask for it.
+    let (last, typed) = match input.split_last() {
+        Some((last, rest)) => (*last, if last.starts_with(':') { rest } else { input }),
+        None => (":", input),
     };
+    let current = last.strip_prefix(':').unwrap_or(last);
     let mut positional: Vec<&str> = Vec::new();
     let mut pending: Option<&'static FlagSpec> = None;
     let mut remote = false;
@@ -285,8 +285,8 @@ Register-ArgumentCompleter -Native -CommandName ace -ScriptBlock {
 
 /// The person's shell from `$SHELL`, or PowerShell on Windows.
 #[must_use]
-pub fn current_shell(shell: Option<&str>, platform: &str) -> Option<CompletionShell> {
-    if platform == "win32" {
+pub fn current_shell(shell: Option<&str>, windows: bool) -> Option<CompletionShell> {
+    if windows {
         return Some(CompletionShell::PowerShell);
     }
     let name = shell?.rsplit('/').next().unwrap_or("");

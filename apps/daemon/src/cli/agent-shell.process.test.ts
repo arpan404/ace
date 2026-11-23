@@ -51,6 +51,8 @@ const theirs = [
   ["request", "answer", "int_123456", "yes"],
   ["thread", "approve", "t_123456"],
   ["config", "set", "logs.maxBytes", "10MB"],
+  // No arguments at all: the person-only refusal comes before the missing-argument error.
+  ["config", "set"],
   ["config", "unset", "logs.maxBytes"],
   ["feature", "on", "marketplace"],
   ["spade", "on"],

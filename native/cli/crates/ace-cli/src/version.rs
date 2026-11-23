@@ -102,16 +102,16 @@ fn release_version(exe: &Path) -> Option<String> {
     None
 }
 
-/// The desktop app a binary in `Contents/Resources/bin` belongs to.
+/// The desktop app a binary in `<Resources>/bin` belongs to. Every platform ships the app's
+/// version beside its bundled daemon; only macOS also has an `Info.plist` to fall back on.
 fn bundled_version(exe: &Path) -> Option<String> {
-    let contents = app_contents(exe)?;
-    let marker = contents
-        .join("Resources")
-        .join("daemon")
-        .join("desktop-app.json");
-    if let Some(version) = read_desktop_app(&marker) {
-        return Some(version);
+    if let Some(resources) = exe.parent().and_then(Path::parent) {
+        let marker = resources.join("daemon").join("desktop-app.json");
+        if let Some(version) = read_desktop_app(&marker) {
+            return Some(version);
+        }
     }
+    let contents = app_contents(exe)?;
     read_info_plist(&contents.join("Info.plist"))
 }
 

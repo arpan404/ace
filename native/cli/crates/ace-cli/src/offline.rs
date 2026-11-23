@@ -5,10 +5,10 @@
 use std::io::Write;
 use std::path::Path;
 
-use cli_out::{Env, Failure, Out, Outcome, OutputMode, can_prompt, output_mode};
+use cli_out::{Failure, Out, Outcome, OutputMode, output_mode};
 use cli_parse::Parsed;
 
-use crate::run::{emit_text, fail, finish, hand_over, terminal, write_failed};
+use crate::run::{emit_text, fail, finish, write_failed};
 use crate::{completion, help, help_json, version};
 
 pub(crate) fn run_help<W: Write, E: Write>(
@@ -16,15 +16,10 @@ pub(crate) fn run_help<W: Write, E: Write>(
     parsed: &Parsed<'_>,
     out: &mut Out<W>,
     err: &mut Out<E>,
-    argv: &[&str],
 ) -> Outcome {
-    // `--schema` prints a Zod schema, which lives in the bundle (ADR 0178 §5).
-    if parsed.flags.on("schema") {
-        return hand_over(&parsed.flags, out, err, argv);
-    }
     let answer = match help::help_for(words) {
         Ok(answer) => answer,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), argv, &failure),
+        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
     };
     if output_mode(&parsed.flags) == OutputMode::Json {
         if let Some(command) = answer.command {
@@ -65,17 +60,12 @@ struct VersionValue<'a> {
     version: &'a str,
 }
 
+/// The management home off a terminal (a person at one gets the bundle's interactive home).
 pub(crate) fn home<W: Write, E: Write>(
     parsed: &Parsed<'_>,
     out: &mut Out<W>,
     err: &mut Out<E>,
-    argv: &[&str],
 ) -> Outcome {
-    let env = Env::from_process();
-    // The interactive home is the bundle's (ADR 0221 §1); off a terminal this is the overview.
-    if can_prompt(&parsed.flags, &env, terminal()) {
-        return hand_over(&parsed.flags, out, err, argv);
-    }
     if output_mode(&parsed.flags) == OutputMode::Json {
         let version = version::current();
         return finish(out.json(&help_json::tree(&version)), out, err);
@@ -91,11 +81,10 @@ pub(crate) fn run_completion<W: Write, E: Write>(
     parsed: &Parsed<'_>,
     out: &mut Out<W>,
     err: &mut Out<E>,
-    argv: &[&str],
 ) -> Outcome {
     let word = parsed.words.first().copied().unwrap_or("");
     if word == "install" {
-        return completion_install(parsed, out, err, argv);
+        return completion_install(parsed, out, err);
     }
     let shells: Vec<&str> = completion::SHELLS
         .iter()
@@ -106,8 +95,9 @@ pub(crate) fn run_completion<W: Write, E: Write>(
             "ace completion takes {} or install, not {word}.",
             shells.join(", ")
         ))
-        .with_argument("SHELL");
-        return fail(out, err, Some(&parsed.flags), argv, &failure);
+        .with_argument("SHELL")
+        .with_command(parsed.command.id);
+        return fail(out, err, Some(&parsed.flags), &failure);
     };
     finish(out.write(completion::script(shell)), out, err)
 }
@@ -116,26 +106,31 @@ fn completion_install<W: Write, E: Write>(
     parsed: &Parsed<'_>,
     out: &mut Out<W>,
     err: &mut Out<E>,
-    argv: &[&str],
 ) -> Outcome {
     let shell_name = std::env::var("SHELL").ok();
-    let Some(shell) = completion::current_shell(shell_name.as_deref(), std::env::consts::OS) else {
+    let Some(shell) = completion::current_shell(shell_name.as_deref(), cfg!(windows)) else {
         let shells: Vec<&str> = completion::SHELLS
             .iter()
             .map(|shell| shell.as_str())
             .collect();
-        let failure = Failure::usage("ace can't tell which shell you use.").with_hint(format!(
-            "Print a script with ace completion {} and add it yourself.",
-            shells.join("|")
-        ));
-        return fail(out, err, Some(&parsed.flags), argv, &failure);
+        let failure = Failure::usage("ace can't tell which shell you use.")
+            .with_hint(format!(
+                "Print a script with ace completion {} and add it yourself.",
+                shells.join("|")
+            ))
+            .with_command(parsed.command.id);
+        return fail(out, err, Some(&parsed.flags), &failure);
     };
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_default();
+    // The OS's home lookup, as Node's `os.homedir()` uses: HOME, else the account's own.
+    let Some(home) = std::env::home_dir() else {
+        let failure = Failure::new(Outcome::Failed, "ace can't find your home folder.")
+            .with_code(cli_out::ErrorCode::Internal)
+            .with_hint("Set HOME (or USERPROFILE on Windows) and try again.");
+        return fail(out, err, Some(&parsed.flags), &failure);
+    };
     let plan = completion::install_plan(
         shell,
-        &home,
+        &home.to_string_lossy(),
         std::env::var("XDG_DATA_HOME").ok().as_deref(),
         std::env::var("XDG_CONFIG_HOME").ok().as_deref(),
         std::env::var("ZDOTDIR").ok().as_deref(),
@@ -174,17 +169,13 @@ struct InstallValue<'a> {
     path: &'a str,
 }
 
-pub(crate) fn run_complete<W: Write, E: Write>(
-    parsed: &Parsed<'_>,
+/// Prints the candidates a completion slot already computed (the daemon's live ones hand over
+/// before any writer exists).
+pub(crate) fn complete<W: Write, E: Write>(
+    slot: &completion::Slot,
     out: &mut Out<W>,
     err: &mut Out<E>,
-    argv: &[&str],
 ) -> Outcome {
-    let slot = completion::slot(&parsed.words);
-    // A live reference is the daemon's to name; the connection lands in ADR 0221 step 3.
-    if slot.reference.is_some() {
-        return hand_over(&parsed.flags, out, err, argv);
-    }
     finish(
         out.write(&completion::candidate_lines(&slot.candidates)),
         out,

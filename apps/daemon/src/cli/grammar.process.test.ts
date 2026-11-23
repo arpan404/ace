@@ -75,6 +75,11 @@ test("help, version, completion and doctor's help work with ace down", async () 
 
 test("tab completion with ace down answers from the table and writes nothing", async () => {
   const { root, env } = await emptyHome();
+  // With nothing typed yet, the top of the table is the answer.
+  const top = await run(env, ["__complete"]);
+  expect(top.code, top.stderr).toBe(0);
+  expect(top.stdout.split("\n")).toEqual(expect.arrayContaining(["help", "thread"]));
+  expect(await run(env, ["__complete", "--"])).toEqual(top);
   const verbs = await run(env, ["__complete", "--", "thread", ":s"]);
   expect(verbs.code, verbs.stderr).toBe(0);
   expect(verbs.stdout.split("\n")).toEqual(expect.arrayContaining(["show", "start"]));
