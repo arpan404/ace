@@ -4,7 +4,16 @@ import * as aceIcons from "@ace/icons";
 import type { Icon } from "@ace/icons";
 import { machineIconGlyphs, projectGlyphIcons } from "@ace/ui-core";
 import { aceGlyphSvgs } from "./generate-glyphs.ts";
-import { assetSvg, filledAssetSvg, type AssetWeight } from "./icon-svg.ts";
+import { assetSvg, filledAssetSvg, spadeTabSvg, type AssetWeight } from "./icon-svg.ts";
+import {
+  spadeEggPath,
+  spadeEye,
+  spadeEyes,
+  spadePupilAt,
+  spadePupilForSize,
+  spadeRingForSize,
+  spadeTiltDeg,
+} from "@ace/ui-core/spade";
 import {
   barIconSize,
   barIcons,
@@ -81,7 +90,7 @@ await writeFile(
   join(folder, "Contents.json"),
   `${JSON.stringify({ info: { author: "xcode", version: 1 } }, null, 2)}\n`,
 );
-const writeAsset = async (asset: string, svg: string) => {
+const writeAsset = async (asset: string, svg: string, rendering: "template" | "original" = "template") => {
   const set = join(folder, `${asset}.imageset`);
   await mkdir(set, { recursive: true });
   await writeFile(join(set, `${asset}.svg`), svg);
@@ -90,7 +99,7 @@ const writeAsset = async (asset: string, svg: string) => {
     info: { author: "xcode", version: 1 },
     properties: {
       "preserves-vector-representation": true,
-      "template-rendering-intent": "template",
+      "template-rendering-intent": rendering,
     },
   };
   await writeFile(join(set, "Contents.json"), `${JSON.stringify(contents, null, 2)}\n`);
@@ -119,6 +128,26 @@ for (const name of tabIcons) {
   await writeAsset(`tab-${name}`, assetSvg(source.icon, "regular", source.turn, tabIconSize));
   if (sidebarFilledIcons.has(name))
     await writeAsset(`tab-${name}-fill`, assetSvg(source.icon, "fill", source.turn, tabIconSize));
+}
+// Spade's face for the tab bar, in colour as the desktop rail draws it (`SpadeMark`).
+{
+  const { pupil, pad } = spadePupilForSize(tabIconSize);
+  await writeAsset(
+    "tab-spade",
+    spadeTabSvg(
+      {
+        eyes: spadeEyes,
+        eye: spadeEye,
+        pupil,
+        pupilAt: (eye) => spadePupilAt(eye, pupil, pad),
+        ring: spadeRingForSize(tabIconSize),
+        tilt: spadeTiltDeg,
+        egg: spadeEggPath,
+      },
+      tabIconSize,
+    ),
+    "original",
+  );
 }
 // The navigation bar's button glyphs at a bar symbol's size.
 for (const { name, weight } of barIcons) {

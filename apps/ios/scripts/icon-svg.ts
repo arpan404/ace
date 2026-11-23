@@ -119,3 +119,38 @@ export function filledAssetSvg(icon: Icon, turn = 0, size = 20): string {
   );
   return `${turnedSvg(markup, turn)}\n`;
 }
+
+/** Spade's face geometry on the web's 24 box (ui-core `spade-look.ts`), at the tab's size. */
+export interface SpadeTabFace {
+  eyes: readonly { x: number; y: number }[];
+  eye: { rx: number; ry: number };
+  pupil: { rx: number; ry: number };
+  pupilAt: (eye: { x: number; y: number }) => { x: number; y: number };
+  ring: number;
+  tilt: number;
+  egg: (x: number, y: number, rx: number, ry: number) => string;
+}
+
+/**
+ * Spade's tab glyph, drawn as the desktop rail draws `SpadeMark`: a grey head, paper-white eyes
+ * with near-black outlines and pupils. In colour, so the tab bar shows it as is (an "original"
+ * image), the same size as the line icons beside it.
+ */
+export function spadeTabSvg(face: SpadeTabFace, size: number): string {
+  const head = "#9b9ba1";
+  const paper = "#f6f6f7";
+  const ink = "#141416";
+  const outlines = face.eyes
+    .map((eye) => `<path d="${face.egg(eye.x, eye.y, face.eye.rx + face.ring, face.eye.ry + face.ring)}" fill="${ink}"/>`)
+    .join("");
+  const whites = face.eyes
+    .map((eye) => `<path d="${face.egg(eye.x, eye.y, face.eye.rx, face.eye.ry)}" fill="${paper}"/>`)
+    .join("");
+  const pupils = face.eyes
+    .map((eye) => {
+      const at = face.pupilAt(eye);
+      return `<ellipse cx="${round(at.x)}" cy="${round(at.y)}" rx="${round(face.pupil.rx)}" ry="${round(face.pupil.ry)}" fill="${ink}"/>`;
+    })
+    .join("");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10.6" fill="${head}"/><g transform="rotate(${face.tilt} 12 12)">${outlines}${whites}${pupils}</g></svg>\n`;
+}

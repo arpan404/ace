@@ -28,7 +28,8 @@ enum HomeTabs {
 
     /// The system tab bar uses the same glyph for both selection states.
     static func tabImage(_ tab: InboxTab) -> String {
-        "tab-\(icon(tab).rawValue)"
+        // Spade's tab is its face in colour, as the desktop rail draws it (`tab-spade`).
+        tab == .spade ? "tab-spade" : "tab-\(icon(tab).rawValue)"
     }
 
     /// The shared glyph for each place. The phone uses Sparkle for Spade.
