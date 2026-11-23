@@ -3,7 +3,17 @@ import Foundation
 
 /// The SHA-256 of `text`, hex: what identifies drawn content across row appearances.
 nonisolated func contentKey(_ text: String) -> String {
-    SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+    let digest = SHA256.hash(data: Data(text.utf8))
+    return String(unsafeUninitializedCapacity: SHA256.byteCount * 2) { utf8 in
+        func hex(_ nibble: UInt8) -> UInt8 {
+            nibble < 10 ? 48 + nibble : 87 + nibble
+        }
+        for (index, byte) in digest.enumerated() {
+            utf8[index * 2] = hex(byte >> 4)
+            utf8[index * 2 + 1] = hex(byte & 0x0f)
+        }
+        return SHA256.byteCount * 2
+    }
 }
 
 /// What one thread keeps of the rows it has drawn, so a row scrolled back into view comes back at
