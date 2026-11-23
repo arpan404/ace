@@ -105,12 +105,11 @@ test("turning a permission on without the person's standing says it's theirs to 
 test("the apps bots never use change as a whole list, and Full access says what still asks", async () => {
   const { ask } = await ready();
 
-  const listed = page(
-    await ask({ type: "spade.settings.neverApps", apps: ["1Password", "Signal "] }),
-  );
+  const listed = page(await ask({ type: "spade.settings.neverApps", change: { add: "Signal " } }));
   const decided = page(await ask({ type: "spade.settings.autonomy", autonomy: "full_access" }));
 
-  expect(listed.neverApps).toEqual(["1Password", "Signal"]);
+  expect(listed.neverApps?.at(-1)).toBe("Signal");
+  expect(listed.neverApps).toContain("1Password");
   expect(decided.autonomy.value).toBe("full_access");
   expect(decided.autonomy.fullAccess).toMatch(/^It works without asking you or the reviewer/);
 });
@@ -131,5 +130,57 @@ test("a Spade that refuses a change says why in its own words", async () => {
     ok: false,
     title: "Couldn't change how bots decide",
     message: "A move is in progress.",
+  });
+});
+
+test("an app blocked on the desktop while the phone adds another stays blocked", async () => {
+  const { ask, api, daemon } = await ready();
+  let raced = false;
+  daemon.spade.serve({
+    answer: (request) => {
+      // The desktop's block lands between the phone's read and its write.
+      if (!raced && request.method === "PUT" && request.path === "/v1/security/never-apps") {
+        raced = true;
+        api.security.permissions.neverApps = [...api.security.permissions.neverApps, "Signal"];
+      }
+      return api.answer(request);
+    },
+    open: (path) => api.open(path),
+  });
+
+  const added = page(await ask({ type: "spade.settings.neverApps", change: { add: "Notes" } }));
+  const removed = page(
+    await ask({ type: "spade.settings.neverApps", change: { remove: "Notes" } }),
+  );
+
+  expect(raced).toBe(true);
+  expect(added.neverApps).toEqual(expect.arrayContaining(["Signal", "Notes"]));
+  expect(removed.neverApps).toContain("Signal");
+  expect(removed.neverApps).not.toContain("Notes");
+});
+
+test("Spade's own refusal of Full access without the person says it's theirs to do", async () => {
+  const { ask, api, daemon } = await ready();
+  daemon.spade.serve({
+    answer: (request) =>
+      request.path === "/v1/security/autonomy"
+        ? {
+            status: 403,
+            body: JSON.stringify({
+              error:
+                "Only the person can turn on Full access: do it in ace, on this computer or a paired device.",
+            }),
+          }
+        : api.answer(request),
+    open: (path) => api.open(path),
+  });
+
+  const answer = await ask({ type: "spade.settings.autonomy", autonomy: "full_access" });
+
+  expect(answer).toEqual({
+    ok: false,
+    title: "Couldn't change how bots decide",
+    message:
+      "Only you can make this change. Pair this iPhone again from ace on your computer to make it here, or make it there.",
   });
 });

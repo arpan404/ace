@@ -177,6 +177,16 @@ export class FakeSpadeSecurity {
     if (method === "PUT" && sub === "never-apps") {
       const apps = Array.isArray(body.apps) ? body.apps.map((app) => String(app).trim()) : [];
       const next = [...new Set(apps.filter(Boolean))];
+      // A list changed from one Spade no longer holds is refused, as Spade does (409).
+      if (Array.isArray(body.expected)) {
+        const seen = [...new Set(body.expected.map((app) => String(app).trim()).filter(Boolean))];
+        const held = this.permissions.neverApps;
+        if (seen.length !== held.length || seen.some((app, at) => app !== held[at]))
+          return problem(
+            409,
+            "The apps bots never use changed elsewhere. Look at the list again, then change it.",
+          );
+      }
       const drops = this.permissions.neverApps.some((app) => !next.includes(app));
       const refused = drops ? this.permissions.refusal() : undefined;
       if (refused) return refused;

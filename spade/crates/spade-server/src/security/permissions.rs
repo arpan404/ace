@@ -16,6 +16,10 @@ use super::{Security, SecurityError};
 /// What a raise refused for want of the person's say tells the caller.
 pub const PERSON_ONLY: &str = super::attest::CONFIRM;
 
+/// A never-use list changed from one that is no longer what Spade holds.
+pub const STALE_NEVER_APPS: &str =
+    "The apps bots never use changed elsewhere. Look at the list again, then change it.";
+
 /// What a raise on a shared bot by a member who may not make it tells them.
 pub const NOT_YOURS: &str = "Only the organization's owners and admins can turn this on.";
 
@@ -161,19 +165,36 @@ impl Security {
     }
 
     /// Sets the never-use list. A list that drops an entry lets bots use that app, so it needs
-    /// the person's stamp; one that only adds doesn't.
+    /// the person's stamp; one that only adds doesn't. With `expected`, the list the client
+    /// changed: when the list held now differs (another device changed it meanwhile), nothing
+    /// changes and the change is refused as stale, so no one's entry is dropped unseen. Both
+    /// are decided under the settings' lock.
     pub fn set_never_apps(
         &self,
         given: &[String],
+        expected: Option<&[String]>,
         stamp: Option<&str>,
     ) -> Result<MachineSecurity, SecurityError> {
         let list = never::clean(given).map_err(|why| SecurityError::Invalid(why.to_owned()))?;
-        let drops = !never::dropped(&self.never_apps(), &list).is_empty();
-        // The stamp signs the list as the person's client sent it, before Spade tidies it.
-        if drops && !self.person_says(stamp, "machine", &stamped_list(given)) {
-            return Err(SecurityError::PersonOnly(PERSON_ONLY));
-        }
-        self.change_machine(|machine| machine.never_apps = list)
+        let expected = expected
+            .map(never::clean)
+            .transpose()
+            .map_err(|why| SecurityError::Invalid(why.to_owned()))?;
+        self.try_change_machine(|machine| {
+            if expected
+                .as_ref()
+                .is_some_and(|seen| *seen != machine.never_apps)
+            {
+                return Err(SecurityError::Stale(STALE_NEVER_APPS));
+            }
+            let drops = !never::dropped(&machine.never_apps, &list).is_empty();
+            // The stamp signs the list as the person's client sent it, before Spade tidies it.
+            if drops && !self.person_says(stamp, "machine", &stamped_list(given)) {
+                return Err(SecurityError::PersonOnly(PERSON_ONLY));
+            }
+            machine.never_apps = list;
+            Ok(())
+        })
     }
 }
 

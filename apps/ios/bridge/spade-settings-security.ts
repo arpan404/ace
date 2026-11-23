@@ -1,4 +1,5 @@
 import {
+  SpadeRequestError,
   parseSpadeSecurityMachine,
   spadePermissionSwitches,
   type SpadePermissionKey,
@@ -22,7 +23,11 @@ const app = z.string().trim().min(1).max(200);
 
 export const spadeSecurityRequests = [
   z.object({ type: z.literal("spade.settings.permission"), key: z.enum(keys), on: z.boolean() }),
-  z.object({ type: z.literal("spade.settings.neverApps"), apps: z.array(app).max(500) }),
+  /** One app added to or taken off the list, applied to the list Spade holds when it lands. */
+  z.object({
+    type: z.literal("spade.settings.neverApps"),
+    change: z.union([z.object({ add: app }), z.object({ remove: app })]),
+  }),
   z.object({
     type: z.literal("spade.settings.autonomy"),
     autonomy: z.enum(["auto_review", "full_access"]),
@@ -37,7 +42,8 @@ type Refusal = { ok: false; title: string; message: string };
  * What ace's daemon, or Spade, answers a change only the person may make from a caller that
  * hasn't proved it is them (`spade-server` `security::attest::CONFIRM`).
  */
-const standing = /^(Confirm your identity to continue|This is yours to do)/;
+const standing =
+  /^(Confirm your identity to continue|This is yours to do|Only the person can turn on Full access)/;
 
 /**
  * The phone proves the person on its paired machine's socket by itself, so when that proof is
@@ -69,6 +75,35 @@ const titleOf = (request: SecurityWrite): string => {
   }
 };
 
+/** How many times a change to the list is tried when another device changed it meanwhile. */
+const listTries = 3;
+
+/**
+ * One app added to or removed from the never-use list. The change is applied to the list Spade
+ * holds, read just before, and sent with that list as `expected`: when another device changed
+ * the list in between, Spade refuses it as stale (409) and it is applied again to the newer
+ * list, so an entry made elsewhere is never dropped unseen.
+ */
+async function changeNeverApps(ask: Ask, change: { add: string } | { remove: string }) {
+  for (let tried = 1; ; tried++) {
+    const machine = parseSpadeSecurityMachine(await ask("GET", "/v1/security"));
+    const held = machine?.permissions?.neverApps;
+    if (!held) throw new Error("Spade's security settings didn't make sense.");
+    const apps =
+      "add" in change
+        ? held.includes(change.add)
+          ? held
+          : [...held, change.add]
+        : held.filter((each) => each !== change.remove);
+    try {
+      return await ask("PUT", "/v1/security/never-apps", { apps, expected: held });
+    } catch (error) {
+      if (!(error instanceof SpadeRequestError && error.status === 409) || tried >= listTries)
+        throw error;
+    }
+  }
+}
+
 /** One change, answered with the page as Spade now holds it, or why it wasn't made. */
 export async function writeSecurity(
   ask: Ask,
@@ -80,7 +115,7 @@ export async function writeSecurity(
         case "spade.settings.permission":
           return ask("PUT", "/v1/security/permissions", { key: request.key, on: request.on });
         case "spade.settings.neverApps":
-          return ask("PUT", "/v1/security/never-apps", { apps: [...new Set(request.apps)] });
+          return changeNeverApps(ask, request.change);
         case "spade.settings.autonomy":
           return ask("PUT", "/v1/security/autonomy", { autonomy: request.autonomy });
       }
