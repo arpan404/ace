@@ -9,7 +9,13 @@
 //! ace-media is the only reader of a Simulator's stream, so a stream that ends or never sends
 //! its IDR is replaced by another subscription; the picture carries on at its first IDR. Only a
 //! source with no stream for [`Timings::give_up`] fails.
+//!
+//! A coordinator that panics fails its source on its way out, and one that stops turning its
+//! loop for [`STALL_AFTER_MS`](super::watch::STALL_AFTER_MS) (a re-encode call that never
+//! returns) is retired and its source failed, as a picture encoder's is. A subscription that
+//! panics ends as a stream serve-sim ended would, and another replaces it.
 use super::pictures::Encoded;
+use super::watch::{Beat, Owed, Pulse};
 use crate::encode::worker::Output;
 use crate::serve_sim::{HttpBody, Record, Records, Translator, loopback_url};
 use media_wire::control::EncodeSpec;
@@ -188,6 +194,8 @@ fn record_bytes(record: &Record) -> usize {
 }
 
 struct Handle {
+    source: String,
+    pulse: Pulse,
     messages: Sender<Message>,
     thread: JoinHandle<()>,
 }
@@ -215,7 +223,7 @@ impl Readers {
 
     /// Starts reading `url` for `source` under `token`. A URL that isn't serve-sim's loopback
     /// address fails the source at once.
-    pub fn open(&mut self, source: &str, token: u64, url: &str) {
+    pub fn open(&mut self, source: &str, token: u64, url: &str, now_ms: u64) {
         let failed = |reason: &str| (source.to_owned(), token, Output::Failed(reason.into()));
         let Some((port, path)) = loopback_url(url) else {
             let _ = self.outputs.try_send(failed("reader-address"));
@@ -225,20 +233,35 @@ impl Readers {
         let outputs = self.outputs.clone();
         let name = source.to_owned();
         let timings = self.timings;
+        let (pulse, beat) = Pulse::new(now_ms);
+        let owed = Owed {
+            outputs: self.outputs.clone(),
+            source: source.to_owned(),
+            token,
+            reason: "reader-panicked",
+        };
         let spawned = std::thread::Builder::new()
             .name("ace-media-reader".into())
             .spawn(move || {
+                let _owed = owed;
                 let addr = SocketAddr::from(([127, 0, 0, 1], port));
                 run(
                     Coordinator::new(addr, path, own, timings),
                     mailbox,
                     outputs,
                     (name, token),
+                    beat,
                 );
             });
         match spawned {
             Ok(thread) => {
-                self.threads.insert(token, Handle { messages, thread });
+                let handle = Handle {
+                    source: source.to_owned(),
+                    pulse,
+                    messages,
+                    thread,
+                };
+                self.threads.insert(token, handle);
             }
             Err(_) => {
                 let _ = self.outputs.try_send(failed("reader-failed"));
@@ -274,6 +297,28 @@ impl Readers {
             let _ = handle.messages.send(Message::Close);
             self.closing.push((handle.thread, now_ms));
         }
+    }
+
+    /// Open readers that stopped turning [`STALL_AFTER_MS`](super::watch::STALL_AFTER_MS) ago,
+    /// wedged in a call: each is retired (kept track of as a closed reader, stuck since it last
+    /// turned) and its source and token returned once, for the engine to fail. One that has
+    /// exited reported its own end.
+    pub fn stalled(&mut self, now_ms: u64) -> Vec<(String, u64)> {
+        let wedged: Vec<(u64, u64)> = self
+            .threads
+            .iter_mut()
+            .filter(|(_, h)| !h.thread.is_finished())
+            .filter_map(|(token, h)| h.pulse.stalled(now_ms).map(|since| (*token, since)))
+            .collect();
+        let mut failed = Vec::with_capacity(wedged.len());
+        for (token, since) in wedged {
+            if let Some(handle) = self.threads.remove(&token) {
+                let _ = handle.messages.send(Message::Close);
+                failed.push((handle.source, token));
+                self.closing.push((handle.thread, since));
+            }
+        }
+        failed
     }
 
     /// Closed readers still running [`STUCK_AFTER_MS`] after their close.
@@ -548,6 +593,7 @@ fn run(
     mailbox: Mailbox,
     outputs: mpsc::Sender<Encoded>,
     (source, token): (String, u64),
+    beat: Beat,
 ) {
     let send = |output: Output| {
         outputs
@@ -555,6 +601,7 @@ fn run(
             .is_ok()
     };
     loop {
+        beat.turn();
         // The shell's clock, read once per turn: the recovery decisions are given it.
         let now = Instant::now();
         // Replacements opened while nothing streams don't move the give-up.
@@ -648,6 +695,7 @@ fn run(
 
 /// Reads one subscription until it ends, handing on each record it carries.
 fn subscription(id: u32, mut stream: TcpStream, own: Sender<Message>, queued: Arc<AtomicUsize>) {
+    let _panics = EndsOnPanic(id, own.clone());
     let (mut http, mut records) = (HttpBody::default(), Records::default());
     let mut admission = Admission::default();
     let (mut buffer, mut body, mut found) = (vec![0; 64 * 1024], Vec::new(), Vec::new());
@@ -690,6 +738,19 @@ fn subscription(id: u32, mut stream: TcpStream, own: Sender<Message>, queued: Ar
         }
     };
     let _ = own.send(Message::Ended(id, reason));
+}
+
+/// A subscription that panics ends as one serve-sim ended would: another replaces it.
+struct EndsOnPanic(u32, Sender<Message>);
+
+impl Drop for EndsOnPanic {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            let _ = self
+                .1
+                .send(Message::Ended(self.0, "the subscription panicked".into()));
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::*;
+use crate::shell::watch::STALL_AFTER_MS;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 
@@ -70,7 +71,7 @@ fn serve_sim(
 fn read_for(port: u16, within: Duration) -> (usize, Option<String>) {
     let (outputs, mut received) = mpsc::channel(64);
     let mut readers = Readers::with_timings(outputs, QUICK);
-    readers.open("sim", 1, &format!("http://127.0.0.1:{port}/stream.avcc"));
+    readers.open("sim", 1, &format!("http://127.0.0.1:{port}/stream.avcc"), 0);
     let opened = Instant::now();
     let mut keys = 0;
     while opened.elapsed() < within {
@@ -223,4 +224,34 @@ fn a_serve_sim_that_keeps_ending_replacements_is_retried_at_most_every_250_ms() 
     assert!(recovery.gap(Origin::Next));
     assert!(!recovery.attempt(t0 + Duration::from_millis(800), false));
     assert!(recovery.attempt(t0 + Duration::from_millis(1_000), false));
+}
+
+#[test]
+fn a_reader_that_stops_turning_is_failed_at_its_deadline_and_counts_as_stuck() {
+    let (port, _) = serve_sim(picture(Duration::ZERO));
+    // Nobody takes its units: the reader blocks handing over its second one, inside one call.
+    let (outputs, mut received) = mpsc::channel(1);
+    let mut readers = Readers::with_timings(outputs, QUICK);
+    readers.open("sim", 4, &format!("http://127.0.0.1:{port}/stream.avcc"), 0);
+    std::thread::sleep(Duration::from_millis(300));
+
+    assert!(readers.stalled(1_000).is_empty());
+    assert!(
+        readers.stalled(1_000 + STALL_AFTER_MS - 1).is_empty(),
+        "within its deadline"
+    );
+    assert_eq!(
+        readers.stalled(1_000 + STALL_AFTER_MS),
+        vec![("sim".to_owned(), 4)]
+    );
+    assert!(!readers.has(4), "retired");
+    assert_eq!(readers.stuck(1_000 + STALL_AFTER_MS), 1);
+
+    // Its call returns once its units are taken, and it ends.
+    let end = Instant::now() + Duration::from_secs(5);
+    while readers.stuck(1_000_000) > 0 {
+        assert!(Instant::now() < end, "the reader never exited");
+        while received.try_recv().is_ok() {}
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
