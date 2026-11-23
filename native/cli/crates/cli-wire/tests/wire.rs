@@ -11,8 +11,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use cli_wire::{
-    CliErrorCode, ConnectConfig, Connection, Home, HttpMethod, Local, LocalIdentity, LocalOrigin,
-    Probe, ProbeAnswer, TcpProbe, Token, WireError, http_request_local, reach_local,
+    CliErrorCode, ConnectConfig, Connection, Home, HostFilesError, HttpMethod, Local,
+    LocalIdentity, LocalOrigin, Probe, ProbeAnswer, TcpProbe, Token, WireError, http_request_local,
+    parse_host_files, reach_local, read_host_files,
 };
 use serde::{Deserialize, Serialize};
 use tungstenite::Message;
@@ -381,4 +382,39 @@ fn timeouts_and_trickled_frames_match_ts_outcomes() {
     assert_eq!(http_err.exit_code(), 5);
     assert_eq!(http_err.failure().code, CliErrorCode::Uncertain);
     http_server.join().unwrap();
+}
+
+#[test]
+fn corrupt_daemon_files_report_how_they_fail() {
+    // Unparseable endpoint: the runtime's own `Invalid URL`, not daemon_down.
+    assert_eq!(
+        parse_host_files("garbage", TEST_TOKEN),
+        Err(HostFilesError::InvalidUrl)
+    );
+    assert_eq!(
+        parse_host_files("", TEST_TOKEN),
+        Err(HostFilesError::InvalidUrl)
+    );
+    // Well-formed URL that is not this machine's daemon: a shape failure.
+    assert_eq!(
+        parse_host_files("http://example.com/", TEST_TOKEN),
+        Err(HostFilesError::InvalidEndpoint)
+    );
+    // A malformed token: a shape failure, anchored at both ends exactly.
+    assert_eq!(
+        parse_host_files("http://127.0.0.1:1/", "garbage"),
+        Err(HostFilesError::InvalidToken)
+    );
+    assert_eq!(
+        parse_host_files("http://127.0.0.1:1/", &format!("{TEST_TOKEN}\n")),
+        Err(HostFilesError::InvalidToken)
+    );
+    assert!(parse_host_files("http://127.0.0.1:1/", TEST_TOKEN).is_ok());
+
+    // Missing files read as a stopped daemon, never a parse failure.
+    let missing = TempHome::new();
+    assert_eq!(
+        read_host_files(&missing.home()),
+        Err(HostFilesError::Unreadable(std::io::ErrorKind::NotFound))
+    );
 }

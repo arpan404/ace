@@ -16,6 +16,7 @@ native/cli/bench/bench.sh # hyperfine against the TypeScript CLI, and the §5 bu
 | `cli-table` | The command table as static data. `build.rs` turns `native/cli/table.json` into `&'static` arrays with routes sorted for binary search, so a run parses no JSON and builds no index. |
 | `cli-parse` | The pure parser: nouns, noun defaults, aliases (`insertWords`, `wordsAs`, `renameFlags`, `setFlags`, `byFlag`), global flags, values, choices, repeats, `-` words, missing arguments, typo suggestions and the usage messages and codes. |
 | `cli-out` | Who is on the other end (`--json`, `--quiet`, `--jq`, terminal checks), the failure envelope, exit codes and one locked `BufWriter` per run. |
+| `cli-wire` | The blocking daemon connection: endpoint and token reading with the TCP probe, the WebSocket request client, pinned-HTTPS `/v1` calls, and remote profiles (reading the profile store itself stays out, so the crate carries no SQLite). |
 | `ace-cli` | The `ace` binary: parse, run what is ported, otherwise hand the unchanged arguments to the bundle. |
 
 ## What runs here, and what hands over
@@ -39,11 +40,14 @@ Runs natively through the daemon connection (ADR 0221 step 4, providers group):
 - `ace remote list|use|remove`
 - `ace mcp list|add|revoke`
 
-Hands over: every other command, and these cases even for the commands above:
+Hands over: every other command, and these cases even for the commands above (and the
+machine commands below):
 
 - `--jq` anywhere (the filter is jq's to compile and run)
+- `--remote` anywhere (the bundle reads the remote profile store; the Rust side never does)
 - `help --schema` (the schemas are Zod, in the bundle)
-- an old spelling (`parsed.alias`), so its notice or refusal is printed once, by the bundle
+- an old spelling of a command that still hands over, so its notice or refusal is printed
+  once, by the bundle (a machine command's old spelling runs here, with the same notice)
 - an unported command whose arguments are missing, before the native missing-argument error:
   the bundle decides what they mean (a person-only action refuses before it ever asks for one)
 - a missing required argument on a terminal (the bundle asks for it)
@@ -55,8 +59,18 @@ Hands over: every other command, and these cases even for the commands above:
   `remote add` and `mcp request` (their prompts, QR codes, device codes, browser polling and
   the `@ace/accounts` registry stay in the bundle until the Rust side matches them exactly)
 
-`ace status --json` and every other daemon command still hand over, so ADR 0221 §5's
-"under 15 ms plus the daemon's own time" budget is for step 3, not this one.
+Runs natively, talking to this machine's daemon (ADR 0221 step 4):
+
+- `ace daemon status`, `ace daemon token`, `ace daemon logs` (and their shortcuts `token`, `logs`)
+- `ace storage usage|plan|clean|apply|status|compact` (and the `clean …` spellings).
+  `storage clean` hands back over when a person on a terminal would be asked to confirm it;
+  the bundle's prompt owns that moment.
+
+Still hands over: `ace daemon start` and `ace daemon serve` (they run the daemon), `ace daemon
+stop` (its shutdown proof lives in the daemon's process evidence), every `service` command (the
+OS service managers in `@ace/service`), every `config` command (the settings service's file and
+live rules, including the guarded settings and the Spade switches), `ace doctor`,
+`ace doctor bundle` and `ace triage` (the rescue path, which moves last).
 
 Hand-over finds the runtime and `ace.mjs` beside the binary, in each shipped layout:
 
@@ -104,8 +118,11 @@ ACE_CLI_IMPL=rust ACE_CLI_BIN="$PWD/native/cli/target/debug/ace" \
 ```
 
 Rust unit tests cover only what those files do not: release-version shapes, the release and
-desktop folders in a binary's path, `completion install`'s locations, and the native ids being
-in the table.
+desktop folders in a binary's path, `completion install`'s locations, the native ids being
+in the table, the machine alias retirement rule, timeout shapes, and the byte, receipt and
+compaction sentences. The storage and machine suites (`cli-clean`, `cli-retention`,
+`cli-compact`, `cli-machine`, `cli-stop`, `cli-daemon-stop`) run the same way against the
+binary; every file must pass with and without the switch before its group ships.
 
 ## Dependencies
 
@@ -116,13 +133,13 @@ metadata); `cargo-bloat` keeps symbols and so inflates the file, so measure size
 | Crate | Why | Size added |
 | ----- | --- | ---------- |
 | `serde` 1.0 (`serde_core`) | `Serialize` for `help --json` and `help COMMAND --json`; `Deserialize` for the desktop app's version marker | 3.4 KiB, plus `serde_derive` at build time |
-| `serde_json` 1.0 (`itoa`, `memchr`, `zmij`) | Compact and two-space JSON output; reading `desktop-app.json` | 24.6 KiB (+1.1 KiB `zmij`) |
+| `serde_json` 1.0 (`itoa`, `memchr`, `zmij`) | Compact and two-space JSON output; reading `desktop-app.json`; untouched `--json` passthrough via `RawValue` | 43.2 KiB (+1.1 KiB `zmij`) |
 | `strsim` 0.11 | Optimal string alignment distance for typo suggestions (`thraed` → `thread`) | 2.2 KiB |
-| `rusqlite` 0.37 (`bundled`) | Durable CLI outbox (`cli-outbox.sqlite`) with the TypeScript busy-timeout/WAL discipline, so Rust and TS CLIs share one file | 103.8 KiB (`libsqlite3_sys` 94.5 KiB + `rusqlite` 9.3 KiB) |
 | `uuid` 1.0 (`v4`) | Random `--idempotency-key` generation (`Uuid::new_v4`), matching `randomUUID()` | under 1 KiB (`getrandom` 232 B, `rand` 32 B) |
-| `ctrlc` 3.5 | Ctrl+C handling in the Windows hand-over only | 0 bytes on macOS and Linux; Windows only |
-| `rusqlite` 0.41 (`bundled`, no default features) | The CLI profile store (`cli-profiles.sqlite`): remote profiles and the selected profile, read the way the TypeScript CLI reads them | ~1.4 MiB, almost all of it the SQLite C amalgamation (`libsqlite3_sys` counts 98.6 KiB of Rust glue and 9.3 KiB of `rusqlite` itself) |
+| `rusqlite` 0.41 (`bundled`, no default features) | The CLI profile store (`cli-profiles.sqlite`) and the durable outbox (`cli-outbox.sqlite`), read and written the way the TypeScript CLI does (busy timeout, WAL, `BEGIN IMMEDIATE`) | ~1.4 MiB, almost all of it the SQLite C amalgamation (`libsqlite3_sys` counts 98.6 KiB of Rust glue and 9.3 KiB of `rusqlite` itself) |
 | `url` 2 (no defaults) | WHATWG URL parsing for stored profile origins and relays, matching `new URL()` in the TypeScript schema | ~0 KiB, already linked through `cli-wire` |
+| `chrono` 0.4 (`alloc`, `clock`, `std`) | Machine-local timestamps for daemon log lines, formatted as the TypeScript formats them | 21.3 KiB |
+| `ctrlc` 3.5 | Ctrl+C handling: stopping the `tail` child in `daemon logs --follow`, and the Windows hand-over | 264 B on macOS and Linux (plus 272 B `nix`); Windows as before |
 
 `serde` and `serde_json` are also `cli-table`'s build dependencies: the table is parsed once at
 build time, never at run time. `serde_json`'s `raw_value` feature (no new crate) lets `--json`
@@ -135,20 +152,30 @@ No async runtime, no clap, no anyhow, no regex. The OS home lookup for `completi
 
 ```
  File  .text     Size Crate
-36.0%  81.9% 295.1KiB std
- 9.1%  20.7%  74.4KiB ace
- 3.0%   6.8%  24.6KiB serde_json
- 0.9%   2.1%   7.5KiB cli_parse
- 0.5%   1.2%   4.3KiB cli_out
- 0.5%   1.1%   3.8KiB [Unknown]
- 0.4%   1.0%   3.5KiB cli_table
- 0.4%   0.9%   3.4KiB serde_core
- 0.3%   0.6%   2.2KiB strsim
- 0.1%   0.3%   1.1KiB zmij
-44.0% 100.0% 360.2KiB .text section size
+23.4%  39.3% 559.9KiB std
+11.1%  18.6% 264.8KiB rustls
+ 7.8%  13.1% 187.0KiB ace
+ 4.3%   7.2% 102.8KiB ureq
+ 3.2%   5.4%  76.3KiB cli_wire
+ 1.8%   3.1%  43.9KiB http
+ 1.8%   3.0%  43.2KiB serde_json
+ 1.7%   2.8%  40.2KiB url
+ 1.5%   2.5%  35.8KiB webpki
+ 0.9%   1.5%  21.3KiB chrono
+ 0.8%   1.3%  19.0KiB tungstenite
+ 0.8%   1.3%  18.8KiB idna
+ 0.8%   1.3%  18.3KiB ureq_proto
+ 0.4%   0.7%  10.2KiB icu_normalizer
+ 0.3%   0.5%   7.6KiB serde_core
+ 0.3%   0.5%   7.5KiB cli_parse
+ 0.2%   0.4%   5.8KiB cli_out
+ 0.2%   0.4%   5.5KiB rustls_pki_types
+ 0.2%   0.4%   5.2KiB bytes
+ 0.2%   0.3%   4.5KiB smallvec
+59.5% 100.0%   1.4MiB .text section size
 ```
 
-Stripped release binary: **721,616 bytes (704 KiB)**, against the 4 MB budget.
+Stripped release binary: **2,048,752 bytes (1.95 MiB)**, against the 4 MB budget.
 
 ### `cli-wire`
 
@@ -189,7 +216,7 @@ is shared, so single runs spread wide; the medians below hold run after run.
 | a usage error (`ace thraed list`) | — | 2.32 ms | 40.3 ms |
 | `ace __complete`, daemon down | under 3 ms | 2.30 ms | 39.1 ms |
 | `ace --json` (management tree) | — | 2.52 ms | — |
-| stripped binary | under 4 MB | 0.69 MB | — |
+| stripped binary | under 4 MB | 1.95 MiB | — |
 
 The TypeScript column is the source CLI on Bun (`bun apps/daemon/src/cli.ts`), not the installed
 bundle; the bundle on its bundled Node is slower still (ADR 0221 measured 232 ms for `version`).

@@ -187,6 +187,43 @@ pub fn parse_host_connection(raw_origin: &str, raw_token: &str) -> Result<Local,
     Ok(Local::new(origin, token))
 }
 
+/// How the daemon files fail to name a daemon, for the commands that report each differently.
+///
+/// Only a missing file reads as a stopped daemon; anything else fails the way the bundle
+/// fails it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostFilesError {
+    /// A file is missing or unreadable.
+    Unreadable(std::io::ErrorKind),
+    /// The endpoint is not a URL at all: the runtime's own `Invalid URL` failure.
+    InvalidUrl,
+    /// A well-formed URL that is not this machine's loopback daemon.
+    InvalidEndpoint,
+    /// A token that is not 64 lowercase hex digits.
+    InvalidToken,
+}
+
+/// Reads `<home>/daemon-endpoint` and `<home>/daemon-token`, keeping why they fail.
+pub fn read_host_files(home: &Home) -> Result<Local, HostFilesError> {
+    let raw_origin = fs::read_to_string(home.endpoint_path())
+        .map_err(|error| HostFilesError::Unreadable(error.kind()))?;
+    let raw_token = fs::read_to_string(home.token_path())
+        .map_err(|error| HostFilesError::Unreadable(error.kind()))?;
+    parse_host_files(&raw_origin, &raw_token)
+}
+
+/// Pure validation of the file contents: URL syntax first (as `new URL` throwing), then this
+/// machine's shape rules, then the token. Nothing is trimmed: the URL parser strips
+/// surrounding whitespace itself, and the token pattern anchors both ends exactly.
+pub fn parse_host_files(raw_origin: &str, raw_token: &str) -> Result<Local, HostFilesError> {
+    if url::Url::parse(raw_origin).is_err() {
+        return Err(HostFilesError::InvalidUrl);
+    }
+    let origin = LocalOrigin::parse(raw_origin).map_err(|_| HostFilesError::InvalidEndpoint)?;
+    let token = Token::parse(raw_token).map_err(|_| HostFilesError::InvalidToken)?;
+    Ok(Local::new(origin, token))
+}
+
 /// Returns this machine's local daemon connection, or [`WireError::DaemonDown`] (exit 4) at once:
 /// no endpoint/token file, invalid files left behind, or TCP probe actively refused.
 ///
