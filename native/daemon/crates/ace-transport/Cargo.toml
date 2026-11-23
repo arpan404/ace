@@ -41,5 +41,8 @@ tokio = { version = "1.54", features = [
 ] }
 # tokio-util: CancellationToken tells connection tasks and upgrade handlers the listener is closing.
 tokio-util = { version = "0.7.20" }
+# tungstenite: `derive_accept_key` alone, the `Sec-WebSocket-Accept` digest the
+# handshake pins to ws's. No framing here (T1a.4), no TLS, no URL.
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 # zeroize: the hop secret is wiped on drop in a way the optimizer cannot remove.
 zeroize = { version = "1" }
