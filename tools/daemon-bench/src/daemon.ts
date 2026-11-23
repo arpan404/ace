@@ -34,10 +34,36 @@ export interface RunningDaemon {
   stop(): Promise<void>;
 }
 
+/**
+ * Backend switches the caller may set (`ACE_STORE=native`, …): their values reach the daemon,
+ * so one benchmark can measure the same workload on each backend. The addon paths come along so
+ * a run names the exact binary it loaded, wherever the bundle lives. Everything else stays the
+ * clean environment below.
+ */
+const switchVariables = [
+  "ACE_STORE",
+  "ACE_STORE_READS",
+  "ACE_TRANSLATORS",
+  "ACE_GIT",
+  "ACE_STORE_ADDON",
+  "ACE_TRANSLATORS_ADDON",
+  "ACE_GIT_ADDON",
+] as const;
+
+function switches(): NodeJS.ProcessEnv {
+  const passed: NodeJS.ProcessEnv = {};
+  for (const name of switchVariables) {
+    const value = process.env[name];
+    if (value !== undefined) passed[name] = value;
+  }
+  return passed;
+}
+
 /** A clean environment: nothing from the person's shell, their HOME or their ace data. */
 export function daemonEnv(settings: DaemonSettings): NodeJS.ProcessEnv {
   const { home, aceHome, bin, tmp } = settings.root;
   return {
+    ...switches(),
     HOME: home,
     USERPROFILE: home,
     PATH: bin,
