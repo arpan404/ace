@@ -11,6 +11,15 @@ import {
 } from "./process-containment.ts";
 import { toWindowsCommand } from "./process-owner.ts";
 import { markedEnv } from "./process-marker.ts";
+import { supervisorBackend } from "./native-switches.ts";
+import {
+  launchEnv,
+  nativeJobFactory,
+  nativeKillWindowsTree,
+  nativeSpawnChild,
+  NativeChildProcess,
+  type SpawnedBytes,
+} from "./native-process.ts";
 
 export { terminateDirectoryProcesses } from "./directory-processes.ts";
 
@@ -54,21 +63,37 @@ async function endWindowsJob(job: WindowsJob | undefined): Promise<void> {
 export function spawnBytes(options: ByteProcessOptions): ByteProcess {
   // No process groups exist on Windows; stop the whole tree with taskkill instead.
   const windows = (options.platform ?? process.platform) === "win32";
-  const killTree = options.windowsKillTree ?? killWindowsTree;
+  const native = supervisorBackend() === "native";
+  const killTree = options.windowsKillTree ?? (native ? nativeKillWindowsTree : killWindowsTree);
   const target = windows
     ? toWindowsCommand(options.command, options.args)
     : { command: options.command, args: [...options.args], verbatim: false };
-  const child = spawn(target.command, target.args, {
-    cwd: options.cwd,
-    env: markedEnv(options.env),
-    ...(windows ? { detached: false, windowsHide: true } : { detached: true }),
-    windowsVerbatimArguments: target.verbatim,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const child: SpawnedBytes = native
+    ? nativeSpawnChild({
+        command: target.command,
+        args: target.args,
+        cwd: options.cwd,
+        env: launchEnv(markedEnv(options.env)),
+        windows,
+        clearEnv: false,
+        stdin: "ignore",
+        stdout: "piped",
+        stderr: "piped",
+        verbatim: target.verbatim,
+        waiterDestroy:
+          options.windowsKillTree === undefined && options.windowsJobFactory === undefined,
+      })
+    : spawn(target.command, target.args, {
+        cwd: options.cwd,
+        env: markedEnv(options.env),
+        ...(windows ? { detached: false, windowsHide: true } : { detached: true }),
+        windowsVerbatimArguments: target.verbatim,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
   const pid = child.pid;
   // Never throws: it runs in the child's exit listener.
   const destroy = (leader: number) => signalTree(leader, true, windows, killTree, child);
-  const factory = options.windowsJobFactory ?? createKillOnCloseJob;
+  const factory = options.windowsJobFactory ?? (native ? nativeJobFactory : createKillOnCloseJob);
   const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
   if (pid !== undefined) job?.assign(pid);
   let cleanup: Promise<void> | undefined;
@@ -117,12 +142,16 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
       if (pid !== undefined) destroy(pid);
       drain();
     });
+    const disposeNative = () => {
+      if (child instanceof NativeChildProcess) child.dispose();
+    };
     child.once("close", (code) => {
       closed = true;
       cancelDrain?.();
       void (cleanup ?? Promise.resolve())
         .then(() => resolve(code), reject)
         .finally(() => {
+          disposeNative();
           if (pid !== undefined) {
             unregisterGroup(pid);
             job?.dispose();
@@ -138,6 +167,10 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
     }
     await exited.catch(() => {});
   };
-  if (pid !== undefined) registerGroup(pid, stop, undefined, () => destroy(pid));
+  if (pid !== undefined)
+    registerGroup(pid, stop, undefined, () => {
+      if (child instanceof NativeChildProcess) child.dispose();
+      destroy(pid);
+    });
   return { stdout: child.stdout, stderr: child.stderr, exited, stop };
 }

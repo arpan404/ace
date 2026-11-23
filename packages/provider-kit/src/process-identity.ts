@@ -11,6 +11,8 @@ import {
 import { childHasExited } from "./child-exit.ts";
 export { childHasExited } from "./child-exit.ts";
 import { z } from "zod";
+import { supervisorBackend } from "./native-switches.ts";
+import { supervisorAddon } from "./native-process.ts";
 
 // Windows identity: creation FILETIME (wall-clock, so callers still prove absence via ESRCH)
 // plus the token-user SID string. Windows has no pgid, so group stays the pid.
@@ -240,6 +242,22 @@ let libproc: Readonly<Record<"proc_pidinfo", NativeFunction>> | undefined;
 
 export function processIdentity(pid: number): ProcessIdentity | undefined {
   z.number().int().positive().parse(pid);
+  if (supervisorBackend() === "native") {
+    const found = supervisorAddon().supervisorProcessIdentity(pid);
+    if (!found) return undefined;
+    const parsed = JSON.parse(found) as {
+      pid: number;
+      start: string;
+      uid: number | string;
+      group: number;
+    };
+    return ProcessIdentity.parse({
+      pid: parsed.pid,
+      start: parsed.start,
+      uid: parsed.uid,
+      group: parsed.group,
+    });
+  }
   try {
     if (process.platform === "linux") {
       const path = `/proc/${pid}/stat`;

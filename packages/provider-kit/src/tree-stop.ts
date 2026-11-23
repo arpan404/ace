@@ -8,6 +8,8 @@ import {
   type WindowsTreeRuntime,
 } from "./process-identity.ts";
 import type { ProcessExit } from "./process.ts";
+import { supervisorBackend } from "./native-switches.ts";
+import { supervisorAddon } from "./native-process.ts";
 
 /*
  * Windows only. A hidden console child ignores a polite taskkill, so closing its stdin is the
@@ -23,13 +25,49 @@ export interface TreeStopRuntime {
   tree: WindowsTreeRuntime;
 }
 
-export const treeStopRuntime: TreeStopRuntime = {
-  identify(pid) {
-    const found = processIdentity(pid);
-    return found && { start: found.start, uid: String(found.uid) };
-  },
-  tree: windowsTreeRuntime,
-};
+export const treeStopRuntime: TreeStopRuntime = (() => {
+  if (supervisorBackend() === "native") {
+    const addon = supervisorAddon();
+    const stateOf = (recorded: readonly WindowsProcessRecord[]) => {
+      for (const member of recorded) known.set(member.pid, member);
+      return JSON.parse(
+        addon.supervisorTreeState(
+          JSON.stringify(recorded.map(({ pid, start, uid }) => ({ pid, start, uid }))),
+        ),
+      ) as {
+        live: WindowsProcessRecord[];
+        discovered: WindowsProcessRecord[];
+        gone: WindowsProcessRecord[];
+        ambiguous: number[];
+      };
+    };
+    const known = new Map<number, WindowsProcessRecord>();
+    return {
+      identify(pid) {
+        const found = processIdentity(pid);
+        return found && { start: found.start, uid: String(found.uid) };
+      },
+      tree: {
+        state: (recorded) => stateOf(recorded),
+        terminate: (member) =>
+          addon.supervisorTreeTerminate(
+            JSON.stringify({
+              pid: member.pid,
+              start: member.start,
+              uid: known.get(member.pid)?.uid ?? "",
+            }),
+          ) as "ended" | "gone",
+      },
+    };
+  }
+  return {
+    identify(pid) {
+      const found = processIdentity(pid);
+      return found && { start: found.start, uid: String(found.uid) };
+    },
+    tree: windowsTreeRuntime,
+  };
+})();
 
 /** How long recorded survivors may take to die before the stop reports them. */
 const survivorStopMs = 5_000;

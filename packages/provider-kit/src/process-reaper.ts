@@ -1,5 +1,7 @@
 import { openLibrary, type NativeFunction } from "./bun-ffi.ts";
 import type { ProcessListing } from "./process-listing.ts";
+import { supervisorBackend } from "./native-switches.ts";
+import { supervisorAddon } from "./native-process.ts";
 
 /*
  * Linux: the daemon is a child subreaper (PR_SET_CHILD_SUBREAPER), so a process whose parent
@@ -57,6 +59,8 @@ const noHang = 1;
 
 /** Make this process a child subreaper. False where the platform or runtime can't. */
 export function becomeSubreaper(platform: NodeJS.Platform = process.platform): boolean {
+  if (supervisorBackend() === "native")
+    return supervisorAddon().supervisorBecomeSubreaper() && platform === "linux";
   if (platform !== "linux") return false;
   try {
     return linuxLibc().prctl(setChildSubreaper, 1n, 0n, 0n, 0n) === 0;
