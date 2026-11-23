@@ -1,6 +1,7 @@
 import type { ProcessListing } from "./process-listing.ts";
 import { killGroupWhile, signalOwnedMembers } from "./process-owner.ts";
 import type { TreeIo, TreeMember } from "./process-tree.ts";
+import type { StartOrder } from "./start-order.ts";
 
 /** One signal for a leader's group, with what proves which processes are the group's. */
 export type GroupSignal = {
@@ -13,7 +14,8 @@ export type GroupSignal = {
   signal: NodeJS.Signals;
 };
 
-export type GroupIo = { tree: TreeIo; listing: ProcessListing };
+/** `order` places kernel start times against "now"; without one, no start counts as earlier. */
+export type GroupIo = { tree: TreeIo; listing: ProcessListing; order?: StartOrder };
 
 /** The start a pid shows now, a zombie's included: what a leader's pin is checked against. */
 export function startOf(pid: number, listing: ProcessListing): string | undefined {
