@@ -274,22 +274,27 @@ At each step the crate depends on `ace-store` and the crates before it directly,
 crate gains one module, and the TypeScript tests of that part keep running through its
 TypeScript interface.
 
+## Decided by the orchestrator, pending the owner (2026-11-23)
+
+- In-process napi-rs addon (former question 1): accepted.
+- Phase 1a routing the TypeScript writer's statements through the native connection (former
+  question 2): accepted behind `ACE_STORE=native`, off by default. The per-statement N-API cost
+  on the write path is measured with the bench; if 1a makes writes slower, 1a ships only
+  together with 1b.
+- `idle-store.perf.process.test.ts` (former question 7): its purpose moves to the bench check
+  (`bench/idle-cpu.ts` fails naming a seeding error) and the test file is deleted.
+- Questions 1 to 4 below change or delete stored data: nothing of phase 4 or cold storage is
+  built until the owner answers them.
+
 ## Questions for the owner
 
-1. Is the in-process addon acceptable, given that it puts the event store's native code in the
-   daemon process (as node:sqlite already is), rather than the process isolation `ace-history`
-   has?
-2. Phase 1a routes every statement the TypeScript writer issues through the native connection
-   when the switch is on. The writer's logic does not change, but its statements run on the
-   addon's SQLite. Is that inside "do not change the writer yet", or should 1a wait for phase 5?
-3. Item bodies are stored up to five times (events, history revision, `items`, engine `items`
+1. Item bodies are stored up to five times (events, history revision, `items`, engine `items`
    record, preview). Which copies may the writer stop making? The history reference (70% of
    revisions) is safe by construction; the engine record and the preview are the engine's.
-4. Search takes 8.9 GB (19.6%), of which the trigram indexes are about 3 GB. Keep trigram search
+2. Search takes 8.9 GB (19.6%), of which the trigram indexes are about 3 GB. Keep trigram search
    over every body, or index bodies only up to a size?
-5. Cold storage for long-settled threads: wanted, and after how long?
-6. Compression is forward-only: old rows stay as they are, so the file stops growing as fast but
+3. Cold storage for long-settled threads: wanted, and after how long?
+4. Compression is forward-only: old rows stay as they are, so the file stops growing as fast but
    does not shrink. Should an idle, bounded recompression of old rows run (it rewrites history,
    in batches, and leaves free pages that space reclaim returns)?
-7. `idle-store.perf.process.test.ts` tests the bench's seeding script, not the store
-   (behaviour.md §15, class c). Delete it or move it to the bench check?
+5. Confirm the orchestrator's calls above (in-process addon; 1a behind the switch).
