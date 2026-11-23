@@ -36,6 +36,15 @@ extension ConversationFeed {
         if !following, let top = currentTopRow() {
             viewport.noteSessionAnchor(TranscriptHeldAnchor(rowID: top.rowID, itemID: top.itemID, top: top.top))
         }
+        // Laying the rows out again in the other stack redraws every one of them. A reader away
+        // from the end never sees it: what is drawn stays frozen while the top row is put back
+        // where it was (`holdOlderPage`), then the feed thaws. This runs once a page that landed
+        // mid-fling has come to rest, so the page's own hold is long over.
+        if !following, revealed {
+            intent.olderPage = true
+            captureTop()
+            holdOlderPage()
+        }
         stackSwitches += 1
         PerfProbe.add("feed.restacks", 1)
         if following { toEnd(proxy) }
