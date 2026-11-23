@@ -17,7 +17,8 @@ export async function runtimeCommand(args: Args, config: Config) {
   validateArgs(args, [], 0, 1);
   // Started as `ace Service`, the daemon runs its child scripts (MCP servers, guardians,
   // serve-sim, workers) on the runtime's plain name beside it: only the daemon is the service.
-  process.execPath = scriptRuntimePath(process.execPath, process.platform, existsSync);
+  const runtime = process.execPath;
+  process.execPath = scriptRuntimePath(runtime, process.platform, existsSync);
   const development = process.env.ACE_DEV === "1";
   const { startDaemon, runDaemonProcess, NewerDataError, DaemonLockHeldError } =
     await import("../index.ts");
@@ -62,6 +63,8 @@ export async function runtimeCommand(args: Args, config: Config) {
   });
   if (!daemon) return;
   logPriority(priority, daemon.log);
+  // Support bundles and the release smoke read which file the daemon runs and its scripts get.
+  daemon.log.log("info", "The daemon's runtime", { daemon: runtime, scripts: process.execPath });
   try {
     if (development && daemon.store.listThreads().length === 0)
       createDevThread(daemon.store, daemon.store.createWorkspace(process.cwd(), "Development"));

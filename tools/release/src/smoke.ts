@@ -17,6 +17,7 @@ import { verifyDesktopNatives } from "./native-smoke.ts";
 import { hashFile, verifyManifest, unpackArchive } from "@ace/service";
 import { z } from "zod";
 import { smokeOptions } from "./smoke-options.ts";
+import { smokeNamedDaemon } from "./named-smoke.ts";
 import { shippedExecutableName, type AceProcess } from "@ace/service/process-names";
 import { targetPlatform } from "./rust-binary.ts";
 import { ScreenHelperIdentity } from "./screen-identity.ts";
@@ -200,6 +201,7 @@ try {
   const [code] = await exit;
   if (code !== 0) throw new Error("Daemon did not shut down cleanly");
   process.stdout.write("Daemon and notification worker passed\n");
+  await smokeNamedDaemon(artifact, manifest.version, manifest.target);
 } finally {
   if (child.exitCode === null) {
     const exit = once(child, "exit");
@@ -277,6 +279,7 @@ async function smokeWindows(release: string, version: string): Promise<void> {
     const [code] = await exit;
     if (code !== 0) throw new Error(`Daemon did not shut down cleanly (${code}): ${daemonErrors}`);
     process.stdout.write("Daemon and notification worker passed\n");
+    await smokeNamedDaemon(release, version, manifest.target);
   } finally {
     if (daemon.exitCode === null) {
       const exit = once(daemon, "exit");
