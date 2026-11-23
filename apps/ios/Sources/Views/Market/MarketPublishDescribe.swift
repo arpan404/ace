@@ -94,7 +94,7 @@ struct MarketPublishDescribe: View {
                     .accessibilityIdentifier("market.publish.submit")
             }
         }
-        .task { categories = model.keptMarketHome?.categories ?? ((try? await model.marketHome())?.categories ?? []) }
+        .task { await readCategories() }
         .onChange(of: photos) { _, picked in Task { await add(picked) } }
     }
 
@@ -109,18 +109,7 @@ struct MarketPublishDescribe: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: AceDesign.Space.related) {
                         ForEach(flow.pictures) { picture in
-                            if let image = UIImage(data: picture.jpeg) {
-                                Image(uiImage: image).resizable().scaledToFill()
-                                    .frame(width: AceDesign.Size.spade, height: AceDesign.Size.spade)
-                                    .clipShape(RoundedRectangle(cornerRadius: AceDesign.Radius.card, style: .continuous))
-                                    .contextMenu {
-                                        Button("Remove", ace: .trash, role: .destructive) {
-                                            flow.pictures.removeAll { $0.id == picture.id }
-                                        }
-                                    }
-                                    .accessibilityLabel("Picture")
-                                    .accessibilityAction(named: "Remove") { flow.pictures.removeAll { $0.id == picture.id } }
-                            }
+                            MarketPublishThumbnail(picture: picture) { remove(picture) }
                         }
                     }
                 }
@@ -132,6 +121,20 @@ struct MarketPublishDescribe: View {
                 .accessibilityIdentifier("market.publish.pictures")
             }
         } header: { InsetHeader("Pictures") }
+    }
+
+    /// The categories a listing can name: the kept home's, else a fresh read.
+    private func readCategories() async {
+        if let kept = model.keptMarketHome?.categories {
+            categories = kept
+            return
+        }
+        let home = try? await model.marketHome()
+        categories = home?.categories ?? []
+    }
+
+    private func remove(_ picture: MarketPublishPicture) {
+        flow.pictures.removeAll { $0.id == picture.id }
     }
 
     private func add(_ picked: [PhotosPickerItem]) async {
@@ -158,5 +161,22 @@ struct MarketPublishDescribe: View {
         } catch let refusal as MarketRefusal {
             problem = refusal
         } catch {}
+    }
+}
+
+/// One picked picture, small, with Remove in its menu and as an accessibility action.
+private struct MarketPublishThumbnail: View {
+    let picture: MarketPublishPicture
+    let remove: () -> Void
+
+    var body: some View {
+        if let image = UIImage(data: picture.jpeg) {
+            Image(uiImage: image).resizable().scaledToFill()
+                .frame(width: AceDesign.Size.spade, height: AceDesign.Size.spade)
+                .clipShape(RoundedRectangle(cornerRadius: AceDesign.Size.rowCorner, style: .continuous))
+                .contextMenu { Button("Remove", ace: .trash, role: .destructive, action: remove) }
+                .accessibilityLabel("Picture")
+                .accessibilityAction(named: "Remove", remove)
+        }
     }
 }
