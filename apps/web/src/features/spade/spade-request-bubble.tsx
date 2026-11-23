@@ -65,7 +65,12 @@ export function SpadeRequestBubble(props: {
   onAnswer(callId: string, answer: RequestAnswer): Promise<boolean>;
 }) {
   const { item } = props;
-  const who = item.helper ? `A helper of ${props.botName}` : props.botName;
+  // A task's request leads with the task (ADR 0217 §7), a helper's with whose helper it is.
+  const who = item.lane
+    ? item.lane.title
+    : item.helper
+      ? `A helper of ${props.botName}`
+      : props.botName;
   const title = useToolTitle();
   const appName = useAppName();
   // A call to a connected app's tool leads with that app's mark.

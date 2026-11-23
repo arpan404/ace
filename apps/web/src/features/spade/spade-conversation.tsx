@@ -26,7 +26,10 @@ import { SpadeChat, type ChatBot } from "./spade-chat.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
 import { SpadeFirstRun } from "./spade-first-run.tsx";
 import { showModelSetup, SpadeKeySetup } from "./spade-key-setup.tsx";
-import { ConversationPill, PillEdge } from "./spade-pill.tsx";
+import { ConversationPill, PillEdge, PillRow } from "./spade-pill.tsx";
+import { LanesPill } from "./lanes/lane-list.tsx";
+import { LanesContext } from "./lanes/lanes-context.ts";
+import { useMainLanes } from "./lanes/use-main-lanes.ts";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import type { FilesAt } from "./computer/profile-computer.tsx";
 import {
@@ -139,6 +142,8 @@ export function Conversation(props: {
       search: botSearch(bot, to),
       replace,
     });
+  // Its tasks (ADR 0217): the pill beside its own, and the lines in its chat, open each one.
+  const lanes = useMainLanes(bot, view, (lane) => go({ task: lane }));
   /** Computer, on what it shows (and where its files are). */
   const openComputer = (shows: ComputerView, files?: FilesAt) =>
     go({
@@ -250,7 +255,12 @@ export function Conversation(props: {
     <div data-thread-column="" className="relative grid h-full min-h-0 grid-cols-1 grid-rows-1">
       <h1 className="sr-only">{bot.name}</h1>
       <PillEdge />
-      <ConversationPill bot={bot} onOpen={() => openProfile()} />
+      <PillRow>
+        <ConversationPill bot={bot} onOpen={() => openProfile()} />
+        {lanes.lanes.length > 0 && (
+          <LanesPill lanes={lanes.lanes} avatar={bot.avatar} onOpen={lanes.open} />
+        )}
+      </PillRow>
       <Scroller
         top="pill"
         sent={sent}
@@ -447,99 +457,101 @@ export function Conversation(props: {
   );
 
   return (
-    <BotVoiceContext value={speech.voice}>
-      <ConversationScreen
-        actions={
-          // Covered by the profile, the chat comes back by the profile's own ‹ Chat.
-          !(panelShown && covering) && (
-            <>
-              {view.questionsForLater > 0 && (
-                <Button size="sm" variant="ghost" onClick={() => showCard(view.forLater[0])}>
-                  {spadeForLaterWords(view.questionsForLater)}
-                </Button>
-              )}
-              {openPanel ? (
-                <IconButton
-                  icon={XIcon}
-                  label={`Close ${openPanel.title}`}
-                  tip="Close"
-                  onClick={() => go({})}
-                />
-              ) : panelShown ? (
-                // The top bar's part above the profile holds its strip: Share and close.
-                <ProfileStripActions bot={bot} onClose={closePanel} />
-              ) : (
-                <>
-                  {/* Its panels, by name: the header is one way in (§5.2). */}
-                  {panels.slice(0, 2).map((each) => (
-                    <Button
-                      key={each.id}
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => showPanel(each.id)}
-                    >
-                      {each.title}
-                    </Button>
-                  ))}
+    <LanesContext value={lanes}>
+      <BotVoiceContext value={speech.voice}>
+        <ConversationScreen
+          actions={
+            // Covered by the profile, the chat comes back by the profile's own ‹ Chat.
+            !(panelShown && covering) && (
+              <>
+                {view.questionsForLater > 0 && (
+                  <Button size="sm" variant="ghost" onClick={() => showCard(view.forLater[0])}>
+                    {spadeForLaterWords(view.questionsForLater)}
+                  </Button>
+                )}
+                {openPanel ? (
                   <IconButton
-                    icon={SidebarSimpleIcon}
-                    label={`Open ${bot.name}'s profile`}
-                    tip="Profile"
-                    className="-scale-x-100"
-                    onClick={() => openProfile()}
+                    icon={XIcon}
+                    label={`Close ${openPanel.title}`}
+                    tip="Close"
+                    onClick={() => go({})}
                   />
-                </>
-              )}
-            </>
-          )
-        }
-      >
-        <div className="relative flex h-full min-h-0">
-          <div
-            className={cn("min-w-0 flex-1", panelShown && covering && "invisible")}
-            aria-hidden={panelShown && covering ? true : undefined}
-          >
-            {chat}
-          </div>
-          {panel && (
+                ) : panelShown ? (
+                  // The top bar's part above the profile holds its strip: Share and close.
+                  <ProfileStripActions bot={bot} onClose={closePanel} />
+                ) : (
+                  <>
+                    {/* Its panels, by name: the header is one way in (§5.2). */}
+                    {panels.slice(0, 2).map((each) => (
+                      <Button
+                        key={each.id}
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => showPanel(each.id)}
+                      >
+                        {each.title}
+                      </Button>
+                    ))}
+                    <IconButton
+                      icon={SidebarSimpleIcon}
+                      label={`Open ${bot.name}'s profile`}
+                      tip="Profile"
+                      className="-scale-x-100"
+                      onClick={() => openProfile()}
+                    />
+                  </>
+                )}
+              </>
+            )
+          }
+        >
+          <div className="relative flex h-full min-h-0">
             <div
-              // Beside the chat the chat keeps a readable column; in a narrow window the profile
-              // takes the window.
-              style={covering ? undefined : { width, maxWidth: `calc(100% - ${chatMin}px)` }}
-              className={cn(
-                "bg-panel",
-                panelReveal,
-                covering ? "absolute inset-0 z-20" : "relative shrink-0 border-l border-border",
-              )}
+              className={cn("min-w-0 flex-1", panelShown && covering && "invisible")}
+              aria-hidden={panelShown && covering ? true : undefined}
             >
-              {!covering && (
-                <ResizeHandle
-                  label="Profile width"
-                  edge="left"
-                  size={width}
-                  min={panelWidth.min}
-                  max={panelWidth.max}
-                  onResize={setWidth}
-                  onResizeEnd={(next) =>
-                    writePanel(storage(), memoryKey, {
-                      ...readPanel(storage(), memoryKey),
-                      width: next,
-                    })
-                  }
-                  onReset={() => {
-                    setWidth(panelWidth.initial);
-                    writePanel(storage(), memoryKey, {
-                      ...readPanel(storage(), memoryKey),
-                      width: panelWidth.initial,
-                    });
-                  }}
-                />
-              )}
-              {panel}
+              {chat}
             </div>
-          )}
-        </div>
-      </ConversationScreen>
-    </BotVoiceContext>
+            {panel && (
+              <div
+                // Beside the chat the chat keeps a readable column; in a narrow window the profile
+                // takes the window.
+                style={covering ? undefined : { width, maxWidth: `calc(100% - ${chatMin}px)` }}
+                className={cn(
+                  "bg-panel",
+                  panelReveal,
+                  covering ? "absolute inset-0 z-20" : "relative shrink-0 border-l border-border",
+                )}
+              >
+                {!covering && (
+                  <ResizeHandle
+                    label="Profile width"
+                    edge="left"
+                    size={width}
+                    min={panelWidth.min}
+                    max={panelWidth.max}
+                    onResize={setWidth}
+                    onResizeEnd={(next) =>
+                      writePanel(storage(), memoryKey, {
+                        ...readPanel(storage(), memoryKey),
+                        width: next,
+                      })
+                    }
+                    onReset={() => {
+                      setWidth(panelWidth.initial);
+                      writePanel(storage(), memoryKey, {
+                        ...readPanel(storage(), memoryKey),
+                        width: panelWidth.initial,
+                      });
+                    }}
+                  />
+                )}
+                {panel}
+              </div>
+            )}
+          </div>
+        </ConversationScreen>
+      </BotVoiceContext>
+    </LanesContext>
   );
 }

@@ -66,8 +66,8 @@ export function foldSpadeCapability(
       return true;
     case "worker_started":
       state.workers.set(event.worker, event.name);
-      // A helper is its own line already (ADR 0152).
-      if (event.kind === "helper") return true;
+      // A helper is its own line already (ADR 0152); a task its own `lane_started` (ADR 0217).
+      if (event.kind === "helper" || event.kind === "lane") return true;
       started(event.call, {
         id: event.worker,
         kind: event.kind,

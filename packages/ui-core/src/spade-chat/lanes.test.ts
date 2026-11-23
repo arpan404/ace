@@ -65,15 +65,16 @@ describe("a bot's task lanes as Spade lists them", () => {
   });
 });
 
-describe("a bot's task lanes in words", () => {
-  const lane = (row: Record<string, unknown>) => {
-    const [read] = parseSpadeLanes(
-      JSON.stringify({ tasks: [{ task: "l", conversation: "l", ...row }] }),
-    );
-    if (!read) throw new Error("the row didn't parse");
-    return read;
-  };
+/** One task row as Spade would send it. */
+const lane = (row: Record<string, unknown>) => {
+  const [read] = parseSpadeLanes(
+    JSON.stringify({ tasks: [{ task: "l", conversation: "l", ...row }] }),
+  );
+  if (!read) throw new Error("the row didn't parse");
+  return read;
+};
 
+describe("a bot's task lanes in words", () => {
   test("the pill counts the tasks that haven't ended, and those waiting on the person", () => {
     const lanes = [
       lane({ state: "needs_you", needs_you: true }),

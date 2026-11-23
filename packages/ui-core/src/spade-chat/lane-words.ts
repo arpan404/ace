@@ -65,3 +65,22 @@ export function spadeLaneDetail(lane: SpadeLane): string | undefined {
 /** What a task's steps cost, shown quietly and never capped (ADR 0166); nothing before any. */
 export const spadeLaneCost = (lane: Pick<SpadeLane, "costMicros">) =>
   lane.costMicros > 0 ? spadeMoney(lane.costMicros) : undefined;
+
+/** How many of a bot's tasks haven't ended, as the roster counts them (`tasks`). */
+export function spadeAgentTasks(raw: Record<string, unknown>): number {
+  const tasks = raw.tasks;
+  return typeof tasks === "number" && Number.isFinite(tasks) && tasks > 0 ? tasks : 0;
+}
+
+/**
+ * How main's chat stands on its tasks, as a number that changes whenever a task's line arrives or
+ * a request waits: the task list is read again when it does. Zero when the chat has none.
+ */
+export function spadeLanesMoved(
+  entries: readonly { kind: string; quiet?: { kind: string } }[],
+  approvals: number,
+): number {
+  let lines = 0;
+  for (const entry of entries) if (entry.kind === "quiet" && entry.quiet?.kind === "lane") lines++;
+  return lines === 0 ? 0 : lines * 1000 + approvals;
+}

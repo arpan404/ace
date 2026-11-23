@@ -45,7 +45,11 @@ export function SpadeRequestGroup(props: {
   const connection = first ? spadeAppOfTool(first.name)?.connection : undefined;
   const connector = useSpadeConnectors().data?.connectors.find((each) => each.id === connection);
   const app = connector?.name ?? "the app";
-  const who = first?.helper ? `A helper of ${props.botName}` : props.botName;
+  const who = first?.lane
+    ? first.lane.title
+    : first?.helper
+      ? `A helper of ${props.botName}`
+      : props.botName;
   const words = spadeAppRequestGroup(
     who,
     app,
