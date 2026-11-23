@@ -7,7 +7,9 @@
 use crate::entries::{OwnerValue, parse_entry};
 use crate::errors::SupervisorError;
 use crate::identity::ProcessOwner;
-use crate::inventory::{Inventory, InventoryRuntime, ProbeRefused};
+#[cfg(not(windows))]
+use crate::inventory::ProbeRefused;
+use crate::inventory::{Inventory, InventoryRuntime};
 use ace_store::{Connection, OpenOptions, Value};
 use std::sync::Arc;
 
@@ -27,18 +29,16 @@ impl<R: InventoryRuntime> Inventory<R> {
     /// orphans, forgets groups proven gone, keeps the rest as evidence.
     pub fn recover(&mut self) -> Result<Recovered, SupervisorError> {
         #[cfg(windows)]
-        {
-            let partial = self.windows_recover(&crate::wintree::SystemWindowsTree::new())?;
-            return Ok(Recovered {
+        let recovered = self
+            .windows_recover(&crate::wintree::SystemWindowsTree::new())
+            .map(|partial| Recovered {
                 removed: partial.removed,
                 killed: partial.killed,
                 unresolved: 0,
             });
-        }
         #[cfg(not(windows))]
-        {
-            self.posix_recover()
-        }
+        let recovered = self.posix_recover();
+        recovered
     }
 
     /// Windows only: recovery that also counts trees left recorded because
@@ -48,11 +48,11 @@ impl<R: InventoryRuntime> Inventory<R> {
         &mut self,
         tree: &dyn crate::wintree::WindowsTreeOps,
     ) -> Result<Recovered, SupervisorError> {
-        use crate::entries::{EntryPlatform, OwnerValue};
+        use crate::entries::{EntryPlatform, OwnerValue, ProcessEntry};
         use crate::wintree::WindowsRecord;
         let now_ms = self.runtime.now_ms();
         let mut recovered = Recovered::default();
-        for (_, entries) in self.windows_trees()? {
+        for (key, entries) in self.windows_trees()? {
             let Some(leader) = entries
                 .iter()
                 .find(|entry| entry.tree.is_none())
@@ -84,9 +84,8 @@ impl<R: InventoryRuntime> Inventory<R> {
                     },
                 })
                 .collect();
-            let state = tree.state(&recorded);
+            let state = tree.state(&recorded)?;
             for member in &state.discovered {
-                let key = format!("{}:{}", leader.pid, leader.start);
                 self.write(
                     &ProcessEntry {
                         pid: member.pid,
@@ -101,7 +100,7 @@ impl<R: InventoryRuntime> Inventory<R> {
                         name: leader.name.clone(),
                         cwd: leader.cwd.clone(),
                         created_at: now_ms,
-                        tree: Some(key),
+                        tree: Some(key.clone()),
                     },
                     EntryPlatform::Windows,
                 )?;
@@ -182,10 +181,12 @@ impl<R: InventoryRuntime> Inventory<R> {
     }
 
     /// Liveness of a recorded group, or `Refused` when the kernel refuses.
+    #[cfg(not(windows))]
     fn group_alive(&self, group: u32) -> Result<bool, ProbeRefused> {
         self.runtime.alive(group)
     }
 
+    #[cfg(not(windows))]
     fn remove_inner(&mut self, pid: u32, now_ms: u64) {
         // Mirrors `remove` without re-reading the clock.
         self.unremoved.insert(pid);
@@ -311,7 +312,9 @@ pub fn windows_tree_recorded(
     Ok(false)
 }
 
+// POSIX recovery: Windows recovers trees instead (`windows_recover`).
 #[cfg(test)]
+#[cfg(not(windows))]
 mod tests {
     use super::*;
     use crate::inventory::Inventory;

@@ -112,9 +112,7 @@ export class ProcessInventory implements ProcessJournal {
     // daemon crashes, which is what recovery needs, without waiting on fsync: behind other disk
     // work one fsync held the event loop for seconds.
     db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
-    db.exec(
-      "CREATE TABLE IF NOT EXISTS processes(pid INTEGER PRIMARY KEY,entry TEXT NOT NULL)",
-    );
+    db.exec("CREATE TABLE IF NOT EXISTS processes(pid INTEGER PRIMARY KEY,entry TEXT NOT NULL)");
   }
   /** Reports what the native journal failed and will retry, then forgets it. */
   private drainNativeReports(): void {
@@ -124,11 +122,13 @@ export class ProcessInventory implements ProcessJournal {
   }
   /** The retry timer: the runtime's, or an unref'd one that never keeps the daemon alive. */
   private later(run: () => void, ms: number): () => void {
-    const schedule = this.runtime.later ?? ((task: () => void, wait: number) => {
-      const timer = setTimeout(task, wait);
-      timer.unref?.();
-      return () => clearTimeout(timer);
-    });
+    const schedule =
+      this.runtime.later ??
+      ((task: () => void, wait: number) => {
+        const timer = setTimeout(task, wait);
+        timer.unref?.();
+        return () => clearTimeout(timer);
+      });
     return schedule(run, ms);
   }
   list(): ProcessEntry[] {
@@ -136,9 +136,7 @@ export class ProcessInventory implements ProcessJournal {
     if (native) {
       this.drainNativeReports();
       return (JSON.parse(native.handle.list()) as unknown[]).map((row) =>
-        process.platform === "win32"
-          ? WindowsTreeEntry.parse(row)
-          : Entry.parse(row),
+        process.platform === "win32" ? WindowsTreeEntry.parse(row) : Entry.parse(row),
       );
     }
     if (process.platform === "win32") return this.windowsList();
@@ -206,9 +204,9 @@ export class ProcessInventory implements ProcessJournal {
   retryRemovals(): boolean {
     const native = this.native;
     if (native) {
-      const plan = JSON.parse(
-        native.handle.retryRemovals(this.runtime.now()),
-      ) as { retryInMs: number | null };
+      const plan = JSON.parse(native.handle.retryRemovals(this.runtime.now())) as {
+        retryInMs: number | null;
+      };
       this.drainNativeReports();
       this.scheduleNativeRetry(native, plan.retryInMs);
       return plan.retryInMs === null;
@@ -278,12 +276,15 @@ export class ProcessInventory implements ProcessJournal {
   recover(): { removed: number; killed: number; unresolved: number } {
     const native = this.native;
     if (native) {
-      const recovered = JSON.parse(native.handle.recover()) as {
+      const { groups, ...recovered } = JSON.parse(native.handle.recover()) as {
         removed: number;
         killed: number;
         unresolved: number;
+        groups: number[];
       };
       this.drainNativeReports();
+      // The verified orphan groups end through the runtime's guarded group stop, never past it.
+      for (const group of groups) this.runtime.kill(group);
       return recovered;
     }
     if (process.platform === "win32") return { ...this.windowsRecover(), unresolved: 0 };

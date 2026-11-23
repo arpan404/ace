@@ -91,6 +91,11 @@ impl<R: InventoryRuntime> Inventory<R> {
         })
     }
 
+    /// The runtime the inventory reads the kernel through.
+    pub fn runtime(&self) -> &R {
+        &self.runtime
+    }
+
     fn count(&self) -> Result<i64, SupervisorError> {
         query_one(&self.db, "SELECT COUNT(*) AS n FROM processes", &[])
     }
@@ -149,13 +154,10 @@ impl<R: InventoryRuntime> Inventory<R> {
             ));
         }
         #[cfg(windows)]
-        {
-            return self.windows_add(pid, name, cwd);
-        }
+        let added = self.windows_add(pid, name, cwd);
         #[cfg(not(windows))]
-        {
-            self.posix_add(pid, name, cwd)
-        }
+        let added = self.posix_add(pid, name, cwd);
+        added
     }
 
     #[cfg(not(windows))]
@@ -304,7 +306,6 @@ impl<R: InventoryRuntime> Inventory<R> {
         cwd: Option<&str>,
     ) -> Result<(), SupervisorError> {
         use crate::entries::EntryPlatform;
-        use crate::identity::ProcessOwner;
         let now_ms = self.runtime.now_ms();
         let identity = self.runtime.identity(pid)?.ok_or_else(|| {
             SupervisorError::InvalidInput("Cannot record owned process identity".to_owned())
@@ -383,7 +384,7 @@ impl<R: InventoryRuntime> Inventory<R> {
         use crate::entries::EntryPlatform;
         use crate::wintree::WindowsRecord;
         let mut owned = false;
-        for (_, entries) in self.windows_trees()? {
+        for (key, entries) in self.windows_trees()? {
             let Some(leader) = entries
                 .iter()
                 .find(|entry| entry.tree.is_none())
@@ -406,10 +407,9 @@ impl<R: InventoryRuntime> Inventory<R> {
                     },
                 })
                 .collect();
-            let state = tree.state(&recorded);
+            let state = tree.state(&recorded)?;
             let room = (INVENTORY_CAPACITY - self.count()?).max(0) as usize;
             for member in state.discovered.iter().take(room) {
-                let key = format!("{}:{}", leader.pid, leader.start);
                 self.write(
                     &ProcessEntry {
                         pid: member.pid,
@@ -424,7 +424,7 @@ impl<R: InventoryRuntime> Inventory<R> {
                         name: leader.name.clone(),
                         cwd: leader.cwd.clone(),
                         created_at: self.runtime.now_ms(),
-                        tree: Some(key),
+                        tree: Some(key.clone()),
                     },
                     EntryPlatform::Windows,
                 )?;
@@ -453,19 +453,24 @@ impl<R: InventoryRuntime> Inventory<R> {
     pub(crate) fn windows_trees(
         &self,
     ) -> Result<Vec<(String, Vec<ProcessEntry>)>, SupervisorError> {
-        let mut trees: std::collections::HashMap<String, Vec<ProcessEntry>> =
-            std::collections::HashMap::new();
+        // In first-seen order, like the TypeScript `Map`: capacity is spent
+        // on the trees listed first.
+        let mut trees: Vec<(String, Vec<ProcessEntry>)> = Vec::new();
         for entry in self.list()? {
             let key = entry
                 .tree
                 .clone()
                 .unwrap_or_else(|| format!("{}:{}", entry.pid, entry.start));
-            trees.entry(key).or_default().push(entry);
+            match trees.iter_mut().find(|(known, _)| *known == key) {
+                Some((_, members)) => members.push(entry),
+                None => trees.push((key, vec![entry])),
+            }
         }
-        Ok(trees.into_iter().collect())
+        Ok(trees)
     }
 }
 
+#[cfg(not(windows))]
 impl ProbeRefused {
     fn into_error(refused: ProbeRefused, pid: u32) -> SupervisorError {
         match refused {

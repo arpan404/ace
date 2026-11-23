@@ -31,7 +31,7 @@ import { markedEnv } from "./process-marker.ts";
 import { supervisorBackend } from "./native-switches.ts";
 import {
   launchEnv,
-  nativeJobFactory,
+  nativeChildJob,
   nativeKillWindowsTree,
   nativeSpawnChild,
   NativeChildProcess,
@@ -161,18 +161,12 @@ function spawnOwned(
         args: target.args,
         ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
         env: launchEnv(markedEnv({ ...base, ...options.env })),
-        windows,
-        clearEnv: base !== process.env,
         stdin: "piped",
         stdout: "piped",
         stderr: "piped",
         verbatim: target.verbatim,
-        // The waiter ends stragglers, unless the shell drives stops through
-        // injected tree fakes or the tree is retained.
-        waiterDestroy:
-          options.killGroupOnExit !== false &&
-          options.windowsKillTree === undefined &&
-          options.windowsJobFactory === undefined,
+        hide: true,
+        contain: windows && options.windowsJobFactory === undefined,
       })
     : spawn(target.command, target.args, {
         ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
@@ -190,7 +184,7 @@ function spawnOwned(
   if (pid !== undefined && options.childPriority !== false)
     lowerChildPriority(pid, options.childPriority ?? systemChildPriority(process.platform));
   const factory =
-    options.windowsJobFactory ?? (native ? nativeJobFactory : createKillOnCloseJob);
+    options.windowsJobFactory ?? (native ? () => nativeChildJob(child) : createKillOnCloseJob);
   const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
   if (pid !== undefined) job?.assign(pid);
   let outputBytes = 0;

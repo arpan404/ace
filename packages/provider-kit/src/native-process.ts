@@ -16,19 +16,32 @@ import { fileURLToPath } from "node:url";
 import { supervisorBackend } from "./native-switches.ts";
 
 /** A byte event from the native child, in arrival order. */
-export type SupervisorEventKind = "stdout" | "stderr" | "exit" | "close" | "stdin-error";
+export type SupervisorEventKind =
+  | "stdout"
+  | "stderr"
+  | "exit"
+  | "close"
+  | "stdin-written"
+  | "stdin-error";
+/** For output, returns whether the stream wants more: false pauses the native pump. */
 export type SupervisorEventHandler = (
   error: unknown,
   kind: SupervisorEventKind,
   data: Uint8Array,
-) => void;
+) => boolean | undefined;
 
 interface NativeChildHandle {
-  pid(): number | null | undefined;
+  pid(): number;
   writeStdin(data: Uint8Array): void;
   endStdin(): void;
+  abortStdin(): void;
+  resumeOutput(kind: "stdout" | "stderr"): void;
+  closeOutput(kind: "stdout" | "stderr"): void;
+  kill(signal: string): boolean;
+  hasJob(): boolean;
   jobRunning(): boolean | null | undefined;
   jobTerminate(): void;
+  jobDispose(): void;
   dispose(): void;
 }
 
@@ -55,25 +68,16 @@ interface NativeJournalHandle {
   close(): void;
 }
 
-interface NativeJobHandle {
-  assign(pid: number): void;
-  running(): boolean | null | undefined;
-  terminate(): void;
-  dispose(): void;
-}
-
 interface SupervisorAddon {
   supervisorSpawn(specJson: string, events: SupervisorEventHandler): NativeChildHandle;
   NativeInventory: new (path: string) => NativeInventoryHandle;
   NativeJournal: new (path: string, run: string) => NativeJournalHandle;
-  NativeJob: new () => NativeJobHandle;
   supervisorReadOwnership(path: string, run?: string): string;
   supervisorReadOwnedGroups(path: string, ownerPid: number, ownerStart: string): string;
   supervisorWindowsTreeRecorded(path: string, leaderJson: string): boolean;
   supervisorProcessIdentity(pid: number): string | null;
   supervisorProcessGroupIsGone(group: number): boolean;
   supervisorKillGroup(group: number, signal: string): void;
-  supervisorKillProcess(pid: number, signal: string): boolean;
   supervisorKillWindowsTree(pid: number, force: boolean): void;
   supervisorSignalMember(memberJson: string, signal: string): string;
   supervisorCaptureTree(rootsJson: string, limit: number): string;
@@ -141,7 +145,8 @@ export type NativeStdioMode = "piped" | "ignore" | "inherit" | "stderr";
  * What the shell's spawn orchestration drives: a pid, piped streams, error,
  * exit and close events, and a direct kill for the tree-signal fallback.
  */
-export interface SpawnedChild {  readonly pid?: number | undefined;
+export interface SpawnedChild {
+  readonly pid?: number | undefined;
   readonly stdin: Writable;
   readonly stdout: Readable;
   readonly stderr: Readable;
@@ -183,20 +188,23 @@ export interface SpawnedHandle {
   ): unknown;
 }
 
-/** What the native child is spawned with; the shell maps commands first. */
+/**
+ * What the native child is spawned with; the shell maps commands first. `env` is the child's
+ * whole environment, as node's spawn takes it: nothing else of the daemon's is inherited.
+ */
 export interface NativeSpawnSpec {
   command: string;
   args: readonly string[];
   cwd?: string;
   env: [name: string, value: string][];
-  windows: boolean;
-  clearEnv: boolean;
   stdin: NativeStdioMode;
   stdout: NativeStdioMode;
   stderr: NativeStdioMode;
   verbatim: boolean;
-  /** The waiter ends stragglers on a natural exit; the shell clears it when it drives stops. */
-  waiterDestroy: boolean;
+  /** Windows: no console window, like `windowsHide`. */
+  hide: boolean;
+  /** Windows: the child joins a kill-on-close job before it runs (the shell's own job). */
+  contain: boolean;
 }
 
 /** A masked (undefined) variable isn't launched, like node's spawn. */
@@ -225,18 +233,24 @@ function endedReadable(): Readable {
 }
 
 /**
- * A native child that quacks like node:child_process behind the same
- * events: `error` then `close` on a failed spawn, `exit` and `close` when
- * the process and its pipes are done. The shell feeds its streams; the
- * callers' orchestration (leases, gates, stops) runs unchanged on top.
+ * A native child that quacks like node:child_process behind the same events: `error` then
+ * `close` on a failed spawn, `exit` once the leader exits (whoever still holds its pipes) and
+ * `close` when the pipes are done. Output keeps node's flow: a full stream pauses the native
+ * pump and a destroyed one stops it; a stdin write's callback runs once the bytes are in the
+ * pipe, and EOF follows every write. The callers' orchestration (leases, gates, stops) runs
+ * unchanged on top.
  */
-export class NativeChildProcess extends EventEmitter implements SpawnedChild, SpawnedBytes, SpawnedHandle {
+export class NativeChildProcess
+  extends EventEmitter
+  implements SpawnedChild, SpawnedBytes, SpawnedHandle
+{
   readonly pid: number | undefined;
   readonly stdin: Writable;
   readonly stdout: Readable;
   readonly stderr: Readable;
   private readonly handle: NativeChildHandle | undefined;
-  private readonly failure: Error | undefined;
+  /** The callback of the one write in flight (a Writable writes one at a time). */
+  private written: ((error?: Error | null) => void) | undefined;
 
   constructor(spec: NativeSpawnSpec) {
     super();
@@ -249,14 +263,12 @@ export class NativeChildProcess extends EventEmitter implements SpawnedChild, Sp
           args: [...spec.args],
           ...(spec.cwd === undefined ? {} : { cwd: spec.cwd }),
           env: spec.env.map(([name, value]) => [name, value]),
-          windows: spec.windows,
-          clear_env: spec.clearEnv,
           stdin: spec.stdin,
           stdout: spec.stdout,
           stderr: spec.stderr,
           verbatim: spec.verbatim,
-          retained: false,
-          waiter_destroy: spec.waiterDestroy,
+          hide: spec.hide,
+          contain: spec.contain,
         }),
         // napi calls threadsafe functions error-first: (null, kind, data).
         (_error: unknown, kind, data) => this.onEvent(kind, data),
@@ -265,42 +277,38 @@ export class NativeChildProcess extends EventEmitter implements SpawnedChild, Sp
       failure = error instanceof Error ? error : new Error(String(error));
     }
     this.handle = handle;
-    this.failure = failure;
     const pid = handle?.pid();
     this.pid = typeof pid === "number" && Number.isSafeInteger(pid) ? pid : undefined;
     this.stdin = new Writable({
-      write: (chunk, _encoding, callback) => {
+      write: (chunk: Buffer, _encoding, callback) => {
         if (!this.handle) {
           callback(new Error("supervisor stdin is closed"));
           return;
         }
         try {
           this.handle.writeStdin(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
-          callback();
+          this.written = callback;
         } catch (error) {
           callback(error instanceof Error ? error : new Error(String(error)));
         }
       },
       final: (callback) => {
         try {
+          // Queued after every write, so EOF never overtakes one.
           this.handle?.endStdin();
           callback();
         } catch (error) {
           callback(error instanceof Error ? error : new Error(String(error)));
         }
       },
+      destroy: (error, callback) => {
+        this.handle?.abortStdin();
+        callback(error);
+      },
     });
+    this.stdout = spec.stdout === "piped" ? this.pipedOutput("stdout") : endedReadable();
+    this.stderr = spec.stderr === "piped" ? this.pipedOutput("stderr") : endedReadable();
     // A failed spawn surfaces like node's: `error`, then `close`, no `exit`.
-    if (spec.stdout === "inherit" || spec.stdout === "ignore") {
-      this.stdout = endedReadable();
-    } else {
-      this.stdout = new Readable({ read: () => {} });
-    }
-    if (spec.stderr === "inherit" || spec.stderr === "ignore") {
-      this.stderr = endedReadable();
-    } else {
-      this.stderr = new Readable({ read: () => {} });
-    }
     if (failure) {
       queueMicrotask(() => {
         this.emit("error", failure);
@@ -313,42 +321,82 @@ export class NativeChildProcess extends EventEmitter implements SpawnedChild, Sp
     }
   }
 
-  private onEvent(kind: SupervisorEventKind, data: Uint8Array): void {
-    if (kind === "stdout" || kind === "stderr") {
-      const stream = kind === "stdout" ? this.stdout : this.stderr;
-      stream?.push(Buffer.from(data.buffer, data.byteOffset, data.byteLength));
-      return;
-    }
-    if (kind === "stdin-error") {
-      const error = new Error(Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString());
-      // A closed reader surfaces the failure the way node's does.
-      this.stdin.destroy(error);
-      return;
-    }
-    if (kind === "exit") {
-      const exit = parseExit(data);
-      this.emit("exit", exit.code, exit.signal);
-      return;
-    }
-    if (kind === "close") {
-      const exit = parseExit(data);
-      this.stdout?.push(null);
-      this.stderr?.push(null);
-      this.emit("close", exit.code, exit.signal);
-    }
+  /** A piped output: reading resumes the native pump, destroying stops it. */
+  private pipedOutput(kind: "stdout" | "stderr"): Readable {
+    return new Readable({
+      read: () => {
+        try {
+          this.handle?.resumeOutput(kind);
+        } catch {
+          /* The child is already released. */
+        }
+      },
+      destroy: (error, callback) => {
+        try {
+          this.handle?.closeOutput(kind);
+        } catch {
+          /* The child is already released. */
+        }
+        callback(error);
+      },
+    });
   }
 
-  /** Ends the leader itself, ESRCH-safe: the fallback when a tree signal cannot run. */
+  private onEvent(kind: SupervisorEventKind, data: Uint8Array): boolean | undefined {
+    const bytes = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+    if (kind === "stdout" || kind === "stderr") {
+      // False pauses the native pump until the stream reads again.
+      return (kind === "stdout" ? this.stdout : this.stderr).push(bytes);
+    }
+    if (kind === "stdin-written") {
+      const written = this.written;
+      this.written = undefined;
+      written?.();
+      return undefined;
+    }
+    if (kind === "stdin-error") {
+      const error = new Error(bytes.toString());
+      const written = this.written;
+      this.written = undefined;
+      // A closed reader surfaces the failure the way node's does.
+      if (written) written(error);
+      else this.stdin.destroy(error);
+      return undefined;
+    }
+    const exit = parseExit(data);
+    if (kind === "exit") {
+      this.emit("exit", exit.code, exit.signal);
+      return undefined;
+    }
+    this.stdout.push(null);
+    this.stderr.push(null);
+    this.emit("close", exit.code, exit.signal);
+    return undefined;
+  }
+
+  /** Signals the leader through its own handle; false once it is reaped, never a reused pid. */
   kill(signal: NodeJS.Signals): boolean {
-    if (this.pid === undefined) return false;
     try {
-      return addon().supervisorKillProcess(this.pid, signal);
+      return this.handle?.kill(signal) ?? false;
     } catch {
       return false;
     }
   }
 
-  /** Releases tasks and pipes; the tree stays as the exit left it. */
+  /** The kernel job the child joined before it ran (Windows), as the shell's job shape. */
+  job(): import("./process-containment.ts").WindowsJob | undefined {
+    const handle = this.handle;
+    if (!handle?.hasJob()) return undefined;
+    return {
+      // Joined at spawn, while it was still suspended.
+      assign: () => {},
+      running: () => handle.jobRunning() ?? undefined,
+      terminate: () => handle.jobTerminate(),
+      dispose: () => handle.jobDispose(),
+    };
+  }
+
+  /** Releases the pipes; the leader stays held until its exit has been heard. */
   dispose(): void {
     try {
       this.handle?.dispose();
@@ -363,21 +411,11 @@ export function nativeSpawnChild(spec: NativeSpawnSpec): NativeChildProcess {
   return new NativeChildProcess(spec);
 }
 
-/** Kernel containment for one Windows tree behind the TypeScript job shape. */
-export function nativeJobFactory(): import("./process-containment.ts").WindowsJob | undefined {
-  try {
-    const job = addon().NativeJob ? new (addon().NativeJob)() : undefined;
-    if (!job) return undefined;
-    return {
-      assign: (pid: number) => job.assign(pid),
-      running: () => job.running() ?? undefined,
-      terminate: () => job.terminate(),
-      dispose: () => job.dispose(),
-    };
-  } catch {
-    // Any failure leaves the taskkill tree stop in charge.
-    return undefined;
-  }
+/** The native child's own job: the one the shell's stop plan holds and disposes. */
+export function nativeChildJob(
+  child: unknown,
+): import("./process-containment.ts").WindowsJob | undefined {
+  return child instanceof NativeChildProcess ? child.job() : undefined;
 }
 
 /** Whole-tree stop on Windows, where process groups do not exist. */

@@ -12,7 +12,7 @@ import { markedEnv } from "./process-marker.ts";
 import { supervisorBackend } from "./native-switches.ts";
 import {
   launchEnv,
-  nativeJobFactory,
+  nativeChildJob,
   nativeKillWindowsTree,
   nativeSpawnChild,
   NativeChildProcess,
@@ -55,14 +55,13 @@ export function spawnInteractive(options: {
         command: target.command,
         args: target.args,
         env: launchEnv(markedEnv(options.env)),
-        windows,
-        clearEnv: false,
         stdin: "inherit",
         stdout: options.stdout === "stderr" ? "stderr" : "inherit",
         stderr: "inherit",
         verbatim: target.verbatim,
-        waiterDestroy:
-          options.windowsKillTree === undefined && options.windowsJobFactory === undefined,
+        // The console stays visible: login owns credential entry and browser handoff.
+        hide: false,
+        contain: windows && options.windowsJobFactory === undefined,
       })
     : spawn(target.command, target.args, {
         env: markedEnv(options.env),
@@ -72,7 +71,8 @@ export function spawnInteractive(options: {
         windowsVerbatimArguments: target.verbatim,
       });
   const pid = child.pid;
-  const factory = options.windowsJobFactory ?? (native ? nativeJobFactory : createKillOnCloseJob);
+  const factory =
+    options.windowsJobFactory ?? (native ? () => nativeChildJob(child) : createKillOnCloseJob);
   const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
   if (pid !== undefined) job?.assign(pid);
   let stopped = false;
