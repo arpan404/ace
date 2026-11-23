@@ -12,6 +12,7 @@ import { smokeHistory } from "@ace/release/history-smoke";
 import { verifyDesktopNatives } from "@ace/release/native-smoke";
 import { readScreenHelperIdentity } from "@ace/release/screen-identity";
 import { ReleaseTarget } from "@ace/protocol";
+import { shippedExecutableName } from "@ace/service/process-names";
 import { assertLinuxRuntimeFloor } from "@ace/release/glibc";
 // The canonical ace-chromium profile (PR #1221); the deb installs exactly what `ace doctor --fix` installs.
 import { chromiumAppArmorProfile } from "@ace/browser/linux-sandbox";
@@ -127,6 +128,11 @@ if (process.platform === "linux") {
   await writeFile(join(linuxResources, "apparmor-chromium"), chromiumAppArmorProfile());
 }
 
+// The Rust natives under the names they ship as (`media/ace Media Service`, ...).
+const macNatives = (["media", "files", "history"] as const).map(
+  (name) => `${name}/${shippedExecutableName(name, "darwin")}`,
+);
+
 const notarize =
   signed && process.platform === "darwin" && notary.kind !== "none" && notary.kind !== "incomplete";
 const helper = join(dist, "helpers/AceScreenHelper.app");
@@ -222,20 +228,15 @@ const config: Configuration = {
         ]
       : [{ target: "dmg", arch: [arch] }],
     hardenedRuntime: true,
-    binaries: [
-      "Contents/Resources/media/ace-media",
-      "Contents/Resources/files/ace-files",
-      "Contents/Resources/history/ace-history",
-    ],
-    // Keep Electron's JIT entitlements off the Rust natives in the same signing pass.
+    binaries: macNatives.map((path) => `Contents/Resources/${path}`),
+    // Keep Electron's JIT entitlements off the Rust natives in the same signing pass. The
+    // runtime and its `ace Service` copy keep them: Bun's JIT needs them.
     sign: async (options) => {
       const original = options.optionsForFile;
       await signAsync({
         ...options,
         optionsForFile: (file: string) =>
-          file.endsWith("/media/ace-media") ||
-          file.endsWith("/files/ace-files") ||
-          file.endsWith("/history/ace-history")
+          macNatives.some((path) => file.endsWith(`/${path}`))
             ? { hardenedRuntime: true, entitlements: [] }
             : (original?.(file) ?? {}),
       });

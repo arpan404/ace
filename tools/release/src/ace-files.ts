@@ -12,7 +12,7 @@ import { collectRustLicenses, packageVersion, rustMetadata } from "./rust-licens
 type Target = z.infer<typeof ReleaseTarget>;
 export const filesSizeLimit = 8_000_000;
 export const stagedAceFiles = (root: string, target: Target) =>
-  stagedRustBinary(root, target, "files", "ace-files");
+  stagedRustBinary(root, target, "files", "files");
 
 /**
  * The version ace-files reports on its hello frame: its workspace package version, read from the
@@ -53,7 +53,14 @@ export async function stageAceFiles(options: {
     env,
     sizeLimit: filesSizeLimit,
   });
-  await installRustBinary({ executable, root, target, folder: "files", packageName: "ace-files" });
+  await installRustBinary({
+    executable,
+    root,
+    target,
+    folder: "files",
+    process: "files",
+    packageName: "ace-files",
+  });
   await collectRustLicenses({
     repo,
     workspace: "files",
