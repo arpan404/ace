@@ -1,14 +1,11 @@
 import SwiftUI
 
-/// Settings › Machines › Fleet map: the fleet as the web's map reads when it's too narrow to
-/// draw, a list. What needs the person comes first, each with what's wrong, why and its fixes;
-/// then every machine as this phone reaches it (relay, local network, tailnet), opening how it's
-/// reached; then every device paired across them.
 struct FleetMapView: View {
     let inbox: MachineInbox
     let machines: MachinesModel?
 
     @Environment(\.settingsPush) private var push
+    @State private var mapSelection: String?
     @State private var reply: FleetMapReply?
     @State private var problem: String?
     @State private var hints: [String: String] = [:]
@@ -24,8 +21,12 @@ struct FleetMapView: View {
         List {
             if let reply {
                 Section {
-                    Text(reply.summary).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
-                        .accessibilityIdentifier("fleetMap.summary")
+                    if let picture = reply.picture {
+                        FleetMapCanvas(picture: picture, summary: reply.summary) { mapSelection = $0 }
+                    } else {
+                        Text(reply.summary).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
+                            .accessibilityIdentifier("fleetMap.summary")
+                    }
                 }
                 .listRowBackground(Color.clear)
                 if !reply.needing.isEmpty {
@@ -35,15 +36,12 @@ struct FleetMapView: View {
                     .insetRowBackground()
                 }
                 Section {
-                    ForEach(reply.machines) { row in
-                        NavigationLink { FleetReachView(rowId: row.id, reply: $reply, reads: reads, reload: load) } label: { FleetMapRowLabel(row: row) }
-                            .accessibilityIdentifier("fleetMap.machine.\(row.id)")
-                    }
+                    ForEach(reply.machines) { row in detailLink(row) }
                 } header: { InsetHeader("Machines") }
                 .insetRowBackground()
                 if !reply.devices.isEmpty {
                     Section {
-                        ForEach(reply.devices) { row in FleetMapRowLabel(row: row) }
+                        ForEach(reply.devices) { row in detailLink(row) }
                     } header: { InsetHeader("Devices") }
                     .insetRowBackground()
                 }
@@ -59,6 +57,7 @@ struct FleetMapView: View {
             if let problem { ProblemRow(problem, id: "fleetMap.problem") { Task { await load() } } }
         }
         .insetGroupedList()
+        .navigationDestination(item: $mapSelection) { detail($0) }
         .smoothChange(reply)
         .sensoryFeedback(.success, trigger: done)
         .navigationTitle("Fleet map").navigationBarTitleDisplayMode(.inline)
@@ -70,6 +69,15 @@ struct FleetMapView: View {
                 if let action = asking?.action { Task { await run(action) } }
             }
         } message: { Text(asking?.question.body ?? "") }
+    }
+
+    private func detailLink(_ row: FleetMapReply.Row) -> some View {
+        NavigationLink { detail(row.id) } label: { FleetMapRowLabel(row: row) }
+            .accessibilityIdentifier("fleetMap.\(row.kind).\(row.id)")
+    }
+
+    private func detail(_ id: String) -> some View {
+        FleetReachView(rowId: id, reply: $reply, reads: reads, reload: load)
     }
 
     /// A node that needs the person: its state, what's wrong and why, and its fixes as buttons.

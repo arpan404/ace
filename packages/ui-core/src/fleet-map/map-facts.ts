@@ -11,7 +11,10 @@ import {
 
 /** The Fleet map's facts from the fleet's: see `fleet-map-types.ts`. Pure. */
 
-function zonesOf(nodes: readonly MapNode[], input: FleetMapInput): MapZone[] {
+export function fleetMapZones(
+  nodes: readonly MapNode[],
+  input: Pick<FleetMapInput, "networks" | "machines">,
+): MapZone[] {
   const networks = input.networks;
   const zones: MapZone[] = [];
   const has = (zone: ZoneId) => nodes.some((node) => node.zones.includes(zone));
@@ -78,7 +81,7 @@ export function fleetMapFacts(input: FleetMapInput): FleetMap {
   const problems = nodes.filter((node) => node.problem).length;
   return {
     nodes,
-    zones: zonesOf(nodes, input),
+    zones: fleetMapZones(nodes, input),
     relay: relayed ? { label: "ace cloud", host: host ?? "" } : undefined,
     agentLinks: [...pairs.values()],
     problems,
