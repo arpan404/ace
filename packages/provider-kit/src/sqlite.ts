@@ -19,6 +19,7 @@ if (defaultWarning) {
 import { DatabaseSync as NodeDatabaseSync, type DatabaseSyncOptions } from "node:sqlite";
 import { createMissingWal } from "./sqlite-read-only.ts";
 import { NativeDatabaseSync } from "./native-sqlite.ts";
+export { nativeHandle } from "./native-sqlite.ts";
 
 /** node:sqlite's database, opening read-only WAL databases the same way on Node and Bun. */
 class NodeDatabase extends NodeDatabaseSync {

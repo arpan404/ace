@@ -8,6 +8,10 @@ use napi::bindgen_prelude::{BigInt, Either4, Either5, Null, Uint8Array};
 use napi_derive::napi;
 use std::sync::Arc;
 
+mod items;
+mod long_thread;
+mod sidebar;
+
 /// Largest integer a JavaScript number holds exactly.
 const SAFE: i64 = (1 << 53) - 1;
 
@@ -52,6 +56,15 @@ fn fail(error: Error) -> napi::Error {
 #[napi]
 pub struct NativeDatabase {
     connection: Arc<Connection>,
+}
+
+impl NativeDatabase {
+    /// The connection, for the read bindings (`items.rs`, `long_thread.rs`, `sidebar.rs`),
+    /// which take `&NativeDatabase` from JavaScript and read on the same connection.
+    #[allow(dead_code)]
+    pub(crate) fn connection(&self) -> &Arc<Connection> {
+        &self.connection
+    }
 }
 
 #[napi]

@@ -4,6 +4,7 @@
 //! SQLite. Native reads and the writer join here in later phases; a Rust engine calls this
 //! crate directly.
 
+pub mod reads;
 #[allow(unsafe_code)]
 pub mod sqlite;
 

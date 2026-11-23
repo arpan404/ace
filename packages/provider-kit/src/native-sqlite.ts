@@ -291,8 +291,15 @@ export interface NativeDatabaseOptions {
   open?: boolean | undefined;
 }
 
+/** The addon's handle for a native connection, for the native read bindings; else undefined. */
+export function nativeHandle(database: object): object | undefined {
+  return database instanceof NativeDatabaseSync ? database.handle : undefined;
+}
+
 export class NativeDatabaseSync {
   readonly #database: AddonDatabase;
+  /** Kept here so a statement's use checks it without a call into the addon. */
+  #open = true;
   constructor(path: string | Buffer | URL, options: NativeDatabaseOptions = {}) {
     if (options.open === false)
       throw new Error("Deferred open is not supported by the native store");
@@ -304,7 +311,11 @@ export class NativeDatabaseSync {
     );
   }
   get isOpen(): boolean {
-    return this.#database.isOpen();
+    return this.#open;
+  }
+  /** The addon's `NativeDatabase`, passed to native read bindings as `&NativeDatabase`. */
+  get handle(): object {
+    return this.#database;
   }
   get isTransaction(): boolean {
     return call(() => this.#database.isTransaction());
@@ -313,16 +324,17 @@ export class NativeDatabaseSync {
     call(() => this.#database.exec(sql));
   }
   prepare(sql: string): NativeStatementSync {
-    const database = this.#database;
     return new NativeStatementSync(
-      call(() => database.prepare(sql)),
-      () => database.isOpen(),
+      call(() => this.#database.prepare(sql)),
+      () => this.#open,
     );
   }
   location(): string | null {
     return call(() => this.#database.location());
   }
   close(): void {
+    // Closed from here on even if SQLite's close reports a failure: its statements are gone.
+    this.#open = false;
     call(() => this.#database.close());
   }
   /** node:sqlite's `backup(db, path)`, copying the whole database at once. */
@@ -336,6 +348,6 @@ export class NativeDatabaseSync {
     }
   }
   [Symbol.dispose](): void {
-    if (this.#database.isOpen()) this.close();
+    if (this.#open) this.close();
   }
 }

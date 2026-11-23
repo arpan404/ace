@@ -17,4 +17,6 @@ workspace = true
 # (a JavaScript iterator steps it across calls), which rusqlite's borrowed statements
 # cannot express. `src/sqlite.rs` is the only unsafe code.
 libsqlite3-sys = { version = "0.39", features = ["bundled"] }
+# Native reads build wire JSON; RawValue keeps stored JSON as stored.
+serde_json = { version = "1", features = ["raw_value"] }
 
