@@ -233,3 +233,8 @@ files (marked † in the behaviour documents) are run by the owner only.
    `fake-daemon` need it in JavaScript anyway)?
 7. **The MCP server's end state**: move it to `rmcp` once no tool handler is JavaScript (a later
    ADR), or keep the SDK for as long as the official TypeScript SDK leads the specification?
+8. **Computer-use helpers outside the supervisor**: `ComputerClient` spawns its helpers with
+   `node:child_process` directly (`computer/client.ts:255`), so they are outside the process
+   inventory and containment that ADR 0223 E2 moves to Rust, and rely on their stdin closing to
+   exit when the daemon goes. Route them through `@ace/provider-kit/process` (a TypeScript change,
+   so E2 covers them), or keep them as they are?
