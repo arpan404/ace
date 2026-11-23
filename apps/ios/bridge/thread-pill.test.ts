@@ -186,12 +186,12 @@ function runningShell(id: string, command: string) {
   ];
 }
 
-function relay(stopped: boolean, ...commands: string[]) {
+function relay(stopped: boolean, ...lines: string[]) {
   return [
     facts.rootAgent("claude"),
     facts.turn("root"),
     facts.message("root", "ask", "user", "Start the relay."),
-    ...(commands.length ? commands : ["bun run dev:relay"]).flatMap((command, index) =>
+    ...(lines.length ? lines : ["bun run dev:relay"]).flatMap((command, index) =>
       runningShell(`relay-${index}`, command),
     ),
     ...(stopped ? [facts.endTurn("root", "interrupted")] : []),
@@ -217,13 +217,13 @@ test("a command a stopped turn left running shows on the strip with its command 
 test("the count strip carries every original command in task order", async () => {
   const fake = fixture();
   fake.createThread({ id: "two", workspaceId: "ace", title: "Relays", provider: "claude" });
-  const commands = ["env PORT=3000 bun run dev", 'bash -lc "bun run dev:relay"'];
-  fake.apply("two", relay(true, ...commands));
+  const running = ["env PORT=3000 bun run dev", 'bash -lc "bun run dev:relay"'];
+  fake.apply("two", relay(true, ...running));
   open(connect(fake), "two");
   const left = await until(() => leftRunning() ?? undefined, "both running commands");
   expect(left.strip).toMatchObject({ sentence: "Running 2 commands", payload: "" });
-  expect(left.commands).toEqual(commands);
-  expect(left.taskIds).toHaveLength(commands.length);
+  expect(left.commands).toEqual(running);
+  expect(left.taskIds).toHaveLength(running.length);
 });
 
 test("while the turn still works, nothing is said to be left running", async () => {
