@@ -2,6 +2,7 @@
 //! `ace`: the command-line tool for managing ace (ADR 0221). It runs ported commands itself and
 //! hands every other command to the bundled runtime.
 
+mod commands;
 mod completion;
 mod handover;
 mod help;

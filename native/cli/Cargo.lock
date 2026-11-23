@@ -9,6 +9,7 @@ dependencies = [
  "cli-out",
  "cli-parse",
  "cli-table",
+ "cli-wire",
  "ctrlc",
  "serde",
  "serde_json",

@@ -18,7 +18,16 @@ use crate::{completion, handover, help, help_json};
 
 /// The commands this binary answers itself. Every other id hands over; each of these must exist
 /// in the table, which `check:cli` proves.
-const NATIVE_IDS: &[&str] = &["home", "help", "version", "completion", "complete"];
+const NATIVE_IDS: &[&str] = &[
+    "home",
+    "help",
+    "version",
+    "completion",
+    "complete",
+    "project.list",
+    "request.list",
+    "request.show",
+];
 
 /// Runs one command line, returning the outcome whose exit code ends the process.
 ///
@@ -260,6 +269,11 @@ where
                 return hand_over(os_args, &parsed.flags, make_out, make_err);
             }
             with_writers(make_out, make_err, |out, err| complete(&slot, out, err))
+        }
+        _ if crate::commands::work::IDS.contains(&parsed.command.id) => {
+            with_writers(make_out, make_err, |out, err| {
+                crate::commands::work::dispatch(parsed, os_args, out, err)
+            })
         }
         _ => hand_over(os_args, &parsed.flags, make_out, make_err),
     }
