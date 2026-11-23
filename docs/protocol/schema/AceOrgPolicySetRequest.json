@@ -4,10 +4,16 @@
   "properties": {
     "policy": {
       "$ref": "https://ace.local/protocol/v1/AceOrgPolicy.json"
+    },
+    "version": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
     }
   },
   "required": [
-    "policy"
+    "policy",
+    "version"
   ],
   "type": "object"
 }

@@ -1025,16 +1025,34 @@ impl Spade {
         Ok((status, serde_json::from_str(&text).unwrap_or(Value::Null)))
     }
 
+    /// `PATCH`, stamped as the person's where ace's daemon stamps it ([`guarded`]).
     pub async fn patch(&self, path: &str, body: Value) -> Result<(u16, Value)> {
-        let response = self
-            .http
-            .patch(format!("{}{path}", self.base))
-            .bearer_auth(TOKEN)
-            .json(&body)
-            .send()
-            .await?;
-        let status = response.status().as_u16();
-        Ok((status, response.json().await.unwrap_or(Value::Null)))
+        self.send(reqwest::Method::PATCH, path, Some(&body), true)
+            .await
+    }
+
+    /// `PATCH` with no stamp of the person's.
+    pub async fn patch_unstamped(&self, path: &str, body: Value) -> Result<(u16, Value)> {
+        self.send(reqwest::Method::PATCH, path, Some(&body), false)
+            .await
+    }
+
+    /// The person's stamp on `value` for `target`, as ace's daemon makes it now.
+    pub fn person_stamp(&self, target: &str, value: &str) -> Result<String> {
+        let key = std::fs::read_to_string(&self.person_key_path)?;
+        let key: Vec<u8> = (0..key.trim().len())
+            .step_by(2)
+            .map(|at| u8::from_str_radix(&key.trim()[at..at + 2], 16))
+            .collect::<std::result::Result<_, _>>()?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| {
+                i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
+            });
+        let nonce = uuid::Uuid::new_v4().simple().to_string();
+        Ok(spade_server::security::attest::sign(
+            &key, target, value, now, &nonce,
+        ))
     }
 
     /// `PUT`, stamped as the person's where ace's daemon stamps it ([`guarded`]).
@@ -1143,15 +1161,14 @@ impl Spade {
         Ok((status, response.json().await.unwrap_or(Value::Null)))
     }
 
+    /// `GET`, stamped as the person's where ace's daemon stamps it ([`guarded`]).
     pub async fn get(&self, path: &str) -> Result<(u16, Value)> {
-        let response = self
-            .http
-            .get(format!("{}{path}", self.base))
-            .bearer_auth(TOKEN)
-            .send()
-            .await?;
-        let status = response.status().as_u16();
-        Ok((status, response.json().await.unwrap_or(Value::Null)))
+        self.send(reqwest::Method::GET, path, None, true).await
+    }
+
+    /// `GET` with no stamp of the person's: as another holder of Spade's token reads it.
+    pub async fn get_unstamped(&self, path: &str) -> Result<(u16, Value)> {
+        self.send(reqwest::Method::GET, path, None, false).await
     }
 
     /// Creates a bot on the fake model and returns it as the API shows it.
@@ -1328,6 +1345,16 @@ pub fn guarded(method: &str, path: &str, body: Option<&[u8]>) -> Option<(String,
         }
         ("PUT", ["v1", "agents", bot, "package", "effects"]) => {
             Some(((*bot).to_owned(), format!("package_effect:{digest}")))
+        }
+        // ADR 0214: the provider-account routes, stamped over the whole request.
+        ("GET", ["v1", "models"])
+        | ("POST", ["v1", "accounts", "chatgpt"])
+        | ("GET" | "DELETE", ["v1", "accounts", "chatgpt", _]) => {
+            Some(("accounts".to_owned(), format!("{method} {path}:{digest}")))
+        }
+        ("POST", ["v1", "endpoints", id, "sign-out"])
+        | ("PATCH" | "DELETE", ["v1", "endpoints", id]) => {
+            Some((format!("account:{id}"), format!("{method} {path}:{digest}")))
         }
         _ => None,
     }

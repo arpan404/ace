@@ -5,6 +5,7 @@
     {
       "enum": [
         "none",
+        "checking",
         "available",
         "waiting",
         "downloading",

@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { spadePersonOnlyRoute } from "@ace/client/spade-person-only";
 import { looseningWrite } from "./loosen-stamp.ts";
 
@@ -58,6 +58,8 @@ export function personOnlyWrite(
   if (target === undefined) return undefined;
   if (target.startsWith("move:")) return moveAcceptWrite(target, body);
   if (target === "main-host") return hostWrite(target, body);
+  const accounts = accountWrite(method, path, target, body);
+  if (accounts !== null) return accounts;
   // Only Spade can tell whether these loosen anything (ADR 0171, amendment 7).
   const optional = (write: PersonOnlyWrite | undefined) =>
     write && { ...write, optional: true as const };
@@ -175,6 +177,40 @@ function neverAppsWrite(body: Buffer | undefined): PersonOnlyWrite | undefined {
   const apps: unknown = Reflect.get(value, "apps");
   if (!Array.isArray(apps) || !apps.every((app) => typeof app === "string")) return undefined;
   return { target: "machine", value: `never_apps:${apps.join(listSeparator)}` };
+}
+
+/**
+ * What only the person may do or see with Spade's provider accounts (ADR 0214), stamped over the
+ * whole request: `<METHOD> <path and query>:<SHA-256 of the body>`, so the stamp holds for this
+ * request and no other, whatever its body says. Starting, reading and cancelling a sign-in and
+ * signing out are refused unstamped; seeing the accounts' details, and changing or removing an
+ * account, go either way, and Spade decides (a key account needs no stamp). `null` for a route
+ * that isn't one of these; undefined for an account id Spade won't take.
+ */
+function accountWrite(
+  method: string,
+  path: string,
+  target: string,
+  body: Buffer | undefined,
+): PersonOnlyWrite | undefined | null {
+  const request = `${method} ${path}:${createHash("sha256")
+    .update(body ?? Buffer.alloc(0))
+    .digest("hex")}`;
+  if (target === "sign-in" || target === "sign-in-flow")
+    return { target: "accounts", value: request };
+  if (target === "account-details") return { target: "accounts", value: request, optional: true };
+  for (const [prefix, optional] of [
+    ["sign-out:", false],
+    ["change-account:", true],
+    ["remove-account:", true],
+  ] as const) {
+    if (!target.startsWith(prefix)) continue;
+    const id = target.slice(prefix.length);
+    if (!plainId.test(id)) return undefined;
+    const write: PersonOnlyWrite = { target: `account:${id}`, value: request };
+    return optional ? { ...write, optional: true } : write;
+  }
+  return null;
 }
 
 function parsed(body: Buffer | undefined): unknown {

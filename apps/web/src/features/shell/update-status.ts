@@ -118,3 +118,42 @@ export function updateActionWords(status: UpdateStatus): string | undefined {
       return undefined;
   }
 }
+
+/** The account menu keeps the running version alongside the next action or check result. */
+export function accountUpdateRow(
+  status: UpdateStatus,
+  checked: boolean,
+): { label: string; detail?: string } {
+  const detail =
+    status.error?.during === "check"
+      ? "Couldn't check for updates. Try again."
+      : status.error?.during === "download"
+        ? "Couldn't download the update. Try again."
+        : status.error?.during === "install"
+          ? "Agents are still working. Try again once they finish."
+          : (status.blocked ?? undefined);
+  switch (status.state) {
+    case "current":
+      return {
+        label: "Check for updates",
+        ...(checked && !detail ? { detail: "ace is up to date" } : detail ? { detail } : {}),
+      };
+    case "idle":
+      return { label: "Check for updates" };
+    case "checking":
+      return { label: "Checking…" };
+    case "disabled":
+      return { label: "Updates are unavailable in this build" };
+    case "error":
+      return { label: "Check for updates", ...(detail ? { detail } : {}) };
+    case "available":
+      return {
+        label: status.inPlace ? `Update to ${status.version}` : "Download from GitHub",
+        ...(detail ? { detail } : {}),
+      };
+    case "downloaded":
+      return { label: "Restart to update", ...(detail ? { detail } : {}) };
+    default:
+      return { label: updateLabel(status) };
+  }
+}

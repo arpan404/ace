@@ -95,6 +95,7 @@ export class UpdateController {
   private ports: UpdatePorts;
   private status: UpdateStatus;
   private checking: Promise<UpdateStatus> | undefined;
+  private personChecking = false;
   private installWhenReady = false;
 
   constructor(ports: UpdatePorts) {
@@ -129,11 +130,13 @@ export class UpdateController {
     const state = this.status.state;
     if (state === "disabled" || state === "downloading" || state === "installing")
       return Promise.resolve(this.status);
-    if (this.checking) return this.checking;
     const before = this.status;
-    if (origin === "person") this.set({ ...before, state: "checking", error: null });
-    this.checking = this.find(before, origin).finally(() => {
+    const showChecking = origin === "person" && !this.personChecking;
+    if (showChecking) this.personChecking = true;
+    if (showChecking) this.set({ ...before, state: "checking", error: null });
+    this.checking ??= this.find(before).finally(() => {
       this.checking = undefined;
+      this.personChecking = false;
     });
     return this.checking;
   }
@@ -286,12 +289,13 @@ export class UpdateController {
   /**
    * An update asked for from another client through this app's daemon (ADR 0113). Only the
    * release the person saw there is installed: a different one on offer here is left alone.
-   * `download` fetches it. `install` when `idle` drains running agents first, as `ace update
+   * `check` checks the selected line. `download` fetches the release. `install` when `idle` drains running agents first, as `ace update
    * apply` does (the daemon asks only once none work); `now` stops them at once, as a confirmed
    * Restart does, since the person confirmed on that client. Stopped turns continue after the
    * restart.
    */
   async remote(instruction: RemoteInstruction): Promise<UpdateStatus> {
+    if (instruction.action === "check") return this.check("person");
     if (this.checking) await this.checking;
     let found = this.status;
     if (found.version !== instruction.version && found.state !== "downloading")
@@ -350,17 +354,30 @@ export class UpdateController {
     return false;
   }
 
-  private async find(before: UpdateStatus, origin: CheckOrigin): Promise<UpdateStatus> {
+  private async find(before: UpdateStatus): Promise<UpdateStatus> {
     let offer: UpdateOffer | UpdateBlocked | undefined;
     try {
       offer = await this.ports.engine.check();
     } catch (error) {
       this.ports.log("warn", `Update check failed: ${message(error)}`);
       // An update already on offer or downloaded stays; a background failure stays quiet.
-      if (origin === "background" || before.version) return this.set(before);
+      if (!this.personChecking) return this.set(before);
+      const keepOffer =
+        before.state === "downloaded" ||
+        (before.version !== null && before.line === this.ports.line());
       return this.set({
         ...before,
-        state: "error",
+        ...(keepOffer
+          ? {}
+          : {
+              state: "error",
+              version: null,
+              releaseUrl: null,
+              blocked: null,
+              percent: null,
+              notes: [],
+              olderReleases: 0,
+            }),
         error: { during: "check", message: message(error) },
       });
     }

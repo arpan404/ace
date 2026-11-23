@@ -329,6 +329,96 @@ context comes from `context_length`, `context_window`, `max_context_length` or
 `max_input_tokens`. At most 4 MB, 5,000 models and 10 seconds. A failure is one line that never
 carries the key.
 
+### Providers and accounts
+
+[ADR 0214](../../docs/adr/0214-spade-provider-accounts-and-openai-sign-in.md). Every endpoint is an
+_account_ of a _provider_. In `GET /v1/models` each endpoint also has:
+
+- `provider`: the preset id it was made from (`openai`, `anthropic`, `opencode-go`, …), `openai`
+  for a ChatGPT sign-in, or `null` for one added by address (its own provider).
+- `auth`: `"key"` (an API key, ADR 0119), `"none"` (needs no key) or `"chatgpt"` (a ChatGPT
+  sign-in).
+- `account`: for `chatgpt`, `{email, plan, signed_in}` (`email` and `plan` may be `null`); else
+  `null`.
+- `used_by`: names of the bots whose model is on it, in name order.
+
+and the answer has `sign_in: ["chatgpt"]`, the sign-ins this Spade can run. The account id is the
+reference's first part (`work/gpt-5.5`, `chatgpt-k3f9a2c1d07e5b44/gpt-5.5`): unique across providers and
+never changed, and never reused: a removed endpoint's id is retired for good (`retired_endpoints`),
+so no later endpoint, sign-in, credential or call can take it. A ChatGPT account's id is `chatgpt-`
+and sixteen random characters; `PATCH /v1/endpoints/{id} {name}` renames only what people see. A `chatgpt` account
+takes only a new name: any other change is refused (`400`), so its token never goes anywhere but
+where it was issued for. The model client also sends a sign-in's token only to the ChatGPT
+backend's origin, whatever address an account says. A second account from a
+preset is `POST /v1/endpoints {preset, name}` as before; its id is a slug of the name.
+
+**Signing in to ChatGPT.** `POST /v1/accounts/chatgpt {method, terms_read, account?}` starts a
+sign-in. `method` is `"browser"` (a PKCE sign-in whose callback is
+`http://127.0.0.1:1455/auth/callback` on Spade's machine: the person opens `url` in a browser
+there) or `"device"` (a code the person enters at `url` on any device: for a Spade with no browser
+near it). `terms_read` must be `true`: the client has shown that using a ChatGPT sign-in outside
+OpenAI's own Codex clients may conflict with OpenAI's terms (`400` otherwise). `account` names a
+signed-out `chatgpt` account to sign back in. It answers `201 {flow}`, where `flow` is
+`{id, method, state, url, user_code, endpoint, error}`; `409` while the callback port is taken
+(use `device`). `GET /v1/accounts/chatgpt/{flow}` reads it again: `state` is `waiting`, then
+`done` (with `endpoint`, the account as `GET /v1/models` lists it), `failed` (with `error`, one
+line) or `cancelled`; once it ends, `url` and `user_code` are `null`. `DELETE
+/v1/accounts/chatgpt/{flow}` cancels a waiting sign-in; once its code is traded it is being kept
+and can no longer be cancelled. One sign-in runs at a time: starting one cancels a waiting one. A
+sign-in waits at most 15 minutes, or until the device code ends if the server says sooner; a
+`slow_down` answer adds five seconds to the polling interval. Signing in with a ChatGPT account
+already added renews that account. The ID token decides the account only once its `iss` is
+OpenAI's sign-in, its `aud` is this client and it hasn't ended, and the access token may not name
+another account; otherwise the sign-in fails and nothing is kept.
+
+**The person's say.** Starting a sign-in, reading or cancelling one, and signing an account out
+need the person's stamp (`x-ace-person`, ADR 0171 amendment 7), which ace's daemon makes only for
+a window that proved it is theirs; without it Spade answers `403`. Changing or removing a
+`chatgpt` account needs it too, decided on the very row the change writes, under the lock that
+holds it (a key account needs none). `GET /v1/models` without the stamp answers `account: null`
+for every signed-in account: no email, plan or sign-in state. The stamp covers the whole request:
+target `accounts` (starting, reading and cancelling sign-ins, and `GET /v1/models`) or
+`account:<id>`, and value `<METHOD> <path and query>:<SHA-256 of the body, hex>`, so it holds for
+that request and no other. A new ChatGPT account is named `ChatGPT`, then `ChatGPT 2` and on,
+never its email; an older account named after its email shows to other callers as `ChatGPT`.
+A sign-in's two tokens are sealed together in `sign-ins/<account id>` in the home's data folder,
+replaced whole by renaming; the sealing key (32 random bytes) is in the keychain under
+`oauth:<account id>`. Account ids are `chatgpt-` and sixteen random characters, unique across homes.
+A signed-in call holds the dispatch gate until the backend's first frame, at most two minutes;
+after that the answer lives while frames (heartbeats included) keep coming, up to ten minutes
+apart and an hour in all. A call ended by a wait is possibly billed and never resent.
+A send on a signed-in account holds the account's dispatch gate until its first frame arrives:
+a sign-out, removal or new sign-in waits for those sends, and none under the old credential starts
+after. The model SDK's own diagnostics are never logged, whatever `RUST_LOG` says: they carry
+failed calls' response bodies. A usage line never names the plan. Only a connection never made
+counts as unsent; any other transport failure may have been billed and is never sent again, and
+a failure that may have been billed is the answer even after a refused effort.
+
+`POST /v1/endpoints/{id}/sign-out` deletes a `chatgpt` account's tokens from the keychain and
+answers `200 {endpoint}` with `signed_in: false`; the account and its bots stay. `DELETE
+/v1/endpoints/{id}` removes it, tokens first. Tokens are never returned by any route.
+
+A ChatGPT account's calls go to `https://chatgpt.com/backend-api/codex/responses` (streamed,
+`store: false`) with its access token and `chatgpt-account-id`; its live models are
+`GET …/codex/models`. The access token is refreshed when it has under five minutes left. Every call
+holds its token with the generation of the credential it belongs to; a sign-in, sign-out, removal
+or refused refresh starts a new generation, and a send under an old one is refused before it
+goes. Retries are one loop: a `401` before anything streamed gets the account's own refresh once
+(shared by every call reporting the same token, a failed refresh included) and the same request
+again with the new token; a refused effort steps down without sending the same request twice; a
+`401` that still comes is the answer, whatever was refused before it. A model list refused with
+`401` is refreshed and asked again once too. Failures on a signed-in account read only as an
+allowlisted line (the usage refusal, `the ChatGPT backend refused the call (<status>)`, or that it
+could not be reached; a plan only when it is one ChatGPT has), never anything the backend sent
+back; a failed model list says only its status. A sign-in that stops repeats only a known OAuth
+error code. The device code's own `slow_down`, `expired_token` and `access_denied` are read before
+the status, and an `expires_in` of 0 is a code already over. An ID token is taken only when its
+`aud` is this client (with others beside it, `azp` must be this client too) and it hasn't ended
+when it arrives. A refresh
+the server refuses signs the account out ("This ChatGPT account is signed out. Sign in again in
+Settings › Spade › Models."). A usage limit ends the call with one line naming the reset time
+when the server gives one.
+
 ## Models per role
 
 Each bot uses a model per role ([ADR 0162](../../docs/adr/0162-spade-model-routing.md)):
@@ -533,6 +623,9 @@ then.
 | `GET /endpoints/{id}/models`                  |                                                                                                           | `{"models":[{id, name?, context?, capabilities?}]}`, live  |
 | `POST /endpoints/{id}/models`                 | `{id, name?, context?, capabilities?}`                                                                    | `200 {"endpoint"}`                                         |
 | `DELETE /endpoints/{id}/models?id=<model id>` |                                                                                                           | `204`; `404` if not saved                                  |
+| `POST /accounts/chatgpt`                      | `{method: "browser" \| "device", terms_read: true, account?}`                                             | `201 {"flow"}`; `400`; `409` port taken                    |
+| `GET`/`DELETE /accounts/chatgpt/{flow}`       |                                                                                                           | `{"flow"}` / `204`                                         |
+| `POST /endpoints/{id}/sign-out`               |                                                                                                           | `200 {"endpoint"}`                                         |
 | `PUT /settings`                               | any of `fast_model`, `new_bot_model`: `"endpoint/model" \| null`                                          | `204`                                                      |
 | `PUT`/`DELETE /keys/{endpoint}`               | `{key}`                                                                                                   | as before (ADR 0119)                                       |
 | `POST /conversations`                         |                                                                                                           | `410`: create an agent instead                             |

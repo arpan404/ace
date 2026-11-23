@@ -212,8 +212,9 @@ fn usage(flag: &std::ffi::OsStr) -> std::process::ExitCode {
 
 /// The server: logging, then `run` on the runtime `main` built.
 async fn serve_main() -> std::process::ExitCode {
-    // The HTML parser's own logs carry page text, so they are dropped by a separate layer that no
-    // RUST_LOG setting can turn back on.
+    // The HTML parser's own logs carry page text and the model SDK's carry failed calls'
+    // response bodies (which may echo a key or token), so they are dropped by a separate layer
+    // that no RUST_LOG setting can turn back on.
     tracing_subscriber::registry()
         // Plain text when not on a terminal: the service writes to a log file.
         .with(
@@ -221,7 +222,7 @@ async fn serve_main() -> std::process::ExitCode {
                 .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stdout())),
         )
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
-        .with(filter_fn(|meta| !spade_fetch::is_parser_log(meta.target())))
+        .with(filter_fn(|meta| spade_server::logging::kept(meta.target())))
         .init();
     match run().await {
         Ok(()) => std::process::ExitCode::SUCCESS,
@@ -268,13 +269,28 @@ fn other(error: impl std::fmt::Display) -> Failure {
 async fn run() -> Result<(), Failure> {
     let env = |key: &str| std::env::var(key).ok();
     let config = Config::from_env(env).map_err(other)?;
+    // Before the folder is opened (its lock taken, its database migrated): only the released
+    // Spade may open the live home (ADR 0119 amendment 1).
+    spade_keys::owner::may_open(
+        &config.data_dir,
+        spade_keys::owner::release_binary(),
+        spade_keys::owner::account_home().as_deref(),
+    )
+    .map_err(other)?;
     let home = Home::open(&config.data_dir).map_err(|e| match e {
         HomeError::Busy(_) => Failure::Busy(e),
         e => other(e),
     })?;
 
-    let keychain = match KeyStore::os() {
-        Ok(store) => Some(store),
+    // A release Spade on the live home files its keychain entries under its own service; any
+    // other build or home under the dev one, so the two never touch each other's (ADR 0119
+    // amendment 1).
+    let placement = spade_keys::Placement::of_this_process(&config.data_dir);
+    let keychain = match KeyStore::os(&placement.service()) {
+        Ok(store) => {
+            tracing::info!(service = store.service(), "keychain entries");
+            Some(store)
+        }
         Err(error) => {
             tracing::warn!(%error, "no keychain; endpoint keys come from the environment only");
             None
@@ -578,6 +594,30 @@ async fn run() -> Result<(), Failure> {
     })
     .map_err(other)?;
     bots.set(&engine);
+    // ChatGPT sign-ins (ADR 0214): tokens in the keychain only; none without one.
+    // Tokens rest sealed in the home's data folder, their key per account in the keychain.
+    let vault = keychain.clone().map(|keys| {
+        spade_chatgpt::Vault::new(
+            home.dir.join("sign-ins"),
+            keys,
+            Arc::new(spade_connect::OsRandom),
+        )
+    });
+    match spade_chatgpt::Accounts::new(
+        vault,
+        spade_chatgpt::Config::openai(),
+        Arc::new(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+        }),
+    ) {
+        Ok(accounts) => engine.set_sign_ins(spade_chatgpt::Flows::new(
+            Arc::new(accounts),
+            Arc::new(spade_connect::OsRandom),
+        )),
+        Err(error) => tracing::warn!(%error, "ChatGPT sign-in is off"),
+    }
     // An org host's audit log is checkpointed at least every five minutes (ADR 0206 §4.2).
     {
         let engine = engine.clone();

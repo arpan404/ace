@@ -1,0 +1,354 @@
+//! A stand-in for OpenAI's sign-in server (ADR 0214): the token endpoint (codes by form,
+//! refreshes by JSON) and the device-code routes. Its tokens are unsigned JSON Web Tokens naming
+//! one ChatGPT account. It records what it was asked, and can refuse a refresh token.
+
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+
+use axum::extract::State;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::routing::post;
+use axum::{Json, Router};
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use serde_json::{Value, json};
+use tokio::net::TcpListener;
+
+const AUTH: &str = "https://api.openai.com/auth";
+
+/// An unsigned token whose payload is `claims`.
+pub fn unsigned(claims: &Value) -> String {
+    let encode = |value: &Value| URL_SAFE_NO_PAD.encode(value.to_string());
+    format!(
+        "{}.{}.unsigned",
+        encode(&json!({"alg": "none"})),
+        encode(claims)
+    )
+}
+
+#[derive(Default)]
+struct Seen {
+    refreshes: Mutex<Vec<String>>,
+    dead: Mutex<Vec<String>>,
+    polls: AtomicUsize,
+    traded: Mutex<Vec<(String, String)>>,
+    exp: AtomicI64,
+    account: Mutex<(String, String)>,
+    issuer: Mutex<String>,
+    /// Milliseconds each refresh waits before it answers.
+    refresh_hold_ms: AtomicU64,
+    /// The device code's next poll is answered `slow_down`.
+    slow_down: AtomicBool,
+    /// The device code is never approved.
+    never: AtomicBool,
+    /// Whether `device_lasts` is sent at all (zero included).
+    device_lasts_set: AtomicBool,
+    /// The next poll is answered `403` with `expired_token`.
+    expire_next: AtomicBool,
+    /// When each poll of the device code arrived.
+    poll_times: Mutex<Vec<std::time::Instant>>,
+    /// The ID token's `exp`.
+    id_exp: AtomicI64,
+    /// Refreshes are answered `503` (the server's own trouble).
+    refresh_down: AtomicBool,
+    /// Refresh requests received, answered or not.
+    refresh_attempts: AtomicUsize,
+    /// `expires_in` sent with the device code, when set.
+    device_lasts: AtomicU64,
+    /// Sign-ins' access tokens name this account instead.
+    access_account: Mutex<Option<String>>,
+}
+
+/// The fake sign-in server.
+#[derive(Clone)]
+pub struct FakeSignIn {
+    /// Its address, as a `Config::issuer`.
+    pub issuer: String,
+    /// The client id it accepts.
+    pub client_id: String,
+    seen: Arc<Seen>,
+}
+
+impl FakeSignIn {
+    /// Signs in `sam@example.com`, ChatGPT account `acct-1` on the plus plan; access tokens end
+    /// at Unix second 10,000 until [`FakeSignIn::expires_at`] says otherwise.
+    pub async fn start() -> std::io::Result<Self> {
+        let seen = Arc::new(Seen::default());
+        seen.exp.store(10_000, Ordering::SeqCst);
+        seen.id_exp.store(4_000_000_000, Ordering::SeqCst);
+        *seen.account.lock().unwrap_or_else(|p| p.into_inner()) =
+            ("acct-1".to_owned(), "sam@example.com".to_owned());
+        let app = Router::new()
+            .route("/oauth/token", post(token))
+            .route("/api/accounts/deviceauth/usercode", post(usercode))
+            .route("/api/accounts/deviceauth/token", post(device_token))
+            .with_state(seen.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let issuer = format!("http://{}", listener.local_addr()?);
+        *seen.issuer.lock().unwrap_or_else(|p| p.into_inner()) = issuer.clone();
+        tokio::spawn(async move { axum::serve(listener, app).await });
+        Ok(Self {
+            issuer,
+            client_id: "client-1".to_owned(),
+            seen,
+        })
+    }
+
+    /// Later sign-ins are for this ChatGPT account and email.
+    pub fn signs_in(&self, account_id: &str, email: &str) {
+        *self.seen.account.lock().unwrap_or_else(|p| p.into_inner()) =
+            (account_id.to_owned(), email.to_owned());
+    }
+
+    /// Access tokens given from now on end at Unix second `at`.
+    pub fn expires_at(&self, at: i64) {
+        self.seen.exp.store(at, Ordering::SeqCst);
+    }
+
+    /// The server refuses `refresh` from now on, as one used or revoked.
+    pub fn kill(&self, refresh: &str) {
+        self.seen
+            .dead
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(refresh.to_owned());
+    }
+
+    /// Refresh tokens a refresh was asked with, in order.
+    pub fn refreshes(&self) -> Vec<String> {
+        self.seen
+            .refreshes
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    /// Codes traded for tokens, each with its verifier.
+    pub fn traded(&self) -> Vec<(String, String)> {
+        self.seen
+            .traded
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    /// Each refresh waits this long before it answers.
+    pub fn hold_refreshes(&self, hold: std::time::Duration) {
+        let ms = u64::try_from(hold.as_millis()).unwrap_or(u64::MAX);
+        self.seen.refresh_hold_ms.store(ms, Ordering::SeqCst);
+    }
+
+    /// Refreshes are answered `503` from now on.
+    pub fn refresh_down(&self) {
+        self.seen.refresh_down.store(true, Ordering::SeqCst);
+    }
+
+    /// Refreshes are answered again.
+    pub fn refresh_up(&self) {
+        self.seen.refresh_down.store(false, Ordering::SeqCst);
+    }
+
+    /// Refresh requests received so far, answered or not.
+    pub fn refresh_attempts(&self) -> usize {
+        self.seen.refresh_attempts.load(Ordering::SeqCst)
+    }
+
+    /// ID tokens given from now on end at Unix second `at`.
+    pub fn id_expires_at(&self, at: i64) {
+        self.seen.id_exp.store(at, Ordering::SeqCst);
+    }
+
+    /// The device code's next poll is told, with a `403`, that the code expired.
+    pub fn expire_next_poll(&self) {
+        self.seen.expire_next.store(true, Ordering::SeqCst);
+    }
+
+    /// How long passed between each poll of the device code and the one before.
+    pub fn poll_gaps(&self) -> Vec<std::time::Duration> {
+        let times = self
+            .seen
+            .poll_times
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        times.windows(2).map(|w| w[1] - w[0]).collect()
+    }
+
+    /// The device code's next poll is told to slow down.
+    pub fn slow_down_once(&self) {
+        self.seen.slow_down.store(true, Ordering::SeqCst);
+    }
+
+    /// The device code is never approved, and lasts `seconds` as the server says.
+    pub fn device_never_approved(&self, seconds: u64) {
+        self.seen.never.store(true, Ordering::SeqCst);
+        self.seen.device_lasts.store(seconds, Ordering::SeqCst);
+        self.seen.device_lasts_set.store(true, Ordering::SeqCst);
+    }
+
+    /// Sign-ins' access tokens name `account` from now on, whatever the ID token says.
+    pub fn access_names(&self, account: &str) {
+        *self
+            .seen
+            .access_account
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(account.to_owned());
+    }
+
+    /// Polls of the device code so far.
+    pub fn polls(&self) -> usize {
+        self.seen.polls.load(Ordering::SeqCst)
+    }
+
+    /// The tokens it would give as sign-in number `n` (`refresh-<n>`).
+    pub fn tokens(&self, n: usize) -> Value {
+        tokens(&self.seen, n)
+    }
+}
+
+fn tokens(seen: &Seen, n: usize) -> Value {
+    let (account, email) = seen
+        .account
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
+    let issuer = seen
+        .issuer
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
+    let access_account = seen
+        .access_account
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
+        .unwrap_or_else(|| account.clone());
+    json!({
+        "id_token": unsigned(&json!({
+            "iss": issuer, "aud": "client-1", "exp": seen.id_exp.load(Ordering::SeqCst),
+            "email": email,
+            AUTH: { "chatgpt_account_id": account, "chatgpt_plan_type": "plus" }
+        })),
+        "access_token": unsigned(&json!({
+            "n": n, "exp": seen.exp.load(Ordering::SeqCst),
+            AUTH: { "chatgpt_account_id": access_account }
+        })),
+        "refresh_token": format!("refresh-{n}"),
+    })
+}
+
+async fn token(State(seen): State<Arc<Seen>>, headers: HeaderMap, body: String) -> Response {
+    let form = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("application/x-www-form-urlencoded"));
+    if form {
+        let fields: HashMap<String, String> = body
+            .split('&')
+            .filter_map(|pair| pair.split_once('='))
+            .map(|(k, v)| (decode(k), decode(v)))
+            .collect();
+        let field = |k: &str| fields.get(k).cloned().unwrap_or_default();
+        if field("grant_type") != "authorization_code" || field("client_id") != "client-1" {
+            return StatusCode::BAD_REQUEST.into_response();
+        }
+        let mut traded = seen.traded.lock().unwrap_or_else(|p| p.into_inner());
+        traded.push((field("code"), field("code_verifier")));
+        let n = traded.len();
+        drop(traded);
+        return Json(tokens(&seen, n)).into_response();
+    }
+    let Ok(asked) = serde_json::from_str::<Value>(&body) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    let refresh = asked["refresh_token"].as_str().unwrap_or("").to_owned();
+    seen.refresh_attempts.fetch_add(1, Ordering::SeqCst);
+    let hold = seen.refresh_hold_ms.load(Ordering::SeqCst);
+    if hold > 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(hold)).await;
+    }
+    if seen.refresh_down.load(Ordering::SeqCst) {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
+    if seen
+        .dead
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .contains(&refresh)
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": { "code": "refresh_token_reused" } })),
+        )
+            .into_response();
+    }
+    let mut refreshes = seen.refreshes.lock().unwrap_or_else(|p| p.into_inner());
+    refreshes.push(refresh);
+    let n = 100 + refreshes.len();
+    drop(refreshes);
+    Json(tokens(&seen, n)).into_response()
+}
+
+/// Percent-decoding of a form field (`+` is a space).
+fn decode(text: &str) -> String {
+    let bytes = text.replace('+', " ").into_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let hex = |b: u8| (b as char).to_digit(16);
+        if bytes[i] == b'%'
+            && let (Some(Some(a)), Some(Some(b))) = (
+                bytes.get(i + 1).map(|b| hex(*b)),
+                bytes.get(i + 2).map(|b| hex(*b)),
+            )
+        {
+            out.push(u8::try_from(a * 16 + b).unwrap_or(b'?'));
+            i += 3;
+            continue;
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+async fn usercode(State(seen): State<Arc<Seen>>) -> Json<Value> {
+    let mut code = json!({ "device_auth_id": "dev-1", "user_code": "ABCD-1234", "interval": "1" });
+    if seen.device_lasts_set.load(Ordering::SeqCst) {
+        code["expires_in"] = json!(seen.device_lasts.load(Ordering::SeqCst));
+    }
+    Json(code)
+}
+
+async fn device_token(State(seen): State<Arc<Seen>>, Json(asked): Json<Value>) -> Response {
+    if asked["device_auth_id"] != "dev-1" || asked["user_code"] != "ABCD-1234" {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    seen.poll_times
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .push(std::time::Instant::now());
+    // Codes come with a 403, as not-yet-finished does: only the body tells them apart.
+    if seen.expire_next.swap(false, Ordering::SeqCst) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "expired_token" })),
+        )
+            .into_response();
+    }
+    if seen.slow_down.swap(false, Ordering::SeqCst) {
+        seen.polls.fetch_add(1, Ordering::SeqCst);
+        return (StatusCode::FORBIDDEN, Json(json!({ "error": "slow_down" }))).into_response();
+    }
+    // The first poll finds the person not done yet.
+    if seen.polls.fetch_add(1, Ordering::SeqCst) == 0 || seen.never.load(Ordering::SeqCst) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    Json(json!({
+        "authorization_code": "device-code",
+        "code_challenge": "c",
+        "code_verifier": "device-verifier"
+    }))
+    .into_response()
+}

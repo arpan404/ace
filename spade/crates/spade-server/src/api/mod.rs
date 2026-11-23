@@ -32,6 +32,7 @@ mod routing;
 mod running;
 mod search_usage;
 mod security;
+mod sign_in;
 mod skills;
 mod teams;
 mod thread_asks;
@@ -150,6 +151,12 @@ pub fn router(state: AppState) -> Router {
             get(endpoints::live)
                 .post(endpoints::save_model)
                 .delete(endpoints::delete_model),
+        )
+        .route("/endpoints/{id}/sign-out", post(sign_in::sign_out))
+        .route("/accounts/chatgpt", post(sign_in::start))
+        .route(
+            "/accounts/chatgpt/{flow}",
+            get(sign_in::read).delete(sign_in::cancel),
         )
         .route("/settings", put(endpoints::settings))
         .route(

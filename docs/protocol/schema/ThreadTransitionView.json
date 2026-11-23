@@ -25,6 +25,9 @@
     },
     "switch": {
       "$ref": "https://ace.local/protocol/v1/ThreadSwitch.json"
+    },
+    "treeRootId": {
+      "$ref": "https://ace.local/protocol/v1/TreeRootId.json"
     }
   },
   "type": "object"
