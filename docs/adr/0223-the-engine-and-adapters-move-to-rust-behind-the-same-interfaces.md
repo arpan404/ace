@@ -458,6 +458,17 @@ Windows the creation `FILETIME` string and the owner SID (`:285`–`:291`). A ro
 the other reads and acts on (sweeps, escapee stops, kept processes) the same way. E2 is not turned
 on by default until the cross-backend journal recovery gate of §8 passes.
 
+Known limits of E2a's supervisor, merged after fifteen review rounds (2026-11-23), to settle before
+E2 is turned on by default. Neither can signal a process ace doesn't own, and agent state is never
+wrong; at worst a leader is held unreaped or a record stays unresolved:
+
+- **Userspace enumeration can miss a member.** A member that forks and hands off between the process
+  list and its own check on every scan is not seen. The group number is never signalled either way.
+- **Linux `hidepid=1` with non-dumpable members.** Unreadable pids are classified with `getpgid`, but
+  a same-uid, non-dumpable orphan can stay hidden after it becomes a zombie, so release counts it as
+  live and holds the leader. None of the Linux setups ace supports (Ubuntu, Fedora, Debian, Omarchy)
+  mounts `/proc` with `hidepid` by default.
+
 - Order of sessions, smallest risk first: Pi (JSONL over stdio, one process per session), Codex
   (JSON-RPC over stdio, shared host pool; the most used), ACP (official crate), OpenCode (HTTP and
   SSE, server pool, JS plugins stay), Cursor (Rust speaks the host wire; the host child running
