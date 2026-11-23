@@ -91,6 +91,11 @@ test("what a reply had in mind is work too, hidden with its steps", () => {
   ).toContain("recalled");
 });
 
+test("sorting the person's asks reads in words, never as the tool's name", () => {
+  expect(spadeToolWords("asks").done).toBe("Kept track of what you asked");
+  expect(spadeToolWords("asks").doing).toBe("Keeping track of what you asked");
+});
+
 test("an app's tool reads by its verb, naming the app once", () => {
   expect(spadeToolWords("notion__notion-create-pages").done).toBe("Created pages in Notion");
   expect(spadeToolWords("notion__notion-create-database").base).toBe("create database in Notion");

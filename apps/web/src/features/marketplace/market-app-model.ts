@@ -7,7 +7,7 @@ import {
 } from "@ace/ui-core/spade-chat";
 
 /*
- * Apps as Marketplace entries, pure: Spade's catalogue joined with the person's connections, so
+ * Apps as Store entries, pure: Spade's catalogue joined with the person's connections, so
  * every app is one entry with one state the whole store agrees on (its row, its page, search).
  * An app connected by address, outside the catalogue, is an entry too.
  */

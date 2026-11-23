@@ -60,7 +60,7 @@ export function marketUrl(args: Args): URL {
     if (given.origin !== url.origin && given.origin !== legacyMarketOrigin)
       throw usageFailure(`The signer token goes only to ${url.host}, not ${named}.`, {
         argument: "--url",
-        hint: "For a development Marketplace, name it with --dev-market URL.",
+        hint: "For a development Store, name it with --dev-market URL.",
       });
     return given;
   }

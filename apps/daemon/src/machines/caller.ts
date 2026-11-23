@@ -21,6 +21,7 @@ import {
 } from "@ace/protocol";
 import { HostId } from "@ace/protocol";
 import type { Store } from "../store.ts";
+import { originTreeRoot } from "../tree-root.ts";
 import { AgentControlError } from "../agent-control/failure.ts";
 import { clip } from "../agent-control/watch-view.ts";
 import type { MachineDirectory } from "./directory.ts";
@@ -84,12 +85,14 @@ export class MachineCaller {
     this.deps = deps;
   }
   async origin(threadId: ThreadId): Promise<MachineCallOrigin> {
+    const thread = this.deps.store.getThread(threadId);
     return {
       hostId: HostId.parse(this.deps.hostId),
       hostName: clip((await this.deps.hostName()) || "ace", 256) || "ace",
       threadId,
-      threadTitle: clip(this.deps.store.getThread(threadId)?.title ?? "", 256),
-      ...providerOf(this.deps.store.getThread(threadId)?.provider),
+      rootThreadId: originTreeRoot(thread, threadId),
+      threadTitle: clip(thread?.title ?? "", 256),
+      ...providerOf(thread?.provider),
       ceiling: this.deps.ceiling(threadId),
       accepts: [wireTrims.movedStatus],
     };

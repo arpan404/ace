@@ -143,7 +143,7 @@ fn hex(bytes: &[u8]) -> String {
 
 /// Endpoint ids a model string (`endpoint/model`, or a role map's values) names.
 fn endpoints_of(model: &str, into: &mut Vec<String>) {
-    if model.starts_with("cli:") {
+    if crate::engine::retired_models::is_retired(model) {
         return;
     }
     if let Some((endpoint, _)) = model.split_once('/')

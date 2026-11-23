@@ -52,7 +52,7 @@ export function InstalledPage() {
     <div className="mk-inner" data-width="read">
       {all.length === 0 ? (
         <Shelf title="Installed">
-          <p className="st-line">What you get from the Marketplace shows here.</p>
+          <p className="st-line">What you get from the Store shows here.</p>
         </Shelf>
       ) : (
         <Shelf title="Installed">

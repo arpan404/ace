@@ -18,7 +18,6 @@ mod media;
 mod probes;
 mod prompt;
 mod speech;
-pub mod terms;
 mod thoughts;
 mod typed;
 mod web_search;
@@ -40,5 +39,4 @@ pub use prompt::{
 };
 pub use spade_keys::{KeyRequest, Keys};
 pub use speech::{MOST_SPEECH_BYTES, MOST_SPEECH_CHARS, Speech, SpeechRequest};
-pub use terms::{CliTerms, TermsNotice, TermsRecord, TermsStatus};
 pub use web_search::{WebFound, WebHit};

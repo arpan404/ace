@@ -24,10 +24,21 @@ export class BrowsingThreads {
     if (had === has) return;
     if (has) set.add(state.threadId);
     else set.delete(state.threadId);
+    this.publish();
+  }
+
+  private publish(): void {
     const all = new Set<ThreadId>();
     for (const each of this.sources.values()) for (const thread of each) all.add(thread);
     this.current = [...all];
     for (const listener of this.listeners) listener(this.current);
+  }
+
+  /** Drops everything `source` reported, as when its browser is replaced. */
+  forget(source: string): void {
+    if (!this.sources.get(source)?.size) return;
+    this.sources.delete(source);
+    this.publish();
   }
 
   threads(): readonly ThreadId[] {

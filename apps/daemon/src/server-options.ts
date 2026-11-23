@@ -105,7 +105,6 @@ export interface ServerOptions {
   spade?: import("./spade/link.ts").SpadeLink | undefined;
   /** Bot and club asks from threads (ADR 0198). */
   threadAsks?: import("./thread-address/asks.ts").ThreadAsks | undefined;
-  spadeBrains?: import("./services/types.ts").Services["spadeBrains"];
   spadeGrantVerify?: import("./services/types.ts").Services["spadeGrantVerify"];
   /** Spade's bots on the person's other machines (ADR 0132). */
   spadeRemote?: import("./spade/remote.ts").SpadeRemote | undefined;

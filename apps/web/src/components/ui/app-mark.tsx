@@ -69,9 +69,9 @@ const sizes = {
   row: { tile: "size-7 rounded-lg text-xs", mark: 16 },
   /** Beside a name in a menu, a request or a step line. */
   inline: { tile: "size-5 rounded-md text-2xs", mark: 12 },
-  /** A fact row in the Marketplace's review and entry pages. */
+  /** A fact row in the Store's review and entry pages. */
   fact: { tile: "size-8 rounded-lg text-sm", mark: 20 },
-  /** The Marketplace's app rows. */
+  /** The Store's app rows. */
   market: { tile: "size-10 rounded-xl text-base", mark: 28 },
   /** The store's rows, in the 56px slot a bot's face takes beside it. */
   store: { tile: "size-14 rounded-[14px] text-xl", mark: 36 },

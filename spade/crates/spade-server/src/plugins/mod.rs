@@ -121,8 +121,6 @@ pub struct PluginView {
 #[derive(Debug, Clone, Serialize)]
 pub struct BotPlugins {
     pub plugins: Vec<PluginView>,
-    /// The bot runs on a subscription: it gets only rules (ADR 0133).
-    pub cli: bool,
     /// Why ace's plugins could not be read just now, if they couldn't.
     pub problem: Option<String>,
 }
@@ -170,7 +168,7 @@ impl Plugins {
         let wanted: Vec<crate::skill_store::PluginSkill> = plugins
             .iter()
             .filter(|plugin| plugin.enabled)
-            .flat_map(|plugin| view::usable(plugin, false).skills)
+            .flat_map(|plugin| view::usable(plugin).skills)
             .collect();
         if let Err(error) = store
             .sync_plugins(&wanted, &DaemonFiles(&*self.daemon))
@@ -302,11 +300,11 @@ impl Plugins {
     }
 
     /// The rules `agent`'s plugins add to its standing instructions.
-    pub fn rules(&self, agent: &str, cli: bool) -> String {
+    pub fn rules(&self, agent: &str) -> String {
         let rules: Vec<view::Rule> = self
             .for_agent(agent)
             .iter()
-            .flat_map(|plugin| view::usable(plugin, cli).rules)
+            .flat_map(|plugin| view::usable(plugin).rules)
             .collect();
         view::rules_text(&rules)
     }
@@ -366,7 +364,7 @@ impl Plugins {
     }
 
     /// Every accepted plugin as `agent`'s settings show it.
-    pub fn view(&self, agent: &str, cli: bool) -> BotPlugins {
+    pub fn view(&self, agent: &str) -> BotPlugins {
         let allowed = self.access.allowed(agent);
         let known = lock(&self.known);
         let mut plugins: Vec<PluginView> = known
@@ -377,7 +375,7 @@ impl Plugins {
                 let usable = known
                     .plugins
                     .get(name)
-                    .map(|plugin| view::usable(plugin, cli))
+                    .map(|plugin| view::usable(plugin))
                     .unwrap_or_default();
                 PluginView {
                     name: name.clone(),
@@ -410,7 +408,6 @@ impl Plugins {
         plugins.sort_by(|a, b| a.name.cmp(&b.name));
         BotPlugins {
             plugins,
-            cli,
             problem: known.problem.clone(),
         }
     }
@@ -444,7 +441,7 @@ impl crate::engine::ProfileSource for Plugins {
     fn profiles(&self, agent: &str) -> Vec<spade_core::helper::Profile> {
         self.for_agent(agent)
             .iter()
-            .flat_map(|plugin| view::usable(plugin, false).profiles)
+            .flat_map(|plugin| view::usable(plugin).profiles)
             .collect()
     }
 }

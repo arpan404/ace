@@ -59,8 +59,6 @@ export class FakeSpadeRoles {
         (each): each is string => typeof each === "string" && each.length > 0,
       );
       if (list.length > 4) return problem(400, "a route holds at most 4 models");
-      if (list.some((each) => each.startsWith("cli:")))
-        return problem(400, "a route never holds a subscription");
       if (!main) roles[role] = list[0] ?? null;
       if (routes) {
         if (list.length) routes[role] = list;

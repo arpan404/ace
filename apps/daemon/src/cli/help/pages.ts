@@ -10,7 +10,7 @@ export const groupTitles: Record<CommandGroup, string> = {
   work: "Work",
   machine: "This machine",
   providers: "Providers and access",
-  "spade-market": "Spade and the Marketplace",
+  "spade-market": "Spade and the Store",
   "agent-tools": "Agent tools",
 };
 

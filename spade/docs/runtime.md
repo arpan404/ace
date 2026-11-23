@@ -25,6 +25,7 @@ The bot's goal, plan and where its task stands; its own task and face.
 | `task_status` | `write_local` | 0.0.24 |
 | `task_update` | `write_local` | 0.0.24 |
 | `todo` | `write_local` | 0.0.24 |
+| `asks` | `write_local` | 0.0.25 |
 | `profile_update` | `write_local` | 0.0.24 |
 
 ## `memory`

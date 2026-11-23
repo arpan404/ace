@@ -6,8 +6,9 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use serde_json::{Value, json};
-use spade_core::brain::CliModel;
-use spade_core::routing::{Defaults, MOST_IN_ROUTE, Models, Overrides, Role, Route, Routing};
+use spade_core::routing::{
+    Defaults, LEAST_CONTEXT_TOKENS, MOST_IN_ROUTE, Models, Overrides, Role, Route, Routing, Source,
+};
 use spade_models::{Effort, Endpoint};
 use spade_store::StoreError;
 
@@ -61,6 +62,10 @@ pub struct RolesChange {
     pub escalate: Option<Option<bool>>,
     /// An effort per role by name, `None` to clear it (ADR 0213).
     pub efforts: BTreeMap<String, Option<String>>,
+    /// The cap on the prompt in tokens, `None` to clear it (ADR 0216).
+    pub context_tokens: Option<Option<u32>>,
+    /// Whether old tool results age out, `None` to clear it (ADR 0216).
+    pub age_results: Option<Option<bool>>,
 }
 
 /// Everything a conversation's roles are resolved from.
@@ -113,6 +118,28 @@ impl Engine {
         global
     }
 
+    /// The bot's and the global overrides, read straight from the two settings, never the
+    /// conversation: cheap enough for every step.
+    fn context_overrides(&self, conversation: &str) -> (Overrides, Overrides) {
+        let bot = self
+            .agent_of(conversation)
+            .map(|a| self.read_overrides(&agent_key(&a)).unwrap_or_default())
+            .unwrap_or_default();
+        (bot, self.read_overrides(GLOBAL).unwrap_or_default())
+    }
+
+    /// The person's cap on `conversation`'s prompt, if any (ADR 0216).
+    pub(crate) fn context_tokens(&self, conversation: &str) -> Option<u32> {
+        let (bot, global) = self.context_overrides(conversation);
+        spade_core::routing::context_tokens(&bot, &global).0
+    }
+
+    /// Whether `conversation`'s old tool results age out (ADR 0216): off unless turned on.
+    pub(crate) fn ages_results(&self, conversation: &str) -> bool {
+        let (bot, global) = self.context_overrides(conversation);
+        spade_core::routing::age_results(&bot, &global).0
+    }
+
     /// What the person already uses: every bot's model, and the review, fast and new-bot models.
     fn defaults(&self) -> Defaults {
         let fast = self.fast_model().ok().flatten();
@@ -144,11 +171,8 @@ impl Engine {
     /// The models a step of `conversation` that began on `turn_model` tries, in order (ADR 0205
     /// §2): for a bot, its `main` route led by the reply's model; for a helper, the `helper`
     /// route from the helper's model on, when that model is on it, else the helper's model
-    /// alone. A subscription runs alone.
+    /// alone.
     pub(crate) fn step_route(&self, conversation: &str, turn_model: &str) -> Vec<String> {
-        if CliModel::is(turn_model) {
-            return vec![turn_model.to_owned()];
-        }
         let (route, role) = match self.helper_of(conversation) {
             Some(helper) => (
                 self.facts(&helper.parent).routing().route(Role::Helper),
@@ -233,7 +257,6 @@ impl Engine {
         prompt: &spade_models::Prompt,
         hint: super::ledger::Hint,
     ) -> String {
-        use spade_core::routing::Source;
         use spade_models::Capability;
         let choice = self.facts(conversation).routing().resolve(Role::Compact);
         let candidate = choice.model;
@@ -339,6 +362,8 @@ impl Engine {
                 .map(|r| (r.name(), r.default_effort().name()))
                 .collect::<BTreeMap<_, _>>(),
             "escalate": global.escalate,
+            "context_tokens": global.context_tokens,
+            "age_results": global.age_results,
         }))
     }
 
@@ -349,6 +374,8 @@ impl Engine {
             return Ok(None);
         };
         let facts = self.facts(&stored.conversation);
+        let context = spade_core::routing::context_tokens(&facts.bot, &facts.global);
+        let aging = spade_core::routing::age_results(&facts.bot, &facts.global);
         let routing = facts.routing();
         let roles: Vec<Value> = routing
             .table()
@@ -373,8 +400,18 @@ impl Engine {
                 "efforts": efforts_json(&facts.bot),
                 "allowed": facts.bot.allowed,
                 "escalate": facts.bot.escalate,
+                "context_tokens": facts.bot.context_tokens,
+                "age_results": facts.bot.age_results,
             },
             "escalate": routing.escalate(),
+            "context_tokens": {
+                "tokens": context.0,
+                "source": context.1.name(),
+            },
+            "age_results": {
+                "on": aging.0,
+                "source": aging.1.name(),
+            },
             "spend": self.role_spend_json(&stored.conversation),
         })))
     }
@@ -440,7 +477,7 @@ impl Engine {
             }
             let mut checked: Vec<String> = Vec::new();
             for model in models {
-                let model = self.route_model(&model)?;
+                let model = self.one_shot_model(&model)?;
                 // Only `title` and `compact` run on a model that can't call tools (ADR 0205 §3).
                 if role.needs_tools() && !Person(self.models.endpoints()).calls_tools(&model) {
                     return Err(invalid(format!(
@@ -480,6 +517,17 @@ impl Engine {
         if let Some(escalate) = change.escalate {
             overrides.escalate = escalate;
         }
+        if let Some(tokens) = change.context_tokens {
+            if tokens.is_some_and(|t| t < LEAST_CONTEXT_TOKENS) {
+                return Err(invalid(format!(
+                    "a context cap is at least {LEAST_CONTEXT_TOKENS} tokens"
+                )));
+            }
+            overrides.context_tokens = tokens;
+        }
+        if let Some(on) = change.age_results {
+            overrides.age_results = on;
+        }
         for (name, effort) in change.efforts {
             let role = Role::parse(&name)
                 .ok_or_else(|| invalid(format!("there is no role named {name}")))?;
@@ -501,28 +549,9 @@ impl Engine {
         Ok(())
     }
 
-    /// `model` checked as one a route can hold (ADR 0205 §2): on the person's endpoints, never a
-    /// subscription, which is only ever a bot's own model, alone.
-    fn route_model(&self, model: &str) -> Result<String, OversightError> {
-        if CliModel::is(model.trim()) {
-            return Err(OversightError::Invalid(
-                "a route never holds a subscription: one is only ever a bot's own model, alone; \
-                 give this role models from your endpoints"
-                    .to_owned(),
-            ));
-        }
-        self.one_shot_model(model)
-    }
-
-    /// `model` checked as one a role can run on: on the person's endpoints, never a CLI.
+    /// `model` checked as one a role can run on: on the person's endpoints.
     fn one_shot_model(&self, model: &str) -> Result<String, OversightError> {
         let model = model.trim();
-        if CliModel::is(model) {
-            return Err(OversightError::Invalid(
-                "a subscription runs whole sessions; give this role a model from an endpoint"
-                    .to_owned(),
-            ));
-        }
         if !self.configured(model) {
             return Err(OversightError::Invalid(format!(
                 "{model} is not a model on your endpoints"

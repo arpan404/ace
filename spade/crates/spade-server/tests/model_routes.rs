@@ -2,7 +2,7 @@
 //! endpoint: a bot's step moves to the next model of its route only on a definite sign (a refused
 //! connection, a 429, a server error once its tries are used up), never on a slow answer, a bad
 //! answer or a refusal; the step records which model served it and why; the rest of the reply
-//! stays on that model; and a route never takes a subscription.
+//! stays on that model; and neither a route nor a bot takes a coding subscription.
 //!
 //! The person's endpoints: `fake/m` (the fake), `backup/b` (the same fake under another id) and
 //! `off/m` (a server on this computer that isn't running). The fake answers in order, whichever
@@ -269,7 +269,7 @@ async fn a_refusal_never_falls_back() -> Result {
 }
 
 #[tokio::test]
-async fn a_route_never_gains_a_subscription() -> Result {
+async fn neither_a_route_nor_a_bot_takes_a_subscription() -> Result {
     let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
     with_backup(&spade).await?;
     for refused in [
@@ -282,44 +282,13 @@ async fn a_route_never_gains_a_subscription() -> Result {
     }
     let (_, roles) = spade.get("/v1/models/roles").await?;
     assert_eq!(roles["routes"]["main"], json!(["backup/b"]), "{roles}");
-    // A bot on a subscription runs on it alone, whatever the routes say.
-    spade
-        .put("/v1/subscriptions/codex/terms", json!({ "use": true }))
-        .await?;
+    // Nor is a new bot made on one (ADR 0219).
     let (status, body) = spade
         .post(
             "/v1/agents",
             json!({ "name": "Notes", "task": "", "model": "cli:codex/gpt-6.1-sol" }),
         )
         .await?;
-    assert_eq!(status, 201, "{body}");
-    let id = body["agent"]["id"].as_str().unwrap_or_default();
-    let (_, view) = spade.get(&format!("/v1/agents/{id}/models")).await?;
-    let main = view["roles"]
-        .as_array()
-        .and_then(|roles| roles.iter().find(|r| r["role"] == "main"))
-        .cloned()
-        .unwrap_or_default();
-    assert_eq!(main["route"], json!(["cli:codex/gpt-6.1-sol"]), "{view}");
-    // A model route of an endpoint bot never lists one either.
-    let chat_bot = bot_on(&spade, "fake/m").await?;
-    let (_, agents) = spade.get("/v1/agents").await?;
-    let endpoint_bot = agents["agents"]
-        .as_array()
-        .and_then(|all| all.iter().find(|a| a["conversation"] == chat_bot.as_str()))
-        .and_then(|a| a["id"].as_str())
-        .unwrap_or_default()
-        .to_owned();
-    let (_, view) = spade
-        .get(&format!("/v1/agents/{endpoint_bot}/models"))
-        .await?;
-    for role in view["roles"].as_array().cloned().unwrap_or_default() {
-        for model in role["route"].as_array().cloned().unwrap_or_default() {
-            assert!(
-                !model.as_str().unwrap_or_default().starts_with("cli:"),
-                "{role}"
-            );
-        }
-    }
+    assert_eq!(status, 400, "{body}");
     Ok(())
 }

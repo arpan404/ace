@@ -395,8 +395,8 @@ export class Recovery {
     this.sync(id);
   }
   /**
-   * A Spade bot's hidden session (ADR 0133): Spade owns its lifecycle, so no limit hold, timed
-   * resume, account move or continuation ever starts or holds work there.
+   * A Spade bot's old session (ADR 0133, superseded by ADR 0219): left inert, so no limit hold,
+   * timed resume, account move or continuation ever starts or holds work there.
    */
   private spadeOwned(id: ThreadId): boolean {
     return this.repo.store.getThread(id)?.host === "spade-bot";

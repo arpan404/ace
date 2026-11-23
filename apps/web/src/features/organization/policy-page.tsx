@@ -132,7 +132,7 @@ function PolicyEditor(props: { org: AceOrgSpace; version: number; stored: AceOrg
             key={source}
             title={
               source === "market"
-                ? "From the Marketplace"
+                ? "From the Store"
                 : source === "registry"
                   ? `From ${props.org.name}'s registry`
                   : "From git catalogs"

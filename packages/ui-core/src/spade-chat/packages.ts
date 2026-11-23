@@ -196,7 +196,7 @@ const shape = z.object({
 /**
  * Whether a bot is a development bot (ADR 0200 §9): linked to a package with no market
  * signature, a folder on its machine that `ace bot dev` keeps it updated from. It shows
- * "Development" and is never updated or rolled back through the Marketplace.
+ * "Development" and is never updated or rolled back through the Store.
  */
 export const spadeIsDevelopment = (link: SpadePackage | undefined): boolean =>
   link?.source === "local";
@@ -227,7 +227,7 @@ export function parseSpadePackage(raw: unknown): SpadePackage | undefined {
 }
 
 /**
- * "From flight-watcher 1.0.0 in the Marketplace.", and when an update waits for the bot to be
+ * "From flight-watcher 1.0.0 in the Store.", and when an update waits for the bot to be
  * still: "Updates when Flight watcher is done with its turn."
  */
 export function spadePackageSentence(link: SpadePackage, bot: string): string {
@@ -240,7 +240,7 @@ export function spadePackageSentence(link: SpadePackage, bot: string): string {
   if (link.updating) return `Updating from ${from} to ${link.updating}.`;
   const held = link.held ? ` Updates when ${bot} is done with its turn.` : "";
   if (link.source === "spade") return `From ace's ${link.name} template ${link.version}.${held}`;
-  const where = link.source === "market" ? "the Marketplace" : "a catalog you added";
+  const where = link.source === "market" ? "the Store" : "a catalog you added";
   return `From ${from} in ${where}.${held}`;
 }
 

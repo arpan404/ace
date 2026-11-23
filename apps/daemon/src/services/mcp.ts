@@ -1,7 +1,6 @@
 import { createTextRedactor } from "@ace/redaction";
 import { mcpAdmission } from "../org-access/mcp-operations.ts";
 import { serverTrees } from "../org-access/store-trees.ts";
-import { spadeBotAceTools, spadeBrainToolNames, spadeBrainToolkit } from "../spade/brain-tools.ts";
 import { htmlPublication } from "../html-publication.ts";
 import { htmlLayout, htmlPreview, MeasuredLayouts } from "../html-preview.ts";
 import { imagePublication } from "../image-publication.ts";
@@ -22,7 +21,7 @@ import {
 import { daemonSuitPort } from "../suits/port.ts";
 import { builtinGuides } from "@ace/plugins";
 import { devicesToolkit } from "@ace/devices/tools";
-import { browserToolkit } from "../browser-toolkit.ts";
+import { liveBrowserToolkit } from "../browser-toolkit.ts";
 import { commandToolkit, commandToolNames } from "../machines/command-tools.ts";
 import { screenToolkit, computerToolNames } from "@ace/screen";
 import { cancelLockedUseWhenTurnedOff } from "../computer-locked-use.ts";
@@ -59,24 +58,21 @@ export async function startMcp(context: ServiceContext): Promise<void> {
     },
   });
   services.asks = asks;
-  const browser = services.browser;
-  const help = browser
-    ? new BrowserHelp({
-        store,
-        engine: () => services.engine,
-        tab: browserHelpTab(browser),
-        id: context.id,
-        schedule: (run, ms) => {
-          const timer = setTimeout(run, ms);
-          timer.unref();
-          return () => clearTimeout(timer);
-        },
-      })
-    : undefined;
-  if (help) {
-    services.browserHelp = help;
-    resources.own(() => help.close());
-  }
+  // ace's browser may start after these tools (a startup retry), or start again: every call
+  // looks it up.
+  const help = new BrowserHelp({
+    store,
+    engine: () => services.engine,
+    tab: browserHelpTab(() => services.browser),
+    id: context.id,
+    schedule: (run, ms) => {
+      const timer = setTimeout(run, ms);
+      timer.unref();
+      return () => clearTimeout(timer);
+    },
+  });
+  services.browserHelp = help;
+  resources.own(() => help.close());
   const contextGit = new GitService({ timeoutMs: 10_000 });
   resources.own(() => contextGit.close());
   const measurements = measurementObserver({
@@ -167,7 +163,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         async request(caller, operation) {
           const market = services.marketAgent;
           if (!market)
-            return { op: "error", code: "unavailable", message: "The marketplace isn't ready yet" };
+            return { op: "error", code: "unavailable", message: "The Store isn't ready yet" };
           return market.forAgent(caller.threadId, operation);
         },
       }),
@@ -182,15 +178,6 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         },
       }),
       ...(options.toolkits ?? []),
-      // A Spade bot's own tools, in its hidden session only (ADR 0133).
-      spadeBrainToolkit({
-        botOf: (threadId) => {
-          const thread = store.getThread(threadId);
-          return thread?.host === "spade-bot" ? thread.hostKey : undefined;
-        },
-        spade: () => services.spade?.ready()?.connection,
-        streamSeq: async (threadId) => services.spadeBrainSeq?.(threadId),
-      }),
       // Commands on other paired machines; a local agent uses its own shell (ADR 0105).
       commandToolkit(async (caller, call, signal) => {
         const machines = services.machines;
@@ -200,35 +187,31 @@ export async function startMcp(context: ServiceContext): Promise<void> {
           signal,
         });
       }),
-      ...(services.browser
-        ? [
-            browserToolkit(
-              services.browser,
-              store,
-              async (call, { caller, signal }) => {
-                const machines = services.machines;
-                if (!machines) throw new PublicToolError("machine_unavailable");
-                return machines.caller.browser(caller, call.machine, call.tool, call.args, {
-                  timeoutMs: call.timeoutMs,
-                  signal,
-                });
-              },
-              userBrowserTools(services),
-            ),
-          ]
-        : []),
-      ...(help
-        ? [
-            browserHelpToolkit(help, async (call, { caller, signal }) => {
-              const machines = services.machines;
-              if (!machines) throw new PublicToolError("machine_unavailable");
-              return machines.caller.browser(caller, call.machine, call.tool, call.args, {
-                timeoutMs: call.timeoutMs,
-                signal,
-              });
-            }),
-          ]
-        : []),
+      liveBrowserToolkit(
+        () => services.browser,
+        store,
+        async (call, { caller, signal }) => {
+          const machines = services.machines;
+          if (!machines) throw new PublicToolError("machine_unavailable");
+          return machines.caller.browser(caller, call.machine, call.tool, call.args, {
+            timeoutMs: call.timeoutMs,
+            signal,
+          });
+        },
+        userBrowserTools(services),
+      ),
+      browserHelpToolkit(
+        help,
+        async (call, { caller, signal }) => {
+          const machines = services.machines;
+          if (!machines) throw new PublicToolError("machine_unavailable");
+          return machines.caller.browser(caller, call.machine, call.tool, call.args, {
+            timeoutMs: call.timeoutMs,
+            signal,
+          });
+        },
+        () => services.browser,
+      ),
       // Registered at startup; the devices implementation loads on an agent's first call.
       ...(devices
         ? [
@@ -275,20 +258,17 @@ export async function startMcp(context: ServiceContext): Promise<void> {
           thread?.host === undefined &&
           (thread?.provider === "cursor" ||
             !!services.agentControl?.delegations.journal.get(caller.threadId)),
-        // A Spade bot's session (ADR 0133) gets an allow-list, never a deny-list.
-        ...(thread?.host === "spade-bot" ? { onlyTools: spadeBotAceTools } : {}),
         unavailableTools: [
           ...(thread?.host === undefined ? [] : hostWithheldTools),
-          ...(thread?.host === "spade-bot" ? [] : spadeBrainToolNames),
           ...(services.machines?.caller.serves("commands") ? [] : commandToolNames),
           ...(services.computer || services.machines?.caller.serves("screen")
             ? []
             : computerToolNames),
         ],
+        // ace's browser is never hidden while it is down: Codex and Cursor keep the list a
+        // session first got, so tools hidden then stay missing once a retry brings it up.
+        // Calls say it is unavailable meanwhile, and `machine` reaches another one's browser.
         disabled: {
-          ...(!services.browser
-            ? { browser: "ace's built-in browser failed to start in this daemon." }
-            : {}),
           ...(!services.screen?.isEnabled() && !services.machines?.caller.serves("screen")
             ? {
                 screen: "Computer use is disabled.",
@@ -329,15 +309,14 @@ export async function startMcp(context: ServiceContext): Promise<void> {
   if (services.devices) resources.own(services.devices.watchEnabled(mcp.toolsChanged));
   // An agent that carries on (a new turn) no longer waits on a help request nobody answered,
   // and a request whose tab closed or whose thread was archived is withdrawn.
-  if (help)
-    resources.own(
-      store.subscribe((events) => {
-        for (const { threadId, payload } of events) {
-          if (payload.type === "run.started") help.withdrawIdle(threadId, payload.run.agentId);
-          help.sweep(threadId);
-        }
-      }),
-    );
+  resources.own(
+    store.subscribe((events) => {
+      for (const { threadId, payload } of events) {
+        if (payload.type === "run.started") help.withdrawIdle(threadId, payload.run.agentId);
+        help.sweep(threadId);
+      }
+    }),
+  );
   // A preview lasts one turn: it ends with the run that started it.
   resources.own(
     store.subscribe((events) => {
@@ -498,12 +477,17 @@ export function createMcpSession(context: SocketContext): SocketService {
   };
 }
 
-/** The person's own Chrome for agents, when the daemon runs "Use my Chrome" (ADR 0084). */
+/**
+ * The person's own Chrome for agents, when the daemon runs "Use my Chrome" (ADR 0084). Its thread sessions belong to
+ * ace's browser service, so they are looked up on every call, like that browser.
+ */
 function userBrowserTools(
   services: Pick<Partial<import("./types.ts").Services>, "userBrowser" | "userBrowserSessions">,
-): import("../browser-toolkit.ts").UserBrowserTools | undefined {
+): Parameters<typeof liveBrowserToolkit>[3] {
   const user = services.userBrowser;
-  const sessions = services.userBrowserSessions;
-  if (!user || !sessions) return undefined;
-  return { sessions, available: () => user.backend.available() };
+  if (!user) return undefined;
+  return {
+    sessions: () => services.userBrowserSessions,
+    available: () => user.backend.available() && services.userBrowserSessions !== undefined,
+  };
 }

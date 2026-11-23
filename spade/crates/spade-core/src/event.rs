@@ -61,6 +61,14 @@ pub enum Known {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         change: Option<Box<TaskChange>>,
     },
+    /// The bot's model was a coding subscription (`cli:…`, ADR 0133), which bots no longer think
+    /// with (ADR 0219): Spade moved it to `to`, the person's default model, or to none (`""`), so
+    /// it waits for them to pick one. `line` is what its chat shows, once.
+    ModelReplaced {
+        from: String,
+        to: String,
+        line: String,
+    },
     /// This bot made a standing bot for the person (ADR 0161, amendment 1): its chat shows it with
     /// Open and Undo.
     BotMade {
@@ -658,6 +666,15 @@ pub enum Known {
         /// before it was stored; the next compaction then walks from the start once.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         carried: Option<CarriedLedger>,
+        /// The person's asks as they stood (ADR 0215), so the next fold starts here.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        asks: Option<Box<crate::asks::Ledger>>,
+    },
+    /// Tool results before `before` (an event index) show as short stubs in later prompts, all
+    /// but the ones that never age (ADR 0216). Stored in batches, so prompts stay byte-stable
+    /// between them.
+    ResultsAged {
+        before: usize,
     },
     /// A message in a group's transcript (ADR 0132): the person's (`from` is `None`) or a bot's
     /// answer to an ask.
@@ -801,6 +818,15 @@ pub enum Known {
     /// A choice the bot made on the person's behalf, with its reason (ADR 0165, `decision_log`).
     /// Shown in digests and the activity log; the model reads only its call's result.
     DecisionMade(crate::decision::Decision),
+    /// What one `asks` call changed in the person's asks (ADR 0215).
+    AsksUpdated(crate::asks::Updated),
+    /// The stop check ran in a reply (ADR 0215 §3); the model reads its note as Spade's.
+    AsksChecked(crate::asks::Checked),
+    /// A steer's first answering step left it unanswered (ADR 0215 §4); read like `asks_checked`.
+    AsksReminded(crate::asks::Reminded),
+    /// A copy of the person's asks (ADR 0215), stored every few hundred events so a fold after a
+    /// restart reads only what came since.
+    AsksNoted(Box<crate::asks::Ledger>),
     /// The bot arrived from another machine (ADR 0187): consent given there doesn't count here,
     /// so no answer before this event is remembered (`since_arrival`).
     Arrived {
@@ -1296,6 +1322,22 @@ pub struct CarriedLedger {
     /// Older writes no longer listed one by one, so the list stays bounded over weeks.
     #[serde(default, skip_serializing_if = "is_none_earlier")]
     pub earlier: u64,
+    /// The person's own messages from every compacted span, word for word (ADR 0216), oldest
+    /// first; `said_earlier` counts older ones no longer listed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub said: Vec<Said>,
+    #[serde(default, skip_serializing_if = "is_none_earlier")]
+    pub said_earlier: u64,
+}
+
+/// A message of the person's a compaction keeps word for word: its position and text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Said {
+    pub seq: u64,
+    pub text: String,
+    /// Where the person wrote it, when not in this conversation ("an ace thread").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via: Option<String>,
 }
 
 fn is_none_earlier(n: &u64) -> bool {

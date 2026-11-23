@@ -71,7 +71,7 @@ const effectRow = (row: SpadePackageEffect): SpadeEffectRow => ({
 });
 
 export interface SpadePackageRow {
-  /** "From flight-watcher 1.0.0 in the Marketplace." */
+  /** "From flight-watcher 1.0.0 in the Store." */
   sentence: string;
   name: string;
   /** The Marketplace's newer version, while the bot can take it. */

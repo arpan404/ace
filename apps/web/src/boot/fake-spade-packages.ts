@@ -3,7 +3,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 /*
  * `?fakeWorld=spade`'s bots from agent packages (ADR 0200 §3.9): Fare watch, linked to Flight
  * watcher 2.0.0 (1.0.0 before it), its declared effects with the switches the person left; and
- * Ship notes, a development bot of a package folder (§9). The Marketplace's side, with 2.1.0
+ * Ship notes, a development bot of a package folder (§9). The Store's side, with 2.1.0
  * waiting, is `fake-market-packages.ts`.
  */
 export function seedFakePackages(here: FakeSpadeApi, now: number): void {

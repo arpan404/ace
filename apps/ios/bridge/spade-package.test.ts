@@ -61,7 +61,7 @@ test("a bot from a package says where it came from, with Update and Roll back", 
   const { line } = await withBot(marketLink);
 
   expect(await line()).toMatchObject({
-    sentence: "From flight-watcher 1.0.0 in the Marketplace.",
+    sentence: "From flight-watcher 1.0.0 in the Store.",
     name: "flight-watcher",
     update: "1.1.0",
     rollBack: "0.9.0",

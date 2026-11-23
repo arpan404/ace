@@ -4,7 +4,7 @@ import { developerInstructions } from "@ace/mcp-server";
 import { openCodeNativeToolGuidance } from "./native-tools.ts";
 import { AceMcpLocations } from "./mcp-locations.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
-import { opencodePolicy, withSpadeBot } from "./permission-policy.ts";
+import { opencodePolicy } from "./permission-policy.ts";
 import { settleEnvironment } from "./agent-env.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { Key } from "@ace/core";
@@ -198,9 +198,7 @@ export class OpenCodeSession implements ProviderSession {
     ctx.signal.addEventListener("abort", s.abortListener, { once: true });
     try {
       s.emit("note", "lifecycle", { type: "started" });
-      const native = ctx.permissionMode ? opencodePolicy(ctx.permissionMode) : undefined;
-      const policy =
-        native && ctx.spadeBot ? withSpadeBot(native, ctx.spadeBot.allowAceTools) : native;
+      const policy = ctx.permissionMode ? opencodePolicy(ctx.permissionMode) : undefined;
       const info = SessionInfo.parse(
         ctx.resume
           ? await s.client.session.get({ sessionID: ctx.resume.nativeSessionId })

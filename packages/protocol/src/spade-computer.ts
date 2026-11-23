@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { ThreadId } from "./ids.ts";
-import { SpadeBotId } from "./spade-brains.ts";
 import { CoworkSharing } from "./cowork.ts";
+
+/** A Spade agent id, as Spade makes them. */
+export const SpadeBotId = z.string().regex(/^[A-Za-z0-9_.:-]{1,128}$/);
 
 /**
  * A Spade bot's computer as ace keeps it: its own browser and its use of the screen. Each bot

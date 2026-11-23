@@ -125,7 +125,10 @@ export function parseSpadeGlobalRoles(body: string): SpadeGlobalRoles | undefine
   };
 }
 
-/** Routes as lists of models, never a subscription; a role with none reads its one model. */
+/**
+ * Routes as lists of models, without a coding subscription an older Spade kept (ADR 0219); a
+ * role with none reads its one model.
+ */
 function routesOf(raw: unknown, roles: SpadeRoleModels): SpadeRoutes {
   const out: SpadeRoutes = {};
   const record = spadeRecord(raw) ?? {};

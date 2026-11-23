@@ -1,3 +1,4 @@
+import { PublicToolError } from "@ace/mcp-server/errors";
 import type { BrowserService } from "@ace/browser";
 import { z } from "zod";
 import type { BrowserMachineRoute } from "@ace/browser";
@@ -16,8 +17,10 @@ const HelpInput = z.object({ machine: z.string().optional() }).passthrough();
  * A tab of the thread's ace browser, as the agent may name it. A backend without a tab list
  * holds one page, which is the agent's current tab. Private tabs are never offered.
  */
-export function browserHelpTab(browser: BrowserService): BrowserHelpTab {
+export function browserHelpTab(current: () => BrowserService | undefined): BrowserHelpTab {
   return (threadId: ThreadId, tabId: string, agentId: string) => {
+    const browser = current();
+    if (!browser) return undefined;
     try {
       const tabs = browser.state(threadId).tabs;
       if (tabs) {
@@ -33,8 +36,15 @@ export function browserHelpTab(browser: BrowserService): BrowserHelpTab {
   };
 }
 
-/** `browser_request_help`, beside the browser tools (ADR 0067, collaboration). */
-export function browserHelpToolkit(help: BrowserHelp, route?: BrowserMachineRoute): Toolkit {
+/**
+ * `browser_request_help`, beside the browser tools (ADR 0067, collaboration). With `browser`,
+ * a call on this machine while ace's browser is down says so, rather than that the tab is gone.
+ */
+export function browserHelpToolkit(
+  help: BrowserHelp,
+  route?: BrowserMachineRoute,
+  browser?: () => BrowserService | undefined,
+): Toolkit {
   return {
     register(registry) {
       registry.registerContent({
@@ -60,6 +70,7 @@ export function browserHelpToolkit(help: BrowserHelp, route?: BrowserMachineRout
               { machine, tool: "browser_request_help", args, timeoutMs: 245_000 },
               context,
             );
+          if (browser && !browser()) throw new PublicToolError("browser_unavailable");
           const result = BrowserHelpResult.parse(
             await help.request(context.caller, BrowserHelpInput.parse(args), context.signal),
           );

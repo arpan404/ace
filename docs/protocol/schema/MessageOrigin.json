@@ -27,6 +27,10 @@
     "commandId": {
       "$ref": "https://ace.local/protocol/v1/CommandId.json"
     },
+    "freshSession": {
+      "const": true,
+      "type": "boolean"
+    },
     "from": {
       "properties": {
         "model": {

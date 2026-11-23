@@ -55,6 +55,10 @@ pub struct Limits {
     /// Each bot's knowledge base, in bytes, when the person set no size for it
     /// (`SPADE_KNOWLEDGE_BYTES`, ADR 0164).
     pub knowledge_bytes: u64,
+    /// Keep the person's asks in front of the model (ADR 0215): the block at the end of each
+    /// call and the stop check. On in Spade as it runs (`main.rs`); off by default, so a scripted
+    /// test's steps and prompts are only its own unless it turns this on.
+    pub asks: bool,
 }
 
 impl Default for Limits {
@@ -77,6 +81,7 @@ impl Default for Limits {
             move_pre_commit: Duration::from_secs(2 * 60 * 60),
             workers_at_once: 32,
             knowledge_bytes: spade_core::knowledge::DEFAULT_BYTES,
+            asks: false,
         }
     }
 }
@@ -158,8 +163,6 @@ pub struct AgentView {
     pub questions_for_later: usize,
     /// `{"spending", "review"}` (ADR 0135).
     pub oversight: serde_json::Value,
-    /// Why its latest reply on a subscription failed, until a later one works (ADR 0133).
-    pub problem: Option<String>,
 }
 
 /// Why an agent could not be created, changed or deleted.
@@ -175,9 +178,6 @@ pub enum AgentError {
     /// The bot has workers (ADR 0161): the person says whether they stop or keep working.
     #[error("this bot has {0} workers; say whether to stop them or keep them as their own bots")]
     HasWorkers(usize),
-    /// A subscription chosen before the person acknowledged what it means (ADR 0205 §1).
-    #[error("{text}")]
-    Terms { provider: String, text: String },
     #[error(transparent)]
     Image(#[from] ImageError),
     #[error(transparent)]
@@ -295,8 +295,6 @@ pub struct Activity {
     /// Question cards left for later (ADR 0154): deferred and not yet answered or dismissed.
     /// They never make the bot read as waiting.
     pub questions_for_later: usize,
-    /// Why the latest reply on a subscription failed, until a later one works (ADR 0133).
-    pub problem: Option<String>,
     /// Why the latest reply failed, while that is how the latest one ended (ADR 0200 §6.2).
     pub failure: Option<String>,
     /// The bot's task as it last said (ADR 0144).

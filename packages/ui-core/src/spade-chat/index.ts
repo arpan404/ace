@@ -44,7 +44,6 @@ export * from "./oversight.ts";
 export * from "./autonomy.ts";
 export * from "./activity.ts";
 export * from "./activity-rows.ts";
-export * from "./subscriptions.ts";
 export * from "./groups.ts";
 export * from "./group-fold.ts";
 export * from "./search-usage.ts";

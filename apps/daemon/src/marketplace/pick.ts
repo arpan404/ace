@@ -186,7 +186,7 @@ export type Picked =
 type DraftSource = Extract<MarketPublishAction, { action: "draftCreate" }>["source"];
 
 const notOwn = (what: string) =>
-  new Refused(`That ${what} was installed from the marketplace, so it isn't yours to publish`);
+  new Refused(`That ${what} was installed from the Store, so it isn't yours to publish`);
 
 /**
  * The picked thing's files: a bot's recipe from Spade, a Spade skill's files, an ace skill's or

@@ -17,7 +17,7 @@ struct SpadePackageLine: Decodable, Equatable, Sendable {
         /// Its words with what it is held to: "Uses deploy without asking, env matching staging".
         var held: String { ([words] + limits).joined(separator: ", ") }
     }
-    /// "From flight-watcher 1.0.0 in the Marketplace."
+    /// "From flight-watcher 1.0.0 in the Store."
     let sentence: String
     let name: String
     /// The Marketplace's newer version, while the bot can take it.

@@ -175,17 +175,17 @@ describe("the market's refusals as the CLI reports them", () => {
     expect(failure.outcome).toBe("refused");
     expect(failure.detail.code).toBe("refused");
     expect(failure.detail.hint).toContain("ace account status");
-    expect(failure.detail.hint).not.toContain("feature on marketplace");
+    expect(failure.detail.hint).not.toContain("feature on store");
   });
 
   it("a Store turned off in Settings › Beta says how to turn it on", () => {
     const failure = marketFailure({
       op: "error",
       code: "unavailable",
-      message: "The Marketplace is turned off. Turn it on in Settings › Beta.",
+      message: "The Store is turned off. Turn it on in Settings › Beta.",
     });
     expect(failure.detail.code).toBe("turned_off");
-    expect(failure.detail.hint).toBe("Turn the Marketplace on with ace feature on marketplace.");
+    expect(failure.detail.hint).toBe("Turn the Store on with ace feature on store.");
   });
 
   it("a person-only answer carries the request ace opened", () => {

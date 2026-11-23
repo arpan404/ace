@@ -8,7 +8,7 @@ configure({ asyncUtilTimeout: 10000 });
 afterEach(() => localStorage.clear());
 
 /*
- * The Marketplace draws what each thing really looks like: an app its catalogue mark (its letter
+ * The Store draws what each thing really looks like: an app its catalogue mark (its letter
  * only when it has none), a bot its own face, and ace's own publisher the ace logo.
  */
 

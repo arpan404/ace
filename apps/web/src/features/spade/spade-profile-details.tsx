@@ -69,7 +69,7 @@ export function ProfileDetails(props: { bot: RosterBot; panels?: ProfilePanels |
           description={modelProblem && <span className="text-destructive">{modelProblem}</span>}
         >
           <SpadeModelPicker
-            subscriptions
+            forBots
             value={bot.model}
             onChange={(model) => {
               if (!/\/./.test(model) || model === bot.model) return;

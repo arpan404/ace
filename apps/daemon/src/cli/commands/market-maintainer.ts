@@ -10,7 +10,7 @@ import type { ArgSpec, CommandSpec, FlagSpec } from "./spec.ts";
 const url: FlagSpec = {
   name: "dev-market",
   value: "URL",
-  summary: "A development Marketplace instead of store.acehq.dev; the signer token goes there",
+  summary: "A development Store instead of store.acehq.dev; the signer token goes there",
 };
 const key: FlagSpec = { name: "key", value: "KEY_FILE", summary: "The signing key file" };
 const reason: FlagSpec = { name: "reason", value: "TEXT", summary: "Why; publishers see it" };

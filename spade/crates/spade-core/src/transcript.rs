@@ -297,9 +297,11 @@ impl Transcript {
             | Known::KnowledgeIndexed { .. }
             | Known::EpisodeStored { .. }
             | Known::ContextCompacted { .. }
+            | Known::ResultsAged { .. }
             | Known::AgentConfigured { .. }
             | Known::NamingOpened {}
             | Known::BotMade { .. }
+            | Known::ModelReplaced { .. }
             | Known::ClubAdded { .. }
             | Known::ProfileChanged { .. }
             | Known::CallReviewed { .. }
@@ -326,6 +328,10 @@ impl Transcript {
             | Known::WorkerReported(_)
             | Known::WorkerDetached { .. }
             | Known::DecisionMade(_)
+            | Known::AsksUpdated(_)
+            | Known::AsksChecked(_)
+            | Known::AsksReminded(_)
+            | Known::AsksNoted(_)
             | Known::StepServed(_)
             | Known::Arrived { .. }
             | Known::CardShown(_)
