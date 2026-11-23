@@ -111,6 +111,10 @@ export const NativePublishRequest = z.object({
 });
 export type NativePublishRequest = z.infer<typeof NativePublishRequest>;
 type Step = NativePublishRequest["step"];
+type CheckedPick = Pick<Extract<Step, { step: "check" }>, "type" | "name" | "pick">;
+
+const checkKey = ({ type, name, pick }: CheckedPick, hash: string) =>
+  JSON.stringify([type, name, pick, hash]);
 
 /** The steps that only read; the rest change the publisher's market. */
 const reads = new Set<Step["step"]>(["me", "pick", "check", "listing"]);
@@ -119,7 +123,7 @@ const wait = { timeoutMs: 30_000 };
 /** A draft's scan is read again this often, this many times, before the phone is told it waits. */
 const scanPause = 1_500;
 const scanReads = 40;
-/** Checks the person may still confirm, by hash: the last few they were shown. */
+/** Checks the person may still confirm, by pick, listing and hash. */
 const heldChecks = 16;
 
 const offline = (changes: boolean) => ({
@@ -164,7 +168,7 @@ export class NativePublish {
   readonly #owner: Owner;
   readonly #pause: (ms: number, signal: AbortSignal) => Promise<void>;
   readonly #standing: () => SocketStanding;
-  readonly #checks = new LruCache<string, { pick: string; check: MarketDraftCheck }>({
+  readonly #checks = new LruCache<string, MarketDraftCheck>({
     maxEntries: heldChecks,
   });
 
@@ -253,7 +257,7 @@ export class NativePublish {
           "checked",
           signal,
         );
-        this.#checks.set(check.hash, { pick: step.pick, check });
+        this.#checks.set(checkKey(step, check.hash), check);
         return checkAnswer(check);
       }
       case "draft":
@@ -321,10 +325,10 @@ export class NativePublish {
 
   /** The draft made from the confirmed check, read until ace's scan is done or long enough. */
   async #draft(step: Extract<Step, { step: "draft" }>, signal: AbortSignal): Promise<MarketDraft> {
-    const held = this.#checks.get(step.hash);
-    if (!held || held.pick !== step.pick) throw unheld;
+    const held = this.#checks.get(checkKey(step, step.hash));
+    if (!held) throw unheld;
     const source = sourceOf(step.pick);
-    const checked = confirmationOf(held.check, step.binaries, step.routines);
+    const checked = confirmationOf(held, step.binaries, step.routines);
     const made = step.draft
       ? await this.#publish(
           { action: "draftUpdate", id: step.draft, version: step.version, source, checked },

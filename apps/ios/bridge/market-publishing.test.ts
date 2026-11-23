@@ -221,6 +221,31 @@ test("a draft from a check the bridge no longer holds asks to look at it again",
   });
 });
 
+test.each(["pick", "type", "name"] as const)(
+  "a draft with a different %s asks for a new check even when the hash is held",
+  async (field) => {
+    const { ask } = await market();
+    const type = "spade-skill";
+    const name = "release-notes";
+    const items = (await ask({ step: "pick", type })).items as Item[];
+    const pick = items[0]?.id;
+    const check = (await ask({ step: "check", type, name, pick })) as Answer & Check;
+    expect(check.ok).toBe(true);
+
+    const changed = { pick: items[1]?.id, type: "spade-plugin", name: "triage-mail" };
+    const answer = await ask({
+      step: "draft",
+      type,
+      name,
+      pick,
+      version: "1.0.0",
+      hash: check.hash,
+      [field]: changed[field],
+    });
+    expect(answer).toMatchObject({ ok: false, code: "expired", way: "reread" });
+  },
+);
+
 test("a picked id that names a folder on the machine is refused before anything is sent", async () => {
   const { ask } = await market();
   const answer = await ask({
