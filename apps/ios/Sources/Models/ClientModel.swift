@@ -610,6 +610,7 @@ import QuartzCore
                 historyRevision.reset()
             case .usageBars(let bars, let choices): usageBars = bars; usageChoices = choices
             case .inboxFresh(let confirmed, let complete):
+                activityChanged = activityChanged || listFresh != confirmed || listComplete != complete
                 if listFresh != confirmed { listFresh = confirmed }
                 if listComplete != complete { listComplete = complete }
                 // What was read by id belongs to the list it was read against.

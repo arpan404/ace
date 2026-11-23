@@ -137,3 +137,20 @@ it("a daemon that rejects one registration still registers push when the phone s
     expect(daemon.notifications.address(device)).toMatchObject({ channel: "push" }),
   );
 });
+
+it("a wake can read the missed feed while UIKit has yet to return its push token", async () => {
+  const { daemon, act, of } = await phone();
+  act({
+    type: "notifications.sync",
+    enabled: true,
+    appState: "foreground",
+    cursor: 0,
+    push: pushKey("ab".repeat(32)),
+  });
+  await vi.waitFor(() => expect(daemon.notifications.address(device)?.channel).toBe("push"));
+  await vi.waitFor(() => expect(of("notifications.feedComplete")).toHaveLength(1));
+  daemon.disconnectAll();
+  act({ type: "notifications.sync", enabled: true, appState: "background", cursor: 0 });
+  await vi.waitFor(() => expect(of("notifications.feedComplete").length).toBeGreaterThan(1));
+  expect(daemon.notifications.address(device)?.channel).toBe("push");
+});

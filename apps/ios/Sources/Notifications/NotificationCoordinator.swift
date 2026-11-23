@@ -66,6 +66,8 @@ struct SystemAuthorizer: NotificationAuthorizer {
     /// Opens short-lived connections to every paired machine when no UI exists (a background launch).
     @ObservationIgnored let connectInBackground: @MainActor (NotificationCoordinator) async -> [ClientModel]
     @ObservationIgnored var transient: [ClientModel] = []
+    @ObservationIgnored var transientDirectory: MachinesModel?
+    @ObservationIgnored var backgroundWork: Task<Bool, Never>?
     /// The background opening under way, reserved before it starts: a second caller joins it and
     /// the app's own attach waits for it to finish, then closes what it opened.
     @ObservationIgnored var transientOpening: Task<Void, Never>?
@@ -127,8 +129,9 @@ struct SystemAuthorizer: NotificationAuthorizer {
             if let opening = transientOpening { await opening.value }
             if transient.contains(where: { $0 !== model }) { await closeTransient() }
         }
-        // The machine as the phone keys it, whichever route this connection takes.
+        // A route change for the same machine keeps its ledger and in-progress feed.
         let machine = target.scope
+        if machines.contains(where: { $0.hostId == machine.hostId && $0.model === model }) { return }
         let scope = SHA256.hash(data: Data("\(machine.hostId)\u{0}\(machine.deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
         let ledger = LocalNotifier(center: center, hostId: machine.hostId, desk: desk)
         ledger.bind(LedgerStore(scope: scope, defaults: defaults))
@@ -147,24 +150,27 @@ struct SystemAuthorizer: NotificationAuthorizer {
         // runtime, and asking the system must not hold back a launch's first connection.
         Task { await refreshPermission() }
     }
-    func detach(_ model: ClientModel) {
+    func detach(_ model: ClientModel) { detach(model, removingMachine: true) }
+    func releaseBackgroundMachine(_ model: ClientModel) { detach(model, removingMachine: false) }
+
+    private func detach(_ model: ClientModel, removingMachine: Bool) {
         guard let index = machines.firstIndex(where: { $0.model === model }) else { return }
         model.notificationSink = nil
         feeds.removeValue(forKey: machines[index].hostId)?.forEach { $0.finish(false) }
         machines[index].notifier.invalidate()
-        withdrawBridgeAlerts(machines[index].hostId)
+        if removingMachine { withdrawBridgeAlerts(machines[index].hostId) }
         machines.remove(at: index)
         model.liveActivity.onChange = nil
         model.liveActivity.onShow = nil
         model.onOpenThread = nil
         model.outside.onAccessState = nil
-        lockScreen.changed()
+        if removingMachine { lockScreen.changed() }
     }
     /// A machine turned off on this phone: its notifications are withdrawn, its approvals leave
     /// the Live Activity, and the lock screen and widgets rebuild without it, not even "as of".
     func turnedOff(_ hostId: String) {
         // Alerts it already handed over don't land after the clear, whenever their task runs.
-        for entry in machines where entry.hostId == hostId { entry.notifier.invalidate() }
+        for entry in machines where entry.hostId == hostId { entry.notifier.mute() }
         desk.clear(hostId: hostId)
         withdrawBridgeAlerts(hostId)
         approvals = approvals.filter { $0.value.hostId != hostId }
@@ -199,16 +205,25 @@ struct SystemAuthorizer: NotificationAuthorizer {
         case .run(let alert):
             guard delivering(hostId), alert.delivery?.post != false else { return }
             post(.run(alert, hostId: hostId), from: hostId)
-        case .feed(let cursor, let entries, let retracted):
+        case .feed(let cursor, let entries, let retracted, let feedId):
             for alert in entries { note(alert, from: hostId) }
             forget(retracted, from: hostId)
-            guard let ledger = entry?.notifier else { return }
+            guard let entry else { return }
             let posting = delivering(hostId)
+            let generation = entry.model.runtimeGeneration
             Task {
                 // Off or not allowed: advance past what was missed without posting it later.
+                let ledger = entry.notifier
                 await ledger.catchUp(cursor: cursor, entries: posting ? entries : [], retracted: retracted)
-                feeds.removeValue(forKey: hostId)?.forEach { $0.finish(true) }
+                guard entry.model.runtimeGeneration == generation,
+                      machines.contains(where: { $0.notifier === ledger }), ledger.valid else { return }
+                if let feedId {
+                    entry.model.notificationAction(["type": "notifications.feedApplied", "feedId": feedId])
+                } else {
+                    completeFeed(hostId)
+                }
             }
+        case .feedComplete: completeFeed(hostId)
         case .connected:
             if let entry {
                 entry.notifier.connected()
@@ -254,7 +269,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
         lockScreen.foreground = active
         lockScreen.changed()
         sync()
-        if !active, delivering { BackgroundRefresh.schedule() }
+        if !active, delivering || liveActivity { BackgroundRefresh.schedule() }
     }
 
     // MARK: Permission
@@ -328,9 +343,17 @@ struct SystemAuthorizer: NotificationAuthorizer {
 
     // MARK: Waiting on the bridge
 
+    private func completeFeed(_ hostId: String) {
+        feeds.removeValue(forKey: hostId)?.forEach { $0.finish(true) }
+    }
+
     /// Register before sending, so a fast reply can't be missed.
     func expect(_ id: String, _ waiter: Waiter<NotificationPatch.ActionOutcome>) { outcomes[id] = waiter }
     func expectFeed(_ waiter: Waiter<Bool>, from hostId: String) { feeds[hostId, default: []].append(waiter) }
+    func stopExpectingFeed(_ waiter: Waiter<Bool>, from hostId: String) {
+        feeds[hostId]?.removeAll { $0 === waiter }
+        if feeds[hostId]?.isEmpty == true { feeds.removeValue(forKey: hostId) }
+    }
 }
 
 /// A one-shot result with a deadline. Main-actor only.
@@ -339,6 +362,8 @@ struct SystemAuthorizer: NotificationAuthorizer {
     private var done = false
     private var result: T?
     var latest: T?
+    var finished: Bool { done }
+    var value: T? { result }
     func finish(_ value: T?) {
         guard !done else { return }
         done = true

@@ -14,8 +14,10 @@ struct MachineEntry: Codable, Sendable, Identifiable, Equatable {
     /// The account machine (its relay host id) this paired machine also is (ADR 0115): set only
     /// by `AccountMachines.merge`, never by the SDK directory.
     var accountHostId: String? = nil
+    /// The relay grant's organization, remembered for wakes that cannot wait for discovery.
+    var accountOrg: String? = nil
     var id: String { hostId }
-    enum CodingKeys: String, CodingKey { case hostId, displayName, icon, target, deviceId, paths, accountHostId }
+    enum CodingKeys: String, CodingKey { case hostId, displayName, icon, target, deviceId, paths, accountHostId, accountOrg }
 
     /// Keychain key shared with the SDK's `machineSecretKey`: a JSON array of host and device.
     var secretKey: String {

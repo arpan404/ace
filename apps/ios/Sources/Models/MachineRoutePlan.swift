@@ -16,6 +16,7 @@ import Foundation
 /// Until the relay has been ready once, the plan stays on it.
 struct MachineRoutePlan: Equatable, Sendable {
     enum Route: String, Sendable { case direct, relay }
+    enum Purpose: Equatable { case foreground, background }
     enum Step: Equatable, Sendable {
         case stay
         /// Reconnect the machine's runtime on this route.
@@ -45,12 +46,14 @@ struct MachineRoutePlan: Equatable, Sendable {
     /// Back on direct after the relay, and not yet ready there.
     private var trying = false
     private var nextCooldown = Self.cooldown
+    private let purpose: Purpose
     /// Waiting for the relay to be ready once, so the daemon links the two device ids.
     private(set) var linking: Bool
 
-    init(direct: Bool, relay: Bool, linking: Bool = false) {
+    init(direct: Bool, relay: Bool, linking: Bool = false, purpose: Purpose = .foreground) {
         hasDirect = direct; hasRelay = relay; self.linking = linking
-        current = (direct && !linking) || !relay ? .direct : .relay
+        self.purpose = purpose
+        current = relay && (!direct || linking || purpose == .background) ? .relay : .direct
     }
 
     /// Sends that may have run under the account's id arrived, with the routes the machine has
@@ -82,7 +85,10 @@ struct MachineRoutePlan: Equatable, Sendable {
             nextCooldown = Self.cooldown
         }
         // Linked: the direct route may be taken again, so look for it.
-        if current == .relay, state == "ready", linking { linking = false; return probe(at: now) }
+        if current == .relay, state == "ready", linking {
+            linking = false
+            return purpose == .background ? .stay : probe(at: now)
+        }
         // The relay stopped for something only the person can fix there (its machine code, the
         // account): a direct route that answers opens with this phone's own pairing instead.
         if current == .relay, state == "fatal" { return probe(at: now) }

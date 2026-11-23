@@ -193,9 +193,9 @@ final class SystemNotificationCenter: NotificationCenterPort {
     private let desk: AlertDesk
     private var store: LedgerStore?
     private(set) var ledger = NotificationLedger()
-    /// False once its machine is turned off or detached: alerts still advance the ledger, so
-    /// none is posted later, but nothing lands any more, even from a task already under way.
+    /// Turning off or detaching the machine stops any outstanding posts.
     private(set) var valid = true
+    private var discardWhileInvalid = false
     /// Alerts admitted to the ledger whose landing hasn't finished, with whoever waits on each: a
     /// live copy arriving meanwhile is reported delivered only once the first copy has landed.
     private var inFlight: [String: [CheckedContinuation<Void, Never>]] = [:]
@@ -216,13 +216,16 @@ final class SystemNotificationCenter: NotificationCenterPort {
     }
 
     func bind(_ store: LedgerStore) { self.store = store; ledger = store.load() }
-    /// Its machine was turned off or let go: nothing it still has under way lands, and what it
-    /// handed the desk that hasn't landed yet is called back.
     /// A new connection: its feed holds everything after the stored cursor, so nothing from the
     /// last one needs holding back, and a rebuilt database starts its cursors over.
     func connected() {
         live = [:]
         coveredLive = []
+    }
+    /// Discard the pending alerts when the person turns the machine off.
+    func mute() {
+        discardWhileInvalid = true
+        invalidate()
     }
     func invalidate() {
         valid = false
@@ -233,10 +236,12 @@ final class SystemNotificationCenter: NotificationCenterPort {
     /// tells the bridge it was delivered.
     func receive(_ alert: AlertNotification) async {
         // An earlier copy still landing is waited for, even if the ledger has since let its id go.
-        guard inFlight[alert.id] == nil, ledger.admit(alert.id) else { return await landed(alert.id) }
-        store?.save(ledger)
+        guard inFlight[alert.id] == nil, !ledger.contains(alert.id) else { return await landed(alert.id) }
         inFlight[alert.id] = []
-        defer { finish(alert.id) }
+        defer {
+            if valid || discardWhileInvalid, ledger.admit(alert.id) { store?.save(ledger) }
+            finish(alert.id)
+        }
         // Newer than anything catch-up still has to land for this thread. One this phone doesn't
         // post leaves the thread's notification as it was, so it holds nothing back.
         if alert.delivery?.post != false, !CatchUpOrder.isSummary(alert) { live[alert.threadId] = Live(id: alert.id, cursor: alert.cursor) }
@@ -263,12 +268,22 @@ final class SystemNotificationCenter: NotificationCenterPort {
         // (`connected`) clears `live` for the next feed, but must not free this one's older
         // alerts while it waits or mid-way.
         let held = [arrived.filter { !gone.contains($0.value.id) }, live]
-        let fresh = entries.filter { inFlight[$0.id] == nil && ledger.admit($0.id) }
-        ledger.advance(to: cursor)
-        store?.save(ledger)
+        var applied = false
+        defer {
+            if applied || discardWhileInvalid {
+                for alert in entries { _ = ledger.admit(alert.id) }
+                ledger.advance(to: cursor)
+                store?.save(ledger)
+            }
+        }
+        guard valid else { return }
+        let settling = entries.filter { inFlight[$0.id] != nil }
+        let fresh = entries.filter { inFlight[$0.id] == nil && !ledger.contains($0.id) }
         for alert in fresh { inFlight[alert.id] = [] }
         // Each finishes as it lands; whatever a turn-off or a newer alert skips finishes here.
         defer { for alert in fresh { finish(alert.id) } }
+        // A live copy may be landing. The page cannot commit past it until that effect finishes.
+        for alert in settling { await landed(alert.id) }
         let freshIds = Set(fresh.map(\.id))
         // The whole feed decides, alerts already seen included: when a thread's newest is one of
         // those, the phone already showed something at least as new. Only alerts this phone
@@ -293,8 +308,11 @@ final class SystemNotificationCenter: NotificationCenterPort {
             }
             guard holders.allSatisfy({ CatchUpOrder.isNewer(alert, than: $0, in: entries) }) else { continue }
             await desk.land(alert, hostId: hostId, owner: ObjectIdentifier(self))
+            guard valid else { return }
+            if ledger.admit(alert.id) { store?.save(ledger) }
             finish(alert.id)
         }
+        applied = valid
     }
     /// Waits while an earlier copy of this alert is still landing; at once otherwise.
     private func landed(_ id: String) async {

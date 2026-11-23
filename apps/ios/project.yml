@@ -111,7 +111,7 @@ targets:
         NSCameraUsageDescription: Scan the pairing code shown by ace on your computer, or take a photo for an agent.
         NSMicrophoneUsageDescription: Dictate a message to an agent, or record a voice message for Spade.
         NSSpeechRecognitionUsageDescription: Turn what you say into the words of your message, on this iPhone where it can.
-        UIBackgroundModes: [fetch]
+        UIBackgroundModes: [fetch, remote-notification]
         BGTaskSchedulerPermittedIdentifiers: [app.ace.ios.notifications.refresh]
         NSAppTransportSecurity:
           # Paired daemons use self-signed keys at user-chosen IPs, including Tailscale.

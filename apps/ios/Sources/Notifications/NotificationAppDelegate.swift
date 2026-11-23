@@ -44,6 +44,23 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
         coordinator.registeredForPush(nil)
     }
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                     fetchCompletionHandler completion: @escaping @Sendable (UIBackgroundFetchResult) -> Void) {
+        guard !SpikeConfiguration.unpaired, application.applicationState != .active,
+              let body = PushAlert.ciphertext(userInfo), let key = PushKeyStore.appGroup?.read(),
+              let plaintext = PushCrypto.decrypt(body, key: key), let push = PushAlert.read(plaintext) else {
+            completion(.noData)
+            return
+        }
+        // UIKit can wake the app before the extension finishes. The same alert should never
+        // interrupt twice even if the feed reaches the app first.
+        PushedAlerts.appGroup.record(push.pushedId)
+        coordinator.scene(active: false)
+        Task { @MainActor in
+            let caught = await coordinator.backgroundCatchUp()
+            completion(caught ? .newData : .failed)
+        }
+    }
     // The completion-handler forms, called back on the main thread: UIKit's handlers update the
     // app's snapshot and must run there. The async forms are resumed off the main thread when the
     // method isn't on the main actor, and UIKit stops the app (a tapped notification crashed it).
@@ -85,15 +102,13 @@ enum BackgroundRefresh {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: .main) { task in
             nonisolated(unsafe) let task = task
             MainActor.assumeIsolated {
+                if UIApplication.shared.applicationState != .active { coordinator.scene(active: false) }
                 schedule()
                 let work = Task { @MainActor in
                     let caught = await coordinator.backgroundCatchUp()
-                    task.setTaskCompleted(success: caught)
+                    task.setTaskCompleted(success: caught && !Task.isCancelled)
                 }
-                task.expirationHandler = {
-                    work.cancel()
-                    Task { @MainActor in await coordinator.releaseTransient() }
-                }
+                task.expirationHandler = { work.cancel() }
             }
         }
     }

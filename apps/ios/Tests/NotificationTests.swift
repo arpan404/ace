@@ -765,6 +765,23 @@ import Testing
         #expect(center.posted.map(\.threadId) == ["other"])
     }
 
+    @Test func aCatchUpCommitsAfterItsLastAlertLands() async throws {
+        let center = HeldCenter()
+        let notifier = LocalNotifier(center: center)
+        let store = LedgerStore(scope: "held-feed", defaults: try defaults())
+        notifier.bind(store)
+        let work = Task {
+            await notifier.catchUp(cursor: 8, entries: [alert("n:1")], retracted: [])
+        }
+        try await until("the post is out") { center.holding }
+        #expect(store.load().cursor == 0)
+        #expect(!store.load().contains("n:1"))
+        center.release()
+        await work.value
+        #expect(store.load().cursor == 8)
+        #expect(store.load().contains("n:1"))
+    }
+
     @Test func aCatchUpWhoseFirstPostIsStillOutWhenTheMachineIsTurnedOffLandsNothingMore() async throws {
         let center = HeldCenter()
         let sessions = Sessions()

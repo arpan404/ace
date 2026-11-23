@@ -49,6 +49,10 @@ export const NotificationAction = z.discriminatedUnion("type", [
     /** This phone's push token and key (`notification-address.ts`); null or absent: none. */
     push: PhonePush.nullable().optional(),
   }),
+  z.object({
+    type: z.literal("notifications.feedApplied"),
+    feedId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  }),
   z.object({ type: z.literal("notifications.config") }),
   z.object({ type: z.literal("notifications.preferences"), preferences: NotificationPreferences }),
   z.object({
@@ -110,6 +114,9 @@ export class NotificationBridge {
   #enabled = false;
   #appState: AppState = "foreground";
   #cursor = 0;
+  #feedId = 0;
+  #pendingFeed: { id: number; cursor: number; connection: number } | undefined;
+  #feedAgain = false;
   #phone: PhoneNotificationPrefs = defaultPhonePrefs;
   #minuteOfDay: MinuteOfDay;
   /** False until Swift reports on/off; the runtime's default must not unregister a device. */
@@ -222,15 +229,27 @@ export class NotificationBridge {
       case "notifications.sync": {
         const changed = action.appState !== this.#appState || action.enabled !== this.#enabled;
         this.#enabled = action.enabled;
+        if (!this.#synced) this.#cursor = action.cursor;
         this.#synced = true;
         this.#appState = action.appState;
         if (action.phone) this.#phone = action.phone;
         this.#push = action.push ?? null;
         this.#watchLimits();
         this.#watchRuns();
-        this.#cursor = Math.max(this.#cursor, action.cursor);
         if (this.#client.state === "ready") {
           if (changed) this.#presence();
+          void this.#follow();
+        }
+        return;
+      }
+      case "notifications.feedApplied": {
+        const feed = this.#pendingFeed;
+        if (!feed || feed.id !== action.feedId) return;
+        this.#cursor = feed.cursor;
+        this.#pendingFeed = undefined;
+        this.#queue = this.#queue.then(() => this.#checkpoint(feed.cursor, feed.connection));
+        if (this.#feedAgain) {
+          this.#feedAgain = false;
           void this.#follow();
         }
         return;
@@ -327,6 +346,12 @@ export class NotificationBridge {
    */
   async #reconcile(): Promise<void> {
     if (!this.#synced || this.#client.state !== "ready") return;
+    // APNs registration is asynchronous on a cold wake. Keep the daemon's existing push
+    // address until UIKit gives this runtime a token or the phone explicitly mutes alerts.
+    if (this.#enabled && this.#appState === "background" && !this.#push) {
+      await this.#catchUp();
+      return;
+    }
     const want = this.#enabled
       ? phoneAddress(this.#pushRefused ? null : this.#push)
       : "unregistered";
@@ -385,14 +410,35 @@ export class NotificationBridge {
       // Offline: the next connection sends current presence and catches up.
     }
   }
+  async #checkpoint(cursor: number, connection: number): Promise<void> {
+    try {
+      await this.#client.request(
+        { type: "notification.feed", afterCursor: cursor, checkpoint: true },
+        { timeoutMs: 2500 },
+      );
+    } catch {
+      // Swift already saved the cursor and will send it on a later read.
+    }
+    if (connection === this.#connection && this.#client.state === "ready")
+      this.#put("notifications.feedComplete", () => ({ type: "notifications.feedComplete" }));
+  }
+
   async #catchUp(): Promise<void> {
+    // PatchPump coalesces keys. Keep this page intact until the native ledger commits it.
+    if (this.#pendingFeed) {
+      this.#feedAgain = true;
+      return;
+    }
+    const connection = this.#connection;
     let feed: NotificationFeed;
     try {
-      feed = await this.#client.request({ type: "notification.feed", afterCursor: this.#cursor });
+      feed = await this.#client.request(
+        { type: "notification.feed", afterCursor: this.#cursor },
+        { timeoutMs: 5000 },
+      );
     } catch {
       return;
     }
-    this.#cursor = feed.cursor;
     let asking = 0;
     const entries = await Promise.all(
       feed.entries.map((entry) =>
@@ -401,8 +447,12 @@ export class NotificationBridge {
           : this.#delivered({ ...entry.notification, cursor: entry.cursor }),
       ),
     );
+    if (connection !== this.#connection) return;
+    const feedId = ++this.#feedId;
+    this.#pendingFeed = { id: feedId, cursor: feed.cursor, connection };
     this.#put("notifications:feed", () => ({
       type: "notifications.feed",
+      feedId,
       cursor: feed.cursor,
       entries,
       retracted: feed.retracted,

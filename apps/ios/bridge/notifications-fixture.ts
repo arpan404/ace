@@ -27,7 +27,7 @@ export const alert = (id: string) =>
   });
 
 /** The real SDK against the fixture daemon; patches are what Swift would receive. */
-export async function phone(now?: () => number, runProgress?: KeptValue) {
+export async function phone(now?: () => number, runProgress?: KeptValue, applyFeed = () => true) {
   const daemon = new FakeDaemon({ clock: () => 1000 });
   daemon.createThread({
     id: threadId,
@@ -84,6 +84,10 @@ export async function phone(now?: () => number, runProgress?: KeptValue) {
       if (!patch) return;
       patches.push(patch);
       for (const watch of watchers) watch(patch);
+      if (patch.type === "notifications.feed" && applyFeed())
+        bridge.handle(
+          NotificationAction.parse({ type: "notifications.feedApplied", feedId: patch.feedId }),
+        );
     },
     schedule,
     () => 23 * 60,

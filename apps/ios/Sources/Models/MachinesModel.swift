@@ -59,6 +59,8 @@ import Observation
     /// Each machine's latest open, by host id: an open that waited (on notifications binding)
     /// goes on only if no later open, turn-off or removal came meanwhile.
     @ObservationIgnored private var openings: [String: Int] = [:]
+    @ObservationIgnored private var backgroundOnly = false
+    @ObservationIgnored private var backgroundClosed = false
     /// A look at a machine's route its plan asked for later (`MachineRoutePlan`).
     @ObservationIgnored private var retries: RouteRetries
     /// Account runtimes' saved sends moving into the paired machines they turned out to be.
@@ -101,19 +103,7 @@ import Observation
     /// directory starts a JavaScript runtime of its own, so a relaunch never waits on it before
     /// its machines start. An offline machine gates nothing.
     func load() async {
-        let known = (defaults.data(forKey: Keys.known)).flatMap { try? JSONDecoder().decode([MachineEntry].self, from: $0) } ?? []
-        if !known.isEmpty {
-            machines = known
-            paired = known.filter { !$0.isAccountMachine }
-            // A paired machine also on the account keeps its relay route before the account answers.
-            accountMachines = known.compactMap { entry in
-                (entry.isAccountMachine ? entry.hostId : entry.accountHostId).map { AceMachine(hostId: $0, name: entry.displayName, platform: "", lastSeenAt: 0) }
-            }
-            loaded = true
-            // A move of saved sends cut short last time is done before anything reads them.
-            await replayAdoptions()
-            for entry in known { await connect(entry) }
-        }
+        await openRemembered()
         let listing = LaunchTrace.begin("machines.list")
         async let accountListing = listAccount()
         let listed = await access.perform(.list)
@@ -128,6 +118,37 @@ import Observation
         loaded = true
         for entry in machines { await connect(entry) }
         afterLoad?()
+    }
+    /// Background work uses the last directory. A slow account listing cannot delay a known relay.
+    func openInBackground() async {
+        backgroundOnly = true
+        await openRemembered()
+    }
+    func stopBackgroundRoutes() {
+        backgroundClosed = true
+        for hostId in Array(plans.keys) { dropPlan(hostId); supersedeOpening(hostId) }
+    }
+    private func openRemembered() async {
+        let known = (defaults.data(forKey: Keys.known)).flatMap { try? JSONDecoder().decode([MachineEntry].self, from: $0) } ?? []
+        guard !known.isEmpty else { return }
+        machines = known
+        paired = known.filter { !$0.isAccountMachine }
+        accountMachines = known.compactMap { entry in
+            (entry.isAccountMachine ? entry.hostId : entry.accountHostId).map { AceMachine(hostId: $0, name: entry.displayName, platform: "", lastSeenAt: 0) }
+        }
+        loaded = true
+        // Finish any interrupted move before a runtime reads its saved sends.
+        await replayAdoptions()
+        if backgroundOnly {
+            let openings = known.map { entry in Task { @MainActor in await self.connect(entry) } }
+            await withTaskCancellationHandler {
+                for opening in openings { await opening.value }
+            } onCancel: {
+                for opening in openings { opening.cancel() }
+            }
+        } else {
+            for entry in known { await connect(entry) }
+        }
     }
     /// How many machines the next launch will connect at once, before anything is read.
     nonisolated static func rememberedCount(in defaults: UserDefaults) -> Int {
@@ -178,7 +199,12 @@ import Observation
         let own = Set(accountMachines.map(\.hostId))
         var seen = own
         let hosts = orgHosts.filter { seen.insert($0.hostId).inserted }
-        return AccountMachines.merge(paired: paired, account: accountMachines + hosts, relayURL: relay, deviceId: account.deviceId, daemons: daemons)
+        return AccountMachines.merge(paired: paired, account: accountMachines + hosts, relayURL: relay, deviceId: account.deviceId, daemons: daemons).map { entry in
+            var entry = entry
+            let relayId = entry.isAccountMachine ? entry.hostId : entry.accountHostId
+            entry.accountOrg = relayId.flatMap { orgOf?($0) }
+            return entry
+        }
     }
     /// The directory's answer replaces what this phone remembered.
     private func follow(_ listed: [MachineEntry]) async {
@@ -378,7 +404,7 @@ import Observation
         var direct = entry.isAccountMachine ? nil : entry.connectionTarget
         let relayHost = entry.isAccountMachine ? entry.hostId : entry.accountHostId
         var relay = relayHost.flatMap { host in
-            account?.route(hostId: host, org: orgOf?(host)).map { ConnectionTarget(relay: $0, deviceId: entry.isAccountMachine ? entry.deviceId : account?.deviceId ?? entry.deviceId) }
+            account?.route(hostId: host, org: orgOf?(host) ?? entry.accountOrg).map { ConnectionTarget(relay: $0, deviceId: entry.isAccountMachine ? entry.deviceId : account?.deviceId ?? entry.deviceId) }
         }
         direct?.installId = installId
         relay?.installId = installId
@@ -398,11 +424,13 @@ import Observation
         return plans[entry.hostId]?.current == .relay ? routes.relay ?? routes.direct : routes.direct ?? routes.relay
     }
     private func connect(_ entry: MachineEntry) async {
+        guard !Task.isCancelled, !backgroundClosed else { return }
         let routes = targets(for: entry)
         guard routes.direct != nil || routes.relay != nil else { unsupported.insert(entry.hostId); return }
         if isOff(entry.hostId) || inbox.client(entry.hostId) != nil { return }
         plans[entry.hostId] = MachineRoutePlan(direct: routes.direct != nil, relay: routes.relay != nil,
-                                               linking: adoptions.linking.contains(entry.hostId))
+                                               linking: adoptions.linking.contains(entry.hostId),
+                                               purpose: backgroundOnly ? .background : .foreground)
         guard let target = target(for: entry) else { return }
         let client = makeClient()
         client.readAheadAllowed = readAheadAllowed
@@ -417,14 +445,16 @@ import Observation
                 await self.take(step, hostId)
             }
         }
-        client.onMachineIdentity = { [weak self] identity in Task { @MainActor in await self?.learned(identity, from: hostId) } }
+        if !backgroundOnly {
+            client.onMachineIdentity = { [weak self] identity in Task { @MainActor in await self?.learned(identity, from: hostId) } }
+        }
         inbox.attach(entry.hostId, name: entry.displayName, client: client)
         await open(client, entry: entry, target: target)
     }
     /// Does what a machine's route plan said: reopen its runtime on the other route, or probe the
     /// direct address and report the answer back to the plan.
     private func take(_ step: MachineRoutePlan.Step?, _ hostId: String) async {
-        guard let step, let entry = entry(hostId), let client = inbox.client(hostId) else { return }
+        guard !backgroundClosed, let step, let entry = entry(hostId), let client = inbox.client(hostId) else { return }
         switch step {
         case .stay: return
         case .open:
@@ -553,8 +583,12 @@ import Observation
         let opening = supersedeOpening(hostId)
         client.canOperate = canOperate(entry)
         client.canAdmin = grants.scopes(for: entry).map { Grants(scopes: $0).canAdmin }
-        await beforeConnect?(client, target)
-        guard !Task.isCancelled, openings[hostId] == opening, inbox.client(hostId) === client, !isOff(hostId) else { return }
+        if backgroundOnly {
+            await BackgroundOpening.$active.withValue(true) { await beforeConnect?(client, target) }
+        } else {
+            await beforeConnect?(client, target)
+        }
+        guard !Task.isCancelled, !backgroundClosed, openings[hostId] == opening, inbox.client(hostId) === client, !isOff(hostId) else { return }
         await client.connect(target: target, directory: storage, itemLimit: itemLimit)
     }
     /// Any open of this machine still waiting goes no further. Returns the new latest.
