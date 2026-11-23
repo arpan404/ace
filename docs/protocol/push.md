@@ -194,7 +194,7 @@ Example:
       "restartRequired": false,
       "version": "example"
     },
-    "reportedAt": null
+    "reportedAt": 6
   }
 }
 ```
@@ -253,13 +253,8 @@ Example:
   "type": "machineUpdate.changed",
   "update": {
     "arch": "example",
-    "ask": {
-      "id": "example",
-      "mode": "example",
-      "requestedAt": 7,
-      "version": "example"
-    },
-    "available": "example",
+    "ask": null,
+    "available": null,
     "blocked": null,
     "busy": 9,
     "checkedAt": null,
@@ -269,7 +264,7 @@ Example:
     "percent": null,
     "platform": "example",
     "releaseUrl": "https://example.invalid/",
-    "state": "example",
+    "state": "downloading",
     "version": "example"
   }
 }

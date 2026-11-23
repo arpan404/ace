@@ -4995,13 +4995,15 @@ Example:
 {
   "report": {
     "available": null,
+    "checkedInstruction": "example",
     "downloaded": false,
+    "line": "beta",
     "percent": null,
     "releaseUrl": "https://example.invalid/",
     "restartRequired": false,
     "version": "example"
   },
-  "reportedAt": 6
+  "reportedAt": 8
 }
 ```
 
@@ -5022,6 +5024,7 @@ Example:
   "update": {
     "report": {
       "available": null,
+      "checkedInstruction": "example",
       "downloaded": true,
       "percent": 7,
       "releaseUrl": "https://example.invalid/",
@@ -5041,7 +5044,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | id | yes | string | {"minLength":1,"maxLength":128} |
-| action | yes | union | {"anyOf":[{"type":"string","enum":["download","install"]},{"type":"string","minLength":1,"maxLength":64}]} |
+| action | yes | union | {"anyOf":[{"type":"string","enum":["check","download","install"]},{"type":"string","minLength":1,"maxLength":64}]} |
 | mode | yes | union | {"anyOf":[{"type":"string","enum":["idle","now"]},{"type":"string","minLength":1,"maxLength":64}]} |
 | version | yes | string | {"minLength":1,"maxLength":80} |
 
@@ -5049,7 +5052,7 @@ Example:
 
 ```json
 {
-  "action": "install",
+  "action": "download",
   "id": "example",
   "mode": "example",
   "version": "example"
@@ -5071,22 +5074,18 @@ Example:
 
 ```json
 {
-  "homeData": {
-    "daemon": null,
-    "home": 7,
-    "notify": null,
-    "spade": null
-  },
+  "instruction": null,
   "report": {
     "available": null,
     "downloaded": true,
     "error": null,
     "inPlace": true,
+    "line": "stable",
     "releaseUrl": null,
     "restartRequired": false,
     "version": "example"
   },
-  "reportedAt": 2
+  "reportedAt": 3
 }
 ```
 
@@ -5105,6 +5104,8 @@ Example:
 | percent | no | union | {"anyOf":[{"type":"number","minimum":0,"maximum":100},{"type":"null"}]} |
 | error | no | union | {"anyOf":[{"type":"string","maxLength":2000},{"type":"null"}]} |
 | inPlace | no | boolean |  |
+| line | no | ["stable","beta"] |  |
+| checkedInstruction | no | string | {"minLength":1,"maxLength":128} |
 
 Example:
 
@@ -5154,6 +5155,7 @@ Example:
 
 ```json
 {
+  "error": "forbidden",
   "ok": true,
   "requestId": "example",
   "type": "appUpdate.result",
@@ -23083,6 +23085,7 @@ Example:
 | platform | yes | string | {"minLength":1,"maxLength":32} |
 | arch | yes | string | {"minLength":1,"maxLength":32} |
 | install | yes | [MachineInstall.json](schema/MachineInstall.json) |  |
+| line | no | ["stable","beta"] |  |
 | state | yes | [MachineUpdateState.json](schema/MachineUpdateState.json) |  |
 | available | yes | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":80},{"type":"null"}]} |
 | releaseUrl | yes | union | {"anyOf":[{"type":"string","format":"ace-whatwg-url","x-ace-url-maxLength":400,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."},{"type":"null"}]} |
@@ -23106,7 +23109,7 @@ Example:
     "version": "example"
   },
   "available": null,
-  "blocked": "source",
+  "blocked": "example",
   "busy": 6,
   "checkedAt": null,
   "error": null,
@@ -23118,10 +23121,11 @@ Example:
     "ok": true,
     "to": "example"
   },
+  "line": "stable",
   "percent": null,
   "platform": "example",
-  "releaseUrl": null,
-  "state": "waiting",
+  "releaseUrl": "https://example.invalid/",
+  "state": "example",
   "version": "example"
 }
 ```
@@ -23189,17 +23193,18 @@ Example:
   "update": {
     "arch": "example",
     "ask": null,
-    "available": null,
-    "blocked": "example",
+    "available": "example",
+    "blocked": null,
     "busy": 3,
     "checkedAt": null,
     "error": null,
     "install": "source",
     "last": null,
+    "line": "beta",
     "percent": 4,
     "platform": "example",
     "releaseUrl": "https://example.invalid/",
-    "state": "ready",
+    "state": "example",
     "version": "example"
   }
 }
@@ -23320,7 +23325,7 @@ Example:
     "percent": 1,
     "platform": "example",
     "releaseUrl": null,
-    "state": "updated",
+    "state": "example",
     "version": "example"
   }
 }
@@ -23332,12 +23337,12 @@ Example:
 
 ### Variant 1
 
-Type: ["none","available","waiting","downloading","ready","installing","updated","failed"]. See JSON Schema for constraints.
+Type: ["none","checking","available","waiting","downloading","ready","installing","updated","failed"]. See JSON Schema for constraints.
 
 Example:
 
 ```json
-"ready"
+"downloading"
 ```
 
 ### Variant 2

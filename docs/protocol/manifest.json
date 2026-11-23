@@ -33,8 +33,8 @@
       "sha256": "4a34aa975bbbe8db127c3bdbbf8a6078cf10c4937f2f10b311ba76b0cec78a46"
     },
     "push.md": {
-      "bytes": 136683,
-      "sha256": "279ac1f28d943ee4bc8938352272ac184c2ff83ae424e074c5248dcf96b4fae7"
+      "bytes": 136577,
+      "sha256": "1321c0f43dd0c0de2c3a10fb336d241fa8b6105979bf4a1c08080c3839c1c274"
     },
     "requests.md": {
       "bytes": 128486,
@@ -597,16 +597,16 @@
       "sha256": "d3548f99ff2b50e98aece1856f7891756b3bab845a69e38a209e5988367c9c35"
     },
     "schema/AppUpdateInstruction.json": {
-      "bytes": 995,
-      "sha256": "e41402897b2969e4d390c51ad9e852c760596dbbb40c7b1955235bf0affd89b0"
+      "bytes": 1016,
+      "sha256": "a4a552f481bd2120ba1452d1c85879420665ffcd00eacf285f33e43aa0230cb4"
     },
     "schema/AppUpdateReply.json": {
       "bytes": 1117,
       "sha256": "03e93729f43cfcac5fba4eb004ea9f21c7da5a5aad8db3df02804d7361ffe946"
     },
     "schema/AppUpdateReport.json": {
-      "bytes": 1806,
-      "sha256": "acd664ae6d6bf8a84c33d6166a6ab32568721ac8dd16c972c13ba845a0b11dd0"
+      "bytes": 2012,
+      "sha256": "0228e75fdd338921db5f674bbded03d110d73d29f7e1c7e5974ffefc3712c3e3"
     },
     "schema/AppUpdateRequest.json": {
       "bytes": 394,
@@ -3021,8 +3021,8 @@
       "sha256": "5a3f703e8e5aab314e26bb7bffe818f6bf2668d4b1e4cfd82c52d3a346a3490b"
     },
     "schema/MachineUpdate.json": {
-      "bytes": 2931,
-      "sha256": "a780584db4da32a3720c94355ddae3431fadf6b40099c6be5f515a991b63994f"
+      "bytes": 3033,
+      "sha256": "c7ab4e9c11d279095ab54ecb48a9fd03c7cc6349a728edbe67acbf9e80213043"
     },
     "schema/MachineUpdateAsk.json": {
       "bytes": 653,
@@ -3053,8 +3053,8 @@
       "sha256": "071e90cba57510316396cbf898630ef22cfce4f3f6aaec4ca090263c126e60e9"
     },
     "schema/MachineUpdateState.json": {
-      "bytes": 443,
-      "sha256": "cf81169b9652c935a99483cd5334648b90c03f741c96e8458880c5d375040f5f"
+      "bytes": 463,
+      "sha256": "4a85cd9b0116e96e98993a27f0dd196975dcdb5e69b39d78ce81d56d3bc53407"
     },
     "schema/MachinesRequest.json": {
       "bytes": 1323,
@@ -6997,8 +6997,8 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1421493,
-      "sha256": "ff2ec1a24727346380042260c98f0496bfe95951ea42c8469d9a5a22926174f0"
+      "bytes": 1421800,
+      "sha256": "ef7b49d2105a43570a793b28c7788bf4f75cbbbdae65daa06d0518aa7a90fe56"
     }
   },
   "input": "162b7c127f1f98d144387facdd02e992a7448ff881b511558910079718cc17e6",

@@ -24,6 +24,10 @@ export const AppUpdateReport = z.object({
   error: z.string().max(2000).nullable().optional(),
   /** False when this install can't replace itself and offers the release page instead. */
   inPlace: z.boolean().optional(),
+  /** The line selected in desktop settings. Older apps omit it and cannot check on request. */
+  line: z.enum(["stable", "beta"]).optional(),
+  /** The last remote check this app finished. */
+  checkedInstruction: z.string().min(1).max(128).optional(),
 });
 export type AppUpdateReport = z.infer<typeof AppUpdateReport>;
 
@@ -61,12 +65,12 @@ export const AppUpdateChanged = z.object({
 
 /**
  * What the daemon asks of its desktop app, in the reply to the app's report (ADR 0113).
- * `download`: fetch the release on offer. `install`: install it, `idle` draining running agents
+ * `check`: check the selected line. `download`: fetch the release on offer. `install`: install it, `idle` draining running agents
  * first, `now` stopping them (they continue after the restart). The app runs each `id` once.
  */
 export const AppUpdateInstruction = z.looseObject({
   id: z.string().min(1).max(128),
-  action: z.union([z.enum(["download", "install"]), z.string().min(1).max(64)]),
+  action: z.union([z.enum(["check", "download", "install"]), z.string().min(1).max(64)]),
   mode: z.union([z.enum(["idle", "now"]), z.string().min(1).max(64)]),
   version: z.string().min(1).max(80),
 });

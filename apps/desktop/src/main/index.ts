@@ -430,7 +430,14 @@ function main(target: DaemonTarget, crashDumps: string): void {
     log: logger("updates"),
   });
   updateReport.status(updates.current());
-  remoteUpdate = (instruction) => void updates.remote(instruction);
+  remoteUpdate = (instruction) => {
+    void updates
+      .remote(instruction)
+      .catch((error: unknown) => log("warn", `Remote update failed: ${String(error)}`))
+      .finally(() => {
+        if (instruction.action === "check") updateReport.checkedInstruction(instruction.id);
+      });
+  };
 
   // Chromium's sandbox on an AppImage or tar.gz under Ubuntu's AppArmor restriction.
   const install = linuxInstall(process.env, process.execPath);
