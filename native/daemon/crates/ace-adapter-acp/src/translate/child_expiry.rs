@@ -2,7 +2,7 @@
 //! Child expiry on cancellation deadlines (`children.ts` expiry half).
 
 use crate::translate::state::TranslationState;
-use ace_json::{Map, Value};
+use ace_json::{JsString, Map, Value};
 
 pub fn expire_children(state: &mut TranslationState, now: i64) -> Vec<Value> {
     let mut facts = Vec::new();
@@ -45,7 +45,7 @@ pub fn expire_children(state: &mut TranslationState, now: i64) -> Vec<Value> {
 
 pub(crate) fn finish_child_tasks(
     state: &mut TranslationState,
-    child_native_id: &str,
+    child_native_id: &JsString,
     status: &str,
     facts: &mut Vec<Value>,
 ) {

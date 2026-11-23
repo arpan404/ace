@@ -37,7 +37,7 @@ pub struct Agent {
     pub open: IndexMap<String, OpenItem>,
     pub items: RecentSet,
     pub completed: RecentSet,
-    pub requests: IndexMap<String, RequestEntry>,
+    pub requests: IndexMap<ace_json::JsString, RequestEntry>,
     pub ended: RecentSet,
     pub async_items: HashSet<String>,
     pub children: IndexSet<String>,
@@ -112,7 +112,7 @@ pub struct CodexTranslator {
     pub thread_id: String,
     pub root_key: String,
     pub agents: IndexMap<String, Agent>,
-    pub sent: HashMap<String, SentEntry>,
+    pub sent: HashMap<ace_json::JsString, SentEntry>,
     pub recorded_answer: Option<String>,
     pub user_turns: RecentSet,
     pub completions: PendingCompletions,
@@ -165,7 +165,7 @@ impl CodexTranslator {
         }
     }
 
-    pub fn interaction_key(&self, id: &Value) -> String {
+    pub fn interaction_key(&self, id: &Value) -> ace_json::JsString {
         super::helpers::request_key(id, &self.scope)
     }
 

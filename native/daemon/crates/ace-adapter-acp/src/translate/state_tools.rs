@@ -4,10 +4,15 @@
 use crate::translate::state::{
     SENT_LIMIT, SentRequest, TranslationState, UNCERTAIN_SHELL_LIMIT, rpc_key,
 };
-use ace_json::Map;
+use ace_json::{JsString, Map};
 
 impl TranslationState {
-    pub fn tool_mut(&mut self, owner_key: &str, owner_native_id: &str, id: &str) -> Option<String> {
+    pub fn tool_mut(
+        &mut self,
+        owner_key: &str,
+        owner_native_id: &JsString,
+        id: &JsString,
+    ) -> Option<String> {
         if let Some(owned) = self.owned_tools.get(owner_key)
             && let Some(tool_key) = owned.get(id)
         {
@@ -18,7 +23,7 @@ impl TranslationState {
             let tool_key = retained.key.clone();
             let mut restored = retained;
             restored.owner_key = owner_key.to_owned();
-            restored.owner_native_id = owner_native_id.to_owned();
+            restored.owner_native_id = owner_native_id.clone();
             self.tools.insert(tool_key.clone(), restored);
             self.register_tool(owner_key, id, &tool_key);
             return Some(tool_key);
@@ -26,7 +31,7 @@ impl TranslationState {
         None
     }
 
-    pub fn tool_key_for_native(&self, native_id: &str) -> Option<String> {
+    pub fn tool_key_for_native(&self, native_id: &JsString) -> Option<String> {
         self.tools_by_native.get(native_id).cloned()
     }
 
@@ -96,7 +101,7 @@ impl TranslationState {
         self.reply_key(&key);
     }
 
-    fn reply_key(&mut self, key: &str) {
+    fn reply_key(&mut self, key: &JsString) {
         self.sent.shift_remove(key);
         self.loads.shift_remove(key);
     }
@@ -130,12 +135,11 @@ impl TranslationState {
         self.uncertain_shells.shift_remove(&key);
     }
 
-    pub fn register_tool(&mut self, owner_key: &str, id: &str, tool_key: &str) {
+    pub fn register_tool(&mut self, owner_key: &str, id: &JsString, tool_key: &str) {
         self.owned_tools
             .entry(owner_key.to_owned())
             .or_default()
-            .insert(id.to_owned(), tool_key.to_owned());
-        self.tools_by_native
-            .insert(id.to_owned(), tool_key.to_owned());
+            .insert(id.clone(), tool_key.to_owned());
+        self.tools_by_native.insert(id.clone(), tool_key.to_owned());
     }
 }

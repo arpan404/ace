@@ -18,7 +18,7 @@ use ace_json::{Map, Value};
 /// The ACP translator: pure, synchronous, never fails on provider data.
 pub struct AcpTranslator {
     pub state: TranslationState,
-    input_native_id: Option<String>,
+    input_native_id: Option<ace_json::JsString>,
     shell_output: ShellOutput,
 }
 
@@ -200,14 +200,13 @@ impl AcpTranslator {
                 .cloned()
                 .unwrap_or_default();
             let agent_key = self.state.agent_key(&session_id, &mut facts);
-            let agent_native = session_id.as_str().to_owned();
             let update = object(params.get("update").unwrap_or(&Value::Null)).clone();
             let update_value = Value::Object(update);
             if handle_update(
                 &mut self.state,
                 &mut self.shell_output,
                 &agent_key,
-                &agent_native,
+                &session_id,
                 &update_value,
                 &data,
                 &mut facts,

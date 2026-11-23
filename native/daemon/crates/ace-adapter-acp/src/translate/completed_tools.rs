@@ -24,10 +24,10 @@ pub fn retire_tool(state: &mut TranslationState, tool_key: &str) {
         return;
     }
     let child_terminal = match state.tools.get(tool_key) {
-        Some(tool) => match tool.child_native_id.as_deref() {
+        Some(tool) => match tool.child_native_id.as_ref() {
             Some(child_id) => state
                 .agents
-                .get(&ace_json::JsString::from(child_id))
+                .get(child_id)
                 .is_some_and(|child| !child.terminal),
             None => false,
         },

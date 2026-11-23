@@ -5,14 +5,14 @@ use crate::translate::association::child_association;
 use crate::translate::child_expiry::finish_child_tasks;
 use crate::translate::child_spawn::background_child;
 use crate::translate::completed_tools::retire_tool;
-use crate::translate::data::{object, string};
+use crate::translate::data::{js_string, object, string};
 use crate::translate::state::TranslationState;
-use ace_json::{Map, Value};
+use ace_json::{JsString, Map, Value};
 
 pub fn child_update(
     state: &mut TranslationState,
     parent_key: &str,
-    parent_native_id: &str,
+    parent_native_id: &JsString,
     update: &Value,
     frame: &Value,
     facts: &mut Vec<Value>,
@@ -20,7 +20,7 @@ pub fn child_update(
     let Some(association) = child_association(update) else {
         return false;
     };
-    if association.id == parent_native_id {
+    if association.id == *parent_native_id {
         return false;
     }
     let child_key = state.agent_key(&association.id, facts);
@@ -31,8 +31,10 @@ pub fn child_update(
     let update_map = object(update);
     let meta = object(update_map.get("_meta").unwrap_or(&Value::Null));
     let cursor_meta = object(meta.get("cursor").unwrap_or(&Value::Null));
-    let native_tool = string(cursor_meta.get("toolCallId").unwrap_or(&Value::Null)).to_owned();
-    let previous_tool = state.child_tools.get(association.id.as_str()).cloned();
+    let native_tool: JsString = js_string(cursor_meta.get("toolCallId").unwrap_or(&Value::Null))
+        .cloned()
+        .unwrap_or_default();
+    let previous_tool = state.child_tools.get(&association.id).cloned();
     // Resolve the tool without holding borrows.
     let tool_key = if !native_tool.is_empty() {
         state.tool_mut(parent_key, parent_native_id, &native_tool)
@@ -59,7 +61,7 @@ pub fn child_update(
         if let Some(child) = state.agents.get_mut(&association.id) {
             child.spawn = None;
         }
-        state.child_tools.shift_remove(association.id.as_str());
+        state.child_tools.shift_remove(&association.id);
     }
     // Pending spawn tracking.
     let pending_key = if !native_tool.is_empty() && tool_key.is_none() {
@@ -79,7 +81,7 @@ pub fn child_update(
         }
         state
             .pending_children
-            .insert(pending, association.id.as_str().to_owned());
+            .insert(pending, association.id.clone());
     }
     let input = object(
         state
@@ -97,14 +99,14 @@ pub fn child_update(
         let child_key_clone = child_key.clone();
         if let Some(tool) = state.tools.get_mut(&tool_key) {
             tool.child_key = Some(child_key_clone.clone());
-            tool.child_native_id = Some(association.id.as_str().to_owned());
+            tool.child_native_id = Some(association.id.clone());
         }
         if let Some(child) = state.agents.get_mut(&association.id) {
             child.spawn = state.tools.get(&tool_key).map(|tool| tool.key.clone());
         }
         state
             .child_tools
-            .insert(association.id.as_str().to_owned(), tool_key.clone());
+            .insert(association.id.clone(), tool_key.clone());
     }
     // agent.seen for the child.
     {
@@ -146,12 +148,16 @@ pub fn child_update(
             if let Some(Value::String(model)) = cursor.get("model") {
                 seen.insert("model".to_owned(), Value::String(model.clone()));
             }
-            let description = string(input.get("description").unwrap_or(&Value::Null));
-            let title = string(update_map.get("title").unwrap_or(&Value::Null));
+            let description = js_string(input.get("description").unwrap_or(&Value::Null))
+                .cloned()
+                .unwrap_or_default();
+            let title: JsString = js_string(update_map.get("title").unwrap_or(&Value::Null))
+                .cloned()
+                .unwrap_or_default();
             let name = if !description.is_empty() {
-                description.to_owned()
+                description
             } else {
-                title.to_owned()
+                title
             };
             if !name.is_empty() {
                 seen.insert("name".to_owned(), Value::from(name));

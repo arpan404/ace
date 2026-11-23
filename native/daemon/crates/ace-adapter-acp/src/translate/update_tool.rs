@@ -2,7 +2,7 @@
 //! Tool call updates (part of `translator.ts` `update`).
 
 use crate::translate::completed_tools::{renew_tool, retire_tool};
-use crate::translate::data::{object, raw, string};
+use crate::translate::data::{js_string, object, raw, string};
 use crate::translate::prompt_hold::sync_prompt_hold;
 use crate::translate::shell_output::ShellOutput;
 use crate::translate::state::TranslationState;
@@ -11,20 +11,22 @@ use crate::translate::tool_raw::retain_tool_raw;
 use crate::translate::tool_text::{merge_tool_data, tool_error};
 use crate::translate::tools::{tool_detail, tool_status};
 use crate::translate::update::error_key;
-use ace_json::{Map, Value};
+use ace_json::{JsString, Map, Value};
 
 /// Handle `tool_call` and `tool_call_update`. Returns true when handled.
 pub fn handle_tool_call(
     state: &mut TranslationState,
     shell_output: &mut ShellOutput,
     agent_key: &str,
-    agent_native_id: &str,
+    agent_native_id: &JsString,
     update: &Value,
     frame: &Value,
     facts: &mut Vec<Value>,
 ) -> bool {
     let update_map = object(update);
-    let id = string(update_map.get("toolCallId").unwrap_or(&Value::Null)).to_owned();
+    let id: JsString = js_string(update_map.get("toolCallId").unwrap_or(&Value::Null))
+        .cloned()
+        .unwrap_or_default();
     if id.is_empty() {
         return false;
     }
@@ -48,7 +50,7 @@ pub fn handle_tool_call(
         key
     } else {
         let new_key = state.key("tool");
-        let owner_native = agent_native_id.to_owned();
+        let owner_native = agent_native_id.clone();
         let tool = crate::translate::state::ToolState {
             native_id: id.clone(),
             key: new_key.clone(),
@@ -83,17 +85,14 @@ pub fn handle_tool_call(
     if let Some(child_native) = pending_child.clone() {
         let child_key = state
             .agents
-            .get(&ace_json::JsString::from(child_native.as_str()))
+            .get(&child_native)
             .map(|agent| agent.key.clone())
             .unwrap_or_default();
         if let Some(tool) = state.tools.get_mut(&tool_key) {
             tool.child_key = Some(child_key.clone());
             tool.child_native_id = Some(child_native.clone());
         }
-        if let Some(child) = state
-            .agents
-            .get_mut(&ace_json::JsString::from(child_native.as_str()))
-        {
+        if let Some(child) = state.agents.get_mut(&child_native) {
             child.spawn = Some(
                 state
                     .tools

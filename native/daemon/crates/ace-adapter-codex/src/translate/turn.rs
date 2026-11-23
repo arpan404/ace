@@ -235,7 +235,7 @@ pub fn complete_turn(
         }
     }
     // Cancel requests of this turn.
-    let request_keys: Vec<String> = translator
+    let request_keys: Vec<ace_json::JsString> = translator
         .agents
         .get(agent_native)
         .map(|a| {

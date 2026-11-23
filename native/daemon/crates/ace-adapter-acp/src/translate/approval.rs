@@ -6,7 +6,7 @@ use crate::translate::frame_redaction::LEASE_REDACTION;
 use crate::translate::mcp::mcp_arguments;
 use crate::translate::quirks::QuirksKind;
 use crate::translate::tools::tool_detail;
-use ace_json::{Map, Value};
+use ace_json::{JsString, Map, Value};
 
 pub(crate) fn approval_request(call: &Value, options: &[Map], quirks: QuirksKind) -> Value {
     let detail = tool_detail(call, quirks);
@@ -219,6 +219,10 @@ fn option_kind(kind: &str) -> String {
 }
 
 /// Stable process-local request key.
-pub fn interaction_key(id: &crate::translate::data::RpcId) -> String {
-    format!("request:{}:{}", id.typeof_name(), id.display())
+pub fn interaction_key(id: &crate::translate::data::RpcId) -> JsString {
+    let mut key = JsString::from("request:");
+    key.push_str(id.typeof_name());
+    key.push_str(":");
+    key.push_js(&id.display());
+    key
 }

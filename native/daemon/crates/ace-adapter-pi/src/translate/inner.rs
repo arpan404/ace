@@ -185,10 +185,9 @@ impl PiTranslator {
             "auto_retry_start" | "summarization_retry_scheduled" => {
                 self.retrying = true;
                 out.extend(self.start());
-                let attempt = match number_field(&map, "attempt") {
-                    Some(value) if value.is_finite() && value.fract() == 0.0 => Some(value as i64),
-                    _ => None,
-                };
+                // TypeScript keeps any number (`typeof e.attempt === "number"`),
+                // fractional and large included; JSON numbers are always finite.
+                let attempt = number_field(&map, "attempt");
                 push_fact(
                     &mut out,
                     "retry",
