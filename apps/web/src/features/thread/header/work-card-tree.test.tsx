@@ -4,7 +4,7 @@ import { DelegatedFrom } from "@ace/protocol";
 import type { KeyValueStorage } from "@ace/ui-core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, waitFor } from "@testing-library/react";
-import { useRef, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { expect, test } from "vitest";
 import { LayoutProvider } from "@/lib/layout.tsx";
 import { componentClient } from "@/test/component-client.tsx";
@@ -21,7 +21,11 @@ function keyValues(): KeyValueStorage {
 }
 
 function Wide(props: { children: React.ReactNode }) {
-  useWorkCardSide().current = true;
+  const side = useWorkCardSide();
+  useState(() => {
+    side.remember(true);
+    return true;
+  });
   return props.children;
 }
 
@@ -30,12 +34,40 @@ function Screen(props: {
   onMount(store: WorkCardStore, firstRenderOpen: boolean): void;
 }) {
   const store = useWorkCard(props.threadId);
-  const mounted = useRef(false);
-  if (!mounted.current) {
-    mounted.current = true;
-    props.onMount(store, store.get().open);
-  }
+  const [firstRenderOpen] = useState(() => store.get().open);
+  const { onMount } = props;
+  useLayoutEffect(() => {
+    onMount(store, firstRenderOpen);
+  }, [onMount, store, firstRenderOpen]);
   return null;
+}
+
+interface MountedScreen {
+  key: string;
+  id: string;
+}
+
+function Host(props: {
+  initial: readonly MountedScreen[];
+  onMount(id: string, store: WorkCardStore, firstRenderOpen: boolean): void;
+  onControls(add: (more: readonly MountedScreen[]) => void): void;
+}) {
+  const [screens, setScreens] = useState(props.initial);
+  const { onControls, onMount } = props;
+  useLayoutEffect(() => {
+    onControls((more) => setScreens((prev) => [...prev, ...more]));
+  }, [onControls]);
+  return (
+    <Wide>
+      {screens.map(({ key, id }) => (
+        <Screen
+          key={key}
+          threadId={id}
+          onMount={(store, firstRenderOpen) => onMount(id, store, firstRenderOpen)}
+        />
+      ))}
+    </Wide>
+  );
 }
 
 /**
@@ -57,29 +89,23 @@ async function threads(more: (main: string) => Partial<ThreadInit>[]) {
     });
   }
   const show = (...initialIds: string[]) => {
+    let nextKey = 0;
+    const toMounted = (ids: readonly string[]): MountedScreen[] =>
+      ids.map((id) => ({ key: `screen-${nextKey++}-${id}`, id }));
     const records: { id: string; store: WorkCardStore; firstRenderOpen: boolean }[] = [];
-    let addIds: ((moreIds: string[]) => void) | undefined;
-    function Host() {
-      const [ids, setIds] = useState(initialIds);
-      addIds = (moreIds) => setIds((prev) => [...prev, ...moreIds]);
-      return (
-        <Wide>
-          {ids.map((id, index) => (
-            <Screen
-              key={`${index}-${id}`}
-              threadId={id}
-              onMount={(store, firstRenderOpen) => {
-                records.push({ id, store, firstRenderOpen });
-              }}
-            />
-          ))}
-        </Wide>
-      );
-    }
+    let addScreens: ((more: readonly MountedScreen[]) => void) | undefined;
     component.render(
       <QueryClientProvider client={new QueryClient()}>
         <LayoutProvider storage={keyValues()}>
-          <Host />
+          <Host
+            initial={toMounted(initialIds)}
+            onMount={(id, store, firstRenderOpen) => {
+              records.push({ id, store, firstRenderOpen });
+            }}
+            onControls={(add) => {
+              addScreens = add;
+            }}
+          />
         </LayoutProvider>
       </QueryClientProvider>,
     );
@@ -92,7 +118,7 @@ async function threads(more: (main: string) => Partial<ThreadInit>[]) {
     const screen = (id: string, nth = 0): WorkCardStore => entry(id, nth).store;
     return Object.assign(screen, {
       firstRenderOpen: (id: string, nth = 0) => entry(id, nth).firstRenderOpen,
-      mount: (...moreIds: string[]) => act(() => addIds?.(moreIds)),
+      mount: (...moreIds: string[]) => act(() => addScreens?.(toMounted(moreIds))),
     });
   };
   return { main, show, client: component.client };

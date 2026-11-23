@@ -45,7 +45,9 @@ function addDelegationEdge(store: Store, childId: ThreadId, parentId: ThreadId, 
   createDelegatedTable(store);
   store.atomic((db) =>
     db
-      .prepare("INSERT OR REPLACE INTO delegated_threads (child_id, parent_id, root_id) VALUES (?,?,?)")
+      .prepare(
+        "INSERT OR REPLACE INTO delegated_threads (child_id, parent_id, root_id) VALUES (?,?,?)",
+      )
       .run(childId, parentId, rootId),
   );
 }

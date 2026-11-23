@@ -92,10 +92,7 @@ export function workCardColumnWidth(areaWidth: number, column: number): number {
  * into the header's popover, and comes back when the room does; a remembered card never comes
  * back as the popover, which would cover the transcript on its own.
  */
-export function createWorkCardStore(
-  initial?: WorkCardMemory,
-  initialSide = false,
-): WorkCardStore {
+export function createWorkCardStore(initial?: WorkCardMemory, initialSide = false): WorkCardStore {
   let memory = initial;
   let wanted = memory?.open() ?? false;
   let state: WorkCardState = { open: initialSide && wanted, side: initialSide, wanted };

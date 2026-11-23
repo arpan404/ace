@@ -63,7 +63,7 @@ it("a thread delegated from a child on a paired machine reports the delegating t
   if (!localAgentId) throw new Error("Missing local child rootAgentId");
 
   const delegated = await pair.source.controls.port.execute(
-    { threadId: localChildId, agentId: localAgentId },
+    { sessionId: "remote-child", threadId: localChildId, agentId: localAgentId },
     { ...delegation, requestId: "from-local-child" },
     new AbortController().signal,
   );

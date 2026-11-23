@@ -11,8 +11,13 @@ import { createWorkCardTrees, type WorkCardTrees } from "./work-card-trees.ts";
  * parent walk and no extra thread subscriptions.
  */
 
+export interface WorkCardSideMemory {
+  fits(): boolean;
+  remember(fits: boolean): void;
+}
+
 const treesKey: SessionKey<WorkCardTrees> = { name: "workCardTrees" };
-const sideKey: SessionKey<{ current: boolean }> = { name: "workCardSide" };
+const sideKey: SessionKey<WorkCardSideMemory> = { name: "workCardSide" };
 
 /** This app's per-tree card memory, shared by every screen (`work-card-trees`). */
 export function useWorkCardTrees(): WorkCardTrees {
@@ -24,9 +29,17 @@ export function useWorkCardTrees(): WorkCardTrees {
  * Whether the thread area had room to dock the Work card on its last measurement in this layout
  * session, so navigating within an open tree starts docked on the first render.
  */
-export function useWorkCardSide(): { current: boolean } {
+export function useWorkCardSide(): WorkCardSideMemory {
   const { sessionValue } = useLayoutServices();
-  return sessionValue(sideKey, () => ({ current: false }));
+  return sessionValue(sideKey, () => {
+    let fits = false;
+    return {
+      fits: () => fits,
+      remember: (next) => {
+        fits = next;
+      },
+    };
+  });
 }
 
 interface RootFields {
@@ -61,7 +74,7 @@ export function useWorkCard(threadId: string): WorkCardStore {
   const fallback = root === undefined && (failed || down);
   const treeId = root ?? (fallback ? threadId : undefined);
   const [store] = useState(() =>
-    createWorkCardStore(treeId !== undefined ? trees.memory(treeId) : undefined, lastSide.current),
+    createWorkCardStore(treeId !== undefined ? trees.memory(treeId) : undefined, lastSide.fits()),
   );
   /** The fallback tree followed while the thread couldn't be read, and its choice then. */
   const fellBack = useRef<{ id: string; open: boolean }>(undefined);

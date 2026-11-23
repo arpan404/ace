@@ -238,9 +238,9 @@ test("a remembered-open card on a narrow area shows the Work icon pressed with n
 
   // Open the card while wide, then narrow the area below the docking floor.
   await userEvent.click(await workButton());
-  expect((await screen.findByRole("dialog", { name: "Thread details" })).getAttribute("data-edge")).toBe(
-    "right",
-  );
+  expect(
+    (await screen.findByRole("dialog", { name: "Thread details" })).getAttribute("data-edge"),
+  ).toBe("right");
   resized(800);
 
   // Navigate to a child screen while narrow: no popover auto-opens, Work icon stays pressed.

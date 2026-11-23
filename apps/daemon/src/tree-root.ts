@@ -1,10 +1,5 @@
 import type { StatementSync } from "node:sqlite";
-import {
-  ThreadId,
-  ThreadTransitionView,
-  type MachineCallOrigin,
-  type Thread,
-} from "@ace/protocol";
+import { ThreadId, ThreadTransitionView, type MachineCallOrigin, type Thread } from "@ace/protocol";
 
 const maxWalkHops = 32;
 
@@ -46,11 +41,11 @@ export function remoteChildTreeRoot(
 }
 
 interface AncestorMeta {
-  host?: string;
-  treeRootId?: ThreadId;
-  delegatedBy?: ThreadId;
-  startedBy?: ThreadId;
-  delegatedFrom?: { threadId: ThreadId; rootThreadId?: ThreadId };
+  host?: string | undefined;
+  treeRootId?: ThreadId | undefined;
+  delegatedBy?: ThreadId | undefined;
+  startedBy?: ThreadId | undefined;
+  delegatedFrom?: { threadId: ThreadId; rootThreadId?: ThreadId | undefined } | undefined;
 }
 
 /**

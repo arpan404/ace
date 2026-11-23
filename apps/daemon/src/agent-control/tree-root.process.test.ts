@@ -94,9 +94,7 @@ test("delegated grandchildren and thread_start children report the top thread as
 
   const db = new DatabaseSync(snapshot);
   try {
-    db.prepare(
-      "UPDATE threads SET transitions = json_remove(transitions, '$.treeRootId')",
-    ).run();
+    db.prepare("UPDATE threads SET transitions = json_remove(transitions, '$.treeRootId')").run();
   } finally {
     db.close();
   }
@@ -125,7 +123,7 @@ test("a handoff child reports its parent tree root even without delegatedBy", as
     const childAgentId = f.daemon.store.getThread(childId)?.rootAgentId;
     if (!childAgentId) throw new Error("Missing child rootAgentId");
     const handoff = await f.controls.port.execute(
-      { threadId: childId, agentId: childAgentId },
+      { sessionId: "handoff-child", threadId: childId, agentId: childAgentId },
       AgentControlOperation.parse({
         op: "thread.handoff",
         threadId: childId,

@@ -84,7 +84,7 @@ export function WorkSide(props: { threadId: string }) {
       const column = readColumn();
       const width = element.getBoundingClientRect().width;
       const fits = workCardFitsSide(width, column);
-      lastSide.current = fits;
+      lastSide.remember(fits);
       store.setSide(fits);
       const state = store.get();
       const host = element.parentElement;
@@ -109,7 +109,9 @@ export function WorkSide(props: { threadId: string }) {
     const area = probe.current?.parentElement ?? null;
     if (!area || !store) return;
     const live = store.get();
-    if (!(live.open && live.side)) {
+    // If `measure()` just updated the store in this commit, wait for the re-render with fresh `shown`.
+    if (shown !== (live.open && live.side)) return;
+    if (!shown) {
       clearDocked(area);
       return;
     }
