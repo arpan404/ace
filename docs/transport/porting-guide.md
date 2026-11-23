@@ -89,11 +89,14 @@ nothing from git, nothing new beyond what a task names.
 - **Files**: change `packages/provider-kit/src/native-switches.ts`; change
   `tools/daemon-bench/src/daemon.ts` (`daemonEnv`, `:40`) to pass every native switch variable
   (`ACE_STORE`, `ACE_TRANSLATORS`, `ACE_SESSIONS`, `ACE_SUPERVISOR`, `ACE_CORE`, `ACE_ENGINE`,
-  `ACE_GIT`, `ACE_TRANSPORT`) and the addon paths (`ACE_STORE_ADDON`, `ACE_TRANSPORT_ADDON`)
-  through from the bench's own environment, so a bench can compare off and on. The bench bundles
+  `ACE_GIT`, `ACE_TRANSPORT`) and every addon path (`ACE_STORE_ADDON`, `ACE_SUPERVISOR_ADDON`,
+  `ACE_TRANSLATORS_ADDON`, `ACE_GIT_ADDON`, `ACE_TRANSPORT_ADDON`) through from the bench's own
+  environment, so a bench can compare off and on. The bench bundles
   the daemon into a temporary directory, so the development-build path a shell resolves from its
-  own file doesn't exist there: the bench refuses to start when `ACE_TRANSPORT` is set without an
-  **absolute** `ACE_TRANSPORT_ADDON`. `ACE_TRANSPORT_EVIDENCE` passes through `daemonEnv` too, so
+  own file doesn't exist there (as `packages/git/src/native-common.ts:95`–`:102` resolves
+  `ACE_GIT_ADDON`'s fallback): the bench refuses to start when any native switch is set without an
+  **absolute** path in that switch's addon variable (`ACE_STORE` → `ACE_STORE_ADDON`, and so on;
+  the shells that also accept `ACE_STORE_ADDON` as a fallback still get theirs explicitly). `ACE_TRANSPORT_EVIDENCE` passes through `daemonEnv` too, so
   the bundled daemon writes the bench's evidence. Change `scripts/test-home-policy.ts` (`:115`–`:129`, where
   the other switches are allowlisted) so test workers and launch helpers keep `ACE_TRANSPORT`,
   `ACE_TRANSPORT_ADDON` and `ACE_TRANSPORT_EVIDENCE` (T1a.8). Create
@@ -291,8 +294,13 @@ implementation, `RefuseUpgrades`, closes the connection without an answer. T1a.3
      it to the `upgrade` handler too). The service sees it (a request with `Upgrade` and
      `upgrade` among the `Connection` tokens) and runs the same `UpgradeHandler` decision path in
      its hyper form (T1a.3): the same order, statuses, header set, header values and bodies, with
-     the reservation and state machine of T1a.5. The only difference allowed is field-name case,
-     since hyper writes names in lower case and HTTP treats them as equal (RFC 9110 §5.1). A drop
+     the reservation and state machine of T1a.5. Two differences are allowed, both recorded:
+     field-name case, since hyper writes names in lower case and HTTP treats them as equal (RFC
+     9110 §5.1); and a `HEAD` upgrade on a keep-alive connection, which gets `ws`'s 405 status and
+     headers but no body, because hyper 1.12 forces a `HEAD` response's body to zero length
+     (`proto/h1/role.rs:974`–`:980`) and a response to `HEAD` carries no content (RFC 9110
+     §9.3.2), so a conforming client reads none. A `HEAD` upgrade first on a connection still
+     gets `ws`'s exact bytes through the raw path. A drop
      returns an error from the service, which ends the connection with no response
      (`proto/h1/dispatch.rs:365` in hyper 1.12 propagates it; a unit test pins that no bytes are
      written). An accepted upgrade returns the `101` response, and `hyper::upgrade::on(request)`
@@ -524,34 +532,48 @@ Some(config))` with `max_message_size = Some(1 << 20)` and `max_frame_size = Som
   compare-and-swap):
 
   ```text
-  Pending ──decided accept──▶ Accepted(r) ──CAS──▶ Writing(r) ──101 written, stream ready──▶ Opened
-     │                           │                    └──write or upgrade failed──▶ Released (release r)
-     │                           ├──client gone / ws check failed──▶ Released (release r)
-     │                           └──listener closing──▶ Released (release r; ws closing 503)
-     ├──decided refuse──▶ Refused
+  Pending ──decided accept──▶ Accepted(r) ──ws checks pass, not closing──▶ Writing(r) ──101 flushed──▶ Opened
+     │                           │                                         └──write failed / 5 s write timeout──▶ Released (release r)
+     │                           ├──client gone──▶ Released (release r)
+     │                           ├──ws check failed──▶ Released (release r; ws's 400/405)
+     │                           └──ws checks pass, listener closing──▶ Released (release r; ws closing 503)
+     ├──decided refuse──▶ Refused (admission 403/503)
      ├──admitTimeoutMs (5,000)──▶ TimedOut (admission 503)
-     ├──listener closing──▶ Closing (ws closing 503)
+     ├──close deadline passed──▶ Abandoned (connection dropped, no answer)
      └──client gone──▶ Abandoned (no answer written)
   ```
 
   - **Who releases**: Rust, always, at most once, through these transitions. TypeScript's `release`
     is also idempotent (an id it no longer holds is ignored).
-  - **The 101 write is owned by the connection task**: it moves `Accepted → Writing` before
-    writing the first byte of `101`, and only it leaves `Writing`. A shutdown that finds an
-    upgrade in `Writing` doesn't release it; it waits (bounded by the listener's close deadline)
-    for the task to finish. On success the task moves `Writing → Opened` and calls `opened`, so a
-    client that received `101` always has a registered socket, which T1a.7 closes with `1001` if
-    the daemon is closing. On a failed write, a client gone mid-write, or hyper's upgrade failing
-    (`switched(r, None)`), it moves `Writing → Released` and calls `release`. At the deadline the
-    task is cancelled through the same failure path.
+  - **Shutdown keeps today's check order.** Today a closing daemon still runs admission
+    (`socket-upgrade.ts:87`–`:113` on the rewrite branch) and then all of `ws`'s validation before
+    `completeUpgrade` answers 503 for the closing state. So `NativeLoopback.close` doesn't preempt
+    an upgrade: a `Pending` one waits for its decision (or its `admitTimeoutMs`); an `Accepted` one
+    runs the `ws` checks, so an invalid key still gets `400` and a `HEAD` still gets `405`; only an
+    upgrade that passes every check while the listener is closing gets `ws`'s closing 503 instead
+    of `101`. One still `Pending` when the close deadline passes is `Abandoned`.
+  - **The 101 write and the registration are one handoff that cancellation can't split.** The
+    connection task moves `Accepted → Writing` before the first byte of `101` (raw path) or before
+    returning the `Switch` reply (hyper path), and only that task leaves `Writing`. Nothing cancels
+    a task in `Writing`, the close deadline included: its only exits are bounded by themselves (the
+    `101` flush, or hyper's `upgrade::on`, within a 5 s write timeout). Once the `101` is flushed
+    (raw) or `upgrade::on` resolves (hyper), the task, with no further await, builds the Rust
+    socket (`open`), moves `Writing → Opened`, and enqueues `opened` on the threadsafe function: an
+    enqueue never blocks and can't be cancelled. From then on the socket exists in Rust and is
+    owned by it until TypeScript registers it; `NativeLoopback.close` resolves only after every
+    `Opened` socket has been registered by `opened` and has reported `close`. On a failed or
+    timed-out write, or hyper's upgrade failing (`switched(r, None)`), the task moves
+    `Writing → Released` and calls `release`.
   - **The JavaScript completion outlives the connection**: `admit`'s promise is awaited by a
     separate task, not by the connection task. When the client disconnects while `Pending`, the
     state moves to `Abandoned` and the connection closes, but that task keeps waiting; when the
     promise resolves after `Abandoned`, `TimedOut` or `Closing` with an acceptance, it calls
     `release` for that reservation at once and nothing else. It ends when the promise settles, or
     at `NativeLoopback.close`, after which TypeScript drops every reservation it holds anyway.
-  - `opened` is called only on `Writing → Opened`, so no timed-out, refused, abandoned or shut-down
-    upgrade ever reaches it.
+  - `opened` is called only on `Writing → Opened`: no refused, timed-out or abandoned upgrade, and
+    none whose `101` wasn't flushed, ever reaches it. An upgrade that was in `Writing` when
+    shutdown began does reach it, late, and T1a.7 closes that socket with `1001` as soon as it is
+    registered.
 
 - **Ordering and bytes**: one `ThreadsafeFunction` per socket carries all of its events in
   `SocketEvent` order. For a `message`, the binding copies the Rust vector into a new JavaScript
@@ -635,10 +657,11 @@ relayed?, reservation?)` checks `cleanups.size + reserved - (reservation === und
   The URL and the endpoint file name the native port.
 - **Shutdown**, in `server.ts`'s order (`:1330`–`:1370`): native sockets get
   `closer.gracefulClose(socket, 1001, "Daemon shutdown")` with the other sockets, before awaiting
-  the listeners; `NativeLoopback.close(deadline)` then stops accepting; upgrades not yet
-  `Writing` get `ws`'s closing-state 503 (the `text/html` one with the `Service Unavailable` body,
-  T1a.3), never admission's empty-body 503; it moves `Pending` to `Closing` and `Accepted` to
-  `Released`, waits for upgrades in `Writing` (T1a.5), and drains; **a socket
+  the listeners; `NativeLoopback.close(deadline)` then stops accepting new connections; upgrades
+  already in flight keep today's order (T1a.5): admission, then `ws`'s checks, and only one that
+  passes them all gets `ws`'s closing-state 503 (the `text/html` one with the `Service Unavailable`
+  body, T1a.3) instead of `101`; it waits for every upgrade in `Writing` to reach `Opened` or
+  `Released` (T1a.5), and drains; **a socket
   whose `opened` arrives after the first 1001 sweep** is given
   `closer.gracefulClose(socket, 1001, "Daemon shutdown")` as soon as `connected` registers it (the
   closing flag is checked there), with the same bounded terminate; the internal server closes after
@@ -705,8 +728,11 @@ relayed?, reservation?)` checks `cleanups.size + reserved - (reservation === und
       bun --bun x vitest run "$f" --maxWorkers=4 >/dev/null 2>&1; off=$?
     ACE_TRANSPORT=native ACE_TRANSPORT_EVIDENCE="$evidence" \
       bun --bun x vitest run "$f" --maxWorkers=4 --reporter=json --outputFile="$report" >/dev/null 2>&1; on=$?
-    ran=$(node -e 'const r=require(process.argv[1]);console.log(r.numTotalTests-r.numPendingTests-r.numTodoTests)' "$report")
-    if [ "$ran" = 0 ]; then used=platform-skipped
+    ran=$(node -e 'const r=require(process.argv[1]);console.log(r.numTotalTests>0?r.numTotalTests-r.numPendingTests-r.numTodoTests:"empty")' "$report" 2>/dev/null || echo missing)
+    guard=$(grep -cE '(runIf|skipIf)\((windows|linux|macos|darwin|process\.platform)' "$f")
+    if [ "$ran" = missing ] || [ "$ran" = empty ]; then used=NO-REPORT
+    elif [ "$ran" = 0 ] && [ "$guard" -gt 0 ]; then used=platform-skipped
+    elif [ "$ran" = 0 ]; then used=NONE
     elif test -s "$evidence"; then used=native
     else used=NONE; fi
     echo "$off $on $used $ran $f"; rm -f "$report" "$evidence"
@@ -715,9 +741,12 @@ relayed?, reservation?)` checks `cleanups.size + reserved - (reservation === und
 
   Every file passes both legs. Every on leg that executed at least one test reports `native`: one
   that ran tests but started no native listener proves nothing and is investigated (a server
-  started outside the switch, or a scrubbed environment). A file whose tests all skipped on this
-  platform is recorded `platform-skipped`, apart from the executed legs, and is owed on the platform
-  it runs on: `daemon-stop-restart.process` runs only on Windows (every case is
+  started outside the switch, or a scrubbed environment). A missing or empty report
+  (`numTotalTests` of 0) is `NO-REPORT`, a failure. A file is recorded `platform-skipped`, apart
+  from the executed legs, only when its report lists tests, every one of them was skipped, and the
+  file carries an identified platform guard (`runIf`/`skipIf` on `process.platform` or a platform
+  constant); skipped tests without such a guard are `NONE` and investigated. A platform-skipped
+  file is owed on the platform it runs on: `daemon-stop-restart.process` runs only on Windows (every case is
   `test.runIf(windows)`, `:15`–`:115`), so it counts on the Windows VM run, not on macOS. `scripts/test-home-policy.ts` keeps the three variables (T0.1), and the
   launch helpers already pass the environment through (`daemon-launch-test-support.ts`
   `daemonEnv`, `:19`–`:37`). Files whose remote sockets matter (`remote*`, `relay*`,
