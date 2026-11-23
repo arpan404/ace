@@ -6,6 +6,7 @@
 
 use crate::translate::data::s_in;
 use crate::translate::state::{NativeState, Out, StateError};
+use indexmap::IndexMap;
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -17,11 +18,11 @@ struct BackgroundStarted<'a> {
     task: &'a str,
     kind: &'a str,
     title: String,
+    stoppable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     item: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "childAgent")]
     child_agent: Option<&'a str>,
-    stoppable: bool,
 }
 
 #[derive(Serialize)]
@@ -50,13 +51,13 @@ impl NativeState {
         item: Option<&str>,
         out: &mut Out<'_>,
     ) -> Result<(), StateError> {
-        if self.backgrounds.has(task) || self.completed_backgrounds.has(task) {
+        if self.backgrounds.contains_key(task) || self.completed_backgrounds.has(task) {
             return Ok(());
         }
         if self.backgrounds.len() >= 2048 {
             return Err(StateError::Limit("work"));
         }
-        self.backgrounds.set(task.to_owned(), session.to_owned());
+        self.backgrounds.insert(task.to_owned(), session.to_owned());
         let title = if task.starts_with("admission:") {
             String::from("OpenCode input acknowledgement uncertain")
         } else if task.starts_with("ancestry:") {
@@ -98,8 +99,8 @@ impl NativeState {
         status: &'static str,
         out: &mut Out<'_>,
     ) -> Result<(), StateError> {
-        let exists = self.backgrounds.has(task);
-        self.backgrounds.delete(task);
+        let exists = self.backgrounds.contains_key(task);
+        self.backgrounds.shift_remove(task);
         if !task.starts_with("child:") && (exists || task.starts_with("shell:")) {
             self.completed_backgrounds.add(task);
         }
@@ -139,7 +140,7 @@ impl NativeState {
 
     /// Expect a wake for the session; recovered snapshots clear it.
     pub fn wake(&mut self, id: &str, created: f64, out: &mut Out<'_>) -> Result<(), StateError> {
-        self.wakes.set(id.to_owned(), created);
+        self.wakes.insert(id.to_owned(), created);
         let agent = self.key(id).to_owned();
         out.fact(&WakeExpected {
             typ: "wake.expected",
@@ -163,7 +164,7 @@ impl NativeState {
         if idle_at < created {
             return Ok(());
         }
-        self.wakes.delete(id);
+        self.wakes.shift_remove(id);
         let agent = self.key(id).to_owned();
         out.fact(&WakeExpected {
             typ: "wake.expected",
@@ -188,29 +189,29 @@ impl NativeState {
         let over_item = self
             .child_dispatches
             .get(child)
-            .is_some_and(|dispatches| dispatches.len() >= 128 && !dispatches.has(item));
+            .is_some_and(|dispatches| dispatches.len() >= 128 && !dispatches.contains_key(item));
         if over_item {
             return Err(StateError::Limit("child dispatch"));
         }
-        if self.child_dispatches.len() >= 1024 && !self.child_dispatches.has(child) {
+        if self.child_dispatches.len() >= 1024 && !self.child_dispatches.contains_key(child) {
             return Err(StateError::Limit("child"));
         }
         let is_new = !self
             .child_dispatches
             .get(child)
-            .is_some_and(|dispatches| dispatches.has(item));
+            .is_some_and(|dispatches| dispatches.contains_key(item));
         if is_new {
             if self.child_dispatch_count >= 2048 {
                 return Err(StateError::Limit("dispatch budget"));
             }
             self.child_dispatch_count += 1;
         }
-        if !self.child_dispatches.has(child) {
+        if !self.child_dispatches.contains_key(child) {
             self.child_dispatches
-                .set(child.to_owned(), crate::translate::cache::OrderedMap::new());
+                .insert(child.to_owned(), IndexMap::new());
         }
         if let Some(dispatches) = self.child_dispatches.get_mut(child) {
-            dispatches.set(item.to_owned(), created);
+            dispatches.insert(item.to_owned(), created);
         }
         self.background(
             &format!("child:{child}"),
@@ -247,7 +248,7 @@ impl NativeState {
             }
             if let Some(item) = acknowledged {
                 if let Some(dispatches) = self.child_dispatches.get_mut(&child) {
-                    dispatches.delete(&item);
+                    dispatches.shift_remove(&item);
                 }
                 self.child_dispatch_count -= 1;
             }
@@ -258,7 +259,7 @@ impl NativeState {
             {
                 return Ok(());
             }
-            self.child_dispatches.delete(&child);
+            self.child_dispatches.shift_remove(&child);
         }
         let task = if s_in(metadata, "source") == "subagent" {
             format!("child:{}", s_in(metadata, "childID"))

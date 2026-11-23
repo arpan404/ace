@@ -63,7 +63,7 @@ pub fn text(
             typ: "item.reconciled",
             agent: &agent,
             item,
-            draft: MessageDraft {
+            draft: StreamedMessageDraft {
                 typ: "message",
                 role: "assistant",
                 parts: vec![TextPart {
@@ -71,9 +71,6 @@ pub fn text(
                     text: s_in(p, "text"),
                 }],
                 complete,
-                native_id: None,
-                synthetic: None,
-                origin: None,
                 raw: vec![raw(typ, evidence, None)],
             },
         })?;
@@ -112,15 +109,25 @@ struct ReasoningDraft<'a> {
 struct MessageDraft<'a> {
     #[serde(rename = "type")]
     typ: &'static str,
-    role: &'static str,
-    parts: Vec<TextPart<'a>>,
-    complete: bool,
     #[serde(skip_serializing_if = "Option::is_none", rename = "nativeId")]
     native_id: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    role: &'static str,
     synthetic: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     origin: Option<MessageOrigin<'a>>,
+    parts: Vec<TextPart<'a>>,
+    complete: bool,
+    raw: Vec<RawPayload<'a>>,
+}
+
+/// A streamed text message: no identity, no synthetic marker.
+#[derive(Serialize)]
+struct StreamedMessageDraft<'a> {
+    #[serde(rename = "type")]
+    typ: &'static str,
+    role: &'static str,
+    parts: Vec<TextPart<'a>>,
+    complete: bool,
     raw: Vec<RawPayload<'a>>,
 }
 

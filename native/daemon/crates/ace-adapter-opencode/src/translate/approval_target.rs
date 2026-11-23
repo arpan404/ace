@@ -3,7 +3,7 @@
 //! Permission resources and save patterns are never authority: only exact
 //! native inputs and edit file metadata are.
 
-use crate::translate::data::{arr, fields, get};
+use crate::translate::data::{arr, fields, get, utf16_len};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -37,15 +37,12 @@ pub struct ApprovalTarget<'a> {
 }
 
 fn units(text: &str) -> usize {
-    text.encode_utf16().count()
+    utf16_len(text)
 }
 
 /// The files OpenCode reports an edit over, each named with its own patch
 /// status (`files` in TypeScript).
 fn edit_files(value: &Value) -> Option<Vec<&str>> {
-    if !matches!(value, Value::Object(_)) {
-        return None;
-    }
     let files = arr(value);
     if files.is_empty() || files.len() > 128 {
         return None;

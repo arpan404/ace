@@ -1,15 +1,18 @@
 import { factRaw, type Fact, type Key } from "@ace/core";
 import type { Translator, Frame } from "@ace/engine-api";
 import type { ThreadId } from "@ace/protocol";
+import { translatorBackend } from "@ace/provider-kit/native-switches";
 import { Dialog, Envelope, obj, str, list, isBlockingDialogMethod } from "./native.ts";
 import { dialogRequest } from "./dialogs.ts";
 import { toolDetail, editResultDetail, resultSuffix } from "./tools.ts";
 import { piTurnBoundary } from "./turn-boundary.ts";
 import { piContextSample } from "./context-usage.ts";
 import { messageFacts } from "./messages.ts";
+import { createNativePiTranslator } from "./native-translator.ts";
 
 const raw = (data: unknown) => [{ type: str(obj(data).type) || "unknown", data }];
 export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): Translator {
+  if (translatorBackend("pi") === "native") return createNativePiTranslator(init);
   const agent = init.rootKey;
   let diagnostics: import("@ace/protocol").RawPayload[] = [];
   let run = 0,

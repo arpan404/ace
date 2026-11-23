@@ -5,6 +5,8 @@ import { z } from "zod";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { Envelope, object, string, nativeIdentity, type CursorEnvelope } from "./contracts.ts";
+import { translatorBackend } from "@ace/provider-kit/native-switches";
+import { NativeCursorTranslator } from "./native-translator.ts";
 import { Children } from "./children.ts";
 import { Transcript } from "./transcript.ts";
 import { StreamedAnswer } from "./streamed-answer.ts";
@@ -22,7 +24,7 @@ export interface CursorTranslatorOptions {
   maxRetainedBytes?: number;
 }
 /** Synchronous pure fold. SDK generation/segment/order provenance is independent of message text. */
-export class CursorTranslator implements Translator {
+class TypeScriptCursorTranslator implements Translator {
   private diagnostics: import("@ace/protocol").RawPayload[] = [];
   private root: Key;
   private rootSeen = false;
@@ -632,4 +634,29 @@ export class CursorTranslator implements Translator {
 
 function failedRun(code: unknown, message: string, retryable?: unknown) {
   return { ...cursorFailure(code, message, retryable), message };
+}
+
+/**
+ * The exported translator: the native one when the switch names `cursor`
+ * (checked at each new instance, so cross-mode reboots alternate backends),
+ * else the TypeScript one above. With the switch on and the addon missing,
+ * the native constructor throws rather than falling back.
+ */
+export class CursorTranslator implements Translator {
+  private inner: Translator;
+  constructor(options: CursorTranslatorOptions) {
+    this.inner =
+      translatorBackend("cursor") === "native"
+        ? new NativeCursorTranslator(options)
+        : new TypeScriptCursorTranslator(options);
+  }
+  takeDiagnostics(): import("@ace/protocol").RawPayload[] {
+    return this.inner.takeDiagnostics?.() ?? [];
+  }
+  tick(now: number): Fact[] {
+    return this.inner.tick(now);
+  }
+  translate(frame: Frame, now: number): Fact[] {
+    return this.inner.translate(frame, now);
+  }
 }

@@ -2,7 +2,7 @@
 //! SSE events (`translator.ts`: events). Durable cursors deliver exactly
 //! once; execution, tool, interaction, and inbox events fold into facts.
 
-use crate::translate::boundaries::{event_session, parse_native_event};
+use crate::translate::boundaries::{event_session, order_envelope, parse_native_event};
 use crate::translate::data::{Num, fields, get, n_in, n_in_fb, retry_reason, s_in};
 use crate::translate::interactions::interaction;
 use crate::translate::projected::{TextLoc, synthetic_kind, text};
@@ -22,6 +22,10 @@ impl Translator {
         out: &mut Out<'_>,
     ) -> Result<(), StateError> {
         let event = parse_native_event(envelope)?;
+        // Evidence embeds the envelope as `NativeEvent.parse` emits it:
+        // schema keys first, the rest in arrival order.
+        let ordered = order_envelope(envelope);
+        let evidence = &ordered;
         let p = event.data;
         let typ = event.typ;
         let created = event.created;
@@ -57,7 +61,7 @@ impl Translator {
                     .map(|(key, _)| key.to_owned())
                     .collect();
                 for key in expired {
-                    self.state.pending.delete(&key);
+                    self.state.pending.shift_remove(&key);
                     out.fact(&InteractionExpired {
                         typ: "interaction.closed",
                         interaction: key,
@@ -91,7 +95,7 @@ impl Translator {
             return self.shell_exited(typ, p, created.unwrap_or(MAX_SAFE), out);
         }
         let id = event_session(envelope);
-        if !self.state.agents.has(&id) {
+        if !self.state.agents.contains_key(&id) {
             return Ok(());
         }
         let agent = self.state.key(&id).to_owned();
@@ -103,10 +107,10 @@ impl Translator {
                 ),
                 None => format!("execution:{id}:{}", event.id),
             };
-            let started = !self.state.active.has(&id) && !self.state.ended.has(&turn);
+            let started = !self.state.active.contains_key(&id) && !self.state.ended.has(&turn);
             self.state.start(&id, &turn, out)?;
             if started && let Some(created) = created {
-                self.state.execution_created.set(id, created);
+                self.state.execution_created.insert(id, created);
             }
             return Ok(());
         }
@@ -138,7 +142,7 @@ impl Translator {
                     ordinal: n_in(p, "ordinal"),
                 },
                 p,
-                envelope,
+                evidence,
                 out,
             );
         }
@@ -153,12 +157,12 @@ impl Translator {
                 &id,
                 s_in(p, "assistantMessageID"),
                 p,
-                envelope,
+                evidence,
                 out,
             );
         }
         if typ.starts_with("permission.") || typ.starts_with("form.") {
-            return interaction(&mut self.state, typ, p, envelope, out);
+            return interaction(&mut self.state, typ, p, evidence, out);
         }
         if typ == "session.inbox.enqueued" {
             return self.inbox_enqueued(&id, p, created.unwrap_or(-1.0), out);
@@ -233,11 +237,11 @@ impl Translator {
         let info = fields(get(p, "info"));
         let id = s_in(info, "id").to_owned();
         let session = s_in(fields(get(info, "metadata")), "sessionID").to_owned();
-        if !self.state.agents.has(&session) {
+        if !self.state.agents.contains_key(&session) {
             return Ok(());
         }
         if s_in(info, "status") != "running" {
-            self.state.shells.delete(&id);
+            self.state.shells.shift_remove(&id);
             let wake = self.state.wake_shells.remove(&id);
             self.state.finish_background(
                 &format!("shell:{id}"),
@@ -257,10 +261,10 @@ impl Translator {
             }
             return Ok(());
         }
-        if self.state.shells.len() >= 2048 && !self.state.shells.has(&id) {
+        if self.state.shells.len() >= 2048 && !self.state.shells.contains_key(&id) {
             return Err(StateError::Limit("shell"));
         }
-        self.state.shells.set(id.clone(), session.clone());
+        self.state.shells.insert(id.clone(), session.clone());
         self.state
             .background(&format!("shell:{id}"), &session, "shell", None, out)
     }
@@ -277,7 +281,7 @@ impl Translator {
             Some(session) => session.clone(),
             None => return Ok(()),
         };
-        self.state.shells.delete(&id);
+        self.state.shells.shift_remove(&id);
         let wake = self.state.wake_shells.remove(&id);
         self.state.finish_background(
             &format!("shell:{id}"),
@@ -312,7 +316,7 @@ impl Translator {
         let item = fields(get(p, "item"));
         if s_in(item, "type") == "synthetic" {
             let metadata = fields(get(fields(get(item, "payload")), "metadata"));
-            self.state.triggers.set(
+            self.state.triggers.insert(
                 id.to_owned(),
                 synthetic_kind(metadata)
                     .map(String::from)
@@ -335,14 +339,14 @@ impl Translator {
         if self.state.admission_pending.contains(&inbox) {
             self.state.admit(&inbox, id, out)?;
         }
-        self.state.inputs.delete(&inbox);
-        self.state.commands.delete(&inbox);
+        self.state.inputs.shift_remove(&inbox);
+        self.state.commands.shift_remove(&inbox);
         self.state.admission_pending.remove(&inbox);
         self.state
             .finish_background(&format!("admission:{inbox}"), "completed", out)?;
         self.state.queue(out)?;
         if typ.ends_with("delivered") {
-            if self.state.active.has(id) {
+            if self.state.active.contains_key(id) {
                 self.state.reconcile_wake(id, created, out)?;
             } else {
                 self.state.wake(id, created, out)?;
@@ -372,10 +376,10 @@ impl Translator {
         // A synthetic message that lands inside a live execution is consumed
         // by that execution. Only one that arrives while the session is idle
         // wakes it.
-        if self.state.active.has(id) {
+        if self.state.active.contains_key(id) {
             return self.state.completion(meta, created.unwrap_or(-1.0), out);
         }
-        self.state.triggers.set(
+        self.state.triggers.insert(
             id.to_owned(),
             synthetic_kind(meta)
                 .map(String::from)

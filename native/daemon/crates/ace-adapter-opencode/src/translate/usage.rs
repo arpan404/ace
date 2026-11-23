@@ -2,7 +2,7 @@
 //! Model and billing facts (`packages/adapter-opencode/src/usage.ts`).
 //! Session billing is cumulative; step occupancy replaces the last sampling.
 
-use crate::translate::data::{Num, fields, get};
+use crate::translate::data::{Num, fields, get, utf16_len};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -37,11 +37,11 @@ pub fn qualified_model(value: &Value) -> Option<String> {
         (Some(Value::String(provider)), Some(Value::String(id)))
             if !provider.is_empty()
                 && !id.is_empty()
-                && provider.encode_utf16().count() <= 256
-                && id.encode_utf16().count() <= 256 =>
+                && utf16_len(provider) <= 256
+                && utf16_len(id) <= 256 =>
         {
             let qualified = format!("{provider}/{id}");
-            if qualified.encode_utf16().count() <= 256 {
+            if utf16_len(&qualified) <= 256 {
                 Some(qualified)
             } else {
                 None

@@ -26,8 +26,8 @@ impl Translator {
             self.state.admit(&id, &session, out)?;
         }
         if delivered {
-            self.state.inputs.delete(&id);
-            self.state.commands.delete(&id);
+            self.state.inputs.shift_remove(&id);
+            self.state.commands.shift_remove(&id);
             self.state.admission_pending.remove(&id);
         }
         let message_value = get(data, "message").clone();
@@ -118,7 +118,7 @@ impl Translator {
             })
             .collect();
         for key in expired_keys(&self.state, &session, &keys) {
-            self.state.pending.delete(&key);
+            self.state.pending.shift_remove(&key);
             out.fact(&InteractionExpired {
                 typ: "interaction.closed",
                 interaction: key,
@@ -160,7 +160,7 @@ pub(crate) fn expired_keys(
     state
         .pending
         .iter()
-        .filter(|(key, pending)| pending.session == session && !keys.contains(*key))
+        .filter(|(key, pending)| pending.session == session && !keys.contains(key.as_str()))
         .map(|(key, _)| key.to_owned())
         .collect()
 }

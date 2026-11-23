@@ -3,7 +3,7 @@
 //! Deltas stream into items; snapshots reconcile them. A tool seen running
 //! after its execution ended is held as bookkeeping work until it settles.
 
-use crate::translate::data::{arr_in, fields, get, n_in, num_str, s_in};
+use crate::translate::data::{arr_in, fields, get, n_in, num_str, s_in, utf16_len};
 use crate::translate::state::{ChangeKind, FileChange};
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -28,9 +28,7 @@ const MAX_PATCH: usize = 1 << 20;
 
 fn patch_of(value: &Value) -> Option<&str> {
     match value {
-        Value::String(patch) if !patch.is_empty() && patch.encode_utf16().count() <= MAX_PATCH => {
-            Some(patch)
-        }
+        Value::String(patch) if !patch.is_empty() && utf16_len(patch) <= MAX_PATCH => Some(patch),
         _ => None,
     }
 }
@@ -77,23 +75,6 @@ pub fn edit_changes(path: &str, meta: &Map<String, Value>) -> Option<Vec<FileCha
         kind: ChangeKind::Update,
         diff: Some(diff.to_owned()),
     }])
-}
-
-/// Truncate to a number of UTF-16 code units, like `String.slice`.
-pub(crate) fn slice_units(text: &str, max: usize) -> &str {
-    if text.encode_utf16().count() <= max {
-        return text;
-    }
-    let mut units = 0;
-    let mut end = 0;
-    for (index, ch) in text.char_indices() {
-        units += ch.len_utf16();
-        if units > max {
-            break;
-        }
-        end = index + ch.len_utf8();
-    }
-    &text[..end]
 }
 
 #[cfg(test)]

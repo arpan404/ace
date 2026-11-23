@@ -18,9 +18,43 @@ crate-type = ["cdylib"]
 [dependencies]
 # ace-adapter-opencode: the opencode translator behind ACE_TRANSLATORS (E1).
 ace-adapter-opencode = { path = "../ace-adapter-opencode" }
+# ace-adapter-cursor: the Cursor translator shell calls into its JSON API.
+ace-adapter-cursor = { path = "../ace-adapter-cursor" }
 ace-store = { path = "../ace-store" }
+# ace-adapter-codex: the Codex translator behind the exported translator name (E1).
+ace-adapter-codex = { path = "../ace-adapter-codex" }
+# ace-core: facts cross the binding as JSON; the type names the spliced body.
+ace-core = { path = "../ace-core" }
+# ace-adapter-claude: the claude translator this binding drives (E1); behaviour lives there.
+ace-adapter-claude = { path = "../ace-adapter-claude" }
+# ace-adapter-pi: the Pi translator behind the native shell.
+ace-adapter-pi = { path = "../ace-adapter-pi" }
+# ace-adapter-api: frames cross the binding as redacted JSON.
+ace-adapter-api = { path = "../ace-adapter-api" }
+# thiserror: one typed error enum for the crate, mapped to JS errors.
+thiserror = { version = "2" }
+# ace-adapter-acp: the ACP translator behind ACE_TRANSLATORS=acp (E1); the binding only translates.
+ace-adapter-acp = { path = "../ace-adapter-acp" }
+# napi: the one addon; every export catches panics and only translates values and errors.
 napi = { version = "3", default-features = false, features = ["napi8"] }
 napi-derive = "3"
+# serde_json: frames and facts cross N-API as JSON strings; fact bodies are spliced as
+# RawValue without re-parsing (raw_value, preserve_order). `unbounded_depth` accepts the
+# deeply nested native fields the engine later bounds via capFact (recursion stays safe
+# through serde_stacker below); `float_roundtrip` parses numbers exactly as JavaScript
+# does, so no translator drifts by an ulp.
+serde_json = { version = "1", features = ["raw_value", "preserve_order", "unbounded_depth", "float_roundtrip"] }
+# serde: the Deserialize trait for limit-free frame parsing (deeply nested
+# native fields are bounded later by the engine, not refused here).
+serde = { version = "1", features = ["derive"] }
+# serde_stacker: limit-free JSON parsing for deeply nested provider data
+# (the unbounded_depth parser above still recurses, so the stacker below
+# grows the stack around each call).
+serde_stacker = "0.1"
+# stacker: grows the stack around each translate call, so parsing, folding
+# and serializing deeply nested provider data fails as a diagnostic
+# downstream, never aborts the daemon.
+stacker = "0.1"
 
 [build-dependencies]
 napi-build = "2"

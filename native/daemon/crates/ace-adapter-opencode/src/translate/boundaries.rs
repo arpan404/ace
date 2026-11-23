@@ -4,7 +4,7 @@
 //! deserializes into these views; an unknown one stays raw. Bounds match the
 //! TypeScript schemas, so oversized or misshapen events fail the same way.
 
-use crate::translate::data::{fields, get, s_in};
+use crate::translate::data::{fields, get, s_in, utf16_len};
 use serde_json::{Map, Value};
 use thiserror::Error;
 
@@ -34,13 +34,8 @@ pub struct Durable<'a> {
     pub seq: f64,
 }
 
-/// Length in UTF-16 code units, like the TypeScript `max` checks.
-fn units(text: &str) -> usize {
-    text.encode_utf16().count()
-}
-
 fn bounded(text: &str, max: usize) -> bool {
-    units(text) <= max
+    utf16_len(text) <= max
 }
 
 /// Validate an SSE envelope the way `NativeEvent.parse` does: known fields
@@ -165,6 +160,54 @@ pub fn parse_pending_list(value: &Value) -> Result<&[Value], BoundaryError> {
         Value::Array(items) if items.len() <= 1024 => Ok(items),
         _ => Err(BoundaryError::Event("pending")),
     }
+}
+
+/// Reorder an envelope the way `NativeEvent.parse` emits it: known keys in
+/// schema order (`id`, `type`, `data`, `location`, `durable`), then unknown
+/// keys in arrival order. Nested `location` and `durable` keep their schema
+/// order the same way. Raw payloads embed this order byte for byte.
+pub fn order_envelope(value: &Value) -> Value {
+    let map = fields(value);
+    if !matches!(value, Value::Object(_)) {
+        return Value::Null;
+    }
+    let mut out = Map::new();
+    for key in ["id", "type", "data", "location", "durable"] {
+        if let Some(nested) = map.get(key) {
+            out.insert(key.to_owned(), order_nested(key, nested));
+        }
+    }
+    for (key, nested) in map.iter() {
+        if !out.contains_key(key) {
+            out.insert(key.clone(), nested.clone());
+        }
+    }
+    Value::Object(out)
+}
+
+/// Reorder a nested envelope view the way its schema emits it.
+fn order_nested(key: &str, value: &Value) -> Value {
+    let map = fields(value);
+    if !matches!(value, Value::Object(_)) {
+        return value.clone();
+    }
+    let order: &[&str] = match key {
+        "location" => &["directory"],
+        "durable" => &["aggregateID", "seq", "version"],
+        _ => return value.clone(),
+    };
+    let mut out = Map::new();
+    for nested in order {
+        if let Some(field) = map.get(*nested) {
+            out.insert((*nested).to_owned(), field.clone());
+        }
+    }
+    for (field, nested) in map.iter() {
+        if !out.contains_key(field) {
+            out.insert(field.clone(), nested.clone());
+        }
+    }
+    Value::Object(out)
 }
 
 /// Validate a projected history message (`ProjectedMessage` in TypeScript).

@@ -10,6 +10,7 @@ use crate::translate::translator::{
     AgentBack, AgentGone, Diagnostic, ItemUpsert, NoticeDraft, OwnedDatum, ProcessExited,
     ProcessStarted, Signal, Translator,
 };
+use indexmap::IndexMap;
 use serde_json::{Map, Value};
 
 impl Translator {
@@ -61,7 +62,7 @@ impl Translator {
         }
         if channel == "agent.environment" && s_in(data, "type") == "stopped" {
             let session = s_in(data, "sessionID").to_owned();
-            let agent = if state.agents.has(&session) {
+            let agent = if state.agents.contains_key(&session) {
                 session.clone()
             } else {
                 state.root_key.clone()
@@ -86,12 +87,12 @@ impl Translator {
         }
         if channel == "input.sending" {
             let id = s_in(data, "id").to_owned();
-            if state.commands.len() >= 1024 && !state.commands.has(&id) {
+            if state.commands.len() >= 1024 && !state.commands.contains_key(&id) {
                 return Err(StateError::Limit("command correlation"));
             }
             let command = s_in(data, "commandId").to_owned();
             if !command.is_empty() {
-                state.commands.set(id, command);
+                state.commands.insert(id, command);
             }
             return Ok(());
         }
@@ -107,8 +108,8 @@ impl Translator {
         }
         if channel == "input.rejected" {
             let id = s_in(data, "id").to_owned();
-            state.inputs.delete(&id);
-            state.commands.delete(&id);
+            state.inputs.shift_remove(&id);
+            state.commands.shift_remove(&id);
             state.admission_pending.remove(&id);
             state.finish_background(&format!("admission:{id}"), "stopped", out)?;
             state.queue(out)?;
@@ -158,7 +159,7 @@ impl Translator {
                 typ: "process.started",
             }),
             "exited" => {
-                state.pending = crate::translate::cache::OrderedMap::new();
+                state.pending = IndexMap::new();
                 out.fact(&ProcessExited {
                     typ: "process.exited",
                     deliberate: matches!(data.get("deliberate"), Some(Value::Bool(true))),
@@ -168,7 +169,7 @@ impl Translator {
             "disconnected" | "resynced" => {
                 let disconnected = s_in(data, "type") == "disconnected";
                 state.disconnected = disconnected;
-                let agents: Vec<String> = state.agents.keys().map(str::to_owned).collect();
+                let agents: Vec<String> = state.agents.keys().cloned().collect();
                 for id in agents {
                     let agent = state.key(&id).to_owned();
                     if disconnected {
@@ -212,7 +213,7 @@ impl Translator {
                 let id = s_in(body, "id").to_owned();
                 self.state
                     .triggers
-                    .set(session.clone(), String::from("user"));
+                    .insert(session.clone(), String::from("user"));
                 self.state.admission_pending.insert(id.clone());
                 self.state.input(&id, &session, out)?;
                 let mut message = body.clone();

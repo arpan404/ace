@@ -2,8 +2,10 @@
 //! Tool calls (`native-content.ts`: tools). A tool seen running after its
 //! execution ended is held as bookkeeping work until it settles.
 
-use crate::translate::content::{ItemReconciled, edit_changes, slice_units, tool_key};
-use crate::translate::data::{RawPayload, arr, fields, get, n_in_fb, raw, s_in};
+use crate::translate::content::{ItemReconciled, edit_changes, tool_key};
+use crate::translate::data::{
+    RawPayload, arr, fields, get, n_in_fb, raw, s_in, slice_units, utf16_len,
+};
 use crate::translate::detail::{Detail, detail};
 use crate::translate::state::{FileChange, NativeState, Out, StateError, Tool};
 use serde::Serialize;
@@ -86,7 +88,7 @@ pub fn tool(
     if typ == "session.tool.input.ended"
         && let Value::String(text) = get(p, "text")
         && !text.is_empty()
-        && text.encode_utf16().count() <= 65536
+        && utf16_len(text) <= 65536
     {
         ended_input = serde_json::from_str(text).ok();
     }
@@ -104,7 +106,7 @@ pub fn tool(
         Some(supplied) => {
             let source = fields(supplied);
             let command = match source.get("command") {
-                Some(Value::String(command)) if command.encode_utf16().count() <= 8192 => {
+                Some(Value::String(command)) if utf16_len(command) <= 8192 => {
                     Some(command.as_str())
                 }
                 _ => None,
@@ -115,7 +117,7 @@ pub fn tool(
             } else {
                 path
             };
-            let file_path = if resolved_path.encode_utf16().count() <= 4096 {
+            let file_path = if utf16_len(resolved_path) <= 4096 {
                 Some(resolved_path)
             } else {
                 None
@@ -274,7 +276,7 @@ pub fn tool(
     })?;
     // A tool seen running after its execution ended is held until it settles;
     // a tool inside a live execution is the execution's own work.
-    if !complete && !state.active.has(session) {
+    if !complete && !state.active.contains_key(session) {
         state.tool_tail(&item, session, out)?;
     } else if complete {
         state.finish_background(
@@ -284,11 +286,11 @@ pub fn tool(
         )?;
     }
     let child = s_in(meta, "sessionID").to_owned();
-    if name == "subagent" && !child.is_empty() && !state.agents.has(&child) {
-        if state.child_claims.len() >= 1024 && !state.child_claims.has(&child) {
+    if name == "subagent" && !child.is_empty() && !state.agents.contains_key(&child) {
+        if state.child_claims.len() >= 1024 && !state.child_claims.contains_key(&child) {
             return Err(StateError::Limit("child evidence"));
         }
-        state.child_claims.set(
+        state.child_claims.insert(
             child.clone(),
             crate::translate::state::ChildClaim {
                 session: session.to_owned(),
@@ -329,12 +331,12 @@ pub fn tool(
     let shell = s_in(meta, "shellID");
     if name == "shell"
         && !shell.is_empty()
-        && !(typ == "snapshot.tool" && complete && !state.shells.has(shell))
+        && !(typ == "snapshot.tool" && complete && !state.shells.contains_key(shell))
     {
-        if state.shells.len() >= 2048 && !state.shells.has(shell) {
+        if state.shells.len() >= 2048 && !state.shells.contains_key(shell) {
             return Err(StateError::Limit("shell"));
         }
-        state.shells.set(shell.to_owned(), session.to_owned());
+        state.shells.insert(shell.to_owned(), session.to_owned());
         if tool_input.background || s_in(meta, "status") == "running" {
             state.wake_shells.insert(shell.to_owned());
         }

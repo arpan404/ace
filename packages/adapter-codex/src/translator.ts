@@ -16,6 +16,8 @@ import { isInteractiveRequest, openRequest, turnError } from "./interactions.ts"
 import { list, obj, raw, requestKey, str, type Obj } from "./native.ts";
 import { z } from "zod";
 import { PendingCompletions } from "./pending-completions.ts";
+import { translatorBackend } from "@ace/provider-kit/native-switches";
+import { createNativeCodexTranslator } from "./native-translator.ts";
 
 const recoveryRevision = z.object({
   read: z.number().int().nonnegative(),
@@ -26,6 +28,7 @@ const recoveryRevision = z.object({
 });
 
 export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }): Translator {
+  if (translatorBackend("codex") === "native") return createNativeCodexTranslator(init);
   const agents = new Map<string, Agent>();
   const sent = new Map<
     string,

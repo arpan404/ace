@@ -2,24 +2,24 @@
 //! Turn bracketing (`native-state.ts`: turns). Every agent's work is
 //! bracketed by turn.started/turn.ended; surviving tools are held first.
 
-use crate::translate::cache::OrderedMap;
 use crate::translate::data::{fields, get, n_in, n_in_fb, s_in, truthy};
 use crate::translate::state::{NativeState, Out, StateError};
+use indexmap::IndexMap;
 use serde::Serialize;
 use serde_json::{Map, Value};
 
 impl NativeState {
     /// Start a turn, unless it is already running or ended.
     pub fn start(&mut self, id: &str, turn: &str, out: &mut Out<'_>) -> Result<(), StateError> {
-        self.wakes.delete(id);
-        if self.active.has(id) || self.ended.has(turn) {
+        self.wakes.shift_remove(id);
+        if self.active.contains_key(id) || self.ended.has(turn) {
             return Ok(());
         }
-        self.active.set(id.to_owned(), turn.to_owned());
+        self.active.insert(id.to_owned(), turn.to_owned());
         self.turned.add(id);
         let baseline = self.idle.get(id).copied().unwrap_or(-1.0);
-        self.execution_baseline.set(id.to_owned(), baseline);
-        self.execution_created.delete(id);
+        self.execution_baseline.insert(id.to_owned(), baseline);
+        self.execution_created.shift_remove(id);
         let trigger = match self.triggers.get(id) {
             Some(trigger) => trigger.clone(),
             None => match self.agents.get(id) {
@@ -43,7 +43,7 @@ impl NativeState {
 
     /// Whether the snapshot's idle time proves the turn settled.
     pub fn can_settle(&self, id: &str, idle_at: f64) -> bool {
-        if !self.active.has(id) {
+        if !self.active.contains_key(id) {
             return true;
         }
         idle_at > self.execution_baseline.get(id).copied().unwrap_or(-1.0)
@@ -58,7 +58,7 @@ impl NativeState {
     ) -> Result<(), StateError> {
         let id = s_in(info, "id");
         let idle_at = n_in(fields(get(info, "time")), "idle");
-        if !self.active.has(id) || !self.can_settle(id, idle_at) {
+        if !self.active.contains_key(id) || !self.can_settle(id, idle_at) {
             return Ok(());
         }
         let outcome = s_in(info, "outcome");
@@ -84,16 +84,16 @@ impl NativeState {
         let id = s_in(info, "id");
         let time = fields(get(info, "time"));
         let idle_at = n_in(time, "idle");
-        if !truthy(get(info, "parentID")) || self.agents.has(id) || idle_at < 0.0 {
+        if !truthy(get(info, "parentID")) || self.agents.contains_key(id) || idle_at < 0.0 {
             return;
         }
         if idle_at < n_in_fb(time, "updated", f64::INFINITY) {
             return;
         }
         if self.probed_idle.len() >= 1024 {
-            self.probed_idle = OrderedMap::new();
+            self.probed_idle = IndexMap::new();
         }
-        self.probed_idle.set(id.to_owned(), idle_at);
+        self.probed_idle.insert(id.to_owned(), idle_at);
     }
 
     /// Settle probed children once their ancestry probe delivered its events.
@@ -112,7 +112,7 @@ impl NativeState {
                 out,
             )?;
         }
-        self.probed_idle = OrderedMap::new();
+        self.probed_idle = IndexMap::new();
         Ok(())
     }
 
@@ -129,7 +129,7 @@ impl NativeState {
             .agents
             .get(id)
             .is_some_and(|meta| !meta.parent.is_empty());
-        if !has_parent || idle_at < 0.0 || self.active.has(id) || self.turned.has(id) {
+        if !has_parent || idle_at < 0.0 || self.active.contains_key(id) || self.turned.has(id) {
             return Ok(());
         }
         self.turned.add(id);
@@ -154,10 +154,10 @@ impl NativeState {
         error: Option<&Value>,
         out: &mut Out<'_>,
     ) -> Result<(), StateError> {
-        if !self.active.has(id) {
+        if !self.active.contains_key(id) {
             return Ok(());
         }
-        let turn = match self.active.delete(id) {
+        let turn = match self.active.shift_remove(id) {
             Some(turn) => turn,
             None => return Ok(()),
         };
@@ -232,7 +232,7 @@ struct TurnEnded<'a> {
     native_turn_id: &'a str,
     outcome: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    historical: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<TurnError<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    historical: Option<bool>,
 }

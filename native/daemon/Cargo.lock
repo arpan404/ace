@@ -7,8 +7,14 @@ name = "ace-adapter-acp"
 version = "0.1.0"
 dependencies = [
  "ace-adapter-api",
+ "ace-core",
  "ace-supervisor",
  "agent-client-protocol",
+ "indexmap 2.14.2",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
 ]
 
 [[package]]
@@ -31,6 +37,9 @@ version = "0.1.0"
 dependencies = [
  "ace-adapter-api",
  "ace-supervisor",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -38,7 +47,13 @@ name = "ace-adapter-codex"
 version = "0.1.0"
 dependencies = [
  "ace-adapter-api",
+ "ace-core",
  "ace-supervisor",
+ "indexmap 2.14.2",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
 ]
 
 [[package]]
@@ -46,7 +61,12 @@ name = "ace-adapter-cursor"
 version = "0.1.0"
 dependencies = [
  "ace-adapter-api",
+ "ace-core",
  "ace-supervisor",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
 ]
 
 [[package]]
@@ -55,6 +75,7 @@ version = "0.1.0"
 dependencies = [
  "ace-adapter-api",
  "ace-supervisor",
+ "indexmap 2.14.2",
  "reqwest",
  "serde",
  "serde_json",
@@ -66,8 +87,12 @@ name = "ace-adapter-pi"
 version = "0.1.0"
 dependencies = [
  "ace-adapter-api",
+ "ace-core",
  "ace-supervisor",
  "rmcp",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -92,11 +117,23 @@ dependencies = [
 name = "ace-daemon-node"
 version = "0.1.0"
 dependencies = [
+ "ace-adapter-acp",
+ "ace-adapter-api",
+ "ace-adapter-claude",
+ "ace-adapter-codex",
+ "ace-adapter-cursor",
  "ace-adapter-opencode",
+ "ace-adapter-pi",
+ "ace-core",
  "ace-store",
  "napi",
  "napi-build",
  "napi-derive",
+ "serde",
+ "serde_json",
+ "serde_stacker",
+ "stacker",
+ "thiserror",
 ]
 
 [[package]]
@@ -228,6 +265,15 @@ name = "anyhow"
 version = "1.0.105"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2cb931c189b85683d69a5cfad41d4d418671e1ac413dd209f3f2fc31e3cfd902"
+
+[[package]]
+name = "ar_archive_writer"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "523e5e187fff36fcb8d1d19ccf0ca4ca43ec3d158316057f66dc6f72716bc5ec"
+dependencies = [
+ "object",
+]
 
 [[package]]
 name = "async-task"
@@ -1444,6 +1490,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "object"
+version = "0.39.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e5a6c098c7a3b6547378093f5cc30bc54fd361ce711e05293a5cc589562739b"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1574,6 +1629,16 @@ dependencies = [
  "bitflags",
  "chrono",
  "hex",
+]
+
+[[package]]
+name = "psm"
+version = "0.1.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4dcd034599e63b970727f70d79e02d62390a4a84f7c6b827c27c46d5ac3fa622"
+dependencies = [
+ "ar_archive_writer",
+ "cc",
 ]
 
 [[package]]
@@ -1889,6 +1954,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_stacker"
+version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4936375d50c4be7eff22293a9344f8e46f323ed2b3c243e52f89138d9bb0f4a"
+dependencies = [
+ "serde",
+ "serde_core",
+ "stacker",
+]
+
+[[package]]
 name = "serde_tokenstream"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2000,6 +2076,19 @@ name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
+
+[[package]]
+name = "stacker"
+version = "0.1.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "707f49d46706bacf8a2b00d51dace3f9de527c13eec3778f570c411f89e69967"
+dependencies = [
+ "cc",
+ "cfg-if",
+ "libc",
+ "psm",
+ "windows-sys",
+]
 
 [[package]]
 name = "strsim"

@@ -225,6 +225,21 @@ impl Connection {
         self.send_and_await_reply(req_id, &expectations, timeout)
     }
 
+    /// Sends a correlated request with an explicit `requestId` and waits for its reply.
+    ///
+    /// Mutations the daemon deduplicates (an idempotency key) name their own `requestId`,
+    /// so a retry with the same key runs once.
+    pub fn request_with_id_timeout<T: Serialize>(
+        &mut self,
+        op: &T,
+        request_id: &RequestId,
+        timeout: Duration,
+    ) -> Result<Reply, WireError> {
+        encode_request_into(op, request_id, &mut self.scratch_buf, &mut self.send_buf)?;
+        let expectations = extract_expectations(&self.send_buf, None)?;
+        self.send_and_await_reply(request_id.clone(), &expectations, timeout)
+    }
+
     /// Sends a correlated request and waits specifically for one of `expected_types`.
     pub fn request_expecting<T: Serialize>(
         &mut self,

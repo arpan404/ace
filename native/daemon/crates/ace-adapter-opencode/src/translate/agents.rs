@@ -79,20 +79,20 @@ impl NativeState {
             self.root_native = id.clone();
         }
         if id != self.root_native
-            && (parent.is_empty() || !self.agents.has(&parent) || truthy(get(p, "fork")))
+            && (parent.is_empty() || !self.agents.contains_key(&parent) || truthy(get(p, "fork")))
         {
             return Ok(());
         }
-        if self.agents.len() >= 1024 && !self.agents.has(&id) {
+        if self.agents.len() >= 1024 && !self.agents.contains_key(&id) {
             return Err(StateError::Limit("agent"));
         }
         let directory = s_in(fields(get(p, "location")), "directory").to_owned();
-        let claim = self.child_claims.delete(&id);
+        let claim = self.child_claims.shift_remove(&id);
         let fresh = crate::translate::usage::qualified_model(get(p, "model"));
         let kept = self.agents.get(&id).and_then(|meta| meta.model.clone());
         let model = fresh.or(kept);
         let agent = self.key(&id).to_owned();
-        self.agents.set(
+        self.agents.insert(
             id.clone(),
             AgentMeta {
                 parent: parent.clone(),
@@ -101,7 +101,7 @@ impl NativeState {
             },
         );
         self.idle
-            .set(id.clone(), n_in(fields(get(p, "time")), "idle"));
+            .insert(id.clone(), n_in(fields(get(p, "time")), "idle"));
         let has_parent = !parent.is_empty();
         let parent_key = self.key(&parent).to_owned();
         out.fact(&AgentSeen {

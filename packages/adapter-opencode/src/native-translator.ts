@@ -14,7 +14,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 interface NativeHandle {
-  translateFrame(frameJson: string, nowMs: number): string;
+  translateFrame(frameJson: string, dataJson: string, nowMs: number): string;
   tick(nowMs: number): string;
   takeDiagnostics(): string;
   isSettled(): boolean;

@@ -3,7 +3,8 @@
 //! (`packages/adapter-opencode/src/native-state.ts`, first half). Keys stay
 //! namespaced per provider process; facts carry those keys, never ace ids.
 
-use crate::translate::cache::{OrderedMap, RecentMap, RecentSet};
+use crate::translate::cache::{RecentMap, RecentSet};
+use indexmap::IndexMap;
 use serde::Serialize;
 use serde_json::value::RawValue;
 use std::collections::HashSet;
@@ -128,33 +129,33 @@ pub struct NativeState {
     pub root_key: String,
     pub root_native: String,
     pub disconnected: bool,
-    pub agents: OrderedMap<AgentMeta>,
-    pub active: OrderedMap<String>,
-    pub idle: OrderedMap<f64>,
-    pub execution_baseline: OrderedMap<f64>,
-    pub execution_created: OrderedMap<f64>,
-    pub triggers: OrderedMap<String>,
+    pub agents: IndexMap<String, AgentMeta>,
+    pub active: IndexMap<String, String>,
+    pub idle: IndexMap<String, f64>,
+    pub execution_baseline: IndexMap<String, f64>,
+    pub execution_created: IndexMap<String, f64>,
+    pub triggers: IndexMap<String, String>,
     pub ended: RecentSet,
     /// Sessions with at least one observed or settled turn.
     pub turned: RecentSet,
-    pub probed_idle: OrderedMap<f64>,
+    pub probed_idle: IndexMap<String, f64>,
     pub events: RecentSet,
     pub durable: RecentMap<f64>,
-    pub child_claims: OrderedMap<ChildClaim>,
-    pub tools: OrderedMap<Tool>,
+    pub child_claims: IndexMap<String, ChildClaim>,
+    pub tools: IndexMap<String, Tool>,
     pub recent_tools: RecentMap<Tool>,
-    pub live_messages: OrderedMap<OrderedMap<i64>>,
-    pub inputs: OrderedMap<String>,
-    pub commands: OrderedMap<String>,
+    pub live_messages: IndexMap<String, IndexMap<String, i64>>,
+    pub inputs: IndexMap<String, String>,
+    pub commands: IndexMap<String, String>,
     pub admitted: RecentSet,
     pub admission_pending: HashSet<String>,
-    pub pending: OrderedMap<Pending>,
-    pub shells: OrderedMap<String>,
+    pub pending: IndexMap<String, Pending>,
+    pub shells: IndexMap<String, String>,
     pub wake_shells: HashSet<String>,
-    pub wakes: OrderedMap<f64>,
-    pub backgrounds: OrderedMap<String>,
+    pub wakes: IndexMap<String, f64>,
+    pub backgrounds: IndexMap<String, String>,
     pub completed_backgrounds: RecentSet,
-    pub child_dispatches: OrderedMap<OrderedMap<f64>>,
+    pub child_dispatches: IndexMap<String, IndexMap<String, f64>>,
     pub child_completed_at: RecentMap<f64>,
     pub child_dispatch_count: i64,
 }
@@ -165,32 +166,32 @@ impl NativeState {
             root_key,
             root_native: String::new(),
             disconnected: false,
-            agents: OrderedMap::new(),
-            active: OrderedMap::new(),
-            idle: OrderedMap::new(),
-            execution_baseline: OrderedMap::new(),
-            execution_created: OrderedMap::new(),
-            triggers: OrderedMap::new(),
+            agents: IndexMap::new(),
+            active: IndexMap::new(),
+            idle: IndexMap::new(),
+            execution_baseline: IndexMap::new(),
+            execution_created: IndexMap::new(),
+            triggers: IndexMap::new(),
             ended: RecentSet::new(),
             turned: RecentSet::new(),
-            probed_idle: OrderedMap::new(),
+            probed_idle: IndexMap::new(),
             events: RecentSet::new(),
             durable: RecentMap::new(1024),
-            child_claims: OrderedMap::new(),
-            tools: OrderedMap::new(),
+            child_claims: IndexMap::new(),
+            tools: IndexMap::new(),
             recent_tools: RecentMap::new(1024),
-            live_messages: OrderedMap::new(),
-            inputs: OrderedMap::new(),
-            commands: OrderedMap::new(),
+            live_messages: IndexMap::new(),
+            inputs: IndexMap::new(),
+            commands: IndexMap::new(),
             admitted: RecentSet::new(),
             admission_pending: HashSet::new(),
-            pending: OrderedMap::new(),
-            shells: OrderedMap::new(),
+            pending: IndexMap::new(),
+            shells: IndexMap::new(),
             wake_shells: HashSet::new(),
-            wakes: OrderedMap::new(),
-            backgrounds: OrderedMap::new(),
+            wakes: IndexMap::new(),
+            backgrounds: IndexMap::new(),
             completed_backgrounds: RecentSet::new(),
-            child_dispatches: OrderedMap::new(),
+            child_dispatches: IndexMap::new(),
             child_completed_at: RecentMap::new(1024),
             child_dispatch_count: 0,
         }
@@ -211,39 +212,39 @@ impl NativeState {
                 .tools
                 .get(item)
                 .map(|tool| (tool.session.clone(), tool.message.clone()));
-            self.tools.delete(item);
+            self.tools.shift_remove(item);
             self.recent_tools.set(item.to_owned(), current);
             if let Some((session, message)) = previous {
                 let mut remove_session = false;
                 if let Some(messages) = self.live_messages.get_mut(session.as_str()) {
                     let count = messages.get(message.as_str()).copied().unwrap_or(0);
                     if count <= 1 {
-                        messages.delete(message.as_str());
+                        messages.shift_remove(message.as_str());
                     } else {
-                        messages.set(message, count - 1);
+                        messages.insert(message, count - 1);
                     }
                     remove_session = messages.is_empty();
                 }
                 if remove_session {
-                    self.live_messages.delete(session.as_str());
+                    self.live_messages.shift_remove(session.as_str());
                 }
             }
             return Ok(());
         }
-        if self.tools.len() >= 2048 && !self.tools.has(item) {
+        if self.tools.len() >= 2048 && !self.tools.contains_key(item) {
             return Err(StateError::Limit("tool"));
         }
-        let is_new = !self.tools.has(item);
+        let is_new = !self.tools.contains_key(item);
         let session = current.session.clone();
         let message = current.message.clone();
-        self.tools.set(item.to_owned(), current);
+        self.tools.insert(item.to_owned(), current);
         if is_new {
-            if !self.live_messages.has(session.as_str()) {
-                self.live_messages.set(session.clone(), OrderedMap::new());
+            if !self.live_messages.contains_key(session.as_str()) {
+                self.live_messages.insert(session.clone(), IndexMap::new());
             }
             if let Some(messages) = self.live_messages.get_mut(session.as_str()) {
                 let next = messages.get(message.as_str()).copied().unwrap_or(0) + 1;
-                messages.set(message, next);
+                messages.insert(message, next);
             }
         }
         Ok(())
@@ -283,10 +284,10 @@ impl NativeState {
 
     /// Note an input for its session, syncing the provider queue.
     pub fn input(&mut self, id: &str, session: &str, out: &mut Out<'_>) -> Result<(), StateError> {
-        if self.inputs.len() >= 1024 && !self.inputs.has(id) {
+        if self.inputs.len() >= 1024 && !self.inputs.contains_key(id) {
             return Err(StateError::Limit("inbox"));
         }
-        self.inputs.set(id.to_owned(), session.to_owned());
+        self.inputs.insert(id.to_owned(), session.to_owned());
         self.queue(out)
     }
 

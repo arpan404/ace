@@ -7,7 +7,7 @@
 //! `cli.request`/`projects.request`; anything needing thread lists, live trees or `--follow`
 //! stays on the bundle.
 
-mod common;
+pub(crate) mod common;
 mod durable;
 mod lists;
 mod project_list;
@@ -76,7 +76,7 @@ pub fn dispatch<W: Write, E: Write>(
     }
 }
 
-fn handover_fallback<W: Write, E: Write>(
+pub(crate) fn handover_fallback<W: Write, E: Write>(
     parsed: &Parsed<'_>,
     os_args: &[std::ffi::OsString],
     out: &mut Out<W>,

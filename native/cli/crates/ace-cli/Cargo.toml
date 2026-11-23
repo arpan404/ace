@@ -22,8 +22,8 @@ cli-table = { path = "../cli-table" }
 cli-wire = { path = "../cli-wire" }
 rusqlite = { version = "0.41", default-features = false, features = ["bundled"] }
 url = { version = "2", default-features = false }
+chrono = { version = "0.4", default-features = false, features = ["alloc", "std", "clock"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["raw_value", "preserve_order"] }
-uuid = { version = "1.0", features = ["v4"] }
+uuid = { version = "1.0", default-features = false, features = ["v4"] }
 ctrlc = "3.4"
-chrono = { version = "0.4", default-features = false, features = ["alloc", "clock", "std"] }

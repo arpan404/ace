@@ -5,4 +5,5 @@
 pub mod agent_tools;
 pub mod machine;
 pub mod providers;
+pub mod spade_market;
 pub mod work;

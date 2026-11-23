@@ -167,7 +167,7 @@ impl Translator {
     /// The messages with live work for a session, oldest first.
     pub fn live_messages_json(&self, session: &str, out: &mut String) {
         let messages: Vec<&str> = match self.state.live_messages.get(session) {
-            Some(messages) => messages.keys().collect(),
+            Some(messages) => messages.keys().map(String::as_str).collect(),
             None => Vec::new(),
         };
         match serde_json::to_string(&messages) {
@@ -182,7 +182,7 @@ impl Translator {
 
     /// Whether a native shell still holds its background task open.
     pub fn live_shell(&self, id: &str) -> bool {
-        self.state.backgrounds.has(&format!("shell:{id}"))
+        self.state.backgrounds.contains_key(&format!("shell:{id}"))
     }
 
     /// New execution output proves a transient retry recovered, unlike a heartbeat.

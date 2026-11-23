@@ -96,18 +96,18 @@ pub fn interaction(
             "form"
         }
     );
-    if id.is_empty() || !state.agents.has(&session) {
+    if id.is_empty() || !state.agents.contains_key(&session) {
         return Ok(());
     }
     if typ == "permission.asked" || typ == "form.created" {
-        if state.pending.has(&key) {
+        if state.pending.contains_key(&key) {
             return Ok(());
         }
         if state.pending.len() >= 1024 {
             return Err(StateError::Limit("interaction"));
         }
         let stored = serde_json::to_string(form)?;
-        state.pending.set(
+        state.pending.insert(
             key.clone(),
             Pending {
                 session: session.clone(),
@@ -182,7 +182,7 @@ pub fn interaction(
         })?;
         return Ok(());
     }
-    let pending = match state.pending.delete(&key) {
+    let pending = match state.pending.shift_remove(&key) {
         Some(pending) => pending,
         None => return Ok(()),
     };

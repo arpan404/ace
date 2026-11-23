@@ -40,6 +40,18 @@ Runs natively through the daemon connection (ADR 0221 step 4, providers group):
 - `ace remote list|use|remove`
 - `ace mcp list|add|revoke`
 
+
+Runs natively through the daemon (ADR 0221 step 4, Store/Spade):
+
+- `ace automation list|show|run|remove`
+- `ace feature list` (offline, from the home's files)
+- `ace spade status`, `ace spade bot list|show`
+- `ace bot running|stop|pause|resume|unarchive`
+- `ace store discover|search|show|installed`, `ace store source list|add|remove|on|off|refresh`,
+  `ace store remove|restore|report|withdraw`, `ace store status|versions|signals`,
+  `ace store draft list|show|delete`, `ace store profile show`, `ace store verification show|check`
+
+
 Hands over: every other command, and these cases even for the commands above (and the
 machine commands below):
 
@@ -74,6 +86,10 @@ stop` (its shutdown proof lives in the daemon's process evidence), every `servic
 OS service managers in `@ace/service`), every `config` command (the settings service's file and
 live rules, including the guarded settings and the Spade switches), `ace doctor`,
 `ace doctor bundle` and `ace triage` (the rescue path, which moves last).
+A `--remote` run hands over (pinned TLS and profiles stay in the bundle for now), as does a
+Store command that finds its account signed out on a terminal: the bundle offers the sign-in,
+then runs it once more, exactly as before. ADR 0221 §5's "under 15 ms plus the daemon's own
+time" budget covers these daemon runs.
 
 Hand-over finds the runtime and `ace.mjs` beside the binary, in each shipped layout:
 
@@ -197,6 +213,8 @@ HTTP/1.1, local WS, remote profiles, pinned HTTPS/WSS) is `1.90 MiB` (`1,947.5 K
 | `rustls` | `ring`, `std`, `tls12` (no defaults) | Pinned TLS 1.2/1.3 for remote machine profiles (`ring` also provides SHA-256 for SPKI pinning) | `+840.8 KiB` |
 | `ureq` | `rustls-no-provider` (no defaults) | Blocking HTTP/1.1 client for local and pinned-HTTPS `/v1/*` calls (`rustls-no-provider` avoids `webpki-roots`'s unapproved license) | `+243.4 KiB` |
 | `url` | (no defaults) | WHATWG URL parsing and validation for local, remote, and relay origins | `+209.8 KiB` |
+| `chrono` | `alloc`, `std`, `clock` (no defaults) | Local-machine clock for `ace bot running` wake times (this machine's zone, as the app shows it) and UTC dates in automation and market lines | `+21.7 KiB` |
+| `uuid` | `v4` (no defaults) | Fresh `--idempotency-key` values for automation mutations, so a retry runs once | `<1 KiB` (inlined) |
 | `x509-parser` | (no defaults) | Leaf X.509 DER parsing for SPKI extraction and `[notBefore, notAfter)` validity checks | `+80.8 KiB` |
 | `security-framework` / `schannel` | target-gated (`macos` / `windows`) | Lazy OS system CA roots for `.ts.net` renewal fallback (ADR 0097) without reading `SSL_CERT_FILE` / `SSL_CERT_DIR` (Linux reads fixed `/etc/ssl/...` bundle paths via `rustls` PEM parser) | `+17.8 KiB` (macOS `Security.framework` bindings; `0` on Linux) |
 
