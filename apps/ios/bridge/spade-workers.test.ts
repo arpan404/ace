@@ -277,7 +277,7 @@ test("a bot waiting on one of its workers says so in the list, where its chat sh
 
   const row = await until(() => patches.state?.list.rows?.find((each) => each.name === "Research"));
 
-  expect([row.state, row.line]).toEqual(["needs-you", "An agent it started needs you"]);
+  expect([row.state, row.line]).toEqual(["needs-you", "A worker is waiting for you"]);
 });
 
 /** Research with one bot worker, Scout, made through `delegate`, as the roster lists it. */

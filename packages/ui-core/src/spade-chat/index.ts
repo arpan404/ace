@@ -78,6 +78,7 @@ export * from "./security-words.ts";
 export * from "./request-error.ts";
 export * from "./follow.ts";
 export * from "./list-rows.ts";
+export * from "./families.ts";
 export * from "./live-rows.ts";
 export * from "./task-history.ts";
 export * from "./cards.ts";
