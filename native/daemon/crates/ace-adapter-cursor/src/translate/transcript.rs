@@ -108,7 +108,7 @@ impl Transcript {
                 "type": "item.delta",
                 "agent": agent,
                 "item": item,
-                "field": field,
+                "field": if want == Field::Text { "text" } else { "reasoning" },
                 "append": text,
             }));
         }

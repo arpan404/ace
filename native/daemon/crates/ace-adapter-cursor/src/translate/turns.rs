@@ -73,6 +73,7 @@ pub(crate) fn utf16_head(text: &str, max: usize) -> String {
 impl Step<'_> {
     /// Cursor admitted the attempted send: the turn starts and its input shows.
     pub fn admit(&mut self, attempt: &Attempt) -> BudgetResult<Vec<Value>> {
+        *self.attempt = None;
         let body = object(&attempt.body);
         let namespace = format!(
             "{}:{}:{}",
