@@ -30,6 +30,15 @@ Runs natively, touching only the static table (ADR 0221 step 2):
   not name a live reference
 - bare `ace` off a terminal: the overview
 
+Runs natively through the daemon connection (ADR 0221 step 4, providers group):
+
+- `ace provider list|show|capabilities`, `ace model list`
+- `ace account status|logout`, `ace account machine-code clear`
+- `ace machine list`
+- `ace device list|revoke`
+- `ace remote list|use|remove`
+- `ace mcp list|add|revoke`
+
 Hands over: every other command, and these cases even for the commands above:
 
 - `--jq` anywhere (the filter is jq's to compile and run)
@@ -41,6 +50,10 @@ Hands over: every other command, and these cases even for the commands above:
 - a completion slot that names a live reference (thread, project, request, bot): the daemon
   connection lands in ADR 0221 step 3, then these answer here too
 - the interactive home, when a person is at a terminal
+- the providers group's interactive sign-in and pairing flows: `provider login`, the
+  `provider account` registry, `account login`, `account machine-code set`, `device pair`,
+  `remote add` and `mcp request` (their prompts, QR codes, device codes, browser polling and
+  the `@ace/accounts` registry stay in the bundle until the Rust side matches them exactly)
 
 `ace status --json` and every other daemon command still hand over, so ADR 0221 §5's
 "under 15 ms plus the daemon's own time" budget is for step 3, not this one.
@@ -106,11 +119,14 @@ metadata); `cargo-bloat` keeps symbols and so inflates the file, so measure size
 | `serde_json` 1.0 (`itoa`, `memchr`, `zmij`) | Compact and two-space JSON output; reading `desktop-app.json` | 24.6 KiB (+1.1 KiB `zmij`) |
 | `strsim` 0.11 | Optimal string alignment distance for typo suggestions (`thraed` → `thread`) | 2.2 KiB |
 | `ctrlc` 3.5 | Ctrl+C handling in the Windows hand-over only | 0 bytes on macOS and Linux; Windows only |
+| `rusqlite` 0.41 (`bundled`, no default features) | The CLI profile store (`cli-profiles.sqlite`): remote profiles and the selected profile, read the way the TypeScript CLI reads them | ~1.4 MiB, almost all of it the SQLite C amalgamation (`libsqlite3_sys` counts 98.6 KiB of Rust glue and 9.3 KiB of `rusqlite` itself) |
 
 `serde` and `serde_json` are also `cli-table`'s build dependencies: the table is parsed once at
-build time, never at run time. Nothing else is linked: no async runtime, no clap, no anyhow, no
-regex. The OS home lookup for `completion install` is `std::env::home_dir`, not a crate.
-`native/cli/Cargo.lock` is checked in.
+build time, never at run time. `serde_json`'s `raw_value` feature (no new crate) lets `--json`
+output the daemon already shaped pass through untouched, and `preserve_order` keeps a locally
+built object's keys in the order the TypeScript CLI writes them (`indexmap` itself: 1.1 KiB).
+No async runtime, no clap, no anyhow, no regex. The OS home lookup for `completion install` is
+`std::env::home_dir`, not a crate. `native/cli/Cargo.lock` is checked in.
 
 `cargo bloat --release --crates` on this build:
 
@@ -149,6 +165,12 @@ HTTP/1.1, local WS, remote profiles, pinned HTTPS/WSS) is `1.90 MiB` (`1,947.5 K
 | `url` | (no defaults) | WHATWG URL parsing and validation for local, remote, and relay origins | `+209.8 KiB` |
 | `x509-parser` | (no defaults) | Leaf X.509 DER parsing for SPKI extraction and `[notBefore, notAfter)` validity checks | `+80.8 KiB` |
 | `security-framework` / `schannel` | target-gated (`macos` / `windows`) | Lazy OS system CA roots for `.ts.net` renewal fallback (ADR 0097) without reading `SSL_CERT_FILE` / `SSL_CERT_DIR` (Linux reads fixed `/etc/ssl/...` bundle paths via `rustls` PEM parser) | `+17.8 KiB` (macOS `Security.framework` bindings; `0` on Linux) |
+
+With the providers group (`ace provider|model|account|machine|device|remote|mcp`, step 4) the
+stripped release binary is **4,307,792 bytes (4.11 MiB)** on `aarch64-apple-darwin`, over the
+4 MiB budget: the SQLite C amalgamation (`rusqlite` bundled, for `cli-profiles.sqlite`) alone
+accounts for about 1.4 MiB of it, which the budget predates. Nothing else in the group moves
+the number materially.
 
 ## Budgets
 
