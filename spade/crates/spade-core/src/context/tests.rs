@@ -91,7 +91,7 @@ fn a_message_steered_in_while_tools_run_comes_after_their_results() {
             "spade::c1,c2",
             "result:c1:A",
             "result:c2:B",
-            "person:[m5] Only morning ones"
+            "person:<steer>\n[m5] Only morning ones\n</steer>"
         ]
     );
 }
@@ -573,7 +573,7 @@ fn a_message_that_arrived_while_a_step_was_answered_reads_after_that_step() {
         vec![
             "person:[m1] Find flights",
             "spade:<msg id=\"m4\">Looking.</msg>:",
-            "person:[m3] Only mornings"
+            "person:<steer>\n[m3] Only mornings\n</steer>"
         ]
     );
 }
@@ -664,7 +664,7 @@ fn images_a_tool_returned_follow_the_steps_results_before_steered_messages() {
             "spade::c1,c2",
             "result:c1:Took a screenshot.",
             "result:c2:Page text",
-            "person:[Images returned by browser_screenshot]\n\n[m5] Zoom in"
+            "person:[Images returned by browser_screenshot]\n\n<steer>\n[m5] Zoom in\n</steer>"
         ]
     );
     assert!(matches!(shown.last(), Some(Message::Person { images, .. }) if images.len() == 1));

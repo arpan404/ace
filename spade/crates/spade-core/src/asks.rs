@@ -6,10 +6,18 @@
 //!
 //! The fold is incremental: a ledger knows how many events it has read (`through`) and reads only
 //! the ones after; each compaction stores the ledger as it stood, so a fresh fold starts there.
+//!
+//! The public surface, which other harness work builds on (ADR 0215, "The ledger's surface"):
+//! [`Ledger::of`] and [`Ledger::advance`]; what it holds ([`Ledger::asks`], [`Ledger::standing`],
+//! [`Ledger::earlier`], [`Ledger::through`], [`Ledger::open_asks`], [`Ledger::ask`]);
+//! [`change::decide`]; [`block::text`] and [`block::appended`]; [`check::due`] and
+//! [`check::settled`]; [`steer::due`] and [`steer::mid_turn`]. The rest of the ledger is the
+//! fold's own bookkeeping, kept crate-private.
 
 pub mod block;
 pub mod change;
 pub mod check;
+pub mod steer;
 
 use serde::{Deserialize, Serialize};
 
@@ -41,16 +49,19 @@ pub struct Ledger {
     pub earlier: u32,
     /// The standing instructions recorded so far, for the next one's id.
     #[serde(default, skip_serializing_if = "is_zero")]
-    pub standing_made: u32,
-    /// The reply running where the fold stopped: a message then is a steer.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub running: Option<String>,
+    pub(crate) standing_made: u32,
+    /// Whether a reply runs where the fold stopped, so a message then is a steer.
+    #[serde(default)]
+    pub(crate) steering: steer::Steering,
+    /// Steers whose first answering step is still to be judged (§4).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) watched: Vec<steer::Watched>,
     /// The latest reply the stop check ran in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub checked: Option<String>,
+    pub(crate) checked: Option<String>,
     /// A worker's maker (ADR 0161): its messages are the worker's asks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub maker: Option<String>,
+    pub(crate) maker: Option<String>,
 }
 
 /// One thing the person asked.
@@ -118,6 +129,15 @@ pub struct Updated {
     pub changes: Vec<change::Change>,
 }
 
+/// `asks_reminded`: the first step that read these steers left them unanswered (§4); the model
+/// reads `note` as Spade's.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Reminded {
+    pub reply: String,
+    pub steers: Vec<String>,
+    pub note: String,
+}
+
 /// `asks_checked`: the stop check ran in `reply`, naming `asks`; the model reads `note` as
 /// Spade's.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -148,20 +168,26 @@ impl Ledger {
     pub fn advance(&mut self, events: &[Event]) {
         let from = self.through.min(events.len());
         for (at, event) in events.iter().enumerate().skip(from) {
+            let steer = self.steering.read(event);
             if let Event::Known(known) = event {
-                self.read(at, known);
+                self.read(at, known, steer);
             }
         }
         self.through = events.len().max(self.through);
     }
 
-    fn read(&mut self, at: usize, event: &Known) {
+    fn read(&mut self, at: usize, event: &Known, steer: bool) {
         match event {
-            Known::ReplyStarted { reply, .. } => self.running = Some(reply.clone()),
             Known::ReplyFinished { .. }
             | Known::ReplyStopped { .. }
             | Known::ReplyFailed { .. }
-            | Known::ReplyInterrupted { .. } => self.running = None,
+            | Known::ReplyInterrupted { .. } => self.watched.clear(),
+            Known::StepFinished {
+                seen, text, calls, ..
+            } => self.step_read(*seen, text, !calls.is_empty()),
+            Known::AsksReminded(reminded) => {
+                self.watched.retain(|w| !reminded.steers.contains(&w.id));
+            }
             Known::WorkerOf(link) => self.maker = Some(link.parent.clone()),
             Known::WorkerDetached { .. } => self.maker = None,
             Known::AsksUpdated(updated) => {
@@ -179,11 +205,15 @@ impl Ledger {
             }
             Known::UserMessage { .. } => {
                 if let Some(words) = self.words_of(event) {
+                    let id = crate::chat_markup::id(at as u64 + 1, 0);
+                    if steer {
+                        self.watch(id.clone(), at);
+                    }
                     self.open(Ask {
-                        id: crate::chat_markup::id(at as u64 + 1, 0),
+                        id,
                         words,
                         state: State::Open,
-                        steer: self.running.is_some(),
+                        steer,
                         sorted: false,
                         named: false,
                     });

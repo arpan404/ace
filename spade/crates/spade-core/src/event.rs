@@ -808,6 +808,8 @@ pub enum Known {
     AsksUpdated(crate::asks::Updated),
     /// The stop check ran in a reply (ADR 0215 §3); the model reads its note as Spade's.
     AsksChecked(crate::asks::Checked),
+    /// A steer's first answering step left it unanswered (ADR 0215 §4); read like `asks_checked`.
+    AsksReminded(crate::asks::Reminded),
     /// The bot arrived from another machine (ADR 0187): consent given there doesn't count here,
     /// so no answer before this event is remembered (`since_arrival`).
     Arrived {

@@ -407,3 +407,137 @@ fn a_ledger_survives_storage_unchanged() -> Result {
     assert_eq!(*back, ledger);
     Ok(())
 }
+
+fn step_with(reply: &str, seen: usize, text: &str, calls: Value) -> Event {
+    ev(
+        json!({ "type": "step_finished", "reply": reply, "text": text, "calls": calls,
+               "usage": {}, "cost_micros": 0, "seen": seen }),
+    )
+}
+
+fn lookup() -> Value {
+    json!([{ "id": "l1", "name": "lookup", "arguments": {} }])
+}
+
+#[test]
+fn a_typed_answer_to_a_waiting_card_is_not_a_steer() -> Result {
+    let events = vec![
+        person("Book a room"),
+        started("r1"),
+        ev(
+            json!({ "type": "question_asked", "reply": "r1", "call_id": "q1",
+                   "question": "Which day?" }),
+        ),
+        person("Tuesday"),
+        person("and make it a big one"),
+    ];
+    let steers = steer::mid_turn(&events, 0);
+    assert!(!steers.contains(&3), "the answer");
+    assert!(steers.contains(&4), "the next message steers");
+    assert!(!steers.contains(&0), "before the reply");
+    let ledger = Ledger::of(&events);
+    let marked: Vec<bool> = ledger.asks.iter().map(|a| a.steer).collect();
+    assert_eq!(marked, [false, false, true]);
+    // Starting the walk at a cut still knows a reply was running there.
+    assert_eq!(steer::mid_turn(&events, 4), [4].into_iter().collect());
+    Ok(())
+}
+
+#[test]
+fn a_steer_the_next_step_works_past_in_silence_gets_one_reminder() -> Result {
+    let mut events = vec![
+        person("Draft the report"),
+        started("r1"),
+        step_with("r1", 2, "On it.", lookup()),
+        person("Also add Slack"),
+        tool_done("l1"),
+        // The step that read the steer: calls, no words, no asks update.
+        step_with("r1", 5, "", lookup()),
+        tool_done("l1"),
+    ];
+    let reminded = steer::due(&Ledger::of(&events), "r1").ok_or("due")?;
+    assert_eq!(reminded.steers, ["m4"]);
+    assert!(
+        reminded.note.contains("Also add Slack"),
+        "{}",
+        reminded.note
+    );
+    events.push(Event::Known(Known::AsksReminded(reminded)));
+    assert_eq!(steer::due(&Ledger::of(&events), "r1"), None, "once");
+    // Still ignored a step later: no second reminder.
+    events.extend([step_with("r1", 8, "", lookup()), tool_done("l1")]);
+    assert_eq!(steer::due(&Ledger::of(&events), "r1"), None, "no loop");
+    Ok(())
+}
+
+#[test]
+fn a_steer_answered_in_words_and_sorted_needs_no_reminder_but_words_alone_do_not() -> Result {
+    let base = vec![
+        person("Draft the report"),
+        started("r1"),
+        step_with("r1", 2, "", lookup()),
+        person("Also add Slack"),
+        tool_done("l1"),
+        step_with(
+            "r1",
+            5,
+            "<msg>Got it: adding Slack too.</msg>",
+            json!([{ "id": "a1", "name": ASKS, "arguments": {} }]),
+        ),
+    ];
+    let mut answered = base.clone();
+    let ledger = Ledger::of(&answered);
+    let sorted = decide(
+        &ledger,
+        &json!({ "changes": [{ "op": "open", "ask": "m4" }] }),
+        true,
+    )?;
+    answered.push(updated(sorted.changes));
+    answered.push(tool_done("a1"));
+    assert_eq!(steer::due(&Ledger::of(&answered), "r1"), None);
+
+    // Words but the steer left unsorted: reminded.
+    let mut unsorted = base;
+    unsorted.push(tool_done("a1"));
+    assert!(steer::due(&Ledger::of(&unsorted), "r1").is_some());
+    Ok(())
+}
+
+#[test]
+fn two_steers_in_a_row_are_both_watched_and_both_named() -> Result {
+    let events = vec![
+        person("Draft the report"),
+        started("r1"),
+        step_with("r1", 2, "", lookup()),
+        person("Also add Slack"),
+        person("and the March numbers"),
+        tool_done("l1"),
+        step_with("r1", 6, "", lookup()),
+        tool_done("l1"),
+    ];
+    let reminded = steer::due(&Ledger::of(&events), "r1").ok_or("due")?;
+    assert_eq!(reminded.steers, ["m4", "m5"]);
+    let text = block::text(&Ledger::of(&events)).ok_or("a block")?;
+    assert!(
+        text.contains("m5, sent while you worked") && text.contains("m4, sent while you worked"),
+        "{text}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_steer_whose_reading_step_ends_the_reply_is_left_to_the_stop_check() -> Result {
+    let events = vec![
+        person("Draft the report"),
+        started("r1"),
+        step_with("r1", 2, "", lookup()),
+        person("Also add Slack"),
+        tool_done("l1"),
+        step_with("r1", 5, "Done.", json!([])),
+    ];
+    let ledger = Ledger::of(&events);
+    assert_eq!(steer::due(&ledger, "r1"), None);
+    let checked = check::due(&events, &ledger, "r1").ok_or("due")?;
+    assert!(checked.asks.contains(&"m4".to_owned()));
+    Ok(())
+}
