@@ -36,8 +36,8 @@ one phase each), the storage format (phase 4) and the writer (phase 5, as ordere
 3. **Rust: idiomatic, safe.** No `unsafe`, no `unwrap`/`expect` (clippy denies them), errors as
    `ace_store::Error` or your own `thiserror`-style enum mapped in the binding. Build with
    `PATH=$HOME/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin:$PATH CARGO_BUILD_JOBS=4
-   cargo build --release -p ace-daemon-node` in `native/daemon`; run `bun run
-   check:daemon-native` before committing. Use crates for available work (`serde_json` with
+cargo build --release -p ace-daemon-node` in `native/daemon`; run `bun run
+check:daemon-native` before committing. Use crates for available work (`serde_json` with
    `raw_value` is already a dependency of `ace-store`); add one only with a reason in its
    `Cargo.toml` comment and check it against `deny.toml`.
 4. **Bindings only translate.** Every `#[napi]` function carries `catch_unwind`. It takes
@@ -229,7 +229,7 @@ These add to the rules for every phase above; where they differ, these win for p
 7. **Errors, not panics.** No `unwrap`, `expect`, `panic!`, `unreachable!`, indexing that can
    panic, or `as` casts that can truncate, outside `#[cfg(test)]`. Every `#[napi]` export keeps
    napi's `catch_unwind`. A TypeScript error message that callers or tests match (`Unknown
-   thread`, `Sequence exhausted`, `workspace_unregistered`, `Store is busy`) is reproduced
+thread`, `Sequence exhausted`, `workspace_unregistered`, `Store is busy`) is reproduced
    byte for byte.
 8. **Placement must not leak into logic** (ADR 0222 §3, ADR 0223 §5). Phase 5 runs on the main
    connection and the thread that owns it: the JS thread while TypeScript calls `Store.atomic`
@@ -332,7 +332,7 @@ reviewer signs every entry off before 4.2 starts.
      `ALTER TABLE <t> ADD COLUMN <c> <type>` for each new column it lacks (so running it twice is
      harmless). If the table does not exist, the step does nothing for it, and the table's
      creator gets the new columns: `history-index.ts`'s `CREATE TABLE IF NOT EXISTS
-     history_item_revisions` lists them last, in the same order the `ALTER`s add them, so both
+history_item_revisions` lists them last, in the same order the `ALTER`s add them, so both
      paths give the same columns in the same order. New tables (`storage_format`,
      `body_dictionaries`, `body_dictionary_sources`) and their indexes are created by the step
      with `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`; they are empty, so this
@@ -387,7 +387,7 @@ reviewer signs every entry off before 4.2 starts.
      `history_completed_revisions` (`history-index.ts:102`, `$.complete`).
    - **A (array walk):** walks one array with `json_each`, reading named paths off each element.
      Known so far: `usage-replay.ts:56` to `:60` (the skill names: `json_each(payload,
-     '$.item.parts')`, reading `$.type`, `$.kind` and `$.name` of each part). An A consumer is
+'$.item.parts')`, reading `$.type`, `$.kind` and `$.name` of each part). An A consumer is
      served by an **array projection** in the stub: the array keeps every element, in order (so
      `json_each`'s keys, the ordinals, are the same), and each element is cut down to the paths
      the consumer reads off `part.value`, a path absent from an element staying absent.
@@ -455,7 +455,7 @@ Rust callers, do all of this in the caller's transaction:
 - (c) trust. `origin` is `"validated"` when `logicalJson` was serialised from a value this
   build parsed or built (trust is unchanged, ADR 0125), and `"raw"` otherwise. For `"raw"`,
   the rewritten row's seq is rejected in two places. Persisted: `INSERT OR IGNORE INTO
-  stored_event_rejected VALUES (?)`, one row per rewritten seq, which commits or rolls back
+stored_event_rejected VALUES (?)`, one row per rewritten seq, which commits or rolls back
   with the rewrite. Live: the store's in-memory `StoredTrust` (`trust.rejected`, the set
   `readStoredTrust` loads, `stored-shape.ts:225` to `:236`) gets the seq at once, so a read
   inside the same transaction validates the row. The store records each live addition in a journal
@@ -911,7 +911,7 @@ TypeScript (it folds the cached status view, which moves with 5.3).
 - `--check` regenerates in memory and fails if the file differs. `scripts/check-daemon-native.ts`
   runs it.
 - `crates/ace-projection/tests/vectors.rs` (`#![allow(clippy::expect_used, clippy::unwrap_used,
-  clippy::panic)]`, as `native/history`'s vector tests do) checks, for every case,
+clippy::panic)]`, as `native/history`'s vector tests do) checks, for every case,
   `is_sidebar_event(kind) == sidebar`; and for every reaching case, that
   `FoldEvent::from_wire` and `update_thread` on the parsed thread give
   `ace_json::to_string(thread) == folded`, byte for byte.
@@ -1026,7 +1026,7 @@ outer transaction rolls back.
       moment, a row with that seq exists in `events`, read on a second read-only connection
       (committed state only).
    4. Runs `store.atomic(() => { store.prepareLiveWrite(bytes); store.bufferLiveWrite(id, twoDeltas,
-      at, unpinned); throw new Error("outer"); })` and expects it to throw `"outer"`.
+at, unpinned); throw new Error("outer"); })` and expects it to throw `"outer"`.
    5. Expects that no delta was published during step 4. Then calls `store.flushLiveWrites()`
       and expects exactly two delta publications, one for each of the two deltas (by their
       `append` text), each published once, and each with its committed row present when it was
@@ -1138,7 +1138,7 @@ behaviour, step for step:
   own.
 - `prepare(events, after)`: `through = reservation(events, after)`; if none, return. Else
   `commit(() => native.reserve(through), { committed: () => { if (native.confirm(through))
-  options.reserved?.(through); }, rolledBack: () => {} })`. `committed` runs after the outermost
+options.reserved?.(through); }, rolledBack: () => {} })`. `committed` runs after the outermost
   `COMMIT` returns; a rollback anywhere around it forgets the pending range. During
   `installHistory`, a `transaction` with an outcome throws `Store is busy` (`store.ts:585`),
   which the live path already treats as "retry later".
