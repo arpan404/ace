@@ -243,6 +243,12 @@ export const spadeComputerLiveRequests = spadeRequestArea(
       agentId,
       service: z.string().min(1).max(256),
     }),
+    /** Starts an ended service again with its own command (Spade refuses a running name). */
+    z.object({
+      type: z.literal("spade.services.start"),
+      agentId,
+      service: z.string().min(1).max(256),
+    }),
   ],
   async ({ ask }, request) => {
     const bot = agentRoute(request.agentId);
@@ -278,6 +284,10 @@ export const spadeComputerLiveRequests = spadeRequestArea(
               words: spadeServiceWords(service),
               running: service.state === "running",
               failed: service.state === "failed" || (service.exitCode ?? 0) !== 0,
+              // Ended, with none of its name running: Start runs it again.
+              startable: !services.some(
+                (each) => each.name === service.name && each.state === "running",
+              ),
             })),
           };
         } catch (error) {
@@ -298,6 +308,13 @@ export const spadeComputerLiveRequests = spadeRequestArea(
           return { ok: true } satisfies SpadeOutcome;
         } catch (error) {
           return spadeRefused("Couldn't stop the service", error);
+        }
+      case "spade.services.start":
+        try {
+          await ask("POST", `${bot}/services/${segment(request.service)}/start`);
+          return { ok: true } satisfies SpadeOutcome;
+        } catch (error) {
+          return spadeRefused("Couldn't start the service", error);
         }
     }
   },
