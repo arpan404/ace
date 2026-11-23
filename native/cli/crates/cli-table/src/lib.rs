@@ -66,6 +66,11 @@ pub fn route(key: &str) -> Option<Route> {
     Some(resolve(&entries[index]))
 }
 
+/// Every route's words, one per reachable spelling, in the order the table added them.
+pub fn route_keys() -> impl Iterator<Item = &'static str> {
+    data::ROUTE_KEYS.iter().copied()
+}
+
 /// The words that may follow a space-joined prefix (`thread`, `market maintainer`).
 #[must_use]
 pub fn next(prefix: &str) -> Option<&'static [&'static str]> {

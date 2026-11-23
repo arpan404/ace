@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+[package]
+name = "cli-parse"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+cli-out = { path = "../cli-out" }
+cli-table = { path = "../cli-table" }
+strsim = "0.11"
+
+[dev-dependencies]
+serde_json = "1.0"
