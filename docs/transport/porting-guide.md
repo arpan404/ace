@@ -91,16 +91,29 @@ nothing from git, nothing new beyond what a task names.
   (`ACE_STORE`, `ACE_TRANSLATORS`, `ACE_SESSIONS`, `ACE_SUPERVISOR`, `ACE_CORE`, `ACE_ENGINE`,
   `ACE_GIT`, `ACE_TRANSPORT`) and every addon path (`ACE_STORE_ADDON`, `ACE_SUPERVISOR_ADDON`,
   `ACE_TRANSLATORS_ADDON`, `ACE_GIT_ADDON`, `ACE_TRANSPORT_ADDON`) through from the bench's own
-  environment, so a bench can compare off and on. The bench bundles
-  the daemon into a temporary directory, so the development-build path a shell resolves from its
-  own file doesn't exist there (as `packages/git/src/native-common.ts:95`–`:102` resolves
-  `ACE_GIT_ADDON`'s fallback): the bench refuses to start when any native switch is set without an
-  **absolute** path in that switch's addon variable (`ACE_STORE` → `ACE_STORE_ADDON`, and so on;
-  the shells that also accept `ACE_STORE_ADDON` as a fallback still get theirs explicitly). `ACE_TRANSPORT_EVIDENCE` passes through `daemonEnv` too, so
+  environment, so a bench can compare off and on. The bench bundles the daemon into a temporary
+  directory, so the development-build path a shell resolves from its own file
+  (`../../../native/daemon/target/release/…`, as `packages/git/src/native-common.ts:95`–`:102`
+  does) doesn't exist there. So the bench refuses to start when a switch is set and any variable
+  its row below needs is unset, relative, or names no file; each path is absolute:
+
+  | Switch (values)                                         | Addon variables the bench requires                                                                                                                                                                                                                                                                                                  |
+  | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `ACE_STORE` (`native`)                                  | `ACE_STORE_ADDON` (`provider-kit/src/native-sqlite.ts:45`)                                                                                                                                                                                                                                                                          |
+  | `ACE_SUPERVISOR` (`native`)                             | `ACE_SUPERVISOR_ADDON` (`provider-kit/src/native-process.ts:108` falls back to `ACE_STORE_ADDON`; the bench sets it explicitly)                                                                                                                                                                                                     |
+  | `ACE_TRANSLATORS` (provider list)                       | both `ACE_STORE_ADDON` (the Codex, Claude, Cursor and ACP shells read only it: `adapter-codex/src/native-translator.ts:33`, `adapter-claude/…:33`, `adapter-cursor/…:41`, `adapter-acp/…:45`) and `ACE_TRANSLATORS_ADDON` (OpenCode reads only it, `adapter-opencode/…:39`; Pi reads it first, then the store's, `adapter-pi/…:33`) |
+  | `ACE_SESSIONS` (provider list), `ACE_ENGINE` (`native`) | none exists: no shell on `ace/daemon-rust-rewrite` loads an addon for them yet, so the bench refuses either switch until the item that adds its shell adds its variable to this row                                                                                                                                                 |
+  | `ACE_CORE` (`native` or `wasm`)                         | none exists: `packages/core/src/native.ts` is E0's placeholder, so the bench refuses both values until E4 adds the loader's variable here; `wasm` is the WebAssembly build for `fake-daemon` and tools, which the daemon never loads (ADR 0223 E4), so the bench refuses it even then                                               |
+  | `ACE_GIT` (parts)                                       | `ACE_GIT_ADDON` (`packages/git/src/native-common.ts:97`)                                                                                                                                                                                                                                                                            |
+  | `ACE_TRANSPORT` (`native`, `native,remote`)             | `ACE_TRANSPORT_ADDON` (T1a.6 falls back to `ACE_STORE_ADDON`; the bench sets it explicitly)                                                                                                                                                                                                                                         |
+
+  In a development tree all of them usually name the same file, `native/daemon/target/release/`'s
+  `ace_daemon_node` library, given absolute. `ACE_TRANSPORT_EVIDENCE` passes through `daemonEnv` too, so
   the bundled daemon writes the bench's evidence. Change `scripts/test-home-policy.ts` (`:115`–`:129`, where
   the other switches are allowlisted) so test workers and launch helpers keep `ACE_TRANSPORT`,
   `ACE_TRANSPORT_ADDON` and `ACE_TRANSPORT_EVIDENCE` (T1a.8). Create
   `packages/provider-kit/src/native-switches.test.ts`.
+
 - **Commands**: the TypeScript ones only. The Rust block starts with T0.2, which creates the
   crate it tests.
 - **Types and signatures** (exported):
@@ -350,7 +363,14 @@ implementation, `RefuseUpgrades`, closes the connection without an answer. T1a.3
   failure mid-response resets the client connection, never ends a truncated body as complete.
   **Close**: stop accepting; close idle keep-alive connections at once; let in-flight requests and
   upgrade handshakes finish until `deadline`, cancelling `shutdown` for the handlers; then drop
-  the rest.
+  the rest, **except a connection whose upgrade is in `Writing`** (T1a.5), which the deadline
+  never cancels.
+- **Write timeout**: every connection's stream is wrapped in `TimedIo` (in `prefixed.rs`), which
+  fails any single write that makes no progress for 5 s. That is the only timeout on a `101`: on the
+  raw path it bounds the handler's own write and flush; on the hyper path it bounds hyper's write of
+  the `101`, so a stalled flush fails hyper's upgrade (`upgrade::on` returns an error) instead of
+  a timer racing the upgrade. Nothing times out `upgrade::on` itself, and nothing awaits between
+  the end of the flush and the socket's registration (T1a.5).
 - **Invariants**: behaviour.md §2 (`port: 0` picks a free port) and §3 (the chain's answers pass
   through byte for byte, CORS and `no-store` included).
 - **Tests**: `#[cfg(test)]` unit tests for `head.rs` (raw target kept, candidate detection, 431 and
@@ -410,7 +430,9 @@ implementation, `RefuseUpgrades`, closes the connection without an answer. T1a.3
      first WebSocket frames), as T1a.5's state machine allows.
 - **The hyper form** (`upgrade_hyper`, for keep-alive connections, T1a.2 step 4) makes the same
   decisions in the same order and returns them as `UpgradeReply`: `Drop`; `Refuse` with the same
-  status, headers and body as the raw bytes above; `Switch` with the `101` and the same headers.
+  status, headers and body as the raw bytes above, except a `HEAD` request's 405, whose body hyper
+  sends as zero bytes (the recorded difference of T1a.2 step 4: `proto/h1/role.rs:974`–`:980`, RFC
+  9110 §9.3.2); `Switch` with the `101` and the same headers.
   `switched` then hands the upgraded stream on, or reports that hyper's upgrade failed.
 - **Tests**: unit tests for the decision table (inputs → exact bytes). **Must not**: start framing
   (T1a.4's), negotiate extensions.
@@ -555,9 +577,11 @@ Some(config))` with `max_message_size = Some(1 << 20)` and `max_frame_size = Som
   - **The 101 write and the registration are one handoff that cancellation can't split.** The
     connection task moves `Accepted → Writing` before the first byte of `101` (raw path) or before
     returning the `Switch` reply (hyper path), and only that task leaves `Writing`. Nothing cancels
-    a task in `Writing`, the close deadline included: its only exits are bounded by themselves (the
-    `101` flush, or hyper's `upgrade::on`, within a 5 s write timeout). Once the `101` is flushed
-    (raw) or `upgrade::on` resolves (hyper), the task, with no further await, builds the Rust
+    a task in `Writing`, the close deadline included; the only timeout is the 5 s write timeout on
+    the stream (`TimedIo`, T1a.2), which bounds the `101`'s write and makes a stalled flush fail
+    (on the hyper path, as an `upgrade::on` error); `upgrade::on` itself has no timer, so no timer can
+    fire after the flush and before the upgrade is fulfilled. Once the `101` is flushed (raw) or
+    `upgrade::on` resolves (hyper), the task, with no further await, builds the Rust
     socket (`open`), moves `Writing → Opened`, and enqueues `opened` on the threadsafe function: an
     enqueue never blocks and can't be cancelled. From then on the socket exists in Rust and is
     owned by it until TypeScript registers it; `NativeLoopback.close` resolves only after every
@@ -567,7 +591,7 @@ Some(config))` with `max_message_size = Some(1 << 20)` and `max_frame_size = Som
   - **The JavaScript completion outlives the connection**: `admit`'s promise is awaited by a
     separate task, not by the connection task. When the client disconnects while `Pending`, the
     state moves to `Abandoned` and the connection closes, but that task keeps waiting; when the
-    promise resolves after `Abandoned`, `TimedOut` or `Closing` with an acceptance, it calls
+    promise resolves after `Abandoned` or `TimedOut` with an acceptance, it calls
     `release` for that reservation at once and nothing else. It ends when the promise settles, or
     at `NativeLoopback.close`, after which TypeScript drops every reservation it holds anyway.
   - `opened` is called only on `Writing → Opened`: no refused, timed-out or abandoned upgrade, and
@@ -660,8 +684,9 @@ relayed?, reservation?)` checks `cleanups.size + reserved - (reservation === und
   the listeners; `NativeLoopback.close(deadline)` then stops accepting new connections; upgrades
   already in flight keep today's order (T1a.5): admission, then `ws`'s checks, and only one that
   passes them all gets `ws`'s closing-state 503 (the `text/html` one with the `Service Unavailable`
-  body, T1a.3) instead of `101`; it waits for every upgrade in `Writing` to reach `Opened` or
-  `Released` (T1a.5), and drains; **a socket
+  body, T1a.3) instead of `101`; it never cancels an upgrade in `Writing`, whose only bound is the
+  5 s write timeout on its stream (T1a.2), and waits for each to reach `Opened` (then registered,
+  then closed with `1001`) or `Released`; then it drains; **a socket
   whose `opened` arrives after the first 1001 sweep** is given
   `closer.gracefulClose(socket, 1001, "Daemon shutdown")` as soon as `connected` registers it (the
   closing flag is checked there), with the same bounded terminate; the internal server closes after
@@ -675,7 +700,7 @@ relayed?, reservation?)` checks `cleanups.size + reserved - (reservation === und
 
 #### T1a.8 The proof run
 
-- **Files**: create `scripts/list-server-tests.ts` and
+- **Files**: create `scripts/list-server-tests.ts`, `scripts/t1a-proof.ts` and
   `apps/daemon/src/native-loopback.process.test.ts`.
 - **Discovery** (`list-server-tests.ts`): an import graph over `apps/daemon/src` and
   `packages/*/src`, with relative imports resolved **and workspace package imports resolved
@@ -717,36 +742,30 @@ relayed?, reservation?)` checks `cleanups.size + reserved - (reservation === und
     and a `Buffer` with `{ binary: false }` arrives as text; shutdown closes open sockets with
     `1001`; an upgrade to `/?x` gets no answer; an upgrade sent on a keep-alive connection after
     an ordinary request opens a socket, as on Node (T1a.2 step 4).
-- **Run, both legs per file, one file at a time, with evidence**:
+- **Run, both legs per file, one file at a time, with evidence**: create `scripts/t1a-proof.ts`
+  (run with `node scripts/t1a-proof.ts`), which reads the list from `list-server-tests.ts` and, for
+  each file in turn:
+  1. runs the off leg with `ACE_TRANSPORT` and `ACE_TRANSPORT_EVIDENCE` removed from the child's
+     environment, and the on leg with `ACE_TRANSPORT=native` and a fresh empty evidence file, each
+     as `bun --bun x vitest run <file> --maxWorkers=4 --reporter=json --outputFile=<report>.json`;
+  2. reads each report with `JSON.parse(readFileSync(path, "utf8"))` (never `require`); a missing,
+     unparsable or empty report (`numTotalTests` of 0) is `NO-REPORT`;
+  3. records every test of both legs, per test, from `testResults[].assertionResults[]`: file,
+     `fullName`, leg, status (`passed`, `failed`, `skipped`, `pending`, `todo`);
+  4. labels the on leg `native` when it executed at least one test and the evidence file is
+     non-empty, `NONE` when it executed tests and the evidence file is empty, and
+     `platform-skipped` only when every test was skipped and the file has an identified platform
+     guard (`runIf`/`skipIf` on `process.platform` or a constant derived from it);
+  5. prints the per-file table and a list of **every skipped test with its file and leg**, in
+     executed files too, so one platform guard can't hide an unrelated skip: each skip in a file
+     without a platform guard is a failure, and each skip in a file with one is listed for the
+     reviewer to confirm it sits under that guard;
+  6. **exits non-zero** if any leg failed, any report is `NO-REPORT`, any on leg is `NONE`, or any
+     skip is in a file without a platform guard; it exits zero only when none of these occurred.
 
-  ```sh
-  node scripts/list-server-tests.ts > /tmp/t1a-files.txt
-  while read -r f; do
-    test -f "$f" || continue
-    report=$(mktemp); evidence=$(mktemp)
-    env -u ACE_TRANSPORT -u ACE_TRANSPORT_EVIDENCE \
-      bun --bun x vitest run "$f" --maxWorkers=4 >/dev/null 2>&1; off=$?
-    ACE_TRANSPORT=native ACE_TRANSPORT_EVIDENCE="$evidence" \
-      bun --bun x vitest run "$f" --maxWorkers=4 --reporter=json --outputFile="$report" >/dev/null 2>&1; on=$?
-    ran=$(node -e 'const r=require(process.argv[1]);console.log(r.numTotalTests>0?r.numTotalTests-r.numPendingTests-r.numTodoTests:"empty")' "$report" 2>/dev/null || echo missing)
-    guard=$(grep -cE '(runIf|skipIf)\((windows|linux|macos|darwin|process\.platform)' "$f")
-    if [ "$ran" = missing ] || [ "$ran" = empty ]; then used=NO-REPORT
-    elif [ "$ran" = 0 ] && [ "$guard" -gt 0 ]; then used=platform-skipped
-    elif [ "$ran" = 0 ]; then used=NONE
-    elif test -s "$evidence"; then used=native
-    else used=NONE; fi
-    echo "$off $on $used $ran $f"; rm -f "$report" "$evidence"
-  done < /tmp/t1a-files.txt
-  ```
-
-  Every file passes both legs. Every on leg that executed at least one test reports `native`: one
-  that ran tests but started no native listener proves nothing and is investigated (a server
-  started outside the switch, or a scrubbed environment). A missing or empty report
-  (`numTotalTests` of 0) is `NO-REPORT`, a failure. A file is recorded `platform-skipped`, apart
-  from the executed legs, only when its report lists tests, every one of them was skipped, and the
-  file carries an identified platform guard (`runIf`/`skipIf` on `process.platform` or a platform
-  constant); skipped tests without such a guard are `NONE` and investigated. A platform-skipped
-  file is owed on the platform it runs on: `daemon-stop-restart.process` runs only on Windows (every case is
+  Every file passes both legs, and every on leg that executed a test is `native`. A
+  `platform-skipped` file is owed on the platform it runs on: `daemon-stop-restart.process` runs
+  only on Windows (every case is
   `test.runIf(windows)`, `:15`–`:115`), so it counts on the Windows VM run, not on macOS. `scripts/test-home-policy.ts` keeps the three variables (T0.1), and the
   launch helpers already pass the environment through (`daemon-launch-test-support.ts`
   `daemonEnv`, `:19`–`:37`). Files whose remote sockets matter (`remote*`, `relay*`,
