@@ -282,6 +282,8 @@ fn overrides_round_trip_as_role_names() {
         allowed: None,
         escalate: Some(true),
         efforts: BTreeMap::new(),
+        context_tokens: None,
+        age_results: None,
     };
     let text = serde_json::to_string(&stored).unwrap_or_default();
     assert_eq!(

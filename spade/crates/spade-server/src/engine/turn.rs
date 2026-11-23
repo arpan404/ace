@@ -349,7 +349,7 @@ async fn drive(
                     _ = stopped(&mut stop) => return Ended::Stopped(String::new()),
                     _ = pausing(pause, Point::Streaming) => return Ended::Paused,
                 };
-                if compacted {
+                if compacted || super::compact::age_if_due(engine, id, &events) {
                     continue;
                 }
                 match model_step(engine, id, &reply, &events, &mut stop, pause).await {
