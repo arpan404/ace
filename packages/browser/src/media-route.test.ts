@@ -18,7 +18,8 @@ function healthy(connection = "mc_aaaaaaaaaa") {
   return { media, refreshed };
 }
 
-const refusal = new Error("media-connection: that media connection isn't this session's");
+const refusal = new Error("media-connection-gone: that media connection is gone");
+const foreign = new Error("media-connection: that media connection isn't this session's");
 
 test("a source whose subscribes keep failing still names the healthy connection once its ladder is spent", () => {
   const { media } = healthy();
@@ -66,4 +67,16 @@ test("a view with no media connection to name waits for one instead of asking ag
   const begun = media.begin("thread");
   media.subscribed("thread", begun.generation, undefined);
   expect(media.unserved("thread")).toBe(false);
+});
+
+test("a connection refused as another session's is never replaced, since other views may still use it", () => {
+  const { media, refreshed } = healthy();
+  const begun = media.begin("thread");
+  media.failed("thread", begun.generation, foreign);
+  expect(refreshed).toEqual([]);
+  // The view still gets its state, and asks for video again after.
+  const metadata = media.begin("thread");
+  expect(metadata.fields.media).toBeUndefined();
+  media.subscribed("thread", metadata.generation, undefined);
+  expect(media.unserved("thread")).toBe(true);
 });

@@ -15,6 +15,7 @@ import type { EnginePreferencePort } from "./engine-move.ts";
 import type { CaptureViewer } from "./viewer-sink.ts";
 import { downloadBusy, encodeDownloadChunk } from "./stream-download.ts";
 import {
+  bindingRefused,
   mediaSubscribed,
   mediaUndelivered,
   pendingUndelivered,
@@ -204,8 +205,7 @@ export function connectBrowser(
       shows: showsThread(threadId),
       onGrant: (granted, why) => delivered(threadId, granted ? undefined : waiting(threadId, why)),
     });
-    if (bound === undefined)
-      throw new Error("media-connection: that media connection isn't this session's");
+    if (bound === undefined) throw bindingRefused(delivery, connection);
     return { viewer: bound, created: true };
   };
   /**

@@ -1,9 +1,10 @@
-import type {
-  MediaBinding,
-  MediaPoster,
-  MediaStreamClientMessage,
-  MediaSubscribed,
-  MediaUndelivered,
+import {
+  mediaRefusals,
+  type MediaBinding,
+  type MediaPoster,
+  type MediaStreamClientMessage,
+  type MediaSubscribed,
+  type MediaUndelivered,
 } from "@ace/protocol";
 import type { StreamMessage } from "./stream.ts";
 import type { PictureChunk } from "./stream-picture.ts";
@@ -41,9 +42,12 @@ export interface MediaRoute {
  */
 export const mediaSubscribeDeadlineMs = 15_000;
 
-/** A subscribe the daemon refused for naming a media connection that isn't this session's. */
+/** A subscribe the daemon refused for the media connection it named (gone, or not ours). */
 export const isMediaRefusal = (error: unknown): boolean =>
-  error instanceof Error && error.message.includes("media-connection");
+  error instanceof Error && error.message.includes(mediaRefusals.notOwned);
+/** A refusal because the daemon no longer has that connection: a fresh one is worth opening. */
+const isGoneConnection = (error: unknown): boolean =>
+  error instanceof Error && error.message.startsWith(mediaRefusals.gone);
 
 /** The codec every viewer decodes, kept when a source has given up on the others. */
 const baseline = "avc1.42E033";
@@ -322,8 +326,9 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     this.#candidates.delete(source);
     if (delivery.asked && isMediaRefusal(error)) {
       this.#refused.set(source, delivery.asked);
-      // The daemon doesn't know this connection as ours: a fresh one gets a binding it does.
-      this.#route?.refresh?.(delivery.asked);
+      // The daemon has no such connection: a fresh one gets a binding it knows. One that is
+      // someone else's is left alone, since it may still serve their views.
+      if (isGoneConnection(error)) this.#route?.refresh?.(delivery.asked);
     }
     const previous = this.#previous.get(source);
     this.#previous.delete(source);

@@ -8,6 +8,7 @@ import {
   type ScreenServerMessage,
 } from "@ace/protocol";
 import {
+  bindingRefused,
   mediaSubscribed,
   mediaUndelivered,
   pendingUndelivered,
@@ -129,8 +130,7 @@ export function screenConnection(
       onGrant: (granted, why) =>
         delivered(sessionId, granted ? undefined : waiting(sessionId, why)),
     });
-    if (viewer === undefined)
-      throw new Error("media-connection: that media connection isn't this session's");
+    if (viewer === undefined) throw bindingRefused(port, connection);
     return viewer;
   };
   /**

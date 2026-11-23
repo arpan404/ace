@@ -1,4 +1,9 @@
-import type { MediaLinkHint, MediaSubscribed, MediaUndelivered } from "@ace/protocol";
+import {
+  mediaRefusals,
+  type MediaLinkHint,
+  type MediaSubscribed,
+  type MediaUndelivered,
+} from "@ace/protocol";
 import type { IngestProducer } from "./ingest-sources.ts";
 import type { MediaConnections, MediaOwner } from "./media-connections.ts";
 import type { FromMedia, ToMedia } from "./wire.ts";
@@ -99,6 +104,11 @@ export class MediaViewers {
    * requester doesn't own the connection: the caller refuses the subscribe. A view exists even
    * before its producer streams into ace-media: it is granted once it does.
    */
+  /** Whether the daemon holds `connection` now (`MediaDeliveryPort.known`). */
+  known(connection: string): boolean {
+    return this.#options.connections.known(connection);
+  }
+
   bind(request: Omit<ViewIntent, "viewer">): string | undefined {
     if (!this.#options.connections.owned(request.requester, request.connection)) return undefined;
     const intent: ViewIntent = { ...request, viewer: `view-${this.#options.id()}` };
@@ -372,6 +382,8 @@ export type MediaDeliveryPort = {
   sourceState(shows: ViewIntent["shows"]): "live" | "pending" | "failed";
   /** The view's id, or undefined when the requester doesn't own the connection. */
   bind(request: Omit<ViewIntent, "viewer">): string | undefined;
+  /** Whether the daemon holds `connection` at all; absent: it can't tell. */
+  known?(connection: string): boolean;
   granted(viewer: string): boolean;
   /** Why ace-media isn't playing a granted view: its refusal (`limit`, …) or `stopped`. */
   why(viewer: string): string | undefined;
@@ -394,6 +406,16 @@ export type HeldView = { viewer: string; connection: string };
  * where it carries on from a keyframe. `granted` is a view made for this subscribe (not one it
  * shares); the browser, screen and device bridges all swap through this.
  */
+/**
+ * Why a subscribe naming `connection` was refused (`bind` gave no view): `gone` when the daemon
+ * has no such connection, so the client opens a fresh one, else not this session's.
+ */
+export function bindingRefused(port: Pick<MediaDeliveryPort, "known">, connection: string): Error {
+  return port.known?.(connection) === false
+    ? new Error(`${mediaRefusals.gone}: that media connection is gone`)
+    : new Error(`${mediaRefusals.notOwned}: that media connection isn't this session's`);
+}
+
 export function viewSwap(
   port: MediaDeliveryPort | undefined,
   old: HeldView | undefined,

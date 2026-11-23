@@ -427,3 +427,22 @@ test("a view refused at ace-media's viewer limit says so, and plays once another
   expect(deliveries().at(-1)).toEqual({ type: "browser.delivery", threadId: "thread" });
   client.close();
 });
+
+test("a subscribe naming a connection the daemon no longer has is refused as gone, one owned elsewhere as not this session's", async () => {
+  const { bridge: client, results, refuse } = await bridge();
+  refuse.set("mc_cccccccccccc", "gone");
+  refuse.set("mc_dddddddddddd", "foreign");
+  await client.handle(subscribe(a, "mc_cccccccccccc"));
+  await client.handle(subscribe(b, "mc_dddddddddddd"));
+  const errors = results.flatMap((message) => {
+    const parsed = BrowserServerMessage.safeParse(message);
+    return parsed.success && parsed.data.type === "browser.result" && !parsed.data.ok
+      ? [parsed.data.error]
+      : [];
+  });
+  expect(errors).toEqual([
+    expect.stringMatching(/^media-connection-gone:/),
+    expect.stringMatching(/^media-connection:/),
+  ]);
+  client.close();
+});

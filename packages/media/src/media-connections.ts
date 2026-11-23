@@ -228,6 +228,11 @@ export class MediaConnections {
     return undefined;
   }
 
+  /** Whether the daemon holds `connection` now, whoever owns it. */
+  known(connection: string): boolean {
+    return this.#held.has(connection);
+  }
+
   /**
    * The connection's owner, when `requester` may bind views on it: its own main session, or a
    * channel of the same device admitted the same way.

@@ -154,6 +154,15 @@ test("a closed session closes its connections on the priority lane, and only its
   expect([...connections.sessions()]).toEqual(["b"]);
 });
 
+test("a connection is known while held, whoever owns it, and gone once its session closed", async () => {
+  const { connections } = harness();
+  const a = granted(await connections.connect(phone("a")));
+  expect(connections.known(a.connection)).toBe(true);
+  expect(connections.known("mc_neverissued")).toBe(false);
+  await connections.sessionClosed("a");
+  expect(connections.known(a.connection)).toBe(false);
+});
+
 test("after a revocation nothing more is minted for its owner, and a pairing's stays", async () => {
   const { connections, advance } = harness();
   const held = granted(await connections.connect(phone("a")));

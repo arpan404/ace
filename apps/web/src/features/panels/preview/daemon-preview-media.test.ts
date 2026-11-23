@@ -111,7 +111,8 @@ type Daemon =
   | "replays, answers later"
   | "fails"
   | "fails everything"
-  | "refuses";
+  | "refuses"
+  | "lost the connection";
 
 function withMediaReplies(
   api: ClientApi,
@@ -136,13 +137,16 @@ function withMediaReplies(
             await target.request(input, options);
             return { type: "browser.result", requestId: "r", ok: false, error: "busy" };
           }
-          if (named && daemon === "refuses") {
+          if (named && (daemon === "refuses" || daemon === "lost the connection")) {
             refused.push(input);
             return {
               type: "browser.result",
               requestId: "r",
               ok: false,
-              error: "media-connection: that media connection isn't this session's",
+              error:
+                daemon === "refuses"
+                  ? "media-connection: that media connection isn't this session's"
+                  : "media-connection-gone: that media connection is gone",
             };
           }
           const reply = await target.request(input, options);
@@ -334,15 +338,17 @@ test("the browser's view carries the degraded sentence exactly while its video i
 });
 
 test("a refused connection subscribes again on the socket", async () => {
-  const { subscribes, refused } = await watching("mc_aaaaaaaaaa", undefined, "refuses");
+  const { subscribes, refused, link } = await watching("mc_aaaaaaaaaa", undefined, "refuses");
   expect(refused[0]).toEqual(expect.objectContaining({ media: { connection: "mc_aaaaaaaaaa" } }));
-  // The ones the daemon took name no connection: the thread's state still comes.
-  await waitFor(() => expect(subscribes().length).toBeGreaterThan(0));
-  expect(subscribes().every((subscribe) => !("media" in subscribe))).toBe(true);
+  // The one the daemon took names no connection: the thread's state still comes. Someone
+  // else's connection is never replaced from here.
+  await waitFor(() => expect(subscribes()).toHaveLength(1));
+  expect(subscribes()[0]).not.toHaveProperty("media");
+  expect(link.refreshes).toEqual([]);
 });
 
-test("a refused connection is replaced, and the next video subscribe names the fresh one", async () => {
-  const { refused, link } = await watching("mc_aaaaaaaaaa", undefined, "refuses");
+test("a connection the daemon no longer has is replaced, and the next video subscribe names the fresh one", async () => {
+  const { refused, link } = await watching("mc_aaaaaaaaaa", undefined, "lost the connection");
   await waitFor(() => expect(link.refreshes[0]).toBe("mc_aaaaaaaaaa"));
   await waitFor(() =>
     expect(refused).toContainEqual(
