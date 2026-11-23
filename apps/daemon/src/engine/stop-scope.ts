@@ -42,17 +42,24 @@ export function tasksToStop(state: ThreadState): string[] {
 }
 
 /**
- * Those of `stoppableTasks` the provider said it can't stop that only its session's end can end:
- * work that takes the thread's next prompt away while it runs (an ACP shell that outlived its
- * reply), and an ACP shell the agent keeps open across turns (`endsWithSession`). A whole-thread
- * Stop gives them a bounded time to end, then closes the session (`Sessions.closeAfter`). Other
- * work it can't stop is left to end; Claude's placeholder for an unbound subagent ends by itself.
+ * Those of `stoppableTasks` the provider said it can't stop and that take the thread's next
+ * prompt away while they run (an ACP shell its cancelled prompt left unconfirmed): a
+ * whole-thread Stop gives them a bounded time to end (`Sessions.closeAfter`), since the provider
+ * may still report that they did. Other work it can't stop is left to end, as the person can send
+ * meanwhile; Claude's placeholder for an unbound subagent ends by itself.
  */
-export function tasksEndingWithSession(state: ThreadState): string[] {
+export function tasksHoldingPrompts(state: ThreadState): string[] {
   return stoppableTasks(state).filter((key) => {
     const task = state.tasks[key];
-    return (
-      task?.stoppable !== true && (task?.blocksPrompts === true || task?.endsWithSession === true)
-    );
+    return task?.stoppable !== true && task?.blocksPrompts === true;
   });
+}
+
+/**
+ * Those of `stoppableTasks` only the provider's session's end can end (`endsWithSession`: an ACP
+ * shell the agent keeps open across turns). Nothing would report them ending on their own, so a
+ * whole-thread Stop closes the session at once.
+ */
+export function tasksEndingWithSession(state: ThreadState): string[] {
+  return stoppableTasks(state).filter((key) => state.tasks[key]?.endsWithSession === true);
 }

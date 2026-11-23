@@ -1,5 +1,10 @@
 import { contextNotice } from "@ace/context";
-import { stopsWholeThread, tasksEndingWithSession, tasksToStop } from "./stop-scope.ts";
+import {
+  stopsWholeThread,
+  tasksEndingWithSession,
+  tasksHoldingPrompts,
+  tasksToStop,
+} from "./stop-scope.ts";
 import { SessionFenced } from "./session-fenced.ts";
 import type { PrepareInput } from "./input.ts";
 import type { ThreadTransitions } from "./transitions.ts";
@@ -365,7 +370,12 @@ export async function executeIntent(
       // lost, or it holds work it won't interrupt), ace ends the provider session: owned work is
       // cleaned up and everything still marked running ends with an unknown outcome.
       await sessions.closeForStop(actor);
-    } else if (whole) sessions.closeAfter(actor, tasksEndingWithSession(repo.requireState(actor.id)));
+    } else if (whole) {
+      const stopped = repo.requireState(actor.id);
+      // Work only the session's end can end, which nothing would report ending: it ends now.
+      if (tasksEndingWithSession(stopped).length) await sessions.closeForStop(actor);
+      else sessions.closeAfter(actor, tasksHoldingPrompts(stopped));
+    }
   } else if (p.type === "interaction.resolve") {
     const entry = Object.entries(state.interactions).find(
       ([, item]) => item.id === p.interactionId,

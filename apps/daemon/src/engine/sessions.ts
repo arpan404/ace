@@ -1006,8 +1006,8 @@ export class Sessions {
     }
   }
   /**
-   * After a whole-thread Stop, the work the provider can't stop that only its session's end can
-   * end (`tasks`, `tasksEndingWithSession`) gets the interrupt's grace to end by itself. If it still runs then, in
+   * After a whole-thread Stop, the work the provider can't stop that keeps the thread's next
+   * prompt out (`tasks`) gets the interrupt's grace to end by itself. If it still runs then, in
    * the same session, with no new turn and no command for the thread carried out or handed to
    * the provider since, it ends with that session (`closeForStop`), so a Stop always settles and
    * the thread takes the next message (ADR 0052). Anything carried out since is the person's or

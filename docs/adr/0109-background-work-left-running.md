@@ -73,8 +73,8 @@ a TCP port.
    `tool_call_update`. That shell is reported without `blocksPrompts`, so it reads as left
    running on a done thread. A shell a cancelled prompt leaves with no proof it ended still
    refuses new prompts. ACP has no per-task stop, so a carried shell is reported `endsWithSession`:
-   a whole-thread Stop gives it the interrupt's grace to end, then closes the session, as it does
-   for work that blocks prompts (ADR 0052). Settling or archiving the thread ends it too.
+   a whole-thread Stop closes the session at once, since nothing would report the shell ending
+   by itself (ADR 0052). Settling or archiving the thread ends it too.
 
 3. **Host fact: the port probe** (`apps/daemon/src/background-services/`). Claude names each
    background command's output file in the call's result (no structured field carries it), kept
