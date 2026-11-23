@@ -597,7 +597,7 @@ export class GitCli {
     const key = JSON.stringify([this.binary, env]);
     const known = this.standardFiles.get(key);
     if (known) return known;
-    const files = standardConfigFiles(query).catch(() => undefined);
+    const files = standardConfigFiles(query, env).catch(() => undefined);
     this.standardFiles.set(key, files);
     // files never rejects; forgetting a missing answer is the only cleanup it needs.
     void files

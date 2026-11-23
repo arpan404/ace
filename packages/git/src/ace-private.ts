@@ -1,3 +1,4 @@
+import { isUtf8 } from "node:buffer";
 import { appendFile, lstat, mkdir, readFile, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { Repository } from "./repository.ts";
@@ -52,11 +53,17 @@ export async function excludeAcePrivate(repository: Repository, root: string): P
 const isMissing = (error: unknown) =>
   error instanceof Error && "code" in error && error.code === "ENOENT";
 
-/** One `rev-parse` path value: only the final newline is stripped, embedded newlines stay. */
-function singlePath(output: { stdout: Buffer; exitCode: number }): string | undefined {
-  if (output.exitCode !== 0) return undefined;
+/** One `rev-parse` path value, read as bytes: refuse invalid UTF-8, strip one terminator. */
+function singlePath(output: {
+  stdout: Buffer;
+  exitCode: number;
+  truncated: boolean;
+}): string | undefined {
+  if (output.exitCode !== 0 || output.truncated || !isUtf8(output.stdout)) return undefined;
   const text = output.stdout.toString("utf8");
-  return text.endsWith("\n") ? text.slice(0, -1) : text;
+  if (text.endsWith("\r\n")) return text.slice(0, -2);
+  if (text.endsWith("\n")) return text.slice(0, -1);
+  return text;
 }
 
 /** `folder` and `file` are no symlinks (or absent), and `folder` resolves inside `gitDir`. */

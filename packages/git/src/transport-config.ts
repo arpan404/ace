@@ -1,3 +1,4 @@
+import { isUtf8 } from "node:buffer";
 import { stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import {
@@ -20,14 +21,22 @@ async function checkoutRoots(query: Query): Promise<string[]> {
   const roots: string[] = [];
   for (const flag of ["--show-toplevel", "--git-common-dir"]) {
     const output = await query(["rev-parse", "--path-format=absolute", flag]);
-    // One path per invocation: strip only the final newline, keeping embedded newlines.
-    const raw = output.exitCode === 0 ? output.stdout.toString("utf8") : "";
-    const path = raw.endsWith("\n") ? raw.slice(0, -1) : raw;
+    // One path per invocation, read as bytes: refuse invalid UTF-8, strip one terminator.
+    const path = singlePath(output);
     if (path && isAbsolute(path) && !output.truncated) roots.push(path);
     else if (flag === "--git-common-dir")
       throw new GitError("not_a_repo", "Could not locate the repository for a transfer");
   }
   return roots;
+}
+
+/** One `rev-parse` path value: refuse invalid UTF-8, strip exactly one LF (or CRLF) terminator. */
+function singlePath(output: ConfigOutput): string | undefined {
+  if (output.exitCode !== 0 || !isUtf8(output.stdout)) return undefined;
+  const text = output.stdout.toString("utf8");
+  if (text.endsWith("\r\n")) return text.slice(0, -2);
+  if (text.endsWith("\n")) return text.slice(0, -1);
+  return text;
 }
 
 async function present(file: string): Promise<boolean> {
