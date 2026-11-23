@@ -1,7 +1,11 @@
 # 0217: A Spade bot runs each task in its own lane
 
 Status: proposed. Date: 2026-11-22. Asked for by the owner (2026-11-22: "multitasking and many
-others are fucked"; bots forget earlier asks when given new ones). Builds on
+others are fucked"; bots forget earlier asks when given new ones). The owner answered the first
+draft's open questions the same day (16 lanes at once, a `task` model role, main's long work moves
+to a lane by itself, no CLI case, mock both task list layouts); they are folded in below. Amends
+[ADR 0162](0162-spade-model-routing.md) and [ADR 0213](0213-spade-roles-think-at-an-effort.md)
+with one role. Builds on
 [ADR 0152](0152-spade-helpers.md) (helpers), [ADR 0158](0158-spade-no-fixed-step-or-time-limits.md)
 (no fixed limits), [ADR 0159](0159-spade-goals-plans-and-verification.md) (goals, plans, the
 check of done), [ADR 0160](0160-spade-wake-and-owned-services.md) (wakes),
@@ -137,10 +141,34 @@ Deterministic routes come before the model:
 - **A message to main while main's own reply is open** is stored and seen at the next model call,
   as now, but marked `<new_ask id="a7" from="spade">`. The note tells the model to place it before
   going on with its current work. With the ledger's stop check, the turn can't end until the
-  entry is placed and, if it was answered, closed. When the open reply has already run long (eight
-  steps or two minutes), the note also suggests handing the current work to a lane:
-  `task_start {asks: [the current ask], brief}` with what has been done so far. The current turn
-  then ends after one line to the person.
+  entry is placed and, if it was answered, closed. Main's turns are short (below), so this is the
+  rare case.
+- **Main's own work that runs long moves to a lane by itself.** Spade decides this, not the model.
+  When a main reply has taken eight steps or run two minutes, Spade moves it to a lane at the next
+  step boundary where no approval or question waits (2a).
+
+### 2a. Moving main's long work to a lane
+
+The owner chose (2026-11-22) that Spade moves the work without asking the model first. At the
+boundary:
+
+- Spade opens a lane for the asks main's open reply owns. Its title comes from the `title` role,
+  in the person's words. Its conversation begins with `lane_of {moved_from: reply}`, then the recent
+  chat as quoted context (the person's and the bot's messages since the last compaction, at most
+  the last ten, no tool output), then the person's ask verbatim, then the reply's steps so far,
+  copied as they were stored. The lane goes on from the step it was at, with the work's context
+  intact.
+- Background jobs, helpers, workers and wakes that the reply started now belong to the lane
+  (`lane_moved {reply, lane, jobs, wakes}` in main, in the same write), so their results reach the
+  lane and not main.
+- Main's reply closes as `reply_moved {lane}`, and Spade writes one plain line in the chat, not the
+  model: "This is taking a while, so I moved it to its own task: *Fix the March invoice*. I'm free
+  to talk." The line opens the lane. Main's stop check reads the moved asks as the lane's.
+- The move is stored in one write under the record lock that Stop and steering use, so a Stop or a
+  message that comes at the same moment lands either before the move, in main, or after it, in the
+  lane. It is never lost. After a restart, a move whose write landed is complete, and one that
+  didn't land never happened.
+- A lane's own work never moves: lanes are the end of the line.
 
 The model places messages, not a separate classifier, because only the conversation knows
 whether "and the PDF too" belongs to the invoice task. A wrong placement can be fixed: the person
@@ -150,7 +178,7 @@ says "that's separate" or "that was for the invoice", and main moves the entry
 ### 3. Lanes
 
 - **Tools, offered to the main conversation as core tools** (they are part of every bot's job
-  now, so they are not deferred). They are left out of lanes, helpers and CLI brains:
+  now, so they are not deferred). They are left out of lanes and helpers:
 
   | Tool           | Effect        | Arguments                                   | Answers                                   |
   | -------------- | ------------- | ------------------------------------------- | ----------------------------------------- |
@@ -186,8 +214,8 @@ says "that's separate" or "that was for the invoice", and main moves the entry
   same note in that lane's next report. It is a note, not a lock: locks across long tasks deadlock,
   and most overlaps are intended (one task writes the file, the next sends it). The system prompt
   says to keep work that touches the same files in one task.
-- **Its model** is the bot's `main` role, resolved as ADR 0162 and 0213 say, so the person's
-  model and effort choices hold.
+- **Its model** is the new `task` role (8a), so the person can run tasks on a different model from
+  the chat.
 - **What it may start.** A lane may use helpers, `bot_create` and ace's `delegate` as main can, so
   its workers hang under it in the tree. It may not start lanes: one level keeps the task list
   flat and keeps routing in one place.
@@ -259,7 +287,11 @@ chrome; one place per fact. It describes the design only, with no UI code.
   ("Working · 12s"). One more pill names the lanes: "2 tasks", or "2 tasks · 1 needs you". It opens
   the task list. While lanes are live the pill names them and the transcript lines are the record;
   this is the rule the design language already sets for subagents.
-- **The task list** is a sheet on the iPhone and a popover on desktop and web, with one flat list
+- **Main's moved work** reads as the plain line Spade writes (2a), "This is taking a while, so I
+  moved it to its own task: *title*. I'm free to talk.", in the same quiet style as the started
+  line, and it opens the lane.
+- **The task list** is a sheet on the iPhone. On desktop and web it is either a popover from the
+  pill or a panel beside the chat; both are mocked and the owner picks. Either way it is one flat list
   ordered by needs you, then running, then finished unseen, then queued. Each row has a still
   status icon and a running time, the title (full ink when the person is needed), and one quieter
   line: the current plan step and count ("2 of 5 · Drafting the email"), or "Queued", or the
@@ -279,15 +311,27 @@ chrome; one place per fact. It describes the design only, with no UI code.
 
 ### 8. Limits and spend
 
-- At most `SPADE_TASKS_AT_ONCE` lanes of a bot have a reply open at once, default 8. It is a
-  setting, not a rule (ADR 0158), and it is lower than helpers' 16 because each lane runs the
-  bot's main model for as long as its task takes. A `task_start` past that is stored queued and
-  starts oldest first. Main says so ("Queued behind 8 running tasks"), and the row reads "Queued".
-- Spend is recorded per lane (`cost_micros` on its tree node, and the `main` role under the bot)
+- At most `SPADE_TASKS_AT_ONCE` lanes of a bot have a reply open at once, default 16 (the owner,
+  2026-11-22), the same as helpers. It is a setting, not a rule (ADR 0158). A `task_start`, or a
+  move of main's work, past that is stored queued and starts oldest first. Main says so ("Queued
+  behind 16 running tasks"), and the row reads "Queued".
+- Spend is recorded per lane (`cost_micros` on its tree node, and the `task` role under the bot)
   and summed into the bot's spend. The task list shows each lane's cost, and nothing stops on it
   (ADR 0166).
 - One shared prompt top keeps the price of running lanes down: their system prompts match main's
   byte for byte, so the provider's cache serves them all.
+
+### 8a. The `task` model role
+
+A lane's steps run on a new routing role, `task`, beside `main`, `helper`, `review`, `verify`,
+`compact` and `title` (ADR 0162). It resolves like the others: the bot's override, else the global
+one, else the default, which is whatever the bot's `main` role resolves to. Its thinking effort
+(ADR 0213) resolves the same way, with a default of whatever `main`'s effort resolves to. A person
+who never touches it gets tasks on the chat's model and effort, and changing main changes tasks
+too. Both are stored in the same `model_roles` settings and read and set through
+`/v1/models/roles` and `/v1/agents/{id}/models`. Settings › Spade › Models › Roles gets one more
+row, "Tasks", between "Main" and "Helpers". It reads "Same as main" until set. A lane's
+compaction runs on the lane's own model, as a main compaction does (ADR 0213 decision 2).
 
 ### 9. The system prompt
 
@@ -295,7 +339,8 @@ These words are added to the rules every bot's main conversation gets. They are 
 model and tuned with the scripted tests below:
 
 > You run a main conversation and any number of tasks. The main conversation is where the person
-> talks to you: keep its turns short. When the person asks for something:
+> talks to you: keep its turns short. If work here runs long, Spade moves it to a task for you and
+> tells the person. When the person asks for something:
 >
 > - If you can answer it in a step or two, answer it here.
 > - If it changes a task that is already running, send it to that task with `task_message`.
@@ -339,10 +384,10 @@ Each lane's prompt adds:
 - More model calls in total: main's routing turn, plus a report turn per lane. Each lane's own
   calls replace calls main would have made, and the shared cache top keeps their price down.
 - Two lanes can step on the same file. They are told when they do, and nothing prevents it.
-- CLI-brain bots (ADR 0133) are left out at first: they keep today's single conversation plus the
-  ledger.
-- Not here: lanes starting lanes, file locks, lanes on another machine than their bot, and moving
-  a running main turn's context into a lane (handing over is a brief, not a copy).
+- Lanes need no CLI case. Spade bots never run on CLI subscriptions (the owner, 2026-11-22: CLI
+  providers are reached through ace's projects and chat only), and ADR 0133's CLI brains are being
+  removed from Spade separately.
+- Not here: lanes starting lanes, file locks, and lanes on another machine than their bot.
 
 ## Test plan
 
@@ -367,6 +412,12 @@ real background workers, and each is named for the behaviour it guards:
   a lane runs;
 - a lane that settles reports once, also when Spade restarts between the settle and the report;
 - a `task_start` run again after a restart finds its lane and doesn't make a second one;
+- a main reply that reaches eight steps moves to a lane at the next boundary, the lane carries on
+  from the same step with the same calls' results, main posts the moved line, and a job the reply
+  started delivers its result to the lane;
+- a main reply waiting on an approval when it reaches the threshold moves only after the answer;
+- a message sent at the moment of a move lands exactly once, in main or in the lane;
+- a lane's steps run on the `task` role's model and effort, and on main's when the role is unset;
 - a lane cut off mid-step by a restart resumes its next step;
 - `task_stop` with no `because`, or with one naming a bot message, is refused;
 - Stop on a lane stops only that lane and its helpers; Stop on the bot stops all lanes;
@@ -377,14 +428,16 @@ real background workers, and each is named for the behaviour it guards:
 - the person's words in a lane's first message are trusted, and a brief written with untrusted
   content in view taints the lane's writes.
 
-## Open questions for the owner
+## Questions the owner resolved (2026-11-22)
 
-1. **Default limit:** is 8 lanes at once per bot right, or should it match helpers' 16?
-2. **Model per lane:** should lanes use the `main` role, or a new `task` role the person can point
-   at a cheaper model?
-3. **Should main hand over its own long work?** At eight steps or two minutes, should Spade only
-   suggest moving main's work to a lane (as proposed), or move it automatically?
-4. **CLI brains:** should a bot on a CLI subscription get lanes as separate CLI sessions, which
-   costs the person subscription quota per lane, or keep one conversation?
-5. **Where the task list lives on desktop:** a popover from the pill (as proposed), or a panel
-   beside the transcript?
+1. **Default limit:** 16 lanes at once per bot (8).
+2. **Model per lane:** a new `task` role in model settings, resolved like the others, with its own
+   effort; the default is the bot's main model (8a).
+3. **Main's long work:** Spade moves it to a lane automatically, with no suggestion step, and says
+   so plainly in the chat (2a).
+4. **CLI brains:** none. Spade bots never run on CLI subscriptions; lanes have no CLI case. Spade's
+   own ChatGPT sign-in is not a CLI subscription and is unaffected.
+5. **Where the task list lives on desktop:** the owner asked for mockups of every lane surface,
+   with both a popover from the pill and a panel beside the chat, built in the real web app on fake
+   data (prototype branch `ace/spade-lanes-prototype`). The layout is chosen from those
+   screenshots, and this section will be updated when it is.
