@@ -93,10 +93,6 @@ export class FakeLongThreadWire {
       return true;
     }
     const seq = this.host.head();
-    const turns =
-      message.type === "turns.page" || message.type === "items.window"
-        ? this.index.summaries(message.threadId)
-        : [];
     switch (message.type) {
       case "item.raw": {
         const item = Object.hasOwn(host.view.items, message.itemId)
@@ -137,6 +133,7 @@ export class FakeLongThreadWire {
         send(fakeTurnSteps(host, this.index, this.icons, message, seq));
         return true;
       case "turns.page": {
+        const turns = this.index.summaries(message.threadId);
         const selected = turns.filter(
           (turn) =>
             (message.before === undefined || turn.ordinal < message.before) &&
@@ -165,8 +162,7 @@ export class FakeLongThreadWire {
         const target =
           message.itemId !== undefined
             ? host.creation.get(message.itemId)
-            : (message.aroundSeq ??
-              turns.find((turn) => turn.ordinal === message.turnOrdinal)?.startSeq);
+            : (message.aroundSeq ?? this.index.turnStart(message.threadId, message.turnOrdinal));
         if (message.itemId !== undefined && target === undefined) {
           send({
             type: "items.window",
@@ -191,13 +187,22 @@ export class FakeLongThreadWire {
           return true;
         }
         const order = host.view.itemOrder;
-        let targetIndex = order.findIndex((id) => (host.creation.get(id) ?? 0) >= target);
-        if (targetIndex < 0) targetIndex = order.length - 1;
-        let ids = order.slice(
-          Math.max(0, targetIndex - message.before),
-          targetIndex + message.after + 1,
-        );
-        if (message.wholeTurns) ids = wholeTurns(ids, order, host.creation, turns, target);
+        // Projection appends new items in creation order. Seek directly to the cursor.
+        let low = 0;
+        let high = order.length;
+        while (low < high) {
+          const mid = low + Math.floor((high - low) / 2);
+          if ((host.creation.get(order[mid] ?? "") ?? 0) < target) low = mid + 1;
+          else high = mid;
+        }
+        const targetIndex = Math.min(low, order.length - 1);
+        const start = Math.max(0, targetIndex - message.before);
+        let ids = order.slice(start, targetIndex + message.after + 1);
+        if (message.wholeTurns && start > 0) {
+          const previous = host.creation.get(order[start - 1] ?? "") ?? 0;
+          const next = this.index.firstTurnStartAfter(message.threadId, previous);
+          ids = wholeTurns(ids, host.creation, next, target);
+        }
         const items = ids.flatMap((id) =>
           host.view.items[id] ? [structuredClone(host.view.items[id])] : [],
         );
@@ -406,23 +411,16 @@ function queryFingerprint(fields: readonly (string | null)[]): string {
  */
 function wholeTurns(
   ids: string[],
-  order: readonly string[],
   creation: ReadonlyMap<string, number>,
-  turns: readonly { startSeq: number }[],
+  next: number | undefined,
   target: number,
 ): string[] {
   const first = ids[0];
   const firstSeq = first === undefined ? undefined : creation.get(first);
-  const at = first === undefined ? -1 : order.indexOf(first);
-  if (firstSeq === undefined || at <= 0) return ids;
-  const previous = creation.get(order[at - 1] ?? "") ?? 0;
-  const starts = turns.map((turn) => turn.startSeq).toSorted((a, b) => a - b);
-  const own = starts.findLast((start) => start <= firstSeq);
-  if (own !== undefined && own > previous) return ids;
+  if (firstSeq === undefined || next === undefined || next <= firstSeq) return ids;
   // Keep at least one older item: a turn starting after the newest is the target's own (begun
   // by a run, before its first item), and cutting there would never move the cursor.
   const newestOlder = ids.map((id) => creation.get(id) ?? 0).findLast((seq) => seq < target);
-  if (newestOlder === undefined) return ids;
-  const next = starts.find((start) => start > firstSeq && start <= newestOlder);
-  return next === undefined ? ids : ids.filter((id) => (creation.get(id) ?? 0) >= next);
+  if (newestOlder === undefined || next > newestOlder) return ids;
+  return ids.filter((id) => (creation.get(id) ?? 0) >= next);
 }

@@ -117,6 +117,9 @@ private struct ShelvedMarkdownHost: UIViewRepresentable {
             MarkdownGates.gate(for: view).close()
             view.removeFromSuperview()
             view.onContentHeightChange = nil
+            view.onLink = nil
+            view.onReference = nil
+            view.resolveImage = nil
             shelf?.put(view, for: key)
             self.view = nil
             self.key = nil
