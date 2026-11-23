@@ -116,49 +116,140 @@ fn head_row(conn: &Arc<Connection>, thread_id: &str) -> Result<HeadRow, LongErro
     Ok((None, None, None))
 }
 
-fn linked_status(
+fn linked_statuses(
     conn: &Arc<Connection>,
     thread: &str,
-    ordinal: i64,
-) -> Result<Option<serde_json::Value>, LongError> {
-    let row = get_row(
-        conn,
-        "SELECT t.status AS status FROM long_agents a JOIN threads t ON t.id=a.child_thread WHERE a.thread_id=? AND a.ordinal=? AND json_extract(t.status,'$.state')='working' AND json_extract(t.client,'$.deletedAt') IS NULL ORDER BY CASE json_extract(t.status,'$.state') WHEN 'needs_you' THEN 0 WHEN 'working' THEN 1 WHEN 'limited' THEN 2 WHEN 'waiting' THEN CASE json_extract(t.status,'$.on') WHEN 'network' THEN 3 WHEN 'upstream' THEN 4 WHEN 'background_task' THEN 5 ELSE 7 END ELSE 6 END LIMIT 1",
-        vec![Value::Text(thread.to_owned()), Value::Integer(ordinal)],
-    )?;
-    if let Some(row) = row {
-        let text = as_text(row_value(&row, "status")?)?;
-        return Ok(Some(parse_thread_status(text)?));
+    ordinals: &[i64],
+) -> Result<std::collections::BTreeMap<i64, serde_json::Value>, LongError> {
+    if ordinals.is_empty() {
+        return Ok(std::collections::BTreeMap::new());
     }
-    Ok(None)
+    let list = serde_json::to_string(ordinals).map_err(|error| invalid(&error.to_string()))?;
+    let rows = all_rows(
+        conn,
+        "SELECT a.ordinal AS ordinal,t.status AS status FROM long_agents a JOIN threads t ON t.id=a.child_thread WHERE a.thread_id=? AND a.ordinal IN (SELECT value FROM json_each(?)) AND json_extract(t.status,'$.state')='working' AND json_extract(t.client,'$.deletedAt') IS NULL",
+        vec![Value::Text(thread.to_owned()), Value::Text(list)],
+    )?;
+    let mut best: std::collections::BTreeMap<i64, (i64, serde_json::Value)> =
+        std::collections::BTreeMap::new();
+    for row in rows {
+        let ordinal = match row.get("ordinal") {
+            Some(Value::Integer(n)) => *n,
+            Some(Value::Real(n)) => *n as i64,
+            _ => continue,
+        };
+        let text = match row.get("status") {
+            Some(Value::Text(text)) => text.clone(),
+            _ => continue,
+        };
+        let status = match parse_thread_status(&text) {
+            Ok(status) => status,
+            Err(_) => continue,
+        };
+        let rank = linked_rank(&status);
+        let entry = best
+            .entry(ordinal)
+            .or_insert((i64::MAX, serde_json::Value::Null));
+        if rank < entry.0 {
+            *entry = (rank, status);
+        }
+    }
+    Ok(best
+        .into_iter()
+        .map(|(ordinal, (_, status))| (ordinal, status))
+        .collect())
 }
 
-fn owned_status(
+fn linked_rank(status: &serde_json::Value) -> i64 {
+    let state = status.get("state").and_then(|s| s.as_str()).unwrap_or("");
+    let on = status.get("on").and_then(|s| s.as_str()).unwrap_or("");
+    match state {
+        "needs_you" => 0,
+        "working" => 1,
+        "limited" => 2,
+        "waiting" => match on {
+            "network" => 3,
+            "upstream" => 4,
+            "background_task" => 5,
+            _ => 7,
+        },
+        _ => 6,
+    }
+}
+
+fn owned_rank(status: &serde_json::Value) -> i64 {
+    let state = status.get("state").and_then(|s| s.as_str()).unwrap_or("");
+    let on = status.get("on").and_then(|s| s.as_str()).unwrap_or("");
+    match state {
+        "blocked" => match on {
+            "human" => 0,
+            "subagents" => 1,
+            "rate_limit" => 2,
+            "network" => 3,
+            "upstream" => 4,
+            _ => 5,
+        },
+        "unresponsive" => 6,
+        _ => 1,
+    }
+}
+
+fn owned_statuses(
     conn: &Arc<Connection>,
     thread: &str,
-    ordinal: i64,
-) -> Result<Option<serde_json::Value>, LongError> {
-    let row = get_row(
-        conn,
-        "SELECT status FROM long_agents WHERE thread_id=? AND ordinal=? AND completion_relevant=1 AND json_extract(status,'$.state') NOT IN ('idle','interrupted','failed') ORDER BY CASE json_extract(status,'$.state') WHEN 'blocked' THEN CASE json_extract(status,'$.on') WHEN 'human' THEN 0 WHEN 'subagents' THEN 1 WHEN 'rate_limit' THEN 2 WHEN 'network' THEN 3 WHEN 'upstream' THEN 4 ELSE 5 END WHEN 'unresponsive' THEN 6 ELSE 1 END LIMIT 1",
-        vec![Value::Text(thread.to_owned()), Value::Integer(ordinal)],
-    )?;
-    if let Some(row) = row {
-        let text = as_text(row_value(&row, "status")?)?;
-        let agent = parse_agent_status(text)?;
-        return Ok(Some(agent_thread_status(&agent)?));
+    ordinals: &[i64],
+) -> Result<std::collections::BTreeMap<i64, serde_json::Value>, LongError> {
+    if ordinals.is_empty() {
+        return Ok(std::collections::BTreeMap::new());
     }
-    Ok(None)
+    let list = serde_json::to_string(ordinals).map_err(|error| invalid(&error.to_string()))?;
+    let rows = all_rows(
+        conn,
+        "SELECT a.ordinal AS ordinal,a.status AS status FROM long_agents a WHERE a.thread_id=? AND a.ordinal IN (SELECT value FROM json_each(?)) AND a.completion_relevant=1 AND json_extract(a.status,'$.state') NOT IN ('idle','interrupted','failed')",
+        vec![Value::Text(thread.to_owned()), Value::Text(list)],
+    )?;
+    let mut best: std::collections::BTreeMap<i64, (i64, serde_json::Value)> =
+        std::collections::BTreeMap::new();
+    for row in rows {
+        let ordinal = match row.get("ordinal") {
+            Some(Value::Integer(n)) => *n,
+            Some(Value::Real(n)) => *n as i64,
+            _ => continue,
+        };
+        let text = match row.get("status") {
+            Some(Value::Text(text)) => text.clone(),
+            _ => continue,
+        };
+        let agent = match parse_agent_status(&text) {
+            Ok(agent) => agent,
+            Err(_) => continue,
+        };
+        let converted = match agent_thread_status(&agent) {
+            Ok(status) => status,
+            Err(_) => continue,
+        };
+        let rank = owned_rank(&converted);
+        let entry = best
+            .entry(ordinal)
+            .or_insert((i64::MAX, serde_json::Value::Null));
+        if rank < entry.0 {
+            *entry = (rank, converted);
+        }
+    }
+    Ok(best
+        .into_iter()
+        .map(|(ordinal, (_, status))| (ordinal, status))
+        .collect())
 }
 
 fn turn_status(
-    conn: &Arc<Connection>,
-    thread: &str,
     row: &TurnRow,
     head_ordinal: Option<i64>,
     head_status_text: Option<&str>,
     thread_status: Option<&serde_json::Value>,
     counters: &Counters,
+    linked: Option<serde_json::Value>,
+    owned: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, LongError> {
     if head_ordinal == Some(row.ordinal) {
         let status = if let Some(status) = thread_status.cloned() {
@@ -179,10 +270,10 @@ fn turn_status(
         }
     }
     let mut candidates = Vec::new();
-    if let Some(linked) = linked_status(conn, thread, row.ordinal)? {
+    if let Some(linked) = linked {
         candidates.push(linked);
     }
-    if let Some(owned) = owned_status(conn, thread, row.ordinal)? {
+    if let Some(owned) = owned {
         candidates.push(owned);
     }
     if let Some(active) = turn_activity_status(counters, &candidates) {
@@ -444,6 +535,9 @@ pub fn turns_page(
     }
     let turn_digests = read_turn_digests(conn, &full_turn_keys)?;
     let agent_digests = read_agent_digests(conn, thread_id, &full_agent_keys)?;
+    let ordinals: Vec<i64> = parsed.iter().map(|row| row.ordinal).collect();
+    let linked_map = linked_statuses(conn, thread_id, &ordinals)?;
+    let owned_map = owned_statuses(conn, thread_id, &ordinals)?;
     let mut summaries = Vec::new();
     let mut agent_cursor = agent_keys.len();
     let mut turn_cursor = turn_keys.len();
@@ -507,13 +601,13 @@ pub fn turns_page(
             }
         }
         let status = turn_status(
-            conn,
-            thread_id,
             row,
             head_ordinal,
             head_status_text.as_deref(),
             thread_status.as_ref(),
             &own_counters,
+            linked_map.get(&row.ordinal).cloned(),
+            owned_map.get(&row.ordinal).cloned(),
         )?;
         let mut summary = serde_json::Map::new();
         summary.insert(

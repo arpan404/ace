@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Wire types for `turnsPage`, borrowing from index rows.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 #[derive(Serialize)]
@@ -108,17 +108,13 @@ pub struct FileEntry<'a> {
     pub removed: Option<i64>,
 }
 
-#[derive(Serialize, Clone, Copy)]
+#[derive(Deserialize, Serialize, Clone, Copy)]
 pub struct CommandEntry<'a> {
     #[serde(rename = "itemId")]
     pub item_id: &'a str,
     pub command: &'a str,
     pub failed: bool,
-    #[serde(
-        rename = "exitCode",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
+    #[serde(rename = "exitCode", skip_serializing_if = "Option::is_none", default)]
     pub exit_code: Option<i64>,
 }
 
@@ -147,7 +143,9 @@ pub enum ThreadStatus<'a> {
     #[serde(rename = "new")]
     New,
     #[serde(rename = "unknown")]
-    Unknown { raw: &'a serde_json::value::RawValue },
+    Unknown {
+        raw: &'a serde_json::value::RawValue,
+    },
 }
 
 #[derive(Serialize, Clone, Copy)]

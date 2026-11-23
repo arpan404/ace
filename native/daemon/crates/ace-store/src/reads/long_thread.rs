@@ -10,6 +10,7 @@ pub mod search;
 pub mod status;
 pub mod steps;
 pub mod turns;
+pub mod turns_types;
 
 pub use catchup_time::{descendant_threads, thread_catch_up};
 pub use search::thread_search;
