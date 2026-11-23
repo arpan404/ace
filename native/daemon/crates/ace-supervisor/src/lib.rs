@@ -38,4 +38,6 @@ pub mod tree;
 pub mod watch;
 #[cfg(windows)]
 mod winpipe;
+#[cfg(windows)]
+mod winstdin;
 pub mod wintree;

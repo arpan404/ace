@@ -105,7 +105,7 @@ impl InventoryRuntime for Fake {
         self.alive.get(&group).cloned().unwrap_or(Ok(true))
     }
 
-    fn kill(&self, group: u32) {
+    fn kill(&self, group: u32, _start: &str) {
         self.killed.borrow_mut().push(group);
     }
 

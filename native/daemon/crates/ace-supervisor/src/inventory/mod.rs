@@ -35,7 +35,8 @@ pub trait InventoryRuntime {
     /// Whether a group answers a probe: gone, refused, or failed.
     fn alive(&self, group: u32) -> Result<bool, ProbeRefused>;
     /// Ends a group; races with its exit stay silent.
-    fn kill(&self, group: u32);
+    /// Ends a verified group whose leader started at `start`.
+    fn kill(&self, group: u32, start: &str);
     /// This process: the owner recorded rows name.
     fn owner_pid(&self) -> u32;
     /// Milliseconds now, for the retry backoff.

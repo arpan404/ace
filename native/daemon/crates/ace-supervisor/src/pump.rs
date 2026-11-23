@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Moving bytes between a child's pipes and the shell, with node's flow:
-//! an output pump reads only while the shell's stream wants more (at most
-//! `MAX_IN_FLIGHT` chunks queued toward it, none while it is full), stops
-//! when the shell destroys the stream, and stdin writes reach the pipe in
-//! order, EOF last, each acknowledged only once written.
+//! an output pump keeps at most `MAX_IN_FLIGHT` chunks queued toward the
+//! shell; once the shell's stream is full it reads on only up to
+//! `PAUSED_READ_BYTES` more (which the stream buffers), so a pipe that ends
+//! while nobody reads still reaches EOF and `close`, and a child writing
+//! more is held back. It stops when the shell destroys the stream. Stdin
+//! writes reach the pipe in order, EOF last, each acknowledged once written.
 
 use crate::spawn::{Delivered, EventSink, OutputStream};
 use std::sync::{Arc, Mutex};
@@ -15,6 +17,8 @@ use tokio_util::sync::CancellationToken;
 pub const MAX_IN_FLIGHT: usize = 4;
 /// The most bytes one read hands the shell.
 pub const CHUNK_BYTES: usize = 65_536;
+/// How much more a pump reads once the shell's stream is full.
+pub const PAUSED_READ_BYTES: usize = 1_048_576;
 
 /// One output's flow state, shared by its pump and the shell's stream.
 pub struct Flow {
@@ -27,6 +31,8 @@ pub struct Flow {
 struct FlowState {
     in_flight: usize,
     paused: bool,
+    /// Bytes read since the shell's stream filled.
+    paused_bytes: usize,
 }
 
 impl Flow {
@@ -38,10 +44,14 @@ impl Flow {
         })
     }
 
-    /// The shell's stream is full: read nothing more until `resume`.
+    /// The shell's stream is full: read at most `PAUSED_READ_BYTES` more
+    /// until `resume`.
     pub fn pause(&self) {
-        if let Ok(mut state) = self.state.lock() {
+        if let Ok(mut state) = self.state.lock()
+            && !state.paused
+        {
             state.paused = true;
+            state.paused_bytes = 0;
         }
     }
 
@@ -65,14 +75,31 @@ impl Flow {
         self.changed.notify_one();
     }
 
-    /// Takes a slot for one chunk; false while full or paused.
-    fn admit(&self) -> bool {
-        match self.state.lock() {
-            Ok(mut state) if !state.paused && state.in_flight < MAX_IN_FLIGHT => {
-                state.in_flight += 1;
-                true
-            }
-            _ => false,
+    /// Takes a slot for one chunk: how many bytes it may read, or `None`
+    /// while chunks are queued to the limit or the paused budget is spent.
+    fn admit(&self) -> Option<usize> {
+        let mut state = self.state.lock().ok()?;
+        if state.in_flight >= MAX_IN_FLIGHT {
+            return None;
+        }
+        let room = if state.paused {
+            PAUSED_READ_BYTES.saturating_sub(state.paused_bytes)
+        } else {
+            CHUNK_BYTES
+        };
+        if room == 0 {
+            return None;
+        }
+        state.in_flight += 1;
+        Some(room.min(CHUNK_BYTES))
+    }
+
+    /// Counts a read made while the shell's stream is full.
+    fn read(&self, bytes: usize) {
+        if let Ok(mut state) = self.state.lock()
+            && state.paused
+        {
+            state.paused_bytes += bytes;
         }
     }
 
@@ -95,14 +122,17 @@ pub async fn pump_output<E: EventSink, R: tokio::io::AsyncRead + Unpin>(
 ) {
     let mut buffer = vec![0u8; CHUNK_BYTES];
     loop {
-        while !flow.admit() {
+        let room = loop {
+            if let Some(room) = flow.admit() {
+                break room;
+            }
             tokio::select! {
                 () = flow.changed.notified() => {}
                 () = flow.closed.cancelled() => return,
             }
-        }
+        };
         let read = tokio::select! {
-            read = reader.read(&mut buffer) => read,
+            read = reader.read(&mut buffer[..room]) => read,
             () = flow.closed.cancelled() => return,
         };
         match read {
@@ -111,11 +141,14 @@ pub async fn pump_output<E: EventSink, R: tokio::io::AsyncRead + Unpin>(
                 sink.end(stream);
                 return;
             }
-            Ok(n) => sink.output(
-                stream,
-                buffer[..n].to_vec(),
-                Delivered::new(Arc::clone(&flow)),
-            ),
+            Ok(n) => {
+                flow.read(n);
+                sink.output(
+                    stream,
+                    buffer[..n].to_vec(),
+                    Delivered::new(Arc::clone(&flow)),
+                );
+            }
         }
     }
 }

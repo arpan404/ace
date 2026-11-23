@@ -256,6 +256,36 @@ impl NativeChild {
         guarded("supervisor group probe", || Ok(self.child.group_gone()))
     }
 
+    /// What a stop may signal one by one once the group number may not be:
+    /// recorded members that still run and the children they prove, as JSON.
+    #[napi(catch_unwind)]
+    pub fn members(&self) -> napi::Result<String> {
+        guarded("supervisor group members", || {
+            let members = self.child.members();
+            Ok(super::members_json(
+                members
+                    .iter()
+                    .map(|member| (member.pid, member.start.as_str())),
+            ))
+        })
+    }
+
+    /// Starts a stop: true while the group id is still this tree's, and the
+    /// leader stays held until `unhold`. False once released.
+    #[napi(catch_unwind)]
+    pub fn hold(&self) -> napi::Result<bool> {
+        guarded("supervisor group hold", || Ok(self.child.hold()))
+    }
+
+    /// Ends a stop started with `hold`.
+    #[napi(catch_unwind)]
+    pub fn unhold(&self) -> napi::Result<()> {
+        guarded("supervisor group unhold", || {
+            self.child.unhold();
+            Ok(())
+        })
+    }
+
     /// Releases the pipes; the leader stays held while its group may still
     /// be signalled.
     #[napi(catch_unwind)]

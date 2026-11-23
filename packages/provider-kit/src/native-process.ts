@@ -42,6 +42,9 @@ interface NativeChildHandle {
   kill(signal: string): boolean;
   signalGroup(signal: string): "sent" | "gone" | "released";
   groupGone(): boolean;
+  hold(): boolean;
+  unhold(): void;
+  members(): string;
   hasJob(): boolean;
   jobRunning(): boolean | null | undefined;
   jobTerminate(): void;
@@ -81,8 +84,12 @@ interface SupervisorAddon {
   supervisorWindowsTreeRecorded(path: string, leaderJson: string): boolean;
   supervisorProcessIdentity(pid: number): string | null;
   supervisorProcessGroupIsGone(group: number): boolean;
-  supervisorKillGroup(group: number, signal: string): void;
-  supervisorGroupGone(group: number): boolean;
+  supervisorHoldGroup(group: number, start: string): boolean;
+  supervisorUnholdGroup(group: number, start: string): void;
+  supervisorSignalGroup(group: number, start: string, signal: string): string;
+  supervisorGroupMembers(group: number, start: string): string;
+  supervisorDisownGroup(group: number, start: string): void;
+  supervisorGroupGone(group: number, start?: string): boolean;
   supervisorKillWindowsTree(pid: number, force: boolean): void;
   supervisorSignalMember(memberJson: string, signal: string): string;
   supervisorCaptureTree(rootsJson: string, limit: number): string;
@@ -375,13 +382,21 @@ export class NativeChildProcess
     }
     const exit = parseExit(data);
     if (kind === "exit") {
-      try {
-        this.emit("exit", exit.code, exit.signal);
-      } finally {
-        // Like node's flushStdio: once the leader exits, a stream nobody reads is drained, so its
-        // EOF (and `close`) can arrive. Scheduled even when a listener threw.
-        process.nextTick(() => this.drainUnread());
+      // Every listener runs, the shell's tree cleanup included, even when an earlier one throws;
+      // the first throw still surfaces, after them all.
+      let thrown: { error: unknown } | undefined;
+      // `once` wrappers remove themselves when called, as `emit` would remove them.
+      for (const listener of this.rawListeners("exit") as ((...args: unknown[]) => unknown)[]) {
+        try {
+          listener.call(this, exit.code, exit.signal);
+        } catch (error) {
+          thrown ??= { error };
+        }
       }
+      // Like node's flushStdio: once the leader exits, a stream nobody reads is drained, so its
+      // EOF (and `close`) can arrive.
+      process.nextTick(() => this.drainUnread());
+      if (thrown) throw thrown.error;
       return undefined;
     }
     this.stdout.push(null);
@@ -417,6 +432,21 @@ export class NativeChildProcess
     return this.handle ? this.handle.groupGone() : true;
   }
 
+  /** Starts a stop: true while the group number is still this tree's (until `unhold`). */
+  hold(): boolean {
+    return this.handle?.hold() ?? false;
+  }
+
+  /** Ends a stop started with `hold`. */
+  unhold(): void {
+    this.handle?.unhold();
+  }
+
+  /** Recorded members that still run, and the children they prove: signalled one by one. */
+  members(): readonly { pid: number; start: string }[] {
+    return this.handle ? parseMembers(this.handle.members()) : [];
+  }
+
   /** Signals the leader through its own handle; false once it is reaped, never a reused pid. */
   kill(signal: NodeJS.Signals): boolean {
     try {
@@ -447,6 +477,29 @@ export class NativeChildProcess
       /* Best effort during process exit. */
     }
   }
+}
+
+function parseMembers(json: string): { pid: number; start: string }[] {
+  // Trusted: the addon's own `[{pid, start}]`.
+  return JSON.parse(json) as { pid: number; start: string }[];
+}
+
+/**
+ * A process group known by its leader's identity (pid and kernel start), as the native
+ * supervisor answers for it: held (and signalled by number) only while that leader is unreaped
+ * or verified alive; otherwise its recorded or verified members, one by one.
+ */
+export function nativeGroup(pid: number, start: string) {
+  const native = addon();
+  return {
+    hold: () => native.supervisorHoldGroup(pid, start),
+    unhold: () => native.supervisorUnholdGroup(pid, start),
+    signalGroup: (signal: NodeJS.Signals) => {
+      native.supervisorSignalGroup(pid, start, signal);
+    },
+    members: () => parseMembers(native.supervisorGroupMembers(pid, start)),
+    groupGone: () => native.supervisorGroupGone(pid, start),
+  };
 }
 
 /** Spawns a supervised child; byte events arrive in arrival order. */

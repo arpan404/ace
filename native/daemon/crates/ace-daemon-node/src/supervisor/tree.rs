@@ -5,7 +5,7 @@
 use super::{bind_error, guarded, input_error, members_json, parse_members, quote};
 use ace_supervisor::signal::{self, SignalName, SignalOutcome, TreeRef};
 use ace_supervisor::system::{SystemSignalIo, SystemTree};
-use ace_supervisor::{identity, stop, tree};
+use ace_supervisor::{identity, tree};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 
@@ -48,29 +48,129 @@ pub fn supervisor_process_group_is_gone(group: u32) -> napi::Result<bool> {
     })
 }
 
-/// Ends a group with `signal`. Unguarded: only the shell's `killGroup`
-/// calls it, after its guard allowed the whole group. A group this
-/// supervisor spawned is signalled through its pinned leader (nothing once
-/// released); any other group by number, as the TypeScript backend does.
+/// Starts a stop of the group led by `group` with kernel start `start`:
+/// true while its id is provably the tree that leader started. A leader
+/// this supervisor holds stays unreaped until `supervisor_unhold_group`;
+/// any other must be alive with that identity, leading `group`.
 #[napi(catch_unwind)]
-pub fn supervisor_kill_group(group: u32, signal: String) -> napi::Result<()> {
-    guarded("supervisor kill group", || {
-        let signal = SignalName::parse(&signal).map_err(bind_error)?;
-        #[cfg(unix)]
-        if let Some(leader) = ace_supervisor::leader::group_leader(group) {
-            return leader.signal_group(signal).map(|_| ()).map_err(bind_error);
+pub fn supervisor_hold_group(group: u32, start: String) -> napi::Result<bool> {
+    guarded("supervisor hold group", || {
+        if let Some(leader) = ace_supervisor::leader::group_leader(group, &start) {
+            return Ok(leader.hold());
         }
-        stop::kill_group(group, signal).map_err(bind_error)
+        Ok(identity::process_identity(group)
+            .ok()
+            .flatten()
+            .is_some_and(|leader| leader.start == start && leader.group == group))
     })
 }
 
-/// Whether a group is gone, with `killGroup`'s meaning: no process left
-/// (ESRCH, or darwin's EPERM for a group of zombies). A group this
-/// supervisor spawned is asked through its leader, whose zombie does not count.
+/// Ends a stop started with `supervisor_hold_group`.
 #[napi(catch_unwind)]
-pub fn supervisor_group_gone(group: u32) -> napi::Result<bool> {
+pub fn supervisor_unhold_group(group: u32, start: String) -> napi::Result<()> {
+    guarded("supervisor unhold group", || {
+        if let Some(leader) = ace_supervisor::leader::group_leader(group, &start) {
+            leader.unhold();
+        }
+        Ok(())
+    })
+}
+
+/// Signals the group led by (`group`, `start`). Unguarded: only the shell's
+/// `killGroup` calls it, inside a hold and after its guard allowed the whole
+/// group. A leader this supervisor holds unreaped: by number. A group it does
+/// not hold: never by number, but each member verified now (its leader alive
+/// with `start`), one by one, rechecked just before (a Linux pidfd pins it).
+/// A released leader: `"released"`, nothing sent (the shell signals its
+/// recorded members, `supervisor_group_members`).
+#[napi(catch_unwind)]
+pub fn supervisor_signal_group(group: u32, start: String, signal: String) -> napi::Result<String> {
+    guarded("supervisor signal group", || {
+        let signal = SignalName::parse(&signal).map_err(bind_error)?;
+        #[cfg(unix)]
+        {
+            use ace_supervisor::leader::GroupSignal;
+            let outcome = match ace_supervisor::leader::group_leader(group, &start) {
+                Some(leader) => leader.signal_group(signal).map_err(bind_error)?,
+                None => {
+                    let members = ace_supervisor::system::verified_group_members(group, &start);
+                    if members.is_empty() {
+                        GroupSignal::Released
+                    } else {
+                        // Every member is signalled; none is skipped once one went.
+                        let mut sent = false;
+                        for member in &members {
+                            sent |= signal::signal_member(member, signal, &SystemSignalIo)
+                                == SignalOutcome::Sent;
+                        }
+                        if sent {
+                            GroupSignal::Sent
+                        } else {
+                            GroupSignal::Gone
+                        }
+                    }
+                }
+            };
+            Ok(match outcome {
+                GroupSignal::Sent => "sent",
+                GroupSignal::Gone => "gone",
+                GroupSignal::Released => "released",
+            }
+            .to_owned())
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = (group, start, signal);
+            Err(napi::Error::from_reason(
+                "process groups do not exist on Windows",
+            ))
+        }
+    })
+}
+
+/// What a stop of the group led by (`group`, `start`) may signal one by one
+/// once the group number may not be: a released leader's recorded members
+/// that still run and the children they prove; for a group this supervisor
+/// does not hold, its members and the leader's tree while that leader is
+/// verified alive; otherwise none. As JSON `[{pid, start}]`.
+#[napi(catch_unwind)]
+pub fn supervisor_group_members(group: u32, start: String) -> napi::Result<String> {
+    guarded("supervisor group members", || {
+        let members = match ace_supervisor::leader::group_leader(group, &start) {
+            Some(leader) => leader.members(),
+            None => ace_supervisor::system::verified_group_members(group, &start),
+        };
+        Ok(members_json(
+            members
+                .iter()
+                .map(|member| (member.pid, member.start.as_str())),
+        ))
+    })
+}
+
+/// The shell gave up the group led by (`group`, `start`): a held leader is
+/// released once it exited and no stop holds it.
+#[napi(catch_unwind)]
+pub fn supervisor_disown_group(group: u32, start: String) -> napi::Result<()> {
+    guarded("supervisor disown group", || {
+        if let Some(leader) = ace_supervisor::leader::group_leader(group, &start) {
+            leader.disown();
+        }
+        Ok(())
+    })
+}
+
+/// Whether nothing of the group runs. A leader this supervisor holds
+/// answers by a full scan (its zombie and unreadable members as it says);
+/// any other group by the kernel's probe, with `killGroup`'s meaning
+/// (ESRCH, or darwin's EPERM for a group of zombies). Probes send nothing.
+#[napi(catch_unwind)]
+pub fn supervisor_group_gone(group: u32, start: Option<String>) -> napi::Result<bool> {
     guarded("supervisor group gone", || {
-        if let Some(leader) = ace_supervisor::leader::group_leader(group) {
+        if let Some(leader) = start
+            .as_deref()
+            .and_then(|start| ace_supervisor::leader::group_leader(group, start))
+        {
             return Ok(leader.group_gone());
         }
         match ace_supervisor::reaper::process_group_alive(group) {

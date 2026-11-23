@@ -173,7 +173,7 @@ impl<R: InventoryRuntime> Inventory<R> {
                 recovered.unresolved += 1;
                 continue;
             }
-            self.runtime.kill(entry.group);
+            self.runtime.kill(entry.group, &entry.start);
             // Kept as evidence until a later recovery proves the group gone.
             recovered.killed += 1;
         }

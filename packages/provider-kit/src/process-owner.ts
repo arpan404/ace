@@ -5,14 +5,25 @@ import { win32 } from "node:path";
 import { openLibrary, runsOnBun } from "./bun-ffi.ts";
 import { loadKoffi } from "./koffi.ts";
 import type { WindowsJob } from "./process-containment.ts";
-import { signalTreeMember } from "./process-tree.ts";
+import { signalTreeMember, type TreeMember } from "./process-tree.ts";
 import { supervisorBackend } from "./native-switches.ts";
-import { NativeChildProcess, nativeKillWindowsTree, supervisorAddon } from "./native-process.ts";
+import {
+  NativeChildProcess,
+  nativeGroup,
+  nativeKillWindowsTree,
+  supervisorAddon,
+} from "./native-process.ts";
+import { processIdentity } from "./process-identity.ts";
 
 /** Process-global ownership is separate from application-selected shutdown policy. */
 const owned = new Map<
   number,
-  { stop: (graceMs: number) => Promise<unknown>; destroy: () => void }
+  {
+    stop: (graceMs: number) => Promise<unknown>;
+    destroy: () => void;
+    /** The leader's kernel start, under the native supervisor: its group's identity. */
+    start?: string;
+  }
 >();
 /** Processes requested from another thread whose pid has not arrived yet. */
 const admitting = new Set<{ stop: (graceMs: number) => Promise<unknown>; destroy: () => void }>();
@@ -29,22 +40,47 @@ export function observeProcessGroups(journal: ProcessJournal): () => void {
  * caller), or else the members that may be signalled, each to be signalled on its own.
  */
 export type GroupGuard = (group: number) => "whole" | readonly { pid: number; start: string }[];
+/** The same rules for members signalled one by one: the ones that may be signalled. */
+export type MemberGuard = (members: readonly TreeMember[]) => readonly TreeMember[];
 let groupGuard: GroupGuard | undefined;
-/** Install the guard every group signal passes through; returns its removal. */
-export function guardGroupSignals(guard: GroupGuard): () => void {
+let memberGuard: MemberGuard | undefined;
+/** Install the guards every group and member signal passes through; returns their removal. */
+export function guardGroupSignals(guard: GroupGuard, members?: MemberGuard): () => void {
   groupGuard = guard;
+  memberGuard = members;
   return () => {
-    if (groupGuard === guard) groupGuard = undefined;
+    if (groupGuard !== guard) return;
+    groupGuard = undefined;
+    memberGuard = undefined;
   };
 }
 
+/** Signal owned members one by one, each checked against its start just before it goes. */
+export function signalOwnedMembers(members: readonly TreeMember[], signal: NodeJS.Signals): void {
+  let allowed: readonly TreeMember[] = members;
+  if (memberGuard)
+    try {
+      allowed = memberGuard(members);
+    } catch (error) {
+      // Who is protected is unknown, so no one is signalled; later sweeps report survivors.
+      process.emitWarning(`Process members could not be checked: ${String(error)}`);
+      allowed = [];
+    }
+  for (const member of allowed) signalTreeMember(member, signal);
+}
+
 /**
- * A child that signals its own process group, and only while the group id is provably the one
- * ace created: the native supervisor keeps the exited leader unreaped while anything of its group
- * lives, and refuses once it has released it.
+ * A process group as the native supervisor knows it, by its leader's identity. While `hold()`
+ * holds, the leader is unreaped (or, for a group it did not spawn, verified alive), so its group
+ * number is the tree ace started and `signalGroup` may use it. Once `hold()` fails it never is
+ * again: only `members()` (recorded with their start times while the number was safe, plus the
+ * children they prove) are signalled, one by one.
  */
 export interface GroupHandle {
+  hold(): boolean;
+  unhold(): void;
   signalGroup(signal: NodeJS.Signals): void;
+  members(): readonly TreeMember[];
   groupGone(): boolean;
 }
 /** The child's own group handle, when the native supervisor spawned it. */
@@ -52,17 +88,15 @@ export function groupOf(child: unknown): GroupHandle | undefined {
   return child instanceof NativeChildProcess ? child : undefined;
 }
 
-export function killGroup(pid: number, signal: NodeJS.Signals, group?: GroupHandle): void {
-  if (process.platform === "win32") {
-    // No process groups exist; reap the tree like every other Windows stop. Exit cleanup must
-    // still reach every other owner, so a failure here is reported, not thrown.
-    try {
-      killWindowsTree(pid, true);
-    } catch (error) {
-      process.emitWarning(`Could not stop Windows process tree ${pid}: ${String(error)}`);
-    }
-    return;
-  }
+/** The native handle for a group known by its leader's identity, recorded at registration. */
+function nativeHandle(pid: number, start: string | undefined): GroupHandle | undefined {
+  if (supervisorBackend() !== "native") return undefined;
+  const known = start ?? owned.get(pid)?.start;
+  return known === undefined ? undefined : nativeGroup(pid, known);
+}
+
+/** The guard, then the group by number: callers hold the group first. */
+function signalHeldGroup(pid: number, signal: NodeJS.Signals, send: () => void): void {
   if (groupGuard) {
     let allowed: ReturnType<GroupGuard>;
     try {
@@ -77,21 +111,57 @@ export function killGroup(pid: number, signal: NodeJS.Signals, group?: GroupHand
       return;
     }
   }
-  if (group) {
-    group.signalGroup(signal);
+  send();
+}
+
+/**
+ * Signals a process group. Under the native supervisor the group's handle is asked first: only
+ * while it holds is the group listed by number (the guard) and signalled by number; otherwise
+ * only its recorded members, one by one. A group with no known identity is never signalled.
+ * `start` is its leader's kernel start, when the caller knows it (recovery).
+ */
+export function killGroup(
+  pid: number,
+  signal: NodeJS.Signals,
+  group?: GroupHandle,
+  start?: string,
+): void {
+  if (process.platform === "win32") {
+    // No process groups exist; reap the tree like every other Windows stop. Exit cleanup must
+    // still reach every other owner, so a failure here is reported, not thrown.
+    try {
+      killWindowsTree(pid, true);
+    } catch (error) {
+      process.emitWarning(`Could not stop Windows process tree ${pid}: ${String(error)}`);
+    }
+    return;
+  }
+  const handle = group ?? nativeHandle(pid, start);
+  if (handle) {
+    if (!handle.hold()) {
+      signalOwnedMembers(handle.members(), signal);
+      return;
+    }
+    try {
+      signalHeldGroup(pid, signal, () => handle.signalGroup(signal));
+    } finally {
+      handle.unhold();
+    }
     return;
   }
   if (supervisorBackend() === "native") {
-    supervisorAddon().supervisorKillGroup(pid, signal);
+    process.emitWarning(`Process group ${pid} has no recorded identity, so it is not signalled`);
     return;
   }
-  try {
-    process.kill(-pid, signal);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    // Darwin can report EPERM for groups containing only zombies before reaping.
-    if (code !== "ESRCH" && !(process.platform === "darwin" && code === "EPERM")) throw error;
-  }
+  signalHeldGroup(pid, signal, () => {
+    try {
+      process.kill(-pid, signal);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      // Darwin can report EPERM for groups containing only zombies before reaping.
+      if (code !== "ESRCH" && !(process.platform === "darwin" && code === "EPERM")) throw error;
+    }
+  });
 }
 /**
  * Signals a spawned process's tree from code where a throw would end the daemon: timers, exit
@@ -120,9 +190,9 @@ export function signalTree(
 }
 /** Whether nothing of the group runs: ESRCH, or darwin's EPERM for a group of zombies. */
 function groupGone(pid: number, group: GroupHandle | undefined): boolean {
-  if (group) return group.groupGone();
-  // The native supervisor's exited leaders stay unreaped while their group lives, so it answers
-  // for its own groups without counting that zombie.
+  const handle = group ?? nativeHandle(pid, undefined);
+  if (handle) return handle.groupGone();
+  // The native supervisor answers by the kernel's probe for a group it knows no identity of.
   if (supervisorBackend() === "native") return supervisorAddon().supervisorGroupGone(pid);
   try {
     process.kill(-pid, 0);
@@ -187,6 +257,16 @@ export function onGroupOwned(listener: OwnershipListener): () => void {
   ownershipListeners.add(listener);
   return () => ownershipListeners.delete(listener);
 }
+/** Under the native supervisor, the leader's start: the identity its group is signalled by. */
+function nativeStart(pid: number): { start?: string } {
+  if (supervisorBackend() !== "native" || process.platform === "win32") return {};
+  try {
+    const start = processIdentity(pid)?.start;
+    return start === undefined ? {} : { start };
+  } catch {
+    return {};
+  }
+}
 export function registerGroup(
   pid: number,
   stop: (graceMs: number) => Promise<unknown>,
@@ -201,7 +281,7 @@ export function registerGroup(
     throw error;
   }
   if (ownersSize() === 0) process.on("exit", cleanup);
-  owned.set(pid, { stop, destroy: end });
+  owned.set(pid, { stop, destroy: end, ...nativeStart(pid) });
   for (const listener of ownershipListeners)
     try {
       listener(pid, metadata.unique);
@@ -214,7 +294,15 @@ export function registerGroup(
  * throw would be uncaught and end the daemon (a full disk did, through the inventory's delete).
  */
 export function unregisterGroup(pid: number): void {
+  const start = owned.get(pid)?.start;
   owned.delete(pid);
+  // The native supervisor may now release the group's leader: ace no longer stops this group.
+  if (start !== undefined && supervisorBackend() === "native")
+    try {
+      supervisorAddon().supervisorDisownGroup(pid, start);
+    } catch (error) {
+      process.emitWarning(`Could not release process group ${pid}: ${String(error)}`);
+    }
   for (const journal of journals)
     try {
       journal.remove(pid);

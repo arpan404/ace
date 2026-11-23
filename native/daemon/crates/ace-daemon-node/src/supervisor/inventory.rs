@@ -124,16 +124,16 @@ impl NativeInventory {
     pub fn recover(&self) -> napi::Result<String> {
         self.with(|handle| {
             let recovered = handle.inventory.recover().map_err(bind_error)?;
-            let groups = handle
-                .inventory
-                .runtime()
-                .take_kills()
-                .iter()
-                .map(u32::to_string)
-                .collect::<Vec<_>>()
-                .join(",");
+            let groups = super::members_json(
+                handle
+                    .inventory
+                    .runtime()
+                    .take_kills()
+                    .iter()
+                    .map(|(group, start)| (*group, start.as_str())),
+            );
             Ok(format!(
-                "{{\"removed\":{},\"killed\":{},\"unresolved\":{},\"groups\":[{groups}]}}",
+                "{{\"removed\":{},\"killed\":{},\"unresolved\":{},\"groups\":{groups}}}",
                 recovered.removed, recovered.killed, recovered.unresolved
             ))
         })

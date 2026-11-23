@@ -43,5 +43,5 @@ procfs = "0.18"
 libproc = "0.14"
 
 [target.'cfg(windows)'.dependencies]
-# windows-sys: Job Objects (a child joins its job while suspended), Toolhelp snapshots, GetProcessTimes and the token SID for identity, the System32 path; Spade's version.
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_SystemInformation", "Win32_System_Threading"] }
+# windows-sys: Job Objects (a child joins its job while suspended), overlapped stdin writes, Toolhelp snapshots, GetProcessTimes and the token SID for identity, the System32 path; Spade's version.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_Threading"] }
