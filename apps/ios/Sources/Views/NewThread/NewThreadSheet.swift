@@ -3,10 +3,9 @@ import SwiftUI
 /// Where the New thread sheet pushes; choosing a mention pops back to the start.
 enum NewThreadRoute: Hashable { case mention, instructions, startFrom(NewThreadStartFrom.Kind) }
 
-/// New thread opens with its choices under the title and the composer above the keyboard.
-/// The bridge judges
-/// readiness and builds `thread.create`; the draft survives the app being killed, and Send closes
-/// the sheet only once the start is saved on this phone.
+/// New thread docks its choices with the composer above the keyboard.
+/// The bridge judges readiness and builds `thread.create`. The draft survives app termination.
+/// Send closes the sheet once the start is saved on this phone.
 struct NewThreadSheet: View {
     @Bindable var inbox: MachineInbox
     /// The draft, opened once for this showing of the sheet (`NewThreadSheetHost`).
@@ -78,22 +77,21 @@ struct NewThreadSheet: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                pills
+            NewThreadComposer(drafts: drafts, client: client, files: files, sending: sending, blocker: blocker,
+                              attachProblem: $attachProblem, send: send, suggester: suggester, run: runComposerAction,
+                              suggestions: suggestions, pickedSkill: { skill in memory.used(skill, in: draft); remembered += 1 },
+                              place: $place) {
                 notes
-                NewThreadComposer(drafts: drafts, client: client, files: files, sending: sending, blocker: blocker,
-                                  attachProblem: $attachProblem, send: send, suggester: suggester, run: runComposerAction,
-                                  suggestions: suggestions, pickedSkill: { skill in memory.used(skill, in: draft); remembered += 1 },
-                                  place: $place)
-                    .padding(.horizontal, ComposerCapsuleMetrics.side(sizeClass))
-                    .padding(.bottom, ReadingColumn.bar(sizeClass).bottom)
-                    .task(id: suggestKey) {
-                        suggester.attach(client)
-                        suggester.scope = draft.projectId.flatMap { $0 == NewThreadDraft.chat ? nil : .draft(workspaceId: $0, provider: choice.agent?.provider) }
-                        suggester.readAhead()
-                    }
-                    .task(id: "\(machineId ?? "")|\(draft.projectId ?? "")") { await readStartFrom() }
+                pills
             }
+            .padding(.horizontal, ComposerCapsuleMetrics.side(sizeClass))
+            .padding(.bottom, ReadingColumn.bar(sizeClass).bottom)
+            .task(id: suggestKey) {
+                suggester.attach(client)
+                suggester.scope = draft.projectId.flatMap { $0 == NewThreadDraft.chat ? nil : .draft(workspaceId: $0, provider: choice.agent?.provider) }
+                suggester.readAhead()
+            }
+            .task(id: "\(machineId ?? "")|\(draft.projectId ?? "")") { await readStartFrom() }
             .background(AceTheme.Colours.background)
             .onAppear {
                 profiles = TaskProfileStore(defaults: .standard).load()
@@ -178,7 +176,7 @@ struct NewThreadSheet: View {
         }
     }
 
-    /// The start's choices, under the title.
+    /// The start's choices, directly above the message capsule.
     private var pills: some View {
         NewThreadPills(model: pillsModel, chooseProject: { choosingProject = true }, chooseMachine: chooseMachine,
                        chooseModel: { choosingModel = true },
@@ -186,8 +184,6 @@ struct NewThreadSheet: View {
                        chooseBase: { base in drafts.edit { $0.base = base } },
                        chooseAccess: { mode in drafts.edit { $0.access = mode } },
                        retryBranches: readBranches)
-            .padding(.horizontal, ComposerCapsuleMetrics.side(sizeClass))
-            .padding(.top, AceDesign.Space.tight)
     }
     private var pillsModel: NewThreadPillsModel {
         let projectName = draft.isChat ? "No project" : project?.name ?? (draft.projectId == nil ? "Choose a project" : "Project")
@@ -226,7 +222,7 @@ struct NewThreadSheet: View {
     }
 
     /// What holds Send back, why the last start didn't save, and the issue or pull request the
-    /// thread works on: quiet lines under the pills.
+    /// thread works on, just above the choices.
     @ViewBuilder private var notes: some View {
         // A blocker a pill already says ("Choose a project") isn't said twice.
         let said = blocker == "Choose a project" || blocker == "Choose a coding agent" || blocker == "Write the first message"
@@ -248,7 +244,7 @@ struct NewThreadSheet: View {
             .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
             .foregroundStyle(AceTheme.Colours.mutedForeground)
             .padding(.horizontal, AceDesign.Space.margin)
-            .padding(.top, AceDesign.Space.tight)
+            .padding(.bottom, AceDesign.Space.tight)
         }
     }
     private func linked(_ text: Text, id: String, unlink: @escaping () -> Void) -> some View {

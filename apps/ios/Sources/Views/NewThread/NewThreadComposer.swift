@@ -5,8 +5,8 @@ import SwiftUI
     static let chip = AceTheme.Typography.label
 }
 
-/// The first message, docked below its suggestions and attachments.
-struct NewThreadComposer: View {
+/// The first message, docked with its choices, suggestions and attachments.
+struct NewThreadComposer<Choices: View>: View {
     let drafts: NewThreadDraftModel
     let client: ClientModel?
     let files: [AttachmentFile]
@@ -24,6 +24,7 @@ struct NewThreadComposer: View {
     let pickedSkill: (NewThreadSkill) -> Void
     /// Where the caret goes after a suggestion changed the words.
     @Binding var place: CaretPlacement?
+    @ViewBuilder var choices: () -> Choices
     @State private var focused = false
     @State private var askAttach = false
     @State private var notice: String?
@@ -61,6 +62,7 @@ struct NewThreadComposer: View {
                     .padding(.horizontal, AceDesign.Space.margin).padding(.bottom, AceDesign.Space.tight)
             }
             if let suggestions { suggestions }
+            choices()
             ComposerCapsule {
                 attach.accessibilitySortPriority(2)
             } field: {

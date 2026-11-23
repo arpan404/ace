@@ -64,6 +64,19 @@ struct NewThreadPills: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            if let problem = model.place?.problem {
+                // Where it runs can't be chosen until the branches arrive: say why, and ask again.
+                HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
+                    Text(problem).aceFont(AceDesign.TextRole.meta)
+                        .foregroundStyle(AceTheme.StatusText.failed)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: AceDesign.Space.related)
+                    Button("Try again", action: retryBranches)
+                        .buttonStyle(.textAction(.prominent))
+                        .accessibilityIdentifier("newThread.branches.retry")
+                }
+                .accessibilityElement(children: .contain)
+            }
             ScrollView(.horizontal) {
                 HStack(spacing: AceDesign.Space.related) {
                     Button(action: chooseProject) { NewThreadPill(primary: true) { Text(model.project) } }
@@ -79,19 +92,6 @@ struct NewThreadPills: View {
             .scrollIndicators(.hidden)
             .scrollBounceBehavior(.basedOnSize)
             .accessibilityIdentifier("newThread.choices")
-            if let problem = model.place?.problem {
-                // Where it runs can't be chosen until the branches arrive: say why, and ask again.
-                HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
-                    Text(problem).aceFont(AceDesign.TextRole.meta)
-                        .foregroundStyle(AceTheme.StatusText.failed)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: AceDesign.Space.related)
-                    Button("Try again", action: retryBranches)
-                        .buttonStyle(.textAction(.prominent))
-                        .accessibilityIdentifier("newThread.branches.retry")
-                }
-                .accessibilityElement(children: .contain)
-            }
         }
     }
 
@@ -165,17 +165,24 @@ struct NewThreadPills: View {
 
     private func accessPill(_ access: ComposeAccess) -> some View {
         let label = access.choices.first { $0.mode == access.selected }?.label ?? "Access"
-        return Button { choosingAccess = true } label: { NewThreadPill { Text(label) } }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Access").accessibilityValue(label)
-            .accessibilityIdentifier("newThread.access")
-            .sheet(isPresented: $choosingAccess) {
-                AccessSheet(selected: access.selected,
-                            items: access.choices.map { AccessItem(mode: $0.mode, label: $0.label, description: $0.description, attention: $0.attention) },
-                            note: access.problem ?? access.stricter, identifier: "newThread.access") { mode in
-                    choosingAccess = false
-                    if mode != access.selected { chooseAccess(mode) }
+        return Button { choosingAccess = true } label: {
+            NewThreadPill {
+                HStack(spacing: AceDesign.Space.tight) {
+                    AceIcon(AccessItem.icon(for: access.selected), size: AceDesign.Size.metaIcon, relativeTo: .subheadline)
+                    Text(label)
                 }
             }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Access").accessibilityValue(label)
+        .accessibilityIdentifier("newThread.access")
+        .sheet(isPresented: $choosingAccess) {
+            AccessSheet(selected: access.selected,
+                        items: access.choices.map { AccessItem(mode: $0.mode, label: $0.label, description: $0.description, attention: $0.attention) },
+                        note: access.problem ?? access.stricter, identifier: "newThread.access") { mode in
+                choosingAccess = false
+                if mode != access.selected { chooseAccess(mode) }
+            }
+        }
     }
 }
