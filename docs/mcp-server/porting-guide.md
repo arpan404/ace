@@ -76,12 +76,27 @@ Branch from `ace/daemon-rust-rewrite` once the item's needs are merged, one bran
    unchanged, which the (a) files prove; descriptors stay built from Zod while the TypeScript
    runs, and the check below holds them to the catalog.
 3. **Rust embeds the same files** (`include_str!`, parsed with `ace-json`, `ace-mcp/src/catalog.rs`).
-4. **Two checks in `check:daemon-native`**: `check:catalog-listing` starts a daemon on an empty
-   temporary `HOME` and `ACE_HOME` (no provider) and compares each built backend's live
-   `tools/list`, byte for byte, with `tools.json`, and `z.toJSONSchema` of every live registration
-   with its entry; `check:catalog-text` renders every public error code and every refusal through
-   each backend's live path (`toolFailure` in TypeScript, the addon in Rust) and compares the
-   bytes. A tool added or a word changed means editing the catalog, and both sides follow.
+4. **Two checks in `check:daemon-native`, over a fixed set of callers.** The catalog also holds
+   `callers.json`: fixture callers that cover every input the listing and the guidance depend on,
+   namely capability sets (none, each group, all), groups switched off and not running, `ask`
+   unavailable, each listing mode (`X-Ace-Tools`: static, core, dynamic; `toolListing`,
+   `toolsets.ts:76`), each client header (`X-Ace-Client` codex and cursor, `:30`–`:32`), Claude's
+   tool search on and off, `X-Ace-Instructions: native`, opened toolsets after a `guide` call, and
+   a lease that has ended; plus fixture session facts (project, branch, access mode, notes, live
+   threads, pending requests, roles, a recorded failure). For each caller the catalog records what
+   ace serves: the ordered `tools/list` (a filter of `tools.json`), the `initialize` instructions
+   (`aceGuidance`, `status.ts:44`), `resources/list`, `ace://session`'s brief, roles line and
+   facts, a digest after a fixed change, `developerInstructions` and the other session guidance
+   per provider (`session-guidance.ts:106`, `geminiUntrustedGuidance`), and the `guide` and
+   `tools_find` results. `check:catalog-listing` starts a daemon on an empty temporary `HOME` and
+   `ACE_HOME` (no provider), opens a lease per fixture caller on each built backend, and compares
+   every one of those responses byte for byte with the catalog, plus `z.toJSONSchema` of every live
+   registration with its `tools.json` entry while the TypeScript runs. `check:catalog-text`
+   renders every public error code and every refusal and hint of every area through each
+   backend's live path (`toolFailure` in TypeScript, the addon in Rust) and compares the bytes. The
+   expectations are the catalog itself, written once from today's TypeScript, not a second
+   implementation: a changed listing rule or word means editing the catalog, and both sides
+   follow.
 
 - Proof: both checks pass; `advertised-schema`, `tool-guidance.process`, `status`,
   `session-guidance`, `actionable-errors`, `agent-errors` run unchanged.
@@ -184,7 +199,24 @@ text/event-stream`, the bearer, the listing headers and `redirect: error`. A not
    request with that `requestId` (`:91`–`:94`); a duplicate request id fails the bridge
    (`:97`); a request's own deadline (`maxToolTimeoutMs` for `tools/call`, else 120 s)
    aborts only that request and leaves the connection for the next (`:103`–`:110`).
-4. **Budgets**: `maxBridgeResponseBytes` per reply and `maxBridgeQueuedBytes` across replies
+4. **Validation and errors**: stdin lines are capped at `maxRequestBodyBytes` before parsing
+   (`outputGate`, `stdio-bridge.ts:53`; over it, the bridge fails); a message must be JSON-RPC 2.0
+   with a `method` of 1 to 256 characters and an optional `id` that is a string of at most 256
+   or a finite number (`Message`, `:14`–`:20`). A reply must parse as UTF-8 JSON (fatal decoding),
+   be a JSON-RPC 2.0 envelope with an `id` (`ReplyEnvelope`, `:24`, `:162`), and carry the request's
+   id (`:163`); a JSON reply is validated the same way as an SSE one, never written unchecked; an
+   SSE body that ends without the matching event fails the request. A failed or timed-out request
+   with an id gets `{"jsonrpc":"2.0","id":…,"error":{"code":-32603,"message":"ace MCP bridge request
+failed"}}` (or "… timed out"), written unless the bridge itself is closing (`:171`–`:182`); a
+   non-OK HTTP status is a failure.
+5. **Admission**: at most 256 requests in flight; the 257th fails the bridge
+   (`tasks.size >= 256`, `:192`). The notification subscription's connect, which `tools/list`
+   and `notifications/initialized` wait on (`:89`–`:90`), is bounded by that request's deadline
+   (120 s) in Rust; today's TypeScript awaits it before the deadline is armed, an unbounded wait
+   the report must name, with a TypeScript fix proposed.
+6. **Budgets**: `maxBridgeResponseBytes` per reply and `maxBridgeQueuedBytes` across all
+   in-flight replies, counted as bytes arrive and released when each request settles
+   (`responseBytes`, `:151`–`:153`, `:167`)
    (`result-budgets.ts`), a bounded writer with the same backpressure, and the same close: a
    failure aborts the lifetime, closes the writer and destroys stdin.
 
@@ -192,7 +224,8 @@ The server side (M2) therefore keeps serving both: stateless 2025 POSTs with JSO
 and 2026-07-28 sessions with listen streams and `list_changed`.
 
 - (a): `stdio-bridge.process`, `stdio-results.process`, `acp-listing.process`,
-  `list-changed.process`, `notification-streams.process`; the ACP adapter's session (a) files that
+  `list-changed.process`, `notification-streams.process` (the mismatched-id, malformed-reply,
+  257th-request and aggregate-budget cases are in `stdio-bridge.process` and `stdio-results.process`); the ACP adapter's session (a) files that
   use the bridge; each with `ACE_MCP` off and on too, since the bridge and server switch apart.
 - Measure `bench/stdio.ts`, off and on.
 

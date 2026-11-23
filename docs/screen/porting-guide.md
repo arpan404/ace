@@ -58,6 +58,12 @@ the 32 MiB reply cap (`:181`), restart after exit, timing spans. Helpers are spa
 containment; `spawnHelper` stays an option, and a JavaScript one (the tests') is driven through a
 bridge.
 
+Admission is bounded where it is today and no further: each helper runs one request at a time
+and the rest wait in its queue, which the registry's limits (1,024 calls, 256 per thread) bound;
+every queued request keeps its own deadline from the moment it was asked, so a hung app's queue
+drains by deadline, never by waiting for the app; a helper that won't start fails each waiting
+request at its deadline; and a reply line is capped before it is buffered (`computer/reply-lines.ts`).
+
 | TypeScript replaced (`packages/screen/src/`)                                                                                                       | Proof: (a) files                                                                                                                               | (b) cases to move                                       |
 | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
 | `computer/client`, `computer/helper-connection`, `computer/reply-lines`, `computer/wire`, `computer/timing`, `computer/errors`, `computer/session` | `computer/client.process`, `computer/timing.process`, `computer/linux.process`, `computer/toolkit.process`, `computer/locked-use-gate.process` | `computer/helper-connection.process`, `computer/timing` |
@@ -119,7 +125,30 @@ subscription.
   ordinary request is refused with `locked_use_interval_active` and its text from the catalog
   table (`computer/locked-use-gate.ts:110`–`:131`), whatever the setting says. A failure while
   deciding sends the request unprotected, counted in flight, exactly as today.
-- **Proof, in all four mixes** (S3 off/on × S4 off/on): `computer/locked-use-gate.process`,
+- **Revocation is fenced by a generation.** Turning locked use off must also catch a call that
+  is still deciding: the gate reads the setting, then awaits the service's status and the helper's
+  process ids (`computer/locked-use-gate.ts:84`–`:100`), and `cancelActive` aborts only the runs
+  that exist when it is called (`apps/daemon/src/locked-use-runtime.ts:134`–`:135`), so a call
+  that read "on" can enqueue after the cancel (`runProtected`, `:177`–`:207`). The runtime keeps a
+  revocation generation that `cancelActive` increments synchronously before aborting; the gate
+  reads it before its first await (`enabled()`, `:85`) and passes it with the route;
+  `runProtected` compares it synchronously at enqueue, before `#runs.add` (`:185`), and again
+  when the queued run starts, and refuses with `cancelled` ("Cancelled." and the not-run note,
+  from the catalog) without calling `work` or the service when it changed. Each decide step is
+  also bounded by the call's signal and the connection's own timeouts (hello 2 s, requests 5 s,
+  `locked-use-connection.ts:61`, `:209`); a call aborted while deciding never enqueues. The
+  protected queue (`#tail`) is bounded by the registry's call limits (1,024 in all, 256 per
+  thread), which stay in front of it.
+- **The test for that interleaving does not exist yet** (checked: `locked-use-gate.process`,
+  `locked-use-runtime.process`, `computer-locked-use.process` cover a finished turn, an active
+  interval, cancel of running attempts and in-flight unprotected requests, not a cancel during
+  deciding). The same race is in today's TypeScript, so the minimum addition is one test, written
+  first against the TypeScript in `apps/daemon/src/locked-use-runtime.process.test.ts`: "turning
+  locked use off while a call is still deciding keeps that call out of the protected interval"
+  (hold `status` open, call `cancelActive`, release it, and assert the service never received
+  `begin` and the call failed `cancelled`), with the TypeScript fix landing before S3. It is then
+  an (a) file of S3 and of the matrix below.
+- **Proof, in all four mixes** (S3 off/on × S4 off/on), including the new test: `computer/locked-use-gate.process`,
   `locked-use-connection.process`, daemon `computer-locked-use.process`,
   `locked-use.server.process`; S4 does not go default-on before S3 has passed this matrix.
 
