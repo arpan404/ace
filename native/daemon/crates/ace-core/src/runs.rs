@@ -229,8 +229,8 @@ fn end_turn_inner(
         let settled = state
             .runs
             .get(&id)
-            .map(|run| (run.state.clone(), run.trigger.clone()));
-        if let Some((state_name, run_trigger)) = settled {
+            .map(|run| (run.state.clone(), run.trigger.clone(), run.ended_at));
+        if let Some((state_name, run_trigger, run_ended_at)) = settled {
             if state_name != "active" {
                 if let Some(next_trigger) = trigger.clone() {
                     if run_trigger != next_trigger {
@@ -243,7 +243,7 @@ fn end_turn_inner(
                                 run_id: id,
                                 state: state_name,
                                 ended_by: None,
-                                ended_at: now,
+                                ended_at: run_ended_at.unwrap_or(now),
                                 trigger: Some(next_trigger),
                             },
                         );
