@@ -81,7 +81,7 @@ extension AceAccountAPI {
     }
 
     /// `orgs/{org}/{part}[/{item}]`, the organization's id checked and the item escaped.
-    private static func orgPath(_ org: String, _ part: String, _ item: String? = nil) throws(AceOrgError) -> String {
+    static func orgPath(_ org: String, _ part: String, _ item: String? = nil) throws(AceOrgError) -> String {
         guard isOrgId(org) else { throw .refused("invalid") }
         guard let item else { return "orgs/\(org)/\(part)" }
         guard !item.isEmpty, let segment = item.addingPercentEncoding(withAllowedCharacters: unreserved) else {
