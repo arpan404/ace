@@ -7,8 +7,14 @@ name = "ace-adapter-acp"
 version = "0.1.0"
 dependencies = [
  "ace-adapter-api",
+ "ace-core",
  "ace-supervisor",
  "agent-client-protocol",
+ "indexmap 2.14.2",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
 ]
 
 [[package]]
@@ -107,6 +113,7 @@ dependencies = [
 name = "ace-daemon-node"
 version = "0.1.0"
 dependencies = [
+ "ace-adapter-acp",
  "ace-adapter-api",
  "ace-adapter-claude",
  "ace-adapter-codex",
