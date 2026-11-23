@@ -385,70 +385,6 @@
       "mutates": true
     },
     {
-      "id": "thread.attach",
-      "words": [
-        "thread",
-        "attach"
-      ],
-      "summary": "Talk with an agent in this terminal",
-      "group": "work",
-      "args": [
-        {
-          "name": "THREAD",
-          "summary": "A thread to continue; omit to start one",
-          "ref": "thread"
-        }
-      ],
-      "flags": [
-        {
-          "name": "project",
-          "value": "PROJECT",
-          "summary": "A project id, name or path",
-          "ref": "project"
-        },
-        {
-          "name": "provider",
-          "value": "PROVIDER",
-          "summary": "codex, claude, cursor, opencode, antigravity or pi"
-        },
-        {
-          "name": "model",
-          "value": "MODEL",
-          "summary": "The model to use"
-        },
-        {
-          "name": "thread",
-          "value": "THREAD",
-          "summary": "Same as the THREAD argument",
-          "ref": "thread",
-          "hidden": true
-        },
-        {
-          "name": "idempotency-key",
-          "value": "KEY",
-          "summary": "Run this mutation at most once; retry with the same key"
-        }
-      ],
-      "examples": [
-        {
-          "command": "ace chat",
-          "summary": "A new conversation in this folder"
-        },
-        {
-          "command": "ace chat t_9f2c41",
-          "summary": "Continue a thread"
-        }
-      ],
-      "aliases": [
-        {
-          "words": [
-            "chat"
-          ]
-        }
-      ],
-      "mutates": true
-    },
-    {
       "id": "thread.send",
       "words": [
         "thread",
@@ -3344,50 +3280,6 @@
         }
       ],
       "output": "spade.move",
-      "mutates": true
-    },
-    {
-      "id": "spade.chat",
-      "words": [
-        "spade",
-        "chat"
-      ],
-      "summary": "Talk with a bot (Spade's main bot by default)",
-      "description": "With TEXT it sends one message and prints the reply. Without it, on a terminal, it is a conversation: type a line, read the answer, Ctrl-C to leave.",
-      "group": "spade-market",
-      "args": [
-        {
-          "name": "BOT",
-          "summary": "A bot's id or name; Spade's main bot when omitted",
-          "ref": "bot"
-        },
-        {
-          "name": "TEXT",
-          "summary": "One message to send; - reads it from stdin",
-          "stdin": true
-        }
-      ],
-      "examples": [
-        {
-          "command": "ace spade chat",
-          "summary": "A conversation with Spade"
-        },
-        {
-          "command": "ace spade chat writer \"Draft the release notes\"",
-          "summary": "One message"
-        }
-      ],
-      "exits": [
-        {
-          "code": 2,
-          "when": "the bot is waiting on you for an approval or a question"
-        },
-        {
-          "code": 3,
-          "when": "no reply came within --timeout (it may still answer)"
-        }
-      ],
-      "output": "spade.chat",
       "mutates": true
     },
     {
