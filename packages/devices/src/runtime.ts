@@ -2,6 +2,8 @@ import { spawnRawSupervised } from "@ace/provider-kit/process";
 export interface DeviceRuntime {
   fetch?: typeof fetch;
   socket?: (url: string) => WebSocket;
+  /** Opens one local TCP connection (an adb forward tunnel's end); `net.connect` by default. */
+  connect?: (port: number) => import("node:net").Socket;
   /** Wall-clock milliseconds, for timestamps. */
   now(): number;
   /**
