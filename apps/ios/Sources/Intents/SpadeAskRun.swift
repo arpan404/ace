@@ -74,35 +74,34 @@ private struct SpadeAskWire: Decodable, Sendable {
         while machines.contains(where: { $0.model.connection != "ready" }), ContinuousClock.now < deadline - .seconds(2) {
             try? await Task.sleep(for: .milliseconds(100))
         }
-        var byIndex: [Int: SpadeAsk.Reach] = [:]
-        await withTaskGroup(of: (Int, SpadeAsk.Reach).self) { group in
-            for (index, entry) in machines.enumerated() {
-                let key = entry.hostId
-                let name = coordinator.machineName(key) ?? key
-                let ready = entry.model.connection == "ready"
-                let client = entry.model
-                group.addTask { @MainActor in
-                    let left = deadline - ContinuousClock.now
-                    let unanswered = (index, SpadeAsk.Reach(key: key, name: name, answer: nil))
-                    guard ready, left > .zero else { return unanswered }
-                    // A do/catch, not `try?` in the guard: Swift 6's region checker can't follow that form here.
-                    let answer: SpadeAskWire
-                    do {
-                        answer = try await client.service(["type": "spade.main.read"], as: SpadeAskWire.self, timeout: left)
-                    } catch {
-                        return unanswered
-                    }
-                    guard answer.ok else { return (index, .init(key: key, name: name, answer: .init(problem: answer.message))) }
-                    let spade = answer.conversationId.map {
-                        SpadeAsk.Main(conversation: $0, createdAt: answer.createdAt ?? 0, after: answer.after ?? 0)
-                    }
-                    return (index, .init(key: key, name: name,
-                                         answer: .init(here: answer.here, record: answer.record, spade: spade, problem: answer.problem)))
-                }
-            }
-            for await (index, reach) in group { byIndex[index] = reach }
+        // One main-actor task per machine: they wait on their reads side by side, each bounded by
+        // `deadline`. A task group's `addTask { @MainActor in }` here trips Swift 6's region checker.
+        let reads = machines.map { entry in
+            let key = entry.hostId
+            let name = coordinator.machineName(key) ?? key
+            let client = entry.model
+            let ready = client.connection == "ready"
+            return Task { await Self.read(client, key: key, name: name, ready: ready, by: deadline) }
         }
-        return machines.indices.compactMap { byIndex[$0] }
+        var answers: [SpadeAsk.Reach] = []
+        for read in reads { answers.append(await read.value) }
+        return answers
+    }
+
+    /// One machine's answer about where Spade lives, or none when it isn't ready or misses `deadline`.
+    private static func read(_ client: ClientModel, key: String, name: String, ready: Bool,
+                             by deadline: ContinuousClock.Instant) async -> SpadeAsk.Reach {
+        let left = deadline - ContinuousClock.now
+        guard ready, left > .zero,
+              let answer = try? await client.service(["type": "spade.main.read"], as: SpadeAskWire.self, timeout: left) else {
+            return .init(key: key, name: name, answer: nil)
+        }
+        guard answer.ok else { return .init(key: key, name: name, answer: .init(problem: answer.message)) }
+        let spade = answer.conversationId.map {
+            SpadeAsk.Main(conversation: $0, createdAt: answer.createdAt ?? 0, after: answer.after ?? 0)
+        }
+        return .init(key: key, name: name,
+                     answer: .init(here: answer.here, record: answer.record, spade: spade, problem: answer.problem))
     }
 }
 
