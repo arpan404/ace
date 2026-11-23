@@ -169,6 +169,7 @@ pub fn router(state: AppState) -> Router {
         .route("/routines/{id}/run", post(routines::run))
         .route("/conversations/{id}/events", get(events))
         .route("/conversations/{id}/helpers", get(helpers))
+        .route("/conversations/{id}/tasks", get(tasks))
         .route("/conversations/{id}/stop", post(stop))
         .route("/conversations/{id}/retry", post(try_again))
         .route("/conversations/{id}/approvals/{call_id}", post(approve))
@@ -410,6 +411,17 @@ async fn events(
 async fn helpers(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     match state.engine.helpers_view(&id) {
         Ok(Some(helpers)) => Json(json!({ "helpers": helpers })).into_response(),
+        Ok(None) => problem(StatusCode::NOT_FOUND, "no such conversation"),
+        Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+    }
+}
+
+/// A bot's task lanes (ADR 0217 §10), in the task list's order. Each lane's own conversation is
+/// read with `/events` and `/live`, written to with `/messages`, stopped with `/stop` and tried
+/// again with `/retry`, like any conversation.
+async fn tasks(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    match state.engine.lanes_view(&id) {
+        Ok(Some(tasks)) => Json(json!({ "tasks": tasks })).into_response(),
         Ok(None) => problem(StatusCode::NOT_FOUND, "no such conversation"),
         Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
     }

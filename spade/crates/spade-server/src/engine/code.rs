@@ -378,6 +378,7 @@ impl Engine {
         tally.asked += 1;
         let asked_id = format!("{}{}{}", at.call_id, ASKED, tally.asked);
         let asked = Event::Known(Known::ApprovalRequested {
+            lane: None,
             reply: at.reply.to_owned(),
             call_id: asked_id.clone(),
             name: name.to_owned(),

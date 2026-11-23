@@ -6,7 +6,7 @@ use rusqlite::{OptionalExtension, params};
 use spade_core::Event;
 
 use crate::gate::ARRIVING_CONVERSATIONS;
-use crate::{Result, Store, StoreError};
+use crate::{Result, Store, StoreError, StoredEvent};
 
 /// The schema step that adds helpers.
 pub(crate) const SCHEMA: &str = "
@@ -78,58 +78,31 @@ impl Store {
     ) -> Result<bool> {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
-        let taken: Option<String> = tx
-            .query_row(
-                "SELECT conversation_id FROM helpers WHERE parent_id = ?1 AND job = ?2",
-                params![helper.parent, helper.job],
-                |row| row.get(0),
-            )
-            .optional()?;
-        if taken.is_some() {
+        if insert_hidden(&tx, helper, first, now_ms)?.is_none() {
             return Ok(false);
         }
-        let parent: Option<bool> = tx
-            .query_row(
-                &format!("SELECT 1 FROM conversations WHERE id = ?1 AND id NOT IN {ARRIVING_CONVERSATIONS}"),
-                params![helper.parent],
-                |_| Ok(true),
-            )
-            .optional()?;
-        if parent.is_none() {
-            return Err(StoreError::NoConversation(helper.parent.clone()));
-        }
-        let inserted = tx.execute(
-            "INSERT OR IGNORE INTO conversations (id, title, created_ms, updated_ms)
-             VALUES (?1, NULL, ?2, ?2)",
-            params![helper.conversation, now_ms],
-        )?;
-        if inserted == 0 {
-            return Err(StoreError::Exists(helper.conversation.clone()));
-        }
-        let tools = helper
-            .tools
-            .as_ref()
-            .map(|t| serde_json::to_string(t).unwrap_or_else(|_| "[]".to_owned()));
-        tx.execute(
-            &format!(
-                "INSERT INTO helpers ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
-            ),
-            params![
-                helper.conversation,
-                helper.parent,
-                helper.job,
-                helper.reply,
-                helper.profile,
-                helper.system,
-                i64::from(helper.reads_only),
-                tools,
-                helper.model,
-                now_ms
-            ],
-        )?;
-        crate::append_in(&tx, &helper.conversation, first, now_ms)?;
         tx.commit()?;
         Ok(true)
+    }
+
+    /// Creates a task lane (ADR 0217) as [`Store::create_helper`] does, and stores `parent_events`
+    /// in its bot's conversation in the same write, so a crash never keeps one without the other.
+    /// `None` (nothing written) when the call already made its lane.
+    pub fn create_lane(
+        &self,
+        lane: &StoredHelper,
+        first: &[Event],
+        parent_events: &[Event],
+        now_ms: i64,
+    ) -> Result<Option<(Vec<StoredEvent>, Vec<StoredEvent>)>> {
+        let mut connection = self.lock()?;
+        let tx = connection.transaction()?;
+        let Some(own) = insert_hidden(&tx, lane, first, now_ms)? else {
+            return Ok(None);
+        };
+        let parent = crate::append_in(&tx, &lane.parent, parent_events, now_ms)?;
+        tx.commit()?;
+        Ok(Some((own, parent)))
     }
 
     /// The helper whose conversation is `conversation`.
@@ -185,6 +158,73 @@ impl Store {
         let rows = statement.query_map(values, helper)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
+}
+
+/// Writes a hidden conversation's row and first events inside `tx`; `None` (nothing written) when
+/// its parent's job already has one.
+fn insert_hidden(
+    tx: &rusqlite::Transaction<'_>,
+    helper: &StoredHelper,
+    first: &[Event],
+    now_ms: i64,
+) -> Result<Option<Vec<StoredEvent>>> {
+    let taken: Option<String> = tx
+        .query_row(
+            "SELECT conversation_id FROM helpers WHERE parent_id = ?1 AND job = ?2",
+            params![helper.parent, helper.job],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if taken.is_some() {
+        return Ok(None);
+    }
+    let parent: Option<bool> = tx
+        .query_row(
+            &format!(
+                "SELECT 1 FROM conversations WHERE id = ?1 AND id NOT IN {ARRIVING_CONVERSATIONS}"
+            ),
+            params![helper.parent],
+            |_| Ok(true),
+        )
+        .optional()?;
+    if parent.is_none() {
+        return Err(StoreError::NoConversation(helper.parent.clone()));
+    }
+    let inserted = tx.execute(
+        "INSERT OR IGNORE INTO conversations (id, title, created_ms, updated_ms)
+             VALUES (?1, NULL, ?2, ?2)",
+        params![helper.conversation, now_ms],
+    )?;
+    if inserted == 0 {
+        return Err(StoreError::Exists(helper.conversation.clone()));
+    }
+    let tools = helper
+        .tools
+        .as_ref()
+        .map(|t| serde_json::to_string(t).unwrap_or_else(|_| "[]".to_owned()));
+    tx.execute(
+        &format!(
+            "INSERT INTO helpers ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
+        ),
+        params![
+            helper.conversation,
+            helper.parent,
+            helper.job,
+            helper.reply,
+            helper.profile,
+            helper.system,
+            i64::from(helper.reads_only),
+            tools,
+            helper.model,
+            now_ms
+        ],
+    )?;
+    Ok(Some(crate::append_in(
+        tx,
+        &helper.conversation,
+        first,
+        now_ms,
+    )?))
 }
 
 /// Deletes the helpers of `parent` with their conversations and events, inside `tx`.

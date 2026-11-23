@@ -21,6 +21,10 @@ impl Engine {
     /// Checks worker `id`: starts it if it is queued and a slot is free, and reports it to its
     /// parent if it has settled.
     pub(super) fn check_worker(self: &Arc<Self>, id: &str) {
+        if self.is_lane(id) {
+            self.check_lane(id);
+            return;
+        }
         let Some(link) = self.worker_link(id) else {
             return;
         };

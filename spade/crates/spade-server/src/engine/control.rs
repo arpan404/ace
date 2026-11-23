@@ -87,7 +87,8 @@ impl Engine {
         // A wake, service or worker the stopped work stored before the marker, after the first
         // sweep, ends too. One stored after the marker was refused (each is admitted under the
         // record lock), so once Stop returns none from the stopped work exists.
-        let woke = self.stop_workers(id) | end_wakes(self, id) || woke;
+        // Stop on the bot stops every task lane too (ADR 0217 §5); Stop on a lane only it.
+        let woke = self.stop_workers(id) | self.stop_lanes(id) | end_wakes(self, id) || woke;
         let (turn, stopped_jobs) = self.halt(id, &live, reply.as_deref(), &jobs, stored.is_ok());
         loaded?;
         stored?;

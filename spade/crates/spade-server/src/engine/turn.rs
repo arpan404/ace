@@ -139,6 +139,8 @@ pub(super) async fn run(
     // A helper's reply closing is its end (ADR 0152): its job hears of it and a queued helper
     // takes its slot. A helper has no task to carry on, and no title of its own.
     let helper = engine.helper_of(&id).is_some();
+    // A lane (ADR 0217) carries its own task on like main, and has its title from the start.
+    let lane = engine.is_lane(&id);
     let planned = if paused || helper {
         None
     } else {
@@ -169,6 +171,13 @@ pub(super) async fn run(
     }
     if helper {
         engine.helper_ended(&id);
+        return;
+    }
+    if lane {
+        if let Some(planned) = planned {
+            engine.carry_on_as(&id, planned);
+        }
+        engine.lane_ended(&id);
         return;
     }
     name_if_untitled(&engine, &id).await;
@@ -226,6 +235,9 @@ async fn drive(
     pause: &mut watch::Receiver<Pause>,
     driven: &mut Option<String>,
 ) -> Ended {
+    // When this worker took the reply, for moving main's long work to a lane (ADR 0217 §2a). A
+    // restart starts the clock again; the step count carries over in the events.
+    let began = engine.now_ms();
     loop {
         if *stop.borrow() {
             return Ended::Stopped(String::new());
@@ -267,6 +279,11 @@ async fn drive(
                 // A steer the last step left unanswered: one note first (ADR 0215 §4).
                 if super::asks::remind(engine, id, &reply) {
                     continue;
+                }
+                // Main's own work that runs long moves to a lane at this boundary, and main is
+                // free to talk (ADR 0217 §2a).
+                if engine.move_if_due(id, &reply, engine.now_ms() - began) {
+                    return Ended::Finished;
                 }
                 // A helper has no indexes: it starts from Spade's rules, its profile and its task
                 // alone. No step count or cost ends a turn (ADR 0158, ADR 0166); Stop does.
@@ -415,6 +432,8 @@ async fn model_step(
         true => spade_core::asks::block::appended(prompt, &engine.asks_of(id, events)),
         false => prompt,
     };
+    // Main's lanes that haven't ended close it, so main knows what runs where (ADR 0217 §6).
+    let prompt = engine.with_lanes_block(id, prompt);
     let live = engine.live(id);
     engine.step_began(id);
     engine.set_status(id, Some(super::roster::THINKING.to_owned()));

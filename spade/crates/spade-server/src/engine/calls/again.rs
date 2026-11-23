@@ -95,6 +95,7 @@ pub(super) fn ask_again(
         return Ok(false);
     }
     let asked = Event::Known(Known::ApprovalRequested {
+        lane: None,
         reply: reply.to_owned(),
         call_id: call.id.clone(),
         name: name.to_owned(),

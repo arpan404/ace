@@ -38,6 +38,7 @@ mod jobs;
 mod judge;
 mod knowledge;
 mod knowledge_api;
+mod lanes;
 mod learned;
 mod ledger;
 mod local;
@@ -414,6 +415,8 @@ impl Engine {
         let tools = crate::teams::with_tools(tools, &handle);
         // A bot's tools for its workers (ADR 0161).
         let tools = crate::tools::with_worker_tools(tools, &handle);
+        // Main's tools for its task lanes (ADR 0217).
+        let tools = crate::tools::with_task_tools(tools, &handle);
         let data = setup.images.dir().parent().unwrap_or(setup.images.dir());
         let media = Arc::new(crate::media::Media::open(data));
         let decisions = classify::Decisions::new(data.join("classifier"));
@@ -657,6 +660,7 @@ impl Engine {
             ace_waiting: ace.iter().any(|c| c.state.waiting()),
             ace_working: ace.iter().any(|c| c.state.working()),
             workers: 0,
+            tasks: 0,
             calls: spade_core::contract::calling(events.iter(), &transcript.jobs)
                 .into_iter()
                 .filter(|called| called.machine.is_none())
@@ -745,6 +749,10 @@ impl Engine {
             State::Waiting if activity.waiting_for == Some("worker") => {
                 Some(roster::WORKER_WAITING.to_owned())
             }
+            // One of its task lanes waits on the person (ADR 0217 §7).
+            State::Waiting if activity.waiting_for == Some("task") => {
+                Some(roster::TASK_WAITING.to_owned())
+            }
             // A bot it called waits on the person for that call (ADR 0200 §6.2).
             State::Waiting if activity.waiting_for == Some("callee") => {
                 Some(roster::CALLEE_WAITING.to_owned())
@@ -766,6 +774,8 @@ impl Engine {
                     .unwrap_or_else(|| {
                         if activity.answering {
                             roster::THINKING.to_owned()
+                        } else if activity.jobs == 0 && activity.tasks > 0 {
+                            roster::tasks_working(activity.tasks)
                         } else if activity.jobs == 0 && activity.workers > 0 {
                             roster::workers_working(activity.workers)
                         } else {
@@ -1209,12 +1219,17 @@ impl Engine {
         cost: u64,
     ) {
         use spade_core::routing::Role;
-        // A helper's spend is its bot's (ADR 0152), so the bot's spend shows it.
-        let owner = self.helper_of(id).map(|h| h.parent);
-        let role = role.unwrap_or(if owner.is_some() {
-            Role::Helper
-        } else {
-            Role::Main
+        // A helper's spend is its bot's (ADR 0152), and so is a lane's (ADR 0217 §8), so the
+        // bot's spend shows it; a lane's steps are the `task` role's.
+        let hidden = self.hidden_of(id);
+        let lane = hidden
+            .as_ref()
+            .is_some_and(|h| h.profile == spade_core::lane::PROFILE);
+        let owner = hidden.map(|h| h.parent);
+        let role = role.unwrap_or(match (&owner, lane) {
+            (Some(_), true) => Role::Task,
+            (Some(_), false) => Role::Helper,
+            (None, _) => Role::Main,
         });
         let id = owner.as_deref().unwrap_or(id);
         if cost > 0

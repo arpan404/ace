@@ -180,6 +180,8 @@ impl Engine {
         // Helpers paused or cut off carry on, and queued ones start as slots allow (ADR 0152).
         for bot in self.bots_with_helpers() {
             self.fill_slots(&bot);
+            // And task lanes (ADR 0217 §6), which are stored beside them.
+            self.fill_lanes(&bot);
         }
     }
 
