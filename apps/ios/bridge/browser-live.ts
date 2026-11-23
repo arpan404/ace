@@ -573,7 +573,7 @@ export class BrowserLive {
     /** The request failed while it was still the view's latest, however its delivery settled. */
     let lost = false;
     const failed = (error: unknown) => {
-      const next = this.#media.failed(watch.threadId, begun.generation, error);
+      const next = this.#media.failed(watch.threadId, begun.generation, error, media?.connection);
       if (next === "resubscribe") refused = true;
       // To be tried again (its delivery settled on the channel, or the one it replaced restored,
       // whose generation is then the source's again): it climbs the ladder.
@@ -603,7 +603,13 @@ export class BrowserLive {
       })
       .then(
         (reply) => {
-          if (this.#watch !== watch) return;
+          if (this.#watch !== watch) {
+            // A view gone meanwhile still passes on a refusal of the shared connection it named:
+            // the phone's other views use it too.
+            if (!reply.ok)
+              this.#media.connectionRefused(media?.connection, new Error(reply.error ?? ""));
+            return;
+          }
           if (!reply.ok) {
             // A connection the daemon won't bind for this view is named no more; any other failure
             // falls back as the shared client says, and is asked again on its ladder.
@@ -636,6 +642,7 @@ export class BrowserLive {
         // Lost on its way (offline, timed out): settled or restored as the shared client says.
         (error: unknown) => {
           if (this.#watch === watch) failed(error);
+          else this.#media.connectionRefused(media?.connection, error);
         },
       )
       .finally(() => {

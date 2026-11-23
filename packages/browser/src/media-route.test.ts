@@ -102,7 +102,7 @@ test("a late refusal proving the still-bound connection gone replaces it, though
   media.abandon("thread", old.generation);
   // The retry after its timeout names the same connection.
   const retry = media.begin("thread");
-  media.failed("thread", old.generation, refusal);
+  media.failed("thread", old.generation, refusal, old.fields.media?.connection);
   expect(refreshed).toEqual(["mc_aaaaaaaaaa"]);
   // The retry's own delivery is the retry's: the late reply settled nothing of it.
   expect(media.generation("thread")).toBe(retry.generation);
@@ -124,7 +124,7 @@ test("a late refusal of a connection that is no longer the binding changes nothi
   media.abandon("thread", old.generation);
   connection = "mc_bbbbbbbbbb";
   media.begin("thread");
-  media.failed("thread", old.generation, refusal);
+  media.failed("thread", old.generation, refusal, old.fields.media?.connection);
   expect(refreshed).toEqual([]);
 });
 
@@ -139,4 +139,15 @@ test("sources that lost video together come back spread out, each within its coo
   }
   // A source's own wait stays the same, so it never drifts into the others.
   expect(media.cooldown("thread-3")).toBe(waits[3]);
+});
+
+test("a gone refusal that comes after many later subscribes still replaces the connection its request named", () => {
+  const { media, refreshed } = healthy();
+  const old = media.begin("thread");
+  media.abandon("thread", old.generation);
+  // Its retry supersedes it, and many other views subscribe meanwhile.
+  media.begin("thread");
+  for (let index = 0; index < 100; index++) media.begin(`view-${index}`);
+  media.failed("thread", old.generation, refusal, old.fields.media?.connection);
+  expect(refreshed).toEqual(["mc_aaaaaaaaaa"]);
 });

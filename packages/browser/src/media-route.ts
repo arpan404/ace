@@ -90,9 +90,6 @@ interface Delivery {
   waiting?: MediaUndelivered;
 }
 
-/** How many recent subscribes' named connections are kept for their late refusals. */
-const namedKept = 64;
-
 /** Waits before a failed subscribe is tried again, by attempt; then the source gives up. */
 export const mediaRetryDelaysMs = [1_000, 2_000, 5_000, 10_000] as const;
 
@@ -178,11 +175,7 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
    * state still comes, and the one after names it again.
    */
   #refused = new Map<string, string>();
-  /**
-   * The connection each recent subscribe named, by generation, bounded: a refusal that comes
-   * after a later subscribe superseded its own still says whether that connection is gone.
-   */
-  #named = new Map<number, string>();
+
   #posters = new Map<string, MediaPoster>();
   /** Pictures that came while a subscribe naming a connection waits for its reply. */
   #candidates = new Map<string, DeliveryCandidates<F>>();
@@ -218,13 +211,7 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     // One subscribe without it: a connection refused once is named again after.
     this.#refused.delete(source);
     const asked = binding && !withheld ? binding.connection : undefined;
-    if (asked) {
-      this.#named.set(generation, asked);
-      for (const oldest of this.#named.keys()) {
-        if (this.#named.size <= namedKept) break;
-        this.#named.delete(oldest);
-      }
-    }
+
     // A retry keeps saying why the last one got nothing, until a picture comes on this one.
     const waiting = replaced && reasonOf(replaced);
     this.#deliveries.set(source, {
@@ -335,25 +322,16 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
    * - otherwise the delivery it replaced is kept when its connection is still the binding, else
    *   the view gets no pictures and says why.
    */
-  failed(source: string, generation: number, error: unknown): FailedSubscribe {
+  failed(source: string, generation: number, error: unknown, named?: string): FailedSubscribe {
     const delivery = this.#current(source, generation);
-    if (!delivery) {
-      // Superseded: its delivery is the later one's, but its word that the connection it named
-      // is gone counts while that connection is still the binding.
-      const named = this.#named.get(generation);
-      if (named && isGoneConnection(error) && named === this.#route?.binding()?.connection)
-        this.#route?.refresh?.(named);
-      return "ignore";
-    }
+    // Whatever became of its delivery, its word that the connection it named is gone counts.
+    this.connectionRefused(named ?? delivery?.asked, error);
+    if (!delivery) return "ignore";
     // A refusal of the connection still bound counts even after the deadline settled this
     // subscribe: only that word says the connection needs replacing.
     const asked = delivery.asked;
-    if (asked && isMediaRefusal(error) && asked === this.#route?.binding()?.connection) {
+    if (asked && isMediaRefusal(error) && asked === this.#route?.binding()?.connection)
       this.#refused.set(source, asked);
-      // The daemon has no such connection: a fresh one gets a binding it knows. One that is
-      // someone else's is left alone, since it may still serve their views.
-      if (isGoneConnection(error)) this.#route?.refresh?.(asked);
-    }
     if (delivery.via !== undefined) return "ignore";
     this.#candidates.delete(source);
     const previous = this.#previous.get(source);
@@ -370,6 +348,16 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     // The delivery it replaced, back again, or none: either way, its way is known now.
     this.#emit(source);
     return "retry";
+  }
+  /**
+   * A subscribe naming `named` was refused with `error`, whichever view's it was (one closed
+   * meanwhile too): when the daemon no longer has that connection and it is still the binding,
+   * a fresh one is opened. One that is someone else's is left alone, since it may still serve
+   * their views. Nothing of any source's delivery changes here.
+   */
+  connectionRefused(named: string | undefined, error: unknown): void {
+    if (named && isGoneConnection(error) && named === this.#route?.binding()?.connection)
+      this.#route?.refresh?.(named);
   }
   /**
    * How long until a source whose subscribe was answered without delivery (ace-media couldn't

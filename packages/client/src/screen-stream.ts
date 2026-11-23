@@ -230,7 +230,7 @@ export class ScreenStreamClient {
             operation.op === "subscribe" &&
             this.pending.has(requestId)
           )
-            this.timedOut(requestId, operation.sessionId, generation);
+            this.timedOut(requestId, operation.sessionId, generation, operation.media?.connection);
           finish(failure("timeout", "Screen request timed out"));
         },
         options.timeoutMs ?? defaultTimeoutMs(operation),
@@ -334,7 +334,8 @@ export class ScreenStreamClient {
     this.pictures.discardSource(sessionId);
     void this.send({ op: "subscribe", sessionId, ...fields }, {}, generation).catch(
       (error: unknown) => {
-        if (this.media.failed(sessionId, generation, error) === "retry") this.retryLater(sessionId);
+        if (this.media.failed(sessionId, generation, error, fields.media?.connection) === "retry")
+          this.retryLater(sessionId);
       },
     );
   }
@@ -383,19 +384,28 @@ export class ScreenStreamClient {
    * A subscribe got no answer in time: its source stops waiting (its view says so), and its
    * reply, should it still come, is kept for (`late`), bounded.
    */
-  private timedOut(requestId: string, sourceId: string, generation: number): void {
+  private timedOut(
+    requestId: string,
+    sourceId: string,
+    generation: number,
+    connection: string | undefined,
+  ): void {
     this.media.abandon(sourceId, generation);
     // Still the source's current subscribe: ask again after the backoff, unless its late reply
     // comes first and settles it.
     if (this.media.generation(sourceId) === generation) this.retryLater(sourceId);
-    this.late.set(requestId, { sourceId, generation });
+    this.late.set(requestId, { sourceId, generation, connection });
     for (const oldest of this.late.keys()) {
       if (this.late.size <= 32) break;
       this.late.delete(oldest);
     }
   }
   /** Subscribes that timed out, by request id, whose late reply still settles their delivery. */
-  private readonly late = new Map<string, { sourceId: string; generation: number }>();
+  /** Timed-out subscribes whose replies may still come, with the connection each named. */
+  private readonly late = new Map<
+    string,
+    { sourceId: string; generation: number; connection: string | undefined }
+  >();
 
   private receive(message: ServerMessage | Uint8Array): void {
     if (message instanceof Uint8Array) {
@@ -429,7 +439,13 @@ export class ScreenStreamClient {
           );
         // A late refusal still says what became of the connection it named (a gone one is
         // replaced); the retry scheduled at its timeout keeps waiting.
-        else this.media.failed(late.sourceId, late.generation, new ScreenClientError(frame));
+        else
+          this.media.failed(
+            late.sourceId,
+            late.generation,
+            new ScreenClientError(frame),
+            late.connection,
+          );
         return;
       }
       if (!request) return;

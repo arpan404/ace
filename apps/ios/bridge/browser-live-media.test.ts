@@ -30,7 +30,10 @@ function connection() {
   let bound: string | undefined;
   const watchers = new Set<() => void>();
   const carried: MediaStreamClientMessage[] = [];
+  /** Connections the phone asked to replace. */
+  const refreshed: string[] = [];
   const route: MediaRoute = {
+    refresh: (refused) => void refreshed.push(refused),
     binding: () => (bound ? { connection: bound } : undefined),
     codecs: () => [],
     watch: (listener) => {
@@ -47,6 +50,7 @@ function connection() {
   return {
     route,
     carried,
+    refreshed,
     bind(next: string | undefined) {
       bound = next;
       for (const listener of Array.from(watchers)) listener();
@@ -349,4 +353,23 @@ test("subscribes that fail at once, each restoring the delivery before, still cl
   browser.elapse(cooldownMs);
   await until(() => subscribes(browser.requested).length === asked + 1, "after the cooldown");
   expect(subscribes(browser.requested).at(-1)?.media).toBeDefined();
+});
+
+test("a view closed while its subscribe waited still passes on the proof that the shared connection is gone", async () => {
+  const media = connection();
+  media.bind("mc_aaaaaaaa");
+  const browser = await live({ media: "hangs" });
+  browser.view.useMedia(media.route, () => {});
+  browser.view.action({ kind: "open", threadId: "web", viewport });
+  await until(() => browser.answering.length === 1, "a subscribe left waiting");
+  // The person leaves the browser before the daemon answers.
+  browser.view.action({ kind: "close" });
+  browser.answering[0]?.({
+    type: "browser.result",
+    requestId: "gone",
+    ok: false,
+    error: "media-connection-gone: that media connection is gone",
+  });
+  await until(() => media.refreshed.length === 1, "the connection replaced");
+  expect(media.refreshed).toEqual(["mc_aaaaaaaa"]);
 });

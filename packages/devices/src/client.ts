@@ -301,7 +301,12 @@ export class DeviceClient {
             operation.op === "subscribe" &&
             this.pending.has(message.requestId)
           )
-            this.timedOut(message.requestId, operation.deviceId, generation);
+            this.timedOut(
+              message.requestId,
+              operation.deviceId,
+              generation,
+              operation.media?.connection,
+            );
           this.pending.delete(message.requestId);
           this.screenshots.cancel(message.requestId);
           reject(
@@ -422,7 +427,8 @@ export class DeviceClient {
     // What the earlier subscribe delivered and nobody drew yet is stale now.
     this.pictures.discardSource(deviceId);
     void this.send({ op: "subscribe", deviceId, ...fields }, generation).catch((error: unknown) => {
-      if (this.media.failed(deviceId, generation, error) === "retry") this.retryLater(deviceId);
+      if (this.media.failed(deviceId, generation, error, fields.media?.connection) === "retry")
+        this.retryLater(deviceId);
     });
   }
   private receiveMedia(message: StreamMessage): void {
@@ -455,19 +461,28 @@ export class DeviceClient {
    * A subscribe got no answer in time: its source stops waiting (delivery falls back to the
    * channel), and its reply, should it still come, is kept for (`late`), bounded.
    */
-  private timedOut(requestId: string, sourceId: string, generation: number): void {
+  private timedOut(
+    requestId: string,
+    sourceId: string,
+    generation: number,
+    connection: string | undefined,
+  ): void {
     this.media.abandon(sourceId, generation);
     // Still the source's current subscribe: ask again after the backoff, unless its late reply
     // comes first and settles it.
     if (this.media.generation(sourceId) === generation) this.retryLater(sourceId);
-    this.late.set(requestId, { sourceId, generation });
+    this.late.set(requestId, { sourceId, generation, connection });
     for (const oldest of this.late.keys()) {
       if (this.late.size <= 32) break;
       this.late.delete(oldest);
     }
   }
   /** Subscribes that timed out, by request id, whose late reply still settles their delivery. */
-  private readonly late = new Map<string, { sourceId: string; generation: number }>();
+  /** Timed-out subscribes whose replies may still come, with the connection each named. */
+  private readonly late = new Map<
+    string,
+    { sourceId: string; generation: number; connection: string | undefined }
+  >();
 
   /**
    * Keep `deviceId`'s live stream open for one view. Views of the same device share one daemon
@@ -578,7 +593,13 @@ export class DeviceClient {
             );
           // A late refusal still says what became of the connection it named (a gone one is
           // replaced); the retry scheduled at its timeout keeps waiting.
-          else this.media.failed(late.sourceId, late.generation, this.failure(message.error));
+          else
+            this.media.failed(
+              late.sourceId,
+              late.generation,
+              this.failure(message.error),
+              late.connection,
+            );
           return;
         }
         if (!pending) return;

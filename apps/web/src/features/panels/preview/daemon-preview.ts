@@ -451,7 +451,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         binding ? { timeoutMs: lateReplyMs } : undefined,
       );
     } catch (error) {
-      deliveries.failed(threadId, generation, error);
+      deliveries.failed(threadId, generation, error, binding?.connection);
       throw error;
     } finally {
       cancelDeadline?.();
@@ -460,7 +460,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       const error = new Error(reply.error ?? "browser_failed");
       // It keeps the delivery it replaced while that still holds, else says why; the poll tries
       // again.
-      deliveries.failed(threadId, generation, error);
+      deliveries.failed(threadId, generation, error, binding?.connection);
       changed(threadId);
       throw error;
     }
