@@ -9,7 +9,6 @@ import {
 } from "@ace/protocol";
 import { decodeStreamMessage, isStreamPiece, StreamAssembler } from "@ace/browser/stream";
 import {
-  mediaRetryCooldownMs,
   MediaSubscriptions,
   PictureQueue,
   SharedStreams,
@@ -129,7 +128,7 @@ export class ScreenStreamClient {
    */
   fallBack(sessionId: string, codec: string): boolean {
     if (!this.media.fallBack(sessionId, codec)) return false;
-    if (this.streams.held().includes(sessionId)) this.subscribe(sessionId);
+    if (this.streams.holds(sessionId)) this.subscribe(sessionId);
     return true;
   }
   /** The still the session's subscribe brought back, to show until its first live picture. */
@@ -309,7 +308,7 @@ export class ScreenStreamClient {
   private retryLater(
     sessionId: string,
     // Past the ladder, the cooldown, for as long as the stream is held: it never gives up.
-    delay = this.media.retryDelay(sessionId) ?? mediaRetryCooldownMs,
+    delay = this.media.retryDelay(sessionId) ?? this.media.cooldown(sessionId),
   ): void {
     const epoch = this.epoch;
     const generation = this.media.generation(sessionId);
@@ -317,7 +316,7 @@ export class ScreenStreamClient {
     const cancel = this.options.schedule(() => {
       this.retries.delete(sessionId);
       if (this.epoch !== epoch || this.media.generation(sessionId) !== generation) return;
-      if (this.streams.held().includes(sessionId)) this.subscribe(sessionId);
+      if (this.streams.holds(sessionId)) this.subscribe(sessionId);
     }, delay);
     this.retries.set(sessionId, cancel);
   }

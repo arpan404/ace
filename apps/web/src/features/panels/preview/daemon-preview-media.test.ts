@@ -11,7 +11,7 @@ import type { ClientApi, StreamMessage } from "@ace/client";
 import { fakeClient } from "@/test/fake-client.ts";
 import { daemonPreview, type PreviewMedia } from "./daemon-preview.ts";
 import type { PosterDecoder } from "@/lib/video/poster.ts";
-import { mediaRetryCooldownMs, mediaRetryDelaysMs } from "@ace/browser/live-view";
+import { MediaSubscriptions, mediaRetryDelaysMs } from "@ace/browser/live-view";
 import { streamingClient } from "./stream-test-support.ts";
 import { instantDecoder } from "./video-test-support.ts";
 import { degradedSentence } from "@/lib/video/degraded.tsx";
@@ -411,6 +411,9 @@ test("a poster still decoding when the view rebinds is never drawn", async () =>
   expect(closed).toContain(-100);
 });
 
+/** The thread's own wait between tries once its ladder is spent. */
+const cooldownMs = new MediaSubscriptions().cooldown(thread);
+
 const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 const named = (request: { media?: unknown }) =>
@@ -429,9 +432,9 @@ test("a failing subscribe is retried on the shared ladder, then on its cooldown,
   expect(view.subscribes().map(named)).toEqual(Array(5).fill("mc_aaaaaaaaaa"));
   // The ladder is spent: each cooldown brings another try, naming the connection, never giving
   // video up while the view is held.
-  view.fire(mediaRetryCooldownMs);
+  view.fire(cooldownMs);
   await waitFor(() => expect(view.subscribes()).toHaveLength(6));
-  view.fire(mediaRetryCooldownMs);
+  view.fire(cooldownMs);
   await waitFor(() => expect(view.subscribes()).toHaveLength(7));
   expect(view.subscribes().slice(5).map(named)).toEqual(["mc_aaaaaaaaaa", "mc_aaaaaaaaaa"]);
 });
@@ -471,7 +474,7 @@ test("hiding and showing the page again and again stays within the retry ladder 
   // Past the ladder, the cooldown holds however often the page flaps.
   await storm(30);
   expect(view.subscribes()).toHaveLength(1 + mediaRetryDelaysMs.length);
-  view.fire(mediaRetryCooldownMs);
+  view.fire(cooldownMs);
   await waitFor(() => expect(view.subscribes()).toHaveLength(2 + mediaRetryDelaysMs.length));
   // The socket fails too: one more try per cooldown, flapping or not.
   await storm(30);
@@ -508,7 +511,7 @@ async function spend(view: Awaited<ReturnType<typeof watching>>) {
 test("a view that leaves and comes back starts a fresh ladder, naming the connection again", async () => {
   const view = await watching("mc_aaaaaaaaaa", undefined, "fails");
   await spend(view);
-  expect(view.pending(mediaRetryCooldownMs)).toBe(1);
+  expect(view.pending(cooldownMs)).toBe(1);
   view.unwatch();
   await settle();
   // Back before the cache lets the thread go: nothing of the old ladder is inherited.
@@ -516,7 +519,7 @@ test("a view that leaves and comes back starts a fresh ladder, naming the connec
   await waitFor(() => expect(view.subscribes()).toHaveLength(6));
   expect(named(view.subscribes()[5]!)).toBe("mc_aaaaaaaaaa");
   await waitFor(() => expect(view.pending(mediaRetryDelaysMs[0])).toBe(1));
-  expect(view.pending(mediaRetryCooldownMs)).toBe(0);
+  expect(view.pending(cooldownMs)).toBe(0);
 });
 
 test("a subscribe that succeeds resets the ladder for the next failure", async () => {

@@ -12,7 +12,10 @@ import { mediaRetryCooldownMs } from "./media-route.ts";
 
 /** What the retry needs of a source's ladder: `MediaSubscriptions` keeps it. */
 export interface RetryLadder {
+  /** The next step's wait; undefined once spent. A wait of the cooldown or more is one too. */
   retryDelay(source: string): number | undefined;
+  /** The source's own cooldown (`MediaSubscriptions.cooldown`); absent: the shared one. */
+  cooldown?(source: string): number;
 }
 
 /** Runs `run` after `ms`; the result cancels it. */
@@ -44,12 +47,16 @@ export class SubscribeRetry {
     this.#cancel?.();
     const delay = this.#ladder.retryDelay(this.#source);
     this.#skipped = false;
-    this.#cooling = delay === undefined;
-    this.#cancel = this.#schedule(() => {
-      this.#cancel = undefined;
-      this.#cooling = false;
-      run();
-    }, delay ?? mediaRetryCooldownMs);
+    // The unserved ladder answers its cooldown as a number: no event skips that either.
+    this.#cooling = delay === undefined || delay >= mediaRetryCooldownMs;
+    this.#cancel = this.#schedule(
+      () => {
+        this.#cancel = undefined;
+        this.#cooling = false;
+        run();
+      },
+      delay ?? this.#ladder.cooldown?.(this.#source) ?? mediaRetryCooldownMs,
+    );
   }
   /**
    * Something changed that a subscribe may now succeed on. True when it may go now: nothing is

@@ -9,7 +9,6 @@ import {
   type StreamMessage,
 } from "@ace/browser/stream";
 import {
-  mediaRetryCooldownMs,
   MediaSubscriptions,
   PictureQueue,
   SharedStreams,
@@ -160,7 +159,7 @@ export class DeviceClient {
    */
   fallBack(deviceId: string, codec: string): boolean {
     if (!this.media.fallBack(deviceId, codec)) return false;
-    if (this.liveStreams.held().includes(deviceId)) this.subscribe(deviceId);
+    if (this.liveStreams.holds(deviceId)) this.subscribe(deviceId);
     return true;
   }
   /** The still the device's subscribe brought back, to show until its first live picture. */
@@ -398,7 +397,7 @@ export class DeviceClient {
   private retryLater(
     deviceId: string,
     // Past the ladder, the cooldown, for as long as the stream is held: it never gives up.
-    delay = this.media.retryDelay(deviceId) ?? mediaRetryCooldownMs,
+    delay = this.media.retryDelay(deviceId) ?? this.media.cooldown(deviceId),
   ): void {
     const epoch = this.epoch;
     const generation = this.media.generation(deviceId);
@@ -406,7 +405,7 @@ export class DeviceClient {
     const cancel = this.options.schedule(() => {
       this.retries.delete(deviceId);
       if (this.epoch !== epoch || this.media.generation(deviceId) !== generation) return;
-      if (this.liveStreams.held().includes(deviceId)) this.subscribe(deviceId);
+      if (this.liveStreams.holds(deviceId)) this.subscribe(deviceId);
     }, delay);
     this.retries.set(deviceId, cancel);
   }

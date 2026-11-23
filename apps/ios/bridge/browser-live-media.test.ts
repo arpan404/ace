@@ -1,7 +1,7 @@
 import { host } from "./test-host.ts";
 import { ClientError } from "@ace/client";
 import {
-  mediaRetryCooldownMs,
+  MediaSubscriptions,
   mediaRetryDelaysMs,
   mediaSubscribeDeadlineMs,
   type DeliveryState,
@@ -78,6 +78,9 @@ async function opened(
   await new Promise((resolve) => setTimeout(resolve, 0));
   return { ...browser, media, deliveries, delivered };
 }
+
+/** The thread's own wait between tries once its ladder is spent. */
+const cooldownMs = new MediaSubscriptions().cooldown("web");
 
 test("the view subscribes on the open media connection and acknowledges its pictures there", async () => {
   const { requested, sent, view, media, delivered } = await opened("mc_aaaaaaaa");
@@ -282,7 +285,7 @@ test("subscribes that time out before failing climb the shared ladder, then keep
   await view.timeOut();
   // The ladder is spent: after the cooldown the view asks again, still naming the connection.
   const asked = subscribes(view.requested).length;
-  view.elapse(mediaRetryCooldownMs);
+  view.elapse(cooldownMs);
   await until(() => subscribes(view.requested).length === asked + 1, "the subscribe after it");
   expect(subscribes(view.requested).at(-1)?.media).toBeDefined();
   expect(view.named()).toBe(mediaRetryDelaysMs.length + 2);
@@ -308,7 +311,7 @@ test("events during the cooldown send nothing until it ends", async () => {
   await new Promise((resolve) => setTimeout(resolve, 20));
   view.elapse(5_000);
   expect(subscribes(view.requested)).toHaveLength(asked);
-  view.elapse(mediaRetryCooldownMs);
+  view.elapse(cooldownMs);
   await until(() => subscribes(view.requested).length > asked, "the subscribe after the cooldown");
 });
 
@@ -343,7 +346,7 @@ test("subscribes that fail at once, each restoring the delivery before, still cl
   browser.elapse(5_000);
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(subscribes(browser.requested)).toHaveLength(asked);
-  browser.elapse(mediaRetryCooldownMs);
+  browser.elapse(cooldownMs);
   await until(() => subscribes(browser.requested).length === asked + 1, "after the cooldown");
   expect(subscribes(browser.requested).at(-1)?.media).toBeDefined();
 });

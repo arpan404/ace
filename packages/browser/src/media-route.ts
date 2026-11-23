@@ -322,14 +322,18 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
    */
   failed(source: string, generation: number, error: unknown): FailedSubscribe {
     const delivery = this.#current(source, generation);
-    if (!delivery || delivery.via !== undefined) return "ignore";
-    this.#candidates.delete(source);
-    if (delivery.asked && isMediaRefusal(error)) {
-      this.#refused.set(source, delivery.asked);
+    if (!delivery) return "ignore";
+    // A refusal of the connection still bound counts even after the deadline settled this
+    // subscribe: only that word says the connection needs replacing.
+    const asked = delivery.asked;
+    if (asked && isMediaRefusal(error) && asked === this.#route?.binding()?.connection) {
+      this.#refused.set(source, asked);
       // The daemon has no such connection: a fresh one gets a binding it knows. One that is
       // someone else's is left alone, since it may still serve their views.
-      if (isGoneConnection(error)) this.#route?.refresh?.(delivery.asked);
+      if (isGoneConnection(error)) this.#route?.refresh?.(asked);
     }
+    if (delivery.via !== undefined) return "ignore";
+    this.#candidates.delete(source);
     const previous = this.#previous.get(source);
     this.#previous.delete(source);
     const holds =
@@ -354,7 +358,18 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
   unservedDelay(source: string): number {
     const attempt = this.#unserved.get(source) ?? 0;
     this.#unserved.set(source, attempt + 1);
-    return mediaRetryDelaysMs[attempt] ?? mediaRetryCooldownMs;
+    return mediaRetryDelaysMs[attempt] ?? this.cooldown(source);
+  }
+  /**
+   * How long `source` waits between tries once its ladder is spent: the cooldown, plus a share
+   * of half of it fixed by the source's id, so sources that lost video together (a shared
+   * outage) come back spread out rather than all at once, each at the same pace every time.
+   */
+  cooldown(source: string): number {
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < source.length; index++)
+      hash = Math.imul(hash ^ source.charCodeAt(index), 0x01000193) >>> 0;
+    return mediaRetryCooldownMs + (hash % (mediaRetryCooldownMs / 2));
   }
   /** How long until a failed source is tried again; undefined once the retries are spent. */
   retryDelay(source: string): number | undefined {

@@ -77,3 +77,19 @@ test("without a wait pending, an event goes at once; a stopped retry runs nothin
   expect(s.tries).toEqual([]);
   expect(s.retry.waiting).toBe(false);
 });
+
+test("a view answered without video, past its ladder, waits out the cooldown, which no event skips", () => {
+  const runs: (() => void)[] = [];
+  const retry = new SubscribeRetry(
+    // The unserved ladder never runs out: past its steps it answers the cooldown itself.
+    { retryDelay: () => mediaRetryCooldownMs },
+    "thread",
+    (run) => {
+      runs.push(run);
+      return () => {};
+    },
+  );
+  retry.failed(() => {});
+  for (let i = 0; i < 5; i++) expect(retry.event()).toBe(false);
+  expect(retry.waiting).toBe(true);
+});

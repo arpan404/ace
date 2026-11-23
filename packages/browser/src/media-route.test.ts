@@ -1,5 +1,10 @@
 import { expect, test } from "vitest";
-import { MediaSubscriptions, mediaRetryDelaysMs, type MediaRoute } from "./media-route.ts";
+import {
+  MediaSubscriptions,
+  mediaRetryCooldownMs,
+  mediaRetryDelaysMs,
+  type MediaRoute,
+} from "./media-route.ts";
 import { SubscribeRetry } from "./subscribe-retry.ts";
 
 /** A media connection that stays healthy on `connection`, and records each refresh asked. */
@@ -79,4 +84,36 @@ test("a connection refused as another session's is never replaced, since other v
   expect(metadata.fields.media).toBeUndefined();
   media.subscribed("thread", metadata.generation, undefined);
   expect(media.unserved("thread")).toBe(true);
+});
+
+test("a refusal that comes after the view stopped waiting still replaces a gone connection", () => {
+  const { media, refreshed } = healthy();
+  const begun = media.begin("thread");
+  media.abandon("thread", begun.generation);
+  media.failed("thread", begun.generation, refusal);
+  expect(refreshed).toEqual(["mc_aaaaaaaaaa"]);
+  // The next subscribe still gets the source's state, and asks for video after.
+  expect(media.begin("thread").fields.media).toBeUndefined();
+});
+
+test("a late refusal of a superseded subscribe changes nothing", () => {
+  const { media, refreshed } = healthy();
+  const old = media.begin("thread");
+  media.abandon("thread", old.generation);
+  media.begin("thread");
+  media.failed("thread", old.generation, refusal);
+  expect(refreshed).toEqual([]);
+});
+
+test("sources that lost video together come back spread out, each within its cooldown's bounds", () => {
+  const { media } = healthy();
+  const sources = Array.from({ length: 24 }, (_, index) => `thread-${index}`);
+  const waits = sources.map((source) => media.cooldown(source));
+  expect(new Set(waits).size).toBeGreaterThan(12);
+  for (const wait of waits) {
+    expect(wait).toBeGreaterThanOrEqual(mediaRetryCooldownMs);
+    expect(wait).toBeLessThan(mediaRetryCooldownMs * 1.5);
+  }
+  // A source's own wait stays the same, so it never drifts into the others.
+  expect(media.cooldown("thread-3")).toBe(waits[3]);
 });
