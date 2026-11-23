@@ -295,6 +295,6 @@ test("a registry's refusals say what the person can do", () => {
     "Sign in to ace in this app to manage the registry.",
   );
   expect(registryFailure(new MarketFailure("unavailable"))).toBe(
-    "The Marketplace can't be reached right now.",
+    "The Store can't be reached right now.",
   );
 });
