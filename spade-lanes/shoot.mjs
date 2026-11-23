@@ -74,4 +74,17 @@ await page.getByText("Helpers").first().waitFor({ timeout: 30000 });
 await page.getByText("Helpers").first().evaluate((el) => el.scrollIntoView({ block: "center" }));
 await shot("07-roles-tasks-row");
 
+if (tag === "after") {
+  await open();
+  await page
+    .getByText("Draft the quarterly note asks")
+    .first()
+    .evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await shot("08-task-question");
+
+  await open();
+  await show("both changed finance/Q3-totals.xlsx");
+  await shot("09-overlap-line");
+}
+
 await browser.close();
