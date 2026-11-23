@@ -42,10 +42,11 @@ test("a delegated child's question shows in the parent's strip, named, and answe
   expect(app.daemon.isPending(child, "pages")).toBe(false);
 });
 
-test("the parent reads Waiting for your answer, naming the child, only while the child's request is open", async () => {
+test("a delegated child's open request lives in the strip and row, never on the transcript's live line", async () => {
   const { app, feed } = await openParent();
-  const head = within(feed).getByRole("group", { name: "Turn in progress" });
-  await waitFor(() => expect(head.textContent).toBe("Waiting for your answer · general assistant"));
+  // Waiting on you lives in Summary and the composer's strip, never on the turn's head line.
+  expect(within(feed).queryByRole("group", { name: "Turn in progress" })).toBeNull();
+  expect(within(feed).queryByText(/Waiting for your answer/)).toBeNull();
   const row = await within(await screen.findByRole("navigation", { name: "Projects" })).findByRole(
     "link",
     { name: /^Site review/ },
@@ -67,7 +68,7 @@ test("the parent reads Waiting for your answer, naming the child, only while the
   expect(row.getAttribute("aria-label")).not.toContain("needs you");
 });
 
-test("a plain message typed while the child asks goes to the parent now, and the child's question stays in the strip", async () => {
+test("a plain message typed while the child asks goes to the parent now, shows Working for on its turn head, and keeps the child's question in the strip", async () => {
   const { app, feed, region } = await openParent();
   await within(region).findByRole("article", {
     name: "Should the review include the archived blog posts?",
@@ -80,6 +81,9 @@ test("a plain message typed while the child asks goes to the parent now, and the
   // The parent is between turns: a delegated child never holds the person's message
   // (ADR 0053, 2026-10-17 amendment), so it starts the parent's next turn instead of queueing.
   expect(await within(feed).findByText("Check the pricing page first")).toBeTruthy();
+  const head = await within(feed).findByRole("group", { name: "Turn in progress" });
+  await waitFor(() => expect(head.textContent).toMatch(/^Working for /));
+  expect(within(feed).queryByText(/Waiting for your answer/)).toBeNull();
   expect(screen.queryByRole("button", { name: /queued message/ })).toBeNull();
   expect(within(region).queryByText(/queued message/)).toBeNull();
   expect(

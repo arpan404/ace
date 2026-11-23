@@ -1,6 +1,10 @@
 import { finalizeTool } from "./tool-final.ts";
 import { retireTool } from "./completed-tools.ts";
-import { cancellationDeadline, shellSurvivesPrompt } from "./settlement.ts";
+import {
+  cancellationDeadline,
+  shellCarriedAcrossTurns,
+  shellSurvivesPrompt,
+} from "./settlement.ts";
 import type { Fact } from "@ace/core";
 import { string, type Data } from "./data.ts";
 import { TranslationState, type AgentState } from "./state.ts";
@@ -25,10 +29,14 @@ export function endPrompt(
   const cancelled = reason === "cancelled";
   for (const tool of s.liveTools) {
     if (!["pending", "running", "awaiting_approval"].includes(tool.status)) continue;
+    // Carried from an earlier finished turn: no later prompt's end, cancelled or not, ends it.
+    if (tool.carried) continue;
     if (tool.owner !== agent && !cancelled) continue;
     const detail = toolDetail(tool.data, s.quirks);
     // A failed prompt (an error reply, reason "") or a shell that never started survives nothing.
     if (detail.kind === "shell" && shellSurvivesPrompt(s.quirks.provider, reason, tool.status)) {
+      const carried = shellCarriedAcrossTurns(s.quirks.provider, reason, tool.status);
+      if (carried) tool.carried = true;
       if (!tool.task) {
         tool.task = s.key("background");
         facts.push({
@@ -39,8 +47,9 @@ export function endPrompt(
           title: string(tool.data["title"]),
           item: tool.key,
           stoppable: false,
-          // ace's ACP session takes no new prompt while this shell survives (ADR 0109).
-          blocksPrompts: true,
+          // ace's ACP session takes no new prompt while this shell survives unconfirmed; a
+          // carried one it takes prompts beside (ADR 0109).
+          ...(carried ? {} : { blocksPrompts: true as const }),
           raw: [...tool.raw],
         });
       }

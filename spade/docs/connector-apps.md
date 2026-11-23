@@ -174,17 +174,16 @@ app; the first real sign-in remains the last check.
 
 What Spade shows ([ADR 0193](../../docs/adr/0193-spade-catalogue-says-what-connects.md)):
 
-- **Sign in (62):** Airtable, Amplitude, Apollo.io, Atlassian, Attio, Axiom, Basecamp, Buildkite,
+- **Sign in (63):** Airtable, Amplitude, Apollo.io, Atlassian, Attio, Axiom, Basecamp, Buildkite,
   Cal.com, Calendly, Clerk, ClickUp, Close, Cloudflare, Cloudinary, Contentful, Datadog, Dropbox,
-  Fireflies, Framer, Gamma, GitLab, Grafana Cloud, Granola, Guru, Help Scout, Hex, Intercom, Jam,
-  Jotform, Klaviyo, LaunchDarkly, Linear, Lucid, Make, Mercury, Miro, Mixpanel, monday.com,
+  Fireflies, Framer, Gamma, GitHub (device flow with Spade's own app), GitLab, Grafana Cloud,
+  Granola, Guru, Help Scout, Hex, Intercom, Jam, Jotform, Klaviyo, LaunchDarkly, Linear, Lucid, Make, Mercury, Miro, Mixpanel, monday.com,
   MongoDB Atlas, Neon, Netlify, Notion, PagerDuty, PayPal, PlanetScale, PostHog, Postman, Prisma,
   Railway, Readwise, Resend, Rootly, Sanity, Sentry, Square, Stripe, Supabase, Tally, Todoist,
   Webflow, Wix. Each offers dynamic registration, or Spade's client ID metadata document with
   `iss` in its answers (MongoDB Atlas, PagerDuty).
-- **Needs a key (5):** GitHub (until Spade's GitHub app is registered, below), Hugging Face,
-  Render, Smartsheet (its OAuth is for named clients), Zapier (its OAuth is for listed clients;
-  others use a connection token).
+- **Needs a key (4):** Hugging Face, Render, Smartsheet (its OAuth is for named clients), Zapier
+  (its OAuth is for listed clients; others use a connection token).
 - **Coming soon (18):** through Spade Cloud once the owner registers Spade with the maker and sets
   the Worker's secrets: Asana, Box, Canva, Front, Gmail, Google Calendar, Google Chat, Google Docs,
   Google Drive, Google Sheets, Google Slides, HubSpot, Slack, Zoom. Waiting on the maker's approval
@@ -252,9 +251,8 @@ out.
 
 ### 3. Spade's own GitHub app
 
-Steps above, under [Registering Spade's GitHub app](#registering-spades-github-app-the-owner):
-register the OAuth app with device flow on and commit its client ID to `connector-apps.json`.
-GitHub then turns from "Needs a key" to Sign in in the next release.
+Done 2026-11-22: registered with device flow on; its client ID `Ov23liivRskgyvx0N8aU` is in
+`connector-apps.json`. GitHub leads with Sign in from the next release.
 
 ### 4. Ask four makers to let Spade in
 

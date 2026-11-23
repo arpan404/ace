@@ -68,4 +68,28 @@ import Testing
         #expect(StandingVerdict.read(member, requestId: "standing-1") == .missing)
         #expect(StandingVerdict.read(another, requestId: "standing-1") == nil)
     }
+
+    @Test func aProvenVerdictLapsesWhenTheDaemonSaysItsStandingEnds() {
+        let now = Date(timeIntervalSince1970: 1_700_000_100)
+        let byUntil = #"{"type":"account.standing.result","requestId":"standing-1","result":{"ok":true,"until":1700000300000}}"#
+        // The daemon's own remaining time wins over this phone's clock.
+        let byLeft = #"{"type":"account.standing.result","requestId":"standing-1","result":{"ok":true,"until":1,"expiresIn":120000}}"#
+        let refused = #"{"type":"account.standing.result","requestId":"standing-1","result":{"ok":false,"code":"unauthorized","message":"No"}}"#
+        #expect(StandingVerdict.remaining(byUntil, requestId: "standing-1", now: now) == 200)
+        #expect(StandingVerdict.remaining(byLeft, requestId: "standing-1", now: now) == 120)
+        #expect(StandingVerdict.remaining(byUntil, requestId: "standing-1", now: Date(timeIntervalSince1970: 1_700_000_400)) == 0)
+        #expect(StandingVerdict.remaining(refused, requestId: "standing-1", now: now) == nil)
+        #expect(StandingVerdict.remaining(byUntil, requestId: "script-2", now: now) == nil)
+    }
+
+    @Test func aProofIsRenewedBeforeItsStandingEndsAndNeverLater() {
+        // Within the usual interval: renewed on schedule.
+        #expect(StandingVerdict.renewal(remaining: 300, interval: 240) == 240)
+        // A grant that ends sooner is renewed before it does, with a lead.
+        #expect(StandingVerdict.renewal(remaining: 100, interval: 240) == 100 - StandingVerdict.lead)
+        // Too short to leave a lead: halfway, and never at once, even for an expired standing.
+        #expect(StandingVerdict.renewal(remaining: 40, interval: 240) == 20)
+        #expect(StandingVerdict.renewal(remaining: 5, interval: 240) == StandingVerdict.floor)
+        #expect(StandingVerdict.renewal(remaining: 0, interval: 240) == StandingVerdict.floor)
+    }
 }

@@ -36,6 +36,9 @@ function update(value: unknown) {
 }
 let prompt: unknown;
 let held = false;
+/** The prompt a steer can join (`steerable`), with the steering extension advertised. */
+let steerable: unknown;
+const steering = process.env.ACE_TEST_STEERING === "1";
 createInterface({ input: process.stdin }).on("line", (line) => {
   const message = object(JSON.parse(line));
   const params = object(message["params"]);
@@ -51,6 +54,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
           embeddedContext: process.env.ACE_TEST_EMBEDDED_CONTEXT === "1",
         },
       },
+      ...(steering ? { _meta: { steering: { supported: true } } } : {}),
     });
   else if (method === "session/new" || method === "session/load") {
     if (process.argv.includes("--new-replay"))
@@ -116,6 +120,14 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         },
       });
       result(message["id"], { stopReason: "end_turn" });
+    } else if (text === "steerable") {
+      steerable = message["id"];
+      update({
+        sessionUpdate: "tool_call",
+        toolCallId: "steerable",
+        kind: "read",
+        status: "in_progress",
+      });
     } else if (text === "grace") {
       prompt = message["id"];
       held = true;
@@ -215,7 +227,28 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
       result(message["id"], { stopReason: "end_turn" });
     }
+  } else if (method === "_session/steering") {
+    // Joins the running turn, which then answers it; with none running the input stays ace's.
+    const steer = string(object(list(params["prompt"])[0])["text"]);
+    if (steerable === undefined)
+      result(message["id"], { outcome: "promptRequired", reason: "noRunningTurn" });
+    else if (steer === "steer-fails") result(message["id"], { outcome: "failed" });
+    else {
+      result(message["id"], { outcome: "injected" });
+      const turn = steerable;
+      steerable = undefined;
+      update({ sessionUpdate: "tool_call_update", toolCallId: "steerable", status: "completed" });
+      update({
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: `took: ${steer}` },
+      });
+      result(turn, { stopReason: "end_turn" });
+    }
   } else if (method === "session/cancel") {
+    if (steerable !== undefined) {
+      result(steerable, { stopReason: "cancelled" });
+      steerable = undefined;
+    }
     if (["native-child", "native-late"].includes(string(params["sessionId"])))
       update({
         sessionUpdate: "subagent_state_update",
