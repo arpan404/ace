@@ -8,17 +8,22 @@
 //! place, and a file with more than one hard link is never written.
 
 mod ambient;
+mod edits;
 mod files;
 mod identity;
 mod installed;
+mod matching;
 mod person;
 pub mod place;
+pub mod python;
+mod reading;
 #[cfg(unix)]
 mod reap;
 #[cfg(unix)]
 pub use reap::adopt_orphans;
 pub mod outside;
 pub mod shell;
+mod shell_tool;
 mod tools;
 pub mod trust;
 
@@ -34,9 +39,10 @@ use cap_std::fs::Dir;
 
 pub use files::{Entry, EntryKind, FileView, Listing};
 pub use person::{Seen, Snapshot, changes};
+pub use shell_tool::{ShellTool, asks_outside};
 pub use tools::{
-    Commands, ShellTool, WorkspaceEdit, WorkspaceList, WorkspaceRead, WorkspaceSearch,
-    WorkspaceWrite, asks_outside, tools as workspace_tools,
+    Commands, WorkspaceEdit, WorkspaceFind, WorkspaceList, WorkspaceRead, WorkspaceSearch,
+    WorkspaceWrite, tools as workspace_tools, tools_with as workspace_tools_with,
 };
 pub use trust::Trust;
 

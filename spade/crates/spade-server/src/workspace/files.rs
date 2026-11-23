@@ -8,6 +8,7 @@ use cap_fs_ext::{FollowSymlinks, MetadataExt, OpenOptionsFollowExt};
 use cap_std::fs::{Dir, OpenOptions};
 use serde::Serialize;
 
+use super::matching::{Glob, Needle};
 use super::{PathError, Workspace, clean, shown, trust};
 
 /// Most entries one listing returns.
@@ -24,6 +25,10 @@ const LINE_CHARS: usize = 2_000;
 /// Most matches a search returns, and the largest file it looks in.
 const MOST_MATCHES: usize = 200;
 const LARGEST_SEARCHED: u64 = 2 * 1024 * 1024;
+/// How long one search looks before it answers with what it found.
+const SEARCH_TIME: std::time::Duration = std::time::Duration::from_secs(5);
+/// Spade's Python environment for the bot (`python`), which searches and finds don't walk into.
+pub(super) const PYTHON_HOME: &str = ".spade/python";
 /// Most files a search, or a look for changed files, opens.
 pub(super) const MOST_WALKED: usize = 5_000;
 
@@ -189,6 +194,19 @@ impl Workspace {
         Ok(bytes)
     }
 
+    /// The first [`super::reading::HEAD`] bytes of a file (fewer when it is shorter).
+    pub fn head(&self, relative: &str) -> Result<Vec<u8>, PathError> {
+        let cleaned = clean(relative)?;
+        if cleaned.as_os_str().is_empty() {
+            return Err(PathError::Io("that is the workspace itself".to_owned()));
+        }
+        let file = open_regular(&self.dir()?, &cleaned, relative)?;
+        let mut head = Vec::new();
+        file.take(super::reading::HEAD as u64)
+            .read_to_end(&mut head)?;
+        Ok(head)
+    }
+
     /// A text file's content.
     pub fn text(&self, relative: &str) -> Result<String, PathError> {
         let bytes = self.read_file(relative, LARGEST_TEXT)?;
@@ -314,32 +332,18 @@ impl Workspace {
         Ok(true)
     }
 
-    /// Replaces the one place `old` appears in `relative` with `new`. Answers the file's text
-    /// before and after.
+    /// Applies `changes` to `relative`'s text, all or none (see `edits.rs`). Answers the file's
+    /// text before and after, and how many places changed.
     pub fn edit(
         &self,
         relative: &str,
-        old: &str,
-        new: &str,
-    ) -> Result<(String, String), PathError> {
-        if old.is_empty() {
-            return Err(PathError::Io("give the text to replace".to_owned()));
-        }
+        changes: &[super::edits::Change],
+    ) -> Result<(String, String, usize), PathError> {
         let text = self.text(relative)?;
-        match text.matches(old).count() {
-            0 => Err(PathError::Io(format!(
-                "that text is not in {relative}; read it again and copy it exactly"
-            ))),
-            1 => {
-                let changed = text.replacen(old, new, 1);
-                self.write(relative, &changed)?;
-                Ok((text, changed))
-            }
-            many => Err(PathError::Io(format!(
-                "that text appears {many} times in {relative}; include more around it so it \
-                 appears once"
-            ))),
-        }
+        let (changed, places) =
+            super::edits::apply(relative, &text, changes).map_err(PathError::Io)?;
+        self.write(relative, &changed)?;
+        Ok((text, changed, places))
     }
 
     /// Every regular file under the workspace (links not followed), with its handle's folder.
@@ -374,7 +378,10 @@ impl Workspace {
                     continue;
                 }
                 if meta.is_dir() {
-                    folders.push(full);
+                    // Spade's own Python environment holds thousands of files nobody wrote.
+                    if full != PYTHON_HOME {
+                        folders.push(full);
+                    }
                     continue;
                 }
                 // Pipes, sockets and devices are never opened.
@@ -391,24 +398,27 @@ impl Workspace {
         Ok(())
     }
 
-    /// Lines containing `needle` under `relative`, as `path:line: text`, links not followed.
+    /// Lines holding `needle` under `relative`, in files that fit `only` (all when `None`), as
+    /// `path:line: text`, links not followed. Stops at [`MOST_MATCHES`] lines or after
+    /// [`SEARCH_TIME`].
     pub fn search(
         &self,
         relative: &str,
-        needle: &str,
-        ignore_case: bool,
+        needle: &Needle,
+        only: Option<&Glob>,
     ) -> Result<Found, PathError> {
-        if needle.is_empty() {
-            return Err(PathError::Io("give the text to look for".to_owned()));
-        }
-        let wanted = if ignore_case {
-            needle.to_lowercase()
-        } else {
-            needle.to_owned()
-        };
+        let started = std::time::Instant::now();
         let mut lines = Vec::new();
         let mut files = Vec::new();
+        let mut late = false;
         self.walk(relative, |at, name, full| {
+            if started.elapsed() > SEARCH_TIME {
+                late = true;
+                return false;
+            }
+            if only.is_some_and(|glob| !glob.fits(full)) {
+                return true;
+            }
             let Ok(mut file) = open_regular(at, Path::new(name), full) else {
                 return true;
             };
@@ -424,12 +434,7 @@ impl Workspace {
             };
             let mut quoted = false;
             for (number, line) in text.lines().enumerate() {
-                let haystack = if ignore_case {
-                    line.to_lowercase()
-                } else {
-                    line.to_owned()
-                };
-                if haystack.contains(&wanted) {
+                if needle.finds(line) {
                     quoted = true;
                     let shown: String = line.chars().take(400).collect();
                     lines.push(format!("{full}:{}: {shown}", number + 1));
@@ -445,12 +450,38 @@ impl Workspace {
             }
             true
         })?;
+        if late {
+            lines.push(format!(
+                "[Stopped after {} seconds; give a path or glob to look in fewer files.]",
+                SEARCH_TIME.as_secs()
+            ));
+        }
         let text = if lines.is_empty() {
-            format!("No line contains {needle:?}.")
+            "No line matches.".to_owned()
         } else {
             lines.join("\n")
         };
         Ok(Found { text, files })
+    }
+
+    /// Files under `relative` whose path fits `glob`, with their sizes, links not followed; at
+    /// most [`MOST_ENTRIES`]. Answers the files and whether there were more.
+    pub fn find(&self, relative: &str, glob: &Glob) -> Result<(Vec<(String, u64)>, bool), PathError> {
+        let mut found = Vec::new();
+        let mut more = false;
+        self.walk(relative, |at, name, full| {
+            if !glob.fits(full) {
+                return true;
+            }
+            if found.len() == MOST_ENTRIES {
+                more = true;
+                return false;
+            }
+            let size = at.symlink_metadata(name).map_or(0, |meta| meta.len());
+            found.push((full.to_owned(), size));
+            true
+        })?;
+        Ok((found, more))
     }
 
     /// Whether `relative` names a regular file reached through real folders only: no link on

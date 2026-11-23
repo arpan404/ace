@@ -106,6 +106,18 @@ const TOOLS: &[(&str, &str, &str, &str)] = &[
         "Searched its files",
     ),
     (
+        "workspace_find",
+        "find files",
+        "Finding files",
+        "Found files",
+    ),
+    (
+        "python",
+        "run a Python script",
+        "Running a Python script",
+        "Ran a Python script",
+    ),
+    (
         "workspace_write",
         "write a file",
         "Writing a file",
@@ -383,6 +395,17 @@ fn object_detail(name: &str, fields: &Map<String, Value>) -> Option<String> {
         "workspace_write" | "workspace_edit" | "workspace_read" => {
             return text(fields, "path").map(str::to_owned);
         }
+        "workspace_find" => return text(fields, "pattern").map(str::to_owned),
+        // The script's path, else the code's first line that says something.
+        "python" => {
+            return text(fields, "path").map(str::to_owned).or_else(|| {
+                text(fields, "code")?
+                    .lines()
+                    .map(str::trim)
+                    .find(|line| !line.is_empty() && !line.starts_with("import "))
+                    .map(str::to_owned)
+            });
+        }
         "memory_save" | "memory_update" => return text(fields, "text").map(str::to_owned),
         // Only the note's id: its text is the person's to look up.
         "memory_forget" => return None,
@@ -396,7 +419,10 @@ fn object_detail(name: &str, fields: &Map<String, Value>) -> Option<String> {
             });
         }
         "web_search" | "memory_search" | "workspace_search" | "skill_search" | "tool_search" => {
-            if let Some(query) = text(fields, "query").or_else(|| text(fields, "q")) {
+            if let Some(query) = text(fields, "query")
+                .or_else(|| text(fields, "q"))
+                .or_else(|| text(fields, "text"))
+            {
                 return Some(query.to_owned());
             }
         }
