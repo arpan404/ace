@@ -214,19 +214,12 @@ pub fn handle_method(
             None => (String::new(), false),
         };
         if should_upsert {
-            let mut draft = Map::with_capacity(4);
+            let mut call = Map::with_capacity(1);
+            call.insert("status".to_owned(), Value::String("succeeded".to_owned()));
+            let mut draft = Map::with_capacity(3);
             draft.insert("type".to_owned(), Value::String("tool_call".to_owned()));
             draft.insert("complete".to_owned(), Value::Bool(true));
-            let mut call = Map::with_capacity(3);
-            call.insert("kind".to_owned(), Value::String("custom".to_owned()));
-            call.insert(
-                "title".to_owned(),
-                Value::String(crate::translate::handle_method::method_title(&method)),
-            );
-            call.insert("status".to_owned(), Value::String("succeeded".to_owned()));
             draft.insert("call".to_owned(), Value::Object(call));
-            // TS builds the upsert via `toolDraft({kind: custom}, ...)`; keep the
-            // same shape with a minimal detail.
             let mut body = Map::with_capacity(3);
             body.insert("agent".to_owned(), Value::String(agent_key.clone()));
             body.insert("item".to_owned(), Value::String(item.clone()));
@@ -249,10 +242,6 @@ pub fn handle_method(
         return;
     }
     super::handle_live::handle_live(translator, &native, frame, now, facts);
-}
-
-pub fn method_title(method: &str) -> String {
-    method.to_owned()
 }
 
 fn frame_to_value(frame: &ParsedFrame) -> Value {

@@ -237,7 +237,7 @@ pub fn translate_item(
         .map(|open| (open.data.clone(), open.stream_started));
     if !complete {
         let mut metadata = item_map.clone();
-        metadata.remove("aggregatedOutput");
+        metadata.shift_remove("aggregatedOutput");
         let turn = str_empty(p.get("turnId")).to_owned();
         let agent_turn = translator
             .agents
