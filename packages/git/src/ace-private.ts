@@ -21,14 +21,19 @@ export function isAcePrivate(path: string): boolean {
  * so status, `git add -A` from any terminal, stashes and checkpoints all skip them. Idempotent.
  */
 export async function excludeAcePrivate(repository: Repository, root: string): Promise<void> {
-  const located = await repository.cli.call(root, [
-    "rev-parse",
-    "--path-format=absolute",
-    "--git-common-dir",
-    "--git-path",
-    "info/exclude",
+  // One path per invocation: each output is stripped of only its final newline, so embedded
+  // newlines in the repository path stay intact (`rev-parse` offers no NUL mode for paths).
+  const [commonOut, excludeOut] = await Promise.all([
+    repository.cli.call(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+    repository.cli.call(root, [
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-path",
+      "info/exclude",
+    ]),
   ]);
-  const [commonDir, excludePath] = located.stdout.toString("utf8").trim().split("\n");
+  const commonDir = singlePath(commonOut);
+  const excludePath = singlePath(excludeOut);
   if (!commonDir || !excludePath) return;
   const path = isAbsolute(excludePath) ? excludePath : join(root, excludePath);
   // Only a plain file in a plain folder inside the repository's own git dir: never through a
@@ -46,6 +51,13 @@ export async function excludeAcePrivate(repository: Repository, root: string): P
 
 const isMissing = (error: unknown) =>
   error instanceof Error && "code" in error && error.code === "ENOENT";
+
+/** One `rev-parse` path value: only the final newline is stripped, embedded newlines stay. */
+function singlePath(output: { stdout: Buffer; exitCode: number }): string | undefined {
+  if (output.exitCode !== 0) return undefined;
+  const text = output.stdout.toString("utf8");
+  return text.endsWith("\n") ? text.slice(0, -1) : text;
+}
 
 /** `folder` and `file` are no symlinks (or absent), and `folder` resolves inside `gitDir`. */
 async function plainInside(gitDir: string, folder: string, file: string): Promise<boolean> {

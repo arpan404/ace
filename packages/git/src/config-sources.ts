@@ -1,15 +1,19 @@
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-/** Where a checkout's Git metadata lives, from `rev-parse --absolute-git-dir --git-common-dir --show-toplevel`. */
+/** Where a checkout's Git metadata lives, from three single-value `rev-parse` queries. */
 export interface CheckoutLayout {
   gitDir: string;
   commonDir: string;
   toplevel: string;
 }
 
-export function parseLayout(cwd: string, stdout: string): CheckoutLayout | undefined {
-  const [gitDir, commonDir, toplevel, rest] = stdout.split("\n");
-  if (!gitDir || !commonDir || !toplevel || rest !== "") return undefined;
+export function parseLayout(
+  cwd: string,
+  gitDir: string,
+  commonDir: string,
+  toplevel: string,
+): CheckoutLayout | undefined {
+  if (!gitDir || !commonDir || !toplevel) return undefined;
   if (!isAbsolute(gitDir) || !isAbsolute(toplevel)) return undefined;
   return { gitDir, commonDir: resolve(cwd, commonDir), toplevel };
 }

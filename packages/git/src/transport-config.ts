@@ -20,7 +20,9 @@ async function checkoutRoots(query: Query): Promise<string[]> {
   const roots: string[] = [];
   for (const flag of ["--show-toplevel", "--git-common-dir"]) {
     const output = await query(["rev-parse", "--path-format=absolute", flag]);
-    const path = output.exitCode === 0 ? output.stdout.toString("utf8").trim() : "";
+    // One path per invocation: strip only the final newline, keeping embedded newlines.
+    const raw = output.exitCode === 0 ? output.stdout.toString("utf8") : "";
+    const path = raw.endsWith("\n") ? raw.slice(0, -1) : raw;
     if (path && isAbsolute(path) && !output.truncated) roots.push(path);
     else if (flag === "--git-common-dir")
       throw new GitError("not_a_repo", "Could not locate the repository for a transfer");
