@@ -24,8 +24,9 @@ napi-derive = "3"
 # serde_json: the binding moves frames and facts across N-API as JSON strings.
 # `unbounded_depth` lets the parser accept the deeply nested native fields
 # the engine later bounds via capFact; recursion itself stays safe through
-# serde_stacker below.
-serde_json = { version = "1", features = ["unbounded_depth"] }
+# serde_stacker below. `float_roundtrip` parses floats exactly like the
+# TypeScript (correctly rounded), so cost figures keep their provenance.
+serde_json = { version = "1", features = ["unbounded_depth", "float_roundtrip"] }
 # serde: the Deserialize trait for limit-free frame parsing (deeply nested
 # native fields are bounded later by the engine, not refused here).
 serde = { version = "1" }

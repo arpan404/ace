@@ -28,12 +28,12 @@ const library =
       ? "libace_daemon_node.dylib"
       : "libace_daemon_node.so";
 
-/** The addon: `ACE_STORE_ADDON`, else the development build in `native/daemon`. */
+/** The addon: `ACE_STORE_ADDON`, else the release build in `native/daemon`. */
 function addonPath(): string {
   const explicit = process.env.ACE_STORE_ADDON;
   if (explicit) return explicit;
   return fileURLToPath(
-    new URL(`../../../native/daemon/target/debug/${library}`, import.meta.url),
+    new URL(`../../../native/daemon/target/release/${library}`, import.meta.url),
   );
 }
 
@@ -44,7 +44,7 @@ function addon(): Addon {
   // Never fall back: a run with the switch on must prove the native path.
   if (!existsSync(path))
     throw new Error(
-      `ACE_TRANSLATORS=claude needs the translator addon at ${path}; build it with cargo build in native/daemon`,
+      `ACE_TRANSLATORS=claude needs the translator addon at ${path}; build it with cargo build --release in native/daemon`,
     );
   const module = { exports: {} as Record<string, unknown> };
   process.dlopen(module, path);

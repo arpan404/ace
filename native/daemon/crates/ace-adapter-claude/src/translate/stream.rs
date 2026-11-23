@@ -23,7 +23,7 @@ pub fn stream(state: &mut ClaudeState, data: &Value, streams: &mut HashMap<Strin
             agent,
             StreamState {
                 id,
-                blocks: std::collections::HashMap::new(),
+                blocks: std::collections::BTreeMap::new(),
                 unmatched: std::collections::HashMap::new(),
                 cursors: std::collections::HashMap::new(),
             },

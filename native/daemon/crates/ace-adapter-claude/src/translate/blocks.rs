@@ -22,7 +22,10 @@ pub struct BlockSlot {
 
 pub struct StreamState {
     pub id: String,
-    pub blocks: HashMap<i64, BlockSlot>,
+    // Block slots in index order. The TypeScript iterates its Map in
+    // insertion order and indices arrive in order, so an ordered map folds
+    // the same stream completions in the same order.
+    pub blocks: std::collections::BTreeMap<i64, BlockSlot>,
     pub unmatched: HashMap<String, Vec<i64>>,
     pub cursors: HashMap<String, i64>,
 }
@@ -151,13 +154,18 @@ fn fingerprint(block: &Value) -> String {
         value.push_str(str_of(obj.get(key).unwrap_or(&Value::Null)).as_str());
         value.push('\0');
     }
-    let len = value.len();
+    let len: usize = value.encode_utf16().count();
+    // TypeScript order exactly: first xors, then multiplies
+    // (Math.imul(first ^ byte, 16777619)); second multiplies, then xors.
     let mut first: u32 = 2_166_135_261;
     let mut second: u32 = 5381;
-    for byte in value.bytes() {
-        first = first.wrapping_mul(16_777_619) ^ (byte as u32);
-        // Math.imul(second, 33) ^ byte: 32-bit wrap.
-        second = second.wrapping_mul(33) ^ (byte as u32);
+    // charCodeAt iterates UTF-16 code units; match it via encode_utf16,
+    // not bytes, so non-ASCII text fingerprints the same.
+    for unit in value.encode_utf16() {
+        let byte = unit as u32;
+        first ^= byte;
+        first = first.wrapping_mul(16_777_619);
+        second = second.wrapping_mul(33) ^ byte;
     }
     format!("{len}:{}:{}", first, second)
 }
