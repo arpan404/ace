@@ -59,8 +59,8 @@ export class EscapeeJournal implements WatchJournal, KeptJournal, LineageJournal
       const addon = supervisorAddon();
       const handle = new addon.NativeJournal(path, run);
       const earlier = (): EscapeeRow[] =>
-        (JSON.parse(handle.earlier()) as { pid: number; start: string; run: string }[]).map(
-          (row) => Row.parse(row),
+        (JSON.parse(handle.earlier()) as { pid: number; start: string; run: string }[]).map((row) =>
+          Row.parse(row),
         );
       this.native = {
         record: (members) =>
