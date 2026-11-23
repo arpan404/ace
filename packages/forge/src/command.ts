@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { win32 } from "node:path";
 import type { WindowsJob } from "@ace/provider-kit/process-containment";
 import { ForgeError } from "./errors.ts";
+import { redact } from "./redact.ts";
 import { LogTail } from "./tail.ts";
 
 export type CommandRequest = {
@@ -134,9 +135,15 @@ export function createCommandRunner(options: {
       }
       chunks.push(chunk);
     });
-    let diagnostics = "";
+    // The first 4 KiB of stderr, as bytes: decoded once, so a character or a secret split
+    // across chunks is read whole.
+    const stderrHead: Buffer[] = [];
+    let stderrBytes = 0;
     child.stderr.on("data", (chunk: Buffer) => {
-      if (diagnostics.length < 4_096) diagnostics += chunk.toString("utf8", 0, 4_096);
+      if (stderrBytes >= stderrHeadBytes) return;
+      const kept = chunk.subarray(0, stderrHeadBytes - stderrBytes);
+      stderrHead.push(kept);
+      stderrBytes += kept.length;
     });
     child.stdin.on("error", () => {});
     try {
@@ -152,6 +159,7 @@ export function createCommandRunner(options: {
         child.stdin.end(request.input);
       });
       if (failure) throw failure;
+      const diagnostics = stderrText(stderrHead, stderrBytes);
       const output =
         request.mode === "tail"
           ? tail.finish()
@@ -211,6 +219,17 @@ async function windowsLaunch(command: string, env: NodeJS.ProcessEnv) {
   const found = await findExecutable(command, { ...searched, PATHEXT: ".EXE;.COM" }, "win32");
   if (found === undefined) throw new ForgeError("cli", undefined, false);
   return { command: found, createJob: () => createKillOnCloseJob() };
+}
+
+const stderrHeadBytes = 4_096;
+
+/**
+ * The kept head of stderr, decoded once and redacted as a whole. A line the head's cut split
+ * is dropped, so no part of a secret it held is read.
+ */
+function stderrText(head: Buffer[], bytes: number): string {
+  const text = Buffer.concat(head, bytes).toString("utf8");
+  return redact(bytes >= stderrHeadBytes ? text.slice(0, text.lastIndexOf("\n") + 1) : text);
 }
 
 /** tea --include writes HTTP metadata to stderr. Keep a narrow nonsecret projection. */
