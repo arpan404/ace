@@ -18,7 +18,7 @@ export function processRuntime(overrides: Partial<GitProcessRuntime> = {}): GitP
     },
     platform: process.platform,
     signalGroup: signalSpawnedGroup,
-    groupAlive: (pid) => groups.get(pid)?.running() ?? processGroupAlive(pid),
+    groupAlive: (pid, child) => (child && groups.get(child)?.running()) ?? processGroupAlive(pid),
     gitProcesses: scanGitProcesses(overrides.platform ?? process.platform),
     locateGit: (env) => developerToolsGit(overrides.platform ?? process.platform, env),
     fileClock: () => Date.now(),
@@ -29,17 +29,17 @@ function piped(child: ChildProcess): child is ChildProcessWithoutNullStreams {
   return child.stdin !== null && child.stdout !== null && child.stderr !== null;
 }
 /**
- * The groups of detached Git children this isolate spawned, by leader pid. Each is signalled by
- * number only while its leader is unreaped, then member by member (`leader-group.ts`). An entry
- * outlives its child's close briefly, for the cleanup that runs after it.
+ * The groups of detached Git children this isolate spawned, by the child itself, never by pid: a
+ * pid may by now be a newer child's. Each is signalled by number only while its leader is
+ * unreaped, then member by member (`leader-group.ts`).
  */
-const groups = new Map<number, LeaderGroup>();
-const groupKeptMs = 10_000;
+const groups = new WeakMap<ChildProcess, LeaderGroup>();
 
-/** Signal a group this isolate spawned; any other pid is refused, never signalled by number. */
-function signalSpawnedGroup(pid: number, signal: NodeJS.Signals): void {
-  const group = groups.get(pid);
-  if (!group) throw new Error(`Process group ${pid} is not one this process spawned`);
+/** Signal a group this isolate spawned; anything else is refused, never signalled by number. */
+function signalSpawnedGroup(pid: number, signal: NodeJS.Signals, child?: ChildProcess): void {
+  const group = child && groups.get(child);
+  if (!group || group.leader !== pid)
+    throw new Error(`Process group ${pid} is not one this process spawned`);
   signalSoon(group, signal);
 }
 
@@ -59,16 +59,10 @@ export function spawnGitProcess(
   );
   const pid = child.pid;
   if (pid !== undefined && token !== undefined) {
-    const group = childGroup(pid, token);
-    groups.set(pid, group);
+    const group = childGroup(pid, token, child);
+    groups.set(child, group);
     // First of all exit listeners: once reaped its group number is never signalled.
     child.once("exit", () => group.reaped());
-    child.once("close", () => {
-      const forget = setTimeout(() => {
-        if (groups.get(pid) === group) groups.delete(pid);
-      }, groupKeptMs);
-      forget.unref();
-    });
   }
   if (!piped(child)) {
     child.kill("SIGKILL");
@@ -86,13 +80,14 @@ export function spawnGitProcess(
 export async function groupGone(
   runtime: GitProcessRuntime,
   pid: number | undefined,
+  child?: ChildProcess,
   ms = 3_000,
 ): Promise<void> {
   if (!pid || runtime.platform === "win32") return;
   const step = 15;
   for (let waited = 0; waited < ms; waited += step) {
     try {
-      if (!runtime.groupAlive(pid)) return;
+      if (!runtime.groupAlive(pid, child)) return;
     } catch {
       return;
     }
@@ -109,9 +104,9 @@ export function killTree(
     // its group. Its leader group signals those members by identity, never the freed number.
     // An exited leader on Windows has no group to name; a member that left the group (setsid)
     // is outside what any of this can reach.
-    if (child.pid && runtime.platform !== "win32" && runtime.groupAlive(child.pid)) {
+    if (child.pid && runtime.platform !== "win32" && runtime.groupAlive(child.pid, child)) {
       try {
-        runtime.signalGroup(child.pid, "SIGKILL");
+        runtime.signalGroup(child.pid, "SIGKILL", child);
       } catch {
         // Gone between the check and the signal.
       }
@@ -171,7 +166,7 @@ export function killTree(
       // Unread, the kill still goes ahead; its orphans then stay as harmless zombies.
     }
     try {
-      runtime.signalGroup(child.pid, "SIGKILL");
+      runtime.signalGroup(child.pid, "SIGKILL", child);
     } catch {
       child.kill("SIGKILL");
     }

@@ -166,17 +166,23 @@ function spawnOwned(
     stdio: ["pipe", "pipe", "pipe"],
   });
   const pid = child.pid;
-  if (pid !== undefined) group = childGroup(pid, token);
+  if (pid !== undefined) group = childGroup(pid, token, child);
   // First of all exit listeners: once the leader is reaped its group number is never signalled.
   child.once("exit", () => group?.reaped());
   reportBunStdinFailures(child.stdin);
   // Never throws: stops run from timers, exit listeners and voided stop() calls.
-  const terminate = () => {
-    if (group) signalTree(group, false, windows, killTree, child);
-  };
+  const terminate = () =>
+    group ? signalTree(group, false, windows, killTree, child) : Promise.resolve();
+  /** The exit's own group kill, which `exited` waits for: a relayed one is delivered later. */
+  let exitKill: Promise<void> | undefined;
+  /** Resolves once delivered; never rejects (a refusal is reported, the leader signalled). */
+  const destroyed = () =>
+    group ? signalTree(group, true, windows, killTree, child).catch(() => {}) : Promise.resolve();
   const destroy = () => {
-    if (group) signalTree(group, true, windows, killTree, child);
+    destroyed().catch(() => {});
   };
+  /** Resolves once the stop's SIGTERM was delivered: the grace before SIGKILL starts there. */
+  let termDelivered: Promise<void> | undefined;
   const controller = new AbortController();
   if (pid !== undefined && options.childPriority !== false)
     lowerChildPriority(pid, options.childPriority ?? systemChildPriority(process.platform));
@@ -247,7 +253,7 @@ function spawnOwned(
       // This runs in the child's exit listener, where a throw would be uncaught (and would end
       // a probe worker with every probe in it). A tree stop that cannot run, as on Windows
       // without a kernel32 binding, is reported and ownership still ends.
-      destroy();
+      exitKill = destroyed();
       unregisterGroup(pid);
       job?.dispose();
     }
@@ -267,7 +273,7 @@ function spawnOwned(
         unregisterGroup(pid);
         job?.dispose();
       }
-      resolve({
+      const outcome: ProcessExit = {
         code,
         // After a failed spawn Bun reports no signal at all, where Node reports null.
         signal: signal ?? null,
@@ -280,7 +286,8 @@ function spawnOwned(
               : signal
                 ? "signal"
                 : "exit",
-      });
+      };
+      (exitKill ?? Promise.resolve()).then(() => resolve(outcome)).catch(() => resolve(outcome));
     });
   });
   const handle: RawSupervisedProcess = {
@@ -346,11 +353,17 @@ function spawnOwned(
       if (!closed && pid !== undefined && (!stopped || shortens(graceMs))) {
         // A later stop with a shorter grace (a daemon shutdown overtaking a polite close)
         // brings the SIGKILL forward; it never pushes one back.
-        if (!stopped) terminate();
+        if (!stopped) termDelivered = terminate();
         stopped = true;
         killAt ??= performance.now() + graceMs;
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(() => destroy(), graceMs);
+        (termDelivered ?? Promise.resolve())
+          .then(() => {
+            // The leader's exit already ended the group; nothing is left to escalate.
+            if (ended || closed) return;
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => destroy(), graceMs);
+          })
+          .catch(() => {});
       }
       return exited;
     },

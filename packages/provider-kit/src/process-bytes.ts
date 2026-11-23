@@ -70,13 +70,18 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
     stdio: ["ignore", "pipe", "pipe"],
   });
   const pid = child.pid;
-  const group = pid === undefined ? undefined : childGroup(pid, token);
+  const group = pid === undefined ? undefined : childGroup(pid, token, child);
   // First of all exit listeners: once the leader is reaped its group number is never signalled.
   child.once("exit", () => group?.reaped());
   // Never throws: it runs in the child's exit listener.
+  /** Resolves once delivered; never rejects (a refusal is reported, the leader signalled). */
+  const destroyed = () =>
+    group ? signalTree(group, true, windows, killTree, child).catch(() => {}) : Promise.resolve();
   const destroy = () => {
-    if (group) signalTree(group, true, windows, killTree, child);
+    destroyed().catch(() => {});
   };
+  /** The exit's own group kill, which `exited` waits for: a relayed one is delivered later. */
+  let exitKill: Promise<void> | undefined;
   const factory = options.windowsJobFactory ?? createKillOnCloseJob;
   const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
   if (pid !== undefined) job?.assign(pid);
@@ -86,7 +91,7 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
   const terminate = () => {
     if (!cleanup)
       cleanup = (async () => {
-        destroy();
+        await destroyed();
         if (windows) await endWindowsJob(job);
         // No lsof or /proc on Windows; the taskkill tree stop is the only reaper.
         if (options.ownedCwd && !windows) await terminateDirectoryProcesses([options.ownedCwd]);
@@ -123,13 +128,13 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
       }, 100);
     };
     child.once("exit", () => {
-      destroy();
+      exitKill = destroyed();
       drain();
     });
     child.once("close", (code) => {
       closed = true;
       cancelDrain?.();
-      void (cleanup ?? Promise.resolve())
+      void Promise.all([cleanup, exitKill])
         .then(() => resolve(code), reject)
         .finally(() => {
           if (pid !== undefined) {

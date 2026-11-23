@@ -53,7 +53,7 @@ export function spawnInteractive(options: {
     windowsVerbatimArguments: target.verbatim,
   });
   const pid = child.pid;
-  if (pid !== undefined && !windows) group = childGroup(pid, token);
+  if (pid !== undefined && !windows) group = childGroup(pid, token, child);
   // First of all exit listeners: once the leader is reaped its group number is never signalled.
   child.once("exit", () => group?.reaped());
   const factory = options.windowsJobFactory ?? createKillOnCloseJob;

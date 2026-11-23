@@ -105,7 +105,7 @@ export class ReaderProcess extends EventEmitter {
     this.child = spawnReader(binary, options, token);
     const spawned = this.child.pid;
     if (spawned !== undefined && token !== undefined) {
-      const group = childGroup(spawned, token);
+      const group = childGroup(spawned, token, this.child);
       this.group = group;
       // First of all exit listeners: once reaped its group number is never signalled.
       this.child.once("exit", () => group.reaped());

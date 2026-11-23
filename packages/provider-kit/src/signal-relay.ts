@@ -10,17 +10,18 @@ import { systemTreeIo } from "./process-tree.ts";
  * Signal rules live in the isolate that installed them (the daemon's main thread), but processes
  * are also started and stopped from worker isolates (probes, review, Git). A worker hands each
  * signal to the main isolate with the evidence it holds; the main isolate delivers it under its
- * rules and says so ("taken"), or says it has no rules ("unguarded": a host without daemon rules
- * by design, the desktop app or a CLI), and only then does the worker deliver it itself. A
- * worker that hears nothing after a few tries fails the signal: it never signals without the
- * rules it cannot see.
+ * rules and answers after delivery with the outcome ("done", with the error if delivery failed),
+ * or says it has no rules ("unguarded": a host without daemon rules by design, the desktop app or
+ * a CLI), and only then does the worker deliver it itself. A worker that hears nothing after a
+ * few tries fails the signal: it never signals without the rules it cannot see.
  */
 
 const channelName = "ace.owned-signals";
 type Message =
   | { type: "signal"; id: string; request: GroupSignal }
-  | { type: "taken"; id: string }
+  | { type: "done"; id: string; error?: string }
   | { type: "unguarded"; id: string };
+type Answer = Exclude<Message, { type: "signal" }>;
 
 /** Each try's wait for the main isolate's answer, and how many tries before failing. */
 const answerMs = 250;
@@ -52,11 +53,11 @@ export function serveWorkerSignals(): void {
       channel.post({ type: "unguarded", id: data.id });
       return;
     }
-    channel.post({ type: "taken", id: data.id });
     try {
       deliverGroupSignal(data.request, { tree: systemTreeIo, listing: systemListing });
+      channel.post({ type: "done", id: data.id });
     } catch (error) {
-      process.emitWarning(`A relayed process signal failed: ${String(error)}`);
+      channel.post({ type: "done", id: data.id, error: String(error) });
     }
   });
   serving = channel;
@@ -67,15 +68,13 @@ export function relaysSignals(): boolean {
   return !isMainThread;
 }
 
-let client:
-  | { channel: Channel; waiting: Map<string, (answer: Message["type"]) => void> }
-  | undefined;
+let client: { channel: Channel; waiting: Map<string, (answer: Answer) => void> } | undefined;
 let sent = 0;
 function relayClient() {
   if (client) return client;
-  const waiting = new Map<string, (answer: Message["type"]) => void>();
+  const waiting = new Map<string, (answer: Answer) => void>();
   const channel = open((data) => {
-    if (data.type !== "signal") waiting.get(data.id)?.(data.type);
+    if (data.type !== "signal") waiting.get(data.id)?.(data);
   });
   client = { channel, waiting };
   return client;
@@ -83,24 +82,30 @@ function relayClient() {
 
 /**
  * Hand a signal to the main isolate. Resolves once it was delivered there, or here when the
- * main isolate has no rules by design; rejects when no answer came.
+ * main isolate has no rules by design; rejects when delivery failed or no answer came.
  */
 export async function relaySignal(request: GroupSignal, local: () => void): Promise<void> {
   const state = relayClient();
   for (let attempt = 0; attempt < tries; attempt++) {
     const id = `${threadId}:${++sent}`;
-    const answer = await new Promise<Message["type"] | undefined>((resolve) => {
+    const answer = await new Promise<Answer | undefined>((resolve) => {
       const timer = setTimeout(() => resolve(undefined), answerMs);
       timer.unref?.();
-      state.waiting.set(id, (type) => {
+      state.waiting.set(id, (reply) => {
         clearTimeout(timer);
-        resolve(type);
+        resolve(reply);
       });
       state.channel.post({ type: "signal", id, request });
     });
     state.waiting.delete(id);
-    if (answer === "taken") return;
-    if (answer === "unguarded") {
+    if (answer?.type === "done") {
+      if (answer.error !== undefined)
+        throw new Error(
+          `Process group ${request.leader.pid} could not be signalled: ${answer.error}`,
+        );
+      return;
+    }
+    if (answer?.type === "unguarded") {
       local();
       return;
     }

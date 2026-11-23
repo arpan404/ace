@@ -823,11 +823,11 @@ export class GitCli {
         if (enough && !failure) {
           // Held until the group is gone, so whoever limits these reads counts it until then.
           const output = enoughOutput(enough);
-          void groupGone(this.runtime, pid).then(() => resolve(output));
+          void groupGone(this.runtime, pid, child).then(() => resolve(output));
         } else if (bounded) {
           // A bounded read that was cancelled or failed holds its place the same way.
           const ended = failure;
-          void groupGone(this.runtime, pid).then(() => reject(ended));
+          void groupGone(this.runtime, pid, child).then(() => reject(ended));
         } else reject(failure);
       };
       const kill = () => {
@@ -887,11 +887,11 @@ export class GitCli {
         if (enough && !failure) {
           // Held until the group is gone, so whoever limits these reads counts it until then.
           const output = enoughOutput(enough);
-          void groupGone(this.runtime, pid).then(() => resolve(output));
+          void groupGone(this.runtime, pid, child).then(() => resolve(output));
         } else if (bounded) {
           // A bounded read that was cancelled or failed holds its place the same way.
           const ended = failure;
-          void groupGone(this.runtime, pid).then(() => reject(ended));
+          void groupGone(this.runtime, pid, child).then(() => reject(ended));
         } else reject(failure);
       };
       const cancel = () => {
@@ -1013,11 +1013,12 @@ export class GitCli {
         // ended, and the read settles once the group is gone, as a stopped read does.
         if (bounded && pid && this.runtime.platform !== "win32") {
           try {
-            if (this.runtime.groupAlive(pid)) this.runtime.signalGroup(pid, "SIGKILL");
+            if (this.runtime.groupAlive(pid, child))
+              this.runtime.signalGroup(pid, "SIGKILL", child);
           } catch {
             // Gone already.
           }
-          await groupGone(this.runtime, pid);
+          await groupGone(this.runtime, pid, child);
           if (settled) return;
         }
         detach();

@@ -2,6 +2,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { systemListing } from "./process-listing.ts";
 import { carriesGroupToken } from "./group-token.ts";
 import { deliverGroupSignal, startOf, type GroupIo, type GroupSignal } from "./group-delivery.ts";
+import { killGroupWhile } from "./process-owner.ts";
 import {
   installGroupGuards,
   unregisterGroup,
@@ -76,7 +77,15 @@ const systemGroupIo: GroupIo = {
   order: systemStartOrder(),
 };
 
-type Evidence = { start: string | undefined; unique?: string | undefined; token?: string };
+/** A spawned child's own handle: its exit is unheard while both stay null. */
+export type ChildHandle = { readonly exitCode: number | null; readonly signalCode: string | null };
+
+type Evidence = {
+  start: string | undefined;
+  unique?: string | undefined;
+  token?: string;
+  handle?: ChildHandle;
+};
 
 function createGroup(leader: number, evidence: Evidence, io: GroupIo): LeaderGroup {
   const known = new Map<number, string>();
@@ -84,6 +93,10 @@ function createGroup(leader: number, evidence: Evidence, io: GroupIo): LeaderGro
   if (evidence.unique) uniques.add(evidence.unique);
   let reaped = false;
   const recorded = evidence.start;
+  const handleAlive = () =>
+    evidence.handle !== undefined &&
+    evidence.handle.exitCode === null &&
+    evidence.handle.signalCode === null;
   const pinned = () =>
     !reaped && recorded !== undefined && startOf(leader, io.listing) === recorded;
   const readUnique = (member: TreeMember) => {
@@ -194,6 +207,15 @@ function createGroup(leader: number, evidence: Evidence, io: GroupIo): LeaderGro
       adopt();
     },
     async signal(signal) {
+      if (recorded === undefined && !reaped && handleAlive()) {
+        // No start could be read at spawn: as before this change, the group goes by number while
+        // the child's own handle says it is unreaped, checked again right before kill(-pid). A
+        // worker can't prove that to the main isolate, so it refuses instead of signalling no one.
+        if (relaysSignals())
+          throw new Error(`Process group ${leader} has no recorded start to relay a signal with`);
+        killGroupWhile(leader, signal, () => !reaped && handleAlive());
+        return;
+      }
       if (pinned()) capture();
       const request: GroupSignal = {
         leader: { pid: leader, start: recorded ?? "" },
@@ -243,16 +265,33 @@ function groupRunning(leader: number): boolean {
  * The group of a child this isolate just spawned, read before its exit can be heard. Call
  * `reaped()` first in its exit listener. `token` is the group token put in its environment.
  */
-export function childGroup(pid: number, token?: string, io: GroupIo = systemGroupIo): LeaderGroup {
+export function childGroup(
+  pid: number,
+  token?: string,
+  handle?: ChildHandle,
+  io: GroupIo = systemGroupIo,
+): LeaderGroup {
   let start: string | undefined;
   let unique: string | undefined;
-  try {
-    start = io.listing.info(pid)?.start;
-    unique = io.listing.ancestry?.(pid)?.unique;
-  } catch {
-    // Unreadable: never signalled by number, and nothing is recorded for it.
-  }
-  return createGroup(pid, { start, unique, ...(token === undefined ? {} : { token }) }, io);
+  // Read again when the first read fails (a transient refusal); still unreadable, the group goes
+  // by number only while `handle` says the child is unreaped.
+  for (let attempt = 0; attempt < 3 && start === undefined; attempt++)
+    try {
+      start = io.listing.info(pid)?.start;
+      unique ??= io.listing.ancestry?.(pid)?.unique;
+    } catch {
+      /* Tried again below. */
+    }
+  return createGroup(
+    pid,
+    {
+      start,
+      unique,
+      ...(token === undefined ? {} : { token }),
+      ...(handle === undefined ? {} : { handle }),
+    },
+    io,
+  );
 }
 
 /**

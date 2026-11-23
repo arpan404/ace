@@ -117,6 +117,8 @@ export function killGroupWhile(
 }
 /**
  * Signals a spawned process's tree from code where a throw would end the daemon: timers, exit
+ * listeners and voided stop() calls. Resolves once the signal was delivered (or refused and the
+ * leader signalled through its handle instead); it never rejects. Called from timers, exit
  * listeners and voided stop() calls. A group signal refused (EPERM when every member left runs
  * as another user, or a Windows tree stop that cannot run) is reported, and the leader is still
  * signalled through its own handle, which never reaches a reused pid once it has exited.
@@ -127,7 +129,7 @@ export function signalTree(
   windows: boolean,
   killTree: WindowsKillTree,
   leader: { kill(signal: NodeJS.Signals): boolean },
-): void {
+): Promise<void> {
   const refused = (error: unknown) => {
     process.emitWarning(`Could not signal process tree ${group.leader}: ${String(error)}`);
     try {
@@ -138,10 +140,11 @@ export function signalTree(
   };
   try {
     if (windows) killTree(group.leader, force);
-    else void group.signal(force ? "SIGKILL" : "SIGTERM").catch(refused);
+    else return group.signal(force ? "SIGKILL" : "SIGTERM").catch(refused);
   } catch (error) {
     refused(error);
   }
+  return Promise.resolve();
 }
 function cleanup(): void {
   // Negative-pid signals are invalid on Windows; each owner registers the
