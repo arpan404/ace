@@ -29,7 +29,7 @@ export function AppSidebar(props: {
   usage?: ((current: boolean) => ReactNode) | undefined;
   /** Spade's place in the rail. */
   spade?: ((current: boolean, to: string, search: object) => ReactNode) | undefined;
-  /** The Marketplace's place, which opens its modal over the page. */
+  /** The Store's place, which opens its modal over the page. */
   market?: ReactNode;
 }) {
   const { setBody, bodyClaimed, sheet, setTitleSlot } = useViewFrame();

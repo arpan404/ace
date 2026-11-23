@@ -7,6 +7,6 @@ export class TurnedOff extends Error {
   override name = "TurnedOff";
   readonly code = "unavailable";
   constructor() {
-    super("The Marketplace is turned off. Turn it on in Settings › Beta.");
+    super("The Store is turned off. Turn it on in Settings › Beta.");
   }
 }

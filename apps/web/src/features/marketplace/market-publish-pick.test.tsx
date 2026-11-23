@@ -226,7 +226,7 @@ test("Choose a folder… still publishes a folder by path, once its check is see
   await userEvent.click(await within(market).findByRole("button", { name: typeButton.skill }));
   await within(market).findByRole("group", { name: "Yours" });
   await userEvent.click(within(market).getByRole("button", { name: "Choose a folder…" }));
-  await userEvent.type(within(market).getByLabelText("Name in the Marketplace"), "sort-receipts");
+  await userEvent.type(within(market).getByLabelText("Name in the Store"), "sort-receipts");
   await userEvent.type(within(market).getByLabelText("Folder on this machine"), "/Users/me/sort");
   await within(market).findByRole("list", { name: "What will upload" });
   await waitFor(() => expect(nextButton(market).hasAttribute("disabled")).toBe(false));

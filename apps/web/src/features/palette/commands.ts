@@ -115,7 +115,7 @@ export function usePaletteGroups(
   const machines = useMachinesInSpace();
   // More than one project to choose from: here, or on another of the person's machines.
   const several = directory.projects.length > 1 || machines.length > 1;
-  // Spade and the Marketplace are listed only while Settings › Beta has them on.
+  // Spade and the Store are listed only while Settings › Beta has them on.
   const spadeShown = useSpadeShown() === true;
   const marketplace = useBetaEnabled("marketplace") === true;
   const openMarket = useOpenMarket();
@@ -183,13 +183,13 @@ export function usePaletteGroups(
               if (view.shortcut) command.keys = keymap[view.shortcut].keys;
               return command;
             }),
-          // The Marketplace is a page opened via useOpenMarket.
+          // The Store is a page opened via useOpenMarket.
           ...(marketplace
             ? [
                 {
                   id: "go-marketplace",
-                  label: "Marketplace",
-                  keywords: "marketplace",
+                  label: "Store",
+                  keywords: "store marketplace",
                   icon: "view",
                   run: run(() => openMarket()),
                 } satisfies PaletteCommand,

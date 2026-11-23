@@ -29,7 +29,7 @@ import { agentsKey, type RosterBot } from "./use-spade-roster.ts";
 
 /*
  * The update review of a bot made from one of ace's templates (ADR 0200 §3.8, §6.1), when the
- * Spade it runs on ships a newer version of that template. The same review as a Marketplace
+ * Spade it runs on ships a newer version of that template. The same review as a Store
  * update: what changes, what stays because the person or the bot changed it, and what it asks
  * for that starts off, all from Spade's own plan, and how the bot's kept runs replay on the new
  * version (ADR 0204 §2): free as the review opens, and on the bot's own model only when the
