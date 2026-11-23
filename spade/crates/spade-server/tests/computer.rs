@@ -435,6 +435,7 @@ async fn a_helpers_commands_run_beside_the_bots_each_session_with_its_own_folder
             &[],
             false,
             spade_server::workspace::shell::By::Spade,
+            None,
         )
         .await?;
     assert!(
@@ -1436,6 +1437,7 @@ async fn a_settled_command_never_sees_variables_an_earlier_terminal_command_expo
             &form.env,
             true,
             spade_server::workspace::shell::By::Spade,
+            None,
         )
         .await?;
     assert_eq!(ran.code, Some(0), "{ran:?}");

@@ -705,6 +705,7 @@ impl Terminal {
             false,
             // No bot's call and no gate: Spade's own run in the terminal, as tests drive it.
             By::Spade,
+            None,
         )
         .await
     }
@@ -725,6 +726,7 @@ impl Terminal {
         overrides: &[(String, String)],
         settled: bool,
         by: By,
+        hold: crate::workspace::shell::Hold,
     ) -> Result<Ran, String> {
         let overrides = overrides.to_vec();
         let lane = lock(&self.commands)
@@ -770,6 +772,8 @@ impl Terminal {
             }
             terminal.running.fetch_sub(1, Ordering::SeqCst);
             drop(one);
+            // Only now, with everything the command started gone, is what its caller held let go.
+            drop(hold);
             terminal.touched();
             if let Some(ran) = finished {
                 let _ = answer.send(ran);
