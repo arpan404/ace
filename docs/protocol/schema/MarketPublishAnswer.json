@@ -178,6 +178,23 @@
       "additionalProperties": false,
       "properties": {
         "kind": {
+          "const": "registry",
+          "type": "string"
+        },
+        "registry": {
+          "$ref": "https://ace.local/protocol/v1/RegistryAdmin.json"
+        }
+      },
+      "required": [
+        "kind",
+        "registry"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
           "const": "done",
           "type": "string"
         }

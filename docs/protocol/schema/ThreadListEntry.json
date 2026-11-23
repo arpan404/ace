@@ -246,6 +246,9 @@
       ],
       "type": "string"
     },
+    "treeRootId": {
+      "$ref": "https://ace.local/protocol/v1/TreeRootId.json"
+    },
     "unread": {
       "type": "boolean"
     },
