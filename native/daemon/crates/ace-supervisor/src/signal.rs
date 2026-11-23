@@ -188,7 +188,10 @@ pub struct SystemPidFds;
 #[cfg(target_os = "linux")]
 impl PidFdTable for SystemPidFds {
     fn open(&self, pid: u32) -> PidFdOpen {
-        let pid = rustix::process::Pid::from_raw(pid as i32);
+        let Ok(raw) = i32::try_from(pid) else {
+            return PidFdOpen::Gone;
+        };
+        let pid = rustix::process::Pid::from_raw(raw);
         let Some(pid) = pid else {
             return PidFdOpen::Gone;
         };

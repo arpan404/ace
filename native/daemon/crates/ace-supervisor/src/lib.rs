@@ -25,3 +25,5 @@ pub mod spawn;
 pub mod sse;
 pub mod stop;
 pub mod tree;
+pub mod watch;
+pub mod wintree;
