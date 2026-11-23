@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import { pidfdFailure } from "./process-signal.ts";
 import { captureTree, parseProcessParents, stopMembers } from "./process-tree.ts";
 import { fakeMachine } from "./process-tree-test-support.ts";
+import { childGroup } from "./leader-group.ts";
 
 test("process parents survive malformed rows", () => {
   expect([...parseProcessParents("    1     0\n  326     1\n garbage\n  400   326\n")]).toEqual([
@@ -228,4 +229,20 @@ test("a zombie counts as stopped: it has exited, only its exit status is left", 
   const { tree, signals } = fakeMachine({ 200: { parent: 1, start: "done", zombie: true } });
   expect(await stopMembers([{ pid: 200, start: "done" }], 500, tree)).toEqual([]);
   expect(signals).toEqual([]);
+});
+
+test("after its leader is reaped, a group's recorded member whose pid now shows another start is never signalled", () => {
+  // macOS lineage: both children were started by the leader (parent unique id u100).
+  const { tree, listing, table, signals, end } = fakeMachine({
+    100: { parent: 50, start: "leader", group: 100, unique: "u100", parentUnique: "u50" },
+    200: { parent: 100, start: "kid", group: 100, unique: "u200", parentUnique: "u100" },
+    300: { parent: 100, start: "kid2", group: 100, unique: "u300", parentUnique: "u100" },
+  });
+  const group = childGroup(100, undefined, { tree, listing });
+  end(100);
+  group.reaped();
+  // Pid 200 is reused by an unrelated process that joined a group numbered 100.
+  table.set(200, { parent: 1, start: "stranger", group: 100 });
+  group.signal("SIGKILL");
+  expect(signals).toEqual(["SIGKILL 300:kid2"]);
 });

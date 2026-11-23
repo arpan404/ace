@@ -28,18 +28,24 @@ import {
 import { probeOffThread, type ProbeThread } from "./probe-thread.ts";
 import { resolveProbeLaunch, resolveWithin, type ProbeLaunch } from "./probe-resolve.ts";
 import { markedEnv } from "./process-marker.ts";
-import { leaderGroup, type LeaderGroup } from "./leader-group.ts";
+import { childGroup, stopRetainedGroup, type LeaderGroup } from "./leader-group.ts";
+import { newGroupToken, withGroupToken } from "./group-token.ts";
 export {
   stopOwnedGroups,
   ownedGroupLeaders,
   onGroupOwned,
-  guardGroupSignals,
   observeProcessGroups,
   installShutdownHandlers,
   registerGroup,
   unregisterGroup,
-  stopRetainedGroup,
 } from "./process-owner.ts";
+export {
+  childGroup,
+  guardGroupSignals,
+  reportedGroup,
+  stopRetainedGroup,
+  type LeaderGroup,
+} from "./leader-group.ts";
 
 export type ProcessExit = {
   code: number | null;
@@ -138,7 +144,9 @@ function spawnOwned(
   const stopRetained = (pid: number, graceMs: number) =>
     windows
       ? stopRetainedWindowsTree(pid, graceMs, killTree, job)
-      : (group?.stop(graceMs) ?? Promise.resolve());
+      : group
+        ? stopRetainedGroup(group, graceMs)
+        : Promise.resolve();
   const maxOutputBytes =
     options.maxOutputBytes === undefined
       ? undefined
@@ -147,15 +155,17 @@ function spawnOwned(
   const target = windows
     ? toWindowsCommand(options.command, options.args ?? [])
     : { command: options.command, args: [...(options.args ?? [])], verbatim: false };
+  const token = windows ? undefined : newGroupToken();
+  const env = markedEnv({ ...base, ...options.env });
   const child = spawn(target.command, target.args, {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    env: markedEnv({ ...base, ...options.env }),
+    env: token === undefined ? env : withGroupToken(env, token),
     ...(windows ? { detached: false, windowsHide: true } : { detached: true }),
     windowsVerbatimArguments: target.verbatim,
     stdio: ["pipe", "pipe", "pipe"],
   });
   const pid = child.pid;
-  if (pid !== undefined) group = leaderGroup(pid);
+  if (pid !== undefined) group = childGroup(pid, token);
   // First of all exit listeners: once the leader is reaped its group number is never signalled.
   child.once("exit", () => group?.reaped());
   reportBunStdinFailures(child.stdin);

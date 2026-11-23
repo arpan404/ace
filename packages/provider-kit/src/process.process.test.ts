@@ -98,7 +98,9 @@ describe("supervised processes", () => {
       });
       raw.push(isolated);
       const exact = await printed(isolated);
-      expect(exact.filter((key) => !key.startsWith("ACE_PROCESS_OWNER"))).toEqual(["ONLY_THIS"]);
+      expect(exact.filter((key) => !/^ACE_PROCESS_(OWNER|GROUP)$/.test(key))).toEqual([
+        "ONLY_THIS",
+      ]);
       // Without it the daemon's environment is still the base, as every other caller has it.
       const merged = spawnRawSupervised({
         command: process.execPath,

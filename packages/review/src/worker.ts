@@ -4,6 +4,7 @@ import { z } from "zod";
 import { GitService, spawnGitProcess } from "@ace/git";
 import { ReviewService } from "./service.ts";
 import { WorkerInput } from "./worker-protocol.ts";
+import { systemListing } from "@ace/provider-kit/process-listing";
 const port = parentPort;
 if (!port) throw new Error("Review worker requires a parent");
 const config = z
@@ -56,7 +57,8 @@ const service = new ReviewService({
         const child = spawnGitProcess(command, args, options);
         if (child.pid !== undefined && options.detached) {
           const pid = child.pid;
-          port.postMessage({ type: "git-group", pid, active: true });
+          const start = systemListing.info(pid)?.start;
+          port.postMessage({ type: "git-group", pid, active: true, ...(start ? { start } : {}) });
           child.once("close", () => port.postMessage({ type: "git-group", pid, active: false }));
         }
         return child;

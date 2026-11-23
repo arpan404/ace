@@ -11,7 +11,8 @@ import {
 } from "./process-containment.ts";
 import { toWindowsCommand } from "./process-owner.ts";
 import { markedEnv } from "./process-marker.ts";
-import { leaderGroup } from "./leader-group.ts";
+import { childGroup } from "./leader-group.ts";
+import { newGroupToken, withGroupToken } from "./group-token.ts";
 
 export { terminateDirectoryProcesses } from "./directory-processes.ts";
 
@@ -59,15 +60,17 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
   const target = windows
     ? toWindowsCommand(options.command, options.args)
     : { command: options.command, args: [...options.args], verbatim: false };
+  const token = windows ? undefined : newGroupToken();
+  const env = markedEnv(options.env);
   const child = spawn(target.command, target.args, {
     cwd: options.cwd,
-    env: markedEnv(options.env),
+    env: token === undefined ? env : withGroupToken(env, token),
     ...(windows ? { detached: false, windowsHide: true } : { detached: true }),
     windowsVerbatimArguments: target.verbatim,
     stdio: ["ignore", "pipe", "pipe"],
   });
   const pid = child.pid;
-  const group = pid === undefined ? undefined : leaderGroup(pid);
+  const group = pid === undefined ? undefined : childGroup(pid, token);
   // First of all exit listeners: once the leader is reaped its group number is never signalled.
   child.once("exit", () => group?.reaped());
   // Never throws: it runs in the child's exit listener.
@@ -144,6 +147,6 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
     }
     await exited.catch(() => {});
   };
-  if (pid !== undefined) registerGroup(pid, stop, undefined, destroy);
+  if (pid !== undefined) registerGroup(pid, stop, { name: "ace-process" }, destroy);
   return { stdout: child.stdout, stderr: child.stderr, exited, stop };
 }

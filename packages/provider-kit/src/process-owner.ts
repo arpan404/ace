@@ -5,7 +5,7 @@ import { win32 } from "node:path";
 import { openLibrary, runsOnBun } from "./bun-ffi.ts";
 import { loadKoffi } from "./koffi.ts";
 import type { WindowsJob } from "./process-containment.ts";
-import { signalTreeMember, type TreeMember } from "./process-tree.ts";
+import { signalTreeMember, systemTreeIo, type TreeIo, type TreeMember } from "./process-tree.ts";
 
 /** Process-global ownership is separate from application-selected shutdown policy. */
 const owned = new Map<
@@ -31,8 +31,15 @@ export type GroupGuard = (group: number) => "whole" | readonly { pid: number; st
 export type MemberGuard = (members: readonly TreeMember[]) => readonly TreeMember[];
 let groupGuard: GroupGuard | undefined;
 let memberGuard: MemberGuard | undefined;
-/** Install the guards every group and member signal passes through; returns their removal. */
-export function guardGroupSignals(guard: GroupGuard, members?: MemberGuard): () => void {
+/** Whether this isolate has rules of its own (else a worker relays its signals). */
+export function locallyGuarded(): boolean {
+  return groupGuard !== undefined;
+}
+/**
+ * Install this isolate's guards; returns their removal. `guardGroupSignals` (leader-group.ts)
+ * also serves the signals workers relay here.
+ */
+export function installGroupGuards(guard: GroupGuard, members?: MemberGuard): () => void {
   groupGuard = guard;
   memberGuard = members;
   return () => {
@@ -43,7 +50,11 @@ export function guardGroupSignals(guard: GroupGuard, members?: MemberGuard): () 
 }
 
 /** Signal owned members one by one, each checked against its start just before it goes. */
-export function signalOwnedMembers(members: readonly TreeMember[], signal: NodeJS.Signals): void {
+export function signalOwnedMembers(
+  members: readonly TreeMember[],
+  signal: NodeJS.Signals,
+  io: TreeIo = systemTreeIo,
+): void {
   let allowed: readonly TreeMember[] = members;
   if (memberGuard)
     try {
@@ -53,7 +64,7 @@ export function signalOwnedMembers(members: readonly TreeMember[], signal: NodeJ
       process.emitWarning(`Process members could not be checked: ${String(error)}`);
       allowed = [];
     }
-  for (const member of allowed) signalTreeMember(member, signal);
+  for (const member of allowed) signalTreeMember(member, signal, io);
 }
 
 export function killGroup(pid: number, signal: NodeJS.Signals): void {
@@ -114,27 +125,6 @@ export function signalTree(
     }
   }
 }
-/** A retained group's lifetime is independent of its leader and inherited pipes. */
-export async function stopRetainedGroup(pid: number, graceMs: number): Promise<void> {
-  killGroup(pid, "SIGTERM");
-  const deadline = performance.now() + graceMs;
-  while (true) {
-    try {
-      process.kill(-pid, 0);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ESRCH" || (process.platform === "darwin" && code === "EPERM")) break;
-      throw error;
-    }
-    const remaining = deadline - performance.now();
-    if (remaining <= 0) {
-      killGroup(pid, "SIGKILL");
-      break;
-    }
-    await delay(Math.min(25, remaining));
-  }
-  unregisterGroup(pid);
-}
 function cleanup(): void {
   // Negative-pid signals are invalid on Windows; each owner registers the
   // synchronous destroy its platform actually uses to end the tree.
@@ -173,10 +163,10 @@ export function onGroupOwned(listener: OwnershipListener): () => void {
 export function registerGroup(
   pid: number,
   stop: (graceMs: number) => Promise<unknown>,
-  metadata: { name: string; cwd?: string; unique?: string } = { name: "ace-process" },
-  destroy?: () => void,
+  metadata: { name: string; cwd?: string; unique?: string },
+  /** Ends the tree synchronously at process exit, through its leader group, never by number. */
+  end: () => void,
 ): void {
-  const end = destroy ?? (() => killGroup(pid, "SIGKILL"));
   try {
     for (const journal of journals) journal.add(pid, metadata);
   } catch (error) {

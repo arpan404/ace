@@ -1,6 +1,13 @@
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { registerGroup, spawnSupervised, stopRetainedGroup } from "@ace/provider-kit/process";
+import {
+  registerGroup,
+  reportedGroup,
+  spawnSupervised,
+  stopRetainedGroup,
+  type LeaderGroup,
+} from "@ace/provider-kit/process";
+import { systemListing } from "@ace/provider-kit/process-listing";
 import { askClaude, type MetadataQueryInput } from "./metadata-query.ts";
 import { metadataQuestions, type MetadataQuestion } from "./metadata-questions.ts";
 
@@ -44,7 +51,7 @@ export async function askClaudeMetadata(
     maxOutputBytes: 8 * 1024 * 1024,
   });
   let reply: z.infer<typeof Reply> | undefined;
-  let cli: number | undefined;
+  let cli: LeaderGroup | undefined;
   host.stdout.on("line", (line) => {
     let data: unknown;
     try {
@@ -55,10 +62,21 @@ export async function askClaudeMetadata(
     const started = Started.safeParse(data).data;
     if (started && cli === undefined) {
       // The CLI has its own process group. Owning it here (journaled, stopped on this
-      // process's exit) means a helper killed outright cannot leave it running.
-      cli = started.cli;
-      const pid = cli;
-      registerGroup(pid, (graceMs) => stopRetainedGroup(pid, graceMs), { name: "claude" });
+      // process's exit) means a helper killed outright cannot leave it running. Its pid counts
+      // only while the process holding it is still the host's child: then it is the CLI, and its
+      // start is what its group is checked against from now on.
+      const pid = started.cli;
+      const info = systemListing.info(pid);
+      if (info && !info.zombie && info.parent === host.pid) {
+        const group = reportedGroup({ pid, start: info.start });
+        cli = group;
+        registerGroup(
+          pid,
+          (graceMs) => stopRetainedGroup(group, graceMs),
+          { name: "claude" },
+          () => group.signal("SIGKILL"),
+        );
+      }
       if (treeStop && host.pid !== undefined) hostTree = treeStop.recordTree(host.pid);
       return;
     }
