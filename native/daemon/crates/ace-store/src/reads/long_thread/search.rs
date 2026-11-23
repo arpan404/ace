@@ -268,6 +268,8 @@ pub fn thread_search(
         .filter(|term| *term != &anchor_term)
         .map(|term| format!("body : ({term})"))
         .collect();
+    let _required_json =
+        serde_json::to_string(&required).map_err(|error| invalid(&error.to_string()))?;
     let ceiling_value = if let Some(ceiling) = ceiling {
         ceiling
     } else {
@@ -282,50 +284,38 @@ pub fn thread_search(
             _ => 0,
         }
     };
-    let mut scope_filter = format!(
-        "AND c.thread IN ({})",
-        thread_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
-    );
-    if filter.is_some() {
-        scope_filter.push_str(" AND c.category=?");
-    }
-    let mut scope_values: Vec<Value> = thread_ids
-        .iter()
-        .map(|id| Value::Text(id.clone()))
-        .collect();
-    if let Some(filter) = filter {
-        scope_values.push(Value::Text(filter.to_owned()));
-    }
-    let mut bounded_values = Vec::new();
-    for term in &required {
-        bounded_values.push(Value::Integer(ceiling_value));
-        if let Some(filter) = filter {
-            bounded_values.push(Value::Text(filter.to_owned()));
-        }
-        bounded_values.push(Value::Text(term.clone()));
-    }
-    let mut postings_params = vec![
-        Value::Text(expression.clone()),
-        Value::Integer(cursor_id),
-        Value::Integer(ceiling_value),
-    ];
-    postings_params.extend(scope_values.clone());
-    postings_params.push(Value::Integer(129));
-    let mut term_constraints = String::new();
-    for _ in &required {
-        term_constraints.push_str(" AND EXISTS( SELECT 1 FROM search_full_chunks term_chunk CROSS JOIN search_full_fts WHERE term_chunk.thread=c.thread AND term_chunk.item=c.item AND search_full_fts.rowid=term_chunk.id AND term_chunk.id<=?");
-        if filter.is_some() {
-            term_constraints.push_str(" AND term_chunk.category=?");
-        }
-        term_constraints.push_str(" AND search_full_fts MATCH ?)");
-    }
-    let postings = all_rows(
-        conn,
-        &format!(
-            "SELECT c.id FROM search_full_fts JOIN search_full_chunks c ON c.id=search_full_fts.rowid WHERE search_full_fts MATCH ? AND search_full_fts.rowid>? AND search_full_fts.rowid<=? AND NOT EXISTS(SELECT 1 FROM search_tombstones t WHERE t.thread=c.thread) {scope_filter} ORDER BY search_full_fts.rowid LIMIT ?"
-        ),
-        postings_params,
-    )?;
+    let thread_ids_json =
+        serde_json::to_string(&thread_ids).map_err(|error| invalid(&error.to_string()))?;
+    let required_json =
+        serde_json::to_string(&required).map_err(|error| invalid(&error.to_string()))?;
+    const POSTINGS_SQL: &str = "SELECT c.id FROM search_full_fts JOIN search_full_chunks c ON c.id=search_full_fts.rowid WHERE search_full_fts MATCH ? AND search_full_fts.rowid>? AND search_full_fts.rowid<=? AND NOT EXISTS(SELECT 1 FROM search_tombstones t WHERE t.thread=c.thread) AND c.thread IN (SELECT value FROM json_each(?)) ORDER BY search_full_fts.rowid LIMIT ?";
+    const POSTINGS_FILTER_SQL: &str = "SELECT c.id FROM search_full_fts JOIN search_full_chunks c ON c.id=search_full_fts.rowid WHERE search_full_fts MATCH ? AND search_full_fts.rowid>? AND search_full_fts.rowid<=? AND NOT EXISTS(SELECT 1 FROM search_tombstones t WHERE t.thread=c.thread) AND c.thread IN (SELECT value FROM json_each(?)) AND c.category=? ORDER BY search_full_fts.rowid LIMIT ?";
+    let postings = if let Some(filter) = filter {
+        all_rows(
+            conn,
+            POSTINGS_FILTER_SQL,
+            vec![
+                Value::Text(expression.clone()),
+                Value::Integer(cursor_id),
+                Value::Integer(ceiling_value),
+                Value::Text(thread_ids_json.clone()),
+                Value::Text(filter.to_owned()),
+                Value::Integer(129),
+            ],
+        )?
+    } else {
+        all_rows(
+            conn,
+            POSTINGS_SQL,
+            vec![
+                Value::Text(expression.clone()),
+                Value::Integer(cursor_id),
+                Value::Integer(ceiling_value),
+                Value::Text(thread_ids_json.clone()),
+                Value::Integer(129),
+            ],
+        )?
+    };
     let mut posting_ids = Vec::new();
     for row in postings.iter().take(129) {
         let id = match row.get("id") {
@@ -344,25 +334,40 @@ pub fn thread_search(
         let candidates_json =
             serde_json::to_string(&candidates).map_err(|error| invalid(&error.to_string()))?;
         let highlight = format!("body : ({})", terms.join(" OR "));
-        let mut sql = String::from(
-            "WITH selected AS MATERIALIZED (SELECT c.id FROM json_each(?) candidate CROSS JOIN search_full_chunks c WHERE c.id=candidate.value AND NOT EXISTS( SELECT 1 FROM search_full_chunks earlier CROSS JOIN search_full_fts WHERE earlier.thread=c.thread AND earlier.item=c.item AND search_full_fts.rowid=earlier.id AND earlier.id<c.id",
-        );
-        if filter.is_some() {
-            sql.push_str(" AND earlier.category=c.category");
+        let anchor_expr = format!("body : ({anchor_term})");
+        const CANDIDATES_SQL: &str = "WITH selected AS MATERIALIZED (SELECT c.id FROM json_each(?) candidate CROSS JOIN search_full_chunks c WHERE c.id=candidate.value AND NOT EXISTS(SELECT 1 FROM search_full_chunks earlier CROSS JOIN search_full_fts WHERE earlier.thread=c.thread AND earlier.item=c.item AND search_full_fts.rowid=earlier.id AND earlier.id<c.id AND search_full_fts MATCH ?) AND NOT EXISTS(SELECT 1 FROM json_each(?) req WHERE NOT EXISTS(SELECT 1 FROM search_full_chunks term_chunk CROSS JOIN search_full_fts WHERE term_chunk.thread=c.thread AND term_chunk.item=c.item AND search_full_fts.rowid=term_chunk.id AND term_chunk.id<=? AND search_full_fts MATCH req.value)) ORDER BY c.id LIMIT ?) SELECT c.id,c.thread,c.item,c.seq,snippet(search_full_fts,0,char(1),char(2),'…',40) AS marked FROM selected s CROSS JOIN search_full_chunks c CROSS JOIN search_full_fts WHERE c.id=s.id AND search_full_fts.rowid=s.id AND search_full_fts MATCH ? ORDER BY c.id";
+        const CANDIDATES_FILTER_SQL: &str = "WITH selected AS MATERIALIZED (SELECT c.id FROM json_each(?) candidate CROSS JOIN search_full_chunks c WHERE c.id=candidate.value AND NOT EXISTS(SELECT 1 FROM search_full_chunks earlier CROSS JOIN search_full_fts WHERE earlier.thread=c.thread AND earlier.item=c.item AND search_full_fts.rowid=earlier.id AND earlier.id<c.id AND earlier.category=c.category AND search_full_fts MATCH ?) AND NOT EXISTS(SELECT 1 FROM json_each(?) req WHERE NOT EXISTS(SELECT 1 FROM search_full_chunks term_chunk CROSS JOIN search_full_fts WHERE term_chunk.thread=c.thread AND term_chunk.item=c.item AND search_full_fts.rowid=term_chunk.id AND term_chunk.id<=? AND term_chunk.category=? AND search_full_fts MATCH req.value)) ORDER BY c.id LIMIT ?) SELECT c.id,c.thread,c.item,c.seq,snippet(search_full_fts,0,char(1),char(2),'…',40) AS marked FROM selected s CROSS JOIN search_full_chunks c CROSS JOIN search_full_fts WHERE c.id=s.id AND search_full_fts.rowid=s.id AND search_full_fts MATCH ? ORDER BY c.id";
+        if let Some(filter) = filter {
+            rows = all_rows(
+                conn,
+                CANDIDATES_FILTER_SQL,
+                vec![
+                    Value::Text(candidates_json),
+                    Value::Text(anchor_expr),
+                    Value::Text(required_json.clone()),
+                    Value::Integer(ceiling_value),
+                    Value::Text(filter.to_owned()),
+                    Value::Integer(limit + 1),
+                    Value::Text(highlight),
+                ],
+            )?;
+        } else {
+            rows = all_rows(
+                conn,
+                CANDIDATES_SQL,
+                vec![
+                    Value::Text(candidates_json),
+                    Value::Text(anchor_expr),
+                    Value::Text(required_json.clone()),
+                    Value::Integer(ceiling_value),
+                    Value::Integer(limit + 1),
+                    Value::Text(highlight),
+                ],
+            )?;
         }
-        sql.push_str(" AND search_full_fts MATCH ?)");
-        sql.push_str(&term_constraints);
-        sql.push_str(" ORDER BY c.id LIMIT ?) SELECT c.id,c.thread,c.item,c.seq,snippet(search_full_fts,0,char(1),char(2),'…',40) AS marked FROM selected s CROSS JOIN search_full_chunks c CROSS JOIN search_full_fts WHERE c.id=s.id AND search_full_fts.rowid=s.id AND search_full_fts MATCH ? ORDER BY c.id");
-        let mut params = vec![
-            Value::Text(candidates_json),
-            Value::Text(format!("body : ({anchor_term})")),
-        ];
-        params.extend(bounded_values);
-        params.push(Value::Integer(limit + 1));
-        params.push(Value::Text(highlight));
-        rows = all_rows(conn, &sql, params)?;
     }
     let mut hits = Vec::new();
+    let mut parsed: Vec<(String, String, i64, String)> = Vec::new();
     for row in rows.iter().take(limit as usize) {
         let thread = match row_value(row, "thread")? {
             Value::Text(text) => text.clone(),
@@ -385,16 +390,51 @@ pub fn thread_search(
             Value::Text(text) => text.clone(),
             _ => return Err(invalid("invalid index row")),
         };
-        let ordinal = get_row(
+        parsed.push((thread, item, seq, marked));
+    }
+    let ordinal_map = if parsed.is_empty() {
+        std::collections::BTreeMap::new()
+    } else {
+        let threads_json = serde_json::to_string(
+            &parsed
+                .iter()
+                .map(|(thread, _, _, _)| thread.clone())
+                .collect::<Vec<_>>(),
+        )
+        .map_err(|error| invalid(&error.to_string()))?;
+        let items_json = serde_json::to_string(
+            &parsed
+                .iter()
+                .map(|(_, item, _, _)| item.clone())
+                .collect::<Vec<_>>(),
+        )
+        .map_err(|error| invalid(&error.to_string()))?;
+        let ordinal_rows = all_rows(
             conn,
-            "SELECT ordinal FROM long_items WHERE thread_id=? AND item_id=?",
-            vec![Value::Text(thread.clone()), Value::Text(item.clone())],
-        )?
-        .and_then(|row| match row.get("ordinal") {
-            Some(Value::Integer(n)) => Some(*n),
-            Some(Value::Real(n)) => Some(*n as i64),
-            _ => None,
-        });
+            "SELECT thread_id,item_id,ordinal FROM long_items WHERE thread_id IN (SELECT value FROM json_each(?)) AND item_id IN (SELECT value FROM json_each(?))",
+            vec![Value::Text(threads_json), Value::Text(items_json)],
+        )?;
+        let mut map = std::collections::BTreeMap::new();
+        for row in ordinal_rows {
+            let thread = match row.get("thread_id") {
+                Some(Value::Text(text)) => text.clone(),
+                _ => continue,
+            };
+            let item = match row.get("item_id") {
+                Some(Value::Text(text)) => text.clone(),
+                _ => continue,
+            };
+            let ordinal = match row.get("ordinal") {
+                Some(Value::Integer(n)) => *n,
+                Some(Value::Real(n)) => *n as i64,
+                _ => continue,
+            };
+            map.insert((thread, item), ordinal);
+        }
+        map
+    };
+    for (thread, item, seq, marked) in parsed {
+        let ordinal = ordinal_map.get(&(thread.clone(), item.clone())).copied();
         if let Some(ordinal) = ordinal
             && ordinal < 1
         {

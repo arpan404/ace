@@ -50,25 +50,15 @@ pub fn range_after(
     owners: &[String],
     cutoff: i64,
 ) -> Result<BTreeMap<String, Counters>, LongError> {
-    let bounds = range_prefix(cutoff);
-    let mut sql = String::from("WITH bounds(level,low,high) AS (VALUES ");
-    sql.push_str(
-        &bounds
-            .iter()
-            .map(|_| "(?,?,?)")
-            .collect::<Vec<_>>()
-            .join(","),
-    );
-    sql.push_str(
-        "),
+    const SQL: &str = "WITH bounds(level,low,high) AS (VALUES (?,?,?),(?,?,?),(?,?,?),(?,?,?),(?,?,?),(?,?,?),(?,?,?)),
       sums AS (
         SELECT owner,key,SUM(value) AS value FROM long_range_nodes
         WHERE thread_id=? AND owner IN (SELECT value FROM json_each(?)) AND level=6 GROUP BY owner,key
         UNION ALL
         SELECT n.owner,n.key,-SUM(n.value) AS value FROM bounds b CROSS JOIN long_range_nodes n
         WHERE n.thread_id=? AND n.owner IN (SELECT value FROM json_each(?)) AND n.level=b.level AND n.bucket>=b.low AND n.bucket<b.high GROUP BY n.owner,n.key
-      ) SELECT owner,key,SUM(value) AS value FROM sums GROUP BY owner,key",
-    );
+      ) SELECT owner,key,SUM(value) AS value FROM sums GROUP BY owner,key";
+    let bounds = range_prefix(cutoff);
     let owners_json = serde_json::to_string(&owners)
         .map_err(|error| super::common::invalid(&error.to_string()))?;
     let mut params = Vec::new();
@@ -81,7 +71,7 @@ pub fn range_after(
     params.push(Value::Text(owners_json.clone()));
     params.push(Value::Text(thread.to_owned()));
     params.push(Value::Text(owners_json));
-    let rows = all_rows(conn, &sql, params)?;
+    let rows = all_rows(conn, SQL, params)?;
     let mut result: BTreeMap<String, Counters> = BTreeMap::new();
     for row in rows {
         let owner = match row.get("owner") {

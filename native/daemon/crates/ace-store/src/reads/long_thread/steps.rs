@@ -239,6 +239,84 @@ fn tool_surface(call: &serde_json::Value, carried: Option<&str>) -> Option<serde
     None
 }
 
+fn batch_items(
+    conn: &Arc<Connection>,
+    thread_id: &str,
+    item_ids: &[String],
+) -> Result<std::collections::BTreeMap<String, serde_json::Value>, LongError> {
+    let mut out = std::collections::BTreeMap::new();
+    if item_ids.is_empty() {
+        return Ok(out);
+    }
+    let list = serde_json::to_string(item_ids).map_err(|error| invalid(&error.to_string()))?;
+    let heads = all_rows(
+        conn,
+        "SELECT id,item_type FROM item_heads WHERE thread_id=? AND id IN (SELECT value FROM json_each(?))",
+        vec![Value::Text(thread_id.to_owned()), Value::Text(list.clone())],
+    )?;
+    let mut types = std::collections::BTreeMap::new();
+    for row in heads {
+        let id = match row.get("id") {
+            Some(Value::Text(text)) => text.clone(),
+            _ => continue,
+        };
+        let item_type = match row.get("item_type") {
+            Some(Value::Text(text)) => text.clone(),
+            _ => continue,
+        };
+        types.insert(id, item_type);
+    }
+    let previews = all_rows(
+        conn,
+        "SELECT id,item FROM item_previews WHERE id IN (SELECT value FROM json_each(?))",
+        vec![Value::Text(list.clone())],
+    )?;
+    let mut preview_map = std::collections::BTreeMap::new();
+    for row in previews {
+        let id = match row.get("id") {
+            Some(Value::Text(text)) => text.clone(),
+            _ => continue,
+        };
+        let text = match row.get("item") {
+            Some(Value::Text(text)) => text.clone(),
+            _ => return Err(invalid("invalid index row")),
+        };
+        let value: serde_json::Value =
+            serde_json::from_str(&text).map_err(|_| invalid("invalid index row"))?;
+        preview_map.insert(id, value);
+    }
+    let items = all_rows(
+        conn,
+        "SELECT id,item FROM items WHERE thread_id=? AND id IN (SELECT value FROM json_each(?))",
+        vec![Value::Text(thread_id.to_owned()), Value::Text(list)],
+    )?;
+    let mut item_map = std::collections::BTreeMap::new();
+    for row in items {
+        let id = match row.get("id") {
+            Some(Value::Text(text)) => text.clone(),
+            _ => continue,
+        };
+        let text = match row.get("item") {
+            Some(Value::Text(text)) => text.clone(),
+            _ => return Err(invalid("invalid index row")),
+        };
+        let value: serde_json::Value =
+            serde_json::from_str(&text).map_err(|_| invalid("invalid index row"))?;
+        item_map.insert(id, value);
+    }
+    for item_id in item_ids {
+        let item_type = types.get(item_id);
+        let value = match item_type.map(|s| s.as_str()) {
+            Some("message") | Some("notice") | Some("reasoning") => preview_map.get(item_id),
+            _ => item_map.get(item_id),
+        };
+        if let Some(value) = value.cloned() {
+            out.insert(item_id.clone(), value);
+        }
+    }
+    Ok(out)
+}
+
 fn step_item(
     conn: &Arc<Connection>,
     thread_id: &str,
@@ -341,12 +419,17 @@ fn site_before(
             Value::Integer(seq),
         ],
     )?;
+    let mut batch_ids = Vec::new();
     for row in rows {
         let item_id = match row.get("item_id") {
             Some(Value::Text(text)) => text.clone(),
             _ => continue,
         };
-        if let Some(item) = step_item(conn, thread_id, &item_id)? {
+        batch_ids.push(item_id);
+    }
+    let batch_map = batch_items(conn, thread_id, &batch_ids)?;
+    for item_id in batch_ids {
+        if let Some(item) = batch_map.get(&item_id) {
             let call = match item.get("call") {
                 Some(call) => call.clone(),
                 None => continue,
@@ -407,6 +490,15 @@ pub fn turn_steps(
     )?;
     let mut steps: Vec<(i64, serde_json::Value)> = Vec::new();
     let mut bytes = 512usize;
+    let batch_ids: Vec<String> = rows
+        .iter()
+        .take(limit as usize)
+        .filter_map(|row| match row.get("item_id") {
+            Some(Value::Text(text)) => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    let batch_map = batch_items(conn, thread_id, &batch_ids)?;
     for row in rows.iter().take(limit as usize) {
         let item_id = match row_value(row, "item_id")? {
             Value::Text(text) => text.clone(),
@@ -417,9 +509,9 @@ pub fn turn_steps(
             Value::Real(n) => *n as i64,
             _ => return Err(invalid("invalid index row")),
         };
-        let item = match step_item(conn, thread_id, &item_id)? {
+        let item = match batch_map.get(&item_id) {
             None => continue,
-            Some(item) => item,
+            Some(item) => item.clone(),
         };
         let light = light_item(item);
         let mut step = serde_json::Map::new();

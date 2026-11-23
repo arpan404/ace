@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Shared helpers for phase 2 long-thread reads.
 
-use crate::{Connection, Error as StoreError, Value};
-use std::collections::BTreeMap;
-use std::sync::Arc;
+use crate::{Error as StoreError, Value};
+
+pub use crate::stmt_cache::{Row, all_rows, all_rows_raw, get_row, get_row_raw};
 
 pub const MAX_SAFE: i64 = 9007199254740991;
 
@@ -141,49 +141,6 @@ pub fn opt_count(value: Option<&Value>) -> Result<Option<i64>, LongError> {
         None => Ok(None),
         Some(Value::Null) => Ok(None),
         Some(value) => Ok(Some(as_count(value)?)),
-    }
-}
-
-/// One row as column name to value.
-pub type Row = BTreeMap<String, Value>;
-
-/// Run `sql` with `params` and return every row, keyed by column name.
-pub fn all_rows(
-    conn: &Arc<Connection>,
-    sql: &str,
-    params: Vec<Value>,
-) -> Result<Vec<Row>, LongError> {
-    let statement = conn.prepare(sql).map_err(LongError::Sqlite)?;
-    let bound: Vec<Option<Value>> = params.into_iter().map(Some).collect();
-    statement.bind(&bound).map_err(LongError::Sqlite)?;
-    let columns = statement.columns().map_err(LongError::Sqlite)?;
-    let mut rows = Vec::new();
-    loop {
-        match statement.step().map_err(LongError::Sqlite)? {
-            None => break,
-            Some(cells) => {
-                let mut row = BTreeMap::new();
-                for (index, name) in columns.iter().enumerate() {
-                    let cell = cells.get(index).cloned().unwrap_or(Value::Null);
-                    row.insert(name.clone(), cell);
-                }
-                rows.push(row);
-            }
-        }
-    }
-    Ok(rows)
-}
-
-pub fn get_row(
-    conn: &Arc<Connection>,
-    sql: &str,
-    params: Vec<Value>,
-) -> Result<Option<Row>, LongError> {
-    let mut rows = all_rows(conn, sql, params)?;
-    if rows.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(rows.remove(0)))
     }
 }
 

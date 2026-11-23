@@ -213,12 +213,10 @@ fn turn_status(
 }
 
 fn agent_summary(
-    conn: &Arc<Connection>,
-    thread: &str,
-    row: &TurnRow,
     agent: &Row,
     child_digest: Option<serde_json::Value>,
     agent_digest: Option<serde_json::Value>,
+    child_status: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, LongError> {
     let id = as_id(row_value(agent, "id")?)?.to_owned();
     let child_thread = match row_opt(agent, "child_thread") {
@@ -251,23 +249,17 @@ fn agent_summary(
     let digest = child_digest
         .or(agent_digest)
         .ok_or_else(|| invalid("Missing turn digest"))?;
-    let status = if let Some(child) = child_thread.clone() {
-        if let Some(status) = thread_status_row(conn, &child)? {
-            status
-        } else {
-            let agent_status = parse_agent_status(status_text)?;
-            agent_thread_status(&agent_status)?
-        }
+    let status = if let Some(status) = child_status.clone() {
+        status
     } else {
         let agent_status = parse_agent_status(status_text)?;
         agent_thread_status(&agent_status)?
     };
-    let _ = (thread, row);
     let mut out = serde_json::Map::new();
     out.insert("agentId".to_owned(), serde_json::Value::String(id));
     if let Some(child) = child_thread {
         // Only a live child keeps its thread; a deleted one reads as its agent's share.
-        if thread_status_row(conn, &child)?.is_some() {
+        if child_status.is_some() {
             out.insert("threadId".to_owned(), serde_json::Value::String(child));
         }
     }
@@ -361,6 +353,43 @@ pub fn turns_page(
             group.push(row);
         }
     }
+    let mut child_ids: Vec<String> = Vec::new();
+    for group in &agents {
+        for agent in group.iter().take(32) {
+            if let Some(Value::Text(text)) = agent.get("child_thread")
+                && !text.is_empty()
+                && !child_ids.contains(text)
+            {
+                child_ids.push(text.clone());
+            }
+        }
+    }
+    let mut child_map: std::collections::BTreeMap<String, serde_json::Value> =
+        std::collections::BTreeMap::new();
+    if !child_ids.is_empty() {
+        let list =
+            serde_json::to_string(&child_ids).map_err(|error| invalid(&error.to_string()))?;
+        let rows = all_rows(
+            conn,
+            "SELECT id,status FROM threads WHERE id IN (SELECT value FROM json_each(?))",
+            vec![Value::Text(list)],
+        )?;
+        for row in rows {
+            let id = match row.get("id") {
+                Some(Value::Text(text)) => text.clone(),
+                _ => continue,
+            };
+            let text = match row.get("status") {
+                Some(Value::Text(text)) => text.clone(),
+                _ => continue,
+            };
+            if let Ok(status) = parse_thread_status(&text) {
+                child_map.insert(id, status);
+            } else {
+                return Err(invalid("invalid index row"));
+            }
+        }
+    }
     let turn_keys: Vec<(String, i64)> = parsed
         .iter()
         .map(|row| (thread_id.to_owned(), row.ordinal))
@@ -395,7 +424,7 @@ pub fn turns_page(
                     _ => None,
                 };
                 if let Some(child_id) = child {
-                    let live = thread_status_row(conn, &child_id)?.is_some();
+                    let live = child_map.contains_key(&child_id);
                     if live {
                         full_turn_keys.push((child_id, 0));
                         kinds.push(true);
@@ -452,15 +481,11 @@ pub fn turns_page(
                     Some(Value::Text(text)) if !text.is_empty() => Some(text.clone()),
                     _ => None,
                 };
-                let live_child = if let Some(child_id) = child.clone() {
-                    thread_status_row(conn, &child_id)?.is_some()
-                } else {
-                    false
-                };
+                let child_status = child
+                    .clone()
+                    .and_then(|child_id| child_map.get(&child_id).cloned());
+                let live_child = child_status.is_some();
                 let summary = agent_summary(
-                    conn,
-                    thread_id,
-                    row,
                     agent,
                     if live_child {
                         Some(digest.clone())
@@ -468,6 +493,7 @@ pub fn turns_page(
                         None
                     },
                     if live_child { None } else { Some(digest) },
+                    child_status,
                 )?;
                 // A deleted child reads as its agent's share, without a thread id.
                 let mut summary_object = summary
