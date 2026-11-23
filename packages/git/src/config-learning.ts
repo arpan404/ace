@@ -15,11 +15,11 @@ function text(output: QueryOutput): string | undefined {
   return output.stdout.toString("utf8");
 }
 
-/** One path value from Git: strip exactly one terminator (LF, or CRLF on Windows). */
-function single(output: QueryOutput): string | undefined {
+/** One path value from Git: strip one LF terminator (CRLF only on Windows). */
+function single(output: QueryOutput, isWindows: boolean): string | undefined {
   const full = text(output);
   if (full === undefined) return undefined;
-  if (full.endsWith("\r\n")) return full.slice(0, -2);
+  if (isWindows && full.endsWith("\r\n")) return full.slice(0, -2);
   if (full.endsWith("\n")) return full.slice(0, -1);
   return full;
 }
@@ -33,11 +33,13 @@ function single(output: QueryOutput): string | undefined {
 export async function standardConfigFiles(
   query: Query,
   env: Record<string, string | undefined>,
+  platform: NodeJS.Platform,
 ): Promise<string[] | undefined> {
+  const isWindows = platform === "win32";
   // System is a single path; ask git so build-specific locations and overrides are respected.
-  const system = single(await query(["var", "GIT_CONFIG_SYSTEM"]));
+  const system = single(await query(["var", "GIT_CONFIG_SYSTEM"]), isWindows);
   if (system === undefined) return undefined;
-  const gtext = single(await query(["var", "GIT_CONFIG_GLOBAL"]));
+  const gtext = single(await query(["var", "GIT_CONFIG_GLOBAL"]), isWindows);
   if (gtext === undefined) return undefined;
   const globals = interpretGlobal(gtext, env);
   if (globals === undefined) return undefined;
@@ -71,19 +73,21 @@ export async function learnConfigSources(
   query: Query,
   standard: () => Promise<string[] | undefined>,
   home: string | undefined,
+  platform: NodeJS.Platform,
 ): Promise<string[] | undefined> {
   // A path through a symbolic link can be pointed at another checkout without any file changing.
   if ((await realpath(cwd).catch(() => undefined)) !== cwd) return undefined;
   // One path per invocation (`rev-parse` offers no NUL mode for paths): each keeps embedded
   // newlines, stripped of only its final newline.
+  const isWindows = platform === "win32";
   const [gitDirOut, commonDirOut, toplevelOut] = await Promise.all([
     query(["rev-parse", "--absolute-git-dir"]),
     query(["rev-parse", "--git-common-dir"]),
     query(["rev-parse", "--show-toplevel"]),
   ]);
-  const gitDir = single(gitDirOut);
-  const commonDir = single(commonDirOut);
-  const toplevel = single(toplevelOut);
+  const gitDir = single(gitDirOut, isWindows);
+  const commonDir = single(commonDirOut, isWindows);
+  const toplevel = single(toplevelOut, isWindows);
   const layout =
     gitDir === undefined || commonDir === undefined || toplevel === undefined
       ? undefined

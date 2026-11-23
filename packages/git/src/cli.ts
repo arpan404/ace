@@ -586,7 +586,13 @@ export class GitCli {
         allowFailure: true,
         captureBytes: 4_194_304,
       });
-    return learnConfigSources(cwd, query, () => this.standardConfigFiles(env, query), env.HOME);
+    return learnConfigSources(
+      cwd,
+      query,
+      () => this.standardConfigFiles(env, query),
+      env.HOME,
+      this.runtime.platform,
+    );
   }
 
   /** Where this Git keeps its system and global files depends only on the environment. */
@@ -597,7 +603,7 @@ export class GitCli {
     const key = JSON.stringify([this.binary, env]);
     const known = this.standardFiles.get(key);
     if (known) return known;
-    const files = standardConfigFiles(query, env).catch(() => undefined);
+    const files = standardConfigFiles(query, env, this.runtime.platform).catch(() => undefined);
     this.standardFiles.set(key, files);
     // files never rejects; forgetting a missing answer is the only cleanup it needs.
     void files
@@ -664,6 +670,7 @@ export class GitCli {
       helpers: !lookup,
       // A checkout's own SSH command is the person's only where no agent or PR author writes.
       repositorySsh: !this.protectedPath(cwd),
+      platform: this.runtime.platform,
       signal: options.signal,
     });
     if (!lookup) return settings;

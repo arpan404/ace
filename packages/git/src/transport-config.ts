@@ -1,4 +1,3 @@
-import { isUtf8 } from "node:buffer";
 import { stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import {
@@ -17,12 +16,13 @@ interface ConfigOutput {
 type Query = (args: string[]) => Promise<ConfigOutput>;
 
 /** The checkout's working tree and Git common directory, as absolute paths. */
-async function checkoutRoots(query: Query): Promise<string[]> {
+async function checkoutRoots(query: Query, isWindows: boolean): Promise<string[]> {
   const roots: string[] = [];
   for (const flag of ["--show-toplevel", "--git-common-dir"]) {
     const output = await query(["rev-parse", "--path-format=absolute", flag]);
-    // One path per invocation, read as bytes: refuse invalid UTF-8, strip one terminator.
-    const path = singlePath(output);
+    // One path per invocation. Non-UTF-8 keeps proceeding as before (no new throw);
+    // valid UTF-8 strips one terminator, CRLF only on Windows.
+    const path = singlePath(output, isWindows);
     if (path && isAbsolute(path) && !output.truncated) roots.push(path);
     else if (flag === "--git-common-dir")
       throw new GitError("not_a_repo", "Could not locate the repository for a transfer");
@@ -30,11 +30,11 @@ async function checkoutRoots(query: Query): Promise<string[]> {
   return roots;
 }
 
-/** One `rev-parse` path value: refuse invalid UTF-8, strip exactly one LF (or CRLF) terminator. */
-function singlePath(output: ConfigOutput): string | undefined {
-  if (output.exitCode !== 0 || !isUtf8(output.stdout)) return undefined;
+/** One `rev-parse` path value: strip one LF terminator (CRLF only on Windows). */
+function singlePath(output: ConfigOutput, isWindows: boolean): string | undefined {
+  if (output.exitCode !== 0) return undefined;
   const text = output.stdout.toString("utf8");
-  if (text.endsWith("\r\n")) return text.slice(0, -2);
+  if (isWindows && text.endsWith("\r\n")) return text.slice(0, -2);
   if (text.endsWith("\n")) return text.slice(0, -1);
   return text;
 }
@@ -61,10 +61,11 @@ export async function userTransportConfig(options: {
   protectedRoots: readonly string[];
   helpers: boolean;
   repositorySsh: boolean;
+  platform: NodeJS.Platform;
   signal?: AbortSignal | undefined;
 }): Promise<{ helpers: GitCredentialHelper[]; sshCommand: string | undefined }> {
   const trusted = trustedOrigin([
-    ...(await checkoutRoots(options.query)),
+    ...(await checkoutRoots(options.query, options.platform === "win32")),
     ...options.protectedRoots,
   ]);
   const helpers: GitCredentialHelper[] = [];
