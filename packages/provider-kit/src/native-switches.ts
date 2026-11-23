@@ -27,6 +27,15 @@ import { dirname, join, resolve } from "node:path";
 export type NativeBackend = "native" | "typescript";
 export type CoreBackend = "native" | "wasm" | "typescript";
 
+/** A native transport part, as `ACE_TRANSPORT` names it (ADR 0226, T0.1). */
+export type TransportPart = "loopback" | "remote";
+
+/** A phase's needs: it can be on only while every phase it names is on. */
+export interface SwitchNeed {
+  phase: string;
+  needs: readonly string[];
+}
+
 /** The seven switches the cross-mode gate can name. */
 export type CrossSwitch =
   | "ACE_STORE"
@@ -398,4 +407,82 @@ export function crossLogPath(): string | undefined {
 }
 export function crossSwitchName(): CrossSwitch | undefined {
   return crossSwitch;
+}
+
+/**
+ * A phase named explicitly needs one that is not on: the boot is refused, before anything binds
+ * or opens, naming both (ADR 0226 §6).
+ */
+export class NativeSwitchConflict extends Error {
+  constructor(phase: string, need: string) {
+    super(`${phase} needs ${need}, which is not on`);
+    this.name = "NativeSwitchConflict";
+  }
+}
+
+/**
+ * Resolves dependent switches together, before anything binds or opens (ADR 0226 §6). The set
+ * starts as `explicit ∪ defaultOn`. A phase that is on only by default, whose need is off, leaves
+ * together with every phase that needs it, repeated until nothing changes, so the table's order
+ * never decides the outcome; each fall-back names the need it lost. A phase named explicitly is
+ * never dropped: if a need is still off, the boot is refused instead of silently starting.
+ */
+export function resolveSwitches(
+  explicit: ReadonlySet<string>,
+  defaultOn: ReadonlySet<string>,
+  needs: readonly SwitchNeed[],
+): { on: ReadonlySet<string>; fellBack: readonly { phase: string; because: string }[] } {
+  const on = new Set([...explicit, ...defaultOn]);
+  const fellBack: { phase: string; because: string }[] = [];
+  const defaultOnly = (phase: string) => defaultOn.has(phase) && !explicit.has(phase);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const row of needs) {
+      if (!on.has(row.phase) || !defaultOnly(row.phase)) continue;
+      const missing = row.needs.find((need) => !on.has(need));
+      if (missing === undefined) continue;
+      on.delete(row.phase);
+      fellBack.push({ phase: row.phase, because: missing });
+      changed = true;
+    }
+  }
+  for (const row of needs) {
+    if (!explicit.has(row.phase)) continue;
+    const missing = row.needs.find((need) => !on.has(need));
+    if (missing !== undefined) throw new NativeSwitchConflict(row.phase, missing);
+  }
+  return { on, fellBack };
+}
+
+/**
+ * `ACE_TRANSPORT` names the transport parts served natively: `native` is the loopback listener,
+ * `native,remote` adds the remote listeners. Unset is today's TypeScript; a set value that is
+ * neither refuses to start, quoting what it read (so an empty value shows as `""`).
+ */
+export function explicitTransportPhases(value: string | undefined): ReadonlySet<string> {
+  if (value === undefined) return new Set<string>();
+  if (value === "native") return new Set(["transport.loopback"]);
+  if (value === "native,remote") return new Set(["transport.loopback", "transport.remote"]);
+  throw new Error(`ACE_TRANSPORT=${JSON.stringify(value)} is not native or native,remote`);
+}
+
+/** Each phase's needs. The remote listeners route through the loopback listener's table. */
+const transportNeeds: readonly SwitchNeed[] = [
+  { phase: "transport.remote", needs: ["transport.loopback"] },
+];
+
+/** Nothing is default-on: every native part ships behind its switch. */
+const transportResolved = resolveSwitches(
+  explicitTransportPhases(process.env.ACE_TRANSPORT),
+  new Set<string>(),
+  transportNeeds,
+);
+
+/** The transport parts served natively, resolved once at load; nothing reads it yet. */
+export function transportParts(): ReadonlySet<TransportPart> {
+  const parts = new Set<TransportPart>();
+  if (transportResolved.on.has("transport.loopback")) parts.add("loopback");
+  if (transportResolved.on.has("transport.remote")) parts.add("remote");
+  return parts;
 }
