@@ -25,6 +25,18 @@ struct StepLine: Codable, Sendable, Equatable {
     var detail: StepDetail? = nil
     /// A call still in flight: when it started, in ms since 1970; nil once it settles.
     var startedAt: Double? = nil
+    /// A command that ran: named in words, with the whole command for its sheet; nil for any other step.
+    var command: Command? = nil
+    struct Command: Codable, Sendable, Equatable {
+        /// The provider's description, else the command's summary.
+        let label: String
+        let full: String
+        let exitCode: Int?
+        /// How long a finished command ran, in ms; nil while it runs.
+        let durationMs: Double?
+        /// It left a task running.
+        let background: Bool
+    }
 }
 /// An opened step: a command's output tail, compact diffs, a search's matches, a failure.
 struct StepDetail: Codable, Sendable, Equatable {
@@ -207,6 +219,8 @@ struct BlockRow: Codable, Sendable, Equatable {
         /// "Running in background", "Finished", "Stopped".
         let label: String
         let command: String
+        /// What it does in words (the provider's description, else the command's summary).
+        var description: String? = nil
         let running: Bool
         var status: String? = nil
         let stoppable: Bool
