@@ -19,6 +19,8 @@ import { spadeAskRequests } from "./spade-ask.ts";
 import { spadeRoutineRequests } from "./spade-routines.ts";
 import { spadeLibraryRequests } from "./spade-library.ts";
 import { spadePackageRequests } from "./spade-package.ts";
+import { spadeComputerRequests } from "./spade-computer.ts";
+import { spadeComputerLiveRequests } from "./spade-computer-live.ts";
 
 /*
  * What the iPhone asks of Spade with an outcome it waits on, one area per module
@@ -49,6 +51,8 @@ export const spadeRequestAreas = [
   spadeRoutineRequests,
   spadeLibraryRequests,
   spadePackageRequests,
+  spadeComputerRequests,
+  spadeComputerLiveRequests,
 ] as const;
 
 /** Every area's request schemas, in table order, as one tuple. */
