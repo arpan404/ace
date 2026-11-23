@@ -28,10 +28,10 @@ enum HomeTabs {
 
     /// The system tab bar uses the same glyph for both selection states.
     static func tabImage(_ tab: InboxTab) -> String {
-        tab == .spade ? "tab-spade" : "tab-\(icon(tab).rawValue)"
+        "tab-\(icon(tab).rawValue)"
     }
 
-    /// The web rail's glyph for each place.
+    /// The shared glyph for each place. The phone uses Sparkle for Spade.
     static func icon(_ tab: InboxTab) -> AceIcon.Name {
         switch tab {
         case .threads: .folderSimple

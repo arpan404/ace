@@ -4,15 +4,7 @@ import * as aceIcons from "@ace/icons";
 import type { Icon } from "@ace/icons";
 import { machineIconGlyphs, projectGlyphIcons } from "@ace/ui-core";
 import { aceGlyphSvgs } from "./generate-glyphs.ts";
-import {
-  spadeEggPath,
-  spadeEye,
-  spadeEyes,
-  spadePupilAt,
-  spadePupilForSize,
-  spadeTiltDeg,
-} from "@ace/ui-core/spade";
-import { assetSvg, filledAssetSvg, spadeTabSvg, type AssetWeight } from "./icon-svg.ts";
+import { assetSvg, filledAssetSvg, type AssetWeight } from "./icon-svg.ts";
 import {
   barIconSize,
   barIcons,
@@ -35,8 +27,8 @@ import {
  * written in regular (`icon-<name>`) and bold (`icon-<name>-bold`), and those in `filledIcons`
  * filled (`icon-<name>-fill`). A name is the `@ace/icons`
  * glyph of the same name, else the glyph `drawnAs` gives it. The tab bar's glyphs (`tabIcons`) are
- * also written at its size (`tab-<name>`), with filled variants for the iPad sidebar and Spade's
- * face still and in one colour as `tab-spade` (the app draws it moving elsewhere, `SpadeMark`), and the navigation bar's button glyphs (`barIcons`) at a bar symbol's size (`bar-<name>`). Add an icon by adding its name to
+ * also written at tab size (`tab-<name>`), with filled variants for the iPad sidebar. Navigation
+ * bar glyphs (`barIcons`) are written at bar size (`bar-<name>`). Add an icon by adding its name to
  * `extra`, or a row to `fromSymbols` when it replaces an SF Symbol. Every curated project glyph and machine mark (`@ace/ui-core`) is included, so
  * the bridge can name them. The outputs are committed.
  */
@@ -128,22 +120,6 @@ for (const name of tabIcons) {
   if (sidebarFilledIcons.has(name))
     await writeAsset(`tab-${name}-fill`, assetSvg(source.icon, "fill", source.turn, tabIconSize));
 }
-// Spade's face for the system tab bar: the bar draws one colour and can't move it.
-const { pupil, pad } = spadePupilForSize(tabIconSize - 2);
-await writeAsset(
-  "tab-spade",
-  spadeTabSvg(
-    {
-      eyes: spadeEyes,
-      eye: spadeEye,
-      pupil,
-      pupilAt: (eye) => spadePupilAt(eye, pupil, pad),
-      tilt: spadeTiltDeg,
-      egg: spadeEggPath,
-    },
-    tabIconSize,
-  ),
-);
 // The navigation bar's button glyphs at a bar symbol's size.
 for (const { name, weight } of barIcons) {
   const source = sources.find((entry) => entry.name === name);

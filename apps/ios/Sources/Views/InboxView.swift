@@ -151,8 +151,7 @@ struct InboxView: View {
         .placeTab(.chats, waiting: waiting(.chats))
     }
 
-    /// Spade, ace's assistant, after Chats while a machine shows it (Settings › Beta). The system's
-    /// bar draws its face still (`tab-spade`); the sidebar's foot draws it moving.
+    /// Spade, ace's assistant, appears after Chats while a machine shows it (Settings › Beta).
     @TabContentBuilder<InboxTab> private var spadeTab: some TabContent<InboxTab> {
         if showsSpade {
             Tab(HomeTabs.title(.spade), image: HomeTabs.tabImage(.spade), value: InboxTab.spade) { spade.environment(\.homePlace, .spade) }

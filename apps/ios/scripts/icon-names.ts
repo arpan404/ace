@@ -335,6 +335,7 @@ export const tabIcons = [
   "git-pull-request",
   "magnifying-glass",
   "note-pencil",
+  "sparkle",
 ];
 /** Selected glyphs used by the iPad sidebar. */
 export const sidebarFilledIcons = new Set(["folder-simple", "chats", "magnifying-glass"]);
