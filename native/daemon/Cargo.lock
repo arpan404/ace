@@ -75,7 +75,11 @@ version = "0.1.0"
 dependencies = [
  "ace-adapter-api",
  "ace-supervisor",
+ "indexmap 2.14.2",
  "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -118,6 +122,7 @@ dependencies = [
  "ace-adapter-claude",
  "ace-adapter-codex",
  "ace-adapter-cursor",
+ "ace-adapter-opencode",
  "ace-adapter-pi",
  "ace-core",
  "ace-store",
