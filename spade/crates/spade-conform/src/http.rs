@@ -36,11 +36,14 @@ impl Answer {
     }
 }
 
+type Authenticate = dyn Fn(&mut reqwest::Request) -> Result<(), String> + Send + Sync;
+
 /// The runtime's API: `base` is its root (`http://127.0.0.1:7777`), paths begin at `/v1`.
 pub struct Http {
     base: String,
     token: String,
     client: reqwest::Client,
+    authenticate: Option<Box<Authenticate>>,
 }
 
 impl Http {
@@ -49,7 +52,17 @@ impl Http {
             base: base.trim_end_matches('/').to_owned(),
             token: token.to_owned(),
             client: reqwest::Client::new(),
+            authenticate: None,
         }
+    }
+
+    /// Supply runtime-specific credentials for the person running the suite.
+    pub fn with_authentication(
+        mut self,
+        authenticate: impl Fn(&mut reqwest::Request) -> Result<(), String> + Send + Sync + 'static,
+    ) -> Self {
+        self.authenticate = Some(Box::new(authenticate));
+        self
     }
 
     pub async fn send(
@@ -65,8 +78,15 @@ impl Http {
         if let Some(body) = body {
             request = request.json(body);
         }
-        let response = request
-            .send()
+        let mut request = request
+            .build()
+            .map_err(|e| format!("{method} {path}: {e}"))?;
+        if let Some(authenticate) = &self.authenticate {
+            authenticate(&mut request).map_err(|e| format!("{method} {path}: {e}"))?;
+        }
+        let response = self
+            .client
+            .execute(request)
             .await
             .map_err(|e| format!("{method} {path} didn't reach the runtime: {e}"))?;
         let status = response.status().as_u16();

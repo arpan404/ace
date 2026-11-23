@@ -366,9 +366,19 @@ pub(crate) async fn start(
         .and_then(|r| r["id"].as_str())
         .ok_or_else(|| format!("its trigger {wanted:?} made no routine"))?
         .to_owned();
+    // The install leaves routines paused. Enable only the one this scenario will fire.
+    let path = format!("/v1/routines/{routine}");
     let (status, answer) = spade
-        .post(&format!("/v1/routines/{routine}/run"), json!({}))
+        .call(
+            reqwest::Method::PATCH,
+            &path,
+            Some(json!({ "paused": false })),
+        )
         .await?;
+    if status != 200 {
+        return Err(format!("its trigger couldn't be resumed: {}", error_of(&answer)).into());
+    }
+    let (status, answer) = spade.post(&format!("{path}/run"), json!({})).await?;
     if status != 202 {
         return Err(format!("its trigger didn't fire: {}", error_of(&answer)).into());
     }
