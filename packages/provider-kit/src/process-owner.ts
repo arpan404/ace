@@ -5,7 +5,7 @@ import { win32 } from "node:path";
 import { openLibrary, runsOnBun } from "./bun-ffi.ts";
 import { loadKoffi } from "./koffi.ts";
 import type { WindowsJob } from "./process-containment.ts";
-import { signalTreeMember } from "./process-tree.ts";
+import { signalTreeMember, type TreeMember } from "./process-tree.ts";
 
 /** Process-global ownership is separate from application-selected shutdown policy. */
 const owned = new Map<
@@ -27,13 +27,33 @@ export function observeProcessGroups(journal: ProcessJournal): () => void {
  * caller), or else the members that may be signalled, each to be signalled on its own.
  */
 export type GroupGuard = (group: number) => "whole" | readonly { pid: number; start: string }[];
+/** The same rules for members signalled one by one: the ones that may be signalled. */
+export type MemberGuard = (members: readonly TreeMember[]) => readonly TreeMember[];
 let groupGuard: GroupGuard | undefined;
-/** Install the guard every group signal passes through; returns its removal. */
-export function guardGroupSignals(guard: GroupGuard): () => void {
+let memberGuard: MemberGuard | undefined;
+/** Install the guards every group and member signal passes through; returns their removal. */
+export function guardGroupSignals(guard: GroupGuard, members?: MemberGuard): () => void {
   groupGuard = guard;
+  memberGuard = members;
   return () => {
-    if (groupGuard === guard) groupGuard = undefined;
+    if (groupGuard !== guard) return;
+    groupGuard = undefined;
+    memberGuard = undefined;
   };
+}
+
+/** Signal owned members one by one, each checked against its start just before it goes. */
+export function signalOwnedMembers(members: readonly TreeMember[], signal: NodeJS.Signals): void {
+  let allowed: readonly TreeMember[] = members;
+  if (memberGuard)
+    try {
+      allowed = memberGuard(members);
+    } catch (error) {
+      // Who is protected is unknown, so no one is signalled; later sweeps report survivors.
+      process.emitWarning(`Process members could not be checked: ${String(error)}`);
+      allowed = [];
+    }
+  for (const member of allowed) signalTreeMember(member, signal);
 }
 
 export function killGroup(pid: number, signal: NodeJS.Signals): void {
@@ -76,17 +96,17 @@ export function killGroup(pid: number, signal: NodeJS.Signals): void {
  * signalled through its own handle, which never reaches a reused pid once it has exited.
  */
 export function signalTree(
-  pid: number,
+  group: { readonly leader: number; signal(signal: NodeJS.Signals): void },
   force: boolean,
   windows: boolean,
   killTree: WindowsKillTree,
   leader: { kill(signal: NodeJS.Signals): boolean },
 ): void {
   try {
-    if (windows) killTree(pid, force);
-    else killGroup(pid, force ? "SIGKILL" : "SIGTERM");
+    if (windows) killTree(group.leader, force);
+    else group.signal(force ? "SIGKILL" : "SIGTERM");
   } catch (error) {
-    process.emitWarning(`Could not signal process tree ${pid}: ${String(error)}`);
+    process.emitWarning(`Could not signal process tree ${group.leader}: ${String(error)}`);
     try {
       leader.kill(force ? "SIGKILL" : "SIGTERM");
     } catch {

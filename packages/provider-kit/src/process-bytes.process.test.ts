@@ -5,6 +5,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { expect, test } from "vitest";
 import { z } from "zod";
 import { spawnBytes } from "./process-bytes.ts";
+import { guardGroupSignals } from "./process-owner.ts";
 
 function isRunning(pid: number): boolean {
   try {
@@ -73,6 +74,47 @@ test.runIf(process.platform === "win32").each(["a stop", "a normal exit"] as con
         process.kill(pid, "SIGKILL");
         while (isRunning(pid)) await delay(25);
       }
+      await rm(root, { recursive: true, force: true, maxRetries: 20 });
+    }
+  },
+);
+
+// A detached helper (its own session and group) keeps stdout open past the leader's exit, so
+// the stream is still draining once the leader's group has emptied and its number is free.
+const heldOpen = `require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 500)'], { detached: true, stdio: ['ignore', 'inherit', 'ignore'] }).unref();`;
+
+test.runIf(process.platform !== "win32")(
+  "once its leader is reaped and its group is empty, a byte process never signals that group number",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-bytes-reaped-"));
+    // Every group signal passes the guard first; this one only records and lets nothing through,
+    // so the test never signals a group that may already belong to someone else.
+    const asked: number[] = [];
+    const unguard = guardGroupSignals((group) => {
+      asked.push(group);
+      return [];
+    });
+    try {
+      const draining = Promise.withResolvers<() => void>();
+      const child = spawnBytes({
+        command: process.execPath,
+        args: ["-e", heldOpen],
+        cwd: root,
+        env: { ...process.env },
+        scheduleDrain(callback) {
+          draining.resolve(callback);
+          return () => {};
+        },
+      });
+      child.stdout.resume();
+      child.stderr.resume();
+      // The drain is scheduled from the exit listener: the leader has been reaped by now.
+      const drain = await draining.promise;
+      drain();
+      await child.exited;
+      expect(asked).toEqual([]);
+    } finally {
+      unguard();
       await rm(root, { recursive: true, force: true, maxRetries: 20 });
     }
   },
