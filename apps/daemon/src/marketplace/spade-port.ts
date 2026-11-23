@@ -7,8 +7,7 @@ import type { MadeBot, PackageInput, SpadePort } from "./install.ts";
 /*
  * What the marketplace asks of Spade through the daemon's link (ADR 0168 §8, §13): a new bot made
  * from a recipe (`POST /v1/agents` with `recipe`), and a plugin allowed for the bots the person
- * picked (ADR 0151 point 8, `PUT /v1/agents/{id}/plugins`), and the market's signed terms
- * notices (ADR 0205 §4, `PUT /v1/subscriptions/notices`).
+ * picked (ADR 0151 point 8, `PUT /v1/agents/{id}/plugins`).
  */
 
 const Made = z.object({
@@ -234,9 +233,6 @@ export function spadePort(
         await spadeCall(live(), "GET", "/v1/models/package-routes"),
       );
       return { fast: routes.fast.tools, capable: routes.capable.tools };
-    },
-    async termsNotices(signed) {
-      await spadeCall(live(), "PUT", "/v1/subscriptions/notices", { signed });
     },
     async deleteBot(id) {
       // Workers it made in the moments it existed stop with it.

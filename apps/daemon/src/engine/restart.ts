@@ -254,10 +254,9 @@ export function recoverEngine(
           fail(intent, "Retired for thread deletion");
           return;
         }
-        // A Spade bot's session (ADR 0133): Spade's turn ended with the restart and Spade sends
-        // the next one itself; nothing here carries on or replays.
+        // A Spade bot's old session (ADR 0219): inert, so nothing here carries on or replays.
         if (repo.store.getThread(intent.threadId)?.host === "spade-bot") {
-          fail(intent, "Spade sends this bot's turns again itself.");
+          fail(intent, "Spade bots no longer run in ace's threads.");
           return;
         }
         if (repo.store.getThread(intent.threadId)?.continuation) {
