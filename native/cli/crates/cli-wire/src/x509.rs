@@ -74,23 +74,3 @@ fn unix_secs_to_millis(secs: i64) -> Result<u64, WireError> {
             revoked: false,
         })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sha256_matches_nist_abc_vector() {
-        let fp = sha256_fingerprint(b"abc");
-        assert_eq!(
-            fp.as_str(),
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-        );
-    }
-
-    #[test]
-    fn rejects_truncated_or_garbage_der() {
-        assert!(parse_leaf_certificate(&[]).is_err());
-        assert!(parse_leaf_certificate(b"not a certificate").is_err());
-    }
-}

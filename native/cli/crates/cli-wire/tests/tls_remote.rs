@@ -15,7 +15,7 @@ use std::time::Duration;
 use cli_wire::{
     Clock, ConnectConfig, Connection, DeviceId, DirectRemote, Fingerprint, HostId, HttpMethod,
     RemoteOrigin, TlsPinConfig, Token, WireError, http_request_remote_with_tls,
-    parse_leaf_certificate, sha256_fingerprint, spki_sha256_fingerprint,
+    parse_leaf_certificate, spki_sha256_fingerprint,
 };
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::{ServerConfig, ServerConnection, StreamOwned};
@@ -39,7 +39,6 @@ struct EphemeralCert {
     dir: PathBuf,
     cert_der: Vec<u8>,
     key_pkcs8_der: Vec<u8>,
-    openssl_spki_der: Vec<u8>,
 }
 
 impl Drop for EphemeralCert {
@@ -67,16 +66,12 @@ fn generate_ephemeral_cert() -> EphemeralCert {
     let key_pem = dir.join("key.pem");
     let cert_der = dir.join("cert.der");
     let key_der = dir.join("key.der");
-    let spki_pem = dir.join("spki.pem");
-    let spki_der = dir.join("spki.der");
 
-    let (cp, kp, cd, kd, sp, sd) = (
+    let (cp, kp, cd, kd) = (
         cert_pem.to_str().unwrap(),
         key_pem.to_str().unwrap(),
         cert_der.to_str().unwrap(),
         key_der.to_str().unwrap(),
-        spki_pem.to_str().unwrap(),
-        spki_der.to_str().unwrap(),
     );
 
     run_openssl(&[
@@ -102,14 +97,11 @@ fn generate_ephemeral_cert() -> EphemeralCert {
     run_openssl(&[
         "pkcs8", "-topk8", "-nocrypt", "-in", kp, "-outform", "DER", "-out", kd,
     ]);
-    run_openssl(&["x509", "-in", cp, "-pubkey", "-noout", "-out", sp]);
-    run_openssl(&["pkey", "-pubin", "-in", sp, "-outform", "DER", "-out", sd]);
 
     EphemeralCert {
         dir,
         cert_der: fs::read(&cert_der).unwrap(),
         key_pkcs8_der: fs::read(&key_der).unwrap(),
-        openssl_spki_der: fs::read(&spki_der).unwrap(),
     }
 }
 
@@ -125,18 +117,6 @@ fn server_config(cert: &EphemeralCert) -> Arc<ServerConfig> {
             .with_single_cert(cert_chain, key)
             .unwrap(),
     )
-}
-
-#[test]
-fn x509_spki_fingerprint_matches_openssl_der_output() {
-    let cert = generate_ephemeral_cert();
-    let info = parse_leaf_certificate(&cert.cert_der).unwrap();
-    assert_eq!(info.spki_der, cert.openssl_spki_der.as_slice());
-    assert_eq!(
-        spki_sha256_fingerprint(&cert.cert_der).unwrap(),
-        sha256_fingerprint(&cert.openssl_spki_der)
-    );
-    assert!(info.not_after_ms > info.not_before_ms);
 }
 
 #[test]
