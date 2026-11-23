@@ -2,8 +2,9 @@
 
 Status: accepted. Date: 2026-11-22. Decided by: the owner (2026-11-22: "our agents keep forgetting
 the things I told it previously", "the harness feels like making the agent weak in long horizon
-task and different steering"; of six proposals they chose these two, the asks ledger and the stop
-check). Extends [docs/harness.md](../../spade/docs/harness.md); amends nothing.
+task and different steering"; of six proposals they first chose two, the asks ledger and the stop
+check, then all five, so a steer treated as a steer (§4) joined them here; the context budget and
+parallel tasks have decisions of their own). Extends [docs/harness.md](../../spade/docs/harness.md); amends nothing.
 
 ## Context
 
@@ -116,6 +117,44 @@ does so once, when a reply would end with an unnamed open ask, never per step.
 that no check named before. A bot that sorts and closes asks as it works pays nothing beyond the
 `asks` calls riding along with its other calls; a pure-chat reply ("thanks") may take that one
 extra step.
+
+### 4. A steer is treated as a steer
+
+A message the person types while a reply is running is new direction, not one more line of the
+conversation. A typed answer to a question card the bot is waiting on is not a steer; it answers
+the card.
+
+- **It reads as one.** The model reads it wrapped, `<steer>\n[m6] Only mornings\n</steer>`, in
+  the place it already had: after the step it arrived during and after any running tools'
+  results. Two steers in a row are two such messages, and both are in the `<asks>` block, marked
+  "sent while you worked". The wrapper is decided from the stored events alone (whether a reply
+  was open and no card was waiting when it was stored), so a rebuilt prompt gives the same bytes.
+  Conversations from before this change read their earlier steers wrapped too: one cache miss
+  each, once.
+- **The bot answers it first.** Spade's instructions say: answer a steer in a line or two before
+  anything else, saying what changes (also this, stop that, this instead), and record it with
+  `asks` in that same step; a steer that cancels or replaces earlier work marks those asks
+  `dropped` or `changed`.
+- **One reminder, never a loop.** The ledger keeps each steer until the first step that read it
+  is answered. If that step made tool calls and either said nothing to the person or left the
+  steer unsorted, Spade stores `asks_reminded {reply, steers, note}` before the next call, and the
+  model reads its note as Spade's: this message is still unanswered; answer it in a line and sort
+  it. Once per steer: the reminder, or the next step, ends the ledger's watch on it. A first
+  step that made no calls ends the reply, where the stop check (§3) already names an unsorted
+  steer. Subscription brains run their own loop, so they get the wrapper but no reminder.
+
+### The ledger's surface
+
+Other harness work builds on the ledger (parallel tasks will group asks into tasks), so its
+public surface is small and is all in `spade_core::asks`:
+
+- `Ledger::of(events)` and `Ledger::advance(events)`: the fold, from the latest compaction's copy
+  or from where the ledger last stopped.
+- `Ledger::asks`, `Ledger::standing`, `Ledger::earlier`, `Ledger::through`, `open_asks()` and
+  `ask(id)`: what it holds. Everything else on it is the fold's own bookkeeping.
+- `change::decide` (the `asks` tool), `block::text` and `block::appended` (the prompt's block),
+  `check::due` and `check::settled` (the stop check), `steer::due` and `steer::mid_turn` (steers).
+- The events `asks_updated`, `asks_checked` and `asks_reminded`, and `context_compacted.asks`.
 
 ## Consequences
 
