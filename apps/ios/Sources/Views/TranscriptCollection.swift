@@ -50,6 +50,9 @@ struct TranscriptCollection: UIViewRepresentable {
     let style: AnyHashable
     /// The keyboard is up: a tap on the conversation only puts it away.
     let keyboardUp: Bool
+    /// The feed follows the live end: a window change may keep the end's entries (the tail, the
+    /// composer's room) still. Away from it, the reader's own row is what stays put.
+    var followsEnd = true
     let accessibilityValue: String
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -86,6 +89,7 @@ struct TranscriptCollection: UIViewRepresentable {
         coordinator.events = events
         coordinator.environment = context.environment
         coordinator.setKeyboardUp(keyboardUp)
+        coordinator.followsEnd = followsEnd
         view.accessibilityValue = accessibilityValue
         coordinator.update(entries, estimate: estimate, style: style)
     }
@@ -97,6 +101,7 @@ struct TranscriptCollection: UIViewRepresentable {
     @MainActor final class Coordinator: NSObject, UICollectionViewDelegate, UIGestureRecognizerDelegate {
         var events = TranscriptCollectionEvents()
         var environment = EnvironmentValues()
+        var followsEnd = true
         private weak var view: TranscriptCollectionView?
         private var layout: TranscriptCollectionLayout?
         private var source: UICollectionViewDiffableDataSource<Int, String>?
@@ -201,11 +206,15 @@ struct TranscriptCollection: UIViewRepresentable {
         }
 
         /// The entry at the viewport's physical top still laid out after the change: the reader's.
+        /// Away from the end, the first row on screen: a reader just short of the end, with the
+        /// composer's room still in view, keeps their rows still as a new row lands under them.
         private func anchorEntry(keeping ids: Set<String>) -> String? {
             guard let view, let layout else { return nil }
             let geometry = layout.geometry
             let range = geometry.indices(from: view.contentOffset.y, to: view.contentOffset.y + view.bounds.height)
-            return range.lazy.map { geometry.ids[$0] }.first { ids.contains($0) }
+            let kept = range.lazy.map { geometry.ids[$0] }.filter { ids.contains($0) }
+            if !followsEnd, let row = kept.first(where: { self.entries[$0]?.isRow == true }) { return row }
+            return kept.first
         }
 
         private func visible(_ id: String) -> Bool {

@@ -56,6 +56,8 @@ struct ThreadView: View {
     @State private var behind = false
     /// Each Scroll to end the person taps.
     @State private var jumps = 0
+    /// Rows that landed while the person read away from the end (`TranscriptNewRows`).
+    @State private var unseen = 0
     /// The question card's picks and page, kept here so a reply typed below keeps them.
     @State private var questionDraft = QuestionDraftState()
     @State private var height: CGFloat = 0
@@ -124,7 +126,7 @@ struct ThreadView: View {
                                                 openMedia: openMedia, openChanges: { open(.changes) }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
                                                 openAgents: { open(.agents) }, threadStatus: { model.inbox[$0]?.status },
                                                 threadTitle: { model.inbox[$0]?.title }),
-                         barHeight: barHeight, keyboard: keyboardRide, behind: $behind, jumps: jumps)
+                         barHeight: barHeight, keyboard: keyboardRide, behind: $behind, jumps: jumps, unseen: $unseen)
             .markdownShelf(threadId: thread.id, heights: model.transcriptMarkdownHeights)
     }
 
@@ -395,7 +397,7 @@ struct ThreadView: View {
         // No band behind the foot: the transcript scrolls on under the glass pills, strip and
         // capsule and shows through them, as it does under the system's own glass.
         .overlay(alignment: .top) {
-            ComposerFloaters(behind: behind && shownPage == .chat && suggester.trigger == nil) { jumps += 1 }
+            ComposerFloaters(behind: behind && shownPage == .chat && suggester.trigger == nil, unseen: unseen) { jumps += 1 }
                 .alignmentGuide(.top) { $0[.bottom] + AceDesign.Space.related }
         }
         // Changes to the pill row and its reserved space land together when a send starts work.

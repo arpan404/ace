@@ -23,6 +23,9 @@ struct ConversationFeed: View {
     @Binding var behind: Bool
     /// Bumped by each Scroll to end the person taps.
     var jumps = 0
+    /// Rows that landed since the reader left the live end, for the count on Scroll to end.
+    @Binding var unseen: Int
+    @State var newRows = TranscriptNewRows()
     /// Words taken back from a message that wasn't sent go into the composer.
     @State var reading = TranscriptReading()
     @State var initialScroll = false
@@ -101,7 +104,7 @@ struct ConversationFeed: View {
             entries: entries(proxy), surface: surface, events: scrollEvents(proxy),
             estimate: { [anchor = anchor] id in anchor.keeper.frames.frame(id).map { CGFloat($0.height) } },
             style: AnyHashable([String(describing: typeSize), densityId]),
-            keyboardUp: keyboardLift > 0,
+            keyboardUp: keyboardLift > 0, followsEnd: pinned,
             accessibilityValue: ready ? (historyStale ? "Cached history" : reading.paged && !pinned ? "Reading history" : "Ready") : "Loading")
             // Hidden while a thread opens, then shown where it settled (`revealWhenSettled`).
             .opacity(ready && !revealed ? 0 : 1)
@@ -306,7 +309,12 @@ struct ConversationFeed: View {
             .onDisappear { disappeared() }
             // Away from the end, or reading a window apart from it: following a joined window is at
             // the end, so Scroll to end isn't offered there.
-            .onChange(of: !pinned, initial: true) { _, _ in updateBehind() }
+            .onChange(of: !pinned, initial: true) { _, away in
+                updateBehind()
+                if !away { countNewRows() }
+            }
+            // New rows while the reader is away from the end are counted, never scrolled to.
+            .onChange(of: thread.screen.blockOrder) { _, _ in countNewRows() }
             // A history window that catches up with the live end while the reader sits at its end
             // follows it again, so Scroll to end goes.
             .onChange(of: reading.joined) { _, joined in windowJoined(joined) }
