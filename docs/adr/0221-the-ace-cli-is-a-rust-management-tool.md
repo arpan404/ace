@@ -56,11 +56,9 @@ code; the parity check refuses a command marked ported that the table doesn't li
 
 ### 4. The same outputs, proven
 
-A ported command prints what the TypeScript one printed: the same `--json` value (checked against
-`cli-outputs`' JSON Schema), the same human text, stderr and exit code. A parity harness runs both
-implementations with the same arguments against the same daemon on a temporary home (never a
-clone of a live home) and compares them. Differences are bugs in the port unless this ADR's
-amendments list them.
+A ported command prints what the TypeScript one printed: the same `--json` value, the same human
+text, stderr and exit code. The proof is the existing CLI tests run against the Rust binary
+(see Tests). Differences are bugs in the port unless this ADR's amendments list them.
 
 ### 5. Fast by construction
 
@@ -134,9 +132,14 @@ The TypeScript CLI is deleted command group by command group as each Rust group 
 
 ## Tests
 
-- Parser: the alias, deprecation, missing-argument, suggestion and global-flag cases of
-  `cli/parse.test.ts` and `cli/args.test.ts`, as table tests in Rust.
-- Parity: every ported command, `--json` and human, daemon up and down, against the TypeScript CLI.
-- Hand-over: an unported command reaches the bundle with its arguments, stdio, exit code and
-  signals intact.
-- Budgets: the bench fails when a budget in §5 is missed on a release build.
+Tests move; they don't multiply (the owner, 2026-11-23: ace has too many tests).
+
+- The existing TypeScript CLI tests are the proof. Their helpers take a switch that runs the Rust
+  binary instead of the TypeScript entry, and every test that drives the CLI through argv,
+  stdout, stderr and exit code must pass on Rust before a group ships. Tests of private
+  TypeScript helpers are not run against Rust; the behaviour they guard is checked through a test
+  that drives the CLI.
+- When a TypeScript group is deleted, its behaviour tests move to Rust then, as unit tests of the
+  pure core. No second suite exists alongside the first.
+- New Rust tests only for behaviour no existing test covers, input to output, never structure.
+- The bench is a tool, not a test, and runs in no test tier.
