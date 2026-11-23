@@ -9,7 +9,10 @@ import { decodeStreamMessage, StreamAssembler } from "@ace/browser/stream";
 import type { IngestProducer } from "@ace/media/ingest-sources";
 import { MediaTestClient } from "@ace/media/testing/media-test-client";
 import { Resources } from "./resources.ts";
-import { startMedia, startMediaService, type DaemonMedia } from "./media.ts";
+import { startMedia, type DaemonMedia } from "./media.ts";
+import { startMediaService } from "./media-service.ts";
+import { daemonImages } from "./media-images.ts";
+import type { ImageWork } from "@ace/media/images";
 import { ServiceStartup, type ServiceDefinition } from "./startup.ts";
 import { Store } from "../store.ts";
 import { readConfig } from "../config.ts";
@@ -382,7 +385,7 @@ it("an ace-media older than ace is refused before init, and live views and recor
 });
 
 it.skipIf(process.platform === "win32")(
-  "the screen, devices and browser services, started as the daemon starts them, share one ace-media",
+  "the screen, devices and browser services, started as the daemon starts them, share one ace-media and one image worker",
   async () => {
     const dir = await mkdtemp(join(tmpdir(), "ace-media-shared-"));
     // Each run of this "ace-media" leaves a line: the daemon reads its version once per runtime.
@@ -419,12 +422,16 @@ it.skipIf(process.platform === "win32")(
       onListen: [],
     });
     const seen = new Map<string, DaemonMedia | undefined>();
+    const images = new Map<string, ImageWork>();
     const user = (name: string): ServiceDefinition => ({
       name,
       phase: "core",
       requires: [],
       after: ["media"],
-      start: (context) => void seen.set(name, startMedia(context)),
+      start: (context) => {
+        seen.set(name, startMedia(context));
+        images.set(name, daemonImages(context));
+      },
     });
     await startup.start([
       { name: "media", phase: "core", requires: [], after: [], start: startMediaService },
@@ -435,6 +442,9 @@ it.skipIf(process.platform === "win32")(
     const [first, ...rest] = [...seen.values()];
     expect(first).toBeDefined();
     for (const media of rest) expect(media).toBe(first);
+    // One image worker too, so its memory and queue limits hold daemon-wide.
+    const [firstImages, ...restImages] = [...images.values()];
+    for (const work of restImages) expect(work).toBe(firstImages);
     // Every runtime the services made has read its version by now.
     await new Promise((resolve) => setTimeout(resolve, 1_000));
     const versions = (await readFile(runs, "utf8"))

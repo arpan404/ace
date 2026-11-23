@@ -6,7 +6,8 @@ export type ServiceName = (typeof serviceOrder)[number]["name"];
 /** Dependencies are explicit; optional integration failures do not disable the engine. */
 export const serviceOrder = [
   { name: "settings", phase: "core", requires: [], after: [] },
-  // The one ace-media the screen, devices and browser share: it starts before them.
+  // The one ace-media (and image worker) the screen, devices, browser, icons and projects share:
+  // it starts before them. Listener-phase users start after every core service.
   { name: "media", phase: "core", requires: [], after: [] },
   // Screens start once settings have loaded.
   { name: "screen", phase: "core", requires: [], after: ["settings", "media"] },
@@ -42,7 +43,7 @@ export const serviceOrder = [
     requires: [],
     after: ["settings", "activityReads"],
   },
-  { name: "icons", phase: "core", requires: [], after: [] },
+  { name: "icons", phase: "core", requires: [], after: ["media"] },
   { name: "userBrowser", phase: "core", requires: [], after: [] },
   {
     name: "browser",
@@ -67,7 +68,7 @@ export const serviceOrder = [
     name: "projects",
     phase: "core",
     requires: ["settings"],
-    after: ["workspaceActions"],
+    after: ["workspaceActions", "media"],
   },
   {
     name: "models",

@@ -26,7 +26,7 @@ import { startPlugins } from "./plugins.ts";
 import { startSuits } from "./suits.ts";
 import { startMarketplace } from "./marketplace.ts";
 import { startBrowser } from "./browser.ts";
-import { startMediaService } from "./media.ts";
+import { startMediaService } from "./media-service.ts";
 import { startBrowsing } from "./browsing.ts";
 import { startUserBrowser } from "./user-browser.ts";
 import { startContext } from "./context.ts";

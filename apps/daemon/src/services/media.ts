@@ -154,7 +154,11 @@ export const noMediaRecorder: MediaRecorder = refusingRecorder(
   "it isn't installed for this computer",
 );
 
-/** Runtimes made for contexts the `media` service never ran in (a test's own context). */
+/**
+ * Runtimes made where the `media` service never ran (safe mode skipped it, or a test's own
+ * context), by the daemon's config: every service shares that object, so even then there is
+ * one per daemon, never one per service.
+ */
 const started = new WeakMap<object, DaemonMedia | undefined>();
 
 /** What starting ace-media needs of the daemon: no setting among it. */
@@ -162,25 +166,20 @@ export type MediaContext = Pick<ServiceContext, "services" | "id" | "resources" 
   config: Pick<ServiceContext["config"], "dataDir">;
 };
 
-/**
- * The daemon's `media` service: its one ace-media, which the screen, the devices and the
- * browser all stream into and every client watches. Each service starts with its own view of
- * `services`, so ace-media is made here, once, and published for them; made by each of them,
- * a tab would stream into one process while its viewers watched another.
- */
-export function startMediaService(context: MediaContext): void {
+/** Makes the daemon's ace-media and publishes it (`services.media`): the `media` service's part. */
+export function publishMedia(context: MediaContext): DaemonMedia | undefined {
   const media = createMedia(context);
   publish(context, media);
+  return media;
 }
 
 /** The daemon's ace-media, as the `media` service published it; undefined where there is none. */
 export function startMedia(context: MediaContext): DaemonMedia | undefined {
   const shared = context.services.media;
   if (shared !== undefined) return shared ?? undefined;
-  // A context the `media` service didn't run in: it gets its own, once.
-  if (started.has(context.services)) return started.get(context.services);
+  if (started.has(context.config)) return started.get(context.config);
   const media = createMedia(context);
-  started.set(context.services, media);
+  started.set(context.config, media);
   publish(context, media);
   return media;
 }

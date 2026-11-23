@@ -34,6 +34,8 @@ export interface Services {
   ) => Promise<import("@ace/protocol").CommandResult>;
   externalMcp?: import("../external-mcp/server.ts").ExternalMcp;
   storage?: import("../storage/service.ts").StorageService;
+  /** The daemon's one image worker (`ace-media --images`), from the `media` service. */
+  images?: import("@ace/media/images").ImageWork;
   /** The daemon's one ace-media (the `media` service); null when this computer has none. */
   media?: import("./media.ts").DaemonMedia | null;
   /** Delivery by ace-media (D1), while ace-media runs. */
