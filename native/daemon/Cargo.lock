@@ -92,6 +92,7 @@ dependencies = [
 name = "ace-daemon-node"
 version = "0.1.0"
 dependencies = [
+ "ace-adapter-opencode",
  "ace-store",
  "napi",
  "napi-build",

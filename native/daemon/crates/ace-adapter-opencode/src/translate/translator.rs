@@ -20,13 +20,21 @@ pub(crate) struct Diagnostic {
 }
 
 pub(crate) enum OwnedDatum {
-    /// Sanitized evidence, or the frame's data as decoded.
+    /// The frame's redacted encoding, kept as produced without re-encoding.
+    Verbatim(String),
+    /// Sanitized evidence, owned after redaction.
     Owned(Value),
 }
 
 impl Serialize for OwnedDatum {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
+            OwnedDatum::Verbatim(text) => {
+                match serde_json::from_str::<Box<serde_json::value::RawValue>>(text) {
+                    Ok(raw) => raw.serialize(serializer),
+                    Err(_) => serializer.serialize_none(),
+                }
+            }
             OwnedDatum::Owned(value) => value.serialize(serializer),
         }
     }
@@ -58,16 +66,19 @@ impl Translator {
     /// Translate one frame, appending the facts array to the shared buffer.
     /// Never fails on provider data: a failed decode becomes the
     /// disconnected fact, as the TypeScript `catch` does.
-    pub fn translate_json(&mut self, frame_json: &str, now: f64, out: &mut String) {
+    pub fn translate_json(
+        &mut self,
+        frame_json: &str,
+        data_json: &str,
+        now: f64,
+        out: &mut String,
+    ) {
         out.push('[');
         let root_value: Value = serde_json::from_str(frame_json).unwrap_or(Value::Null);
         let root = fields(&root_value);
         let channel = s_in(root, "channel").to_owned();
         let dir = s_in(root, "dir").to_owned();
-        let data_value = match root.get("data") {
-            Some(data) => data.clone(),
-            None => Value::Null,
-        };
+        let data_value: Value = serde_json::from_str(data_json).unwrap_or(Value::Null);
         let data = fields(&data_value);
         self.diagnostics = vec![Diagnostic {
             typ: if s_in(data, "type").is_empty() {
@@ -75,7 +86,7 @@ impl Translator {
             } else {
                 s_in(data, "type").to_owned()
             },
-            data: OwnedDatum::Owned(data_value.clone()),
+            data: OwnedDatum::Verbatim(data_json.to_owned()),
         }];
         let failed = {
             let mut emitter = Out::new(out);

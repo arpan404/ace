@@ -230,6 +230,7 @@ impl NativeState {
     ) -> Result<(), StateError> {
         if s_in(metadata, "source") == "subagent" {
             let child = s_in(metadata, "childID").to_owned();
+
             let previous = self.child_completed_at.get(&child).copied().unwrap_or(-1.0);
             if created <= previous {
                 return Ok(());

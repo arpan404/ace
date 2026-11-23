@@ -16,6 +16,8 @@ workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
+# ace-adapter-opencode: the opencode translator behind ACE_TRANSLATORS (E1).
+ace-adapter-opencode = { path = "../ace-adapter-opencode" }
 ace-store = { path = "../ace-store" }
 napi = { version = "3", default-features = false, features = ["napi8"] }
 napi-derive = "3"

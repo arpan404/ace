@@ -152,11 +152,7 @@ pub fn tool(
     let time = fields(get(p, "time"));
     let evidence_fields = fields(evidence);
     let created = previous_created.unwrap_or_else(|| {
-        let evidence_created = n_in_fb(
-            fields(get(evidence_fields, "time")),
-            "created",
-            9_007_199_254_740_991.0,
-        );
+        let evidence_created = n_in_fb(evidence_fields, "created", 9_007_199_254_740_991.0);
         n_in_fb(time, "created", evidence_created)
     });
     // A later frame without the metadata keeps the patches already seen.
