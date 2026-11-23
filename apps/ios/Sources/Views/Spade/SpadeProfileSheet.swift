@@ -33,8 +33,13 @@ struct SpadeProfileSheet: View {
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets())
                     switch part {
-                    case .details: SpadeProfileDetails(profile: profile, retry: retry, edit: editor)
-                    case .permissions: SpadeProfilePermissions(client: client, agent: agent, name: profile.name)
+                    case .details:
+                        SpadeProfileDetails(client: client, agent: agent, profile: profile, retry: retry, edit: editor)
+                    case .permissions:
+                        SpadeProfilePermissions(client: client, agent: agent, name: profile.name)
+                        SpadeProfileNetwork(client: client, agent: agent)
+                        SpadeProfileCheckpoints(client: client, agent: agent, name: profile.name)
+                        SpadeProfileSpending(client: client, agent: agent)
                     case .work:
                         SpadeProfileWork(client: client, agent: agent) { words in
                             quote(words)
@@ -127,16 +132,31 @@ struct SpadeProfileSheet: View {
     }
 }
 
-/// Details: what the bot is for (its task, which opens to edit), the model and machine it runs
-/// with, and its routines with when each runs.
+/// Details, in web's order: what the bot is for (its task, which opens to edit), the model and
+/// machine it runs with and the models for its other work, its personality, its routines with
+/// when each runs, and its notifications. Personality and notifications read together as the
+/// tab shows; what can reach and spend sits on Permissions, as on web.
 struct SpadeProfileDetails<Editor: View>: View {
+    let client: ClientModel
+    let agent: String
     let profile: SpadeProfile
     let retry: () -> Void
     @ViewBuilder let edit: (String) -> Editor
+    @State private var details: SpadeProfileEdits.Details?
 
     var body: some View {
         SpadeProfileTask(task: profile.details.task, edit: edit)
-        SpadeProfileRunsWith(details: profile.details)
+        SpadeProfileRunsWith(client: client, agent: agent, details: profile.details)
+        if let personality = Binding($details)?.personality {
+            SpadeProfilePersonality(client: client, agent: agent, personality: personality)
+        }
         SpadeProfileRoutines(routines: profile.details.routines, name: profile.name, retry: retry)
+            .task(id: agent) {
+                let answer = await client.spadeDetails(agent)
+                if answer.ok, let fresh = answer.part { details = fresh }
+            }
+        if let reach = Binding($details).flatMap({ Binding($0.reach) }) {
+            SpadeProfileNotifications(client: client, agent: agent, reach: reach)
+        }
     }
 }
