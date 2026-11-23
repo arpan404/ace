@@ -529,8 +529,14 @@ export function nativeGroup(pid: number, start: string) {
 
 let holdLimitHandler: ((child: NativeChildProcess) => void) | undefined;
 
-/** A warning from a native callback: reported, never thrown. */
-function warnSafely(message: string): void {
+/**
+ * A warning from a native callback: reported, never thrown into it. Node and Bun both run
+ * `warning` listeners on a later tick (`process.emitWarning` defers the emit), so a listener's
+ * throw cannot reach the native callback's stack: it has returned by then, and the throw is the
+ * process's ordinary uncaught-exception path, as for any other warning. The catch covers a
+ * runtime that would emit synchronously.
+ */
+export function warnSafely(message: string): void {
   try {
     process.emitWarning(message);
   } catch {

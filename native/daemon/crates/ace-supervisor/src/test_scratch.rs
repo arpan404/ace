@@ -53,6 +53,8 @@ pub struct Fake {
     pub alive: HashMap<u32, Result<bool, ProbeRefused>>,
     /// Pids whose identity read throws.
     pub unreadable: Vec<u32>,
+    /// Groups a process-table read still finds members in.
+    pub occupied: Vec<u32>,
     /// The daemon's own pid: the owner recorded rows name.
     pub owner: u32,
 }
@@ -67,6 +69,7 @@ impl Fake {
                 killed: Rc::clone(&killed),
                 alive: HashMap::new(),
                 unreadable: Vec::new(),
+                occupied: Vec::new(),
                 owner,
             },
             killed,
@@ -107,6 +110,10 @@ impl InventoryRuntime for Fake {
 
     fn leader_alive(&self, pid: u32, _start: &str) -> Result<bool, ProbeRefused> {
         self.alive.get(&pid).cloned().unwrap_or(Ok(true))
+    }
+
+    fn group_emptied(&self, group: u32) -> bool {
+        !self.occupied.contains(&group)
     }
 
     fn kill(&self, group: u32, _start: &str) {

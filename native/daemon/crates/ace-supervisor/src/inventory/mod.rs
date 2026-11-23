@@ -38,6 +38,10 @@ pub trait InventoryRuntime {
     /// Whether a recorded leader still runs as itself: its pid shows
     /// `start`. An identity check only; no group is ever probed.
     fn leader_alive(&self, pid: u32, start: &str) -> Result<bool, ProbeRefused>;
+    /// Evidence that group `group` emptied: a complete read of the process
+    /// table found no live process in it. A read, never a signal; an id
+    /// reused since can only make it false (keep the record), never true.
+    fn group_emptied(&self, group: u32) -> bool;
     /// Ends a verified group whose leader started at `start`.
     fn kill(&self, group: u32, start: &str);
     /// This process: the owner recorded rows name.

@@ -154,17 +154,23 @@ impl<R: InventoryRuntime> Inventory<R> {
                 Err(ProbeRefused::Failed(message)) => {
                     return Err(SupervisorError::Operation(message));
                 }
-                Ok(false) => {
+                // The leader is gone. Forgotten only on evidence the group
+                // emptied too: a member may outlive both the old daemon and
+                // its leader, and a record is never dropped while something
+                // of it may run. Its number is never signalled either way.
+                Ok(false) if self.runtime.group_emptied(entry.group) => {
                     self.remove_inner(entry.pid, now_ms);
                     recovered.removed += 1;
+                    continue;
+                }
+                Ok(false) => {
+                    recovered.unresolved += 1;
                     continue;
                 }
                 Ok(true) => {}
             }
             // The leader runs as itself, but its owner or group changed:
-            // neither ended nor called stopped. A leader that is gone was
-            // forgotten above: without it nothing proves the group is the
-            // run's, and its number is never signalled.
+            // neither ended nor called stopped.
             let verified = current.as_ref().is_some_and(|identity| {
                 identity.pid == entry.pid
                     && identity.start == entry.start

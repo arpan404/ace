@@ -13,6 +13,7 @@ import {
   nativeKillWindowsTree,
   onHoldLimit,
   supervisorAddon,
+  warnSafely,
 } from "./native-process.ts";
 import { processIdentity } from "./process-identity.ts";
 
@@ -23,7 +24,7 @@ onHoldLimit((child) => {
     killGroup(child.pid, "SIGKILL", child);
   } catch (error) {
     // EPERM (a member running as another user) and the like: reported, never thrown.
-    process.emitWarning(`Process group ${child.pid} could not be killed: ${String(error)}`);
+    warnSafely(`Process group ${child.pid} could not be killed: ${String(error)}`);
   }
 });
 

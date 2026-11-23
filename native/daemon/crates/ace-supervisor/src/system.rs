@@ -189,6 +189,10 @@ impl inventory::InventoryRuntime for SystemInventoryRuntime {
         }
     }
 
+    fn group_emptied(&self, group: u32) -> bool {
+        group_live_members(group, 0).is_some_and(|live| live.is_empty())
+    }
+
     fn leader_alive(&self, pid: u32, start: &str) -> Result<bool, inventory::ProbeRefused> {
         match identity::process_identity(pid) {
             Ok(found) => Ok(found.is_some_and(|leader| leader.start == start)),
@@ -278,7 +282,15 @@ fn scan_group_into(group: u32, except: u32, live: &mut BTreeSet<(u32, String)>) 
     {
         use libproc::processes::{ProcFilter, pids_by_type};
         let mut complete = true;
-        for pid in pids_by_type(ProcFilter::ByProgramGroup { pgrpid: group }).ok()? {
+        // libproc reads a zero-length answer (an empty group) as an error
+        // whenever errno is left over from an earlier call, so an error here
+        // proves nothing: list every pid instead (never empty) and keep only
+        // the group's, as `darwin_info` below checks each one's group anyway.
+        let candidates = match pids_by_type(ProcFilter::ByProgramGroup { pgrpid: group }) {
+            Ok(pids) => pids,
+            Err(_) => pids_by_type(ProcFilter::All).ok()?,
+        };
+        for pid in candidates {
             if pid == except {
                 continue;
             }
@@ -287,9 +299,19 @@ fn scan_group_into(group: u32, except: u32, live: &mut BTreeSet<(u32, String)>) 
                     live.insert((pid, info.start));
                 }
                 Some(_) => {}
-                // Unreadable: gone only if the kernel says so.
-                None if matches!(reaper::process_alive(pid), Ok(false)) => {}
-                None => complete = false,
+                // Unreadable (another user's): its group says whether it is a
+                // member at all; only an unreadable member leaves the read
+                // incomplete, and a pid gone meanwhile is simply gone.
+                None => match i32::try_from(pid)
+                    .ok()
+                    .and_then(rustix::process::Pid::from_raw)
+                    .map(|target| rustix::process::getpgid(Some(target)))
+                {
+                    Some(Ok(found))
+                        if u32::try_from(found.as_raw_nonzero().get()).ok() != Some(group) => {}
+                    Some(Err(rustix::io::Errno::SRCH)) => {}
+                    _ => complete = false,
+                },
             }
         }
         complete.then_some(())
@@ -341,11 +363,18 @@ pub fn process_zombie(pid: u32) -> Option<bool> {
 }
 
 /// Linux: the wait status a zombie leaves in `/proc/<pid>/stat` (field 52,
-/// `exit_code`), read without reaping it.
+/// `exit_code`), read without reaping it. The kernel writes `0` there when
+/// the reader may not see it, which cannot be told from a real exit 0, so a
+/// zero (like an unreadable or unparsable field) is unknown: `None`.
 #[cfg(target_os = "linux")]
 pub fn zombie_wait_status(pid: u32) -> Option<i32> {
     let text = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     let after = &text[text.rfind(')')? + 2..];
     // Fields after the command start at field 3 (state); field 52 is the 50th.
-    after.split_whitespace().nth(49)?.parse::<i32>().ok()
+    after
+        .split_whitespace()
+        .nth(49)?
+        .parse::<i32>()
+        .ok()
+        .filter(|status| *status != 0)
 }

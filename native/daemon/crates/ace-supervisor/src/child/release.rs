@@ -43,6 +43,10 @@ const SCAN_EARLY_MAX: std::time::Duration = std::time::Duration::from_secs(5);
 const SCAN_LATE_MAX: std::time::Duration = std::time::Duration::from_secs(60);
 #[cfg(unix)]
 const SCAN_EARLY_FOR: std::time::Duration = std::time::Duration::from_secs(600);
+/// The least time between scans of a group reported stuck, however often
+/// stops wake the loop.
+#[cfg(unix)]
+const STUCK_MIN_GAP: std::time::Duration = std::time::Duration::from_secs(1);
 /// How long after the shell gave the group up a still-occupied group is
 /// left before the escalation: a kill through the shell's guard (spared
 /// members keep the group held), again each period after.
@@ -92,8 +96,18 @@ pub(super) async fn release_when_group_empty(leader: Arc<Leader>, escalation: Es
             }
         }
         if kills >= 2 {
-            // Reported stuck: one scan a minute at most, whatever wakes it.
-            tokio::time::sleep(SCAN_LATE_MAX).await;
+            // Reported stuck: idle rescans once a minute; a real wake (a
+            // stop polling for the group) scans sooner, but never more than
+            // once per `STUCK_MIN_GAP`, so a flood of wakes cannot spin.
+            let scanned = tokio::time::Instant::now();
+            tokio::select! {
+                () = tokio::time::sleep(SCAN_LATE_MAX) => {}
+                () = leader.wake.notified() => {}
+            }
+            let since = scanned.elapsed();
+            if since < STUCK_MIN_GAP {
+                tokio::time::sleep(STUCK_MIN_GAP - since).await;
+            }
             continue;
         }
         let most = if exited.elapsed() < SCAN_EARLY_FOR {
