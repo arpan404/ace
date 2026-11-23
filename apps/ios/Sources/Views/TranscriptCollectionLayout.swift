@@ -12,6 +12,9 @@ import UIKit
 ///
 /// Neither stops a fling: UIKit keeps decelerating from the adjusted offset.
 @MainActor final class TranscriptCollectionLayout: UICollectionViewLayout {
+    /// The flip the collection view and each cell carry: together, upright rows.
+    static let upright = CGAffineTransform(scaleX: 1, y: -1)
+
     private(set) var geometry = TranscriptStackGeometry()
     /// Corrections keep what is on screen still. Off only for the fling probe's
     /// `-ace-fling-no-anchors`, which shows what the scroll does without them.
@@ -98,22 +101,18 @@ import UIKit
         let attributes = UICollectionViewLayoutAttributes(forCellWith: IndexPath(item: index, section: 0))
         attributes.frame = CGRect(x: 0, y: geometry.top(at: index), width: collectionView?.bounds.width ?? 0,
                                   height: geometry.height(at: index))
+        // The collection view is flipped; each cell is flipped back by UIKit as it applies these
+        // attributes, so reuse and self-sizing can't drop it.
+        attributes.transform = Self.upright
         return attributes
     }
 }
 
-/// A transcript cell: its SwiftUI content flipped back upright, sized to fit the column.
+/// A transcript cell, sized to fit the column. Its layout attributes flip it back upright
+/// (`TranscriptCollectionLayout.upright`); nothing inside it is flipped.
 final class TranscriptCell: UICollectionViewCell {
     /// The entry this cell shows now.
     var entryID: String?
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
 
     override func preferredLayoutAttributesFitting(_ layoutAttributes: UICollectionViewLayoutAttributes)
         -> UICollectionViewLayoutAttributes {

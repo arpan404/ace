@@ -55,10 +55,17 @@ struct TranscriptCollection: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> TranscriptCollectionView {
+        let (view, layout) = Self.makeCollection()
+        context.coordinator.attach(view, layout: layout, surface: surface)
+        return view
+    }
+
+    /// The flipped collection view and its layout, before the feed attaches.
+    static func makeCollection() -> (TranscriptCollectionView, TranscriptCollectionLayout) {
         let layout = TranscriptCollectionLayout()
         layout.keepsPlace = !TranscriptFlingProbe.suppressesAnchors
         let view = TranscriptCollectionView(frame: .zero, collectionViewLayout: layout)
-        view.transform = CGAffineTransform(scaleX: 1, y: -1)
+        view.transform = TranscriptCollectionLayout.upright
         view.backgroundColor = .clear
         view.contentInsetAdjustmentBehavior = .never
         view.keyboardDismissMode = .interactive
@@ -71,8 +78,7 @@ struct TranscriptCollection: UIViewRepresentable {
             view.topEdgeEffect.isHidden = true
             view.bottomEdgeEffect.isHidden = true
         }
-        context.coordinator.attach(view, layout: layout, surface: surface)
-        return view
+        return (view, layout)
     }
 
     func updateUIView(_ view: TranscriptCollectionView, context: Context) {
