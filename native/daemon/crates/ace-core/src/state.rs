@@ -299,7 +299,6 @@ pub struct RootAgentInit {
     pub agent: String,
     #[serde(rename = "spawnedBy", skip_serializing_if = "Option::is_none")]
     pub spawned_by: Option<String>,
-    pub origin: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lineage: Option<ThreadLineage>,
     pub fidelity: String,
