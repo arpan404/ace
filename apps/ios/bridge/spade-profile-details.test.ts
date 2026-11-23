@@ -78,6 +78,7 @@ test("a role set on the bot shows as its own, and Follow Settings puts it back",
   expect(helper).toMatchObject({ title: "Helpers", follows: true, value: "" });
   expect(helper?.spent).toMatch(/0\.42 this month/);
   expect(roles.roles.map((row) => row.role)).toEqual([
+    "task",
     "helper",
     "verify",
     "review",
