@@ -203,8 +203,8 @@ impl PidFdTable for SystemPidFds {
 
     fn send(&self, fd: &PidFd, signal: SignalName) -> bool {
         let sig = match signal {
-            SignalName::Term => rustix::signal::Signal::Term,
-            SignalName::Kill => rustix::signal::Signal::Kill,
+            SignalName::Term => rustix::process::Signal::TERM,
+            SignalName::Kill => rustix::process::Signal::KILL,
         };
         rustix::process::pidfd_send_signal(fd.fd(), sig).is_ok()
     }

@@ -349,9 +349,21 @@ pub const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
 
 #[cfg(target_os = "windows")]
 mod windows {
-    //! The real Win32 identity surface, through windows-sys.
+    //! The real Win32 identity surface, through windows-sys. Buffers the
+    //! kernel fills are owned here and read back by index; the single
+    //! conversion of a SID string each documents why it holds.
 
     use super::{WinHandle, WinToken, WindowsIdentityApi};
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, LocalFree};
+    use windows_sys::Win32::Security::{
+        ConvertSidToStringSidW, GetTokenInformation, OpenProcessToken, TOKEN_QUERY, TokenUser,
+    };
+    use windows_sys::Win32::System::Threading::{
+        FILETIME, GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, SYNCHRONIZE,
+        WaitForSingleObject,
+    };
+
+    const WAIT_OBJECT_0: u32 = 0;
 
     /// kernel32 and Advapi32 bound once for the process.
     pub struct WindowsApi;
@@ -363,40 +375,127 @@ mod windows {
         }
     }
 
+    fn filetime(buffer: &[u8; 8]) -> FILETIME {
+        FILETIME {
+            dwLowDateTime: u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]),
+            dwHighDateTime: u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]),
+        }
+    }
+
+    fn split_time(value: &FILETIME) -> [u8; 8] {
+        let mut out = [0u8; 8];
+        out[..4].copy_from_slice(&value.dwLowDateTime.to_le_bytes());
+        out[4..].copy_from_slice(&value.dwHighDateTime.to_le_bytes());
+        out
+    }
+
     impl WindowsIdentityApi for WindowsApi {
-        fn open(&self, _pid: u32) -> WinHandle {
-            WinHandle(0)
+        fn open(&self, pid: u32) -> WinHandle {
+            // PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE.
+            let handle = OpenProcess(
+                (PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE) as u32,
+                0,
+                pid,
+            );
+            WinHandle(handle as u64)
         }
 
-        fn exited(&self, _handle: WinHandle) -> bool {
-            false
+        fn exited(&self, handle: WinHandle) -> bool {
+            WaitForSingleObject(handle.0 as HANDLE, 0) == WAIT_OBJECT_0
         }
 
         fn times(
             &self,
-            _handle: WinHandle,
-            _creation: &mut [u8; 8],
-            _exit: &mut [u8; 8],
-            _kernel: &mut [u8; 8],
-            _user: &mut [u8; 8],
+            handle: WinHandle,
+            creation: &mut [u8; 8],
+            exit: &mut [u8; 8],
+            kernel: &mut [u8; 8],
+            user: &mut [u8; 8],
         ) -> u32 {
-            0
+            let mut created = filetime(creation);
+            let mut exited = filetime(exit);
+            let mut kernel_time = filetime(kernel);
+            let mut user_time = filetime(user);
+            let result = GetProcessTimes(
+                handle.0 as HANDLE,
+                &mut created,
+                &mut exited,
+                &mut kernel_time,
+                &mut user_time,
+            );
+            if result != 0 {
+                *creation = split_time(&created);
+            }
+            result as u32
         }
 
-        fn open_token(&self, _handle: WinHandle) -> Option<WinToken> {
-            None
+        fn open_token(&self, handle: WinHandle) -> Option<WinToken> {
+            let mut token: HANDLE = 0;
+            if OpenProcessToken(handle.0 as HANDLE, TOKEN_QUERY, &mut token) == 0 {
+                return None;
+            }
+            (token != 0).then_some(WinToken(token as u64))
         }
 
-        fn token_info(&self, _token: WinToken, _info: &mut [u8], _needed: &mut u32) -> u32 {
-            0
+        fn token_info(&self, token: WinToken, info: &mut [u8], needed: &mut u32) -> u32 {
+            let mut size: u32 = 0;
+            let result = GetTokenInformation(
+                token.0 as HANDLE,
+                TokenUser,
+                if info.is_empty() {
+                    std::ptr::null_mut()
+                } else {
+                    info.as_mut_ptr() as *mut core::ffi::c_void
+                },
+                info.len() as u32,
+                &mut size,
+            );
+            *needed = size;
+            result as u32
         }
 
-        fn sid_of(&self, _info: &[u8]) -> Option<u64> {
-            None
+        fn sid_of(&self, info: &[u8]) -> Option<u64> {
+            if info.len() < 8 {
+                return None;
+            }
+            // The SID pointer is TOKEN_USER's first field: 4 bytes on
+            // 32-bit processes, 8 above.
+            #[cfg(target_pointer_width = "32")]
+            let sid = u32::from_le_bytes([info[0], info[1], info[2], info[3]]) as u64;
+            #[cfg(not(target_pointer_width = "32"))]
+            let sid = u64::from_le_bytes([
+                info[0], info[1], info[2], info[3], info[4], info[5], info[6], info[7],
+            ]);
+            (sid != 0).then_some(sid)
         }
 
-        fn sid_to_string(&self, _sid: u64) -> Option<String> {
-            None
+        /// Converts the SID the kernel holds to its string form.
+        #[allow(unsafe_code)]
+        fn sid_to_string(&self, sid: u64) -> Option<String> {
+            let mut text: *mut u16 = std::ptr::null_mut();
+            if ConvertSidToStringSidW(sid as *const core::ffi::c_void, &mut text) == 0 {
+                return None;
+            }
+            if text.is_null() {
+                return None;
+            }
+            // SAFETY: ConvertSidToStringSidW allocated a NUL-terminated
+            // UTF-16 string and handed ownership to the caller; it stays
+            // valid until the LocalFree below, and is freed exactly once.
+            let owned = unsafe {
+                let mut length = 0;
+                while *text.add(length) != 0 {
+                    length += 1;
+                }
+                let slice = std::slice::from_raw_parts(text, length);
+                String::from_utf16_lossy(slice)
+            };
+            // SAFETY: `text` came from ConvertSidToStringSidW, which frees
+            // with LocalFree; this runs exactly once per conversion.
+            unsafe {
+                LocalFree(text as *mut core::ffi::c_void);
+            }
+            Some(owned)
         }
 
         fn decode_sid(&self, text: &str) -> String {
@@ -405,12 +504,16 @@ mod windows {
 
         fn free_sid(&self, _text: &str) {}
 
-        fn close_token(&self, _token: WinToken) {}
+        fn close_token(&self, token: WinToken) {
+            CloseHandle(token.0 as HANDLE);
+        }
 
-        fn close(&self, _handle: WinHandle) {}
+        fn close(&self, handle: WinHandle) {
+            CloseHandle(handle.0 as HANDLE);
+        }
 
         fn last_error(&self) -> u32 {
-            0
+            GetLastError()
         }
     }
 }

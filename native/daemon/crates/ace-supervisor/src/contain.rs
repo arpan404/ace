@@ -205,7 +205,9 @@ impl<A: WindowsJobApi> WindowsJob for KillOnCloseJob<A> {
     }
 
     fn terminate(&mut self) {
-        if self.joined && let Some(inner) = self.inner.as_mut() {
+        if self.joined
+            && let Some(inner) = self.inner.as_mut()
+        {
             let _ = inner.terminate();
         }
     }
@@ -214,6 +216,98 @@ impl<A: WindowsJobApi> WindowsJob for KillOnCloseJob<A> {
         if let Some(inner) = &mut self.inner {
             let _ = inner.dispose();
         }
+    }
+}
+
+/// The real Win32 job surface, through windows-sys. Buffers the kernel
+/// fills are owned here and read back by index; no handle is ever doubled.
+#[cfg(windows)]
+pub struct SystemJobApi;
+
+#[cfg(windows)]
+impl SystemJobApi {
+    /// Binds kernel32 lazily on first use, like the shell's shared loader.
+    pub fn new() -> Self {
+        Self
+    }
+
+    fn job_bytes() -> [u8; 144] {
+        [0u8; 144]
+    }
+}
+
+#[cfg(windows)]
+impl WindowsJobApi for SystemJobApi {
+    fn create(&mut self) -> JobHandle {
+        use windows_sys::Win32::System::JobObjects::CreateJobObjectW;
+        JobHandle(CreateJobObjectW(std::ptr::null(), std::ptr::null()) as u64)
+    }
+
+    fn set_kill_on_close(&mut self, job: JobHandle) -> bool {
+        use windows_sys::Win32::System::JobObjects::SetInformationJobObject;
+        // JOBOBJECT_EXTENDED_LIMIT_INFORMATION (class 9); LimitFlags at 16,
+        // 0x2000 is KILL_ON_JOB_CLOSE. The struct is built as bytes, since
+        // only this field is ever set.
+        let mut info = Self::job_bytes();
+        info[16..20].copy_from_slice(&0x2000u32.to_le_bytes());
+        SetInformationJobObject(job.0 as isize, 9, info.as_mut_ptr() as *mut _, 144) != 0
+    }
+
+    fn clear_limits(&mut self, job: JobHandle) -> bool {
+        use windows_sys::Win32::System::JobObjects::SetInformationJobObject;
+        let mut info = Self::job_bytes();
+        SetInformationJobObject(job.0 as isize, 9, info.as_mut_ptr() as *mut _, 144) != 0
+    }
+
+    fn open_process(&mut self, pid: u32) -> ProcHandle {
+        use windows_sys::Win32::System::Threading::OpenProcess;
+        // PROCESS_SET_QUOTA | PROCESS_TERMINATE: what assignment needs.
+        ProcHandle(OpenProcess(0x0100 | 0x0001, 0, pid) as u64)
+    }
+
+    fn assign_process(&mut self, job: JobHandle, target: ProcHandle) -> bool {
+        use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
+        AssignProcessToJobObject(job.0 as isize, target.0 as isize) != 0
+    }
+
+    fn close(&mut self, handle: CloseHandle) -> Result<(), SupervisorError> {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        let raw = match handle {
+            CloseHandle::Job(job) => job.0 as isize,
+            CloseHandle::Process(process) => process.0 as isize,
+        };
+        if CloseHandle(raw) == 0 {
+            return Err(SupervisorError::Operation(
+                "Windows handle close failed".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn unload(&mut self) -> Result<(), SupervisorError> {
+        Ok(())
+    }
+
+    fn active_count(&mut self, job: JobHandle) -> u32 {
+        use windows_sys::Win32::System::JobObjects::QueryInformationJobObject;
+        // JOBOBJECT_BASIC_ACCOUNTING_INFORMATION (class 1): ActiveProcesses at 40.
+        let mut info = [0u8; 48];
+        if QueryInformationJobObject(
+            job.0 as isize,
+            1,
+            info.as_mut_ptr() as *mut _,
+            48,
+            std::ptr::null_mut(),
+        ) == 0
+        {
+            return 0;
+        }
+        u32::from_le_bytes([info[40], info[41], info[42], info[43]])
+    }
+
+    fn terminate(&mut self, job: JobHandle) {
+        use windows_sys::Win32::System::JobObjects::TerminateJobObject;
+        TerminateJobObject(job.0 as isize, 1);
     }
 }
 

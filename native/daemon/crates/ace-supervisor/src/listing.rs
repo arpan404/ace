@@ -297,20 +297,34 @@ impl<P: ProcFs + Send + Sync> KernelListing for LinuxListing<P> {
 
 /// A children reader for one walk. Where the kernel keeps a per-task child
 /// list it is used; otherwise the table is read once and shared by the walk.
-pub struct LinuxWalk<'a, P> {
-    listing: &'a LinuxListing<P>,
+pub struct LinuxWalk<P> {
+    listing: LinuxListing<P>,
     per_task: std::cell::Cell<Option<bool>>,
     table: std::cell::RefCell<Option<std::collections::HashMap<u32, Vec<u32>>>>,
 }
 
-impl<'a, P: ProcFs> LinuxWalk<'a, P> {
+impl<P: ProcFs> LinuxWalk<P> {
     /// Starts a walk over `listing`, reading the table lazily.
-    pub fn new(listing: &'a LinuxListing<P>) -> Self {
+    pub fn new(listing: LinuxListing<P>) -> Self {
         Self {
             listing,
             per_task: std::cell::Cell::new(None),
             table: std::cell::RefCell::new(None),
         }
+    }
+
+    /// The listing this walk reads.
+    pub fn listing(&self) -> &LinuxListing<P> {
+        &self.listing
+    }
+
+    /// One kernel read through the walk's listing.
+    pub fn info(&self, pid: u32) -> Option<ProcessInfo>
+    where
+        P: ProcFs + Send + Sync,
+    {
+        use crate::listing::KernelListing as _;
+        self.listing.info(pid)
     }
 
     /// The children of `pid` for this walk.
@@ -419,6 +433,17 @@ mod darwin {
         Some(info)
     }
 
+    /// One kernel read of a macOS process: start, parent, group, state.
+    pub fn darwin_info(pid: u32) -> Option<ProcessInfo> {
+        let info = bsd(pid)?;
+        Some(ProcessInfo {
+            start: format!("{}:{}", info.pbi_start_tvsec, info.pbi_start_tvusec),
+            parent: info.pbi_ppid,
+            group: info.pbi_pgid,
+            zombie: info.pbi_status == ZOMBIE,
+        })
+    }
+
     /// The macOS listing: libproc for structure, sysinfo for environments.
     pub struct DarwinListing;
 
@@ -432,13 +457,7 @@ mod darwin {
         }
 
         fn info(&self, pid: u32) -> Option<ProcessInfo> {
-            let info = bsd(pid)?;
-            Some(ProcessInfo {
-                start: format!("{}:{}", info.pbi_start_tvsec, info.pbi_start_tvusec),
-                parent: info.pbi_ppid,
-                group: info.pbi_pgid,
-                zombie: info.pbi_status == ZOMBIE,
-            })
+            darwin_info(pid)
         }
 
         fn group_members(&self, group: u32) -> Vec<u32> {
@@ -616,8 +635,8 @@ mod tests {
     }
 
     /// Counts how often the walk read the process table.
-    fn table_reads(listing: &LinuxListing<Fake>) -> usize {
-        listing.procfs.table_reads.get()
+    fn table_reads(walk: &LinuxWalk<Fake>) -> usize {
+        walk.listing().procfs.table_reads.get()
     }
 
     #[test]
@@ -687,7 +706,7 @@ mod tests {
             parents.push((pid, 1));
         }
         let listing = machine(&parents);
-        let walk = LinuxWalk::new(&listing);
+        let walk = LinuxWalk::new(listing);
         let mut found = Vec::new();
         let mut queue = vec![100u32];
         while let Some(next) = queue.pop() {
@@ -698,7 +717,7 @@ mod tests {
         }
         found.sort_unstable();
         assert_eq!(found, (101..=160).collect::<Vec<_>>());
-        assert_eq!(table_reads(&listing), 1);
+        assert_eq!(table_reads(&walk), 1);
     }
 
     #[test]

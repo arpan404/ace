@@ -18,7 +18,7 @@ pub fn inventory_backoff_ms(failures: u32) -> u64 {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GuardedTick {
     failures: u32,
-    retry_at_ms: i64,
+    retry_at_ms: u64,
 }
 
 impl GuardedTick {
@@ -26,25 +26,25 @@ impl GuardedTick {
     pub fn new() -> Self {
         Self {
             failures: 0,
-            retry_at_ms: i64::MIN,
+            retry_at_ms: 0,
         }
     }
 
     /// Whether the tick may attempt now.
-    pub fn ready(&self, now_ms: i64) -> bool {
+    pub fn ready(&self, now_ms: u64) -> bool {
         now_ms >= self.retry_at_ms
     }
 
     /// The step threw: back off and report.
-    pub fn failed(&mut self, now_ms: i64) {
+    pub fn failed(&mut self, now_ms: u64) {
         self.failures = self.failures.saturating_add(1);
-        self.retry_at_ms = now_ms.saturating_add(inventory_backoff_ms(self.failures) as i64);
+        self.retry_at_ms = now_ms.saturating_add(inventory_backoff_ms(self.failures));
     }
 
     /// The step ran: a success clears the backoff.
     pub fn settled(&mut self) {
         self.failures = 0;
-        self.retry_at_ms = i64::MIN;
+        self.retry_at_ms = 0;
     }
 
     /// Queued failures in a row.
@@ -67,7 +67,7 @@ mod tests {
     struct Setup {
         outcomes: Vec<Result<bool, ()>>,
         tick: GuardedTick,
-        now_ms: i64,
+        now_ms: u64,
         calls: usize,
         reported: usize,
         stopped: bool,
@@ -85,7 +85,7 @@ mod tests {
             }
         }
 
-        fn at(&mut self, now_ms: i64) {
+        fn at(&mut self, now_ms: u64) {
             self.now_ms = now_ms;
             if !self.tick.ready(now_ms) {
                 return;

@@ -14,6 +14,13 @@ pub struct WindowsRecord {
     pub uid: String,
 }
 
+/// What ending one member did: ended, or already gone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowsTerminate {
+    Ended,
+    Gone,
+}
+
 /// A PID's creation time and owner: proven, gone, or unreadable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WindowsIdentified {
