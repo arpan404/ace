@@ -423,7 +423,7 @@ real background workers, and each is named for the behaviour it guards:
 - a lane cut off mid-step by a restart resumes its next step;
 - `task_stop` with no `because`, or with one naming a bot message, is refused;
 - Stop on a lane stops only that lane and its helpers; Stop on the bot stops all lanes;
-- the ninth lane is queued and starts when one ends;
+- the seventeenth lane is queued (16 run at once) and starts when one ends;
 - main's compaction lists every lane that hasn't ended, from events, and the model reads them
   after it;
 - a lane writing a path another working lane wrote gets the overlap note;
