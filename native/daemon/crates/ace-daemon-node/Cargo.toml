@@ -16,7 +16,21 @@ workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
+# ace-store: the event database behind the daemon's synchronous transactions.
 ace-store = { path = "../ace-store" }
+# ace-adapter-pi: the Pi translator behind the native shell.
+ace-adapter-pi = { path = "../ace-adapter-pi" }
+# ace-adapter-api: frames cross the binding as redacted JSON.
+ace-adapter-api = { path = "../ace-adapter-api" }
+# ace-core: translators return its facts; only the core allocates ace ids.
+ace-core = { path = "../ace-core" }
+# serde: the binding parses frame JSON into handles and plain values.
+serde = { version = "1", features = ["derive"] }
+# serde_json: frames keep each message's encoding as Box<RawValue>.
+serde_json = { version = "1", features = ["raw_value"] }
+# thiserror: one typed error enum for the crate, mapped to JS errors.
+thiserror = { version = "2" }
+# napi: the one addon; this crate only translates values and errors.
 napi = { version = "3", default-features = false, features = ["napi8"] }
 napi-derive = "3"
 
