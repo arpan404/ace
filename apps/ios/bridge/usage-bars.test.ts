@@ -47,3 +47,56 @@ test("the Usage glyph updates on a committed limit and skips identical bars", as
     await client.close();
   }
 });
+
+test("the Usage glyph draws the accounts the person chose, in their order", async () => {
+  const { daemon, client } = sheetFixture();
+  const now = Math.floor(Date.now() / 60_000) * 60_000;
+  const readable = daemon.services.accounts
+    .filter((entry) => entry.provider === "codex")
+    .slice(0, 2);
+  if (readable.length < 2) throw new Error("Missing Codex fixtures");
+  daemon.services.accounts = readable;
+  readable.forEach((account, index) =>
+    daemon.services.updateQuota(account.id, {
+      ...account.quota,
+      observedAt: now,
+      windows: {
+        five_hour: {
+          usedPercent: 20 + index * 40,
+          resetsAt: now + 300_000,
+          source: "cli" as const,
+          windowDurationMins: 300,
+        },
+      },
+    }),
+  );
+  const sink = new RecordingSink();
+  const follow = followUsageBars(client, sink, { now: () => now, set: () => () => {} });
+  const read = () =>
+    sink.read("usage.bars") as {
+      value: { left: number }[];
+      choices: { id: string; shown: boolean }[];
+    };
+  try {
+    await client.start();
+    await until(() => read()?.value.length === 2, "both accounts");
+    const [first, second] = readable.map((account) => account.id);
+    expect(read().choices.map((choice) => choice.id)).toEqual([first, second]);
+
+    follow.choose([second]);
+    expect(read().value.map((bar) => bar.left)).toEqual([40]);
+    expect(read().choices.map((choice) => [choice.id, choice.shown])).toEqual([
+      [second, true],
+      [first, false],
+    ]);
+
+    follow.choose([second, first]);
+    expect(read().value.map((bar) => bar.left)).toEqual([40, 80]);
+
+    follow.choose([]);
+    expect(read().value).toHaveLength(2);
+  } finally {
+    follow();
+    await client.close();
+  }
+});

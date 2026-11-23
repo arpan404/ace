@@ -48,6 +48,8 @@ export type InboxFollow = (() => void) &
     dismissed?: DismissedSends;
     /** Narrows the Chats tab by title; empty lists every chat. */
     chatQuery?: (query: string) => void;
+    /** The accounts the Usage glyph draws, by id and in order; none restores the default. */
+    usagePins?: (ids: string[]) => void;
   };
 import type { PatchSink } from "./agents.ts";
 
@@ -361,9 +363,10 @@ export function followInbox(
     pump.clear("inbox:fresh");
     pump.put("inbox:fresh", () => ({ type: "inbox.fresh", ...freshness() }));
   };
+  const usageBars = followUsageBars(owner, pump, { now: clock.now, set: scheduler.set });
   const stops = [
     accounts.stop,
-    followUsageBars(owner, pump, { now: clock.now, set: scheduler.set }),
+    usageBars,
     agentUse.stop,
     // A pin or move shows on its row, and moves it, before the daemon confirms it.
     organizer.observe((id) => {
@@ -421,6 +424,7 @@ export function followInbox(
     sortBy: () => sort.current(),
     dismissed,
     chatQuery: narrowChats,
+    usagePins: usageBars.choose,
   });
 }
 
@@ -535,6 +539,8 @@ const InboxAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("locate"), threadId: ThreadId }),
   /** The Chats tab's search: chats whose title matches, or every chat when empty. */
   z.object({ kind: z.literal("chatsQuery"), query: z.string().max(1024) }),
+  /** The accounts the Usage glyph draws (the web's rail pins), in order. */
+  z.object({ kind: z.literal("usagePins"), ids: z.array(z.string()).max(64) }),
   /** A failed send the person took back into the composer or discarded; `restore` is Undo. */
   z.object({ kind: z.literal("dismissSend"), commandId: z.string().min(1).max(256) }),
   z.object({ kind: z.literal("restoreSend"), commandId: z.string().min(1).max(256) }),
@@ -600,6 +606,7 @@ export function inboxAction(
   inbox?: PlaceContext & {
     dismissed?: DismissedSends;
     chatQuery?: (query: string) => void;
+    usagePins?: (ids: string[]) => void;
   },
 ): void {
   const place = PlaceAction.safeParse(raw);
@@ -634,6 +641,10 @@ export function inboxAction(
   }
   if (action.kind === "chatsQuery") {
     inbox?.chatQuery?.(action.query);
+    return;
+  }
+  if (action.kind === "usagePins") {
+    inbox?.usagePins?.(action.ids);
     return;
   }
   if (action.kind === "locate") {
