@@ -144,9 +144,9 @@ struct SpadeGroupNewSheet: View {
         Task {
             let answer = await client.spadeGroupCreate(name: trimmed, members: refs, lead: lead.agent)
             making = false
-            if let group = answer.group, let conversation = answer.conversation {
+            if let new = answer.made {
                 dismiss()
-                made(SpadeRoute(conversation: conversation, group: group, machine: lead.machine))
+                made(SpadeRoute(conversation: new.conversation, group: new.group, machine: lead.machine))
             } else {
                 problem = answer.problem ?? "Couldn't make the club."
             }

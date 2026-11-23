@@ -65,9 +65,12 @@ func spadeRefusal(_ ok: Bool, _ title: String?, _ message: String?) -> String? {
 
 /// A group just made: its id and its conversation, which opens.
 struct SpadeGroupMade: Decodable, Sendable {
+    struct Made: Decodable, Sendable {
+        let group: String
+        let conversation: String
+    }
     let ok: Bool
-    var group: String? = nil
-    var conversation: String? = nil
+    var made: Made? = nil
     var title: String? = nil
     var message: String? = nil
     var problem: String? { spadeRefusal(ok, title, message) }

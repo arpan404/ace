@@ -343,7 +343,10 @@ test("a group made on the phone has the members and lead it was given, and says 
   });
 
   const group = api.teams.groups[0];
-  expect(made).toEqual({ ok: true, group: group?.id, conversation: group?.conversation });
+  expect(made).toEqual({
+    ok: true,
+    made: { group: group?.id, conversation: group?.conversation },
+  });
   expect(group?.name).toBe("Launch");
   expect(group?.lead.agent).toBe("research");
   expect(group?.members.map((member) => [member.agent, member.machine])).toEqual([

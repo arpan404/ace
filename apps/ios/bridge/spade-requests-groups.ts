@@ -91,7 +91,7 @@ export const spadeGroupRequests = spadeRequestArea(
           const group = parseSpadeGroup(await ask("POST", "/v1/groups", draft));
           if (!group) throw new Error("Spade's new club didn't make sense.");
           spade.refresh();
-          return { ok: true, group: group.id, conversation: group.conversation };
+          return { ok: true, made: { group: group.id, conversation: group.conversation } };
         } catch (error) {
           return spadeRefused("Couldn't make the club", error);
         }
