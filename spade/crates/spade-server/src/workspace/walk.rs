@@ -10,7 +10,6 @@ use std::time::{Duration, Instant};
 use cap_fs_ext::{DirExt, FollowSymlinks, MetadataExt, OpenOptionsFollowExt};
 use cap_std::fs::{Dir, OpenOptions};
 
-use super::files::open_regular;
 use super::matching::{Glob, Needle};
 use super::{PathError, Workspace, clean, trust};
 
@@ -105,6 +104,28 @@ struct Seen<'a> {
     name: &'a str,
     path: &'a str,
     meta: &'a cap_std::fs::Metadata,
+}
+
+/// The file `name` in `at`, opened without following a link and without waiting on a pipe, and
+/// answered only when the opened handle is a regular file (checked on the handle, never by name
+/// first).
+pub(super) fn open_file_no_follow(
+    at: &Dir,
+    name: &std::ffi::OsStr,
+) -> std::io::Result<cap_std::fs::File> {
+    let mut options = OpenOptions::new();
+    options.read(true).follow(FollowSymlinks::No);
+    #[cfg(unix)]
+    {
+        use cap_std::fs::OpenOptionsExt;
+        options.custom_flags(super::files::NONBLOCK);
+    }
+    let file = at.open_with(name, &options)?;
+    if file.metadata()?.is_file() {
+        Ok(file)
+    } else {
+        Err(std::io::Error::other("not a regular file"))
+    }
 }
 
 /// The folder at `cleaned` under `dir`, each part opened without following a link.
@@ -211,7 +232,9 @@ impl Workspace {
             {
                 return Next::Go;
             }
-            let Ok(file) = open_regular(seen.at, Path::new(seen.name), seen.path) else {
+            // Opened by name without following a link, and checked on the handle: a file swapped
+            // for a link after the folder was listed is never read through.
+            let Ok(file) = open_file_no_follow(seen.at, std::ffi::OsStr::new(seen.name)) else {
                 return Next::Go;
             };
             // Read no more than the cap, whatever the file has grown to since.
@@ -302,6 +325,29 @@ impl Workspace {
         Ok((stamps, cut.is_some()))
     }
 
+    /// The Python modules under `folder` (`.py` regular files, links never followed, Spade's
+    /// `.spade` folder left out), by path from the workspace's top, at most `most`, within a timed
+    /// budget.
+    pub fn python_files(&self, folder: &str, most: usize) -> Result<Vec<String>, PathError> {
+        let mut found = Vec::new();
+        let skip = if folder.is_empty() {
+            Some(".spade")
+        } else {
+            None
+        };
+        self.walk(folder, &mut Budget::timed(), skip, |seen| {
+            if seen.path.ends_with(".py") {
+                found.push(seen.path.to_owned());
+            }
+            if found.len() >= most {
+                Next::Stop
+            } else {
+                Next::Go
+            }
+        })?;
+        Ok(found)
+    }
+
     /// A regular file's bytes, at most `largest`, reached through real folders only: every folder
     /// on the way and the file itself are opened without following a link, and the file is
     /// checked to be a regular file after it is opened.
@@ -312,24 +358,12 @@ impl Workspace {
         };
         let parent = cleaned.parent().unwrap_or(Path::new(""));
         let at = open_folder(&self.dir()?, parent, relative)?;
-        let mut options = OpenOptions::new();
-        options.read(true).follow(FollowSymlinks::No);
-        #[cfg(unix)]
-        {
-            use cap_std::fs::OpenOptionsExt;
-            options.custom_flags(super::files::NONBLOCK);
-        }
-        let file = at
-            .open_with(name, &options)
-            .map_err(|error| match error.kind() {
-                std::io::ErrorKind::NotFound => PathError::Missing(relative.to_owned()),
-                _ => PathError::Io(format!(
-                    "{relative} is not a file in your workspace (a link is not followed)"
-                )),
-            })?;
-        if !file.metadata()?.is_file() {
-            return Err(PathError::Io(format!("{relative} is not a regular file")));
-        }
+        let file = open_file_no_follow(&at, name).map_err(|error| match error.kind() {
+            std::io::ErrorKind::NotFound => PathError::Missing(relative.to_owned()),
+            _ => PathError::Io(format!(
+                "{relative} is not a regular file in your workspace (a link is not followed)"
+            )),
+        })?;
         let mut bytes = Vec::new();
         file.take(largest + 1).read_to_end(&mut bytes)?;
         if bytes.len() as u64 > largest {
@@ -400,6 +434,20 @@ mod tests {
             ws.bytes_no_follow("real/a.txt", 100).ok().as_deref(),
             Some(&b"needle"[..])
         );
+    }
+
+    #[test]
+    fn a_file_is_opened_by_name_without_following_a_link_and_checked_on_its_handle() {
+        let root = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let dir = root.path();
+        std::fs::write(dir.join("real.txt"), "real").unwrap_or_default();
+        std::os::unix::fs::symlink(dir.join("real.txt"), dir.join("alias.txt")).unwrap_or_default();
+        std::fs::create_dir_all(dir.join("folder")).unwrap_or_default();
+        let at = Dir::open_ambient_dir(dir, cap_std::ambient_authority())
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert!(open_file_no_follow(&at, std::ffi::OsStr::new("real.txt")).is_ok());
+        assert!(open_file_no_follow(&at, std::ffi::OsStr::new("alias.txt")).is_err());
+        assert!(open_file_no_follow(&at, std::ffi::OsStr::new("folder")).is_err());
     }
 
     #[test]

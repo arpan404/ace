@@ -49,38 +49,54 @@ often wrong. Models do better work when they can write a short script and read i
    before writing anything and points to `shell`. Outside the sandbox a command's start is bound
    to what the classifier read in it (ADR 0171, amendment 5), and a script Spade writes at run time
    can't be bound that way, so this tool doesn't go there.
-7. **The Python is Spade's, not the workspace's.** Each bot's environment, launcher, set-up
-   script and staged scripts live in a runtime folder outside its workspace
-   (`<data>/workspace/.python/<bot>/`). The sandbox reopens it read-only for every run of the bot
-   (a new `Facts.runtime`, accepted only inside Spade's data); only Spade's set-up, a separate
-   contained run of Spade's fixed script (`Kind::PythonSetup`), may write it. The set-up works
-   from the runtime folder, never the workspace, starts Python with `-I`, turns off uv's and pip's
-   configuration discovery, and installs a locked set of pinned packages (pandas, numpy,
-   matplotlib, openpyxl, python-docx, pypdf, requests and everything they need), binary wheels
-   only, from PyPI's index and no other. A run starts the environment's Python with `-I`. So
-   nothing the bot writes, and nothing a page it read steers it into writing, changes the
-   interpreter, its packages or how they were installed. The environment is made the first time
-   the tool runs, never at start: with `uv`, a pinned uv-managed CPython 3.12 when one can be had,
-   else a Python 3.10 or newer on the machine; without `uv`, `python3 -I -m venv` from the newest
-   Homebrew or system Python 3.10 or newer; with none, a plain error saying what it looked for.
-   Installing reaches the network through the sandbox's proxy, so the person's Network permission
-   decides. matplotlib uses the Agg backend.
-8. **What runs is what was classed.** When the gate classes a call, Spade stages its script (the
-   code, or the workspace file read through real folders only) by its content's hash in the
-   runtime. A workspace script's whole text goes to the reviewer on a reviewed route, and one too
-   long for the reviewer goes to the person. The run uses the staged copy, by an absolute path, so
-   a later change to the workspace file, a swap while the call waits, or a name starting with `-`
-   changes nothing. Modules beside the script still import: Spade's `boot.py` runs the staged
-   bytes with `__file__` set to the script's workspace path, the workspace as its working folder,
-   and the script's folder appended to the END of `sys.path`, after the standard library and the
-   installed packages, so no workspace file stands in for one of those. Imported modules are read
-   as they are then; only the script is what was classed.
-9. **A run says what it made.** The result names each regular file the run made, changed or
-   removed, told apart by size, nanosecond modification time and inode (links never followed,
-   `.spade` left out, and it says when the workspace is too large to see whole); the images among
-   them, opened without following a link, are given to the model and shown in the chat. Its output
-   and its files are untrusted, like a command's.
-10. **The system prompt says to use it.** "How you work" tells the bot to write and run a short
+7. **The Python is Spade's, not the workspace's.** Each bot has a runtime folder outside its
+   workspace (`<data>/workspace/.python/<bot>/`) that the sandbox reopens read-only for every run
+   of the bot (a new `Facts.runtime`, accepted only inside Spade's data). Its `control/` (the
+   launcher, `boot.py`, the set-up script, the lock, the staged scripts and module lists, and the
+   record of the current generation) is written only by Spade on the host, through directory
+   handles that never follow a link; no sandboxed run can write it, the set-up included. The
+   environments are generations (`generations/<id>/`), each written only by the contained set-up
+   run that built it (`Kind::PythonSetup`, which may write that generation and uv's cache and
+   downloaded Pythons, nothing else).
+8. **Packages are installed only with uv.** uv is a native program and never starts the
+   environment's Python once a package is in, so no installed package's start-up hook (`.pth`)
+   runs while Spade installs; pip, which is Python, never runs. A generation is built from the
+   whole wanted set (the locked packages, everything calls asked for, the new asks): `uv pip
+compile` resolves it from PyPI's index alone, binary wheels only, held to the locked versions,
+   with each artifact's hash; a resolution holding anything but pinned names and hashes (a URL, a
+   path, an option) is refused; `uv pip install --no-deps --require-hashes` installs exactly that.
+   uv's configuration discovery is off and files are copied, not linked. Spade then checks on the
+   host that every resolved package is installed at its resolved version and every asked one is
+   there, records the generation as current with one rename, and keeps the newest three. A run is
+   given the current generation by path and keeps it whatever is built after. A failed or
+   unverified build is deleted and the call fails; its script doesn't run. A call asks for more
+   with `packages` (a name or `name==version`, 20 at most, checked before anything runs, part of
+   what the gate classes and the reviewer sees). Without uv the environment is made with `python3
+-I -m venv --without-pip` and has the standard library only, said plainly, and a call asking
+   for packages is refused. Spade doesn't fetch uv itself: one command installs it, and a fetched
+   binary would be another pinned, hash-checked artifact per platform to keep. The environment is
+   made the first time the tool runs, never at start: with uv a pinned uv-managed CPython 3.12 when
+   one can be had, else a Python 3.10 or newer on the machine; with none, a plain error.
+   matplotlib uses the Agg backend.
+9. **What runs is what was classed.** When the gate classes a call, Spade stages its script (the
+   code, or the workspace file read through real folders only) by its content's hash in
+   `control/`. A workspace script's whole text goes to the reviewer on a reviewed route, and one
+   too long for the reviewer goes to the person. Staging is required: a call without its staged
+   copy, or whose copy no longer holds its bytes, is refused, and the workspace is never read
+   again. The run uses the copy by an absolute path, so a later change, a swap while the call
+   waits, or a name starting with `-` changes nothing. With it Spade stages the workspace modules
+   the script may import: the `.py` files under its folder that Spade's file tools wrote from a
+   clean prompt, as read then. `boot.py` serves those from their staged copies through a finder
+   after the standard library and the installed packages, and refuses any other workspace module
+   with an `ImportError` saying why. The workspace is never on `sys.path`, so no workspace file
+   stands in for a standard, installed or missing module. `__file__` is the script's workspace
+   path and the working folder is the workspace.
+10. **A run says what it made.** The result names each regular file the run made, changed or
+    removed, told apart by size, nanosecond modification time and inode (links never followed,
+    `.spade` left out, and it says when the workspace is too large to see whole); the images among
+    them, opened without following a link, are given to the model and shown in the chat. Its output
+    and its files are untrusted, like a command's.
+11. **The system prompt says to use it.** "How you work" tells the bot to write and run a short
     Python script for counting, data, files, conversions or charts instead of working them out, and
     to check its output.
 
@@ -92,12 +108,15 @@ often wrong. Models do better work when they can write a short script and read i
   seconds on a fast link) and uses a few hundred MB in its runtime folder; later calls start at
   once. A refused network leaves the bot with a bare Python until the person allows the package
   hosts.
-- A call adds packages with `packages` (a name or `name==version`, 20 at most, checked before
-  anything runs and seen by the gate and any reviewer). Spade's set-up installs them under the same
-  rules as the locked set: binary wheels from the one index, configuration off, the locked
-  versions held as constraints, the person's Network permission, recorded so later runs reuse
-  them. A package with no wheel can't be had this way. Pins are by version, not by hash, and the
-  lock has to be refreshed by hand.
+- A package with no binary wheel, or one depending on a URL, can't be had through the tool. The
+  locked set is pinned by version (each install is then checked by hash against what the index
+  served) and has to be refreshed by hand.
+- Without uv on the machine a bot has the standard library only.
+- A script can import only workspace modules Spade's file tools wrote from a clean prompt: one a
+  command made has to be written again with `workspace_write`, or folded into the script.
+- Each change of packages builds a whole new environment (from uv's cache, copied), and three
+  are kept, so the runtime takes up to three environments of disk. A run older than the two
+  changes before the current one can lose its environment mid-run.
 - A bot whose commands run outside the sandbox, and Windows, have no `python` yet; they use
   `shell`.
 
@@ -114,13 +133,21 @@ often wrong. Models do better work when they can write a short script and read i
   write limit is refused.
 - With a real interpreter in the macOS sandbox: a script that writes a CSV and a PNG names both
   and attaches the PNG (one-shot and in the terminal); the environment is set up once from a local
-  wheel and its package imports later with no reinstall; the `venv` path sets up despite a
-  shadowing `venv.py` and broken pip and uv configuration in the workspace; the bot's own command
-  can read the runtime and not change it; a script imports a module beside it and the code a
-  module at the workspace's top while a workspace `json.py` doesn't shadow the standard one; a
-  call's packages install once from a local wheel and later runs reuse them, a package with only
-  a source distribution and a spec that isn't a name are refused and the script doesn't run; a
-  script named `-c` runs as a script; the script classed
-  (and shown in full) is the script that runs after the workspace file is swapped; a long script
-  becomes a background job. With no Python the run says so; without the sandbox it is refused
+  wheel and its package imports later with no reinstall; without uv the environment is made
+  despite a shadowing `venv.py` and broken pip and uv configuration in the workspace, has the
+  standard library only and refuses packages; an installed package's `.pth` hook never runs
+  while Spade installs another; the bot's own command can read the runtime and change nothing in
+  it (launcher, environment, staged scripts); a script imports trusted modules beside it and at
+  the workspace's top while a workspace `json.py` doesn't shadow the standard one; a workspace
+  module written another way, or named like a package that isn't installed, raises `ImportError`;
+  a call's packages install once and later runs reuse them, and a package with only a source
+  distribution, one depending on a URL and a spec that isn't a name are refused, the script not
+  run and the environment left as it was; a call never classed, or whose staged copy changed, is
+  refused; a script named `-c` runs as a script; the script classed (and shown in full) is the
+  script that runs after the workspace file is swapped; a long script becomes a background job.
+- Unit: control files are written through handles and never through a link, a staged file counts
+  only while it holds its bytes, a search opens each file without following a link and checks
+  it on the handle, a resolution may hold only pinned names and hashes, a generation is made
+  current only when what is installed matches what was resolved and asked, and only the newest
+  three are kept. With no Python the run says so; without the sandbox it is refused
   before anything is written.

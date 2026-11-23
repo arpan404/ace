@@ -68,13 +68,17 @@ impl Confine for Security {
             Kind::Command => (commands_policy, Vec::new(), Vec::new()),
             Kind::Terminal { scratch } => (commands_policy, Vec::new(), vec![scratch.clone()]),
             Kind::Plugin { root } => (plugins_policy, vec![root.clone()], Vec::new()),
-            Kind::PythonSetup { runtime } => (commands_policy, Vec::new(), vec![runtime.clone()]),
+            Kind::PythonSetup { writable, .. } => (commands_policy, Vec::new(), writable.clone()),
         };
         // The bot's Python runtime (ADR 0220): its commands read and run it, and only Spade's
         // set-up of it writes it. Named only once it exists, so a bot without one opens nothing.
         let python = crate::workspace::python::runtime_of(&self.workspaces, &bot);
         let runtime = match kind {
             Kind::Command | Kind::Terminal { .. } if python.is_dir() => vec![python],
+            // The set-up reads the runtime it builds in only where it is Spade's for this bot.
+            Kind::PythonSetup { runtime, .. } if *runtime == python && python.is_dir() => {
+                vec![python]
+            }
             _ => Vec::new(),
         };
         let run = self.ids.next("run");
@@ -453,7 +457,7 @@ impl Security {
             .collect();
         let scratch: Vec<PathBuf> = match kind {
             Kind::Terminal { scratch } => vec![real(scratch)],
-            Kind::PythonSetup { runtime } => vec![real(runtime)],
+            Kind::PythonSetup { writable, .. } => writable.iter().map(|p| real(p)).collect(),
             _ => Vec::new(),
         };
         let plugin_root = match kind {
