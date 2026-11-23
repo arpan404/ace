@@ -17,9 +17,9 @@ use spade_server::presets;
 use spade_server::research::{LiveWeb, ResearchTool};
 use spade_server::skill_store::SkillStore;
 use spade_server::tools::{
-    AceLink, AceTarget, Asks, ConnectorSource, DecisionLog, EngineHandle, Retry, SkillLibrary, SkillLoad,
-    SkillSearch, TaskGoal, TaskPlan, TaskStatus, Todo, Tool, ToolSource, Toolbox, WebFetch,
-    WebSearch,
+    AceLink, AceTarget, Asks, ConnectorSource, DecisionLog, EngineHandle, Retry, SkillLibrary,
+    SkillLoad, SkillSearch, TaskGoal, TaskPlan, TaskStatus, Todo, Tool, ToolSource, Toolbox,
+    WebFetch, WebSearch,
 };
 use spade_server::workspace::shell::Shell;
 use spade_server::workspace::{Workspaces, workspace_tools};
@@ -763,6 +763,8 @@ fn limits(config: &Config) -> Limits {
         workers_at_once: config.workers_at_once.unwrap_or(defaults.workers_at_once),
         context_budget: config.context_tokens.unwrap_or(defaults.context_budget),
         knowledge_bytes: config.knowledge_bytes.unwrap_or(defaults.knowledge_bytes),
+        // The person's asks are always kept (ADR 0215).
+        asks: true,
         ..defaults
     }
 }

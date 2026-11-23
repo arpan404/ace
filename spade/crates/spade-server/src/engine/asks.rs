@@ -78,16 +78,13 @@ impl Engine {
 /// true when the reply must take one more step. Never for a helper, a paused bot, a stopped
 /// reply or while Spade pauses.
 pub(super) fn check(engine: &Engine, id: &str, reply: &str) -> bool {
-    if engine.helper_of(id).is_some() || engine.paused(id) {
+    if !engine.limits.asks || engine.helper_of(id).is_some() || engine.paused(id) {
         return false;
     }
     if halts(*engine.pause.borrow(), Point::Between) {
         return false;
     }
-    let _order = engine
-        .record_lock
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+    let _order = engine.record_lock.lock().unwrap_or_else(|p| p.into_inner());
     let Ok(events) = engine.load(id) else {
         return false;
     };

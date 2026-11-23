@@ -56,7 +56,9 @@ pub fn settled(events: &[Event], reply: &str) -> bool {
         let Event::Known(known) = event else { continue };
         match known {
             Known::ToolFinished { call_id, .. } => finished.push(call_id),
-            Known::StepFinished { reply: r, calls, .. } if r == reply => {
+            Known::StepFinished {
+                reply: r, calls, ..
+            } if r == reply => {
                 if calls.is_empty()
                     || calls.iter().any(|c| c.name != super::ASKS)
                     || calls.iter().any(|c| !finished.contains(&c.id.as_str()))

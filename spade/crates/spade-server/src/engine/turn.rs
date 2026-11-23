@@ -446,7 +446,10 @@ async fn model_step(
         .session(id)
         .effort(engine.step_effort(id));
     // The person's asks close the prompt, after everything stored (ADR 0215 §2).
-    let prompt = spade_core::asks::block::appended(prompt, &engine.asks_of(id, events));
+    let prompt = match engine.limits.asks {
+        true => spade_core::asks::block::appended(prompt, &engine.asks_of(id, events)),
+        false => prompt,
+    };
     let live = engine.live(id);
     engine.step_began(id);
     engine.set_status(id, Some(super::roster::THINKING.to_owned()));

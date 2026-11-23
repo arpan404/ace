@@ -175,7 +175,7 @@ pub const TOOLS: &[Tool] = &[
     spade(crate::task::TASK_STATUS, Task),
     spade(crate::self_edit::TASK_UPDATE, Task),
     spade("todo", Task),
-    spade(crate::asks::ASKS, Task),
+    added(crate::asks::ASKS, Task, PHASE_2),
     spade(crate::self_edit::PROFILE_UPDATE, Task),
     spade("memory_save", Memory),
     spade("memory_update", Memory),

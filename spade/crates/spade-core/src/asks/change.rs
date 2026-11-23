@@ -16,15 +16,44 @@ const REASON_CHARS: usize = 200;
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Change {
     /// Sorted as one open ask, or opened again.
-    Open { ask: String },
-    Split { ask: String, into: Vec<String> },
-    Done { ask: String, reason: String },
-    Dropped { ask: String, reason: String },
-    Chat { ask: String, reason: String },
-    Changed { ask: String, words: String, reason: String },
-    Waiting { ask: String, on: On, reason: String },
-    Standing { id: String, from: String, words: String },
-    Lift { standing: String, reason: String },
+    Open {
+        ask: String,
+    },
+    Split {
+        ask: String,
+        into: Vec<String>,
+    },
+    Done {
+        ask: String,
+        reason: String,
+    },
+    Dropped {
+        ask: String,
+        reason: String,
+    },
+    Chat {
+        ask: String,
+        reason: String,
+    },
+    Changed {
+        ask: String,
+        words: String,
+        reason: String,
+    },
+    Waiting {
+        ask: String,
+        on: On,
+        reason: String,
+    },
+    Standing {
+        id: String,
+        from: String,
+        words: String,
+    },
+    Lift {
+        standing: String,
+        reason: String,
+    },
 }
 
 /// What the call changed and what its result says.
