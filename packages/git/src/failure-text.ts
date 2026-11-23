@@ -10,22 +10,29 @@ const redact = createTextRedactor({});
 export class StderrTail {
   private chunks: Buffer[] = [];
   private bytes = 0;
+  /** Older bytes were dropped, so the window's first line may be the end of a longer one. */
+  private cut = false;
   accept(chunk: Buffer): void {
+    if (chunk.length > keptBytes) this.cut = true;
     const kept = chunk.length > keptBytes ? chunk.subarray(chunk.length - keptBytes) : chunk;
     this.chunks.push(Buffer.from(kept));
     this.bytes += kept.length;
     while (this.chunks.length > 1 && this.bytes - (this.chunks[0]?.length ?? 0) >= keptBytes) {
       this.bytes -= this.chunks.shift()?.length ?? 0;
+      this.cut = true;
     }
   }
-  /** What Git said, minus Trace2 records, with credentials redacted. Empty when it said nothing. */
+  /**
+   * What Git said, minus Trace2 records, with credentials redacted. Empty when it said nothing.
+   * The whole window is redacted before it is clipped to the reported size, so a secret the
+   * clip would split is still recognised.
+   */
   text(): string {
-    const lines = Buffer.concat(this.chunks)
-      .toString("utf8")
-      .replace(/\r/g, "\n")
-      .split("\n")
-      .filter((line) => line.trim() && !line.includes('{"event"'));
-    return redact(lines.join("\n").slice(-reportedCharacters));
+    const lines = Buffer.concat(this.chunks).toString("utf8").replace(/\r/g, "\n").split("\n");
+    // A line the window's cut split is dropped: its kept end may be a secret's unrecognisable tail.
+    if (this.cut) lines.shift();
+    const said = lines.filter((line) => line.trim() && !line.includes('{"event"'));
+    return redact(said.join("\n")).slice(-reportedCharacters);
   }
 }
 

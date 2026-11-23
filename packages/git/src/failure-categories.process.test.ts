@@ -141,3 +141,21 @@ test("a failed command keeps only a bounded, redacted tail of its stderr", async
   expect(stderr).not.toContain("ghp_0123456789");
   expect(stderr.length).toBeLessThanOrEqual(4096);
 });
+
+test("a secret that the reported tail's cut would split is still redacted", async () => {
+  const root = await repository();
+  await git(root, "remote", "add", "origin", "https://example.org/repo");
+  // The token's line, then one filler line of a length that puts the 4,000-character cut 30
+  // characters before the token's end: only its tail would be kept, too short to recognise.
+  const binary = await proxyGit(
+    `if (args.includes('push')) { fs.writeSync(2, "fatal: token ghp_0123456789abcdefghijklmnopqrstuvwxyzAB\\n" + "x".repeat(3969) + "\\n"); process.exit(1); }`,
+  );
+  const failure = await new GitService({ gitBinary: binary })
+    .push({ worktree: root, remote: "origin" })
+    .catch((error: unknown) => error);
+  const stderr = z.object({ details: z.object({ stderr: z.string() }) }).parse(failure)
+    .details.stderr;
+  expect(stderr).toContain("x".repeat(3969));
+  expect(stderr).not.toContain("abcdefghijklmnopqrstuvwxyzAB");
+  expect(stderr.length).toBeLessThanOrEqual(4000);
+});
