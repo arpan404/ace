@@ -582,7 +582,7 @@ fn a_checkpoint_is_due_every_hundred_entries_or_five_minutes() {
 /// The export clients read (`packages/ui-core/src/org/audit-lines.ts`) is exactly what this
 /// serializer writes: the shared sample is these lines, byte for byte.
 #[test]
-fn an_export_is_written_as_the_shared_sample_clients_read() {
+fn an_export_is_written_as_the_shared_sample_clients_read() -> serde_json::Result<()> {
     let lines = [
         Line::Header {
             org: "org_acme".into(),
@@ -621,10 +621,11 @@ fn an_export_is_written_as_the_shared_sample_clients_read() {
             ),
         }),
     ];
-    let written: Vec<String> = lines
+    let written = lines
         .iter()
-        .map(|line| serde_json::to_string(line).unwrap())
-        .collect();
+        .map(serde_json::to_string)
+        .collect::<serde_json::Result<Vec<String>>>()?;
     let sample = include_str!("../../../../spec/org-audit-export.jsonl");
     assert_eq!(written, sample.lines().collect::<Vec<_>>());
+    Ok(())
 }
