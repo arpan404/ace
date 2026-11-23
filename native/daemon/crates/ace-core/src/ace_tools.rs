@@ -483,5 +483,5 @@ fn request_mcp_server(request: &InteractionRequest) -> Option<String> {
 }
 
 fn vetted_json(raw: &crate::item_model::Vetted) -> Result<Json, crate::error::CoreError> {
-    crate::item_model::vetted_json(raw)
+    crate::item_model::vetted_json(&raw.0)
 }

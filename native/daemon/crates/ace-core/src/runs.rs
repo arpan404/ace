@@ -91,11 +91,11 @@ pub fn start_turn(
             .and_then(|runs| runs.get(native_id))
             .is_some_and(|id| state.runs.contains_key(id));
         if known {
-            return None;
+            return Some(());
         }
     }
     if active.is_some() && native_turn_id.is_none() {
-        return None;
+        return Some(());
     }
     let had_run = get(&state.agents, agent_key).is_some_and(|record| record.last_run.is_some());
     if active.is_none() && had_run {
@@ -249,14 +249,14 @@ fn end_turn_inner(
                         );
                     }
                 }
-                return None;
+                return Some(());
             }
         }
     }
     let mut run_id = run_id;
     if run_id.is_none() {
         if native_turn_id.is_none() && last_run_id.is_some() {
-            return None;
+            return Some(());
         }
         // A partial stream can contain the end boundary without the start.
         let new_id = match ctx.ids.next("run") {
@@ -321,11 +321,11 @@ fn end_turn_inner(
     );
     // A delayed end for an older native turn cannot terminate the current turn.
     if recovered_past {
-        return None;
+        return Some(());
     }
     if let Some(active) = active_id {
         if active != run_id {
-            return None;
+            return Some(());
         }
     }
     if !historical {

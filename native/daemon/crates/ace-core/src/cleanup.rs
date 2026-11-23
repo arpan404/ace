@@ -33,26 +33,18 @@ fn cancel_tool(state: &mut ThreadState, key: &str, now: i64, events: &mut Vec<Ev
 
 /// Close one open text: what arrived is final.
 fn close_text(state: &mut ThreadState, key: &str, events: &mut Vec<Event>) {
-    let changed = match state.items.get_mut(key) {
-        Some(item) => {
-            if item.complete() {
-                crate::indexes::refresh_item_index(state, key);
-                false
-            } else {
-                set_complete(item);
-                crate::indexes::refresh_item_index(state, key);
-                true
-            }
-        }
-        None => {
-            crate::indexes::refresh_item_index(state, key);
-            false
-        }
+    let Some(item) = state.items.get_mut(key) else {
+        crate::indexes::refresh_item_index(state, key);
+        return;
     };
-    if changed {
-        if let Some(item) = get(&state.items, key) {
-            emit(events, Event::ItemUpdated { item: item.clone() });
-        }
+    if item.complete() {
+        crate::indexes::refresh_item_index(state, key);
+        return;
+    }
+    set_complete(item);
+    crate::indexes::refresh_item_index(state, key);
+    if let Some(item) = get(&state.items, key) {
+        emit(events, Event::ItemUpdated { item: item.clone() });
     }
 }
 

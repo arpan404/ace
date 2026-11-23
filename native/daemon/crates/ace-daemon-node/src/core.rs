@@ -100,6 +100,21 @@ impl CoreThreadNative {
         }
     }
 
+    /// Import a snapshot (a restored or cloned state) behind a fresh handle.
+    #[napi(factory, catch_unwind)]
+    pub fn from_state(state_json: String) -> napi::Result<Self> {
+        let result = catch_unwind(AssertUnwindSafe(|| parse_state(&state_json)));
+        match result {
+            Ok(Ok(state)) => Ok(Self {
+                state,
+                batch: None,
+                buffer: Vec::with_capacity(65536),
+            }),
+            Ok(Err(error)) => Err(error.into()),
+            Err(_) => Err(napi::Error::from_reason("core thread failed to import")),
+        }
+    }
+
     /// Fold one fact, returning events and the refreshed state as JSON.
     #[napi(catch_unwind)]
     pub fn apply(

@@ -13,8 +13,7 @@ use crate::error::CoreError;
 use crate::json_io::{Json, Map, Maybe, de_i64};
 
 /// A provider's original payload, stored verbatim.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum RawPayload {
     /// The native payload with its type, name and data.
@@ -33,11 +32,82 @@ pub enum RawPayload {
         name: Option<String>,
         #[serde(rename = "blobRef")]
         blob_ref: String,
-        #[serde(deserialize_with = "de_i64")]
+        #[serde(deserialize_with = "crate::json_io::de_i64")]
         size: i64,
         #[serde(skip_serializing_if = "Option::is_none")]
         preview: Option<String>,
     },
+}
+
+impl<'de> serde::Deserialize<'de> for RawPayload {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error as _;
+        // Untagged enums buffer into content that `Box<RawValue>` cannot
+        // decode from, so discriminate manually: a blob reference reads as
+        // a blob, everything else as inline data kept verbatim.
+        let value = Json::deserialize(deserializer)?;
+        let map = match &value {
+            Json::Object(map) => map,
+            _ => return Err(D::Error::custom("raw payload must be an object")),
+        };
+        if map.contains_key("blobRef") || map.contains_key("size") || map.contains_key("preview")
+        {
+            let payload_type = map
+                .get("type")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| D::Error::custom("raw payload needs a type"))?
+                .to_owned();
+            let name = match map.get("name") {
+                None => None,
+                Some(Json::String(name)) => Some(name.clone()),
+                Some(_) => return Err(D::Error::custom("invalid raw payload")),
+            };
+            let blob_ref = map
+                .get("blobRef")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| D::Error::custom("invalid raw payload"))?
+                .to_owned();
+            let size = match map.get("size") {
+                Some(value) => crate::json_io::as_integer(Some(value))
+                    .ok_or_else(|| D::Error::custom("invalid raw payload"))?,
+                None => return Err(D::Error::custom("invalid raw payload")),
+            };
+            let preview = match map.get("preview") {
+                None => None,
+                Some(Json::String(preview)) => Some(preview.clone()),
+                Some(_) => return Err(D::Error::custom("invalid raw payload")),
+            };
+            Ok(Self::Blob {
+                payload_type,
+                name,
+                blob_ref,
+                size,
+                preview,
+            })
+        } else {
+            let payload_type = map
+                .get("type")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| D::Error::custom("raw payload needs a type"))?
+                .to_owned();
+            let name = match map.get("name") {
+                None => None,
+                Some(Json::String(name)) => Some(name.clone()),
+                Some(_) => return Err(D::Error::custom("invalid raw payload")),
+            };
+            let data = map.get("data").ok_or_else(|| D::Error::custom("invalid raw payload"))?;
+            let data = serde_json::from_value(data.clone())
+                .map_err(|_| D::Error::custom("invalid raw payload"))?;
+            Ok(Self::Inline {
+                payload_type,
+                name,
+                data,
+            })
+        }
+    }
 }
 
 /// Adapter-owned identity: native ids within a provider process.
@@ -376,7 +446,30 @@ pub struct ToolCall {
 
 /// The JSON behind a vetted-but-opaque leaf: validated structurally,
 /// stored verbatim so clients read back exactly what the adapter sent.
-pub type Vetted = Box<RawValue>;
+/// Deserialization goes through a plain value (untagged and tagged enums
+/// buffer content that raw slices cannot decode from), then re-encodes
+/// once; serialization from then on is byte-verbatim.
+#[derive(Debug, Clone)]
+pub struct Vetted(pub Box<RawValue>);
+
+impl serde::Serialize for Vetted {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Vetted {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = Json::deserialize(deserializer).map_err(serde::de::Error::custom)?;
+        vet_json(&value).map_err(serde::de::Error::custom)
+    }
+}
 
 /// Read a vetted leaf back as JSON for validation.
 pub fn vetted_json(raw: &RawValue) -> Result<Json, CoreError> {
@@ -386,7 +479,9 @@ pub fn vetted_json(raw: &RawValue) -> Result<Json, CoreError> {
 /// Re-encode a JSON subtree verbatim for vetted storage.
 pub fn vet_json(value: &Json) -> Result<Vetted, CoreError> {
     let text = serde_json::to_string(value).map_err(CoreError::invalid_json)?;
-    crate::json_io::raw_from(&text)
+    Ok(Vetted(
+        crate::json_io::raw_from(&text).map_err(CoreError::invalid_json)?,
+    ))
 }
 
 /// The passthrough extras of an approval's MCP server: kept, never dropped.

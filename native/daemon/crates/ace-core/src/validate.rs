@@ -589,9 +589,10 @@ pub fn shape_valid(
             _ => false,
         },
         "item.reconciled" | "item.upsert" => {
-            return crate::validate_items::item_error(state, fact, fact_type, now)
-                .map(|_| true)
-                .ok_or(());
+            return match crate::validate_items::item_error(state, fact, fact_type, now) {
+                None => Ok(true),
+                Some(_) => Ok(false),
+            };
         }
         "item.delta" => {
             matches!(
@@ -625,11 +626,12 @@ pub fn shape_valid(
                 fact.get("kind").and_then(|kind| kind.as_str()),
                 Some("shell" | "monitor" | "subagent" | "other")
             ) && match fact.get("owner") {
-                None | Some(Json::Null) => true,
+                None => true,
                 Some(Json::String(owner)) => owner == "ace",
                 _ => false,
             } && is_string(fact.get("title"))
                 && matches!(fact.get("stoppable"), Some(Json::Bool(_)))
+                && matches!(fact.get("ambient"), None | Some(Json::Bool(_)))
                 && match fact.get("internal") {
                     None => true,
                     Some(Json::Bool(internal)) => *internal,
@@ -652,6 +654,7 @@ pub fn shape_valid(
                     _ => false,
                 }
                 && match fact.get("raw") {
+                    None => true,
                     Some(Json::Array(raw)) => {
                         raw.iter().all(crate::validate_shapes::valid_raw_payload)
                     }

@@ -74,7 +74,7 @@ pub fn reject_fact(
     let raw = RawPayload::Inline {
         payload_type: "core.rejected_fact".to_owned(),
         name: None,
-        data: crate::item_model::vet_json(&diagnostic_data(input)).ok()?,
+        data: crate::item_model::vet_json(&diagnostic_data(input)).ok()?.0,
     };
     let owner_key = state.root_key.clone();
     let Some(owner_key) = owner_key else {

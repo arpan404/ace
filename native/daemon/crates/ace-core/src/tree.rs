@@ -457,7 +457,10 @@ pub fn ensure_initial_root(
     ctx: &mut ApplyContext<'_>,
     events: &mut Vec<Event>,
 ) -> Option<()> {
-    let initial = state.initial_root.clone()?;
+    let initial = match state.initial_root.clone() {
+        Some(initial) => initial,
+        None => return Some(()),
+    };
     state.initial_root = None;
     see_agent(
         state,

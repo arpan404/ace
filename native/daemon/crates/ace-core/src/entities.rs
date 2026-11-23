@@ -490,6 +490,9 @@ pub fn end_background(
     now: i64,
     events: &mut Vec<Event>,
 ) -> Option<()> {
+    if get(&state.tasks, task_key).is_none() {
+        return Some(());
+    }
     let task = get(&state.tasks, task_key)?.clone();
     let flagged = task.status == "unknown"
         && state.uncertain_tasks.get(task_key).is_some_and(|held| *held);
