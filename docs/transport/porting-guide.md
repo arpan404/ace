@@ -93,7 +93,8 @@ nothing from git, nothing new beyond what a task names.
   through from the bench's own environment, so a bench can compare off and on. The bench bundles
   the daemon into a temporary directory, so the development-build path a shell resolves from its
   own file doesn't exist there: the bench refuses to start when `ACE_TRANSPORT` is set without an
-  **absolute** `ACE_TRANSPORT_ADDON`. Change `scripts/test-home-policy.ts` (`:115`–`:129`, where
+  **absolute** `ACE_TRANSPORT_ADDON`. `ACE_TRANSPORT_EVIDENCE` passes through `daemonEnv` too, so
+  the bundled daemon writes the bench's evidence. Change `scripts/test-home-policy.ts` (`:115`–`:129`, where
   the other switches are allowlisted) so test workers and launch helpers keep `ACE_TRANSPORT`,
   `ACE_TRANSPORT_ADDON` and `ACE_TRANSPORT_EVIDENCE` (T1a.8). Create
   `packages/provider-kit/src/native-switches.test.ts`.
@@ -207,7 +208,9 @@ remote listeners, the relay. Rust implements the `MainSocket` interface
 
 **Paired benches and the ship rule** (all T1a benches; one bench at a time on this Mac, scheduled
 by the owner). Both legs run on the same T1a head commit and build. Each pair runs off then on,
-back to back, three pairs, A B A B; a pair whose load
+back to back, three pairs, A B A B. Every off leg runs with `env -u ACE_TRANSPORT -u
+ACE_TRANSPORT_EVIDENCE`; every on leg, of both benches, with `ACE_TRANSPORT=native` and a fresh,
+empty `ACE_TRANSPORT_EVIDENCE` file that must be non-empty afterwards, or that pair is void; a pair whose load
 average differs by more than 2× between its two runs is discarded and rerun. T1a may go default-on
 only if every median passes:
 
@@ -281,11 +284,19 @@ implementation, `RefuseUpgrades`, closes the connection without an answer. T1a.3
   3. Otherwise the driver gives hyper's `server::conn::http1` the stream wrapped in `prefixed.rs`'s
      `Prefixed<TcpStream>` (an `AsyncRead`/`AsyncWrite` that yields the bytes already read before
      reading the socket), with `keep_alive(true)` and Node's timeouts (keep-alive 5 s, headers
-     60 s, request 300 s), and the service of `proxy.rs`. A later request on the same keep-alive
-     connection that is an upgrade candidate is answered by the service with
-     `HTTP 400` and `Connection: close` (browsers, `ws` and ace's native clients open a new
-     connection per WebSocket; this is the one recorded difference from Node, which no test covers
-     today, and T1a.8's new test pins it).
+     60 s, request 300 s), `with_upgrades()`, `auto_date_header(false)` (forwarded responses
+     carry the internal server's own `Date`, and refusals carry none, as today), and the service
+     of `proxy.rs`.
+  4. **An upgrade candidate later on a keep-alive connection works, as on Node 26** (Node hands
+     it to the `upgrade` handler too). The service sees it (a request with `Upgrade` and
+     `upgrade` among the `Connection` tokens) and runs the same `UpgradeHandler` decision path in
+     its hyper form (T1a.3): the same order, statuses, header set, header values and bodies, with
+     the reservation and state machine of T1a.5. The only difference allowed is field-name case,
+     since hyper writes names in lower case and HTTP treats them as equal (RFC 9110 §5.1). A drop
+     returns an error from the service, which ends the connection with no response
+     (`proto/h1/dispatch.rs:365` in hyper 1.12 propagates it; a unit test pins that no bytes are
+     written). An accepted upgrade returns the `101` response, and `hyper::upgrade::on(request)`
+     yields the stream that goes to `SocketSink::opened`.
 - **Types and signatures**:
 
   ```rust
@@ -294,11 +305,19 @@ implementation, `RefuseUpgrades`, closes the connection without an answer. T1a.3
   impl HopSecret { pub fn generate() -> Result<Self, TransportError>; pub fn from_hex(hex: &str) -> Result<Self, TransportError>; }
   pub struct ProxyTarget { pub addr: SocketAddr /* 127.0.0.1 only */, pub secret: Arc<HopSecret> }
   pub struct RequestHead { pub method: String, pub target: String /* raw */, pub headers: Vec<(String, Vec<u8>)> }
+  pub trait UpgradeIo: AsyncRead + AsyncWrite + Unpin + Send + 'static {}  // Prefixed<TcpStream>, TokioIo<Upgraded>
+  pub enum UpgradeReply { Drop, Refuse(Response<Full<Bytes>>), Switch(Response<Full<Bytes>>, u64 /* reservation */) }
   pub trait UpgradeHandler: Send + Sync + 'static {
-      fn upgrade(&self, head: RequestHead, stream: Prefixed<TcpStream>, peer: Peer, shutdown: CancellationToken)
+      /// First on a connection: the handler owns the raw stream and writes the pinned bytes.
+      fn upgrade_raw(&self, head: RequestHead, stream: Prefixed<TcpStream>, peer: Peer, shutdown: CancellationToken)
           -> Pin<Box<dyn Future<Output = ()> + Send>>;
+      /// Later on a keep-alive connection: the same decision, answered through hyper.
+      fn upgrade_hyper(&self, head: RequestHead, peer: Peer, shutdown: CancellationToken)
+          -> Pin<Box<dyn Future<Output = UpgradeReply> + Send>>;
+      /// After a `Switch` reply: hyper's upgrade resolved (`Some`) or failed (`None`).
+      fn switched(&self, reservation: u64, stream: Option<Box<dyn UpgradeIo>>);
   }
-  pub struct RefuseUpgrades;                                              // drops the stream
+  pub struct RefuseUpgrades;                                              // drops the stream; `Drop` through hyper
   pub struct LoopbackListener { /* local addr, CancellationToken, JoinSet of connection tasks */ }
   impl LoopbackListener {
       pub async fn bind(addr: SocketAddr /* 127.0.0.1 only */, target: ProxyTarget, upgrades: Arc<dyn UpgradeHandler>) -> Result<Self, TransportError>;
@@ -352,7 +371,7 @@ implementation, `RefuseUpgrades`, closes the connection without an answer. T1a.3
   }
   pub enum AdmissionOutcome { Decided(AdmissionDecision), TimedOut }
   pub trait SocketSink: Send + Sync + 'static {
-      fn opened(&self, reservation: u64, stream: Prefixed<TcpStream>, user_agent: Option<String>);
+      fn opened(&self, reservation: u64, stream: Box<dyn UpgradeIo>, user_agent: Option<String>);
   }
   pub struct WebSocketUpgrades { admission: Arc<dyn UpgradeAdmission>, sink: Arc<dyn SocketSink> }  // implements UpgradeHandler
   ```
@@ -361,9 +380,13 @@ implementation, `RefuseUpgrades`, closes the connection without an answer. T1a.3
   8.22's `handleUpgrade`), each written by the handler straight to the stream:
   1. admission on the raw target (`/` only; anything else, `/?x` included, is `Drop`, as
      `request.url !== "/"` is today, `socket-upgrade.ts:52`). `Drop` closes with no bytes;
-     `Forbidden` and `Unavailable` (and `TimedOut`) write `refuseUpgrade`'s bytes exactly,
+     `Forbidden` and `Unavailable` (capacity, pre-auth, and an admission `TimedOut`) write
+     `refuseUpgrade`'s bytes exactly, with an empty body:
      `HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n` or the same with
-     `503 Service Unavailable` (`socket-upgrade.ts:6`–`:9`), then close;
+     `503 Service Unavailable` (`socket-upgrade.ts:6`–`:9`), then close. **Two different 503s**:
+     this empty-body one is admission's; an upgrade that reaches step 3 after the listener started
+     closing gets `ws`'s closing-state answer instead (`completeUpgrade`'s
+     `abortHandshake(socket, 503)`), `HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Type: text/html\r\nContent-Length: 19\r\n\r\nService Unavailable`;
   2. then `ws`'s checks, in its order, each failure written as `abortHandshake` writes it,
      `HTTP/1.1 <code> <reason>\r\nConnection: close\r\nContent-Type: text/html\r\nContent-Length: <n>\r\n\r\n<message>`
      (plus `Sec-WebSocket-Version: 13, 8` for the version row), with the reservation released:
@@ -376,7 +399,11 @@ implementation, `RefuseUpgrades`, closes the connection without an answer. T1a.3
      plus `Sec-WebSocket-Protocol: <first offered>` when any was offered (`ws`'s default), then
      `\r\n`; no `Sec-WebSocket-Extensions` (no compression on loopback);
   4. then `SocketSink::opened` with the stream (and any bytes read past the head, which are the
-     first WebSocket frames).
+     first WebSocket frames), as T1a.5's state machine allows.
+- **The hyper form** (`upgrade_hyper`, for keep-alive connections, T1a.2 step 4) makes the same
+  decisions in the same order and returns them as `UpgradeReply`: `Drop`; `Refuse` with the same
+  status, headers and body as the raw bytes above; `Switch` with the `101` and the same headers.
+  `switched` then hands the upgraded stream on, or reports that hyper's upgrade failed.
 - **Tests**: unit tests for the decision table (inputs → exact bytes). **Must not**: start framing
   (T1a.4's), negotiate extensions.
 - **Reviewer checks**: each row of step 2 compared with
@@ -409,7 +436,7 @@ Some(config))` with `max_message_size = Some(1 << 20)` and `max_frame_size = Som
       pub fn buffered_amount(&self) -> u64; pub fn ready_state(&self) -> u8;
       pub fn delivered(&self, charge: u64);            // the JS side consumed one message
   }
-  pub fn open(stream: Prefixed<TcpStream>) -> (SocketHandle, mpsc::UnboundedReceiver<SocketEvent>);
+  pub fn open(stream: Box<dyn UpgradeIo>) -> (SocketHandle, mpsc::UnboundedReceiver<SocketEvent>);  // either kind of stream
   ```
 
 - **Invariants** (as `ws` behaves today, which the tests pin):
@@ -494,16 +521,38 @@ Some(config))` with `max_message_size = Some(1 << 20)` and `max_frame_size = Som
   file; TypeScript keeps it in memory and passes it back to `start`.
 
 - **Admission, one state machine per upgrade, in Rust** (an atomic state, every transition a
-  compare-and-swap): `Pending` → `Accepted(reservation)` → `Opened` or `Released`; `Pending` →
-  `Refused` (forbidden, unavailable, drop); `Pending` → `TimedOut` after `admitTimeoutMs` (5,000),
-  which writes the 503 bytes and closes. **Who releases**: Rust, always, and at most once: a
-  handshake failure or client disconnect after `Accepted` moves to `Released` and calls `release`;
-  an acceptance that arrives after `TimedOut` (the JS promise resolved late) calls `release` for
-  its reservation at once and nothing else; a shutdown (`close`) moves every `Pending` to
-  `TimedOut` and every `Accepted` to `Released`. `opened` is called only on `Accepted → Opened`, so
-  a timed-out, disconnected or shut-down upgrade never reaches `opened`, and no reservation is
-  released twice. TypeScript's `release` is also idempotent (a reservation id it no longer holds is
-  ignored).
+  compare-and-swap):
+
+  ```text
+  Pending ──decided accept──▶ Accepted(r) ──CAS──▶ Writing(r) ──101 written, stream ready──▶ Opened
+     │                           │                    └──write or upgrade failed──▶ Released (release r)
+     │                           ├──client gone / ws check failed──▶ Released (release r)
+     │                           └──listener closing──▶ Released (release r; ws closing 503)
+     ├──decided refuse──▶ Refused
+     ├──admitTimeoutMs (5,000)──▶ TimedOut (admission 503)
+     ├──listener closing──▶ Closing (ws closing 503)
+     └──client gone──▶ Abandoned (no answer written)
+  ```
+
+  - **Who releases**: Rust, always, at most once, through these transitions. TypeScript's `release`
+    is also idempotent (an id it no longer holds is ignored).
+  - **The 101 write is owned by the connection task**: it moves `Accepted → Writing` before
+    writing the first byte of `101`, and only it leaves `Writing`. A shutdown that finds an
+    upgrade in `Writing` doesn't release it; it waits (bounded by the listener's close deadline)
+    for the task to finish. On success the task moves `Writing → Opened` and calls `opened`, so a
+    client that received `101` always has a registered socket, which T1a.7 closes with `1001` if
+    the daemon is closing. On a failed write, a client gone mid-write, or hyper's upgrade failing
+    (`switched(r, None)`), it moves `Writing → Released` and calls `release`. At the deadline the
+    task is cancelled through the same failure path.
+  - **The JavaScript completion outlives the connection**: `admit`'s promise is awaited by a
+    separate task, not by the connection task. When the client disconnects while `Pending`, the
+    state moves to `Abandoned` and the connection closes, but that task keeps waiting; when the
+    promise resolves after `Abandoned`, `TimedOut` or `Closing` with an acceptance, it calls
+    `release` for that reservation at once and nothing else. It ends when the promise settles, or
+    at `NativeLoopback.close`, after which TypeScript drops every reservation it holds anyway.
+  - `opened` is called only on `Writing → Opened`, so no timed-out, refused, abandoned or shut-down
+    upgrade ever reaches it.
+
 - **Ordering and bytes**: one `ThreadsafeFunction` per socket carries all of its events in
   `SocketEvent` order. For a `message`, the binding copies the Rust vector into a new JavaScript
   `Buffer`, zeroes the vector (`zeroize`) and drops it, delivers the event, and calls
@@ -560,7 +609,12 @@ Some(config))` with `max_message_size = Some(1 << 20)` and `max_frame_size = Som
 - **One cap, counted in both places.** Today the 256-socket cap is checked twice: at the upgrade
   (`full: () => cleanups.size >= 256`, `server.ts:289`) and again in `connected`
   (`server.ts:393`), which relay arrivals reach too (`options.relayMain`, `:1196`–`:1205`). With
-  native upgrades a reservation is held between the two: `PreAuthAdmission.reserve(kind,
+  native upgrades a reservation is held between the two. **The existing upgrade check counts
+  reservations too, for every listener**: `server.ts:289`'s `full` (shared by `attach(local)` and
+  `attach(remote)`, so the remote `ws` listeners in T1a use it as well) becomes
+  `() => cleanups.size + reserved >= 256`; without that, a remote upgrade at capacity would get
+  `101` from `ws` and then be terminated in `connected`, instead of refused with `503` before the
+  handshake. `PreAuthAdmission.reserve(kind,
 address): number` takes a pre-auth slot and a socket slot when `admit` returns `accept`
   (`upgradeDecision` is evaluated with `full: () => cleanups.size + reserved >= 256`), so a burst
   can't pass against capacity already promised. `connected(socket, isLocal, request,
@@ -581,9 +635,10 @@ relayed?, reservation?)` checks `cleanups.size + reserved - (reservation === und
   The URL and the endpoint file name the native port.
 - **Shutdown**, in `server.ts`'s order (`:1330`–`:1370`): native sockets get
   `closer.gracefulClose(socket, 1001, "Daemon shutdown")` with the other sockets, before awaiting
-  the listeners; `NativeLoopback.close(deadline)` then stops accepting (new upgrades are refused
-  with the 503 bytes, as `ws` answers once closing, `websocket-server.js` `completeUpgrade`),
-  moves pending admissions to `TimedOut` and accepted ones to `Released`, and drains; **a socket
+  the listeners; `NativeLoopback.close(deadline)` then stops accepting; upgrades not yet
+  `Writing` get `ws`'s closing-state 503 (the `text/html` one with the `Service Unavailable` body,
+  T1a.3), never admission's empty-body 503; it moves `Pending` to `Closing` and `Accepted` to
+  `Released`, waits for upgrades in `Writing` (T1a.5), and drains; **a socket
   whose `opened` arrives after the first 1001 sweep** is given
   `closer.gracefulClose(socket, 1001, "Daemon shutdown")` as soon as `connected` registers it (the
   closing flag is checked there), with the same bounded terminate; the internal server closes after
@@ -600,7 +655,12 @@ relayed?, reservation?)` checks `cleanups.size + reserved - (reservation === und
 - **Files**: create `scripts/list-server-tests.ts` and
   `apps/daemon/src/native-loopback.process.test.ts`.
 - **Discovery** (`list-server-tests.ts`): an import graph over `apps/daemon/src` and
-  `packages/*/src`, relative imports resolved. The seed set is every non-test module that calls
+  `packages/*/src`, with relative imports resolved **and workspace package imports resolved
+  through each package's `package.json` `exports`** (`@ace/daemon` →
+  `apps/daemon/src/index.ts`, `@ace/daemon/cli` → `src/cli.ts`, and every subpath of every
+  workspace package), so `packages/client/src/test-support.ts`, which reaches `startDaemon` through
+  `@ace/daemon`, joins the set and its callers (`admission-window.process.test.ts` and the rest)
+  are listed. An import the resolver can't resolve fails the script, naming it. The seed set is every non-test module that calls
   `startServer(`, `startDaemon(` or `startDaemonCli(`, or defines `fixture(` in
   `socket-test-support.ts`; then, repeated until nothing changes, every non-test module importing
   a module in the set joins it (so helpers of helpers count: `remote-test-support`,
@@ -632,26 +692,33 @@ relayed?, reservation?)` checks `cleanups.size + reserved - (reservation === und
     TCP connection is reported as `1006`; `send` after close calls its callback once with an error,
     on the next tick, through both overloads; a binary `Buffer` sent without options arrives binary
     and a `Buffer` with `{ binary: false }` arrives as text; shutdown closes open sockets with
-    `1001`; an upgrade to `/?x` gets no answer; a second request on a keep-alive connection that
-    asks to upgrade gets `400` on the native leg (the recorded difference, T1a.2).
+    `1001`; an upgrade to `/?x` gets no answer; an upgrade sent on a keep-alive connection after
+    an ordinary request opens a socket, as on Node (T1a.2 step 4).
 - **Run, both legs per file, one file at a time, with evidence**:
 
   ```sh
   node scripts/list-server-tests.ts > /tmp/t1a-files.txt
   while read -r f; do
     test -f "$f" || continue
-    bun --bun x vitest run "$f" --maxWorkers=4 >/dev/null 2>&1; off=$?
-    evidence=$(mktemp)
+    report=$(mktemp); evidence=$(mktemp)
+    env -u ACE_TRANSPORT -u ACE_TRANSPORT_EVIDENCE \
+      bun --bun x vitest run "$f" --maxWorkers=4 >/dev/null 2>&1; off=$?
     ACE_TRANSPORT=native ACE_TRANSPORT_EVIDENCE="$evidence" \
-      bun --bun x vitest run "$f" --maxWorkers=4 >/dev/null 2>&1; on=$?
-    test -s "$evidence" && used=native || used=NONE
-    echo "$off $on $used $f"; rm -f "$evidence"
+      bun --bun x vitest run "$f" --maxWorkers=4 --reporter=json --outputFile="$report" >/dev/null 2>&1; on=$?
+    ran=$(node -e 'const r=require(process.argv[1]);console.log(r.numTotalTests-r.numPendingTests-r.numTodoTests)' "$report")
+    if [ "$ran" = 0 ]; then used=platform-skipped
+    elif test -s "$evidence"; then used=native
+    else used=NONE; fi
+    echo "$off $on $used $ran $f"; rm -f "$report" "$evidence"
   done < /tmp/t1a-files.txt
   ```
 
-  Every file passes both legs, and every on leg reports `native`: a file whose on leg started no
-  native listener proves nothing and is investigated (a server started outside the switch, or a
-  scrubbed environment). `scripts/test-home-policy.ts` keeps the three variables (T0.1), and the
+  Every file passes both legs. Every on leg that executed at least one test reports `native`: one
+  that ran tests but started no native listener proves nothing and is investigated (a server
+  started outside the switch, or a scrubbed environment). A file whose tests all skipped on this
+  platform is recorded `platform-skipped`, apart from the executed legs, and is owed on the platform
+  it runs on: `daemon-stop-restart.process` runs only on Windows (every case is
+  `test.runIf(windows)`, `:15`–`:115`), so it counts on the Windows VM run, not on macOS. `scripts/test-home-policy.ts` keeps the three variables (T0.1), and the
   launch helpers already pass the environment through (`daemon-launch-test-support.ts`
   `daemonEnv`, `:19`–`:37`). Files whose remote sockets matter (`remote*`, `relay*`,
   `tailscale-https`, `access-cors`, `ticket-allocation`) keep those on TypeScript in T1a and must
