@@ -62,8 +62,37 @@ async function market(options: MarketOptions = {}) {
     marketplace: {
       entries: [
         listing("spade-skill", "triage-mail"),
-        listing("suit", "harbour-dusk", { title: "Harbour dusk" }),
-        listing("spade-bot", "future", { supported: false }),
+        {
+          ...listing("suit", "harbour-dusk", { title: "Harbour dusk", previews: ["a".repeat(64)] }),
+          items: [
+            {
+              kind: "text",
+              section: "Suit",
+              path: "suit.json",
+              before: false,
+              truncated: false,
+              text: JSON.stringify({
+                format: 1,
+                id: "harbour-dusk",
+                name: "Harbour dusk",
+                dark: { canvas: "#15171B", accent: "#E6DCCD" },
+              }),
+            },
+          ],
+        },
+        {
+          ...listing("spade-bot", "future", { supported: false }),
+          review: {
+            body: {
+              type: "spade-bot",
+              botName: "Future",
+              task: "",
+              model: "fast",
+              routines: [],
+              face: { kind: "character", v: 1, body: "fox", pair: "mint", eyes: "sleepy" },
+            },
+          },
+        },
         listing("spade-skill", "refused-one"),
         {
           ...listing("spade-skill", "scanned"),
@@ -139,6 +168,31 @@ test("the home lists featured rows with their words and says how many updates wa
     categories: [{ id: "mail", title: "Mail", countText: "5 entries" }],
     updatesText: "1 update",
   });
+});
+
+test("the phone receives a listing preview hash and the package artwork used on web", async () => {
+  const { ask } = await market();
+  expect(await ask({ op: "home" })).toMatchObject({
+    featured: [{ name: "harbour-dusk", picture: "a".repeat(64) }],
+  });
+  expect(
+    await ask({
+      op: "look",
+      source: "market",
+      type: "suit",
+      name: "harbour-dusk",
+      version: "1.0.0",
+    }),
+  ).toMatchObject({ ok: true, dark: ["#15171B", "#E6DCCD"], light: [] });
+  expect(
+    await ask({
+      op: "look",
+      source: "market",
+      type: "spade-bot",
+      name: "future",
+      version: "1.0.0",
+    }),
+  ).toMatchObject({ ok: true, face: { body: "fox", pair: "mint", eyes: "sleepy" } });
 });
 
 test("search answers rows and when the listings were last read", async () => {

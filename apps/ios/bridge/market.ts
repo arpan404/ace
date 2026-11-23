@@ -22,6 +22,7 @@ import {
   sourcesAnswer,
 } from "./market-home.ts";
 import { confirmedAnswer, confirmingRead } from "./market-confirm.ts";
+import { lookAnswer } from "./market-look.ts";
 import { installedAnswer } from "./market-installed.ts";
 import { installedRow } from "./market-rows.ts";
 import { doneAnswer, entryAnswer, reviewAnswer, reviewPageAnswer } from "./market-review.ts";
@@ -50,6 +51,7 @@ const v1 = [
   "read",
   "publisher",
   "picture",
+  "look",
   "sources",
   "addSource",
   "removeSource",
@@ -248,6 +250,8 @@ function shaped(
       return op === "search" ? searchAnswer(result, words) : undefined;
     case "publisher":
       return op === "publisher" ? publisherAnswer(result, words) : undefined;
+    case "look":
+      return op === "look" ? lookAnswer(operation.type, result) : undefined;
     case "picture":
       return op === "picture" ? pictureAnswer(result) : undefined;
     case "sources":
@@ -313,6 +317,8 @@ export class NativeMarket {
   readonly #pause: (ms: number, signal: AbortSignal) => Promise<void>;
   /** Each kept read's last answer, by its operation, the least recently used let go first. */
   readonly #last = new LruCache<string, object>({ maxEntries: keptAnswers });
+  /** Package art is keyed by listing version so it does not displace kept browse answers. */
+  readonly #looks = new LruCache<string, object>({ maxEntries: 128 });
   /** The reviews open on the machine, which Install is checked against before it is sent. */
   readonly #held = new HeldReviews();
   readonly #botName: (id: string) => string | undefined;
@@ -358,6 +364,10 @@ export class NativeMarket {
     }
     const reviewedOnly = request.reviewedOnly === true;
     const key = kept.has(op) ? JSON.stringify({ operation, reviewedOnly }) : undefined;
+    const lookKey =
+      operation.op === "look" && operation.version ? JSON.stringify(operation) : undefined;
+    const cachedLook = lookKey ? this.#looks.get(lookKey) : undefined;
+    if (cachedLook && !request.fresh) return cachedLook;
     const step = stepOf(op);
     const changes = step !== "read" && step !== "review";
     if (operation.op === "addSource" && !isCatalogAddress(operation.address))
@@ -423,6 +433,7 @@ export class NativeMarket {
     if (!answer) return refusalAnswer("failed", stepOf(op));
     const value = { ok: true, offline: false, ...answer, ...(op === "search" ? { next } : {}) };
     if (key) this.#last.set(key, value);
+    if (lookKey) this.#looks.set(lookKey, value);
     return value;
   }
 

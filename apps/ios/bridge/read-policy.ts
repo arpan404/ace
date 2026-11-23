@@ -78,6 +78,7 @@ const marketReads = new Set([
 const marketLookups = new Set([
   ...marketReads,
   "picture",
+  "look",
   "prepare",
   "prepareUpdate",
   "prepareRollback",
