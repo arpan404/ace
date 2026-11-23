@@ -20,8 +20,8 @@ pub use error::{
     CliErrorCode, CliOutcome, DAEMON_DOWN_HINT, DAEMON_DOWN_MESSAGE, FailureMapping, WireError,
 };
 pub use home::{
-    Home, Local, PROBE_TIMEOUT, Probe, ProbeAnswer, TcpProbe, host_connection,
-    parse_host_connection, reach_local,
+    Home, HostFilesError, Local, PROBE_TIMEOUT, Probe, ProbeAnswer, TcpProbe, host_connection,
+    parse_host_connection, parse_host_files, reach_local, read_host_files,
 };
 pub use http::{
     DEFAULT_HTTP_TIMEOUT, HttpMethod, HttpResponse, MAX_HTTP_RESPONSE_BYTES, exchange_ticket,
