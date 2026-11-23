@@ -66,27 +66,6 @@ export function seedFakeSpade(
   };
   here.endpoints.push(endpoint);
   here.newBotModel = "openrouter/anthropic/claude-sonnet-5.5";
-  // The person's subscriptions, as ace lists them (ADR 0133).
-  here.subscriptions = [
-    {
-      provider: "codex",
-      name: "Codex",
-      accounts: [
-        { id: "work", label: "Work" },
-        { id: "personal", label: "Personal" },
-      ],
-      models: [
-        { id: "gpt-6.1-sol", name: "GPT-6.1 Sol" },
-        { id: "gpt-6.1-luna", name: "GPT-6.1 Luna" },
-      ],
-    },
-    {
-      provider: "claude",
-      name: "Claude Code",
-      accounts: [{ id: "claude-cli-default", label: null }],
-      models: [{ id: "opus-5.5", name: "Opus 5.5" }],
-    },
-  ];
   here.liveModels.set("openrouter", [
     // A model that turns speech into words, for the mic's one-click setup (ADR 0134, amended).
     { id: "openai/whisper-1", name: "Whisper" },
@@ -173,8 +152,7 @@ export function seedFakeSpade(
   const garden = here.addAgent({
     id: "garden",
     name: "Garden",
-    model: "cli:codex@work/gpt-6.1-sol",
-    problem: "Codex is signed out. Sign in to it in ace, then send again.",
+    model: "openrouter/anthropic/claude-sonnet-5.5",
     avatar: {
       kind: "character",
       v: 1,

@@ -116,9 +116,14 @@ pub async fn run_now(
         .routine(id)?
         .filter(|r| r.kind == ROUTINE)
         .ok_or(RoutineError::NotFound)?;
-    if webhook && (r.paused || !matches!(trigger_of(&r), Trigger::Webhook)) {
+    // A paused routine doesn't run, whoever asks: a row read before it was paused elsewhere
+    // must not start it.
+    if r.paused {
+        return Err(RoutineError::Invalid("This routine is paused.".to_owned()));
+    }
+    if webhook && !matches!(trigger_of(&r), Trigger::Webhook) {
         return Err(RoutineError::Invalid(
-            "This routine is paused or has no webhook.".to_owned(),
+            "This routine has no webhook.".to_owned(),
         ));
     }
     let (cause, label) = if webhook {

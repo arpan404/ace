@@ -146,7 +146,7 @@ test("publishing holds Next on a failed check until Check again passes", async (
     await within(market).findByRole("button", { name: /Instructions and scripts a bot can use/ }),
   );
   await userEvent.click(await within(market).findByRole("button", { name: "Choose a folder…" }));
-  await userEvent.type(within(market).getByLabelText("Name in the Marketplace"), "sort-receipts");
+  await userEvent.type(within(market).getByLabelText("Name in the Store"), "sort-receipts");
   await userEvent.type(within(market).getByLabelText("Folder on this machine"), "/Users/me/sort");
   await within(market).findByRole("list", { name: "What will upload" });
   await waitFor(() =>

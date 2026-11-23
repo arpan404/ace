@@ -220,7 +220,9 @@ impl Engine {
             }
             index.links.contains_key(id)
         };
-        if !watched {
+        // A task lane (ADR 0217) is checked for its report the same way; it went on the live
+        // list before any reply of it was stored (`live_before_reply`).
+        if !watched && !self.is_lane(id) {
             return;
         }
         let mut dirty = lock(&self.workers.dirty);
@@ -234,6 +236,8 @@ impl Engine {
     /// task never done meanwhile.
     pub(super) fn roll_up(&self, id: &str, own: Activity) -> Activity {
         let children = self.worker_children(id);
+        // Its task lanes (ADR 0217): working while one works, waiting while one waits.
+        let (lanes, live_lanes) = self.lanes_rolled(id);
         // The callees of its open contract calls (ADR 0200 §6.2).
         let callees: Vec<String> = own
             .calls
@@ -250,6 +254,7 @@ impl Engine {
             }
         });
         if children.is_empty()
+            && live_lanes == 0
             && callees.is_empty()
             && remote.is_none()
             && !own.ace_waiting
@@ -269,7 +274,15 @@ impl Engine {
             }
             activity.state = state;
         }
-        let mut under = ace_state(&activity);
+        let mut under = rolled(ace_state(&activity), lanes);
+        activity.tasks = live_lanes;
+        // A lane's request is asked in main too, so main may read waiting itself: still the
+        // lane's (ADR 0217 §7).
+        if lanes == State::Waiting
+            && (activity.state != State::Waiting || activity.waiting_for.is_none())
+        {
+            activity.waiting_for = Some("task");
+        }
         let mut working = 0;
         for child in &children {
             let state = self.node_state(child, 0);
@@ -316,7 +329,7 @@ impl Engine {
     /// from everything under it. A bot made from a recipe is narrowed to the recipe's tools.
     pub(super) fn narrow_registry(&self, id: &str, registry: Registry) -> Registry {
         let owner = self
-            .helper_of(id)
+            .hidden_of(id)
             .map_or_else(|| id.to_owned(), |h| h.parent);
         let Some(link) = self.worker_link(&owner) else {
             // A top-level bot made from a recipe that named its tools has only those (ADR 0168),
@@ -359,6 +372,8 @@ impl Engine {
             .unwrap_or_default();
         lock(&self.workers.dirty).extend(all);
         self.workers.kick.notify_one();
+        // Lanes carry on, and a report owed from before a restart goes out once (ADR 0217 §6).
+        self.resume_lanes();
         // A cancel ace never confirmed before Spade stopped is tried again.
         self.resume_ace_stops();
         if self.workers.running.swap(true, Ordering::SeqCst) {

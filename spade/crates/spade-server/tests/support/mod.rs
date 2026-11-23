@@ -3,7 +3,7 @@
 
 #![allow(dead_code)]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -11,6 +11,7 @@ pub mod code;
 pub mod contracts;
 pub mod fleet;
 pub mod gated;
+pub mod lanes;
 pub mod market;
 #[cfg(any(target_os = "macos", all(target_os = "linux", feature = "landlock")))]
 pub mod org;
@@ -365,8 +366,6 @@ pub struct Options {
     pub clock: Option<Arc<dyn Clock>>,
     /// The engine's ids; counting from 1 when absent.
     pub ids: Option<Arc<dyn Ids>>,
-    /// Where bots on subscriptions reach ace (ADR 0133), set before work opens.
-    pub brains: Option<spade_server::engine::BrainSource>,
     /// Called with the engine before it opens for work: what a restarted Spade sets up before a
     /// paused turn resumes (its security service, say).
     pub before_work: Option<BeforeWork>,
@@ -382,6 +381,11 @@ pub struct Options {
     /// Spade's classifier (ADR 0172) is on. Off by default here, so tests of the reviewer keep
     /// their script; its own tests turn it on, as it is in a real Spade.
     pub classifier: bool,
+    /// How the sandbox worlds' `python` finds and sets up Python (ADR 0220); as Spade does when
+    /// absent.
+    pub python: Option<spade_server::workspace::python::Setup>,
+    /// The sandbox worlds' shell waits this long before it ends a command's processes.
+    pub shell_end_delay: Option<Duration>,
 }
 
 /// A reviewer whose endpoint refuses connections (a local port nothing listens on).
@@ -486,12 +490,13 @@ impl Default for Options {
             cloud: None,
             clock: None,
             ids: None,
-            brains: None,
             before_work: None,
             model_retry: None,
             search: None,
             reviewer: Some(UNREACHABLE_REVIEWER.to_owned()),
             classifier: false,
+            python: None,
+            shell_end_delay: None,
         }
     }
 }
@@ -548,6 +553,19 @@ impl Spade {
         options: Options,
     ) -> Result<Self> {
         let fake = FakeProvider::start_sequence(scripts).await?;
+        let dir = Arc::new(tempfile::tempdir()?);
+        Self::serve(fake, dir, tools, options).await
+    }
+
+    /// Like `start_with`, with requests matching a route taking that route's scripts, so work
+    /// running side by side (task lanes) gets its own answers whatever order its calls arrive in.
+    pub async fn start_routed(
+        routes: Vec<spade_testkit::Route>,
+        scripts: Vec<Script>,
+        tools: Vec<Arc<dyn Tool>>,
+        options: Options,
+    ) -> Result<Self> {
+        let fake = FakeProvider::start_routed(routes, scripts).await?;
         let dir = Arc::new(tempfile::tempdir()?);
         Self::serve(fake, dir, tools, options).await
     }
@@ -797,9 +815,6 @@ impl Spade {
                 ..Default::default()
             })?;
         }
-        if let Some(brains) = options.brains.clone() {
-            engine.set_brains(brains);
-        }
         // A test's market signs the packages it installs; its key is what this Spade trusts.
         market::trust(&engine);
         if let Some(before) = &options.before_work {
@@ -878,6 +893,22 @@ impl Spade {
         let _ = (&mut self.task).await;
         let fake = FakeProvider::start_sequence(scripts).await?;
         Self::serve(fake, self.dir.clone(), tools, Options::default()).await
+    }
+
+    /// Like `restart`, with routes (see [`Spade::start_routed`]) and options.
+    pub async fn restart_routed(
+        mut self,
+        routes: Vec<spade_testkit::Route>,
+        scripts: Vec<Script>,
+        tools: Vec<Arc<dyn Tool>>,
+        options: Options,
+    ) -> Result<Self> {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        let _ = (&mut self.task).await;
+        let fake = FakeProvider::start_routed(routes, scripts).await?;
+        Self::serve(fake, self.dir.clone(), tools, options).await
     }
 
     /// Stops this server, runs `sql` on its database (what a crash left behind), and opens a new
@@ -985,7 +1016,7 @@ impl Spade {
                 .body(bytes.clone());
         }
         if stamp && let Some((target, value)) = guarded(method.as_str(), path, bytes.as_deref()) {
-            let signed = self.person_stamp(&target, &value)?;
+            let signed = person_stamp(&self.person_key_path, &target, &value)?;
             request = request.header(spade_server::security::attest::HEADER, signed);
         }
         let response = request.send().await?;
@@ -1256,6 +1287,25 @@ fn person_key_at(dir: &tempfile::TempDir, options: &Options) -> Result<PathBuf> 
         std::fs::write(&path, key)?;
     }
     Ok(path)
+}
+
+/// Signs a change for a client acting with the test person's standing.
+pub fn person_stamp(key_path: &Path, target: &str, value: &str) -> Result<String> {
+    let key = std::fs::read_to_string(key_path)?;
+    let key = key.trim();
+    let key: Vec<u8> = (0..key.len())
+        .step_by(2)
+        .map(|at| u8::from_str_radix(&key[at..at + 2], 16))
+        .collect::<std::result::Result<_, _>>()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| {
+            i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
+        });
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    Ok(spade_server::security::attest::sign(
+        &key, target, value, now, &nonce,
+    ))
 }
 
 /// What ace's daemon stamps as the person's on `method path` with `body` for a window that proved

@@ -21,6 +21,8 @@ const PopoverDescription = PopoverPrimitive.Description;
 /**
  * Glass popover, 12px radius, fade + 4px rise on the spring curve. `keepMounted` keeps its
  * content mounted (hidden) while closed, for controls whose shortcuts must stay bound.
+ * `surface="solid"` is for a popover that holds content (a list to read, not controls): it is
+ * always solid, so what is behind never shows through (DESIGN.md, "Solid").
  */
 function PopoverContent({
   className,
@@ -32,10 +34,10 @@ function PopoverContent({
   collisionBoundary,
   collisionPadding = 8,
   keepMounted,
+  surface,
   children,
   ...props
-}: PopoverPrimitive.Popup.Props &
-  Pick<
+}: PopoverPrimitive.Popup.Props & { surface?: "solid" | undefined } & Pick<
     PopoverPrimitive.Positioner.Props,
     | "side"
     | "align"
@@ -46,7 +48,8 @@ function PopoverContent({
     | "collisionPadding"
   > &
   Pick<PopoverPrimitive.Portal.Props, "keepMounted">) {
-  const material = useFloatingMaterial();
+  const floating = useFloatingMaterial();
+  const material = surface === "solid" ? "ace-floating-solid" : floating;
   return (
     <PopoverPrimitive.Portal keepMounted={keepMounted}>
       <PopoverPrimitive.Positioner

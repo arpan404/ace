@@ -46,7 +46,7 @@ export interface PersonFacts {
 const computer: Readonly<Record<string, string>> = {
   install: "Install this from ace on your computer.",
   turnOnForBots: "Turn this on from ace on your computer.",
-  publish: "Do this from ace on your computer: the Marketplace wants you to confirm it there.",
+  publish: "Do this from ace on your computer: the Store wants you to confirm it there.",
 };
 
 const pairAgain: Readonly<Record<string, string>> = {

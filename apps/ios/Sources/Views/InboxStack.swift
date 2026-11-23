@@ -86,8 +86,9 @@ struct InboxStack<Destination: View, Side: View>: View {
 
     var body: some View {
         InboxSplit(path: $path, drawer: $drawer, selecting: selecting) {
-            root.inboxCommands(commands)
+            root
         } page: { page($0) } side: { side($0, $1) } empty: { nothingOpen }
+            .inboxCommands(commands)
     }
 
     /// The detail column with nothing open: how many need the person, under the same guards as

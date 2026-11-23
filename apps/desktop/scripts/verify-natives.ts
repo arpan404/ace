@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { mismatchedBinaries, type Arch } from "@ace/release/native-arch";
+import { daemonRuntimePath, shippedExecutableName } from "@ace/service/process-names";
 import { dist as builtDist } from "./common.ts";
 import { koffiBinary, koffiLicense, mainProcessNeedsKoffi } from "./koffi.ts";
 
@@ -17,13 +18,17 @@ export async function verifyNatives(
 ): Promise<void> {
   const executable = (folder: string, name: string) =>
     join(dist, folder, platform === "win32" ? `${name}.exe` : name);
+  const runtime =
+    platform === "win32" ? join(dist, "runtime", "node.exe") : join(dist, "runtime/bin/node");
   // The daemon runs these directly, so a lost mode bit would show only on a user's machine.
   const executables = [
     ...(platform === "darwin" ? [executable("bin", "ace-tray")] : []),
-    executable("media", "ace-media"),
-    executable("files", "ace-files"),
-    executable("history", "ace-history"),
+    ...(["media", "files", "history"] as const).map((name) =>
+      join(dist, name, shippedExecutableName(name, platform)),
+    ),
     join(dist, "bin", platform === "win32" ? "rg.exe" : "rg"),
+    // The app starts the daemon on the runtime's `ace Service` name.
+    daemonRuntimePath(runtime, platform),
   ];
   // Windows terminals need no guardian: a Job Object owns them (ADR 0095).
   const required = [
@@ -35,13 +40,13 @@ export async function verifyNatives(
           koffiLicense(join(dist, "node_modules")),
         ]
       : []),
+    runtime,
     ...(platform === "win32"
-      ? [join(dist, "runtime", "node.exe"), join(dist, "daemon/descriptor.node")]
+      ? [join(dist, "daemon/descriptor.node")]
       : [
           join(dist, "daemon/descriptor.node"),
           // Every terminal the daemon opens starts this guardian.
           join(dist, "daemon/group-keeper"),
-          join(dist, "runtime/bin/node"),
         ]),
   ];
   const problems = required.filter((path) => !existsSync(path)).map((path) => `missing ${path}`);

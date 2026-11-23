@@ -192,6 +192,19 @@ test("workers nest under their maker while the maker or one of its workers is op
   ]);
 });
 
+test("an expanded family shows Working in place of the root's worker count", () => {
+  const bots = family();
+  bots[0] = bot({
+    id: maker.id,
+    name: maker.name,
+    last_activity: 5,
+    state: "working",
+    status: "1 worker working",
+  });
+  expect(spadeListEntries(bots, [], "gh")[0]?.row.line).toBe("Working");
+  expect(spadeListEntries(bots, [], undefined)[0]?.row.line).toBe("1 worker working");
+});
+
 test("a folded family is one row, but a worker that needs you or failed stays raised under its maker", () => {
   expect(shape(spadeListEntries(family(), [], "inbox"))).toEqual(["gh:0", "inbox:0"]);
   const bots = family();

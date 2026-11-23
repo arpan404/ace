@@ -181,6 +181,7 @@ fn asked(call_id: &str, reply: &str) -> Event {
         &form(json!({ "name": { "type": "string" } })),
     );
     Event::Known(Known::QuestionAsked {
+        lane: None,
         reply: reply.to_owned(),
         call_id: call_id.to_owned(),
         question: card.summary,

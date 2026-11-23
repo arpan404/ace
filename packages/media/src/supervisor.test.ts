@@ -588,9 +588,9 @@ describe("mediaBinaryPath", () => {
           mode: "release",
           entry: "/rel/ace.mjs",
           platform: "linux",
-          exists: exists(["/rel/media/ace-media"]),
+          exists: exists(["/rel/media/ace-media-service"]),
         }),
-      ).toBe("/rel/media/ace-media");
+      ).toBe("/rel/media/ace-media-service");
     } finally {
       if (original === undefined) delete process.env.ACE_MEDIA_PATH;
       else process.env.ACE_MEDIA_PATH = original;
@@ -602,19 +602,19 @@ describe("mediaBinaryPath", () => {
         mode: "release",
         entry: "/rel/ace.mjs",
         platform: "win32",
-        exists: exists(["/rel/media/ace-media.exe"]),
+        exists: exists(["/rel/media/ace Media Service.exe"]),
       }),
-    ).toBe("/rel/media/ace-media.exe");
+    ).toBe("/rel/media/ace Media Service.exe");
     expect(
       mediaBinaryPath({
         mode: "release",
         entry: "/App/Resources/daemon/ace.mjs",
         platform: "darwin",
         exists: (path) =>
-          path === "/App/Resources/media/ace-media" ||
+          path === "/App/Resources/media/ace Media Service" ||
           (path.startsWith("/App/Resources/daemon/") && !path.endsWith("ace.mjs")),
       }),
-    ).toBe("/App/Resources/media/ace-media");
+    ).toBe("/App/Resources/media/ace Media Service");
     expect(
       mediaBinaryPath({
         mode: "release",

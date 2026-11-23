@@ -48,6 +48,9 @@ struct InboxView: View {
     @State private var composeProject: String?
     /// `ace://` links waiting for the app to be ready (`PendingLinks`).
     @State private var links = PendingLinks(launching: SpikeConfiguration.linkOnLaunch)
+    /// Bumped by Talk to Spade (`SpadeTalkHandoff`): the Spade tab opens the main Spade, recording.
+    @State private var spadeTalks = 0
+    @Environment(SpadeTalkHandoff.self) private var spadeTalk: SpadeTalkHandoff?
     /// The open thread's commands, for Search (`ThreadKeysBox`).
     @State private var threadKeysBox = ThreadKeysBox()
     @State private var renamingRow: InboxKey?
@@ -93,6 +96,13 @@ struct InboxView: View {
             // `ace://` links from other apps, Shortcuts and Copy link. One that arrives before the
             // machines are read or while the app is locked waits until it can open.
             .onOpenURL { url in links.add(url) }
+            // Talk to Spade, from the Action button or Control Center: taken once, here only.
+            .task(id: spadeTalk?.asks) {
+                guard spadeTalk?.take() == true else { return }
+                place = nil
+                tab = .spade
+                spadeTalks += 1
+            }
             .task(id: LinkReadiness(links: links, unlocked: !(lock?.locked ?? false), machinesReady: machinesReady, noMachines: noMachines)) {
                 // Taking them changes this task's id, which cancels it: they open in their own task.
                 let urls = links.take(unlocked: !(lock?.locked ?? false), machinesReady: machinesReady, noMachines: noMachines)
@@ -179,9 +189,10 @@ struct InboxView: View {
         }
     }
 
-    private var tabs: some View {
-        // Built from small parts: one builder with every tab and condition takes Xcode 26's
-        // type checker longer than it allows.
+    /// The tabs and what they hand down. The chain is cut in three (`tabBar`, `tabsFollowing`,
+    /// `tabs`) because Xcode 26's type checker gives up on it whole.
+    private var tabBar: some View {
+        // Built from small parts: one builder with every tab and condition takes too long too.
         TabView(selection: tabChoice) {
             placeTabs
             spadeTab
@@ -194,6 +205,11 @@ struct InboxView: View {
         .environment(\.spadeWorking, inbox.spadeWorking)
         .environment(\.homeRetap, retap)
         .environment(\.homeTab, tab)
+    }
+
+    /// The tab bar following the places it shows: Spade turning off, a narrowed window, paths.
+    private var tabsFollowing: some View {
+        tabBar
         // Spade turned off on the machine while its tab showed: back to Threads.
         .onChange(of: showsSpade) { _, shown in if !shown && tab == .spade { tab = .threads } }
         .sensoryFeedback(AceDesign.Haptic.tab, trigger: tab)
@@ -218,10 +234,24 @@ struct InboxView: View {
             lastPlace = ""
             if threadsPath.isEmpty && chatsPath.isEmpty { openThread(key) }
         }
+    }
+
+    private var tabs: some View {
+        tabsFollowing
         .environment(\.otherMachines, otherMachines)
         // The machine's list caught up with the thread Open waited for: it opens now.
-        .onChange(of: awaitedListed) { _, listed in
-            if listed, let awaited = awaitedOpen { openThread(awaited.key); awaited.opened() }
+        .onChange(of: awaitedOutcome) { _, outcome in
+            guard let awaited = awaitedOpen else { return }
+            switch outcome {
+            case .opened: openThread(awaited.key, listed: inbox.client(awaited.key.machineId)?.inbox[awaited.key.id] != nil); awaited.opened()
+            // Gone, or its machine was removed: waiting would never open it.
+            case .missing, .unpaired: awaitedOpen = nil
+            case .waiting, nil: break
+            }
+        }
+        .onChange(of: awaitedLocateFailed) { _, failed in if failed { awaitedOpen = nil } }
+        .onChange(of: awaitedNeedsLocate) { _, key in
+            if let key { inbox.client(key.machineId)?.locate(key.id) }
         }
         .sensoryFeedback(.success, trigger: settles)
         // Bulk actions, deletes, moves and Mark unread confirm with the same tap.
@@ -265,7 +295,7 @@ struct InboxView: View {
 
     /// Spade: the bots of a machine that shows it, and one conversation.
     private var spade: some View {
-        SpadeTab(inbox: inbox, chosen: tab == .spade)
+        SpadeTab(inbox: inbox, chosen: tab == .spade, talks: spadeTalks)
             .inboxFootBar {
                 if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }
             }
@@ -364,10 +394,10 @@ struct InboxView: View {
     /// reported missing.
     private var otherMachines: OtherMachines {
         OtherMachines(client: { inbox.client($0) }, name: { inbox.name($0) }, open: { key, opened in
-            let client = inbox.client(key.machineId)
-            let result = OpenElsewhere.of(paired: client != nil, listed: client?.inbox[key.id] != nil, loaded: client?.inboxConfirmed == true)
+            inbox.client(key.machineId)?.forgetLocate(key.id)
+            let result = openOutcome(key)
             switch result {
-            case .opened: openThread(key); opened()
+            case .opened: openThread(key, listed: inbox.client(key.machineId)?.inbox[key.id] != nil); opened()
             case .waiting: awaitedOpen = AwaitedOpen(key: key, opened: opened)
             case .unpaired, .missing: break
             }
@@ -377,9 +407,27 @@ struct InboxView: View {
     /// Another machine's thread Open asked for before that machine listed it, and what runs once
     /// it shows (a transfer's sheet closes).
     private struct AwaitedOpen { let key: InboxKey; let opened: @MainActor @Sendable () -> Void }
-    /// Whether the thread Open waits for has reached its machine's list.
-    private var awaitedListed: Bool {
-        awaitedOpen.map { inbox.client($0.key.machineId)?.inbox[$0.key.id] != nil } ?? false
+    /// What Open for `key` comes to now, from its machine's list: freshness, whether it is whole,
+    /// and what reading the thread by its id found when the list has older pages left.
+    private func openOutcome(_ key: InboxKey) -> OpenElsewhere {
+        let client = inbox.client(key.machineId)
+        return OpenElsewhere.of(paired: client != nil, listed: client?.inbox[key.id] != nil, loaded: client?.inboxConfirmed == true,
+                                complete: client?.listComplete ?? true, located: client?.located[key.id])
+    }
+    /// How the Open that waits stands: it opens once the thread shows (or is found by its id), and
+    /// gives up when the machine's live list, whole or read by id, says it is gone.
+    private var awaitedOutcome: OpenElsewhere? { awaitedOpen.map { openOutcome($0.key) } }
+    /// Reading the thread by id failed after trying again: the Open stops waiting (the error says so).
+    private var awaitedLocateFailed: Bool {
+        guard let key = awaitedOpen?.key else { return false }
+        return inbox.client(key.machineId)?.locateFailed.contains(key.id) ?? false
+    }
+    /// The Open that waits needs its thread read by id: its machine's live list has older pages.
+    /// Which thread, so a different target (or the same one asked again) is read in its turn.
+    private var awaitedNeedsLocate: InboxKey? {
+        guard let key = awaitedOpen?.key, let client = inbox.client(key.machineId),
+              client.inboxConfirmed, !client.listComplete, client.inbox[key.id] == nil else { return nil }
+        return key
     }
 
     /// The thread to reopen is known to its machine. A machine that never lists it again (the

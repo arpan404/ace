@@ -5,7 +5,9 @@ import SwiftUI
 /// agent) or its chat (a bot). Under a worker waiting on the person sit its requests on the
 /// thread's own cards, so a plan is approved or sent back, a question answered, right here
 /// (`NeedsRequestCard`, answering through the inbox's path), whether they wait on its own thread
-/// or on one it delegated. The words and states are the bridge's.
+/// or on one it delegated. A request this phone can't show here (its thread archived, or outside
+/// the loaded list) leaves a line that opens the thread holding it, never a bare "Needs you".
+/// The words and states are the bridge's.
 struct SpadeWorkersCard: View {
     let workers: SpadeModel.Workers
     let client: ClientModel
@@ -31,6 +33,7 @@ struct SpadeWorkersCard: View {
                                                  open: { openThread(thread) }, draft: draft(request.id))
                             }
                         }
+                        if let thread = unshown(worker) { elsewhere(thread) }
                     }
                 }
             }
@@ -86,6 +89,34 @@ struct SpadeWorkersCard: View {
     /// The threads whose requests show under a waiting worker.
     private func asking(_ worker: SpadeModel.Workers.Worker) -> [String] {
         worker.asking ?? worker.thread.map { [$0] } ?? []
+    }
+
+    /// The deepest thread asking for a worker, when no card shows and the inbox doesn't hold it
+    /// (so none will): where to answer. One the inbox holds shows its cards once they are read.
+    private func unshown(_ worker: SpadeModel.Workers.Worker) -> String? {
+        let threads = asking(worker)
+        guard let deepest = threads.last, client.inbox[deepest] == nil,
+              threads.allSatisfy({ client.needsYou($0).isEmpty }) else { return nil }
+        return deepest
+    }
+
+    /// A request that has no card here, as a line that opens the thread holding it.
+    private func elsewhere(_ thread: String) -> some View {
+        Button { openThread(thread) } label: {
+            HStack(spacing: AceDesign.Space.related) {
+                Text("Open its request")
+                    .aceFont(AceDesign.TextRole.meta)
+                    .foregroundStyle(AceTheme.StatusText.needsYou)
+                Spacer(minLength: AceDesign.Space.related)
+                AceIcon(.caretRight, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
+                    .foregroundStyle(AceTheme.Colours.subtleForeground)
+            }
+            .frame(minHeight: AceDesign.Size.tap)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens the thread that asks")
+        .accessibilityIdentifier("spade.worker.request")
     }
 
     private func opens(_ worker: SpadeModel.Workers.Worker) -> Bool {

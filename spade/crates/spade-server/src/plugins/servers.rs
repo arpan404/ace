@@ -347,7 +347,7 @@ impl super::Plugins {
         let env = self.shell.environment(&dir);
         let mut servers = Vec::new();
         for plugin in &plugins {
-            for local in super::view::usable(plugin, false).local {
+            for local in super::view::usable(plugin).local {
                 servers.push(self.servers.server(
                     agent,
                     plugin,
@@ -368,7 +368,7 @@ impl super::Plugins {
     pub fn has_servers(&self, agent: &str) -> bool {
         self.for_agent(agent)
             .iter()
-            .any(|plugin| !super::view::usable(plugin, false).local.is_empty())
+            .any(|plugin| !super::view::usable(plugin).local.is_empty())
     }
 
     /// `agent`'s servers whose tools are listed, for its tool search.

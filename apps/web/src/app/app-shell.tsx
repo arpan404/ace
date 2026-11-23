@@ -146,7 +146,7 @@ export function AppShell() {
                     <LocalBoundary label="search" fallback={null}>
                       <SearchHost />
                     </LocalBoundary>
-                    <LocalBoundary label="the Marketplace" fallback={null}>
+                    <LocalBoundary label="the Store" fallback={null}>
                       <MarketHost />
                     </LocalBoundary>
                     <LocalBoundary label="the project picker" fallback={null}>
@@ -247,7 +247,7 @@ const spadeNav = (current: boolean, to: string, search: object) => (
   <SpadeNav current={current} to={to} search={search} />
 );
 
-/** The Marketplace in the rail: it opens its modal over the page. */
+/** The Store in the rail: it opens its modal over the page. */
 const marketNav = <MarketRailButton />;
 
 /** The sidebar with what other slices own: the thread list, Code review's, Usage's and Spade's places. */

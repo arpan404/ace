@@ -108,7 +108,12 @@ export function matchRoute(method: string, pathname: string): Matched {
 export type RouteClass = "read" | "report" | "write" | "signer";
 export function routeClass(route: Route): RouteClass {
   if (route.kind.startsWith("signer-") || route.kind.startsWith("org-signer-")) return "signer";
-  if (route.kind === "org-registry" || route.kind === "org-key-add") return "write";
+  if (
+    route.kind === "org-registry" ||
+    route.kind === "org-key-add" ||
+    route.kind === "org-version-withdraw"
+  )
+    return "write";
   if (route.kind === "report") return "report";
   if (route.kind === "publish" || route.kind === "withdraw" || route.kind.startsWith("me"))
     return "write";

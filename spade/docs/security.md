@@ -43,6 +43,7 @@ problem.
 | The bot's workspace, `.spade/tmp` in it (`TMPDIR`)                                                                                  | read-write                                                                                                 |
 | Folders granted with `write: true`                                                                                                  | read-write                                                                                                 |
 | A terminal's state files (Spade's `terminal/<bot>`)                                                                                 | read-write                                                                                                 |
+| Spade's Python (`workspace/.python/shared/{control,environments,pythons}` and the bot's `workspace/.python/bots/<bot>`, ADR 0220)   | read-only; Spade builds and stages them on the host, nothing in a sandbox writes them                      |
 | The system's folders (below)                                                                                                        | read-only                                                                                                  |
 | Confirmed toolchains, folders granted for reading                                                                                   | read-only                                                                                                  |
 | A plugin's own folder (its hooks and servers only)                                                                                  | read-only                                                                                                  |
@@ -673,7 +674,6 @@ organization's policy, and their steps go on a signed audit log: [orgs.md](orgs.
   outside the sandbox.
 - Per-value provenance at egress, `derived` trust for network-off runs (each run's proxy usage
   is already counted), and quarantined readers.
-- CLI brains in the sandbox (ADR 0133 keeps them on their own read-only modes).
 - A publish tool of Spade's own (packages, releases): publishing is a declared effect of
   connector and plugin tools, or a command outside the sandbox.
 - ace's plugin import carrying a server's `effects` declaration (ace's `PluginExecution` is

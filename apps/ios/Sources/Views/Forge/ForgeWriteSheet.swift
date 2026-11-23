@@ -12,6 +12,8 @@ struct ForgeWriteSheet: View {
     @State private var discarding = false
     /// The text the sheet opened with (an edit's body, a quote): only a change from it is a draft.
     @State private var opened: String?
+    /// A choice is being sent: no second tap sends it again.
+    @State private var sending = false
     private var edited: Bool { opened.map { compose.text != $0 } ?? false }
 
     var body: some View {
@@ -54,11 +56,18 @@ struct ForgeWriteSheet: View {
     private var empty: Bool { compose.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     @ViewBuilder private var buttons: some View {
+        if let agent = compose.agent {
+            // Kept on the phone, so it doesn't wait on the host taking comments.
+            Button { send(agent) } label: { Text(agent.label).frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap) }
+                .buttonStyle(.textAction())
+                .disabled(empty || desk.writing || sending)
+                .accessibilityIdentifier("forge.write.agent")
+        }
         HStack(spacing: AceTheme.Spacing.sm) {
             if let secondary = compose.secondary {
                 Button { send(secondary) } label: { Text(secondary.label).frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap) }
                     .buttonStyle(.textAction())
-                    .disabled(empty || compose.off != nil || !desk.ready)
+                    .disabled(empty || compose.off != nil || !desk.ready || sending)
                     .accessibilityIdentifier("forge.write.secondary")
             }
             Button { send(compose.primary) } label: {
@@ -69,15 +78,17 @@ struct ForgeWriteSheet: View {
                 .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
             }
             .buttonStyle(.textAction(.prominent))
-            .disabled(empty || compose.off != nil || !desk.ready)
+            .disabled(empty || compose.off != nil || !desk.ready || sending)
             .accessibilityIdentifier("forge.write.primary")
         }
     }
 
     private func send(_ choice: ForgeCompose.Choice) {
+        guard !sending else { return }
+        sending = true
         let text = compose.text
         Task {
-            if await choice.send(text) { dismiss() }
+            if await choice.send(text) { dismiss() } else { sending = false }
         }
     }
 }

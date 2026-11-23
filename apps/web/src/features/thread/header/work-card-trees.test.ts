@@ -43,7 +43,7 @@ test("a delegate's screen opening later finds the tree's card open", () => {
   screen(createWorkCardTrees(storage), "main").store.toggle();
   // A reload: the choice comes back from storage.
   const delegate = screen(createWorkCardTrees(storage), "main");
-  expect(delegate.store.get()).toEqual({ open: true, side: true });
+  expect(delegate.store.get()).toEqual({ open: true, side: true, wanted: true });
 });
 
 test("a screen moving to another tree takes that tree's choice", () => {
@@ -60,16 +60,19 @@ test("a screen moving to another tree takes that tree's choice", () => {
   expect(trees.memory("closed-tree").open()).toBe(true);
 });
 
-test("a card opened elsewhere in the tree never pops over a narrow screen", () => {
+test("a card opened elsewhere in the tree never pops over a narrow screen, while marking it wanted", () => {
   const trees = createWorkCardTrees(memoryStorage());
   const narrow = createWorkCardStore();
   narrow.setSide(false);
   narrow.follow(trees.memory("main"));
+  let notified = 0;
+  narrow.subscribe(() => void notified++);
   screen(trees, "main").store.toggle();
-  expect(narrow.get().open).toBe(false);
+  expect(narrow.get()).toEqual({ open: false, side: false, wanted: true });
+  expect(notified).toBe(1);
   // It docks once the screen has room.
   narrow.setSide(true);
-  expect(narrow.get().open).toBe(true);
+  expect(narrow.get()).toEqual({ open: true, side: true, wanted: true });
 });
 
 test("past the kept limit the oldest open tree reads as closed", () => {

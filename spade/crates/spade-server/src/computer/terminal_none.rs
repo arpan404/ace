@@ -134,6 +134,7 @@ impl Terminal {
         _overrides: &[(String, String)],
         _settled: bool,
         _by: crate::workspace::shell::By,
+        _hold: crate::workspace::shell::Hold,
     ) -> Result<Ran, String> {
         Err(NONE.to_owned())
     }

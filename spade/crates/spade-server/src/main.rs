@@ -17,9 +17,9 @@ use spade_server::presets;
 use spade_server::research::{LiveWeb, ResearchTool};
 use spade_server::skill_store::SkillStore;
 use spade_server::tools::{
-    AceLink, AceTarget, ConnectorSource, DecisionLog, EngineHandle, Retry, SkillLibrary, SkillLoad,
-    SkillSearch, TaskGoal, TaskPlan, TaskStatus, Todo, Tool, ToolSource, Toolbox, WebFetch,
-    WebSearch,
+    AceLink, AceTarget, Asks, ConnectorSource, DecisionLog, EngineHandle, Retry, SkillLibrary,
+    SkillLoad, SkillSearch, TaskGoal, TaskPlan, TaskStatus, Todo, Tool, ToolSource, Toolbox,
+    WebFetch, WebSearch,
 };
 use spade_server::workspace::shell::Shell;
 use spade_server::workspace::{Workspaces, workspace_tools};
@@ -371,6 +371,7 @@ async fn run() -> Result<(), Failure> {
         Arc::new(TaskGoal),
         Arc::new(TaskPlan),
         Arc::new(DecisionLog),
+        Arc::new(Asks),
     ];
     let workspaces = Workspaces::new(home.dir.join("workspace"));
     // Each bot's commands, services and plugin servers run in its OS sandbox, with their traffic
@@ -676,11 +677,6 @@ async fn run() -> Result<(), Failure> {
     let address = listener.local_addr().map_err(other)?;
     connectors.set_listening(address);
     connectors.start();
-    // Bots on the person's subscriptions run their turns through ace (ADR 0133). Set before
-    // work opens, so a turn resumed at start finds ace.
-    if let Some(link) = ace.clone() {
-        engine.set_brains(Arc::new(move || link.brains()));
-    }
     spade_server::startup::finish(
         engine.clone(),
         ace.clone(),
@@ -799,9 +795,14 @@ fn limits(config: &Config) -> Limits {
     Limits {
         max_parallel_tools: config.parallel_tools.unwrap_or(defaults.max_parallel_tools),
         helpers_at_once: config.helpers_at_once.unwrap_or(defaults.helpers_at_once),
+        tasks_at_once: config.tasks_at_once.unwrap_or(defaults.tasks_at_once),
         workers_at_once: config.workers_at_once.unwrap_or(defaults.workers_at_once),
         context_budget: config.context_tokens.unwrap_or(defaults.context_budget),
         knowledge_bytes: config.knowledge_bytes.unwrap_or(defaults.knowledge_bytes),
+        // The person's asks are always kept (ADR 0215).
+        asks: true,
+        // Main's long work moves to a task lane (ADR 0217 §2a).
+        move_long_work: true,
         ..defaults
     }
 }

@@ -7,7 +7,7 @@ import { collectRustLicenses } from "./rust-licenses.ts";
 type Target = z.infer<typeof ReleaseTarget>;
 export const historySizeLimit = 8_000_000;
 export const stagedAceHistory = (root: string, target: Target) =>
-  stagedRustBinary(root, target, "history", "ace-history");
+  stagedRustBinary(root, target, "history", "history");
 
 /**
  * Stages ace-history, the daemon's saved-history reader (ADR 0207), in `history/` beside
@@ -36,6 +36,7 @@ export async function stageAceHistory(options: {
     root,
     target,
     folder: "history",
+    process: "history",
     packageName: "ace-history",
   });
   await collectRustLicenses({

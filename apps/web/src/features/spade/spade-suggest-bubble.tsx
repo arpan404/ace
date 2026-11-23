@@ -36,7 +36,7 @@ function Face(props: { ask: SpadeSuggestAsk; size: number }) {
 /**
  * A bot suggesting a package (ADR 0200 §8), where it suggested it: a raised card with the
  * package's face, name and publisher (from the market's signed manifest), its one line, the
- * bot's reason and what it would be allowed to do. Review install opens the Marketplace's normal
+ * bot's reason and what it would be allowed to do. Review install opens the Store's normal
  * install review, with its switches; nothing installs without it, and the bot can't install
  * anything. Later folds the card to one line; Not now tells the bot no. Installed, it settles
  * to one quiet line.

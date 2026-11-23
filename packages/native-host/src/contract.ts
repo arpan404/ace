@@ -133,6 +133,12 @@ export interface HostOperations {
    */
   "credential.fresh": { input: null; body: never };
   /**
+   * An organization's host's challenge on this socket, proved as the member (ADR 0206 §2.2):
+   * `{"grant", "proof"}`, native's own member grant and its key's signature over
+   * `standingProofText`. Fails for a machine native doesn't reach as an organization's host.
+   */
+  "member.standing": { input: { host: string; nonce: string; binding?: string }; body: never };
+  /**
    * A live source's delivery as the shared script last set it (ADR 0147 §4): the generation of
    * its latest subscribe, and the media socket its pictures come by (`socket(id, "open",
    * {media})`), `"none"` when nothing serves it, or null while that subscribe's reply is pending.

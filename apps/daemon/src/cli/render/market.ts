@@ -75,9 +75,7 @@ export function installedRow(entry: MarketInstalled): string {
 }
 
 export function installedLines(installed: readonly MarketInstalled[]): string[] {
-  return installed.length
-    ? installed.map(installedRow)
-    : ["Nothing is installed from the Marketplace."];
+  return installed.length ? installed.map(installedRow) : ["Nothing is installed from the Store."];
 }
 
 export function sourceLines(sources: readonly MarketSource[]): string[] {
@@ -95,7 +93,7 @@ export function discoverLines(discover: MarketDiscover): string[] {
     lines.push("Trending", ...discover.trending.slice(0, 5).map((t) => `  ${entryRow(t.entry)}`));
   if (discover.fresh.length)
     lines.push("New", ...discover.fresh.slice(0, 5).map((e) => `  ${entryRow(e)}`));
-  if (lines.length === 0) lines.push("The Marketplace has nothing to show yet.");
+  if (lines.length === 0) lines.push("The Store has nothing to show yet.");
   lines.push(
     "",
     "  ace store search QUERY       find entries",
@@ -123,7 +121,7 @@ export function publishLines(answer: MarketPublishAnswer): string[] {
       const findings = report?.findings.filter((finding) => finding.level !== "note") ?? [];
       return [
         `Draft ${draft.id}: ${draft.type}/${draft.name} ${draft.version}, ${draft.files} files, ${Math.ceil(draft.size / 1024)} KB.`,
-        ...(draft.scan?.state === "scanning" ? ["The Marketplace is still scanning it."] : []),
+        ...(draft.scan?.state === "scanning" ? ["The Store is still scanning it."] : []),
         ...(report
           ? findings.length
             ? findings.map((finding) => `  ${finding.level}: ${findingSentence(finding)}`)
@@ -185,6 +183,15 @@ export function publishLines(answer: MarketPublishAnswer): string[] {
             `  ${challenge.kind} ${challenge.subject}: ${challenge.state}${challenge.problem ? `: ${challenge.problem}` : ""}`,
         ),
       ];
+    case "registry": {
+      const lines = [`${answer.registry.publisher.name}'s registry (${answer.registry.org})`];
+      for (const entry of answer.registry.entries)
+        for (const version of entry.versions)
+          lines.push(
+            `${ref(entry)} ${version.version}  ${version.status}${version.scan ? `, scan ${version.scan.verdict}` : ""}${version.withdrawal ? ", withdrawal waiting" : ""}`,
+          );
+      return lines;
+    }
     case "done":
       return ["Done."];
   }

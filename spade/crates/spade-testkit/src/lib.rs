@@ -208,6 +208,32 @@ struct Shared {
     /// With `start_turns`: how every plain (non-streamed) call is answered, so only the model's
     /// turns take the scripts.
     plain: Option<Arc<Script>>,
+    /// With `start_routed`: a request whose body holds a route's words takes that route's next
+    /// script (its last repeating), so work that runs side by side gets its own answers whatever
+    /// order its calls arrive in. Routes are tried in order; the rest take `scripts`.
+    routes: Arc<Vec<Route>>,
+}
+
+/// One route of [`FakeProvider::start_routed`].
+pub struct Route {
+    words: String,
+    scripts: Vec<Script>,
+    next: AtomicUsize,
+}
+
+impl Route {
+    /// Requests whose body holds `words` take `scripts` in order.
+    pub fn when(words: &str, scripts: Vec<Script>) -> Self {
+        Self {
+            words: words.to_owned(),
+            scripts: if scripts.is_empty() {
+                vec![Script::reply("")]
+            } else {
+                scripts
+            },
+            next: AtomicUsize::new(0),
+        }
+    }
 }
 
 pub struct FakeProvider {
@@ -239,7 +265,20 @@ impl FakeProvider {
         Self::serve(turns, Some(plain)).await
     }
 
+    /// Requests matching a route take its scripts; the rest take `scripts` in order.
+    pub async fn start_routed(routes: Vec<Route>, scripts: Vec<Script>) -> Result<Self, Error> {
+        Self::serve_routed(scripts, None, routes).await
+    }
+
     async fn serve(scripts: Vec<Script>, plain: Option<Script>) -> Result<Self, Error> {
+        Self::serve_routed(scripts, plain, Vec::new()).await
+    }
+
+    async fn serve_routed(
+        scripts: Vec<Script>,
+        plain: Option<Script>,
+        routes: Vec<Route>,
+    ) -> Result<Self, Error> {
         let shared = Shared {
             scripts: Arc::new(if scripts.is_empty() {
                 vec![Script::reply("")]
@@ -249,6 +288,7 @@ impl FakeProvider {
             next: Arc::default(),
             seen: Arc::default(),
             plain: plain.map(Arc::new),
+            routes: Arc::new(routes),
         };
         let app = Router::new()
             .route("/{*path}", post(answer))
@@ -277,6 +317,15 @@ async fn answer(
     body: Bytes,
 ) -> Response {
     let body: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    let text = body.to_string();
+    let routed = shared
+        .routes
+        .iter()
+        .find(|route| text.contains(&route.words))
+        .map(|route| {
+            let index = route.next.fetch_add(1, Ordering::SeqCst);
+            route.scripts[index.min(route.scripts.len() - 1)].clone()
+        });
     let header = |name: &str| {
         headers
             .get(name)
@@ -302,8 +351,9 @@ async fn answer(
             body,
         });
     }
-    let script = match (&shared.plain, streamed) {
-        (Some(plain), false) => &**plain,
+    let script = match (&routed, &shared.plain, streamed) {
+        (Some(routed), _, _) => routed,
+        (None, Some(plain), false) => &**plain,
         _ => {
             let index = shared.next.fetch_add(1, Ordering::SeqCst);
             &shared.scripts[index.min(shared.scripts.len() - 1)]

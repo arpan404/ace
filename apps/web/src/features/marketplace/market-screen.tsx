@@ -17,7 +17,7 @@ import { MarketSidebar } from "./market-sidebar.tsx";
 import { TryBar, useTryOn } from "./market-try.tsx";
 
 /*
- * The Marketplace as a full page (ADR 0168 §12), as pull requests are: its panel (search, the
+ * The Store as a full page (ADR 0168 §12), as pull requests are: its panel (search, the
  * places, Installed) beside the page in the main column. Where it is lives in the address
  * (`/market?at=bot/inbox`), so links, reloads and Back work; each page replaces the one before.
  * ⌘[ goes back a page, as the browser's Back does.
@@ -26,7 +26,7 @@ import { TryBar, useTryOn } from "./market-try.tsx";
 const home: MarketView = { place: "discover", scope: "all", installed: "all", pages: [] };
 
 export function MarketScreen(props: {
-  /** The `at` value: where in the Marketplace (`market-address.ts`); home when absent. */
+  /** The `at` value: where in the Store (`market-address.ts`); home when absent. */
   at: string | undefined;
   /** Moves the address to `value`, as a new entry or in place. */
   onMove(value: string, replace: boolean): void;
@@ -70,7 +70,7 @@ export function MarketScreen(props: {
     popTo: (depth) => move({ ...view, pages: view.pages.slice(0, depth) }),
     replace: (page) => move({ ...view, pages: [...view.pages.slice(0, -1), page] }, true),
     setInstalled: (tab) => move({ ...view, place: "installed", installed: tab, pages: [] }),
-    // A page has nothing to close: back to the Marketplace's home.
+    // A page has nothing to close: back to the Store's home.
     close: () => move(home),
     tryOn: (entry, title, publisher) => {
       setNotice(undefined);
@@ -106,7 +106,7 @@ export function MarketScreen(props: {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   });
-  // Leaving the Marketplace while trying a Suit on puts the person's look back.
+  // Leaving the Store while trying a Suit on puts the person's look back.
   const leave = useEffectEvent(() => tryOn.undo());
   useEffect(() => () => leave(), []);
 
@@ -120,15 +120,15 @@ export function MarketScreen(props: {
   return (
     <MarketNavContext value={nav}>
       <ViewFrame
-        label="Marketplace"
+        label="Store"
         sidebar={<MarketSidebar query={query} onQuery={onQuery} />}
         place="sidebar"
       >
-        <Screen page={top ? "market-entry" : "marketplace"} title="Marketplace">
+        <Screen page={top ? "market-entry" : "marketplace"} title="Store">
           <div className="contents" data-market-trying={tryOn.trying ? "" : undefined}>
             <div
               role="region"
-              aria-label="Marketplace"
+              aria-label="Store"
               className="mk-modal"
               data-page=""
               data-edge={edge ? "" : undefined}

@@ -64,7 +64,7 @@ export const orgCommands: readonly CommandSpec[] = [
       {
         name: "dev-market",
         value: "URL",
-        summary: "A development Marketplace instead of store.acehq.dev",
+        summary: "A development Store instead of store.acehq.dev",
       },
     ],
     examples: [
@@ -93,7 +93,7 @@ export const orgCommands: readonly CommandSpec[] = [
       {
         name: "dev-market",
         value: "URL",
-        summary: "A development Marketplace instead of store.acehq.dev",
+        summary: "A development Store instead of store.acehq.dev",
       },
     ],
     examples: [{ command: "ace org registry sign --org org_01ACME", summary: "Sign what waits" }],

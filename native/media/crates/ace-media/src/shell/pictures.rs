@@ -9,6 +9,13 @@
 //! that never returns). So a closed thread is kept track of until it exits: one still running
 //! [`STUCK_AFTER_MS`] after its close is stuck, and counts against the engine's limits until it
 //! does exit. Enough of them and the engine ends the process, which the supervisor restarts.
+//!
+//! An open thread can fail too: one that panics fails its source on its way out, and one that
+//! stops turning its loop for [`STALL_AFTER_MS`](super::watch::STALL_AFTER_MS) (a codec call
+//! that never returns) is retired, its source failed and the thread kept track of as a stuck
+//! one. Either way the engine ends the
+//! source with a reason and the daemon opens it again.
+use super::watch::{Beat, Owed, Pulse};
 use crate::encode::platform::{Platform, SharedCapabilities};
 use crate::encode::worker::{Backends, Command, Output, Worker};
 use media_chrome::ChromeOptions;
@@ -34,6 +41,8 @@ pub type Encoded = (String, u64, Output);
 pub type BackendFactory = Arc<dyn Fn() -> Box<dyn Backends> + Send + Sync>;
 
 struct Handle {
+    source: String,
+    pulse: Pulse,
     commands: Sender<Command>,
     waiting: Arc<AtomicUsize>,
     thread: JoinHandle<()>,
@@ -75,7 +84,7 @@ impl Pictures {
         }
     }
 
-    fn spawn(&mut self, source: &str, token: u64) -> Option<&Handle> {
+    fn spawn(&mut self, source: &str, token: u64, now_ms: u64) -> Option<&Handle> {
         if !self.threads.contains_key(&token) {
             let (commands, received) = channel();
             let waiting = Arc::new(AtomicUsize::new(0));
@@ -84,16 +93,24 @@ impl Pictures {
             let name = source.to_owned();
             let counter = waiting.clone();
             let epoch = self.epoch;
+            let (pulse, beat) = Pulse::new(now_ms);
+            let owed = Owed {
+                outputs: self.outputs.clone(),
+                source: source.to_owned(),
+                token,
+                reason: "encoder-panicked",
+            };
             let spawned = std::thread::Builder::new()
                 .name("ace-media-pictures".into())
                 .spawn(move || {
+                    let _owed = owed;
                     run(
                         Worker::new(backends),
                         received,
                         counter,
                         outputs,
                         (name, token),
-                        epoch,
+                        (epoch, beat),
                     )
                 });
             let Ok(thread) = spawned else {
@@ -104,6 +121,8 @@ impl Pictures {
             self.threads.insert(
                 token,
                 Handle {
+                    source: source.to_owned(),
+                    pulse,
                     commands,
                     waiting,
                     thread,
@@ -132,7 +151,7 @@ impl Pictures {
         if encodes.is_empty() {
             return self.close(token, now_ms);
         }
-        if let Some(handle) = self.spawn(source, token) {
+        if let Some(handle) = self.spawn(source, token, now_ms) {
             let _ = handle.commands.send(Command::Configure(encodes));
         }
     }
@@ -184,6 +203,30 @@ impl Pictures {
         }
     }
 
+    /// Open threads that stopped turning [`STALL_AFTER_MS`](super::watch::STALL_AFTER_MS) ago,
+    /// wedged in a call: each is retired (kept track of as a closed thread, stuck since it last
+    /// turned) and its source and token returned once, for the engine to fail. A thread that has
+    /// exited is not wedged: it reported its own end.
+    pub fn stalled(&mut self, now_ms: u64) -> Vec<(String, u64)> {
+        let wedged: Vec<(u64, u64)> = self
+            .threads
+            .iter_mut()
+            .filter(|(_, h)| !h.thread.is_finished())
+            .filter_map(|(token, h)| h.pulse.stalled(now_ms).map(|since| (*token, since)))
+            .collect();
+        let mut failed = Vec::with_capacity(wedged.len());
+        for (token, since) in wedged {
+            if let Some(handle) = self.threads.remove(&token) {
+                failed.push((handle.source, token));
+                self.closing.push(Closing {
+                    thread: handle.thread,
+                    closed_ms: since,
+                });
+            }
+        }
+        failed
+    }
+
     /// Closed threads still running [`STUCK_AFTER_MS`] after their close. Threads that have
     /// exited are forgotten.
     pub fn stuck(&mut self, now_ms: u64) -> usize {
@@ -201,10 +244,11 @@ fn run(
     waiting: Arc<AtomicUsize>,
     outputs: mpsc::Sender<Encoded>,
     (source, token): (String, u64),
-    epoch: Instant,
+    (epoch, beat): (Instant, Beat),
 ) {
     let mut out = Vec::new();
     loop {
+        beat.turn();
         let now = || epoch.elapsed().as_micros() as u64;
         match commands.recv_timeout(POLL) {
             Ok(command) => {

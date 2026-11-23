@@ -21,6 +21,8 @@ const requests: Record<keyof typeof personOnlyActions, [string, string][]> = {
   deleteEntry: [["DELETE", "/v1/me/entries/suit/tarn"]],
   applyVerification: [["POST", "/v1/me/verification"]],
   checkVerification: [["POST", "/v1/me/verification/check"]],
+  registry: [["GET", "/v1/orgs/org_acme/registry"]],
+  registryWithdraw: [["POST", "/v1/orgs/org_acme/entries/suit/tarn/1.0.0/withdraw"]],
 };
 
 test("every person-only action's market request lands on a route that needs the person's grant", () => {

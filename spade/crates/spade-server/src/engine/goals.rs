@@ -215,6 +215,15 @@ impl Engine {
         Ok(view::task(&self.load(&agent.conversation)?))
     }
 
+    /// A task lane's goal and plan (ADR 0217), as [`Engine::task_view`] answers a bot's; `NotFound`
+    /// for a conversation that is no lane.
+    pub fn lane_task_view(&self, lane: &str) -> Result<Option<TaskView>, GoalError> {
+        if !self.is_lane(lane) {
+            return Err(GoalError::NotFound);
+        }
+        Ok(view::task(&self.load(lane)?))
+    }
+
     /// The person sets the goal, or changes the open one (its plan stays). Only the person can
     /// change an open goal's criteria.
     pub fn set_goal(&self, agent: &str, input: GoalInput) -> Result<TaskView, GoalError> {

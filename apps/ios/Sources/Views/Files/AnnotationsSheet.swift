@@ -30,12 +30,15 @@ struct AnnotationsSheet: View {
     let title: String
     /// "total.ts:2–3".
     let place: String
-    let save: (String) -> Void
+    /// Puts the note on the message; nil once it is there, else why not, in words.
+    let save: (String) -> String?
     @Environment(\.dismiss) private var dismiss
     @State private var comment: String
+    @State private var refused: String?
     @FocusState private var focused: Bool
+    private var tooLong: Bool { !CodeNotes.fits(comment.trimmingCharacters(in: .whitespacesAndNewlines)) }
 
-    init(draft: NoteDraft, title: String, place: String, save: @escaping (String) -> Void) {
+    init(draft: NoteDraft, title: String, place: String, save: @escaping (String) -> String?) {
         self.draft = draft
         self.title = title
         self.place = place
@@ -67,6 +70,12 @@ struct AnnotationsSheet: View {
                     .background(AceTheme.Colours.fill, in: AceShape.field)
                     .focused($focused)
                     .accessibilityIdentifier("file.note.comment")
+                if let line = tooLong ? CodeNoteRefusal.tooLong.message : refused {
+                    Text(line)
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .foregroundStyle(AceTheme.StatusText.failed)
+                        .accessibilityIdentifier("file.note.refused")
+                }
                 Spacer(minLength: AceTheme.Spacing.none)
             }
             .padding(.horizontal, AceDesign.Space.margin).padding(.top, AceDesign.Space.related)
@@ -78,9 +87,10 @@ struct AnnotationsSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(draft.existing == nil ? "Add" : "Save") {
-                        save(comment.trimmingCharacters(in: .whitespacesAndNewlines))
-                        dismiss()
+                        refused = save(comment.trimmingCharacters(in: .whitespacesAndNewlines))
+                        if refused == nil { dismiss() }
                     }
+                    .disabled(tooLong)
                     .accessibilityIdentifier("file.note.save")
                 }
             }

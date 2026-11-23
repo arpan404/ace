@@ -51,7 +51,7 @@ export const settingSummaries: Readonly<Partial<Record<SettingsKey, string>>> = 
   "computer.lockedUse": "Let agents work while this Mac is locked",
   "spade.enabled": "Run Spade, ace's assistant (same as ace spade on|off)",
   "beta.spade": "Beta: show Spade on this machine (same as ace feature on|off spade)",
-  "beta.marketplace": "Beta: ace's marketplace (same as ace feature on|off marketplace)",
+  "beta.marketplace": "Beta: the ace Store (same as ace feature on|off store)",
   "market.askBeforeAgentPublish":
     "Ask you before an agent publishes to the market (off by default)",
   "devices.emulatorWindow": "Android emulators ace starts also open their own window",

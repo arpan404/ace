@@ -11,6 +11,12 @@ import { hostConnection } from "./connection.ts";
 import { timeoutMs, type Args } from "./args.ts";
 import { CliFailure } from "./output.ts";
 import { launchLogName, openLaunchLog } from "@ace/service/launch-log";
+import {
+  daemonLaunches,
+  launchEnvironment,
+  spawnDaemonRuntime,
+  startableDaemonRuntime,
+} from "@ace/service/daemon-program";
 import { readConfig } from "../config.ts";
 import { DEFAULT_LOG_MAX_BYTES } from "@ace/diagnostics/log-policy";
 const StartupHealth = DaemonHealth.extend({ ready: z.boolean().optional() });
@@ -40,11 +46,23 @@ export function systemOpenRuntime(): OpenRuntime {
       );
       try {
         // The daemon outlives this launcher and owns its own lock and process inventory.
-        const child = spawn(process.execPath, [entry, "serve", "--json"], {
-          env: { ...process.env, ACE_HOME: home },
-          detached: true,
-          stdio: ["ignore", log, log],
-        });
+        // As `ace Service` (`ace-service` on Linux) where the install carries or allows it. Bun
+        // starts in the daemon's own folder: no `.env` or `bunfig.toml` from here applies.
+        const launches = daemonLaunches(
+          process.execPath,
+          startableDaemonRuntime(process.execPath, process.platform),
+          entry,
+          ["serve", "--json"],
+        );
+        const child = spawnDaemonRuntime(launches, (launch) =>
+          spawn(launch.command, launch.args, {
+            cwd: launch.cwd,
+            // The daemon returns to this command's folder before its code runs.
+            env: launchEnvironment({ ...process.env, ACE_HOME: home }, process.cwd()),
+            detached: true,
+            stdio: ["ignore", log, log],
+          }),
+        );
         child.once("error", () => {});
         child.unref();
       } finally {

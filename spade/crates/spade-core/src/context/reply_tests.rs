@@ -216,5 +216,4 @@ fn every_bots_standing_instructions_teach_it_to_text_in_short_messages() {
     let made_bot = instructions(SYSTEM, &made);
     teaches_short_messages(&made_bot);
     assert!(made_bot.contains("Watch flight prices to Lisbon"));
-    teaches_short_messages(&crate::brain::instructions(&made));
 }

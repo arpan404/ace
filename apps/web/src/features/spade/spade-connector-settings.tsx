@@ -42,7 +42,7 @@ const fault = (error: unknown) => (error instanceof Error ? error.message : "Try
 export function ConnectorSettings(props: { ready: boolean; names: ReadonlyMap<string, string> }) {
   const connectors = useSpadeConnectors(props.ready);
   const [adding, setAdding] = useState(false);
-  // One catalogue: with the Marketplace on, its Apps, where each app connects in place; without
+  // One catalogue: with the Store on, its Apps, where each app connects in place; without
   // it, this catalogue dialog.
   const market = useBetaEnabled("marketplace") === true;
   const openMarket = useOpenMarket();

@@ -63,9 +63,8 @@ pub struct Usable {
     pub not_used: Vec<NotUsed>,
 }
 
-/// What a bot can use of `plugin`. `cli` is a bot on a CLI brain (ADR 0133): its CLI runs its
-/// own MCP servers and hooks, so it gets only rules.
-pub fn usable(plugin: &SpadePlugin, cli: bool) -> Usable {
+/// What a bot can use of `plugin`.
+pub fn usable(plugin: &SpadePlugin) -> Usable {
     let name = &plugin.install.name;
     let mut out = Usable::default();
     for component in &plugin.components {
@@ -138,19 +137,6 @@ to."
             continue;
         };
         match execution {
-            KnownExecution::Hook { event, .. } | KnownExecution::Stdio { name: event, .. }
-                if cli =>
-            {
-                out.not_used.push(NotUsed {
-                    what: match execution {
-                        KnownExecution::Hook { .. } => format!("hook at {event}"),
-                        _ => format!("server {event}"),
-                    },
-                    reason: "This bot runs on a subscription; its CLI runs the plugin's servers \
-and hooks itself."
-                        .to_owned(),
-                });
-            }
             KnownExecution::Hook {
                 event,
                 command,
@@ -191,27 +177,18 @@ and hooks itself."
                 headers,
                 ..
             } => {
-                if cli {
+                if !headers.is_empty() {
                     out.not_used.push(NotUsed {
-                        what: format!("server {server}"),
-                        reason: "This bot runs on a subscription; its CLI connects to the \
-plugin's servers itself."
+                        what: format!("headers of server {server}"),
+                        reason: "A server added as a connector signs in on its own; the \
+plugin's headers are not sent."
                             .to_owned(),
                     });
-                } else {
-                    if !headers.is_empty() {
-                        out.not_used.push(NotUsed {
-                            what: format!("headers of server {server}"),
-                            reason: "A server added as a connector signs in on its own; the \
-plugin's headers are not sent."
-                                .to_owned(),
-                        });
-                    }
-                    out.remote.push(RemoteServer {
-                        name: server.clone(),
-                        url: url.clone(),
-                    });
                 }
+                out.remote.push(RemoteServer {
+                    name: server.clone(),
+                    url: url.clone(),
+                });
             }
         }
     }
@@ -400,7 +377,7 @@ mod tests {
             ]),
             json!([]),
         );
-        let usable = usable(&style, false);
+        let usable = usable(&style);
         let text = rules_text(&usable.rules);
         assert!(text.find("name=\"docs\"") < text.find("name=\"tabs\""));
         assert!(text.contains("Use tabs.") && !text.contains("alwaysApply"));
@@ -423,7 +400,7 @@ mod tests {
             ]),
             json!([]),
         );
-        let profiles = usable(&style, false).profiles;
+        let profiles = usable(&style).profiles;
         assert_eq!(profiles[0].instructions, "Review the diff.");
         assert_eq!(profiles[0].about, "Reviews diffs");
         assert_eq!(
@@ -455,7 +432,7 @@ mod tests {
             ]),
             json!([]),
         );
-        let profiles = usable(&style, false).profiles;
+        let profiles = usable(&style).profiles;
         assert_eq!(
             profiles[0].tools,
             Some(
@@ -474,7 +451,7 @@ mod tests {
     }
 
     #[test]
-    fn hooks_at_events_spade_has_are_used_and_a_cli_bot_gets_only_rules() {
+    fn hooks_at_events_spade_has_are_used() {
         let style = plugin(
             json!([{"kind": "rule", "name": "tabs", "text": "Use tabs."}]),
             json!([
@@ -484,7 +461,7 @@ mod tests {
                 {"kind": "remote", "name": "docs", "type": "http", "url": "https://d.example/mcp", "headers": {}},
             ]),
         );
-        let full = usable(&style, false);
+        let full = usable(&style);
         assert_eq!(full.hooks.len(), 1);
         assert_eq!(full.local.len(), 1);
         assert_eq!(full.remote[0].url, "https://d.example/mcp");
@@ -493,8 +470,5 @@ mod tests {
                 .iter()
                 .any(|n| n.reason.contains("no Notification event"))
         );
-        let cli = usable(&style, true);
-        assert_eq!(cli.rules.len(), 1);
-        assert!(cli.hooks.is_empty() && cli.local.is_empty() && cli.remote.is_empty());
     }
 }

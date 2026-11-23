@@ -135,6 +135,7 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
           operation,
           unproven: context.personProven?.() !== true,
           contentOnly,
+          member: () => context.memberStanding?.(),
         });
       const asPerson = async (market: MarketAgent) => {
         const decided = standing();
@@ -154,7 +155,7 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
             }
           : undefined;
       if (!run) {
-        reply({ op: "error", code: "unavailable", message: "The Marketplace isn't ready yet" });
+        reply({ op: "error", code: "unavailable", message: "The Store isn't ready yet" });
         return true;
       }
       const task = run()
@@ -164,8 +165,7 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
           reply({
             op: "error",
             code: "failed",
-            message:
-              error instanceof Error ? error.message.slice(0, 2000) : "Marketplace request failed",
+            message: error instanceof Error ? error.message.slice(0, 2000) : "Store request failed",
           });
         });
       tasks.add(task);
@@ -201,7 +201,7 @@ function serviceAlone(
     Promise.resolve({
       op: "error",
       code: "unavailable",
-      message: "The marketplace isn't ready yet",
+      message: "The Store isn't ready yet",
     })
   );
 }

@@ -11,12 +11,9 @@ import { Textarea } from "@/components/ui/input.tsx";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import {
-  allowEntries,
-  allowText,
-  blockEntries,
-  blockText,
-  lines,
   orgFailure,
+  policyDraft,
+  policyFromDraft,
   readPolicy,
   useOrgPolicy,
   useSetPolicy,
@@ -47,39 +44,6 @@ const effectRows: readonly { key: PolicyEffect; title: string }[] = [
   { key: "network_without_hosts", title: "Reach sites it doesn't name" },
 ];
 
-/** The policy as the page edits it: the stored one, its lists as lines of text. */
-function draftOf(policy: AceOrgPolicy) {
-  return {
-    policy,
-    allow: allowText(policy.packages?.allow),
-    block: blockText(policy.packages?.block),
-    endpoints: (policy.models?.endpoints ?? []).join("\n"),
-  };
-}
-type Draft = ReturnType<typeof draftOf>;
-
-/** The draft as the next version: its lists from their lines, an empty list left out. */
-function policyOf(draft: Draft): AceOrgPolicy {
-  const allow = allowEntries(draft.allow);
-  const block = blockEntries(draft.block);
-  const endpoints = lines(draft.endpoints);
-  const { packages, models } = draft.policy;
-  return {
-    ...draft.policy,
-    packages: {
-      ...packages,
-      ...(allow.length ? { allow } : { allow: undefined }),
-      ...(block.length ? { block } : { block: undefined }),
-    },
-    models: {
-      ...models,
-      ...(endpoints.length ? { endpoints } : { endpoints: undefined }),
-      // Shared bots never think on a member's coding subscription in M4.
-      subscriptions: false,
-    },
-  };
-}
-
 /**
  * Settings › Organization › Policy (ADR 0206 §3): one versioned document, a ceiling over what the
  * organization's hosts allow anyway, so it only ever narrows. The backend signs each version;
@@ -102,7 +66,7 @@ export function PolicyPage(props: { org: AceOrgSpace }) {
 }
 
 function PolicyEditor(props: { org: AceOrgSpace; version: number; stored: AceOrgPolicy }) {
-  const [draft, setDraft] = useState(() => draftOf(props.stored));
+  const [draft, setDraft] = useState(() => policyDraft(props.stored));
   const save = useSetPolicy(props.org.id);
   const [error, setError] = useState("");
   const set = (change: (policy: AceOrgPolicy) => AceOrgPolicy) =>
@@ -168,7 +132,7 @@ function PolicyEditor(props: { org: AceOrgSpace; version: number; stored: AceOrg
             key={source}
             title={
               source === "market"
-                ? "From the Marketplace"
+                ? "From the Store"
                 : source === "registry"
                   ? `From ${props.org.name}'s registry`
                   : "From git catalogs"
@@ -273,7 +237,12 @@ function PolicyEditor(props: { org: AceOrgSpace; version: number; stored: AceOrg
           disabled={save.isPending}
           onClick={() => {
             setError("");
-            save.mutate(policyOf(draft), { onError: (cause) => setError(orgFailure(cause)) });
+            save.mutate(
+              { policy: policyFromDraft(draft), base: props.version },
+              {
+                onError: (cause) => setError(orgFailure(cause)),
+              },
+            );
           }}
         >
           {save.isPending ? "Saving…" : `Save version ${props.version + 1}`}

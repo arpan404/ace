@@ -2,7 +2,6 @@
 //! `spade_models::Models` whenever they change. Shipped presets are templates and model facts;
 //! on first start, presets that already have a key become the person's endpoints.
 
-use spade_core::brain::CliModel;
 use std::collections::HashSet;
 
 use spade_models::base_url::{self, same_origin};
@@ -280,8 +279,7 @@ impl Engine {
     }
 
     /// The model a new agent gets when none is chosen: the person's first usable model, a local
-    /// one first, then an endpoint with its key (ADR 0205 §1); "" when they have none yet. Never
-    /// a subscription: one is only ever the person's own choice for a bot.
+    /// one first, then an endpoint with its key (ADR 0205 §1); "" when they have none yet.
     pub fn default_model(&self) -> String {
         let signed_out = self.signed_out();
         first_model(&self.models.endpoints(), |e| {
@@ -617,7 +615,7 @@ impl Engine {
             let pinned = events.iter().any(|event| {
                 matches!(
                     event,
-                    spade_core::Event::Known(spade_core::event::Known::ReplyStarted { reply, model })
+                    spade_core::Event::Known(spade_core::event::Known::ReplyStarted { reply, model, .. })
                         if Some(reply) == open.as_ref() && model.starts_with(&prefix)
                 )
             });
@@ -749,13 +747,13 @@ impl Engine {
     }
 
     /// The model a new bot starts on when its request names none: the person's choice for new
-    /// bots, else [`Self::default_model`]. A subscription stored there by an older build is
-    /// passed over: a bot only runs on one the person chose for it (ADR 0205 §1).
+    /// bots, else [`Self::default_model`]. A coding subscription stored there by an older build
+    /// is passed over (ADR 0219).
     pub fn new_bot_default(&self) -> String {
         match self.new_bot_model() {
             Ok(Some(model))
                 if !model.is_empty()
-                    && !CliModel::is(&model)
+                    && !super::retired_models::is_retired(&model)
                     && self.check_runs_bots(&model).is_ok() =>
             {
                 model
@@ -764,16 +762,16 @@ impl Engine {
         }
     }
 
-    /// The person's fast model, unless it is a subscription (which no default may pick).
+    /// The person's fast model, unless it is a coding subscription an older build stored.
     pub fn fast_endpoint_model(&self) -> Option<String> {
         self.fast_model()
             .ok()
             .flatten()
-            .filter(|model| !model.is_empty() && !CliModel::is(model))
+            .filter(|model| !model.is_empty() && !super::retired_models::is_retired(model))
     }
 
-    /// Keeps the model for new bots (`None` goes back to the first usable model). An endpoint's
-    /// model only: a subscription is chosen per bot, with its terms read.
+    /// Keeps the model for new bots (`None` goes back to the first usable model): an endpoint's
+    /// model.
     pub fn set_new_bot_model(&self, model: Option<&str>) -> Result<(), EndpointError> {
         let model = model.map(|m| self.endpoint_choice(m)).transpose()?;
         if let Some(model) = &model {
@@ -783,13 +781,8 @@ impl Engine {
         Ok(self.store.set_setting(NEW_BOT_MODEL, model.as_deref())?)
     }
 
-    /// `model` checked as a default: on the person's endpoints, never a subscription.
+    /// `model` checked as a default: on the person's endpoints.
     fn endpoint_choice(&self, model: &str) -> Result<String, EndpointError> {
-        if CliModel::is(model.trim()) {
-            return Err(invalid(
-                "a subscription is chosen per bot; pick a model from an endpoint here".to_owned(),
-            ));
-        }
         self.check_model(model).map_err(|e| invalid(e.to_string()))
     }
 

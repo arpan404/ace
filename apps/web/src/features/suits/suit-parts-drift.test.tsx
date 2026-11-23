@@ -502,7 +502,7 @@ const marketScreen = [
   "market-try",
 ] as const;
 
-test("the Marketplace page names its places, titles, featured pair, stages and Try it's bar", async () => {
+test("the Store page names its places, titles, featured pair, stages and Try it's bar", async () => {
   const history = createMemoryHistory({ initialEntries: ["/chats?market=discover"] });
   const app = harness({ history });
   app.daemon.seedServices({
@@ -547,7 +547,7 @@ test("the Marketplace page names its places, titles, featured pair, stages and T
     },
   });
   await app.open("/chats?store=discover");
-  await screen.findByRole("region", { name: "Marketplace" });
+  await screen.findByRole("region", { name: "Store" });
   await waitFor(() => expect(missing(marketScreen)).toEqual([]));
 });
 

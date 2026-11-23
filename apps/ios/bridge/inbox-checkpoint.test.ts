@@ -10,7 +10,7 @@ await vi.hoisted(async () => {
 import { FakeDaemon, facts } from "@ace/fake-daemon";
 import { CommandId, DeviceId, ThreadId, ThreadListEntry } from "@ace/protocol";
 import type { SidebarReader } from "@ace/client";
-import { followInbox, type InboxClock } from "./inbox.ts";
+import { followInbox, inboxAction, locate, locateReadMs, type InboxClock } from "./inbox.ts";
 import { checkpointDelayMs, inboxCheckpoint } from "./inbox-checkpoint.ts";
 import { RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
@@ -59,6 +59,8 @@ type Patch = {
   tabs?: Tabs;
   id?: string;
   ids?: string[];
+  confirmed?: boolean;
+  complete?: boolean;
   row?: { confirmed: boolean; status: { label: string } } | null;
   sections?: { key: string; ids: string[] }[];
 };
@@ -234,5 +236,119 @@ describe("inbox checkpoint tabs", () => {
     const layout = patches.at(-1) as Patch;
     // Unconfirmed, the Inbox's live bands read Syncing; Snoozed and Settled stay where they were.
     expect(layout.tabs).toEqual({ inbox: ["open"], snoozed: ["nap"], settled: ["rest"] });
+  });
+});
+
+describe("inbox freshness for opening another machine's thread", () => {
+  test("an empty live list is confirmed and complete, and losing the daemon unconfirms it", async () => {
+    const { daemon, client } = sheetFixture();
+    closers.push(() => client.close());
+    const sink = new RecordingSink();
+    closers.push(followInbox(client, "mac", sink, new TestClock()));
+    await client.start();
+    await until(
+      () => (sink.read("inbox:fresh") as Patch | undefined)?.confirmed === true,
+      "empty list confirmed",
+    );
+    expect(sink.read("inbox:fresh")).toEqual({
+      type: "inbox.fresh",
+      confirmed: true,
+      complete: true,
+    });
+    daemon.disconnectAll();
+    await until(
+      () => (sink.read("inbox:fresh") as Patch | undefined)?.confirmed === false,
+      "connection lost",
+    );
+  });
+
+  test("freshness is queued after the rows it describes, also after a reset replaces them", async () => {
+    const { daemon, client } = sheetFixture();
+    closers.push(() => client.close());
+    finished(daemon, "first", "First");
+    await client.start();
+    const sink = new RecordingSink();
+    closers.push(followInbox(client, "mac", sink, new TestClock()));
+    const behindRows = () => {
+      const keys = [...sink.readers.keys()];
+      const fresh = keys.indexOf("inbox:fresh");
+      const rows = keys.filter((key) => key.startsWith("inbox:") && key !== "inbox:fresh");
+      return (
+        fresh > -1 &&
+        rows.filter((key) => key !== "inbox:sections").every((key) => keys.indexOf(key) < fresh)
+      );
+    };
+    await until(() => behindRows() && sink.read("inbox:first") !== undefined, "first list");
+    // A thread joining after freshness was queued lands behind it in the queue unless it moves.
+    finished(daemon, "late", "Late");
+    await until(() => sink.read("inbox:late") !== undefined, "late row");
+    expect(behindRows()).toBe(true);
+    // A new list replaces every queued row; freshness is queued again behind them.
+    daemon.disconnectAll();
+    await until(() => (sink.read("inbox:fresh") as Patch | undefined)?.confirmed === false, "lost");
+    await until(() => (sink.read("inbox:fresh") as Patch | undefined)?.confirmed === true, "back");
+    expect(behindRows()).toBe(true);
+  });
+
+  test("the home list's pages decide completeness, even while the archive filter is on", async () => {
+    const { daemon, client } = sheetFixture();
+    closers.push(() => client.close());
+    for (let i = 0; i < 45; i++) {
+      finished(daemon, `t-${i}`, `Thread ${i}`);
+      daemon.updateThread(`t-${i}`, { status: { state: "done" } });
+    }
+    await client.start();
+    // Settled threads page; the home list holds the newest of them first.
+    for (let i = 0; i < 45; i++)
+      await client.command({ type: "thread.settle", threadId: ThreadId.parse(`t-${i}`) });
+    const sink = new RecordingSink();
+    closers.push(followInbox(client, "mac", sink, new TestClock()));
+    const complete = () => (sink.read("inbox:fresh") as Patch | undefined)?.complete;
+    await until(() => complete() === false, "older pages left");
+    // The archive is short: its own window is whole, but the home list still has pages.
+    await client.threadsWindow({ archived: true });
+    await until(() => client.threads().store.loaded, "archive");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(complete()).toBe(false);
+  });
+
+  test("a read that cannot be answered is tried again, then reported as unknown, not gone", async () => {
+    const { client } = sheetFixture();
+    closers.push(() => client.close());
+    const sink = new RecordingSink();
+    const waits: number[] = [];
+    // The client was never started, so the daemon can't be asked.
+    await locate(client, ThreadId.parse("t"), sink, (delay, run) => {
+      waits.push(delay);
+      run();
+    });
+    expect(waits.filter((delay) => delay !== locateReadMs)).toEqual([1000, 2000, 4000]);
+    expect(sink.read("located:t")).toEqual({ type: "inbox.located", id: "t", found: null });
+  });
+  test("a thread outside the loaded list is found by its id, and one that is gone is not", async () => {
+    const { daemon, client } = sheetFixture();
+    closers.push(() => client.close());
+    finished(daemon, "old", "Old thread");
+    daemon.command({
+      id: CommandId.parse("archive-old"),
+      deviceId: DeviceId.parse("seed"),
+      payload: { type: "thread.archive", threadId: ThreadId.parse("old") },
+    });
+    await client.start();
+    const sink = new RecordingSink();
+    closers.push(followInbox(client, "mac", sink, new TestClock()));
+    await until(() => sink.read("inbox:reset") !== undefined, "list");
+    inboxAction(client, { kind: "locate", threadId: "old" }, "r1", sink);
+    inboxAction(client, { kind: "locate", threadId: "never-was" }, "r2", sink);
+    await until(
+      () => sink.read("located:old") !== undefined && sink.read("located:never-was") !== undefined,
+      "both located",
+    );
+    expect(sink.read("located:old")).toEqual({ type: "inbox.located", id: "old", found: true });
+    expect(sink.read("located:never-was")).toEqual({
+      type: "inbox.located",
+      id: "never-was",
+      found: false,
+    });
   });
 });

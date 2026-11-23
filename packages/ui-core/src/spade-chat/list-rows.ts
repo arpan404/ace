@@ -5,7 +5,7 @@ import { spadeGroupLine, type SpadeGroup } from "./groups.ts";
 import { spadeForLaterWords } from "./questions.ts";
 import { spadeProblemStep } from "./request-words.ts";
 import { spadeMoveLine } from "./moves.ts";
-import { spadeWorkingPhrase } from "./working-phrase.ts";
+import { spadeWorkingPhrase, spadeWorkingWord } from "./working-phrase.ts";
 import { spadeNeedsYouWords } from "./needs-you.ts";
 
 /*
@@ -140,4 +140,11 @@ export function spadeByState<T>(
   return items.toSorted(
     (a, b) => spadeRowRank[state(a)] - spadeRowRank[state(b)] || activity(b) - activity(a),
   );
+}
+
+/** A visible family already shows who is working, so its root needs no worker count. */
+export function spadeExpandedBotRow(row: SpadeRow): SpadeRow {
+  return row.state === "working" && /^\d+ workers? working$/i.test(row.line)
+    ? { ...row, line: spadeWorkingWord }
+    : row;
 }

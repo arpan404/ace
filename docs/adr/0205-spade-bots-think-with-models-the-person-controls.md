@@ -7,6 +7,12 @@ person's own CLIs), [ADR 0119](0119-spade-endpoint-keys.md) (endpoint keys in th
 [ADR 0162](0162-spade-model-routing.md) (models per role) and [ADR 0053](0053-queue-and-recovery.md)'s definite-signal rule
 for moving work. Amends ADR 0133 decision 1 (how the picker offers subscriptions).
 
+**Amended by [ADR 0219](0219-spade-bots-never-run-on-coding-cli-subscriptions.md) (2026-11-22):**
+bots no longer think with coding subscriptions at all. What sections 1, 2 and 4 say about
+subscriptions (the picker's group, the acknowledgement, routes never holding one, the terms record
+and its signed notices) no longer applies; a bot left on one moves to its default model by section
+1's rule. Routes, local models and section 5 stand.
+
 ## Context
 
 A bot can think with three kinds of model today:

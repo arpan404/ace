@@ -5,7 +5,7 @@ import { MarketScreen } from "@/features/marketplace/index.ts";
 import { useBetaEnabled } from "@/lib/beta-enabled.ts";
 
 /**
- * `/store?at=bot/inbox`: the Marketplace as a page (ADR 0168 §12), `at` saying where in it
+ * `/store?at=bot/inbox`: the Store as a page (ADR 0168 §12), `at` saying where in it
  * (`market-address.ts`), so a link, a reload or Back lands where the person was. Off in
  * Settings › Beta, it goes home.
  */

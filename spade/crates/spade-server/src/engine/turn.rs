@@ -139,6 +139,8 @@ pub(super) async fn run(
     // A helper's reply closing is its end (ADR 0152): its job hears of it and a queued helper
     // takes its slot. A helper has no task to carry on, and no title of its own.
     let helper = engine.helper_of(&id).is_some();
+    // A lane (ADR 0217) carries its own task on like main, and has its title from the start.
+    let lane = engine.is_lane(&id);
     let planned = if paused || helper {
         None
     } else {
@@ -169,6 +171,13 @@ pub(super) async fn run(
     }
     if helper {
         engine.helper_ended(&id);
+        return;
+    }
+    if lane {
+        if let Some(planned) = planned {
+            engine.carry_on_as(&id, planned);
+        }
+        engine.lane_ended(&id);
         return;
     }
     name_if_untitled(&engine, &id).await;
@@ -226,6 +235,9 @@ async fn drive(
     pause: &mut watch::Receiver<Pause>,
     driven: &mut Option<String>,
 ) -> Ended {
+    // When this worker took the reply, for moving main's long work to a lane (ADR 0217 §2a). A
+    // restart starts the clock again; the step count carries over in the events.
+    let began = engine.now_ms();
     loop {
         if *stop.borrow() {
             return Ended::Stopped(String::new());
@@ -254,20 +266,40 @@ async fn drive(
             Next::Idle => return Ended::Finished,
             Next::CallModel { reply } => {
                 *driven = Some(reply.clone());
-                let model = turn_model(engine, &events, &reply);
-                // A subscription (ADR 0133) runs its own loop and keeps its own context:
-                // compaction is for endpoint models.
-                let cli = spade_core::brain::CliModel::is(&model);
+                let model = turn_model(engine, id, &events, &reply);
+                // The stop check's one extra step only sorted the open asks: the reply ends
+                // without another model call, unless the person wrote meanwhile (ADR 0215 §3).
+                if spade_core::asks::check::settled(&events, &reply) {
+                    match finish_unless_steered(engine, id, &reply) {
+                        Ok(true) => return Ended::Finished,
+                        Ok(false) => {}
+                        Err(error) => return Ended::Failed(String::new(), error),
+                    }
+                }
+                // A steer the last step left unanswered: one note first (ADR 0215 §4).
+                if super::asks::remind(engine, id, &reply) {
+                    continue;
+                }
+                // Main's own work that runs long moves to a lane at this boundary, and main is
+                // free to talk (ADR 0217 §2a).
+                if engine.move_if_due(id, &reply, engine.now_ms() - began) {
+                    return Ended::Finished;
+                }
+                // A lane that wrote a file another working lane wrote hears so first (ADR 0217
+                // §3).
+                if engine.note_overlaps(id) {
+                    continue;
+                }
                 // A helper has no indexes: it starts from Spade's rules, its profile and its task
                 // alone. No step count or cost ends a turn (ADR 0158, ADR 0166); Stop does.
                 let helper = engine.helper_of(id).is_some();
                 if !helper && super::index::if_needed(engine, id, &events).await {
                     continue;
                 }
-                if super::plugin_hooks::start_if_needed(engine, id, &events, cli).await {
+                if super::plugin_hooks::start_if_needed(engine, id, &events).await {
                     continue;
                 }
-                if !cli && super::plugin_hooks::before_step(engine, id, &events).await {
+                if super::plugin_hooks::before_step(engine, id, &events).await {
                     continue;
                 }
                 if !helper && super::memory::index_if_due(engine, id, &events) {
@@ -286,46 +318,9 @@ async fn drive(
                 if !helper && engine.offer_person_activity(id) {
                     continue;
                 }
-                // A shared bot thinks only with models its organization allows, and never on a
-                // member's coding subscription (ADR 0206 §3).
+                // A shared bot thinks only with models its organization allows (ADR 0206 §3).
                 if let Some(why) = engine.org_model_refusal(id, &model) {
                     return Ended::Failed(String::new(), why.to_owned());
-                }
-                // A reply left open on a subscription its maker's terms no longer allow (one
-                // from before this record): it ends with why, and what comes next waits for the
-                // person to pick another model (ADR 0205 §4).
-                if let Some(record) = engine.refused_terms(&model) {
-                    return Ended::Failed(String::new(), record.refusal());
-                }
-                if cli {
-                    let step =
-                        super::brain::step(engine, id, &reply, &events, &model, &mut stop, pause)
-                            .await;
-                    match step {
-                        Step::Answered => {
-                            match super::brain::finish_unless_steered(engine, id, &reply) {
-                                Ok(true) => return Ended::Finished,
-                                Ok(false) => {}
-                                Err(error) => return Ended::Failed(String::new(), error),
-                            }
-                        }
-                        Step::Calls => {}
-                        Step::Paused => return Ended::Paused,
-                        Step::Stopped(text) => return Ended::Stopped(text),
-                        Step::Failed(text, error) => return Ended::Failed(text, error),
-                        Step::FailedAs(_, error, failure) if failure.transient => {
-                            match outage(engine, id, &reply, &error, &failure, &mut stop, pause)
-                                .await
-                            {
-                                Some(ended) => return ended,
-                                None => continue,
-                            }
-                        }
-                        Step::FailedAs(text, error, failure) => {
-                            return Ended::FailedAs(text, error, failure);
-                        }
-                    }
-                    continue;
                 }
                 // Stop interrupts a compaction too; nothing is stored for one cut short. A pause
                 // lets it finish like a model step, unless the pause is immediate.
@@ -334,11 +329,13 @@ async fn drive(
                     _ = stopped(&mut stop) => return Ended::Stopped(String::new()),
                     _ = pausing(pause, Point::Streaming) => return Ended::Paused,
                 };
-                if compacted {
+                if compacted || super::compact::age_if_due(engine, id, &events) {
                     continue;
                 }
                 match model_step(engine, id, &reply, &events, &mut stop, pause).await {
-                    // A plugin's Stop hook may ask for one more step first (ADR 0151).
+                    // One more step when the reply would leave an ask open (ADR 0215 §3), and
+                    // a plugin's Stop hook may ask for one more step first (ADR 0151).
+                    Step::Answered if super::asks::check(engine, id, &reply) => {}
                     Step::Answered if super::plugin_hooks::at_stop(engine, id).await => {}
                     Step::Answered => match finish_unless_steered(engine, id, &reply) {
                         Ok(true) => return Ended::Finished,
@@ -400,17 +397,21 @@ async fn outage(
     }
 }
 
-/// The model the turn started with, so a conversation keeps one model and its cache.
-fn turn_model(engine: &Engine, events: &[Event], reply: &str) -> String {
-    events
-        .iter()
-        .find_map(|event| match event {
-            Event::Known(Known::ReplyStarted { reply: r, model }) if r == reply => {
-                Some(model.clone())
-            }
-            _ => None,
-        })
-        .unwrap_or_else(|| engine.keyless_default_model())
+/// The model the turn started with, so a conversation keeps one model and its cache. A reply
+/// started on a coding subscription by an older build (ADR 0219) carries on with the bot's model
+/// now.
+fn turn_model(engine: &Engine, id: &str, events: &[Event], reply: &str) -> String {
+    let started = events.iter().find_map(|event| match event {
+        Event::Known(Known::ReplyStarted {
+            reply: r, model, ..
+        }) if r == reply => Some(model.clone()),
+        _ => None,
+    });
+    match started {
+        Some(model) if super::retired_models::is_retired(&model) => engine.reply_model(id),
+        Some(model) => model,
+        None => engine.keyless_default_model(),
+    }
 }
 
 async fn model_step(
@@ -421,7 +422,7 @@ async fn model_step(
     stop: &mut watch::Receiver<bool>,
     pause: &mut watch::Receiver<Pause>,
 ) -> Step {
-    let started_on = turn_model(engine, events, reply);
+    let started_on = turn_model(engine, id, events, reply);
     // The models the step may run on (ADR 0205 §2), from the one its reply's last step ran on, so
     // a fallback doesn't move the next step back and forth.
     let whole = engine.step_route(id, &started_on);
@@ -432,6 +433,14 @@ async fn model_step(
     let prompt = context::prompt_with(&system, engine.offered_for(id), events, &images)
         .session(id)
         .effort(engine.step_effort(id));
+    // The person's asks close the prompt, after everything stored (ADR 0215 §2). A helper has
+    // no person: it works from its one task.
+    let prompt = match engine.limits.asks && engine.helper_of(id).is_none() {
+        true => spade_core::asks::block::appended(prompt, &engine.asks_of(id, events)),
+        false => prompt,
+    };
+    // Main's lanes that haven't ended close it, so main knows what runs where (ADR 0217 §6).
+    let prompt = engine.with_lanes_block(id, prompt);
     let live = engine.live(id);
     engine.step_began(id);
     engine.set_status(id, Some(super::roster::THINKING.to_owned()));
@@ -623,10 +632,18 @@ fn finish_unless_steered(engine: &Engine, id: &str, reply: &str) -> Result<bool,
     if steered {
         return Ok(false);
     }
-    let text = match events.get(last_step) {
-        Some(Event::Known(Known::StepFinished { text, .. })) => text.clone(),
-        _ => String::new(),
-    };
+    // A last step with no words (one that only sorted asks) leaves the reply's latest words.
+    let text = events[..=last_step.min(events.len().saturating_sub(1))]
+        .iter()
+        .rev()
+        .take_while(|e| !matches!(e, Event::Known(Known::ReplyStarted { .. })))
+        .find_map(|e| match e {
+            Event::Known(Known::StepFinished { text, .. }) if !text.is_empty() => {
+                Some(text.clone())
+            }
+            _ => None,
+        })
+        .unwrap_or_default();
     let total = progress(&events);
     // What the person sees the turn cost counts the helpers whose results it read (ADR 0152).
     let helpers = spade_core::helper::cost_in_turn(&events);

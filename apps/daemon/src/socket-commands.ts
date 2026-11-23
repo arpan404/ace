@@ -106,10 +106,10 @@ export async function admitCommand(command: Command, admission: CommandAdmission
     refuseBeforeAccept("device_mismatch", "Command device must match hello");
     return;
   }
-  // A Spade bot's hidden session (ADR 0133) is Spade's alone: no client command touches it,
-  // whichever service would have handled it.
+  // A Spade bot's old session (ADR 0133, superseded by ADR 0219) is inert: no client command
+  // touches it, whichever service would have handled it.
   if (spadeBotTarget(command, options.store)) {
-    refuseBeforeAccept("host_thread", "Spade runs this bot's turns; talk to the bot in Spade.");
+    refuseBeforeAccept("host_thread", "Spade bots no longer run here; talk to the bot in Spade.");
     return;
   }
   if (!maintenance.admitCommand(command)) {
@@ -159,7 +159,7 @@ export async function admitCommand(command: Command, admission: CommandAdmission
   else await settledWithin(task, commandGraceMs, admission.delay);
 }
 
-/** Whether a client's command names a Spade bot's hidden session as its thread or its source. */
+/** Whether a client's command names a Spade bot's old session as its thread or its source. */
 function spadeBotTarget(command: Command, store: Pick<Store, "getThread">): boolean {
   const payload: Record<string, unknown> = command.payload;
   return ["threadId", "handoffFrom", "sourceThreadId"].some((key) => {
