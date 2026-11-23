@@ -262,7 +262,7 @@ test("an upload replaces a file only as the phone saw it", async () => {
 
 test("a file Spade gives no revision of can't be replaced, renamed or deleted from the phone", async () => {
   const { ask, api, stage } = await withBot({ "big.bin": "x" });
-  api.unrevised.add("big.bin");
+  api.computer.unrevised.add("big.bin");
 
   expect(
     await ask({ type: "spade.files.revision", agentId: "writer", path: "big.bin" }),

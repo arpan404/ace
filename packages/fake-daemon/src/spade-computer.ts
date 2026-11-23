@@ -91,6 +91,8 @@ export function fakeStale(
 }
 
 export class FakeSpadeComputer {
+  /** Workspace paths read with no revision, as Spade reads a file past the size it takes one of. */
+  readonly unrevised = new Set<string>();
   private readonly drivers = new Map<string, "bot" | "person">();
   private readonly surfaces = new Map<string, FakeSurface[]>();
   private readonly terminals = new Map<string, Terminal>();
