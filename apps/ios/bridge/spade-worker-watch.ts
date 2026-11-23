@@ -41,6 +41,8 @@ export class SpadeWorkerWatch {
   private stopped = false;
   /** The threads below each worker last read from their own thread, kept while it shows. */
   private readonly below = new Map<string, ReadonlySet<string>>();
+  /** What each worker's hints last named below it, kept while the list isn't settled. */
+  private readonly hints = new Map<string, readonly string[]>();
   private readonly owner: Owner;
   private readonly changed: () => void;
 
@@ -100,7 +102,10 @@ export class SpadeWorkerWatch {
     const kept = new Set(workers);
     for (const worker of this.below.keys())
       if (workers.has(worker)) for (const thread of this.below.get(worker) ?? []) kept.add(thread);
-      else this.below.delete(worker);
+      else {
+        this.below.delete(worker);
+        this.hints.delete(worker);
+      }
     for (const thread of this.direct.keys()) if (!kept.has(thread)) this.forget(thread);
   }
 
@@ -114,6 +119,7 @@ export class SpadeWorkerWatch {
     this.stopRoom = undefined;
     for (const thread of this.direct.keys()) this.forget(thread);
     this.below.clear();
+    this.hints.clear();
     this.shown = new Set();
   }
 
@@ -145,9 +151,12 @@ export class SpadeWorkerWatch {
 
   /**
    * The threads below `worker` that the daemon's `askingThreads` hints say wait on the person,
-   * nearest first, each one the list lacks read from its own thread.
+   * nearest first, each one the list lacks read from its own thread. While the list isn't
+   * settled it can't say which threads it lacks, so the last walk's threads stand, and stay read.
    */
-  private hinted(worker: string, list: Listing & Settled): string[] {
+  private hinted(worker: string, list: Listing & Settled): readonly string[] {
+    if (!list.loaded || list.unconfirmed || list.syncing || list.error)
+      return this.hints.get(worker) ?? [];
     const found: string[] = [];
     const read = new Set<string>();
     const seen = new Set([worker]);
@@ -155,6 +164,7 @@ export class SpadeWorkerWatch {
     for (const id of queue) {
       if (found.length >= followsMost) break;
       for (const child of this.live(id, list, read)?.askingThreads ?? []) {
+        if (found.length >= followsMost) break;
         if (seen.has(child.id)) continue;
         seen.add(child.id);
         found.push(child.id);
@@ -162,6 +172,7 @@ export class SpadeWorkerWatch {
       }
     }
     this.below.set(worker, read);
+    this.hints.set(worker, found);
     return found;
   }
 

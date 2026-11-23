@@ -97,3 +97,109 @@ test("two workers refused for lack of room are each read again as room frees up"
   holds[1]?.release();
   await until(() => [first, second].every((id) => read(id)?.state === "done"));
 });
+
+const live = (asking: string[]) => ({ askingThreads: asking.map((id) => ({ id })) });
+
+const entry = (id: string, asking: string[]) => ({
+  id,
+  status: { state: "needs_you", interactions: 1 },
+  live: live(asking),
+});
+
+/** A thread list and threads as the SDK hands them out, settled until told otherwise. */
+function fakeOwner(listed: Record<string, string[]>, unlisted: Record<string, string[]>) {
+  const list = {
+    loaded: true,
+    unconfirmed: false,
+    syncing: false,
+    error: undefined as unknown,
+    ids: Object.keys(listed),
+    thread: (id: string) => (id in listed ? entry(id, listed[id] ?? []) : undefined),
+    observe: () => () => {},
+  };
+  const held = new Set<string>();
+  const owner = {
+    threads: () => ({ store: list, release: () => {} }),
+    thread: (id: string) => {
+      held.add(id);
+      return {
+        store: {
+          error: undefined,
+          syncing: false,
+          unconfirmed: false,
+          thread: id in unlisted ? entry(id, unlisted[id] ?? []) : undefined,
+          observe: () => () => {},
+        },
+        release: () => held.delete(id),
+      };
+    },
+    threadRoom: () => ({ subscribe: () => () => {}, getSnapshot: () => 1 }),
+  };
+  return {
+    list,
+    held,
+    owner: owner as unknown as ConstructorParameters<typeof SpadeWorkerWatch>[0],
+  };
+}
+
+const workersRow = (thread: string, asking: string[]) => ({
+  row: {
+    kind: "workers" as const,
+    title: "",
+    workers: [
+      {
+        id: thread,
+        name: "",
+        kind: "ace" as const,
+        thread,
+        asking,
+        conversation: null,
+        tone: "needs-you" as const,
+        line: "",
+      },
+    ],
+  },
+});
+
+test("a worker's asking threads stop at the cap even when one thread hints at many", () => {
+  const children = Array.from({ length: 8 }, (_, at) => `child-${at}`);
+  const tree: Record<string, string[]> = { worker: children };
+  for (const child of children) tree[child] = [0, 1, 2].map((at) => `${child}-${at}`);
+  for (const child of children) for (const leaf of tree[child] ?? []) tree[leaf] = [];
+  const { owner } = fakeOwner(tree, {});
+  const watch = new SpadeWorkerWatch(owner, () => {});
+  const waiting = watch
+    .facts(
+      () => undefined,
+      () => undefined,
+    )
+    .waiting("worker");
+  // The worker, then at most 16 below it.
+  expect(waiting).toHaveLength(17);
+  expect(waiting.slice(1, 9)).toEqual(children);
+});
+
+test("a worker keeps the threads it named below it while the list is syncing", () => {
+  const { list, held, owner } = fakeOwner(
+    { worker: ["middle"], deepest: [] },
+    { middle: ["deepest"] },
+  );
+  const watch = new SpadeWorkerWatch(owner, () => {});
+  const read = () =>
+    watch
+      .facts(
+        () => undefined,
+        () => undefined,
+      )
+      .waiting("worker");
+  expect(read()).toEqual(["worker", "middle", "deepest"]);
+  watch.showing([workersRow("worker", read())]);
+
+  list.syncing = true;
+  const during = read();
+  watch.showing([workersRow("worker", during)]);
+
+  expect(during).toEqual(["worker", "middle", "deepest"]);
+  // The unlisted middle thread is still read from its own thread, not dropped and taken again.
+  expect(held.has("middle")).toBe(true);
+});
