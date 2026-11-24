@@ -116,13 +116,19 @@ never a trusted file, and every helper is read-only.
    the rest start once its stream has begun: the provider's prompt cache the first request writes
    serves the others.
 3. **Lean reading is the helper's job.** A helper searches with `web_search` and reads a page
-   through `web_fetch`'s saved text, outline and `query` passages rather than whole pages; the
-   saved workspace path travels into the report beside the URL.
+   through `web_fetch`'s saved text, outline and `query` passages rather than whole pages. A
+   finding must cite a page that helper fetched, on the URL `web_fetch` recorded; the report shows
+   that record's URL and saved workspace path, not the helper's rendering of them.
 4. **The report is assembled, not only written.** Findings come from the helpers' own lines, each
    with the page it names; a finding naming a page its helper did not fetch is left out. One typed
    call writes the answer and the disagreements and gaps; the confidence note is worked out from
    what came back. The job's result is the report itself (usually 2,000-4,000 characters), then
    its path and coverage.
+
+The plan is model-written, so a part's task always reaches its helper as the bot's message and
+taints the helper's turn, whatever the bot's own context held. The report is never trusted: its
+path's old trust record is cleared before the words are written, and a record that cannot be
+cleared stops the save.
 
 Consequence: research costs a plan, a summary and the helpers' turns rather than a writer and a
 checker over every page. Spade no longer re-reads the pages itself, so a claim rests on the
