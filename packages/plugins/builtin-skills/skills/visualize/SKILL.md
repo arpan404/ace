@@ -1,6 +1,6 @@
 ---
 name: visualize
-description: Show an HTML page inline in chat (diagram, mockup, chart, explainer, quiz) when seeing beats prose. How to pick the form, design a page that holds from phone to full screen, preview it and publish it.
+description: Show an HTML page inline in chat (diagram, mockup, chart, explainer) when seeing beats prose, then preview and publish it.
 ---
 
 # Visualize in ace chat

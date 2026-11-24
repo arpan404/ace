@@ -1,6 +1,6 @@
 ---
 name: plan-and-delegate
-description: Split a larger task into independent parts, run them as parallel child threads, then check and combine the results.
+description: Split a larger task into independent parts, run them as child threads, then combine their results.
 ---
 
 # Plan, then delegate

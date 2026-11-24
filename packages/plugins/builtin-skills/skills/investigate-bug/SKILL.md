@@ -1,6 +1,6 @@
 ---
 name: investigate-bug
-description: Find a bug's root cause before fixing it, when something is broken, slow or wrong.
+description: Find a bug's root cause before fixing it, when it is broken, slow or wrong.
 ---
 
 # Investigate a bug

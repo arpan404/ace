@@ -1,6 +1,6 @@
 ---
 name: ace-threads
-description: Manage ace threads, project notes and automations, such as PR links, queues and handoffs. Use before thread_*, note_* or automation_* tools.
+description: Manage ace threads, project notes and automations, such as PR links. Use before thread_*, note_* or automation_*.
 ---
 
 # Threads and project knowledge
