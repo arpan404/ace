@@ -48,7 +48,7 @@ I/O, and the helpers' own machinery is `engine/helpers.rs` (helpers.md).
    and where the helpers disagreed or found nothing, from their reports only.
 5. **Assemble.** From the helpers' answers, empty ones included: `## Answer`, `## Findings` (a
    group per part, each finding as `- claim — <url> _(saved: web/…)_`), `## Disagreements and
-   gaps`, `## Confidence` and `## Sources`. The confidence note says how many parts came back with
+gaps`, `## Confidence` and `## Sources`. The confidence note says how many parts came back with
    a page cited, how many pages and sites, which helpers did not answer, and that Spade did not
    re-read the pages: `High` when every part cited a page and there are at least two, `Medium`
    past half the parts, `Low` otherwise. A part that failed, or a helper stopped at the time
