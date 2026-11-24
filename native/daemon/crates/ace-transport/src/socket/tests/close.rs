@@ -94,6 +94,23 @@ async fn a_queued_write_does_not_postpone_the_close_deadline() {
     }
 }
 
+#[tokio::test(start_paused = true)]
+async fn close_from_a_thread_without_a_runtime_ends_the_socket() {
+    // napi calls arrive on the JS thread, which has no runtime of its own: the
+    // socket hands `close` its own handle, so the timer still starts.
+    let (handle, mut events, _client) = pair(1 << 16).await;
+    let closer = handle.clone();
+    std::thread::spawn(move || closer.close(Some(1001), "bye".to_owned()))
+        .join()
+        .expect("the closing thread ends without panicking");
+    tokio::time::advance(CLOSE_TIMEOUT).await;
+
+    match next(&mut events).await {
+        SocketEvent::Close { code, .. } => assert_eq!(code, 1006),
+        other => panic!("expected Close 1006 from the deadline, got {other:?}"),
+    }
+}
+
 #[tokio::test]
 async fn dropping_the_handle_ends_the_socket() {
     let (handle, mut events, mut client) = pair(1 << 16).await;

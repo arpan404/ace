@@ -57,7 +57,7 @@ impl SocketEvents {
 
     fn release(&self, event: Option<&SocketEvent>) {
         if matches!(event, Some(SocketEvent::Sent { .. })) {
-            debit(&self.shared.pending, 1, "pending");
+            debit(&self.shared.pending, 1);
         }
     }
 }

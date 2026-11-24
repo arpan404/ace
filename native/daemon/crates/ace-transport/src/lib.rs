@@ -23,7 +23,7 @@ pub use listener::LoopbackListener;
 pub use peer::Peer;
 pub use prefixed::{Prefixed, TimedIo};
 pub use proxy::ProxyTarget;
-pub use socket::{SendResult, SocketEvent, SocketEvents, SocketHandle};
+pub use socket::{SendResult, SocketEvent, SocketEvents, SocketHandle, underflow_count};
 pub use upgrade::{
     AdmissionDecision, AdmissionOutcome, SocketSink, UpgradeAdmission, UpgradeRequest,
     WebSocketUpgrades,
