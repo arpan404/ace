@@ -583,9 +583,11 @@ impl Engine {
             .map_err(|e| e.to_string())?;
         *self.adopt.lock().unwrap_or_else(|p| p.into_inner()) = None;
         // Credential headers an older build kept as plain endpoint config are never sent; the
-        // rows are cleaned while Spade is already listening, a bounded batch at a time.
-        self.drop_stored_credential_headers()
-            .map_err(|e| e.to_string())?;
+        // rows are cleaned while Spade is already listening, a bounded batch at a time. A failed
+        // pass only leaves rows as inert as they already are: it never holds setup up.
+        if let Err(error) = self.drop_stored_credential_headers() {
+            tracing::warn!(%error, "credential headers kept with an endpoint were not cleaned");
+        }
         self.store
             .fill_missing_models(&self.default_model())
             .map_err(|e| e.to_string())?;
