@@ -26,10 +26,10 @@ use std::sync::{Arc, Mutex};
 
 use http::{StatusCode, Version};
 use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
 use tokio_util::sync::CancellationToken;
 
 use self::handshake::{Refusal, empty_response, handshake, latin1, node_header};
+use crate::conn_io::ConnIo;
 use crate::driver::{Grace, UpgradeHandler, UpgradeIo, UpgradeReply};
 use crate::head::RequestHead;
 use crate::peer::Peer;
@@ -137,7 +137,7 @@ impl UpgradeHandler for WebSocketUpgrades {
     fn upgrade_raw(
         &self,
         head: RequestHead,
-        mut stream: Prefixed<TcpStream>,
+        mut stream: Prefixed<Box<dyn ConnIo>>,
         peer: Peer,
         shutdown: CancellationToken,
         grace: Grace,
@@ -203,6 +203,10 @@ impl UpgradeHandler for WebSocketUpgrades {
             if answer(&mut stream, &acceptance.bytes()).await.is_err() {
                 return;
             }
+            // The `101` was the last thing the connection's write timeout
+            // bounded: the socket is a WebSocket from here, and Node bounds no
+            // WebSocket write (T1b.1a).
+            stream.set_write_timeout(None);
             sink.opened(reservation, Box::new(stream), user_agent);
             settle.disarm();
         })
@@ -337,13 +341,13 @@ fn decided(outcome: AdmissionOutcome) -> Decided {
     }
 }
 
-async fn answer(stream: &mut Prefixed<TcpStream>, bytes: &[u8]) -> io::Result<()> {
+async fn answer(stream: &mut Prefixed<Box<dyn ConnIo>>, bytes: &[u8]) -> io::Result<()> {
     stream.write_all(bytes).await?;
     stream.flush().await
 }
 
 /// `ws` ends a refused connection after writing its answer.
-async fn refuse(stream: &mut Prefixed<TcpStream>, bytes: &[u8]) {
+async fn refuse(stream: &mut Prefixed<Box<dyn ConnIo>>, bytes: &[u8]) {
     if answer(stream, bytes).await.is_ok() {
         let _ = stream.shutdown().await;
     }

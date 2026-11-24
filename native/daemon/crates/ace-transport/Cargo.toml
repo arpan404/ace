@@ -46,7 +46,26 @@ tokio-util = { version = "0.7.20" }
 # tungstenite: `derive_accept_key` alone, the `Sec-WebSocket-Accept` digest the
 # handshake pins to ws's. Framing is `frame`'s since T1b.3a; no TLS, no URL.
 tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
-# zeroize: the hop secret is wiped on drop in a way the optimizer cannot remove.
+# rustls: TLS termination for the remote listeners (T1b.1a). aws-lc-rs with
+# post-quantum preferred, named explicitly so a later default change cannot
+# move the provider; never ring, and no rustls-pemfile (pki-types reads PEM).
+rustls = { version = "0.23.46", default-features = false, features = [
+  "aws_lc_rs",
+  "prefer-post-quantum",
+  "std",
+  "tls12",
+  "logging",
+] }
+# tokio-rustls: the TLS handshake over an accepted TcpStream, and the client
+# the tests shake hands with.
+tokio-rustls = { version = "0.26.6", default-features = false, features = [
+  "aws_lc_rs",
+  "tls12",
+  "logging",
+] }
+# zeroize: the hop secret is wiped on drop in a way the optimizer cannot remove,
+# and a TLS identity's key PEM is held only in a `Zeroizing` buffer while it is
+# parsed.
 zeroize = { version = "1" }
 
 [dev-dependencies]

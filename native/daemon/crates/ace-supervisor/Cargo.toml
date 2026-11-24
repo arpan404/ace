@@ -47,7 +47,9 @@ eventsource-stream = "0.2"
 rustix = { version = "1", features = ["event", "process", "thread"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-# procfs: exact kernel start times from /proc, so a reused pid is never signalled (identity is pid plus start time).
+# procfs: exact kernel start times from /proc, so a reused pid is never signalled (identity is pid
+# plus start time). Its default features are off: they pull chrono, which is unmaintained
+# (RUSTSEC-2026-0543) and which nothing here reads (start times are the kernel's tick count).
 procfs = { version = "0.18", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]

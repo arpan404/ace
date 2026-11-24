@@ -87,50 +87,46 @@ every run-time decision of remote access (`remote-runtime.ts`, `remote-direct.ts
 1. **TLS 1.2 cipher suites**: only ECDHE with AES-GCM or ChaCha20-Poly1305 (rustls' aws-lc-rs
    suites). The Node/Bun stack also accepts CBC and DHE suites; a client offering only those fails
    the handshake. Every ace client (browsers, iOS `URLSession`, Node and Bun) offers AEAD ECDHE.
-2. **Key exchange groups**: `X25519MLKEM768` first, then X25519, P-256 and P-384, so every client
-   that negotiates the hybrid today still does. Not offered: X448, P-521 and the finite-field
-   groups OpenSSL also lists; a client offering only those fails the handshake (no ace client
-   does).
-3. **Session resumption**: rustls' `aws_lc_rs::Ticketer` (in memory, keys rotated every 6 h,
+2. **Session resumption**: rustls' `aws_lc_rs::Ticketer` (in memory, keys rotated every 6 h,
    valid about 12 h). Node's default session lifetime is 300 s, so a paired machine may
    resume where it would have made a full handshake. Restarting or re-opening the listener makes
    new keys, as today.
-4. **SNI**: rustls lower-cases the name and drops one trailing dot before the resolver sees it, so
+3. **SNI**: rustls lower-cases the name and drops one trailing dot before the resolver sees it, so
    `x-ace-hop-servername` arrives normalised where Node's `socket.servername` is as sent
    (`reach.ts:91` and `tailscale-certificate.ts:136` normalise anyway, so no decision changes). An IP
    literal in SNI is treated as no SNI (pinned certificate), as Node serves it. **An SNI that is
    not a valid DNS name fails the handshake** with `illegal_parameter`
    (`rustls/src/server/hs.rs:748`–`:754`), where Node serves the pinned certificate; no ace client
    sends one.
-5. **TLS alerts and handshake failures** (garbage, plain HTTP to the TLS port, a stalled hello):
+4. **TLS alerts and handshake failures** (garbage, plain HTTP to the TLS port, a stalled hello):
    both stacks close; the alert bytes, if any, may differ. Nothing in ace parses them.
-6. **`Connection: keep-alive` is not written** on HTTP/1.1 responses (hyper leaves it implicit, RFC
+5. **`Connection: keep-alive` is not written** on HTTP/1.1 responses (hyper leaves it implicit, RFC
    9112 §9.3); `keep-alive: timeout=N` is. Field names are hyper's lower case, as T1a's recorded
    difference already says for the proxy hop.
-7. **TCP connection cap**: at most 1,024 TCP connections per remote listener
+6. **TCP connection cap**: at most 1,024 TCP connections per remote listener
    (`DEFAULT_MAX_TCP_CONNECTIONS`, T1a.2); one over it is accepted and closed at once. Node has no
    cap. The WebSocket caps (256 sockets, 64 pre-auth remote, 16 per address) are unchanged.
-8. **An upgrade that finishes while its listener retires is closed**: with Node, a socket whose
+7. **An upgrade that finishes while its listener retires is closed**: with Node, a socket whose
    `ws` upgrade straddles `remoteDirect`'s `disconnect()` and `close()` can survive the retire
    (`sni-listener.ts:172`–`:180` drops it from `owned`). Natively it is terminated (settings-only
    retire) or given `1001` (daemon shutdown) as soon as it is registered (T1b.4), which is what the
    retire means.
-9. **`keepTrusted` after the response's headers were sent does nothing natively**: Node still marks
+8. **`keepTrusted` after the response's headers were sent does nothing natively**: Node still marks
    the connection trusted for its idle timer (`:47`). Both callers call it before writing
    (reviewer check, T1b.2).
-10. **Compressed bytes differ**: zlib-rs at level 6 and Node's zlib at level 6, memLevel 8, need not
+9. **Compressed bytes differ**: zlib-rs at level 6 and Node's zlib at level 6, memLevel 8, need not
     produce identical streams. Sizes stay within ±3% (the bench checks it); every inflater reads
     both. `ws`'s `concurrencyLimit: 10` has no counterpart: each socket's writer compresses its own
     messages in order on tokio.
-11. **Extension parameter numbers**: window-bit values are decimal digits only. `ws` reads them
+10. **Extension parameter numbers**: window-bit values are decimal digits only. `ws` reads them
     with JavaScript's `+value`, so `0x0a`, `1e1`, `10.0` and `+10` pass there and are refused with
     `ws`'s 400 here. No client sends them.
-12. **Errors after bind are logged in bursts, not one per event.** `sniListener` hands every
+11. **Errors after bind are logged in bursts, not one per event.** `sniListener` hands every
     `error` the TLS server emits after it bound to `log` (`sni-listener.ts:185`–`:188`), and an
     accept failure such as `EMFILE` repeats while it lasts. The Rust accept loop retries every 10 ms
     (`ACCEPT_RETRY`), so the binding reports the first failure of each OS error code per listener
     at once, then at most one line a minute per code with the count since, through the same `log`.
-13. **Window bits 8 is served as 9**, and the answer still echoes `=8`, as `ws` does. Node 26's
+12. **Window bits 8 is served as 9**, and the answer still echoes `=8`, as `ws` does. Node 26's
     raw deflate writes the same bytes at 8 as at 9; ours is compatible with an 8-bit window for a
     different reason: zlib-rs 0.6.8 at level 6 with a 9-bit window never emits a match distance
     over 250 (512 minus its 262-byte lookahead), inside the 256 bytes RFC 7692 §7.2.1 lets a client
@@ -229,10 +225,15 @@ move, and every later change to `server.ts` is net zero or negative.
   | SNI      | a later head: the idle timer armed when the last answer closed keeps running until the next `request` (`:161`–`:169`) | bounded by `keep_alive` / `trusted_keep_alive`    |
   | SNI      | `http.keepAliveTimeout = max(keepAlive, trustedKeepAlive)` (`:103`–`:105`), set past both so it never fires first     | not ported: Rust's own idle timer is the only one |
 
-  A reviewer compares each row with the source line it names. **Write timeout**: on a remote connection
-  `TimedIo` bounds only the `101` or refusal write (`upgrade_write`) and is disarmed
-  (`TimedIo::set_timeout(None)`, new) before the stream reaches the socket or hyper's HTTP loop:
-  Node bounds no HTTP or WebSocket write, and a slow 3G peer stalls longer than 5 s.
+  A reviewer compares each row with the source line it names. **Write timeout**: the bound is a shared
+  `WriteTimeout` (`prefixed.rs`, new) so the connection's I/O and its upgrade handler change the
+  same value. On a remote connection it is `None` for hyper's HTTP — Node bounds no HTTP write, and
+  a slow 3G peer stalls longer than 5 s — and the upgrade handler arms `upgrade_write` for the
+  `101` or a refusal, then drops it again once the socket is a WebSocket (raw path:
+  `set_write_timeout(None)` before `opened`; hyper path: after the upgrade resolves). That is what
+  keeps a stalled `101` from holding `close()` past its deadline: the upgrade arms the connection's
+  grace, so the deadline no longer cancels it, and only the write bound ends it. Loopback keeps
+  its timed HTTP and loses the bound on the WebSocket it opens, as Node has it.
 
 - **The accept loop** (`accept.rs`): T1a's loop moved out of `listener.rs` (accept, the TCP cap,
   `ACCEPT_RETRY`, the `JoinSet`, the close deadline) and made generic over a per-connection
@@ -279,20 +280,30 @@ move, and every later change to `server.ts` is net zero or negative.
   `.with_protocol_versions(&[&TLS13, &TLS12])` (Node's `minVersion: "TLSv1.2"`, max 1.3),
   `.with_no_client_auth()`, `.with_cert_resolver(resolver)`; `alpn_protocols = [b"http/1.1"]`
   (`sni-listener.ts:107`, and `node:https`'s default); `ticketer = rustls::crypto::aws_lc_rs::Ticketer::new()?`;
-  `max_early_data_size = 0` (no 0-RTT, as Node); `ignore_client_order = false` (Node's
-  `honorCipherOrder` default); no `key_log`, ever. The key exchange groups are the provider's
-  `DEFAULT_KX_GROUPS` with `prefer-post-quantum`, unchanged (`X25519MLKEM768`, X25519, P-256,
-  P-384). **The process provider** (`tls/provider.rs`, new, the crate's one boundary to it):
+  `max_early_data_size = 0` (no 0-RTT, as Node); the cipher suites in Node's order (TLS 1.3:
+  `TLS13_AES_256_GCM_SHA384`, ChaCha20-Poly1305, `TLS13_AES_128_GCM_SHA256`; TLS 1.2:
+  `*_AES_128_GCM_*`, then `*_AES_256_GCM_*`, then ChaCha20-Poly1305) with
+  `ignore_client_order = true`: Node's negotiated suites follow the server's list (a 2026-11-24
+  probe offered ChaCha20 first and Node chose AES-256-GCM for TLS 1.3 and TLS 1.2, and its TLS 1.2
+  list puts AES-128-GCM first), where rustls' default follows the client's. No `key_log`, ever.
+  **Two configurations are built once per identity, and the acceptor chooses by the ClientHello**:
+  `server_config_preferring_hybrid` (new) has a provider whose only key-exchange group is
+  `X25519MLKEM768`, and a client whose `supported_groups` name it gets that one, so rustls uses the
+  client's hybrid share or asks for one with a HelloRetryRequest (RFC 8446 §4.2.8) and the hybrid
+  wins whatever order the client listed the groups in, as Node has it; every other client gets
+  `server_config`, with the provider's `DEFAULT_KX_GROUPS` (`X25519MLKEM768`, X25519, P-256, P-384).
+  **The process provider** (`tls/provider.rs`, new, the crate's one boundary to it):
   `pub fn process_provider() -> Result<Arc<CryptoProvider>, TransportError>` installs
   `rustls::crypto::aws_lc_rs::default_provider()` with `install_default` on its first call and
   returns `CryptoProvider::get_default()`; if a provider was already installed, it is accepted only
   when its `kx_groups` start with `X25519MLKEM768`, else
   `TransportError::CryptoProvider` and no remote listener starts. Only the binding calls it
   (T1b.1b); `RemoteListener::bind` takes the provider as an argument, so tests pass their own.
-- **Handshake** (`tls/handshake.rs`): `TlsAcceptor::accept` under `limits.handshake`; a stall,
-  failure or timeout drops the TCP stream (Node's `tlsClientError` → `destroy`,
-  `sni-listener.ts:136`). It returns the stream and the negotiated server name (`Option<String>`,
-  for T1b.2).
+- **Handshake** (`tls/handshake.rs`): `LazyConfigAcceptor` reads the ClientHello, `Configs` picks
+  one of the two configurations by its `supported_groups`, and `into_stream` finishes; one
+  `limits.handshake` bounds both halves. A stall, failure or timeout drops the TCP stream (Node's
+  `tlsClientError` → `destroy`, `sni-listener.ts:136`). It returns the stream and the negotiated
+  server name (`Option<String>`, for T1b.2).
 - **The listener** (`remote/listener.rs`):
 
   ```rust
@@ -310,7 +321,8 @@ move, and every later change to `server.ts` is net zero or negative.
 
   Bound with tokio's `TcpListener::bind` (`SO_REUSEADDR` on Unix, as libuv sets it, so the port can
   be bound again at once after a close; nothing extra on Windows, as libuv). `Peer` comes from the
-  accepted `TcpStream` before the handshake. **Close**: stop accepting, drop every connection that
+  accepted `TcpStream` before the handshake, and the handshake reads the ClientHello with
+  `LazyConfigAcceptor` to choose between the two configurations above. **Close**: stop accepting, drop every connection that
   is handshaking, idle or carrying an HTTP exchange, at once when `deadline` is zero (what
   `sniListener.close` does, `:191`–`:199`); an upgrade in `Writing` is never cancelled (T1a.5).
 
@@ -372,7 +384,7 @@ move, and every later change to `server.ts` is net zero or negative.
       admit: NativeLoopbackAdmit, // T1a.5's three callbacks, same shapes
       release: (reservation: number) => void,
       opened: (socket: NativeSocketHandle, reservation: number, userAgent: string | null) => void,
-      error: (code: string, message: string, repeated: number) => void, // after bind (difference 12)
+      error: (code: string, message: string, repeated: number) => void, // after bind (difference 11)
     ): Promise<NativeRemote>; // resolves once bound; never waits on a certificate or the network
     port(): number;
     setTrusted(name: string, cert: Buffer, key: Buffer): void; // throws on unusable PEM
@@ -486,7 +498,7 @@ move, and every later change to `server.ts` is net zero or negative.
     one upstream, so a request carrying it did not come from the hop;
   - at most one `x-ace-hop-servername`, matched case-insensitively over `rawHeaders` as `oneValue`
     does (`:24`–`:33`), so `X-Ace-Hop-Servername` beside `x-ace-hop-servername` is two and is `403`;
-    its value 1–253 characters of `[a-z0-9.-]` (what rustls hands over, difference 4), else `403`;
+    its value 1–253 characters of `[a-z0-9.-]` (what rustls hands over, difference 3), else `403`;
   - absent: admitted, with `servername: null`.
 - **`http-peer.ts`**: `HttpPeer` gains `servername: string | null` and `viaHop: boolean`; the guard's
   `setPeer` sets `viaHop: true` and the servername; the fallback (no hop) reads
@@ -541,7 +553,7 @@ move, and every later change to `server.ts` is net zero or negative.
 - **Must not**: forward `Keep-Alive` from the internal server; read the trust marker on loopback;
   change `keepTrusted`'s Node path; keep a second list of hop names anywhere.
 - **Reviewer checks**: `RESERVED` and `HOP_HEADERS` name the same six; `machines/http.ts:61` and
-  `transfers/http.ts:61` call `keepTrusted` before any write (difference 9 stays theoretical); each
+  `transfers/http.ts:61` call `keepTrusted` before any write (difference 8 stays theoretical); each
   row of the MCP table matches the diff.
 
 ### T1b.3a Rust: our own WebSocket framing, both listeners
@@ -646,7 +658,7 @@ move, and every later change to `server.ts` is net zero or negative.
   or `client_max_window_bits=8` is accepted and echoed as `=8`, and messages flow both ways intact;
   Node's raw inflater at 8 reads streams with distances past 256. So the answer echoes the offer's
   value unchanged (negotiation above), deflate is built with `deflate_window(…)`, and inflate always
-  with 15 (recorded difference 13). Serving 8 as 9 is safe because zlib-rs 0.6.8 at level 6 caps
+  with 15 (recorded difference 12). Serving 8 as 9 is safe because zlib-rs 0.6.8 at level 6 caps
   the match distance at 250 with a 9-bit window, which is within an 8-bit window's 256 bytes (RFC
   7692 §7.2.1); that is a property of this backend at this level, so the tests check it against
   every corpus rather than trusting it, and a flate2 or zlib-rs upgrade reruns them.
@@ -723,7 +735,7 @@ move, and every later change to `server.ts` is net zero or negative.
   - `close()`: idempotent; waits for a `listen` still in flight, then closes Rust with deadline 0,
     then the internal server; resolves even when nothing was bound;
   - post-bind errors: the binding's `error` callback goes to `options.log`
-    (`sni-listener.ts:185`–`:188`'s `front.on("error", options.log)`; recorded difference 12).
+    (`sni-listener.ts:185`–`:188`'s `front.on("error", options.log)`; recorded difference 11).
 - **Certificates, with their lifecycle.** `SniListener` gains optional
   `trust?(certificate: TrustedCertificate | undefined): void` (Node's `sniListener` doesn't
   implement it: its `SNICallback` reads `trusted` lazily). `remoteDirect` calls
@@ -748,7 +760,7 @@ key)`, and **if that throws, log it and `clearTrusted()`**, so Rust never keeps 
   connection but an upgrade in `Writing`; such a socket's `opened` arrives later and the wiring
   terminates it (settings-only retire) or gives it `closer.gracefulClose(socket, 1001, "Daemon shutdown")`
   (daemon closing), matching the `disconnect` callback (`server.ts:1332`–`:1347`; recorded
-  difference 8). A move to a new address is a close then a fresh `make` and `listen` on the same
+  difference 7). A move to a new address is a close then a fresh `make` and `listen` on the same
   port, which `SO_REUSEADDR` allows on Unix.
 - **Bind failure, retry and close during bind**, through the code that owns them, unchanged:
   a failed `listen` (`remote-direct.ts:143`–`:155`) closes the listener, stops the certificate
@@ -914,7 +926,7 @@ key)`, and **if that throws, log it and `clearTrusted()`**, so Rust never keeps 
 | Unusable identity or Tailscale key                           | identity: `make` throws as `createServer` does; Tailscale: logged, pin served                                                                     | T1b.4                             |
 | Settings retire, move to a new address, Tailscale on/off     | sockets terminated, listener closed at once, a late `opened` closed, reservations of that listener released, pending links withdrawn as today     | T1b.4                             |
 | Stop while a bind or a certificate fetch is under way        | the bind that lands closes (`remote-direct.ts:157`–`:163`); the fetch is abandoned; shutdown never waits on the network                           | T1b.4 shell close waits the start |
-| Reconnect storm after restart (every device at once)         | TLS handshakes on tokio, not the pump; pre-auth budgets (64 remote, 16 per address) and the 256 cap unchanged; 1,024 TCP connections per listener | T1b.1a; recorded difference 7     |
+| Reconnect storm after restart (every device at once)         | TLS handshakes on tokio, not the pump; pre-auth budgets (64 remote, 16 per address) and the 256 cap unchanged; 1,024 TCP connections per listener | T1b.1a; recorded difference 6     |
 | Certificate renewed or expired while connections are open    | open connections keep theirs; new handshakes get the new one, or the pin after expiry                                                             | T1b.4                             |
 | A panic in a connection task                                 | that connection drops; the listener keeps accepting; a panic in an export becomes a JS error (`catch_unwind`)                                     | T1b.1a, T1b.1b                    |
 | Daemon crash                                                 | the listener dies with the process; nothing on disk to repair                                                                                     | —                                 |

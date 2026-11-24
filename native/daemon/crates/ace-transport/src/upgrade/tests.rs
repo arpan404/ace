@@ -18,10 +18,17 @@ use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
 
+use crate::conn_io::ConnIo;
 use crate::driver::{Grace, UpgradeIo};
 use crate::head::{self, Parsed};
 use crate::peer::Peer;
 use crate::prefixed::{Prefixed, WRITE_TIMEOUT};
+
+/// The driver hands an upgrade handler its connection as a boxed `ConnIo`
+/// (T1b.1a); a loopback socket is the stream itself.
+fn boxed(stream: TcpStream) -> Box<dyn ConnIo> {
+    Box::new(stream)
+}
 
 const KEY: &str = "dGhlIHNhbXBsZSBub25jZQ==";
 const ACCEPT: &str = "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=";
@@ -243,6 +250,24 @@ impl UpgradeAdmission for StubAdmission {
     }
 }
 
+/// A sink that hands the opened socket to the test.
+struct HandingSink(StdMutex<Option<tokio::sync::oneshot::Sender<Box<dyn UpgradeIo>>>>);
+
+impl HandingSink {
+    fn new() -> (Self, tokio::sync::oneshot::Receiver<Box<dyn UpgradeIo>>) {
+        let (send, receive) = tokio::sync::oneshot::channel();
+        (Self(StdMutex::new(Some(send))), receive)
+    }
+}
+
+impl SocketSink for HandingSink {
+    fn opened(&self, _reservation: u64, stream: Box<dyn UpgradeIo>, _user_agent: Option<String>) {
+        if let Some(send) = self.0.lock().expect("the sink's lock").take() {
+            let _ = send.send(stream);
+        }
+    }
+}
+
 #[derive(Default)]
 struct RecordingSink(StdMutex<Vec<(u64, Option<String>)>>);
 
@@ -277,7 +302,7 @@ async fn raw(
     upgrades
         .upgrade_raw(
             head(request),
-            Prefixed::new(Bytes::new(), server, WRITE_TIMEOUT),
+            Prefixed::new(Bytes::new(), boxed(server), WRITE_TIMEOUT),
             peer,
             shutdown,
             Grace::new(),
@@ -423,6 +448,61 @@ async fn an_http_1_0_upgrade_is_refused_before_admission() {
 }
 
 #[tokio::test]
+async fn a_live_socket_is_not_bounded_by_the_upgrade_write_timeout() {
+    // The `101` is bounded by the connection's write timeout; the socket it
+    // opens is not, as Node bounds no WebSocket write.
+    tokio::time::pause();
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("a listener");
+    let address = listener.local_addr().expect("the listener's address");
+    let mut client = TcpStream::connect(address).await.expect("a client");
+    let (server, _) = listener.accept().await.expect("the connection");
+    let peer = Peer::of(&server).expect("the socket's addresses");
+    let admission = Arc::new(StubAdmission::new(AdmissionOutcome::Decided(
+        AdmissionDecision::Accept { reservation: 1 },
+    )));
+    let (sink, opened) = HandingSink::new();
+    let upgrades = WebSocketUpgrades::new(admission, Arc::new(sink));
+
+    upgrades
+        .upgrade_raw(
+            head(&valid("GET")),
+            Prefixed::new(Bytes::new(), boxed(server), WRITE_TIMEOUT),
+            peer,
+            CancellationToken::new(),
+            Grace::new(),
+        )
+        .await;
+    let mut stream = opened.await.expect("the socket was opened");
+
+    let mut answer = [0u8; 1024];
+    let read = client.read(&mut answer).await.expect("the `101`");
+    assert!(answer[..read].starts_with(b"HTTP/1.1 101 "));
+
+    // A payload far larger than the socket's buffers stalls, and ten seconds
+    // pass with nobody reading. A socket that kept the `101`'s 5 s bound fails
+    // in the writer here.
+    const PAYLOAD: usize = 4 * 1024 * 1024;
+    let writer = tokio::spawn(async move { stream.write_all(&vec![b'x'; PAYLOAD]).await });
+    for _ in 0..16 {
+        tokio::task::yield_now().await;
+    }
+    tokio::time::advance(Duration::from_secs(10)).await;
+
+    let reader = tokio::spawn(async move {
+        let mut got = vec![0u8; PAYLOAD];
+        client.read_exact(&mut got).await
+    });
+    writer
+        .await
+        .expect("the writer task")
+        .expect("the write outlived the upgrade's write timeout");
+    reader
+        .await
+        .expect("the reader task")
+        .expect("every byte arrived");
+}
+
+#[tokio::test]
 async fn a_client_with_bytes_waiting_is_not_mistaken_for_one_that_left() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("a listener");
     let address = listener.local_addr().expect("the listener's address");
@@ -435,7 +515,7 @@ async fn a_client_with_bytes_waiting_is_not_mistaken_for_one_that_left() {
 
     let upgrade = upgrades.upgrade_raw(
         head(&valid("GET")),
-        Prefixed::new(Bytes::new(), server, WRITE_TIMEOUT),
+        Prefixed::new(Bytes::new(), boxed(server), WRITE_TIMEOUT),
         peer,
         CancellationToken::new(),
         Grace::new(),
@@ -476,7 +556,7 @@ async fn a_client_that_leaves_while_its_decision_is_pending_is_abandoned() {
 
     let upgrade = upgrades.upgrade_raw(
         head(&valid("GET")),
-        Prefixed::new(Bytes::new(), server, WRITE_TIMEOUT),
+        Prefixed::new(Bytes::new(), boxed(server), WRITE_TIMEOUT),
         peer,
         CancellationToken::new(),
         Grace::new(),
