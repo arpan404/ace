@@ -865,6 +865,36 @@ sends nothing). When a wire read goes default-on, its JavaScript callers move to
 the Rust bytes in the same release; the TypeScript shaper remains only as the switch-off path and is
 deleted, with the switch, one release later.
 
+**The sidebar's window rules, from main (PR #2737, `ace/fix-chats-vanish-under-project-filter`,
+9578c8ed06).** A Rust sidebar or thread-list read must carry them exactly, and the TypeScript tests
+that encode them are its proof with the switch on: `sidebar-index-chats.test.ts`,
+`sidebar-pagination.process.test.ts`, `chat-projects.process.test.ts` and
+`external-mcp/grants.process.test.ts`.
+
+1. The scope has `withChats`, which only the app's own subscription sets
+   (`sidebar-subscription.ts`). With a project and `withChats`, the window is the project's threads
+   plus every chat thread, each once: a chat project picked as the project isn't doubled.
+   Per-project `counts` are unchanged. `total` is that union, and it's the same on the index path
+   and the SQL path.
+2. Every other caller keeps the strict project query, byte for byte, notably external MCP
+   `ace_threads_list`. A project-limited grant never sees a chat, or a cursor that points at one.
+3. The live index keeps a `chat` fact per thread (`EXISTS` on `workspace_metadata` with
+   `kind = 'chat'`) and a chats list per kind (paged, active, archived). A project window merges the
+   two lists, reading at most `limit` from each.
+4. The SQL page for a project with `withChats` is two arms in `UNION ALL`, each `ORDER BY activity
+DESC, id ASC LIMIT limit + 1`. Arm 1 is the project's own threads, on
+   `sidebar_columns_paged_project` (archived: `_archived_project`), with no temp sort. Arm 2 is chats
+   outside the project: `IN (SELECT workspace_id FROM workspace_metadata WHERE kind = 'chat' AND
+workspace_id != ?)`. The outer query orders by a `sidebar_order` alias and applies the limit.
+   Both arms use the full explicit projection, so `sidebar_revision` and `row_trusted` survive.
+   Active and COUNT use `IN (SELECT ? UNION SELECT ... kind = 'chat')`. Page and summary cache keys
+   include `withChats`.
+5. Reclassification: `setKind` in project storage (`registerChat`, `registerSpade`) bumps
+   `sidebar_thread_revisions` for the workspace's threads only when chat membership flips. It writes
+   no events and no thread columns. After the commit it calls the in-process
+   `store.chatMembership.changed(workspaceId)` (`ChatMembership` in `sidebar-revisions.ts`), and
+   live subscriptions read their window again.
+
 ### T5: HTTP routes (needs T1 and ADR 0225 M2)
 
 The chains of behaviour.md §3, in their order. A route not yet in Rust is a `JsHttpRoute` in its
