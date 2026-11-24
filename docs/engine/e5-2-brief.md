@@ -1,0 +1,904 @@
+# E5.2: the actor and frames in Rust (switch `ACE_ENGINE=native`, default off)
+
+Part of the [engine porting guide](porting-guide.md). Its rules 1–16, "Files per work item" and
+"For every E5 item" apply unchanged, and so does everything the [E5.1 brief](e5-1-brief.md) fixes:
+the executor, the pump and its claim, the after-commit `defer`, the store seam, the re-entrancy
+rules, the test seam and its rule that an unported path fails at the call with
+`NativeEngineIncomplete: <what> lands in E5.<n>`. Where this brief is more exact, it wins. Read
+[ADR 0223](../adr/0223-the-engine-and-adapters-move-to-rust-behind-the-same-interfaces.md) §4
+(the acknowledgement bullet, `:233`–`:240`), §5 and §7 rules 3 to 5 first, then
+[behaviour.md](behaviour.md) §4 (every numbered item is contract), then the E5.1 code on
+`origin/ace/rust-engine-e5-1` (`ace-engine/src/lib.rs`, `executor.rs`, `ports.rs`, the binding's
+`engine/mod.rs`, `ports.rs`, `probe.rs` and the shell's `native-engine/testing.ts`).
+
+E5.2 ports the one path from a provider's output to the store: the per-thread mailbox that orders
+frames, ticks and engine operations; frame intake, envelope checks and byte accounting; batching;
+the acknowledgement; flow control; overflow and poisoning; the actor's deadline timer; and the
+pure frame helpers the repository calls (coalescing, capping, the streamed-byte measure, attachment
+echoes and correlations, the streaming fold). It ports no repository, queue, delivery or session
+behaviour. Those reach the actor through two traits this brief fixes (step 6), whose methods fail
+with `NotPorted` naming their owner until that owner lands.
+
+## Branch
+
+Branch from `origin/ace/daemon-rust-rewrite` once E5.1 has merged into it. Until then, branch from
+`origin/ace/rust-engine-e5-1` and merge `origin/ace/daemon-rust-rewrite` into it when E5.1 lands.
+Never rebase. Branch: `ace/rust-engine-e5-2`.
+
+## Decisions this brief makes
+
+1. **The actor's dependencies are two traits, not engine modules.** The actor calls the
+   repository (E5.3), the queue (E5.4), delivery (E5.5), sessions (E5.6) and recovery (E5.8) at
+   fixed points (`actor.ts:353`–`:443`). Built in parallel with E5.3 and E5.4, it cannot call
+   functions those items have not written. So `actor/deps.rs` declares `ActorRepo` (what the
+   actor reads and writes) and `ActorLinks` (what it causes elsewhere). Each method is mapped to
+   its TypeScript line and owner (step 6). The production implementation returns `NotPorted` for
+   each until its owner replaces that one method's body. The probe supplies a scripted
+   implementation, which is how E5.2 proves itself before E5.3 (step 15).
+2. **Frames keep their origin.** A frame from a TypeScript session stays a JavaScript object,
+   held by the shell under a handle. Rust holds the handle, its byte count and its envelope
+   verdict, and the JavaScript translator reads the object itself (step 13). A frame from a native
+   session is an `ace_adapter_api::Frame` and never becomes a JavaScript object (ADR 0223 §7,
+   "Native both"). The batching, acknowledgement and flow-control code is one code path for both.
+3. **A batch's boundary is the firing instant, not the pump.** The TypeScript seals a batch
+   synchronously inside the batch timer's callback (`actor.ts:340`) and enqueues a tick inside the
+   actor timer's (`:565`). In Rust a timer firing only completes its `Timer::fired` oneshot
+   (E5.1 step 5). So every synchronous entry into an actor (`frame`, `enqueue`, `flush`, `stop`,
+   `quarantine`) first runs `catch_up`. That step checks both oneshots with `try_recv`: a fired
+   actor timer enqueues its tick, which seals first, and a fired batch timer seals. The mailbox
+   task runs the same step when it is polled. A frame that arrives after a firing but before the
+   next pump therefore lands in the next batch, exactly as in TypeScript. If both timers fired,
+   the result is the same in either order: `enqueue` seals before it queues the tick.
+4. **One JavaScript promise per batch.** Every frame a TypeScript session hands over while a batch
+   is open gets that batch's promise. The TypeScript makes one per frame (`actor.ts:336`), but no
+   caller compares them, all settle at the same point with the same outcome, and a 256-frame
+   batch then costs one napi deferred instead of 256. The paths that settle at once (a stale
+   generation, a poisoned actor, a full mailbox) get their own promise, as today.
+5. **Acknowledgements run after the turn's JavaScript.** A batch's promise is settled from the
+   pump, and its JavaScript continuations (the session's `committed` step,
+   `engine/sessions.ts:685`–`:697`) run in the microtasks after that pump turn, after any later op
+   the same turn ran. The contract holds: a promise resolves only after its batch committed or was
+   accepted into the live buffer, and rejects if it did not. In TypeScript a later batch's op
+   could not run before the earlier acknowledgement's continuation. Nothing in behaviour.md
+   depends on that order, and E5.1 owner decision 2 accepted the same shift for timers. This is
+   open question 2.
+6. **Facts cross as JSON.** A TypeScript translator's facts reach Rust as one `JSON.stringify` per
+   batch, parsed with `ace_json`. That drops what `JSON.stringify` drops (fields set to
+   `undefined`), and nothing downstream can tell: every consumer either stores the facts as JSON
+   or tests a field for truthiness (`raw.ts:33`'s `"raw" in fact.draft && fact.draft.raw`).
+7. **Status change is compared by value.** `actor.ts:400` compares the status object by
+   identity. `@ace/core` replaces `state.status` only when the new status is not `equal` to it
+   (`core/src/status.ts:459`–`:461`), so identity changes exactly when the value does, and Rust
+   compares values.
+
+## Corrections to E5.1 (the only lines E5.2 writes outside its own files)
+
+E5.1 is still in review. Fold these into E5.1's next review round if it has not merged; otherwise
+E5.2 makes them in its first commit, exactly as listed, and an E5.1 reviewer signs that commit off.
+
+1. **`flush` must seal and flush actors.** `Engine.flush` calls `actor.flush()` on every actor
+   before and after the worker wait (`index.ts:1414`, `:1416`), and that is what seals pending
+   frames and flushes the live buffer. E5.1's `flush_to_quiescence` (`lib.rs:358`) only checks
+   quiescence, so a test that flushes after `onFrame` would see nothing stored. Add
+   `actor::flush_all(self, exclude).await?` at the top of each loop iteration, and again after
+   the worker waiters are joined.
+2. **`flush` raises `flush_depth`.** `index.ts:1407` increments `flushDepth` for the whole flush,
+   and the actor's `draining()` reads it to seal at once (`actor.ts:342`). `start_flush`'s task
+   must increment `state.flush_depth` on entry and decrement it on every exit path (a guard).
+3. **Close's actor steps.** `close_sequence` (`lib.rs`, after the readiness wait) gains the two
+   actor steps of `index.ts:1439`–`:1442` and `:1459`–`:1463`, as declared functions:
+   `actor::close_flush(core).await` (flush each actor, then E5.8's capture; until E5.8 the capture
+   is `recovery::capture_restart`, `NotPorted` and reported once), then, after sessions close (E5.6),
+   `actor::close_stop(core).await` (flush, `stop`, abort). Both run under the 4.5 s deadline.
+4. **`unregister_waker(thread)`** beside `register_waker` (`lib.rs:321`). An actor's mailbox task
+   registers its waker once and removes it when the actor is dropped; without removal, the map
+   grows with every thread ever active.
+5. **The wake log is the probe's.** `Core.wakes` (`lib.rs`, pushed in `record_wake`) grows with
+   every wake for the engine's lifetime. E5.2 wakes once per batch, so in production that is
+   memory proportional to history (ADR 0170). Keep it only under `#[cfg(feature = "engine-probe")]`.
+6. **The actor's dependencies need a home outside `State`.** Add one field to `Core`:
+   `pub actor_deps: RefCell<Rc<actor::ActorDeps>>`, set to `actor::ActorDeps::production()` in
+   `Engine::new`. It holds ports, so it cannot live in `State` (E5.1 step 4); the probe replaces
+   it (step 15).
+7. **The probe hook's signature.** E5.1's `attachSession()` takes no arguments
+   (`testing.ts:41`, `:245`) and its binding stub is `probe_attach_session` (`probe.rs:215`).
+   E5.2 replaces both with the signature in step 15, deletes the stub from `probe.rs` and adds
+   `#[cfg(feature = "engine-probe")] pub mod probe_actor;` to `engine/mod.rs`. The E5.1 brief
+   said `probe_actor.rs` was declared; it was not.
+8. **The live store's port.** The facade's constructor (`native-engine/engine.ts`) passes the
+   `Store` to `liveStorePort(store, native)` from `native-engine/frames.ts` (step 13), one line,
+   and that function's unsubscribe joins the facade's terminal cleanup.
+
+Nothing else in E5.1's files changes.
+
+## The TypeScript and where each part goes
+
+All TypeScript paths are in `apps/daemon/src/engine/`, all Rust paths in
+`native/daemon/crates/ace-engine/src/`. "Owner" is the item whose trait method the Rust calls
+(step 6).
+
+| TypeScript                                                                            | Rust                                                                                   |
+| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `actor.ts:22` `keepsTimer`                                                            | `actor/timer.rs` `keeps_timer`                                                         |
+| `actor.ts:31`–`:42` `EngineClock`, `systemClock`                                      | stay TypeScript (imported by 30 files outside the engine); the clock is E5.1's port    |
+| `actor.ts:52`–`:147` fields and constructor                                           | `actor/state.rs` `Actor`, `Actors` (step 7)                                            |
+| `actor.ts:84`–`:113` `outputFlow`, `updatePressure`                                   | `actor/flow.rs` `paused`, `wait`, `update_pressure`                                    |
+| `actor.ts:149` `retireGeneration`                                                     | `actor/state.rs` `retire_generation` (then `ActorLinks::expire`, E5.5)                 |
+| `actor.ts:154`–`:190` `retainInput`, `releaseInput(s)`, `observeInputs`               | `actor/leases.rs`; the release effect is `ActorLinks::release_leases` (E5.5)           |
+| `actor.ts:191`–`:252` `enqueue`, `accept`, `acceptOperation`, overflow                | `actor/mailbox.rs` `enqueue`, `accept_operation`; overflow in `actor/failure.rs`       |
+| `actor.ts:254`–`:266` `runWhenWritable`                                               | `actor/mailbox.rs` `run_when_writable`                                                 |
+| `actor.ts:268`–`:301` `quarantine`, `fail`                                            | `actor/failure.rs` `quarantine`, `fail`                                                |
+| `actor.ts:303`–`:352` `frame`                                                         | `actor/intake.rs` `frame`                                                              |
+| `actor.ts:353`–`:443` `sealFrames`                                                    | `actor/intake.rs` `seal` and `actor/fold.rs` `fold_batch`                              |
+| `actor.ts:448`–`:491` `translateBatch`, `writeCursorRecord`                           | `actor/fold.rs` `translate_batch`; the record is `ActorRepo::cursor_record` (E5.8)     |
+| `actor.ts:492`–`:516` `translateFrame`                                                | `actor/fold.rs` `translate_frame`                                                      |
+| `actor.ts:517`–`:528` `syncQueue`, `apply`                                            | `actor/fold.rs` `sync_queue`, `apply`                                                  |
+| `actor.ts:529`–`:582` `disarm`, `schedule`, `releaseAt`                               | `actor/timer.rs`                                                                       |
+| `actor.ts:583`–`:608` `backlog`, `flush`, `stop`                                      | `actor/mailbox.rs` `backlog`, `flush`; `actor/state.rs` `stop`                         |
+| `index.ts:528`–`:562` `actor(id)` (creation, eviction at capacity)                    | `actor/mod.rs` `get_or_create`                                                         |
+| `index.ts:367`–`:369` live-write quarantine subscription                              | shell `native-engine/frames.ts` `liveStorePort`, into `actor::quarantine`              |
+| `index.ts:391` the repository's observe hook into `observeInputs`                     | `actor::observe_inputs`, called by E5.3's apply                                        |
+| `frame-envelope.ts:12` `frameEnvelopeError`                                           | `frames/envelope.rs` `envelope_error`                                                  |
+| `delta-batch.ts:4` `coalesceFacts`                                                    | `frames/coalesce.rs` `coalesce_facts` (E5.3's `provider-facts` calls it)               |
+| `raw.ts:8` `capFact`                                                                  | `frames/raw.rs` `cap_fact` (E5.3 calls it)                                             |
+| `raw.ts:43` `readRawBlob`                                                             | `frames/raw.rs` `read_raw_blob` (E5.3's facade member calls it)                        |
+| `fact-bytes.ts:2` `jsonStringBytes`, `:27` `streamedFactsBytes`                       | `frames/bytes.rs` `json_string_bytes`, `streamed_facts_bytes`                          |
+| `attachment-echo.ts:8`–`:72` `pathHash`, `imageHash`, `contentHash`, `attachmentEcho` | `frames/attachments.rs`                                                                |
+| `attachment-payload.ts:2` `attachmentPayload`                                         | `frames/attachment_payload.rs` `attachment_payload`                                    |
+| `attachment-correlations.ts:10`–`:63` `AttachmentCorrelations`                        | `frames/correlations.rs` `Correlations` (E5.5's delivery calls `remember`)             |
+| `stream-facts.ts:7` `streamFacts`                                                     | `frames/stream.rs` `stream_facts` over the `StreamSnapshot` trait (E5.3 implements it) |
+
+`ace-engine/src/actor.rs` and `frames.rs` become `actor/mod.rs` and `frames/mod.rs` (the module
+paths stay `crate::actor` and `crate::frames`). No file over 400 lines; the split above keeps each
+under about 250.
+
+## Steps
+
+### 1. Byte measures (`frames/bytes.rs`)
+
+All three count bytes of JavaScript strings, whose unit is UTF-16. Use `ace_json::JsString::units()`
+throughout, never `str::len`, since a JavaScript string may hold lone surrogates.
+
+- `json_string_bytes(&JsString) -> usize`: `fact-bytes.ts:2`–`:22`, unit for unit. The starting
+  2 is the quotes. `"` and `\` count 2, other units ≥ 0x20 and < 0x80 count 1, `\b \t \n \f \r`
+  count 2, other controls count 6, < 0x800 counts 2, a surrogate pair counts 4, a lone surrogate
+  counts 6 (`\udxxx`, as `JSON.stringify` writes it), and the rest count 3.
+- `utf8_len(&JsString) -> usize`: what `Buffer.byteLength(string)` returns, with a lone surrogate
+  counted as 3 (Node encodes it as U+FFFD). `coalesce_facts` uses it (step 3). It is not
+  `json_string_bytes - 2`.
+- `streamed_facts_bytes(&[Value]) -> usize`: `fact-bytes.ts:27`–`:41`. The array brackets and
+  commas count `2 + max(0, n − 1)`. Per fact, the braces count 2, then for each key in order a
+  comma when it is not the first, `json_string_bytes(key) + 1`, and the value's size: a string
+  through `json_string_bytes`, anything else as `ace_json::to_string(value).len()`. It never
+  serializes the string fields. The TypeScript skips values `JSON.stringify` drops (`undefined`,
+  functions, a `toJSON` that returns `undefined`). An `ace_json::Value` cannot hold those, so the
+  skip has no Rust counterpart; facts reach Rust already as JSON.
+- **(b) cases** (`fact-bytes.test.ts`, 11 rows): move into `#[cfg(test)] mod tests` as one table
+  asserting `streamed_facts_bytes(facts) == ace_json::to_string(&Value::Array(facts)).len()`.
+  Seven rows move as they are. Four hold JavaScript-only values ("an absent optional field",
+  "fields serialised as nothing or as null", "a field serialised through toJSON", and NaN in that
+  row), and each moves as the JSON those values serialize to: the field absent, `null`, or the
+  string. The expectation stays the same (bytes equal the JSON's length). The commit says which
+  rows were translated and why.
+
+### 2. The envelope (`frames/envelope.rs`)
+
+```rust
+/// One envelope field as the binding found it on the JavaScript object, or as a native frame has it.
+pub enum Field { Absent, Null, Number(f64), String(JsString), Object, Other }
+pub struct Envelope { pub is_object: bool, pub seq: Field, pub t: Field, pub dir: Field,
+    pub channel: Field, pub payload: PayloadField, pub usage_account: AccountField }
+pub enum PayloadField { Absent, Certified, NotCertified }
+pub enum AccountField { Absent, NotObject, Object { id: Field, billing_mode: Field } }
+pub fn envelope_error(envelope: &Envelope) -> Option<&'static str>;
+```
+
+The checks and their order are `frame-envelope.ts:13`–`:26`. `seq` must be a safe integer ≥ 0 (an
+integral `f64` with `|x| ≤ 2^53 − 1`); `t` a finite number ≥ 0; `dir` one of `send`, `recv`,
+`stderr`, `note`; `channel` a string; `payload` absent or `Certified` (the shell's
+`ProviderPayload.is`, a JavaScript brand check); and `usageAccount` absent, or an object whose
+`id` is a string of 1 to 512 UTF-16 units and whose `billingMode` is `api`, `subscription` or
+`unknown`. The binding reads the fields with `get_named_property` and classifies their JavaScript
+types into `Field`; that is translation, not behaviour (rule 7). A native `Frame` builds its
+`Envelope` from its typed fields, so a malformed native frame fails the same way.
+
+**(b) cases** (`frame-envelope.test.ts`, 4 accepted, 11 rejected): one table each, same names,
+with the inputs written as `Envelope` values. `null as unknown as Frame` is `is_object: false`.
+`{ payload: { data, bytes } }` that ace did not make is `NotCertified`.
+
+### 3. Coalescing and capping (`frames/coalesce.rs`, `frames/raw.rs`)
+
+- `coalesce_facts(&[Value]) -> Vec<Value>`: `delta-batch.ts:4`–`:35`, unit for unit. Adjacent
+  `item.delta`s with the same `agent`, `item` and `field` merge while
+  `utf8_len(previous.append) + utf8_len(next.append) ≤ 4096`. A `signal` between two such deltas
+  is dropped under the same bound, and every other boundary is kept. The merge is
+  `{ ...previous, append: previous.append + fact.append }`: clone the previous map and replace
+  `append` **in place** (an `ace_json::Map` insert on an existing key keeps its position), so key
+  order matches. Join the appends with `JsString::push_js`, never through `str`.
+- `cap_fact(cap_raw: &mut dyn FnMut(Value) -> Result<Value, EngineError>, fact: Value, previous: Option<&ToolCall>) -> Result<Value, EngineError>`:
+  `raw.ts:8`–`:42`, branch for branch and in that order. The approval redaction uses
+  `ace_core::ace_tools::redact_ace_approval` (it returns whether it changed the request, which is
+  `raw.ts:14`'s identity check), and a changed request also replaces `raw` with
+  `[{"type":"ace.private-input","data":{"redacted":true}}]`. The tool call is normalized with
+  `normalize_ace_call`, then `raw` is capped in the first branch that applies. Each spread is an
+  in-place replacement. `cap_raw` is the store's `capRaw` (E5.3 passes it).
+- `read_raw_blob(conn, id: &str) -> Result<Option<Vec<u8>>, EngineError>`: `raw.ts:43`–`:53`.
+  An empty id is `EngineError::InvalidRawBlobId` (the TypeScript throws zod's error; the binding
+  maps this one to a `TypeError` whose message is `Invalid raw blob id`, open question 5). Look
+  in `blobs` first, then `engine_raw_blobs`, as `SELECT bytes FROM … WHERE id=?` through
+  `ace-store`'s statement cache. A value that is not a blob is `Invalid stored raw blob`.
+
+### 4. Attachments (`frames/attachments.rs`, `frames/attachment_payload.rs`, `frames/correlations.rs`)
+
+- `path_hash(&JsString) -> Option<String>`: the regex `(?:^|[\\/])([a-f0-9]{64})(?:\.[a-z]+)?$`,
+  written as a small matcher over the units with no new crate: an optional `.` plus lowercase
+  extension at the end, 64 lowercase hex before it, and either the start or `/` or `\` before those.
+- `image_hash(&JsString) -> Option<String>`: `attachment-echo.ts:11`–`:21`. Try
+  `ace_adapter_api::util::binary_elision::elided_digest` on the value, or on the part after the
+  first comma when it starts with `data:`. Its 420-unit limit is in UTF-16 units; check that E1's
+  port counts them so. Otherwise take the data URL's base64 (`util::data_url::base64_data_url`)
+  or the value itself. Reject it if empty, if longer than 6 MiB in units, or if
+  `util::data_url::is_base64` says no. Otherwise return the lowercase hex SHA-256 of the decoded
+  bytes. Decode with the `base64` crate configured to accept exactly what Node's
+  `Buffer.from(…, "base64")` decodes for strings `is_base64` admits (padding optional). Add a test
+  row for a value without padding.
+- `attachment_echo(fact: Value, lookup: &mut dyn FnMut(&str) -> Result<Option<Value>, EngineError>) -> Result<Value, EngineError>`:
+  `attachment-echo.ts:30`–`:72`. Only user `message` upserts and reconciles are touched. The
+  `verified` cache is per fact, and `attachments` is an `IndexMap` in first-match order: parts
+  first, then the raw walk. Parts whose content hash matched are removed. In each `raw` entry
+  that has `data`, `data` goes through `attachment_payload` with the key rule `path`→`path_hash`,
+  `url`/`uri`→`path_hash` else `image_hash`, `data`→`image_hash`, and a matched string becomes
+  `attachment:<sha256>`. With no match, the original fact is returned untouched. Otherwise
+  `draft.parts`, `draft.attachments` and `draft.raw` (raw only when the draft had one) are
+  replaced in place or appended, in that order.
+- `attachment_payload(value: &Value, replace: &mut dyn FnMut(&str, &JsString) -> JsString) -> Value`:
+  `attachment-payload.ts`, iterative on a heap stack (no recursion; depth is unbounded, as
+  `ace_json` promises). A string inside an array gets the key `""`, not its parent's. Objects keep
+  their key order, `__proto__` as an ordinary key.
+- `Correlations` over the connection, `attachment-correlations.ts:10`–`:63`:
+  - `open(conn)` runs the TypeScript's DDL text **byte for byte**, the same string with the same
+    whitespace, in one transaction. SQLite stores that text in `sqlite_master`, so a home created
+    by either backend has the same schema text. Every statement is `IF NOT EXISTS`, so on an
+    existing home it does no history-sized work (ADR 0170). It runs where the TypeScript runs it:
+    when the repository is built (E5.3 calls `Correlations::open`).
+  - `remember(thread, intent, attachments)`: at most 64 entries, each upserted as in `:30`–`:34`.
+    The JSON column is `ace_json::to_string` of the attachment as received, which is what
+    `JSON.stringify` of the zod-parsed value writes, because the caller (delivery, E5.5) passes it
+    already in schema order.
+  - `get(thread, hash) -> Result<Option<Value>, EngineError>`: the TypeScript runs the stored JSON
+    through `Attachment.parse`, which returns the **schema's key order** and drops unknown keys
+    (rule 8). Rust rebuilds the map in `Attachment`'s order (`packages/protocol/src/context.ts:138`–`:157`:
+    `sha256, bytes, mimeType, name, kind, delivery, width, height, thumbnailAvailable`), keeping
+    only those keys that are present. A row that is not that shape is
+    `EngineError::InvalidStoredAttachment` (open question 5).
+  - `remember_paths` (≤ 64, path 1 to 4096 units) and `can_read` (the thread exists, is not
+    deleted, and has the path) as `:42`–`:62`. Nothing in the engine calls `can_read` today
+    (`services/cli-requests.ts` takes its own `canRead`), so port it, and E5.5 checks whether
+    anything needs it.
+
+### 5. The streaming fold (`frames/stream.rs`)
+
+`stream-facts.ts` runs the canonical reducer over a snapshot the repository owns. Rust fixes the
+snapshot's interface as a trait, and E5.3 implements it on its snapshot:
+
+```rust
+pub trait StreamSnapshot {
+    fn begin(&mut self);
+    fn deadline(&self) -> Option<Option<i64>>;             // FactBatch's stable-signal deadline
+    fn state(&mut self) -> &mut ace_core::ThreadState;
+    fn prepare(&mut self, fact: &Value) -> Prepared;        // finished by `finish`, on every path
+    fn finish(&mut self, prepared: Prepared);
+    fn delta(&mut self, fact: &Value);
+    fn remember(&mut self, fact: &Value, emitted: &[Event]);
+    fn update_deadlines(&mut self, facts: &[Value], events: &[Event], now: i64);
+    fn retain_changes(&mut self, events: &[Event]);
+}
+pub fn stream_facts(snapshot: &mut dyn StreamSnapshot, facts: &[Value], now: i64, ids: &mut dyn IdSource) -> Vec<Event>;
+```
+
+The order is `stream-facts.ts:13`–`:31`: `begin`, a `FactBatch::new(Some(deadline))`, and per fact
+`prepare`, `apply`, then `delta` if the fact is an `item.delta` that emitted one, `remember`,
+`finish`. After the loop come `flush`, `update_deadlines` and `retain_changes`. `finish` runs even
+when `apply` returns `None`. A test with a recording snapshot checks the call order, including
+`finish` after a rejected fact. That test is new (the TypeScript has none) and the commit says so.
+
+### 6. The actor's dependencies (`actor/deps.rs`)
+
+```rust
+pub struct ActorDeps {
+    pub repo: Rc<dyn ActorRepo>,
+    pub links: Rc<dyn ActorLinks>,
+    pub live: Rc<dyn LiveStore>,
+    /// Each actor's translator, set when a session attaches (E5.6, or the probe), cleared with it.
+    pub translators: RefCell<HashMap<ThreadId, ActorTranslator>>, // Js(JsTranslator) | Native(Box<dyn Translator>)
+}
+impl ActorDeps { pub fn production() -> ActorDeps; } // NotPorted bodies until each owner lands
+```
+
+Every method takes `&Core` where it needs the store or state, and is called with no `with_state`
+borrow held (E5.1 re-entrancy rule 2). `ActorRepo`, each method with its TypeScript and its owner:
+
+| Method                                                                 | TypeScript                                                                                                                               | Owner |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| `status(thread) -> Value`                                              | `repo.requireState(id).status`, `actor.ts:375`, `:400`                                                                                   | E5.3  |
+| `route(thread) -> Route { provider, backend }`                         | `requireState(id).config.provider`, `repo.backend(id)`, `:371`–`:373`                                                                    | E5.3  |
+| `quiescent(thread) -> bool`                                            | `repo.quiescent(requireState(id))`, `:461`                                                                                               | E5.3  |
+| `running_foreground_command(thread) -> bool`                           | `hasRunningForegroundCommand` (`core/src/steering.ts:26`); E5.2 ports it as `actor/rules.rs` over `ace_core::ThreadState`, E5.3 calls it | E5.3  |
+| `stream(thread, facts, now) -> bool`                                   | `repo.stream`, `repository.ts:363`                                                                                                       | E5.3  |
+| `apply(thread, facts, now, generation)`                                | `repo.apply`, `repository.ts:413`                                                                                                        | E5.3  |
+| `deadline(thread, translator: Option<i64>)`                            | `repo.deadline`, `actor.ts:552`                                                                                                          | E5.3  |
+| `schedule_view(thread) -> Option<ScheduleView { done, left_running }>` | `repo.state(id)`, `:537`–`:545`                                                                                                          | E5.3  |
+| `evict(thread)`, `clear_incomplete_blobs(thread)`                      | `:279`, `:524`                                                                                                                           | E5.3  |
+| `root_agent_id(thread)`                                                | `index.ts:856`–`:859`                                                                                                                    | E5.3  |
+| `engine_queue_fact(thread) -> Option<Value>`                           | `repo.engineQueueFact`, `:518`                                                                                                           | E5.4  |
+| `queue_paused(thread) -> bool`                                         | `repo.queue.get(id).paused`, `:470`                                                                                                      | E5.4  |
+| `queued_count(thread)`                                                 | `repo.queuedCount`, `index.ts:799`                                                                                                       | E5.4  |
+| `latest_generation(thread)`                                            | `max(pending.latestGeneration, interactions.latestGeneration)`, `index.ts:556`–`:559`                                                    | E5.4  |
+| `mark_yielded_end(thread, facts) -> Vec<Value>`                        | `markYieldedEnd`, `:466`–`:472`; with no yield recorded it returns the facts unchanged, which is correct before E5.5 sets any            | E5.5  |
+| `session_instance(thread) -> Option<String>`                           | `repo.session(id).instanceId`, `:498`                                                                                                    | E5.6  |
+| `reserved_slot(thread)`, `retiring_count()`                            | `index.ts:533`–`:536`                                                                                                                    | E5.6  |
+| `released_thread(thread) -> bool`                                      | `releasedThread(getThread(id))`, `index.ts:555`                                                                                          | E5.10 |
+| `cursor_record(thread, entries)`                                       | `writeCursorRecord`, `:475`–`:491`                                                                                                       | E5.8  |
+
+`ActorLinks`, the effects elsewhere:
+
+| Method                                      | TypeScript                                                                              | Owner |
+| ------------------------------------------- | --------------------------------------------------------------------------------------- | ----- |
+| `wake(thread)`                              | `() => this.wake(id)` (`index.ts:547`, `:1256`)                                         | E5.4  |
+| `abort_session(thread, drop_session: bool)` | `lifetime.abort()`; with `true` also `session = translator = undefined` (`:206`–`:208`) | E5.6  |
+| `expire(thread, generation)`                | `onRetire` → `delivery.expire` (`index.ts:553`)                                         | E5.5  |
+| `diagnostic(thread, raw)`                   | `this.diagnostic` → `onProviderDiagnostic` (`:495`)                                     | E5.6  |
+| `release_leases(tokens)`                    | each lease's `release()` (`:159`–`:163`)                                                | E5.5  |
+
+`LiveStore` (the TypeScript `Store`'s write gates and live buffer, which stay in TypeScript
+(`store.ts:563`–`:577`, `:851`–`:884`) and which E5.2 owns because its acknowledgement depends
+on them): `history_writing()`, `live_write_blocked()`, `writable_now()` (open question 3),
+`writable() -> LocalBoxFuture<Result<(), PortError>>`, `prepare_live_write(bytes)`,
+`buffer_live_write(thread, events_json, at, snapshot: BufferedSnapshotHandle)`,
+`flush_live_writes()`, and `is_store_retry(&EngineError) -> bool` (the shell's `isStoreRetry`,
+`store-busy.ts:27`, applied to the JavaScript error a port threw; for an `ace_store::Error` it is
+busy or disk-full). E5.3's `stream` calls `prepare_live_write` and `buffer_live_write`. Its
+`BufferedSnapshotHandle` wraps E5.3's `persist` and `committed` callbacks as JavaScript
+functions, which the store's flush calls as synchronous entries.
+
+`production()` builds `ActorDeps` from three `Unported` structs. Each method returns
+`EngineError::not_ported("<method>", "E5.<n>")`. `wake`, `expire` and `diagnostic` return nothing,
+so they report it once per call through `ports.report`; none is a silent no-op. `LiveStore`'s
+production implementation is E5.2's own (the binding, step 12). Each owner replaces only its
+methods' bodies in `deps.rs`, so no two items edit the same function.
+
+### 7. The actor's state, and `with_state` (`actor/state.rs`, `actor/mod.rs`)
+
+```rust
+#[derive(Default)]
+pub struct Actors { by_thread: IndexMap<ThreadId, Actor> } // insertion order is the TS Map's
+pub struct Actor {
+    pub id: ThreadId,
+    pub generation: u64,
+    pub poisoned: bool,
+    pub persistence_failed: bool,
+    pub idle_since: Option<f64>,
+    pub idle_due: bool,
+    pub release_requested: bool,
+    pub session_attached: bool,            // `actor.session !== undefined`, set by E5.6 or the probe
+    leases: IndexMap<u64, Lease>,           // Lease { token: u64, run_id: Option<String> }
+    queued: usize, queued_bytes: usize,
+    pending: Vec<Pending>,                  // Pending { frame: FrameRef, generation, bytes }
+    pending_bytes: usize,
+    pending_ack: Option<BatchAck>,          // the open batch's acknowledgement (decision 4)
+    batch_timer: Option<Timer>,
+    overflowed: bool, pressure: bool,
+    drains: Vec<oneshot::Sender<()>>,
+    mailbox: VecDeque<Op>,                  // sealed batches and enqueued operations
+    running: bool,                          // an op is mid-run (holds `queued` until it ends)
+    timer: Option<(Timer, ArmedTimer)>,
+    stopped: bool,
+    mailbox_task: Option<TaskId>,
+}
+pub enum FrameRef { Js(u32), Native(Box<ace_adapter_api::Frame>) }
+```
+
+- **What lives in state.** All of the above is plain data. The translator is not: a JavaScript
+  translator is a port, and a native one may be large and is borrowed during translation. It lives
+  in `ActorDeps.translators` (step 6). Whoever attaches the session (E5.6, or the probe) sets it
+  and clears it. Translation borrows it with `try_borrow_mut`, so an attach that re-enters during
+  a translation gets `Reentrant`, never a panic. The session, its
+  lifetime and the steer yield are E5.6's and E5.5's state in their own `State` fields, keyed by
+  thread.
+- **The rules.** Every read or change of an `Actor` is one `core.with_state(|s| …)` closure that
+  copies out what the next step needs and returns. No closure calls an `ActorRepo`, `ActorLinks` or
+  `LiveStore` method, a translator, `defer`, `spawn` or a port. The shape of every step is: a
+  closure decides and takes (for example `seal` moves `pending` into a new `Op` and returns
+  whether to wake); then the effects run outside it; then a second closure applies the results and
+  **re-checks** `stopped`, `poisoned` and `generation`, exactly where the TypeScript reads them
+  after a call (`actor.ts:369` filters by the generation at run time, `:433` reads `poisoned` and
+  `overflowed` when the acknowledgement settles). A `Reentrant` error from `with_state` is a bug.
+  It is reported, the op fails like any other error (`fail`), and nothing panics.
+- `get_or_create(core, thread)` is `index.ts:528`–`:562`. If the map is at
+  `max_active_threads + retiring_count()`, it stops, evicts and removes the oldest actors without
+  a reserved slot, in insertion order, until there is room. Still full is
+  `Engine actor capacity exceeded`. A new actor takes `released_thread` and `latest_generation`.
+- `stop(core, thread)`: `actor.ts:599`–`:608`. Seal first, set `stopped`, release all leases,
+  disarm, clear pressure, resolve every drain. Dropping the actor also unregisters its waker
+  (correction 4) and drops its mailbox task.
+
+### 8. Intake and batching (`actor/intake.rs`)
+
+`frame(core, thread, generation, input: FrameInput) -> Ack`, a synchronous entry, in
+`actor.ts:303`–`:352`'s order:
+
+```rust
+pub struct FrameInput { pub frame: FrameRef, pub envelope: Envelope, pub channel_sdk: bool,
+    pub measure: Measure }
+pub enum Measure { Certified { bytes: usize }, Bounded(Result<usize, String>) }
+pub enum Ack { Done, Rejected(String), Batch(BatchAckRef), AfterFlush(FlushRef) }
+```
+
+1. `catch_up` (decision 3).
+2. Stopped, or `generation` is not the actor's: `Ack::Done`, and the frame is dropped
+   (behaviour.md §4.1).
+3. Poisoned: `Ack::Rejected("Provider frame failed to commit")`.
+4. `envelope_error` returns a field: enqueue an op that fails with
+   `Provider frame envelope is malformed: <field>`, and return `Ack::AfterFlush`, which settles when
+   this actor's `flush` does. It **resolves** and does not reject; the session's wrapper turns a
+   poisoned actor into the rejection (`engine/sessions.ts:686`, E5.6).
+5. An `sdk` channel without `Measure::Certified`: enqueue a failing op with
+   `SDK frame lacks matching encoded admission certificate`, `Ack::AfterFlush`. `Measure::Bounded(Err(m))`
+   (the shell's `boundedJson` threw) does the same with `m`.
+6. Bytes: `Certified { bytes } → bytes + 512`, `Bounded(Ok(n)) → n`. Over `max_frame_bytes`:
+   a failing op with `Provider frame capacity exceeded`, `Ack::AfterFlush`.
+7. `overflowed`: `Ack::Rejected("Provider mailbox capacity exceeded")`.
+8. Push onto `pending`, add the bytes, `update_pressure`, arm the batch timer if none is armed
+   (`set_batch_timer(1.0)`), and join the open batch's acknowledgement. Then seal at once if
+   `flush_depth > 0`, or `queued + pending ≥ max_queued_frames`, or
+   `queued_bytes + pending_bytes ≥ max_queued_bytes`, or `pending ≥ 256`, or
+   `pending_bytes ≥ 262144`.
+
+`seal(core, thread)` is `actor.ts:353`–`:443` up to the op. It cancels the batch timer and takes
+`pending` and its bytes. If either is empty it does nothing. It calls `accept_operation` with
+`frames = n` and `bytes`. The op holds the frames, the batch's acknowledgement, whether it was
+admitted, and the retry caches of step 10 (`translated`, `streamed`, `status_before`). A refused
+op (stopped or overflowed) still settles its acknowledgement after the ops before it, as the
+TypeScript's `commit = this.tail` does (`:430`): it is queued as a settle-only marker that
+**rejects** with `Provider frame failed to commit` when the mailbox reaches it.
+
+### 9. The mailbox and the acknowledgement (`actor/mailbox.rs`)
+
+- `accept_operation(core, thread, op, bytes, frames) -> bool` is `actor.ts:198`–`:252`. If the
+  actor is stopped or overflowed it returns false. If the op would pass `max_queued_frames` or
+  `max_queued_bytes`, it sets `overflowed`, queues the overflow op (step 11; it is not counted in
+  `queued`) and returns false. Otherwise it adds to `queued` and `queued_bytes`, runs
+  `update_pressure`, pushes the op, and calls `core.defer(Deferred::Wake(thread, Lane::Work))`.
+  The wake runs after the outermost commit, or at once outside a transaction (E5.1 step 3).
+  `enqueue(run)` is `seal`, then `accept_operation(run wrapped in core.store.atomic, 0, 1)`
+  (`actor.ts:191`–`:197`).
+- **One mailbox task per actor**, spawned on `Lane::Work` when the actor is created. It registers
+  its waker with `core.register_waker(thread, …)` and loops: `catch_up`, then take the front op.
+  With no op it parks (`Pending`). With an op it runs `run_when_writable`, then settles, then
+  **yields once** before the next op. That yield puts the task back in the work queue, so one busy
+  thread never runs two ops in one poll, and the E5.1 fairness rule and budget hold across actors.
+- `run_when_writable` (`actor.ts:254`–`:266`): while not poisoned, check
+  `live.writable_now()`, and when it is false, await `live.writable()`. Then run the op. On an
+  error `live.is_store_retry` accepts, await `ports.set_timer(100.0).fired` and retry. Any other
+  error goes to `fail`.
+- **The outermost rule.** Before an op runs, `core.store.is_open()` must be false. The pump never
+  runs inside a transaction (E5.1 step 2's `Busy`), so every transaction an op opens is outermost,
+  and its commit is the one the acknowledgement waits for. If the check ever finds a transaction
+  open, that is `EngineError::NotOutermost`: the op fails visibly through `fail`, and no
+  acknowledgement resolves on a savepoint's release (ADR 0223 §4). A reviewer test makes the
+  check fail by running an op through the probe inside an open transaction (seam test 11).
+- **Settling** happens after the op returns, `actor.ts:431`–`:442`. A finally step comes first:
+  subtract the op's frames and bytes from `queued` and run `update_pressure`. Then every
+  acknowledgement attached to the op settles: it resolves if the op was admitted and the actor is
+  neither poisoned nor overflowed **now**; otherwise it rejects with
+  `Provider frame failed to commit`. An op whose run threw went to `fail`, so the actor is poisoned
+  and its acknowledgement rejects. The TypeScript's second branch (`:438`–`:440`, the tail
+  rejecting) cannot occur, because `fail` catches every error, so it has no Rust counterpart.
+- **Where an acknowledgement goes.** `BatchAck { js: Option<u64>, native: Vec<oneshot::Sender<Result<(), String>>> }`.
+  `js` is a facade call id (E5.1's `settle_call`), one per batch (decision 4). `native` is one
+  sender per native session that fed the batch (E5.6's acknowledgement tracker, which calls
+  `ReadGate::fail` on a rejection, ADR 0223 §7 rule 4). A batch may hold both after a session
+  switch.
+- **When it resolves.** For a committed batch it resolves after the op's last transaction
+  committed: `repo.apply`'s own, plus `sync_queue`'s second one on the non-SDK path, or the one
+  `atomic` that wraps an SDK or Cursor batch. For established deltas it resolves after
+  `repo.stream` accepted them into the live buffer and returned true, **before the buffer
+  flushes**. It never resolves on the buffer's flush, and never on a savepoint's release.
+- `backlog(thread) -> (frames, bytes)` is `queued + pending.len()` and
+  `queued_bytes + pending_bytes`.
+- `flush(core, thread) -> future` (`actor.ts:589`–`:598`): `catch_up`, `seal`, await `writable`,
+  then await until the mailbox is empty with no op running, re-checked after each wait, since an op
+  may enqueue another (the TypeScript's `do … while (pending !== this.tail)`), then
+  `live.flush_live_writes()`. The task excludes itself (E5.1 re-entrancy rule 9): a flush called
+  from inside this actor's own op resolves after that op, not inside it. Wire it to a "mailbox
+  idle" `oneshot` list on the actor, never a poll loop.
+- `actor::quiescent(state, exclude)` (E5.1's declared check): true when no actor has `pending`
+  frames, ops, or a running op, except one running in `exclude`'s task.
+
+### 10. The fold of one batch (`actor/fold.rs`)
+
+`fold_batch(core, thread, op)` is the body of `actor.ts:367`–`:426`, run by the mailbox:
+
+1. `live` = the op's frames whose generation equals the actor's **now** (`:369`). `sdk` = any live
+   frame on the `sdk` channel. `cursor_sdk` = `route` is `cursor` with backend `cursor-sdk`.
+2. `fold`:
+   1. `status_before` is set once, on the first attempt, from `repo.status`.
+   2. `translated` is set once: `translate_batch(live frames, cursor_sdk)`. A retry after a rollback
+      reuses it and never translates again (translators keep state).
+   3. `repo.cursor_record(thread, translated.journal)` runs on every attempt, because the record
+      rolled back with the rest.
+   4. `tool_boundary`: any fact is an `item.upsert` of a `tool_call` draft, or a `background.started`.
+      `command_running` = `tool_boundary && repo.running_foreground_command`.
+   5. `streamed` is set once: `!cursor_sdk && repo.stream(thread, facts, now)`.
+   6. `settle`: if streamed, `schedule`; else `apply(facts)`. Then, for an SDK batch with an
+      unexpected `process.exited`, `links.abort_session(thread, false)`. Then, if the status
+      changed (by value, decision 7), or the foreground-command answer changed at a tool boundary,
+      or any fact is one of `turn.started`, `input.admitted`, `turn.ended`, `process.exited`,
+      `queue.changed`, `limit.cleared`, `interaction.closed`, `background.ended`, `retry`
+      (`:402`–`:413`): `sync_queue`, then `links.wake`.
+   7. An SDK batch that is neither streamed nor Cursor's runs `settle` inside one
+      `core.store.atomic` (`:420`). Otherwise `settle` runs bare.
+3. A Cursor SDK batch runs the whole `fold` inside one `core.store.atomic` (`:424`). Otherwise
+   `fold` runs bare, outside any transaction.
+
+`translate_batch` (`:448`–`:473`) builds the journal entry for each Cursor SDK frame, with
+`begins_turn` = the frame's data is `{kind: "send"}` and `repo.quiescent`, then translates each
+frame in order. The result goes through `repo.mark_yielded_end`. The steer yield is applied only
+when the queue is not paused (`:470`), and that check is part of E5.5's method.
+
+`translate_frame` (`:492`–`:516`): translate the frame, then report any non-empty diagnostics
+through `links.diagnostic`. If any fact is `usage`, the account is the frame's `usageAccount.id`,
+else `repo.session_instance`. A usage fact gains `accountId` in place (appended at the end when
+absent). It also gains `billingMode` from the frame's account only when the fact has none. Each
+fact then goes through `attachment_echo`, whose lookup is `Correlations::get(thread, hash)`.
+
+`apply(facts)` (`:521`–`:528`): `repo.apply(thread, facts, now, generation)`. On a
+`process.exited`, `clear_incomplete_blobs` and release every lease. Then `schedule`.
+`sync_queue` (`:517`) applies the queue fact if `engine_queue_fact` returns one.
+
+### 11. Failure, overflow and quarantine (`actor/failure.rs`)
+
+- `fail(core, thread, error)` (`actor.ts:271`–`:301`): set `poisoned`. `persistence_failed` is
+  true for an `ace_store::Error` from SQLite, or a JavaScript error with a numeric `errcode` or
+  `code === "ERR_SQLITE_ERROR"`, which the binding classifies. Then `repo.evict`,
+  `links.abort_session(thread, false)` and `ports.report(error)`. Then `repo.apply` of the
+  `engine:failure` notice, with the error's message as `text`, `level: "error"` and
+  `complete: true`; a failure there is reported, never thrown. Then `links.wake`.
+- **Overflow** (`:203`–`:237`): an op that runs when writable, not counted in `queued`. It calls
+  `links.abort_session(thread, true)` and `retire_generation` (which calls `links.expire` and
+  clears the steer yield through E5.5). It applies the three facts in the order and with the text
+  the TypeScript writes: `process.exited` (`deliberate: false`, message
+  `Provider mailbox capacity exceeded; resume the thread to recover`), `queue.changed`
+  (`source: "provider"`, `count: 0`), and the `engine:overload` error notice. Then it sets
+  `overflowed = false` and calls `links.wake`. A failure inside it goes to `fail`.
+- `quarantine(core, thread, message)` (`:268`): `fail` unless already poisoned. The shell's
+  `liveStorePort` subscribes to `store.onLiveWriteQuarantine` and calls it (`index.ts:367`–`:369`).
+
+### 12. Flow control (`actor/flow.rs`)
+
+- `update_pressure(actor, limits)` (`actor.ts:92`–`:113`). Let `frames = queued + pending.len()`
+  and `bytes = queued_bytes + pending_bytes`. Pause when
+  `frames ≥ min(256, max(1, floor(max_queued_frames / 4)))` or `bytes ≥ max_queued_bytes / 4`.
+  Resume when `frames ≤ min(64, floor(max_queued_frames / 16))` and
+  `bytes ≤ max_queued_bytes / 16`. Divide the bytes as `f64`, as JavaScript does (`16 MiB / 4` is
+  exact, but an override may not be). Resuming resolves every drain. Between the two thresholds
+  nothing changes.
+- `paused(core, thread) -> bool` = `pressure || live.history_writing() || live.live_write_blocked()`
+  (`:85`–`:86`), read outside `with_state` for the two store calls.
+- `wait(core, thread) -> future` (`:87`–`:90`): await `live.writable()`, then, if `pressure`,
+  await a drain sender added to `drains`.
+- **For a TypeScript session** the context's `outputFlow` is `{ paused, wait }` over these two
+  (step 13). **For a native session** E5.6 mirrors `paused` into the session's `ReadGate` after
+  each delivered batch, and calls `set_paused(false)` when `wait` resolves (ADR 0223 §7 rule 4).
+  E5.2 exposes both functions and changes nothing in the gate.
+
+### 13. How frames enter (binding `engine/actor.rs`, `engine/js_translator.rs`; shell `native-engine/actor.ts`, `native-engine/frames.ts`)
+
+**A TypeScript session** (every scripted adapter, Claude, and each provider before its E3). Its
+context's `onFrame` and `outputFlow` come from one shell function E5.6 and the probe both use:
+
+```ts
+export function actorContext(
+  native: NativeEngineBinding,
+  frames: FrameTable,
+  threadId: string,
+  generation: number,
+  maxFrameBytes: number,
+): Pick<SessionContext, "onFrame" | "outputFlow">;
+```
+
+`onFrame(frame)` does only what needs JavaScript, then makes one synchronous binding call
+`actorFrame(threadId, generation, handle, frame, certified, measure)`. It stores `frame` in the
+`FrameTable` under a fresh handle (released when its batch settles). `certified` is
+`ProviderPayload.is(frame.payload) && frame.payload.data === frame.data`. `measure` is
+`{ bytes: frame.payload.bytes }` when certified; otherwise
+`Buffer.byteLength(boundedJson(frame, maxFrameBytes))`, or that call's error message, the same
+call `actor.ts:322` makes. `frame` itself goes to the binding as a `JsUnknown`, so the binding can
+classify the envelope (step 2); a non-object frame skips the measure. The binding returns the
+batch's promise (decision 4) or a settled one, and the shell attaches
+`void promise.catch(() => {})` once per promise object, as `actor.ts:351` does. `outputFlow` is
+`{ paused: () => native.actorPaused(threadId), wait: () => native.actorWait(threadId) }`.
+
+**The JavaScript translator** (`engine/js_translator.rs`) is the actor's translator for a
+TypeScript session: a reference to the session's `Translator` object and a reference to the
+shell's batch helper. `translate_batch(handles)` makes **one** JavaScript call per batch. For each
+handle in order, the helper calls `translator.translate(frame, clock.now())` and then
+`translator.takeDiagnostics?.() ?? []`, and returns `JSON.stringify([[facts, diagnostics], …])`,
+which Rust parses with `ace_json::parse`. So the TypeScript's per-frame `clock.now()` and the
+order of `translate` and `takeDiagnostics` are kept. The only change is that `links.diagnostic`
+runs for all frames after all translations, and nothing can observe that. `tick(now)` and
+`next_deadline()` are one call each. A translator that throws is a `PortError::Threw`, and the op
+fails through `fail`, as a throw inside `sealFrames` does today. The Cursor SDK path needs the
+frame's data in Rust (`cursor_record`, the `{kind: "send"}` test): the helper returns
+`JSON.stringify(frame.data)` beside the facts, only for `channel === "sdk"` frames of a
+`cursor-sdk` thread.
+
+**A native session** (E3 done for that provider). The session's tokio task publishes onto its
+`EventQueue` (E3.0c step 1). E5.6 drains it on the JS thread with
+`take_batch(256, 262144)` and, for each `SessionEvent::Frame`, calls
+`actor::frame(core, thread, generation, FrameInput { frame: FrameRef::Native(..), envelope: from the typed frame, channel_sdk, measure: Certified { bytes: text.len() } })`.
+`text.len()` is the UTF-8 length of the redacted text, which is what `ProviderPayload.bytes` is
+for the bridge's frames (`provider-kit/src/payload.ts:16`). The bridge always attaches a
+certificate (E3.0c step 6), so the byte count matches TypeScript's byte for byte. Callbacks and
+the exit stay behind the frames before them, because E5.6 handles the queue's events in order
+and an exit is an `enqueue`, which seals first (ADR 0223 §7 rule 3). The translator is the
+provider's Rust `Box<dyn ace_adapter_api::Translator>`. E5.2 writes no code on this path except
+`actor::frame` and the `Native` variants, and proves it with a Rust test that feeds `FrameRef::Native`
+frames through a probe actor (seam test 12).
+
+**`liveStorePort(store, native)`** (shell `native-engine/frames.ts`, binding `engine/frames.rs`)
+implements `LiveStore` over the TypeScript `Store`'s public methods, subscribes to
+`onLiveWriteQuarantine`, and returns its unsubscribe for the facade's terminal cleanup
+(correction 8). `is_store_retry` calls `isStoreRetry` on the JavaScript error a port kept.
+
+### 14. Facade members (binding `engine/actor.rs`, shell `native-engine/actor.ts`)
+
+In E5.1's table, E5.2 fills these, each in E5.2's `#[napi] impl NativeEngine` block:
+
+- `liveThreadIds()` (R): the actors' ids in insertion order (`index.ts:1049`).
+- `workload()` (R): `activeSessions` counts actors with `session_attached`. `engine.frames` and
+  `engine.frameBytes` sum `backlog`, and `engine.queuedSends` sums `repo.queued_count` (E5.4;
+  until then the call throws `NativeEngineIncomplete("queued sends count lands in E5.4")`).
+- `rootAgent(threadId)` (R, may apply a tick): `index.ts:853`–`:861` over `repo.root_agent_id`, and
+  `get_or_create` + `apply([{type:"tick"}])` when it is undefined.
+- Internal, for `actorContext` and the probe: `actorFrame`, `actorPaused`, `actorWait`. They are
+  not `Engine` members, so the facade's member table does not list them.
+
+`activeRun`, `turnOrigin`, `delegationsInFlight`, `aceCaller` and `withinAgent` stay E5.5's.
+
+### 15. The probe (binding `engine/probe_actor.rs`, shell `native-engine/testing.ts`)
+
+```ts
+attachSession(threadId: string, spec: {
+  translator: Translator;           // any JS translator, e.g. @ace/adapter-testkit's
+  stream?: "deltas" | "never";      // the probe repo's answer to stream()
+  generation?: number;
+}): Promise<ProbeSession>;
+interface ProbeSession {
+  context: Pick<SessionContext, "onFrame" | "outputFlow">; // built by actorContext, exactly as E5.6 will
+  aborted(): number;                // how many times abort_session ran
+  retire(): void;                   // retire_generation, as an onExit would
+  log(): ProbeActorLog;             // per op: frames, facts, streamed, outermost, committed; wakes; diagnostics
+}
+```
+
+`attachSession` installs probe deps on `core.actor_deps` the first time it is called. They are a
+`ProbeRepo` and `ProbeLinks`, plus E5.2's real `LiveStore`. It then creates the actor through
+`get_or_create` and marks `session_attached`. `ProbeRepo` has **no fold**. `apply` writes one
+event per call, `{ type: "probe.batch", facts: <n> }`, through `core.store.atomic` and
+`Tx::append_events` (the event shape E5.1's probe `write` step uses), and records whether the
+transaction was outermost. `stream` returns true when `spec.stream` is `"deltas"` and every fact
+is an `item.delta` or `signal`. It then calls `prepare_live_write` and `buffer_live_write` with
+one probe event and a snapshot whose `persist` and `committed` only record. `status` returns a
+counter the test can bump, and every other method returns a fixed, recorded answer. `ProbeLinks`
+records each call. That is scripting, not thread behaviour, so E5.1's must-not holds. E5.3 deletes
+`ProbeRepo`'s `stream` and `apply` when its own repository can stand in.
+
+## Re-entrancy (in addition to E5.1's nine rules)
+
+10. A translator, an `ActorRepo` or `ActorLinks` method, or a `LiveStore` call may call back into
+    the engine synchronously (a JavaScript translator can call a facade read). None of them runs
+    inside `with_state`, and the actor's own bookkeeping is re-read after each of them.
+11. `actorFrame` can be called from inside an op, if a port the op called makes the session emit
+    a frame synchronously. It only appends to `pending` and may seal. Sealing queues an op behind
+    the running one and defers its wake. Nothing runs inline.
+12. The store's live flush calls E5.3's `persist` and `committed` callbacks as synchronous entries,
+    inside the store's own transaction, which runs outside the pump. They never run a task.
+
+## Proof
+
+**What E5.2 can prove alone, natively.** No (a) file. `signal-batching`, `sdk-burst` and
+`streaming-behaviour` open real sessions through scripted adapters, and so does every
+storage-row file (`live-write-buffer`, `live-write-quarantine`, `storage-behaviour`,
+`resource-limits`, …). The first to go green is at E5.6, with E5.3 and E5.4 landed. Until then
+each fails with `NativeEngineIncomplete` naming E5.3, E5.4 or E5.6, and that is the expected
+result. Amend E5.1 step 12's table so E5.2's row reads: seam (acknowledgement on the outermost
+commit and on live-buffer acceptance, never on flush; batch bounds; timer-boundary sealing;
+pause at 256 and resume at 64; overflow; poisoning; envelope and byte failures; native frames)
+and Rust (the (b) cases, `stream_facts` order, attachments). Still blocked: the three named files
+and the storage row, by E5.3, E5.4 and E5.6.
+
+| Suite (each alone)                                                                   | Switch on, after E5.2        | First green                        |
+| ------------------------------------------------------------------------------------ | ---------------------------- | ---------------------------------- |
+| `native-engine/actor.test.ts` (seam tests)                                           | green                        | E5.2                               |
+| `cargo test -p ace-engine` (`frames::*`, `actor::*`)                                 | green                        | E5.2                               |
+| `engine/actor-timer.test.ts`, `frame-envelope.test.ts`, `fact-bytes.test.ts`         | unchanged, switch off and on | (cases moved)                      |
+| `engine/signal-batching.process`, `sdk-burst.process`, `streaming-behaviour.process` | fails naming E5.3/E5.6       | E5.6                               |
+| storage row (`live-write-buffer`, `live-write-quarantine`, `storage-behaviour`, …)   | fails naming E5.3/E5.6       | E5.6, `startup-quarantine` at E5.8 |
+| `engine/attachment-echo.process` (an E1 file too)                                    | fails naming E5.5/E5.6       | E5.6                               |
+| `engine/reliability.process`                                                         | fails naming E5.6            | E5.6–E5.8                          |
+
+**Switch off, byte-identical**: each alone, unchanged and passing: `engine/actor-timer.test.ts`,
+`frame-envelope.test.ts`, `fact-bytes.test.ts`, `signal-batching.process.test.ts`,
+`sdk-burst.process.test.ts`, `streaming-behaviour.process.test.ts`,
+`live-write-buffer.process.test.ts`, `storage-behaviour.process.test.ts`,
+`attachment-echo.process.test.ts`, and E5.1's `native-engine/skeleton.test.ts` with the switch on
+(the corrections must not break it).
+
+```sh
+(cd native/daemon && PATH=$HOME/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin:$PATH \
+  CARGO_BUILD_JOBS=4 cargo test -p ace-engine && \
+  PATH=$HOME/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin:$PATH \
+  CARGO_BUILD_JOBS=4 cargo build --release -p ace-daemon-node --features engine-probe)
+for f in apps/daemon/src/native-engine/actor.test.ts apps/daemon/src/native-engine/skeleton.test.ts; do
+  e=$(mktemp)
+  test -f "$f" && ACE_STORE=native ACE_STORE_WRITER=fold,sequences,events,columns,live,transactions \
+    ACE_ENGINE=native ACE_ENGINE_EVIDENCE="$e" bun --bun x vitest run "$f" --maxWorkers=4 && test -s "$e"
+done
+for f in actor-timer.test.ts frame-envelope.test.ts fact-bytes.test.ts signal-batching.process.test.ts \
+  sdk-burst.process.test.ts streaming-behaviour.process.test.ts; do
+  p=apps/daemon/src/engine/$f
+  test -f "$p" && bun --bun x vitest run "$p" --maxWorkers=4
+done
+```
+
+## Tests to write
+
+Moved (b) cases, rule 4: `actor-timer.test.ts`'s 6 rows to `actor/timer.rs`, and the
+`frame-envelope` and `fact-bytes` rows to `frames/envelope.rs` and `frames/bytes.rs`, as steps 1
+and 2 say.
+
+New Rust tests (behaviour nothing covers directly today; the commit says so):
+
+- `frames/bytes.rs`: "`utf8_len` counts a lone surrogate as three bytes, as Buffer.byteLength does".
+- `frames/coalesce.rs`: "adjacent deltas merge up to 4096 bytes and keep the previous fact's key
+  order"; "a signal between two mergeable deltas is dropped and any other boundary is kept"; "a
+  lone-surrogate append counts three bytes toward the bound".
+- `frames/attachments.rs`: "an echo with no thread-owned upload is returned untouched"; "a matched
+  part is removed and the attachment appended in first-match order"; "a base64 value without
+  padding hashes as Node decodes it"; "a deeply nested raw field is walked without recursion"
+  (depth 100,000).
+- `frames/correlations.rs` over a temp `ace-store`: "a stored attachment comes back in schema key
+  order without unknown keys"; "opening twice leaves `sqlite_master` with the TypeScript's DDL text".
+- `frames/stream.rs`: "the snapshot is prepared and finished around every fact, a rejected one
+  included".
+- `actor/flow.rs`, a table: "intake pauses at 256 frames or a quarter of the bytes and resumes only
+  at 64 frames and a sixteenth", over `(queued, pending, bytes, limits)` with the hysteresis rows.
+
+Seam tests, `apps/daemon/src/native-engine/actor.test.ts`, `describe.runIf(engineBackend() === "native")`.
+Each names in a comment the (a) test that will show it, and is deleted when that file passes with
+the switch on:
+
+1. "a batch's frames are acknowledged after its commit, never before": three frames; the promises
+   are pending before the batch timer fires; after `batchClock.advance(1)` and a flush, the store
+   holds the one probe event, the log shows `outermost: true`, and all three promises resolved in
+   arrival order. (`signal-batching` `:160`)
+2. "established deltas are acknowledged when the live buffer accepts them, before it flushes":
+   `stream: "deltas"`; the promise resolves while `store.hasLiveWrite(thread)` is still true;
+   after `flushLiveWrites` the probe snapshot recorded `persist` then `committed`. (`signal-batching` `:114`)
+3. "a batch seals at 256 frames or 256 KiB without waiting for its timer": 256 small frames, then
+   two frames of 130 KiB; the batch clock is never advanced, and the log shows batches of 256 and 2.
+4. "a frame that arrives after the batch timer fired joins the next batch": fire the timer, then
+   call `onFrame` before any pump; the log shows two batches. Sealing in the pump makes it fail.
+5. "intake pauses at 256 queued frames and resumes at 64": `limits.maxQueuedFrames: 1024`, the store
+   held for writes so no op can run, and frames each sealed by advancing the batch clock.
+   `outputFlow.paused()` is false at 255 and true at 256. Releasing the hold drains, and `wait()`
+   resolves only once 64 or fewer remain.
+6. "a full mailbox commits the accepted prefix, then ends the session visibly": `maxQueuedFrames: 8`;
+   the ninth frame's promise rejects with `Provider mailbox capacity exceeded`, the first eight
+   are committed, `aborted()` is 1, and the apply log ends with the three overflow facts.
+7. "a malformed envelope fails the actor and the frame's promise resolves after the flush":
+   `seq: -1`; `onError` got `Provider frame envelope is malformed: seq`, and the next frame
+   rejects with `Provider frame failed to commit`.
+8. "an SDK frame without its certificate and an oversized frame fail the actor visibly", two cases.
+9. "a busy store retries the batch every 100 ms and translates it once": `ProbeRepo.apply` throws a
+   busy error twice. The `ManualClock` advanced 100 ms twice commits the batch, and the
+   translator's `translate` ran once per frame.
+10. "a frame of a retired generation is acknowledged and dropped": `retire()`, then a frame of the
+    old generation resolves at once, and no op ran.
+11. "acknowledgements never resolve inside a transaction": the probe runs an op with a
+    transaction open, through a probe-only hook. The op fails visibly with `NotOutermost`, and its
+    promise rejects.
+12. "native frames batch and acknowledge as TypeScript ones do": a Rust test in
+    `engine/probe_actor.rs` (feature `engine-probe`) feeding `FrameRef::Native` frames through the
+    same probe actor; batches and acknowledgements match case 1.
+
+## Benches
+
+- **Signal batching.** There is no separate bench file. `bench/live-write-buffer.ts` drives
+  deltas through a real engine and the live buffer, and reports transactions and delivered
+  deltas. Record its switch-off figures in the PR now. With the switch on it needs a session
+  (E5.6), which then reports both. Report also the switch-off count from `signal-batching`'s first
+  test (0 transactions for 20 signals, ≤ 3 after the tool frame), which E5.6 must match exactly.
+- **Head-of-line.** `bench/head-of-line.ts --runs=3` needs sends (E5.5, E5.6). E5.1 recorded the
+  switch-off baseline. E5.2 adds nothing to it and runs it after E5.6, against E5.1's baseline,
+  under the `live` bulk: `stopAck` and `sendReceipt` p50, p99 and max, plus the event-loop delay.
+  The figure E5.2's design can move is the mailbox's per-op yield (step 9), so report the
+  binding's longest poll and count of polls over 16 ms beside `stopAck`.
+- **The actor's own cost, now.** From seam case 3's run, report frames acknowledged per
+  millisecond through a probe actor (one figure, as E5.1 reported the pump's), and the share of
+  batches that hit the 256-frame bound. No new bench file.
+
+## Files (all yours; nothing else except the E5.1 corrections)
+
+- `native/daemon/crates/ace-engine/src/actor/{mod,state,deps,intake,mailbox,fold,failure,flow,timer,leases,rules}.rs`
+  (replacing `actor.rs`) and `frames/{mod,bytes,envelope,coalesce,raw,attachments,attachment_payload,correlations,stream}.rs`
+  (replacing `frames.rs`).
+- `ace-engine/Cargo.toml`: `indexmap` (the TypeScript `Map` order, rule 8), `sha2` and `base64`
+  (image hashes), the versions already in `native/daemon/Cargo.lock`, each with a comment saying
+  why.
+- `native/daemon/crates/ace-daemon-node/src/engine/{actor,frames,js_translator,probe_actor}.rs`.
+- `apps/daemon/src/native-engine/{actor,frames}.ts` and `actor.test.ts`.
+- The E5.1 corrections above, and nothing else in E5.1's files.
+- Every file under 400 lines; none over 1,500 (`bun run check:size`).
+
+## Must not
+
+- Resolve an acknowledgement on a live-buffer flush, on a savepoint's release, or before its op's
+  last commit, or reject one that committed.
+- Seal a batch in the pump when a sync entry could have sealed it at the firing (decision 3).
+- Translate a batch twice, or write a Cursor record only once across retries.
+- Hold a `with_state` borrow across a translator, trait method, port or await.
+- Run two ops of one actor in one poll, or run an op while a transaction is open.
+- Give the probe a fold, or make an unported trait method succeed silently.
+- Use `serde_json`, `str::len` on JavaScript strings, or `HashMap` where TypeScript iterates a `Map`.
+- Change `engine/*.ts`, the store's formats, `engineSchemaVersion` 9, or the DDL text.
+- Run the full suite, `bun run check`, `test:process` or any tier; one file at a time (rule 3).
+
+## Reviewer checks
+
+- Each message string matches the TypeScript byte for byte (step 8, step 11).
+- The pause and resume thresholds and the five seal conditions match `actor.ts:92`–`:113` and
+  `:341`–`:348`.
+- Acknowledgement rows: committed batch after its last commit, streamed batch on acceptance,
+  refused batch rejects after the ops before it, poisoned or overflowed at settle time rejects.
+  Moving the settle to after `flush_live_writes` makes seam case 2 fail.
+- `catch_up` runs at the top of every sync entry and every mailbox poll.
+- Merges and spreads replace keys in place, and `Correlations::get` returns schema order.
+- `json_string_bytes`, `utf8_len` and `streamed_facts_bytes` work in UTF-16 units.
+- `deps.rs`'s `Unported` methods each name the right owner; no owner's method has a body in E5.2.
+- With the switch off, `git diff origin/ace/daemon-rust-rewrite -- apps/daemon/src/engine` is empty.
+
+## Open questions, with recommendations
+
+1. **Who edits `deps.rs` later?** Each owner (E5.3, E5.4, E5.5, E5.6, E5.8, E5.10) replaces only
+   its methods' bodies in `ActorDeps::production` and the `Unported` impls. The alternative, each
+   owner providing its own trait object registered at construction, needs a registration hook in
+   E5.1's `Core`. _Recommend_ the one-function edit; the table in step 6 is the contract, and
+   E5.3's and E5.4's briefs cite it.
+2. **Acknowledgement continuations after the turn (decision 5).** _Recommend_ accepting it, as
+   timers were accepted (E5.1 owner decision 2). The mailbox's per-op yield keeps each op in its
+   own poll, so ops of different threads interleave. If a (a) file at E5.6 shows an order
+   dependency, end the turn after an op that settled a JavaScript acknowledgement, which costs one
+   macrotask per batch.
+3. **`writable_now`.** `Store.writable()` is async, and the write hold it checks is private
+   (`store.ts:858`). Awaiting it for every op would add a macrotask per batch. _Recommend_ a
+   three-line public `Store.writableNow(): boolean` (`!writes.isHeld() && !historyWriting &&
+   !streaming.buffer.failed`) in `store.ts`, in E5.2's first commit, signed off by a store
+   reviewer. Without it, `run_when_writable` awaits `writable()` every time, and the per-op cost
+   shows in the seam figure.
+4. **`latest_generation` needs the interaction ledger (E5.7).** Actor creation reads it
+   (`index.ts:556`–`:559`), so with E5.7 unlanded, E5.6's sessions could not open. _Recommend_
+   that E5.4's implementation reads the ledger's generation column directly (a stored read, no
+   ledger behaviour), so actor creation needs only E5.4. Settle it in E5.4's brief.
+5. **Error text for rows ace wrote that fail validation.** `readRawBlob("")` and a malformed stored
+   attachment throw zod errors whose text the Rust cannot reproduce. Both need an id that is never
+   empty, or a row ace never writes (ADR 0125). _Recommend_ the fixed messages of steps 3 and 4,
+   recorded in behaviour.md §4 as known differences on corrupt input only.
+6. **One promise per batch (decision 4).** _Recommend_ keeping it, and the bench figure shows the
+   saving. If a reviewer finds a caller that compares acknowledgement identity, fall back to one
+   promise per frame, settled in arrival order.
+7. **Should the E5.1 corrections go into E5.1's open review?** _Recommend_ yes for corrections 1–5
+   (they are E5.1 bugs whatever E5.2 does: a flush that never flushes the actors, a flush that
+   never raises `flush_depth`, unbounded waker and wake-log growth). Corrections 6–8 are E5.2's
+   seams and land with it.
