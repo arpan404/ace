@@ -57,8 +57,8 @@ E5.3 runs in parallel with E5.2 and E5.4 and lands after E5.1.
    `open` runs `host.flush()`), so this is behaviour, not style: `state()` (`repository.ts:210`)
    reads `thread_state` outside a transaction and must not flush, while `reserve()` (`:517`) runs
    inside one.
-4. **Migrations stay TypeScript** until the TypeScript engine is deleted. Recommendation and
-   reasons are in "Migrations" below.
+4. **Migrations stay TypeScript** until the TypeScript engine is deleted, and their data work moves
+   into bounded fills on main first ("Prerequisite fix on main"). Reasons are in "Migrations".
 5. **The record dictionaries are lazy in Rust too.** The Rust core's `ThreadState` holds plain
    `IndexMap`s (`ace-core/src/state.rs:226`–`:230`). Loading every record of a thread into them
    would make a thread's first touch cost its whole history and break the record budget, so the
@@ -67,6 +67,66 @@ E5.3 runs in parallel with E5.2 and E5.4 and lands after E5.1.
 6. **Calls into modules other items own go through E5.3's collaborator traits** (step 7). Until an
    item lands, each trait method fails with `NotPorted` naming that item. E5.3 never edits another
    E5 item's files.
+7. **No borrow across a port.** No `with_state` or `Snapshot` borrow is held across a port call, a
+   callback into the engine, or `EngineStore::atomic` (step 8).
+
+## Prerequisite fix on main (TypeScript, its own PR, before E5.3)
+
+The opener (step 1) runs the TypeScript repository's constructors on every native boot, and those
+constructors do history-sized data work at open today. That breaks ADR 0170 §1–§3 on main with the
+switch off as much as on, so it is a bug on main, fixed first in its own PR. E5.3 then ports the
+bounded version, never today's.
+
+**The rule.** Each constructor keeps only its schema setup at open (`CREATE … IF NOT EXISTS`, the
+version and column checks, `requireEngineColumns`), which is O(1) on an existing home. Every data
+pass becomes a **fill**: an idle, bounded, resumable pass that the engine starts after
+construction, plus a reader rule that is correct before the fill completes (ADR 0170 §3, "readers
+fall back to the slower path that is already correct"). The constructors no longer read or write
+rows.
+
+**The fill driver** (`apps/daemon/src/engine/open-fills.ts`, new). One driver per `Engine`, started
+at the end of the constructor, running fill steps on idle ticks (`setImmediate`, one step per
+tick, yielding to I/O in between), each step one `store.atomic` over **at most 256 rows**, paged by
+primary key or rowid from a saved cursor. Each fill exposes `complete(): boolean` and
+`completed: Promise<void>` (its completion signal). A fill whose result is durable saves its cursor, and `done`, in a side table
+`engine_open_fills(name TEXT PRIMARY KEY, cursor TEXT, done INTEGER NOT NULL DEFAULT 0)`, created
+`IF NOT EXISTS` at open (empty on a fresh home; an older build ignores it). This PR adds it, so by
+E5.3 it is an existing table and E5.3's "formats do not change" holds. A fill whose result is per
+boot keeps its cursor in memory and restarts next boot: a crash redoes it, which is right for data
+derived per boot. `close()` stops the driver before the modules' close steps. Tests use the `batchScheduler`
+port for the tick, so a `ManualClock` test can drive it.
+
+The data work on main today, and what each becomes:
+
+| Today (open time)                                                                                                                                                                                                        | Fill                                                                                                                                                                                                                                                                                                                                                     | Readers before the fill completes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `INSERT OR IGNORE INTO engine_queue(thread_id) SELECT thread_id FROM thread_state` (`queue-store.ts:75`)                                                                                                                 | `queue-rows`, durable: `thread_state` by `rowid`, 256 a step, `INSERT OR IGNORE` the page's ids                                                                                                                                                                                                                                                          | A missing `engine_queue` row means the column defaults (revision 0, not paused, not limited, no continuation, no trigger, hold token 0, not exited). `get` (`:117`) returns the defaults instead of throwing `Missing queue metadata`; `snapshot` (`:242`) already does. Every writer calls `ensure` (`:104`) before its `UPDATE`; the PR lists each `UPDATE engine_queue` site (queue-store, `recovery.ts:98`) and adds `ensure` where missing. `runnableThreads` (`intents.ts:299`) joins with `LEFT JOIN engine_queue` and reads a null as the default (`COALESCE(q.paused,0)=0`), so a thread with pending intents and no row still runs. The recovery scan's `engine_queue` source needs no change (a missing row has nothing to recover). `thread-organization.ts:60` and `thread-move.ts:130` read a missing row as not held, which is the default.                                                                                                                                                                                                                                        |
+| Re-track attachments of every live intent (`queue-store.ts:86`–`:93`)                                                                                                                                                    | `queue-attachments`, durable: `intents` by `id` over the same predicate, 256 a step, `track` per row                                                                                                                                                                                                                                                     | Rows written by `track` at enqueue and edit (`:344`, `:363`) are current; the pass repairs intents that predate them. Until `complete()`, `retainsAttachment` for a thread also checks that thread's live intents' payloads for the hash (bounded by its live intents), so no attachment a live intent needs reads as unretained.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `DELETE FROM engine_transition_blockers` and rebuild from every agent record (`transition-readiness.ts:54`–`:60`)                                                                                                        | `readiness`, per boot: `engine_state_records WHERE section='agents'` by its primary key `(thread_id, section, key)`, 256 rows a step, from cursor `(thread_id, key)`; a thread counts as rebuilt when the cursor has passed its last agent row. No global `DELETE`: each thread's rows are deleted and rebuilt when the pass reaches its first agent row | **Nothing may read a thread's blockers before that thread is rebuilt this boot.** Blockers decide `agentsReady` (`:110`), so `quiescent` (`repository.ts:496`), transitions, settle and switch admission read them, and a stale row from the last boot, or a missing one, would be a wrong answer (ADR 0170 §5, AGENTS.md priority 1). So every reader and writer of one thread (`agentsReady`, `refreshBlocked`, `capture`, `update`) first calls `ensureRebuilt(threadId)`: if the pass has not passed that thread and it is not in the `rebuiltAhead` set, delete that thread's blockers and rebuild them from that thread's agent records (through `engine_agent_records`, `engine-record-indexes.ts:21`; bounded by that one thread's agents), then add it to `rebuiltAhead`. The pass skips threads in `rebuiltAhead`, since their blockers are current and live updates since then are the truth. No reader queries blockers across threads; the PR confirms by grep (none today outside this module) and adds a test that fails if a new cross-thread reader appears before `complete()`. |
+| `DELETE FROM engine_input_echoes` / `engine_inputs WHERE thread_id NOT IN (SELECT id FROM threads)` (`input-journal.ts:98`–`:99`)                                                                                        | `input-orphans`, durable: each table by `rowid`, 256 a step, deleting the page's rows whose thread is gone                                                                                                                                                                                                                                               | Orphans belong to deleted threads, and every reader filters by `thread_id` of a live thread, so they are never read. The `engine_inputs_delete` trigger already removes new orphans.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `migrateEmptyCursorThreads` (`cursor-empty-migration.ts:6`)                                                                                                                                                              | `cursor-empty`, durable: `threads` by `rowid`, 256 a step, the same predicate per page                                                                                                                                                                                                                                                                   | The session open of a Cursor thread (`session-open-route.ts`) first applies the same check to that one thread (bounded), so a thread opened before the fill reaches it gets the same backend it would have had.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `CREATE INDEX IF NOT EXISTS` on tables that grow with history (repository, queue-store, intents, input-journal, interaction-ledger, attachment-correlations, title-input, thread-cleanup-journal, engine-record-indexes) | none, if every supported home has them                                                                                                                                                                                                                                                                                                                   | The daemon refuses homes older than schema 14. The PR lists each such index and the release that added it. One every supported home already has is O(1) at open and stays. One a supported home can lack moves out of open, ADR 0170 §2: readers stay correct without it (they are, since an index never changes results), and it is built as a side effect of a fill only if the owner approves that cost, else filed as its own issue.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+
+**Readiness ordering.** `ready()` still resolves only after the startup recovery pass (E5.1, E5.8).
+Recovery reads queues and readiness for the threads it recovers, and those reads take the fallbacks
+above, so recovery never waits for a fill and never reads partial data. Fills run after `ready()` is
+armed and interleave with it; they never hold `ready()` back.
+
+**Tests (in that PR).** Behaviour tests through the public API, one per fill, named after the
+behaviour: "a thread whose queue row was never created still runs its pending send" (seed with the
+row deleted); "a thread blocked at the last stop is not reported ready before the readiness pass
+reaches it" and "a thread rebuilt ahead of the pass keeps its live blockers when the pass reaches
+it"; "a Cursor thread opened before the migration fill reaches it opens on the SDK backend";
+"orphaned input rows are gone once the fill completes, and a stop mid-fill resumes from its
+cursor". Plus one open-time measurement per ADR 0170 §6: a cold APFS clone of a seeded large home,
+first open before and after, in the PR. No daemon on a copy of `~/.ace`.
+
+E5.3 ports the fill driver and the five fills into `ace-engine` (`repository/fills/`), same SQL,
+same cursors and same `engine_open_fills` rows, run as pump tasks on the `Work` lane, one step per
+poll. The readers' fallbacks live with their owners (E5.4 queue, E5.6 Cursor open, E5.9 readiness)
+and ask the fill state through `State.repo.fills` (`complete(name)`, `rebuilt(thread)`,
+`ensure_rebuilt` for readiness). Until the owner lands, its reader is `NotPorted` like the rest of
+its module.
 
 ## Module map
 
@@ -78,7 +138,7 @@ listed, all under 400 lines.
 | `repository.ts:64`–`:172` (`EngineRepository`, constructor)                                                                                                                                                                                                           | open sequence, statements, the snapshot map                                                                                         | `repository/mod.rs` (`Repo`), `repository/open.rs`; the DDL itself stays TypeScript (Migrations)                    |
 | `repository.ts:173`–`:199` (`nextCommandId`, `acknowledgeCommand`, `beginSessionOpen`, `resetAdmission`, `finishSessionOpen`, `recoveryAcknowledgement`)                                                                                                              | command ids, admission rows, the opening set                                                                                        | `repository/admission.rs`                                                                                           |
 | `repository.ts:200`–`:254`, `:294`–`:355` (`syncSnapshots`, `state`, `deadline`, `setSilenceMs`, `evict`, `requireState`, `save`, `trim`, `drop`, `retire`)                                                                                                           | the resident-snapshot cache, rollback sync, save                                                                                    | `repository/residency.rs`, `repository/save.rs`                                                                     |
-| `repository.ts:255`–`:293` (`recoveryStates`, `states`)                                                                                                                                                                                                               | startup candidates, every state                                                                                                     | `repository/candidates.rs` (fills E5.1's `recovery_candidates`)                                                     |
+| `repository.ts:255`–`:282` (`recoveryStates`); `states` (`:283`–`:292`) is not ported                                                                                                                                                                                 | startup candidates                                                                                                                  | `repository/candidates.rs` (fills E5.1's `recovery_candidates`)                                                     |
 | `repository.ts:356`–`:449` (`attributeAction`, `stream`, `apply`)                                                                                                                                                                                                     | the live path's persistence half, the fold's frame                                                                                  | `repository/stream.rs`, `repository/apply.rs`                                                                       |
 | `repository.ts:496`–`:543` (`quiescent`, `acceptsPersonInput`, `reserve`, `release`, `reservedSlot`)                                                                                                                                                                  | slots and the two readiness questions                                                                                               | `repository/slots.rs`; `quiescent` and `acceptsPersonInput` call E5.9's readiness through the collaborator trait    |
 | `repository.ts:544`–`:672`, `:715`–`:756` (`readRawBlob`, `nativeEntity`, `entityThread`, `answer`, `reserved`, `cancelled`, `engineQueueFact`, `latestIntent`, `commandsSince`, `queuedCount`, `inputCapacity`, `workspace`, `clearIncompleteBlobs`, `captureFrame`) | point reads and small writes                                                                                                        | `repository/reads.rs`, `repository/frames.rs` (`captureFrame`)                                                      |
@@ -110,29 +170,31 @@ facade members E5.1's table gives E5.3) and `engine/probe_repository.rs` (probe 
 
 ### 1. The opener (`native-engine/open.ts`)
 
-The native facade's constructor, before it builds the Rust engine, runs the TypeScript
-repository's open sequence exactly: it constructs `new EngineRepository(store, ids, capacity,
-commandId, aceToolAction, clock.now)` (`repository.ts:104`) and drops it. That runs every
-statement of `repository.ts:115`–`:171` in today's order: `initializeThreadCleanup`, `AceInputs`,
-`migrateEngine`, `indexEngineRecords`, `migrateEmptyCursorThreads`, `AttachmentCorrelations`,
-`indexTitleInputs`, the `engine_entity_ids` index, `initializeSessions`, `ProviderRecovery`, the
-`engine_provider_frames` statement, `SteerNotes`, `QueueStore`, the `engine_queue_recovery` index,
-`IntentStore`, `InputJournal`, `InteractionLedger`, `TransitionState` (with `StoreGenerations`),
-`TransitionReadiness`, `DELETE FROM engine_slots`, `thread_ownership`. A refusal
-(`IncompatibleDataError` from `requireEngineVersion` or `requireEngineColumns`) is thrown from the
-facade's constructor at the same point the TypeScript throws it.
+Needs the prerequisite fix on main. After it, the TypeScript repository's constructors do schema
+setup only, so the opener is O(1) in history on an existing home.
 
-- Rust's `Repo::open` runs none of these. It prepares nothing at open (statements are cached on
-  first use) and reads nothing, so open is O(1) in history.
-- A later item whose TypeScript constructor does its own open work (for example
-  `ContextMeters(store, …)`, `index.ts:320`) adds that constructor to this file, in the
-  TypeScript engine's order. The file's doc comment says so.
-- Every statement in that sequence is idempotent on an existing home (`IF NOT EXISTS`, or a check
-  that returns early). Two kinds are not O(1) on every home: an index created for the first time on
-  a home that predates it, and the orphan sweep `DELETE FROM engine_input_echoes WHERE thread_id
-  NOT IN (SELECT id FROM threads)` (`input-journal.ts:98`), plus `migrateEmptyCursorThreads`. The
-  TypeScript engine runs them today, so the native engine adds nothing; E5.3 times open on a cold
-  large-home clone (Proof) and reports them, and does not fix them (open question 4).
+The native facade's constructor, before it builds the Rust engine, constructs
+`new EngineRepository(store, ids, capacity, commandId, aceToolAction, clock.now)`
+(`repository.ts:104`) and drops it. That runs the schema setup of `repository.ts:115`–`:171` in
+today's order: `initializeThreadCleanup`, `AceInputs`, `migrateEngine`, `indexEngineRecords`,
+`AttachmentCorrelations`, `indexTitleInputs`, the `engine_entity_ids` index,
+`initializeSessions`, `ProviderRecovery`, `SteerNotes`, `QueueStore`, the `engine_queue_recovery`
+index, `IntentStore`, `InputJournal`, `InteractionLedger`, `TransitionState` (with
+`StoreGenerations`), `TransitionReadiness`'s table, `DELETE FROM engine_slots` (bounded by the
+slot capacity, 64), `thread_ownership`, `engine_open_fills`. A refusal (`IncompatibleDataError`
+from `requireEngineVersion` or `requireEngineColumns`) is thrown from the facade's constructor at
+the point the TypeScript throws it. The opener never starts the TypeScript fill driver: that
+belongs to the TypeScript `Engine`, which the native path never builds; the Rust engine runs the
+ported fills (prerequisite, last paragraph).
+
+- Rust's `Repo::open` runs no statement and prepares nothing (statements are cached on first
+  use).
+- A later item whose TypeScript constructor has its own open work (for example
+  `ContextMeters(store, …)`, `index.ts:320`) adds that constructor to this file in the TypeScript
+  engine's order, and checks it does no data work at open; if it does, that is another fix on main
+  first. The file's doc comment says so.
+- Proof that open stays O(1): the opener and `Repo::open` timed on a cold clone of a large home,
+  switch off and on (Proof).
 
 ### 2. The record budget (`records/budget.rs`)
 
@@ -160,40 +222,77 @@ In Rust a cached value is the decoded record plus its JSON text and byte count
 
 ### 3. The lazy section (`ace-core`, needs a core reviewer)
 
-`ace-core` today folds over `IndexMap` sections. Introduce in `ace-core/src/section.rs` a map type
-the core uses for every record section of `ThreadState` (`agents`, `runs`, `items`,
-`interactions`, `tasks`, `interactionHistory`, `taskHistory`, `itemLinks`, and the eight
-`indexes` maps), with exactly the operations the core calls today: keyed `get`, `get_mut`,
-`insert`, `remove` (`shift_remove`), `contains_key`, and ordered iteration. In the core today only
-`agents` is iterated (9 sites); every other section is reached by key.
+`ace-core` today folds over `IndexMap` sections read by borrow (`emit.rs:22`,
+`get(&IndexMap) -> Option<&V>`). The record sections become `Section<T>`
+(`ace-core/src/section.rs`): `agents`, `runs`, `items`, `interactions`, `tasks`,
+`interactionHistory`, `taskHistory`, `itemLinks` and the eight `indexes` maps.
+
+**Which sections the core enumerates.** `agents` (9 sites) and four index sections:
+`liveTools`, `pendingInteractions`, `runningTasks` and `openText` (`.keys()` in
+`live_tool_keys`, `pending_interaction_keys`, `running_task_keys`, `open_text_keys`,
+`indexes.rs:128`–`:179`). Every other section is reached only by key. The builder re-greps before
+writing and lists the enumerated sections in `section.rs`'s doc comment.
+
+**Ownership: one cache, one overlay.** A section holds no long-lived values of its own, so there is
+no second resident map beside the shared 8192-entry / 8 MiB budget:
+
+- The **budget** (step 2, in `ace-engine`) owns every cached record across transactions, as
+  `Rc<T>` beside its JSON and byte count. Eviction drops the budget's `Rc`.
+- The **overlay** (in `Section<T>`) holds what the current scope has read or written: a slot per
+  key, `Read(Rc<T>)`, `Written(T)` or `Deleted`, plus the base JSON of each read (the TypeScript
+  `originals`, `records.ts:31`). It is cleared at `committed()` and, for reads outside a
+  transaction, at the end of that read scope (`Snapshot::end_untracked`, called by the repository
+  when the `with_state` closure that read returns). So it holds at most what one batch or one read
+  touched, which is what the TypeScript `touched` map holds (`records.ts:30`).
+- A section with no source (the default, used by `@ace/core`'s facade, `ace-core-wasm` and every
+  core test) holds every entry in a resident `IndexMap` and behaves exactly as today: same serde
+  form, same key order. The E4 (a) files and the core vectors pass unchanged; run the core's tests
+  and its facade tests with `ACE_CORE=native` before and after.
+
+**The API the core uses.** Reads that can miss are fallible and take `&mut`, because a miss loads
+into the overlay; reads after a load borrow from it:
 
 ```rust
-/// Pure: the core never does I/O. A section either owns all its entries (the default, which
-/// `@ace/core`'s facade, `ace-core-wasm` and every core test use, unchanged) or is backed by a
-/// `RecordSource` the engine injects, which loads one key or the key list on a miss.
 pub trait RecordSource<T> {
-    fn load(&self, key: &str) -> Result<Option<T>, SourceError>;
+    /// The budget, then SQLite. An owned handle: the budget keeps its own `Rc`.
+    fn load(&self, key: &str) -> Result<Option<Rc<T>>, SourceError>;
+    /// Stored keys in rowid order (the TypeScript `ownKeys` query, `records.ts:153`).
     fn keys(&self) -> Result<Vec<String>, SourceError>;
-    fn touched(&self, key: &str, value: Option<&T>); // a write or delete the engine must persist
 }
-pub struct Section<T> { /* resident IndexMap, Option<Rc<dyn RecordSource<T>>> */ }
+impl<T: Clone> Section<T> {
+    pub fn load(&mut self, key: &str) -> Result<(), SourceError>;      // ensure in overlay
+    pub fn load_keys(&mut self) -> Result<(), SourceError>;            // ensure the enumeration
+    pub fn peek(&self, key: &str) -> Option<&T>;                       // overlay or eager map only
+    pub fn get_mut(&mut self, key: &str) -> Result<Option<&mut T>, SourceError>; // Read -> Written, copy on write
+    pub fn insert(&mut self, key: String, value: T);                   // Written
+    pub fn remove(&mut self, key: &str) -> Result<Option<T>, SourceError>; // Deleted
+    pub fn keys(&self) -> impl Iterator<Item = &str>;                  // after load_keys
+    pub fn changes(&self) -> impl Iterator<Item = (&str, Change<'_, T>)>; // for persist
+}
 ```
 
-- With no source, `Section<T>` behaves as the `IndexMap` it replaces: same serde form, same key
-  order, so the E4 (a) files and the core vectors pass unchanged. Run the core's own tests and its
-  facade tests with `ACE_CORE=native` before and after; nothing in them changes.
-- With a source, a miss calls `load`; iteration calls `keys` once per transaction (the
-  TypeScript caches the enumeration while tracking, `records.ts:153`–`:172`) and merges the
-  overlay. Key order is the TypeScript `ownKeys` result: the stored keys in `rowid` order, then the
-  overlay's additions, then **JavaScript object order** applied on top
-  (`Object.keys(Object.fromEntries(...))`, `:171`): integer-like keys first in ascending numeric
-  order, then the rest in insertion order. A test pins it with keys `"10"`, `"2"`, `"b"`, `"a"`.
-- A load or keys failure (`SourceError`) surfaces from the fold as a fold error. The engine maps it
-  to the same error the TypeScript throws there (`Invalid snapshot record`, `records.ts:16`, or the
-  SQLite error).
-- The engine's `RecordSource` is `records::Records` (step 4); the core never sees SQL.
-
-If the core reviewer rejects a source-backed section, the fallback is open question 1.
+- The core's helpers change from `get(&IndexMap, key)` to `section.load(key)?` then
+  `section.peek(key)`, so two values of one section can be held at once after loading both. A fold
+  function that reads a section returns `Result<_, FoldError>`; `FoldError::Source(SourceError)`
+  joins `ace-core/src/error.rs`. A `peek` of a key not loaded is a bug: it returns `None` in
+  release and fails a `debug_assert` in tests.
+- **Edits reach the overlay only through `get_mut`, `insert` and `remove`.** `get_mut` turns a
+  `Read(Rc<T>)` slot into `Written(T)` by `Rc::unwrap_or_clone`, as the TypeScript treats a value
+  read while tracking as possibly mutated in place (`records.ts:146`–`:150`). `changes()` yields
+  every `Written` and `Deleted` slot with its base JSON; the engine's persist (step 4) writes a
+  `Written` value only if its encoding differs from that base, so a value fetched for writing but
+  left unchanged writes nothing, as today.
+- Enumeration: `load_keys` calls `keys()` once per transaction and merges the overlay. Order is
+  the TypeScript `ownKeys` result: stored keys in `rowid` order, then the overlay's additions, then
+  **JavaScript object order** on top (`Object.keys(Object.fromEntries(...))`, `records.ts:171`):
+  integer-like keys first in ascending numeric order, then the rest in insertion order. A test pins
+  it with keys `"10"`, `"2"`, `"b"`, `"a"`.
+- A load or keys failure surfaces from the fold as `FoldError::Source`; the engine maps it to the
+  error the TypeScript throws there (`Invalid snapshot record`, `records.ts:16`, or the SQLite
+  error). The core never sees SQL.
+- Budget accounting stays the TypeScript's: an entry's weight is 4 × its JSON bytes; an `Rc` the
+  overlay still holds after the budget evicted it lives until the overlay clears, bounded by one
+  scope, as a TypeScript value held by `touched` is.
 
 ### 4. Records (`records/`)
 
@@ -340,64 +439,109 @@ same commit. That is the only edit an owner makes in E5.3's files. The thread ti
 corrections (`:51`–`:76`) call the store through ports (`getThread`, `writeEvents`), not a
 collaborator.
 
-### 8. Rollback and the record cache
+### 8. Rollback, live pins and the record cache
 
 The TypeScript keeps no undo log for in-memory state. It drops what may be stale and reloads from
-SQLite, and E5.3 does the same:
+SQLite, and E5.3 does the same, with the generation kept **per snapshot** so a snapshot spared by
+one sync is still checked later.
 
-- **The generation.** `syncSnapshots` (`repository.ts:200`) compares the store's
-  `rollbackGeneration()` (`store.ts:593`) with the one it last saw. When it moved, every resident
-  snapshot **without a pending live write** is dropped and released, and the generation is
-  recorded. The store bumps it on a top-level rollback, a nested rollback (`store.ts:624`, `:629`,
-  through the native shell's `topRolledBack` and `nestedRolledBack`) and a failed history install
-  (`:980`, outside the stack). Rust reads it through a new synchronous port,
-  `rollbackGeneration(): number` (a number, no JSON), at each point the TypeScript calls it:
-  `state()`, `save()`.
+- **The generation.** The store bumps `rollbackGeneration()` (`store.ts:593`) on a top-level
+  rollback, a nested rollback (`store.ts:624`, `:629`, through the native shell's `topRolledBack`
+  and `nestedRolledBack`) and a failed history install (`:980`, outside the stack). Rust reads it
+  through a synchronous port, `rollbackGeneration(): number` (a number, no JSON), at each point the
+  TypeScript calls it: `state()` and `save()`.
+- **Per-snapshot stamp.** Each resident snapshot records the generation it was last valid at. A
+  sync drops and releases every resident snapshot **without a live pin** whose stamp is older than
+  the current generation, and stamps the survivors it checked. A pinned snapshot is skipped and
+  keeps its old stamp. (The TypeScript records one global `snapshotGeneration`, `repository.ts:204`,
+  so a snapshot spared while pinned is never checked again; Rust must not copy that.)
+- **A pin ends in exactly one of two ways**, and each settles the exact snapshot the pin was
+  taken on (the `Rc` captured with the buffer token, never a lookup by thread id, since the map may
+  hold a newer snapshot by then):
+  - **Commit** (`native-writer/live.ts:196`, the buffer's `committed`): the snapshot's
+    `committed()` runs, its stored `seq` becomes the commit's head seq, and its stamp becomes the
+    current generation, since its rows now match its state. A pinned snapshot no longer resident
+    (`Rc::ptr_eq` fails) is committed and then dropped and released.
+  - **Discard** (quarantine, `store-stream.ts:276`–`:289`): the store first removes the pin
+    (`buffer.discard`, `live.ts:202`), then notifies its quarantine listeners
+    (`store-stream.ts:272`, `store.ts:784`). The engine's listener first **evicts and releases that
+    snapshot whether or not an actor exists**, then calls the actor's `quarantine` if there is one
+    (`engine/index.ts:366`–`:369`, `actor.ts:268`). Keep that order: pin removed, snapshot evicted,
+    actor told. Its overlay holds deltas that were never stored, at the same `seq` as the stored row,
+    so the `seq` check alone would keep it. (Today the TypeScript evicts only through the actor,
+    `actor.ts:276`; the prerequisite PR adds `repo.evict(id)` before the actor call in the engine's
+    listener, `engine/index.ts:367`, with the test "a quarantined thread with no actor reloads its
+    stored state".)
 - **Dropping is releasing.** A dropped snapshot's sections clear their budget entries and turn
-  uncached (step 2). A task still holding its `Rc` keeps working on it, and its reads go to SQLite,
+  uncached (step 2). A task still holding its `Rc` keeps working on it and its reads go to SQLite,
   as a state kept past release does today (`snapshot-release.process`).
-- **Live writes survive.** A snapshot with a pending live write is never dropped by a rollback or
-  by `trim`. Its buffered deltas are not in SQLite yet, so reloading would lose them. The buffer's
-  own retry and quarantine decide them (E5.2, `live-write-quarantine.process`).
-- **Overlays are per snapshot, not per transaction frame.** `touched`, `patches`, `originals`,
-  `replaced` and `appended` clear only on `committed()`. After a rollback the snapshot holding
-  them is dropped at the next `state` or `save`, so they are never persisted. That includes a
-  savepoint rollback caught inside a still-open outer transaction: the nested rollback bumps the
-  generation, and the next `save` in the same outer transaction reloads first
-  (`snapshot-rollback.process:123`).
-- **What never happens:** a rolled-back value staying in the budget under a resident snapshot, or
-  a snapshot reused across a rollback with an unchanged `seq`. The `seq` check alone cannot catch
-  the second (`snapshot-rollback.process:98`: a nested save whose event sequence did not change),
-  which is why the generation exists.
+- **Overlays.** `touched`, `patches`, `originals`, `replaced` and `appended` clear only on
+  `committed()`. After a rollback, the snapshot holding them is dropped at the next `state` or
+  `save`, so they are never persisted. That includes a savepoint rollback caught inside a
+  still-open outer transaction: the nested rollback bumps the generation, and the next `save` in
+  the same outer transaction reloads first (`snapshot-rollback.process:123`).
+- **What never happens:** a rolled-back or discarded value kept under a resident snapshot, or a
+  snapshot reused across a rollback with an unchanged `seq` (`snapshot-rollback.process:98`: a
+  nested save whose event sequence did not change).
+
+**Borrows across ports and callbacks** (E5.1 re-entrancy rules, `e5-1-brief.md:908`–`:913`). No
+`with_state` borrow and no `RefCell` borrow of a `Snapshot` is held across a port call or across
+`EngineStore::atomic` (whose `open` can flush the live buffer and run this engine's `persist` and
+`committed` callbacks). `save` is therefore: `atomic(|tx| { with_state(pre: provenance,
+readiness, retainChanges, SQL on tx.conn()) ; port writeEvents ; port headSeq ; with_state(post:
+thread_state upsert, flush, stamp, residency) })`, in the TypeScript's order, with every borrow
+dropped before each port. The `persist`, `committed` and quarantine callbacks take their own
+borrows. A test re-enters from inside `writeEvents` (a store write hook that reads the thread's
+state) and from a flush triggered by `open`, and expects no `Reentrant` error.
 
 ### 9. The startup candidate scan (`repository/candidates.rs`)
 
-E5.1's `ready()` loops on `repository::recovery_candidates(state, 256)` until a slice comes back
-empty, then marks the engine ready. E5.3 replaces the stub and changes its signature to take the
-`EngineStore` (the scan needs SQL), with the matching one-line change at E5.1's two call sites
-(`lib.rs`, `ready_steps`).
+E5.1's `ready()` calls `repository::recovery_candidates` in a loop. E5.3 replaces the stub and
+changes its contract: it takes the `EngineStore` and returns `Step { threads: Vec<ThreadId>, done:
+bool }`; the loop ends on `done`, **never on an empty `threads`** (a page can scan 256 rows, match
+none, and have candidates after it). The one-line change at E5.1's two call sites in `lib.rs`
+(`ready_steps`) goes with it.
 
-- **The set** is `repository.ts:259`–`:266`'s union: threads whose `json_extract(status,'$.state')`
-  is not `new`, `done` or `failed`; threads with an intent `pending`, `queued` or `running`, or
-  `awaiting=1`, or `uncertain=1`; threads with an `engine_queue` row with a continuation, a
-  trigger, `limited=1` or `paused=1`; each only if it has a `thread_state` row.
-- **The slices.** Three cursors, each paging its own table by primary key, 256 rows a slice:
-  `threads` by `rowid`, `intents` by `id`, `engine_queue` by `thread_id`, each with the same
-  predicate on that page only. A slice is one pump step: one `EngineStore::atomic` (the TypeScript
-  runs each page in `store.atomic`), then a yield to the executor. A table with millions of rows
-  costs millions/256 steps, each bounded, and the event loop runs between them.
-- **The order.** The TypeScript recovers candidates in `thread_id` order. The scan collects the
-  candidate ids (a set the size of the candidates, not of history) and, once every cursor is done,
-  hands them back in `thread_id` order, 256 per call, each recovered in its own pump step (E5.8).
-  So the recovered set and its order are what the TypeScript gives.
+- **The set** is `repository.ts:259`–`:266`'s union, with its dedup: threads whose
+  `json_extract(status,'$.state')` is not `new`, `done` or `failed`; threads with an intent
+  `pending`, `queued` or `running`, or `awaiting=1`, or `uncertain=1`; threads with an
+  `engine_queue` row with a continuation, a trigger, `limited=1` or `paused=1`; each only if it has
+  a `thread_state` row, and only if `thread_id > ''` (the first page's `after` is `''`, `:256`).
+- **The order** is the TypeScript's: ascending `thread_id` under SQLite's `BINARY` collation, each
+  candidate once, recovered before the next ones are looked for (the TypeScript recovers a page of
+  64 before querying the next, so rows a recovery writes for a later thread are seen). E5.3 keeps
+  that without a final sort, by reading every source **in `thread_id` order** and merging:
+  - `threads` by its primary key `id` (cursor: the last `id` scanned);
+  - `intents` by the index `intents_pending(thread_id, status, id)`, cursor the last
+    `(thread_id, status, id)` scanned, `WHERE (thread_id, status, id) > (?, ?, ?) ORDER BY
+    thread_id, status, id LIMIT 256` (row-value comparison), evaluating the predicate per row;
+  - `engine_queue` by its primary key `thread_id`.
+
+  Each source's page is at most **256 rows scanned**, and its cursor advances to the **last row
+  scanned, matched or not**. A source whose page came back short is exhausted. The watermark is
+  the smallest last-scanned `thread_id` over the sources not yet exhausted (+∞ when all are). Held
+  matches with `thread_id <= watermark` and greater than the last emitted id are emitted in order,
+  each checked against `thread_state` by primary key; matches above the watermark are held (at most
+  3 × 256). A match at or below the last emitted id is a duplicate and dropped. So every emitted id
+  is final and in order, and nothing is sorted after the fact.
+
+- **Steps.** One scan step reads one page from each non-exhausted source whose last-scanned id is the
+  watermark, the ones holding it back (one `EngineStore::atomic`, as the TypeScript runs each page in `store.atomic`), then returns what
+  it may emit. Each step is one pump step; each emitted thread's recovery is its own (E5.8).
+  `done` is true when every source is exhausted and nothing is held.
+- This corrects ADR 0223 §5's "`threads` by rowid, `intents` by `id`": paging those by rowid
+  would need a final sort to recover in `thread_id` order.
 - **Unreadable state** (`:270`–`:277`): a candidate whose state fails to decode with an error
   `skippableAtStartup` accepts is reported and skipped; anything else fails readiness, as today.
-- Delete the probe's `emptyCandidates` stub and `State.probe_empty_candidates` (E5.1 step 12 says
-  E5.3 does).
-- `states()` (`:283`) reads every `thread_state` id at once. Port it as it is: it has no caller on
-  the startup path. Name its callers in the module comment.
+- Tests (beside it, new behaviour, and the commit says so): "a page that matches nothing does not
+  end the scan" (300 idle threads, then a working one); "candidates found by different sources
+  come out once, in thread_id order" (one thread in all three); "a thread an earlier recovery made
+  a candidate is recovered in the same pass"; "an empty thread id is never a candidate".
+- Delete the probe's `emptyCandidates` stub and `State.probe_empty_candidates` (E5.1 step 12).
+- `states()` (`repository.ts:283`–`:292`) is not ported: no repository code calls it, and it reads
+  every `thread_state` id at once.
 
-## Migrations: stay TypeScript (recommended)
+## Migrations: stay TypeScript (decided)
 
 `migrateEngine` (`migrations.ts:9`) creates a fresh schema or refuses an old one; it never
 upgrades. Around it, about twenty steps in more than a dozen modules create their tables and
@@ -405,7 +549,9 @@ indexes at open (step 1). Options:
 
 - **Stay TypeScript (recommended).** The opener runs the same constructors in the same order, so
   the DDL has one source, and a home made by either backend is made by the same statements.
-  The cost is one TypeScript object graph built and dropped at boot, with no history-sized work.
+  The cost is one TypeScript object graph built and dropped at boot, with no history-sized work once the
+  prerequisite fix has merged (before it, the constructors' data work is the defect that fix
+  removes).
   The open statements move to Rust verbatim (same text, same order) when the TypeScript engine is
   deleted, one release after default-on (ADR 0223 §8).
 - **Move now.** Rust would hold a second copy of every one of those statements while the
@@ -418,8 +564,11 @@ every decode, not at open.
 
 ## What "Rust commits publish through the JS shell" costs
 
-E5.1 decision 6 left this to E5.3. One engine step commit (a `save` from a fold) with the switch
-on crosses napi this many times:
+E5.1 decision 6 left this to E5.3. `writeEvents` stays (owner, 2026-11-24): the shell's shared
+context records the store's events once (`store.ts:1175`–`:1185`, `recordEvents`), truncates them
+on a rollback (`native-writer/transaction.ts:221`–`:230`), and publishes them at the outer commit
+(`:269`–`:278`), whoever opened the transaction. One engine step commit (a `save` from a fold) with
+the switch on crosses napi this many times:
 
 | Crossing                                                                                                                                                                   | Count per commit            | Data                                                        |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ----------------------------------------------------------- |
@@ -428,19 +577,19 @@ on crosses napi this many times:
 | `writeEvents(threadId, payloadsJson, at)`: Rust encodes, JS `JSON.parse`s, the store's writer runs, and with `ACE_STORE_WRITER` it crosses back into `ace-store` per event | 1 call + 1 per event inside | the payloads twice (Rust → JSON → JS → the store's encoder) |
 | shell `close` (`succeed`, `Finish` JSON, settle, publish, `releaseWakes`)                                                                                                  | 1 call                      | the `Finish` JSON                                           |
 
-The engine's own rows (`thread_state`, records, appends, admission) cross nothing: they run in Rust
-on the connection. Measure it (Benches) as engine step commit p50 and p95, switch off and on, and
-report both with the number of events per commit. The gate (ADR 0223 §8) is "no slower". If the
-switch-on figure is slower and the payload round trip is the cause, report it with the split; the
-fix is the store's event-writer orchestration moving to Rust (ADR 0226), not a second writer in the
-engine (Decision 1).
+The engine's own rows (`thread_state`, records, appends, admission) cross nothing. **Two gates,
+both "no worse than switch-off"**: `engineCommit` p50 and p95 (Benches), and, from E5.8 when sends
+exist, `bench/head-of-line.ts`'s `stopAck` and `sendReceipt` p50, p99 and max under the `live` bulk
+(porting guide, "For every E5 item"). If either is worse and the payload round trip is the cause,
+report it with the split; the fix is the store's event-writer orchestration moving to Rust (ADR
+0226), not a second writer in the engine (Decision 1).
 
 ## Proof
 
 Every (a) and (b) file is run alone, switch off and on (rule 3), with `ACE_STORE=native`,
 `ACE_STORE_WRITER=…,transactions` and a fresh `ACE_ENGINE_EVIDENCE` for the switch-on run, which
 must be non-empty afterwards. With the switch off every file passes unchanged: E5.3 edits no
-TypeScript engine module.
+TypeScript engine module (the prerequisite PR on main does, and has its own proof).
 
 **(a) files, the storage row and E5.3's own** (behaviour.md §19). Each checks its row against the
 file and amends E5.1's unblocked table in the PR.
@@ -483,34 +632,46 @@ entries (`record-budget`); after 1,500 drops, no released snapshot has an entry 
 
 **Seam tests** (`native-engine/persistence.test.ts`, E5.1 step 12, wrapped in
 `describe.runIf(engineBackend() === "native")`; each names the (a) test that will replace it and is
-deleted when that file first passes switch-on):
+deleted when that file first passes switch-on). Persistence is asserted on the **engine's own
+rows**, read with plain SQL from the test, never through `store.snapshotThread`: that reads the
+status and payload projections (`thread-reads.ts:165`–`:188`), which the store writes, so it would
+pass with a broken header, records or appends.
 
 - "the engine constructs, becomes ready, flushes and closes on a fresh home and on a seeded one,
   with one evidence line" (the smoke; no probe stub left);
-- "a fold of a scripted batch writes the same `thread_state` header, records and appends a
-  TypeScript fold of the batch wrote, as read back through `store.snapshotThread`" (expected values
-  are the fixture's literal results, not a second run of the TypeScript);
-- "a rolled-back fold leaves no record in the budget, and the next fold reloads from SQLite";
-- "startup recovery of 600 candidate threads takes at least 3 slices, with the event loop running
-  between them, and `ready()` resolves after the last" (a `setImmediate` counter advances between
-  slices).
+- "a folded batch stores the expected engine rows": after a fixed batch (an agent seen, a turn
+  started, a message item, deltas past 32,768 UTF-16 units, a tool call, a turn ended), the test
+  reads `thread_state.state`, every `engine_state_records` row of the thread (`section, key,
+  value`, ordered by `rowid`) and every `engine_state_appends` row (`section, key, patch`, by
+  `id`), and compares them with literal expected text in the test (header key order, record JSON,
+  the coalesced patches). Then it **reopens them through the engine**: a fresh native engine on the
+  same home folds one more delta and one more turn, and the test asserts the resulting rows again
+  (the append continues the stored text; the turn ends the stored run);
+- "a rolled-back fold leaves no record in the budget, its rows are unchanged, and the next fold
+  reloads from SQLite";
+- "a quarantined thread with no actor reloads its stored state" (step 8);
+- "startup recovery over 600 candidate threads with 300 non-candidates between them takes several
+  scan steps, the event loop runs between them, and `ready()` resolves after the last" (a
+  `setImmediate` counter advances between steps).
 
 The fold seam tests need the collaborators. The probe adds, under `engine-probe` only,
 `probe.passThroughCollaborators()`: unported collaborator calls return the fact unchanged or no
-rows, so a fold of plain item and turn facts runs before E5.4 to E5.9 land. It is scaffolding, the
-probe's one new stub, and the last owner to land deletes it (open question 2).
+rows, so a fold of plain item and turn facts runs before E5.4 to E5.9 land. It is scaffolding (the
+owner accepted it, 2026-11-24), and the last owner to land deletes it.
 
 **Home tests** (`native-engine/persistence-home.process.test.ts`, the real edge is a second
-process):
+process). Both assert the engine rows by SQL as above, then reopen through the other engine:
 
 - **TypeScript-written, native-read.** `engineSeam({ seedWithTypeScript })` runs a child with the
   switch off that creates threads through the TypeScript engine with a scripted adapter (one
-  working, one done, one with an unreadable header, one with appended text past 32,768 code
-  units), then exits. The native engine opens the home: `hasState`, the candidate set, the
-  skipped thread's report and the folded text read as the fixture expects.
-- **Native-written, TypeScript-read.** The seam folds the same batches natively, closes, then a
-  child with the switch off opens `new Engine` on the home, awaits `ready()`, and prints
-  `store.snapshotThread` for each thread; the test asserts the fixture's values.
+  working, one done, one with an unreadable header, one with appended text past 32,768 units),
+  then exits. The test checks the rows the child wrote against literals, then opens the native
+  engine: the candidate set, the skipped thread's report, `hasState`, and one more fold per thread,
+  whose rows are asserted.
+- **Native-written, TypeScript-read.** The seam folds the same batches natively and the test
+  checks the rows; then a child with the switch off opens `new Engine`, awaits `ready()`, applies
+  one more scripted frame per thread and exits; the test asserts the rows the TypeScript wrote on
+  top.
 
 **Cross-mode run.** The E5 list (ADR 0223 §8) needs restart, so its first run is E5.8's
 (E5.1 brief, Benches). E5.3 runs `scripts/native-cross.ts ACE_ENGINE` on each file of the list
@@ -519,37 +680,49 @@ the PR. The home tests above are E5.3's rollback proof until then.
 
 **Open time.** On an APFS clone (`cp -c`) of a large home with a cold cache, never with a daemon
 on the clone (never-run-daemon rule), time the opener and `Repo::open`, switch off and on, and the
-candidate scan's slices (count, longest). Report the slow open statements named in step 1.
+candidate scan (steps, longest step) and each fill (steps, longest step, total). With the
+prerequisite merged, open must not grow with the home's size; the PR shows two homes of different
+size opening in the same time.
 
 ## Benches
 
 Switch off and on, same machine, figures in the PR:
 
-- **`bench/sqlite-store.ts --split`.** Add an `engineCommit` figure to its report: N fold-and-save
-  commits of a fixed batch (one `item.upsert`, ten `item.delta`, one `turn.ended`) on one thread,
-  through `EngineRepository.apply` with the switch off and through the probe's fold with it on
-  (the bench needs the `engine-probe` build for the on figure, and says so). Report p50, p95 and
-  events per commit. This is the cost of the table above, and the figure ADR 0223 §8 gates E5's
-  commits on. It extends an existing bench; no new file.
+- **`bench/sqlite-store.ts --split`.** Add an `engineCommit` figure: N fold-and-save commits of a
+  fixed batch (one `item.upsert`, ten `item.delta`, one `turn.ended`) on one thread, through
+  `EngineRepository.apply` with the switch off and through the probe's fold with it on (the on
+  figure needs the `engine-probe` build, and the bench says so). **The fold work must be
+  equivalent on both sides.** The probe's pass-through collaborators do nothing, so the batch is
+  chosen so the TypeScript collaborators do nothing either: a thread with no inputs, intents,
+  interactions, queue continuation or transition, and facts that are none of `input.consumed`,
+  `goal.updated`, a title notice, `interaction.*` or a root `turn.started` with a queued trigger.
+  The bench asserts it, by checking after the off run that no `engine_inputs`,
+  `engine_interaction_requests` or `intents` row exists for the thread. Report p50, p95 and events
+  per commit. When E5.4 to E5.9 have landed, the on figure is re-run without the probe on the
+  same batch and replaces the probe figure. It extends an existing bench; no new file.
 - **`bench/stream-history.ts`.** It folds through `@ace/core` and builds no `Engine`, so it
-  measures the core's record work, not persistence. Run it with `ACE_CORE` off and native as the
-  baseline, and confirm the `Section` change (step 3) did not move it: same `records` and timing
-  within noise.
+  measures the core's record work, not persistence. Run it with `ACE_CORE` off and native before
+  and after the `Section` change (step 3): same `records`, timing within noise.
 - **`bench/scripted.ts`.** It drives the engine through scripted sessions, which reach the native
   engine only through `JsSession` (E5.6). Record the switch-off baseline now; the switch-on figure
   is E5.6's.
+- **`bench/head-of-line.ts`**: the second gate on the shell crossing (above), first runnable with
+  the switch on at E5.8. E5.3 records nothing new for it.
 
 ## Files (all yours; nothing else)
 
-- `ace-engine/src/{repository,snapshot,records}.rs` and their directories as the module map lists.
+- `ace-engine/src/{repository,snapshot,records}.rs` and their directories as the module map lists,
+  including `repository/fills/` (the ported fills).
 - `ace-engine/src/lib.rs`: `Tx::conn()`, the connection on `EngineStore`, the candidate scan's
-  call sites, and the removal of `probe_empty_candidates`. Nothing else.
-- `ace-core/src/section.rs` and the `ThreadState` field types (core reviewer, step 3).
+  call sites and `Step` loop, the fill driver's start and stop, and the removal of
+  `probe_empty_candidates`. Nothing else.
+- `ace-core/src/section.rs`, `error.rs` (`FoldError::Source`), the `ThreadState` field types and
+  the core helpers' move from `get` to `load` and `peek` (core reviewer, step 3).
 - `ace-store/src/stmt_cache.rs`: a `run(conn, sql, params) -> (changes, last_insert_rowid)`
   beside `all_rows` and `get_row` (store reviewer). The engine's writes use it.
 - `ace-daemon-node/src/engine/{repository,probe_repository}.rs`, and `mod` lines for them in
-  `engine/mod.rs`; the three new ports (`writeEvents`, `rollbackGeneration`, `bufferLiveWrite`'s
-  token callbacks) in `engine/ports.rs` and `native-engine/ports.ts`.
+  `engine/mod.rs`; the new ports (`writeEvents`, `rollbackGeneration`, `bufferLiveWrite`'s token
+  callbacks, the quarantine subscription) in `engine/ports.rs` and `native-engine/ports.ts`.
 - `apps/daemon/src/native-engine/{repository,records,snapshot,open}.ts`, the probe methods and the
   stub removal in `testing.ts`, `persistence.test.ts`, `persistence-home.process.test.ts`.
 - `apps/daemon/bench/sqlite-store.ts` (`engineCommit`).
@@ -557,12 +730,17 @@ Switch off and on, same machine, figures in the PR:
 
 ## Must not
 
+- Start before the prerequisite PR has merged to main and been merged into this branch.
 - Write `events`, `threads`, `items` or `payloads` rows, or any store table, from engine SQL.
 - Add, drop or change a table, column, index, section name or JSON field; bump
   `engineSchemaVersion`.
-- Create an index or run a full-table statement at open that the TypeScript does not run.
-- Run the startup scan as one statement, or recover a thread inside the scan's slice.
-- Keep an undo log instead of the generation rule, or reuse a snapshot across a rollback.
+- Do data work at open, or create an index there, in either backend.
+- End the startup scan on an empty step, sort the candidates after collecting them, or recover a
+  thread inside a scan step.
+- Keep an undo log instead of the per-snapshot generation rule, reuse a snapshot across a rollback,
+  or keep a discarded live pin's snapshot resident.
+- Hold a `with_state` or `Snapshot` borrow across a port, a callback or `EngineStore::atomic`.
+- Port `states()`.
 - Edit a TypeScript engine module, or another E5 item's Rust files beyond deleting a line
   `collaborators.rs` names.
 - Fall back to the TypeScript engine, or no-op an unported collaborator outside the probe.
@@ -574,40 +752,41 @@ Switch off and on, same machine, figures in the PR:
 - The budget's limits, weights and eviction callback match `record-cache.ts` and
   `bounded-cache.ts`; byte counts are UTF-8 with lone surrogates as 3; patch coalescing counts
   UTF-16 units.
+- `Section<T>` holds no values between scopes; its overlay clears at `committed()` and at the end
+  of each untracked read; the five enumerated sections are listed and match a fresh grep.
 - Header key order: spread-then-override, `engineSnapshot` in place; section enumeration in
   JavaScript key order.
-- `syncSnapshots` runs before every `state` and `save` read, spares live-write snapshots, and
-  releases what it drops.
-- The candidate scan's three predicates equal `repository.ts:259`–`:266`, each slice is one pump
-  step, and the recovered order is `thread_id`.
-- The opener constructs the TypeScript repository and the Rust open runs no statement.
+- Sync drops every unpinned snapshot with an older stamp; a pinned one keeps its stamp until its
+  own commit; discard evicts before the actor is told.
+- The candidate scan: same predicates and dedup as `repository.ts:259`–`:266`, `thread_id > ''`,
+  cursors advanced by the last scanned row, emission only at or below the watermark, `done` ends
+  the loop, and each step is one pump step.
+- The opener constructs the TypeScript repository, which does schema setup only; `Repo::open` runs
+  no statement; the fills run as pump tasks with the main PR's SQL and cursors.
+- Seam and home tests assert engine rows by SQL and reopen them through the engine.
 - `cargo test -p ace-engine`, `-p ace-core`, `-p ace-store`, `check:daemon-native`, and every file
   above alone, off and on.
 
+## Owner decisions (2026-11-24, after review by gpt-6.2-sol)
+
+1. **The lazy section in `ace-core`**: accepted, with the API and ownership of step 3 (one shared
+   budget, a per-scope overlay, fallible `&mut` reads, edits only through `get_mut`, `insert` and
+   `remove`).
+2. **Probe-only pass-through collaborators**: accepted, and `engineCommit` must measure equivalent
+   fold work on both sides (Benches).
+3. **The rollback generation stays a synchronous port**, and no state or snapshot borrow is held
+   across a port or callback (step 8).
+4. **The opener's data work is fixed on main first**: "Prerequisite fix on main". E5.3 ports the
+   bounded version.
+5. **`writeEvents` stays**, gated on `engineCommit` and on head-of-line latency.
+6. **`states()` is omitted.**
+
 ## Open questions
 
-1. **The lazy section in `ace-core`** (step 3). Recommended: `Section<T>` with an optional
-   `RecordSource`, reviewed by the core owner. The core already reaches every section but `agents`
-   by key, so the change is contained. Fallback if rejected: the engine loads, before each fold, the
-   records the batch can touch (the facts' agents, items, runs, interactions and tasks, and every
-   agent and index) into a partial state, and writes back what changed. That moves the read set
-   into engine code that must track every key the core may read. Fragile, so not recommended.
-2. **The probe's pass-through collaborators.** Recommended: accept them as test-only scaffolding
-   (`engine-probe` only), so the fold has a native proof at E5.3. Without them the fold's first
-   native run waits for E5.4, E5.7 and E5.9.
-3. **The rollback generation as a port.** Recommended: a synchronous number-valued port, which
-   sees all three bump sites, including the history install outside the stack. If the `engineCommit`
-   bench shows the per-call cost matters, the shared stack can count its own rollbacks and the store
-   can note the history-install one with one call at `store.ts:980`, which is a store-file edit.
-4. **Slow open statements the TypeScript already runs** (step 1: first-time index creation on an
-   old home, the `engine_input_echoes` orphan sweep, `migrateEmptyCursorThreads`). Recommended:
-   report the cold-clone timings in the PR and file one issue to move them to idle batches (ADR
-   0170). That is a TypeScript change for both backends, not part of E5.3.
-5. **`writeEvents` and its double payload crossing.** Recommended: accept it for E5 and gate on
-   `engineCommit`. If it is slower than switch-off, the event writer's orchestration (payloads,
-   history, status, long threads, search, hooks) moving to Rust is the fix, under ADR 0226, so the
-   engine hands `ace-store` its payloads with no JSON round trip.
-6. **`states()` reads every `thread_state` id** (`repository.ts:283`). It is ported unchanged.
-   Recommended: the builder lists its engine callers in the PR (a grep for `.states()` also finds
-   unrelated methods of that name). If any runs on startup or on the main
-   thread over a large home, it becomes a sliced scan like step 9, in the item that owns the caller.
+1. **Indexes a supported home can lack** (prerequisite table, last row). Recommended: the
+   prerequisite PR lists them with the release that added each; any that a schema-14 home can lack
+   is filed as its own issue rather than built at open or by a fill without the owner's approval of
+   the cost.
+2. **`queue-attachments` per boot or once.** Recommended: durable, once per home, as specified,
+   since `track` keeps rows current while the daemon runs. If the PR finds a path that changes a
+   live intent's attachments without `track`, that path calls `track`, and the fill stays once.
