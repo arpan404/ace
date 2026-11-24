@@ -696,7 +696,7 @@ stack, and the shell could lose event positions or settlement callbacks.
 - **Rust opens through the shell.** `EngineStore::atomic(run)` calls the shell port `open()`, so
   the context exists and the shell begins the stack frame, top-level or nested exactly as a JS
   caller would get it; then runs `run` synchronously; then calls the shell port `close(frame,
-  result)`. A port the body calls that runs `Store.atomic` nests as a savepoint in the same
+result)`. A port the body calls that runs `Store.atomic` nests as a savepoint in the same
   context; a Rust `atomic` inside a JS-opened transaction gets a nested frame in the JS context.
   One stack and one context list, so positions cannot diverge.
 - **Events enter once per batch.** Each batch of events the engine writes is passed to the shell's
@@ -874,7 +874,7 @@ export function engineSeam(input?: {
   in `engine/probe_actor.rs`, it returns a promise rejected with
   `NativeEngineIncomplete("attachSession lands in E5.2")`. Without the feature, `engineSeam`
   throws `the engine probe is not built: cargo build --release -p ace-daemon-node --features
-  engine-probe`; it never skips.
+engine-probe`; it never skips.
 - Seam tests live in `native-engine/skeleton.test.ts` (E5.1's) and one `native-engine/<item>.test.ts`
   per later item, wrapped in `describe.runIf(engineBackend() === "native")` (the pattern of
   `native-loopback.process.test.ts:301`), so the default tiers are unchanged and the switch-on
@@ -982,7 +982,7 @@ test -f "$f" && bun --bun x vitest run "$f" --maxWorkers=4
 
 - E5.1 cannot run `bench/head-of-line.ts` with the switch on (no send exists yet). It records the
   **switch-off baseline** on the machine later items will use: `bun apps/daemon/bench/head-of-line.ts
-  --runs=3`, reporting `stopAck` and `sendReceipt` p50, p99 and max under each bulk (`live`
+--runs=3`, reporting `stopAck` and `sendReceipt` p50, p99 and max under each bulk (`live`
   first) and the event-loop delay from `head-of-line-daemon.ts`, plus
   `bun apps/daemon/bench/scripted.ts`, into the PR. E5.8 runs both with the switch on against
   this baseline, and default-on needs no regression in any of the six figures (ADR 0223 §8).
