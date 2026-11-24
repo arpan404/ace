@@ -1083,13 +1083,16 @@ No test reboots a home with a Pi thread, so the owner allows one new test for it
    native session id. Then **two** restarts, boots 1 and 2. After each one:
    1. the thread's stored native session id is unchanged;
    2. the reopened session resumed it. The fake loads `source.jsonl` at every start
-      (`testing/fake-pi.ts:18`), so matching ids alone prove nothing. Assert, from the frames
-      the engine stored for this boot, a `send` frame `{ type: "switch_session", sessionPath }`
-      whose `sessionPath` is boot 0's `sessionFile`, answered `{ cancelled: false }`, followed by
-      a `get_state` reply with the same `sessionFile` and `sessionId` as boot 0 (the restore of
-      `session.ts:332`–`:341`);
+      (`testing/fake-pi.ts:18`), so matching ids alone prove nothing. Pi frames are not
+      persisted (the Cursor-only journal, `repository.ts:725`–`:731`), so record each frame only
+      after the commit `ctx.onFrame` returns has resolved: a frame counts only once the engine
+      ingested it. From those frames assert a `send` frame
+      `{ type: "switch_session", sessionPath }` whose `sessionPath` is boot 0's `sessionFile`,
+      answered `{ cancelled: false }`, followed by a `get_state` reply with the same
+      `sessionFile` and `sessionId` as boot 0 (the restore of `session.ts:332`–`:341`);
    3. a new message to the thread produces a reply and the thread settles, so the continuation
-      works.
+      works. After each boot, read back through the Store's public thread reads each stored
+      reply, its settled run and the native session id committed with them.
       Under `ACE_NATIVE_CROSS=ACE_SESSIONS`, boots 0, 1 and 2 alternate backends, so both swaps
       (native→TypeScript and TypeScript→native) are checked in one run.
 4. The file is allowlisted already: it is the Pi cross-mode list below, and ADR 0223 §8's E3
