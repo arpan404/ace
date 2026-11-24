@@ -68,6 +68,7 @@ pub fn card(app: &str, message: &str, schema: &Value) -> Result<Card, Refused> {
                 id: None,
                 prompt: summary.clone(),
                 kind: Kind::Confirm {},
+                default: None,
             }],
             summary,
         });
@@ -89,6 +90,7 @@ pub fn card(app: &str, message: &str, schema: &Value) -> Result<Card, Refused> {
             id: Some(name.clone()),
             prompt: clip(&prompt, PROMPT_CHARS),
             kind: kind(spec)?,
+            default: None,
         });
     }
     Ok(Card { summary, questions })

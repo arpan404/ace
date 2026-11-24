@@ -117,13 +117,15 @@ pub(super) async fn handle_calls(
                 finish_tool(engine, id, reply, &pending.call, &name, refused).await;
             }
             // `ask_user` (ADR 0128, ADR 0154) waits like an approval until the person answers,
-            // leaves it for later or dismisses it; asked with `wait: false` it never waits.
+            // leaves it for later or dismisses it; asked non-blocking (`blocking: false`,
+            // `wait: false`, or with a stated `default` on every question) it carries on at once.
             Status::New if name == context::ASK_USER => match question::parse(&arguments) {
                 Err(why) => {
                     let refused = ToolOutput::error(why);
                     finish_tool(engine, id, reply, &pending.call, &name, refused).await;
                 }
                 Ok(ask) => {
+                    let later_text = (!ask.wait).then(|| question::asked_for_later(&ask.questions));
                     let mut asked = vec![Event::Known(Known::QuestionAsked {
                         lane: None,
                         reply: reply.to_owned(),
@@ -145,11 +147,11 @@ pub(super) async fn handle_calls(
                         Ok(false) => return Handled::Stopped,
                         Err(error) => return Handled::Failed(error.to_string()),
                     }
-                    if ask.wait {
-                        waiting = true;
-                    } else {
-                        let later = ToolOutput::ok(question::ASKED_FOR_LATER);
+                    if let Some(text) = later_text {
+                        let later = ToolOutput::ok(text);
                         finish_tool(engine, id, reply, &pending.call, &name, later).await;
+                    } else {
+                        waiting = true;
                     }
                 }
             },

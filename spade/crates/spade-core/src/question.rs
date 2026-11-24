@@ -38,9 +38,34 @@ pub const ANSWERED_BY_MESSAGE: &str = crate::context::ANSWERED;
 pub const DEFERRED: &str = "The person will answer later. Go on without it where you can, or end \
 your reply saying what waits on it. Their answer will arrive as a <question_answer>.";
 
-/// What a call with `wait: false` reads at once.
+/// What a call with `wait: false` (or `blocking: false` / stated defaults) reads at once when no
+/// defaults were stated.
 pub const ASKED_FOR_LATER: &str = "Asked without waiting. The person answers when they like; go \
 on with your work. Their answer will arrive as a <question_answer>.";
+
+/// What a non-blocking `ask_user` call reads at once: [`ASKED_FOR_LATER`] when no defaults were
+/// stated, or a confirmation of the defaults to carry on with while the person answers later.
+pub fn asked_for_later(questions: &[Question]) -> String {
+    let defaults: Vec<String> = questions
+        .iter()
+        .filter_map(|question| {
+            let default = question.default.as_ref()?;
+            Some(format!(
+                "{}\nDefault: {}",
+                question.prompt,
+                answer_text(&question.kind, default)
+            ))
+        })
+        .collect();
+    if defaults.is_empty() {
+        return ASKED_FOR_LATER.to_owned();
+    }
+    format!(
+        "Asked without waiting. Carry on with your stated default; the person answers when they \
+         like and their answer will arrive as a <question_answer>.\n\n{}",
+        defaults.join("\n\n")
+    )
+}
 
 /// What the bot reads for a dismissed question.
 pub const DISMISSED: &str = "The person dismissed this question.";
@@ -53,6 +78,9 @@ pub struct Question {
     pub prompt: String,
     #[serde(flatten)]
     pub kind: Kind,
+    /// What the bot will proceed with if the person hasn't answered yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<Value>,
 }
 
 /// A question's kind and the fields that go with it.
@@ -151,6 +179,7 @@ pub fn asked(question: &str, questions: &[Question]) -> Vec<Question> {
             id: None,
             prompt: question.to_owned(),
             kind: Kind::Text { placeholder: None },
+            default: None,
         }]
     } else {
         questions.to_vec()
@@ -318,7 +347,7 @@ pub fn call_result(events: &[Event], call_id: &str) -> Option<String> {
                 Some(match (app, package) {
                     (Some(app), _) => connect::deferred(app),
                     (_, Some(package)) => suggest::deferred(package),
-                    _ if *by_bot => ASKED_FOR_LATER.to_owned(),
+                    _ if *by_bot => asked_for_later(&questions),
                     _ => DEFERRED.to_owned(),
                 })
             }
