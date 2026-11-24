@@ -230,6 +230,32 @@ go through ace-media's image process.
 - (a): `sim-tools.process`, `packages/mcp-server/src/sim-on-demand.process`, daemon
   `cli-sim.process`, `mcp-tools.process`, `mcp-tools-find.process`.
 
+## Behaviour from main that every item keeps (2026-11-24)
+
+Fixes landed on separate branches while this port was under way, each with its tests. The
+TypeScript reaches the rewrite branch through its next merge of main. Whichever item ports the code
+a fix touches keeps the fix's behaviour, and its tests become (a) files of that item:
+
+- **Picture headers carry the source's coordinates** (`ace/fix-device-click-coordinates`,
+  312c46b815). A device or screen picture header's `width / scale` is the source's coordinate
+  width at every encode size. The client maps a click as `x = u * width / scale`
+  (`packages/ui-core/src/devices.ts` `devicePoint`), and Simulator input normalises against
+  serve-sim's native size (`packages/devices/src/simulator-input.ts`). Transcoded frames therefore
+  keep `display_width` and `display_height` as the source picture's size, and the source's scale.
+  The header scale is `source_scale * encoded_width / display_width` whenever display differs from
+  width. Frames already labelled so that `display * scale == width` (the Mac screen helper's
+  points) stay unchanged. Android scrcpy frames label display as the native display size. Browser
+  headers are separate: they carry the page's CSS size (`ace/fix-browser-video-css-size`).
+  Without this, clicks land at encoded/native of where the person clicked (56–68% on a 1206×2622
+  Simulator). D1's scrcpy path and D3 carry it.
+- **ace-media reopens every live source after its own restart**, with a watchdog for sources that
+  open but never play (`ace/fix-media-restart-reopens-sources`). D1 and D3.
+- **Loopback viewers get a fixed 16 Mbit/s link rate**, never the loss-based estimator
+  (`ace/fix-local-viewer-link-rate`). D3 and S-items.
+- **A view that stops acknowledging frames** (a hidden page) is parked rather than forcing source
+  keyframes (`ace/fix-sim-tap-latency`). D3 and S-items.
+- **serve-sim deltas carry the codec string** (`ace/fix-sim-delta-codec`). D3.
+
 ## When you are done
 
 - Every (a) file of your item passes alone with the switch on and off; your (b) cases pass in
