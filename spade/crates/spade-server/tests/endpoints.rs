@@ -408,6 +408,20 @@ async fn a_header_that_carries_a_credential_is_refused_whatever_its_case() -> Re
             .await?;
         assert_eq!(status, 400, "{headers}: {body}");
     }
+    let (status, body) = spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": "Leaky", "format": "openai-chat", "base_url": "https://l.example/",
+                    "headers": { "cf-aig-authorization": "Bearer cf-token" } }),
+        )
+        .await?;
+    assert_eq!(status, 400, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("/v1/keys/leaky/gateway")),
+        "the fix names the gateway route: {body}"
+    );
     let (status, _) = spade
         .post(
             "/v1/endpoints",

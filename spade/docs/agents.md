@@ -278,22 +278,30 @@ present becomes one of the person's endpoints with the same id, so existing keys
 each carries a key or the person's headers; a redirect answers as an error. A base URL is read with
 the HTTP client's own URL parser: only `http` and `https`, no user name or password, no backslash,
 no query or fragment. Changing an endpoint's `base_url` to another origin (scheme, host and port as
-that parser reads them) is refused with `409` while a key is stored for it in the keychain or found
-in its environment variable, whatever `needs_key` says (remove it with `DELETE /v1/keys/{id}`
-first), while it takes its key from an environment variable (add a new endpoint for the other host),
+that parser reads them) is refused with `409` while a key or a gateway token is stored for it in the
+keychain or found in its environment variable, whatever `needs_key` says (remove the key with
+`DELETE /v1/keys/{id}` and the token with `DELETE /v1/keys/{id}/gateway` first), while it takes its
+key from an environment variable (add a new endpoint for the other host),
 or while it has extra headers (send `"headers": {}` with the new URL). An endpoint made from a
 preset but pointing at another origin than the preset's keeps neither the preset's key variable nor
 its headers. If the keychain cannot be read, the change is refused (`503`) rather than taken as "no
 key".
 
-**Deleting an endpoint** removes its keychain key first. If the keychain cannot do that, the delete
+**Deleting an endpoint** removes its keychain key and its gateway token first. If the keychain cannot do that, the delete
 is refused (`503`) and the endpoint keeps its id. A new endpoint never takes an id that still has a
 key in the keychain: it gets the next free one (`gate-2`). An endpoint is in use, and cannot be
 deleted (`409` naming the agents), while an agent's model is on it or an agent's open or paused
 reply still runs on one of its models. Headers that carry credentials
-(`authorization`, `proxy-authorization`, `x-api-key`, `api-key`, `x-goog-api-key`, `cookie`,
-`set-cookie`, any case) are refused as extra headers and as the session header: keys go to the
-keychain. Listing errors hide the key and every configured header value.
+(`authorization`, `proxy-authorization`, `cf-aig-authorization`, `x-api-key`, `api-key`,
+`x-goog-api-key`, `cookie`, `set-cookie`, any case) are refused as extra headers and as the session
+header: keys go to the keychain. Listing errors hide the key and every configured header value.
+
+**An authenticated gateway's token** (Cloudflare AI Gateway's `cf-aig-authorization`) is a second
+secret, kept in its own keychain entry beside the endpoint's key (ADR 0119): `PUT
+/v1/keys/{endpoint}/gateway` with `{"token": "..."}` stores it, `DELETE` on the same path forgets it.
+Every call, model list and media call on that endpoint then sends it as `cf-aig-authorization:
+Bearer <token>` beside the endpoint's own key. The endpoint keeps only whether the token is there,
+so it never reaches the database or an API answer.
 
 **Presets are inherited, not copied.** An endpoint made from a preset remembers it. Only what the
 person chose is stored; the preset's models and their facts (context, capabilities, price) are
@@ -628,6 +636,7 @@ then.
 | `POST /endpoints/{id}/sign-out`               |                                                                                                           | `200 {"endpoint"}`                                         |
 | `PUT /settings`                               | any of `fast_model`, `new_bot_model`: `"endpoint/model" \| null`                                          | `204`                                                      |
 | `PUT`/`DELETE /keys/{endpoint}`               | `{key}`                                                                                                   | as before (ADR 0119)                                       |
+| `PUT`/`DELETE /keys/{endpoint}/gateway`       | `{token}`                                                                                                 | `204`                                                      |
 | `POST /conversations`                         |                                                                                                           | `410`: create an agent instead                             |
 
 - A new bot's `model`, when the body names none: `new_bot_model` (the person's choice in Settings,

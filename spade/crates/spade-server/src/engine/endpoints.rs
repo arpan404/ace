@@ -931,10 +931,18 @@ fn apply(stored: &mut StoredEndpoint, input: EndpointInput) -> Result<(), Endpoi
                 return Err(invalid(format!("{name:?} is not a header name")));
             }
             if is_credential_header(name) {
-                return Err(invalid(format!(
-                    "{name} carries a credential; set the key with PUT /v1/keys/{{endpoint}}, \
-                     which keeps it in the keychain"
-                )));
+                let how = if name.eq_ignore_ascii_case(spade_models::GATEWAY_HEADER) {
+                    format!(
+                        "set the gateway token with PUT /v1/keys/{}/gateway",
+                        stored.id
+                    )
+                } else {
+                    format!(
+                        "set the key with PUT /v1/keys/{}, which keeps it in the keychain",
+                        stored.id
+                    )
+                };
+                return Err(invalid(format!("{name} carries a credential; {how}")));
             }
             if value.len() > 4_096 || value.chars().any(char::is_control) {
                 return Err(invalid(format!(

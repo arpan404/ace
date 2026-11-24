@@ -31,7 +31,7 @@ pub use catalog::{
     Resolved, Role,
 };
 pub use chatgpt::SignIn;
-pub use client::{KEYLESS, Models};
+pub use client::{GATEWAY_HEADER, KEYLESS, Models};
 pub use config::ModelsConfig;
 pub use effort::Effort;
 pub use error::{ModelError, Unserved};
