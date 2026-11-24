@@ -364,3 +364,19 @@ The first model refusal goes to the bot. A later model refusal of the same call 
 review context reaches the person. Oversized input, review outages, and altered or
 unreadable launch bindings return errors to the bot. The three person-only effects
 keep their approval cards. Organization authorization stays independent.
+
+
+### Full access security review
+
+Spade judges app tools from their declared effects, names, descriptions and
+arguments. A tool that conceals its effect can act without asking. Spade cannot
+stop payments, messages sent as the person, or access changes where they happen
+through logged-in websites, ace coding agents, plugins, or bot code. Ace child
+agents follow ace's own permissions.
+
+Full access shell launches outside the workspace sandbox keep open network
+access on macOS and run under a Seatbelt credential-file guard. Linux and
+other platforms without this guard refuse those launches. Full access declines
+connector forms. An intervening write or new untrusted result invalidates a
+reusable allow. A stored escalation needs matching review context and a prior
+refusal to replay.

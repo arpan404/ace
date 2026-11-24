@@ -34,7 +34,7 @@ export type SpadeAutonomy = "auto_review" | "full_access";
  * list Spade's gate keeps, `spade_core::effect::full_access`).
  */
 export const spadeFullAccessSentence =
-  "It works without asking you or the reviewer. It still asks before it pays, sends anything in your name, or changes sign-ins or who has access. Network access is open, the browser, computer use and devices are available, and it never reads your secrets.";
+  "It runs without ordinary approvals or model review. Network access is open. Spade asks when it recognizes a payment, a send in your name, or an access change. An app tool that hides what it does can act without asking. Payments, sends, and access changes through logged-in browser sites, ace coding agents, plugins, or bot code can go through because Spade cannot stop them where they happen. Ace children use ace’s own permissions.";
 
 /** What every bot inherits unless it sets its own. */
 export interface SpadeBotDefaults {
