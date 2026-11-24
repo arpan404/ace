@@ -1,5 +1,5 @@
 import { engineBackend } from "@ace/provider-kit/native-switches";
-import { nativeEngine } from "../native-engine/engine.ts";
+import { NativeEngine } from "../native-engine/engine.ts";
 import { switchReady } from "./switch-recovery.ts";
 import { adoptMachineHandoff, captureMachineHandoff } from "./machine-handoff.ts";
 import * as liveMove from "./live-move.ts";
@@ -78,48 +78,51 @@ import {
 export { AdapterRegistry } from "./registry.ts";
 export type { EngineClock } from "./actor.ts";
 
+/** Every public member of the engine, whichever backend serves it. */
+export type EngineSurface = Pick<TypeScriptEngine, keyof TypeScriptEngine>;
+
 export type { EngineOptions } from "./engine-options.ts";
-export class Engine {
-  private readonly models!: EngineModels;
-  private readonly waitForProvider!: EngineOptions["waitForProvider"];
-  readonly handler!: CommandHandler;
+export class TypeScriptEngine {
+  private readonly models: EngineModels;
+  private readonly waitForProvider: EngineOptions["waitForProvider"];
+  readonly handler: CommandHandler;
   /** In-process admission for ace-owned inputs; never installed on the socket. */
-  readonly internalHandler!: CommandHandler;
-  private limits!: EngineLimits;
-  private nextThreadId!: () => string;
-  private admissions!: CreationAdmissions;
-  private selectInstance!: EngineOptions["selectInstance"];
-  private repo!: EngineRepository;
+  readonly internalHandler: CommandHandler;
+  private limits: EngineLimits;
+  private nextThreadId: () => string;
+  private admissions: CreationAdmissions;
+  private selectInstance: EngineOptions["selectInstance"];
+  private repo: EngineRepository;
   /** Provider-less threads holding remote tool use from other machines (ADR 0105). */
-  readonly guests!: GuestThreads;
+  readonly guests: GuestThreads;
   /** Threads the daemon holds for its own processes, such as Spade (ADR 0121). */
-  readonly hosts!: HostThreads;
-  private registry!: AdapterRegistry;
-  private clock!: EngineClock;
-  private batchScheduler!: Pick<EngineClock, "setTimer">;
-  private idleMs!: number;
-  private silence!: SilenceThresholds;
-  private report!: (error: unknown) => void;
-  private settleFailed!: (thread: ThreadId, error: unknown) => void;
-  private settledTrees!: SettledTrees;
+  readonly hosts: HostThreads;
+  private registry: AdapterRegistry;
+  private clock: EngineClock;
+  private batchScheduler: Pick<EngineClock, "setTimer">;
+  private idleMs: number;
+  private silence: SilenceThresholds;
+  private report: (error: unknown) => void;
+  private settleFailed: (thread: ThreadId, error: unknown) => void;
+  private settledTrees: SettledTrees;
   /** Settles that arrived before startup recovery finished; stopped once it has. */
   private pendingSettles = new Set<ThreadId>();
-  private diagnostic!: EngineOptions["onProviderDiagnostic"];
+  private diagnostic: EngineOptions["onProviderDiagnostic"];
   private actors = new Map<ThreadId, ThreadActor>();
   private stopReleaseWatch!: () => void;
   private workspaceChanges = new Map<ThreadId, Promise<void>>();
-  private sends!: IntentWorkers;
-  private controls!: IntentWorkers;
-  private steering!: IntentWorkers;
-  private steerLane!: SteerLane;
-  private sessions!: Sessions;
-  private recovery!: Recovery;
-  private meters!: ContextMeters;
-  private delivery!: IntentDelivery;
-  private transitions!: ThreadTransitions;
-  private liveness!: ThreadLiveness;
-  private delegationFacts!: DelegationFacts;
-  private readyPromise!: Promise<void>;
+  private sends: IntentWorkers;
+  private controls: IntentWorkers;
+  private steering: IntentWorkers;
+  private steerLane: SteerLane;
+  private sessions: Sessions;
+  private recovery: Recovery;
+  private meters: ContextMeters;
+  private delivery: IntentDelivery;
+  private transitions: ThreadTransitions;
+  private liveness: ThreadLiveness;
+  private delegationFacts: DelegationFacts;
+  private readyPromise: Promise<void>;
   /** Cursor turns a restart cut short, reconciled with Cursor's store once ready. */
   private reconciles = new CursorReconciles(
     (error) => this.report(error),
@@ -159,9 +162,6 @@ export class Engine {
     accept: () => import("@ace/protocol").CommandResult,
   ) => import("@ace/protocol").CommandResult;
   constructor(store: Store, options: EngineOptions = {}) {
-    // One switch for all of E5: the native facade owns every thread, and an unported member
-    // fails at its own call, never falling back here (ADR 0223 §4, §8).
-    if (engineBackend() === "native") return nativeEngine(store, options) as unknown as Engine;
     this.waitForProvider = options.waitForProvider;
     this.limits = engineLimits(options.limits);
     const executeGit = promisify(execFile);
@@ -502,7 +502,7 @@ export class Engine {
   private fence?: Parameters<typeof liveMove.fenceCommand>[1];
   /** Moving or moved (ADR 0191): nothing runs here, at admission, dispatch or session open. */
   private fenced = (id: ThreadId) => this.fence?.(id) !== undefined;
-  bindOwnershipFence(fence: NonNullable<Engine["fence"]>): void {
+  bindOwnershipFence(fence: NonNullable<TypeScriptEngine["fence"]>): void {
     this.fence = fence;
   }
   /** Why the thread takes no new work here while it moves (ADR 0191); none while it may. */
@@ -521,7 +521,7 @@ export class Engine {
     },
   );
   /** One trusted host policy for accepted commands, inside the receipt transaction. */
-  bindCommandPolicy(policy: NonNullable<Engine["commandPolicy"]>): void {
+  bindCommandPolicy(policy: NonNullable<TypeScriptEngine["commandPolicy"]>): void {
     this.commandPolicy = policy;
   }
   private flushDepth = 0;
@@ -1470,3 +1470,21 @@ export class Engine {
     return this.closePromise;
   }
 }
+
+/**
+ * The engine every caller constructs. One switch for all of E5 (ADR 0223 §4, §8): the native
+ * facade owns every thread, and an unported member fails at its own call, never falling back
+ * here. Both implementations satisfy `EngineSurface`, so this needs no cast.
+ */
+// A constructor-only class is what `new Engine(...)` needs; its one statement selects a backend
+// whose instance the constructor returns.
+// oxlint-disable-next-line typescript/no-extraneous-class, typescript/no-unsafe-declaration-merging
+export class Engine {
+  constructor(store: Store, options: EngineOptions = {}) {
+    if (engineBackend() === "native") return new NativeEngine(store, options);
+    return new TypeScriptEngine(store, options);
+  }
+}
+// The merge gives `new Engine(...)` the shared surface. `EngineSurface` is derived from the
+// implementation, and the constructor's two returns are checked against the merged type.
+export interface Engine extends EngineSurface {}

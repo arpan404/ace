@@ -43,6 +43,10 @@ export interface EngineProbe {
   marks(): string[];
   /** The one JS callback a `js` step runs. */
   setCallback(callback: () => void): void;
+  /** Timers the binding still has armed. */
+  timerCount(): number;
+  /** The transaction shell's bookkeeping: open frames, top aliases and released lists. */
+  stackEntries(): { frames: number; released: number };
 }
 
 export type ProbeStep =
@@ -111,7 +115,9 @@ function logged(options: Partial<EngineOptions>, clock: ManualClock, log: PortLo
       log.calls.push({ port: "onError", args: [String(error)] });
       (onError ?? (() => {}))(error);
     },
-    providersActivated: options.providersActivated ?? Promise.resolve(),
+    // Only when the test gave one: without the ready ports the sync branch runs, which needs
+    // no E5.6/E5.8 preparation.
+    ...(options.providersActivated ? { providersActivated: options.providersActivated } : {}),
   };
 }
 
@@ -155,7 +161,8 @@ export async function engineSeam(input: EngineSeamInput = {}): Promise<EngineSea
     ports,
     probe,
     async close() {
-      await engine.close();
+      // E5.1's close reports its unported module step; cleanup still runs either way.
+      await engine.close().catch(() => {});
       await store.close();
       rmSync(home, { recursive: true, force: true });
     },
@@ -226,6 +233,12 @@ function probeFor(native: NativeEngineHandle): EngineProbe {
         );
     },
     marks: () => required("probeMarks")() as string[],
+    timerCount: () => required("probeTimerCount")() as number,
+    stackEntries: () =>
+      JSON.parse(required("probeStackEntries")() as string) as {
+        frames: number;
+        released: number;
+      },
     setCallback: (callback) => {
       required("probeSetCallback")(callback);
     },

@@ -12,6 +12,7 @@ import type { EngineOptions } from "../engine/engine-options.ts";
 import type { Store } from "../store.ts";
 import type { OpenFrame } from "../native-writer/transaction.ts";
 import type { CommandHandler } from "../commands.ts";
+import type { EngineSurface } from "../engine/index.ts";
 import type { ThreadId } from "@ace/protocol";
 import { personCommand } from "../engine/person-command.ts";
 import { AdapterRegistry } from "../engine/registry.ts";
@@ -43,6 +44,9 @@ export interface NativeEngineHandle {
   onLimitPolicy?(id: number, listener: (id: string) => void): void;
   dropLimitPolicy?(id: number): void;
   pumpStats?(): { turns: number; polls: number; longestPollUs: number; slowPolls: number };
+  hold?(): void;
+  releaseHold?(): void;
+  release?(): void;
   [member: string]: unknown;
 }
 
@@ -59,107 +63,6 @@ function closed(): Error {
   return Object.assign(new Error("Engine closed"), { code: "ACE_ENGINE_CLOSED" });
 }
 
-/** A facade object whose every member lands in `item`. */
-function notPortedObject(item: string): unknown {
-  return new Proxy(
-    {},
-    {
-      get: () => () => {
-        throw incomplete("this facade object", item);
-      },
-    },
-  );
-}
-
-/** The item each unported member's behaviour lands in (the brief's table). */
-const ITEMS: Readonly<Record<string, string>> = {
-  retrySettled: "E5.10",
-  ownershipRefusal: "E5.9",
-  supportsSteering: "E5.5",
-  messageFacts: "E5.5",
-  prioritizeSubagentResult: "E5.4",
-  spawn: "E5.4",
-  admitCreation: "E5.4",
-  creationPending: "E5.4",
-  access: "E5.7",
-  targetInstance: "E5.7",
-  childAccess: "E5.7",
-  offeredModes: "E5.7",
-  childPermissionRefusal: "E5.7",
-  attachChild: "E5.10",
-  updateChild: "E5.10",
-  machineChild: "E5.10",
-  transferHold: "E5.10",
-  externalHold: "E5.10",
-  delegationStarted: "E5.10",
-  delegationSettled: "E5.10",
-  machineHandoff: "E5.9",
-  adoptMachineHandoff: "E5.9",
-  workload: "E5.2",
-  providerProcesses: "E5.6",
-  backgroundPorts: "E5.6",
-  rootAgent: "E5.2",
-  activeRun: "E5.5",
-  aceCaller: "E5.5",
-  withinAgent: "E5.5",
-  openHostApproval: "E5.7",
-  hostError: "E5.7",
-  hostNotice: "E5.7",
-  resolveHostApproval: "E5.7",
-  closeHostGate: "E5.7",
-  discardRecovery: "E5.8",
-  cancelRecovery: "E5.8",
-  captureContinuation: "E5.8",
-  cancelDelegatedInputs: "E5.4",
-  changeWorkspace: "E5.9",
-  reconcileThread: "E5.10",
-  reconcileOwn: "E5.10",
-  hasSession: "E5.6",
-  hasState: "E5.3",
-  cleanupThreads: "E5.10",
-  liveWork: "E5.10",
-  runsProviderWork: "E5.10",
-  hasUnfinishedWork: "E5.10",
-  stopForDeletion: "E5.10",
-  cleanupSession: "E5.10",
-  stopForCancellation: "E5.10",
-  forgetPurged: "E5.10",
-  prepareDeletion: "E5.10",
-  setSilenceMs: "E5.6",
-  clearWorkspaceSilenceMs: "E5.6",
-  liveThreadIds: "E5.2",
-  continueImported: "E5.8",
-  sessionMetadata: "E5.6",
-  commandFailure: "E5.4",
-  commandExecution: "E5.4",
-  queuePage: "E5.4",
-  queue: "E5.4",
-  inputFate: "E5.4",
-  retainsAttachment: "E5.3",
-  readRawBlob: "E5.3",
-  prepareCommand: "E5.4",
-  admissionReopened: "E5.4",
-  accountRecovered: "E5.8",
-  resuming: "E5.8",
-  endedOnLimit: "E5.8",
-  treeActive: "E5.8",
-  limitContinues: "E5.8",
-  heldInterrupted: "E5.8",
-  limitsMatter: "E5.8",
-};
-
-const ASYNC = new Set([
-  "retrySettled",
-  "changeWorkspace",
-  "reconcileThread",
-  "reconcileOwn",
-  "stopForDeletion",
-  "cleanupSession",
-  "stopForCancellation",
-  "continueImported",
-  "prepareCommand",
-]);
-
 let evidenceWritten = false;
 
 function recordEvidence(): void {
@@ -175,7 +78,7 @@ type Settled = {
   reject: (error: Error) => void;
 };
 
-export class NativeEngine {
+export class NativeEngine implements EngineSurface {
   /** The addon handle, for the test seam's probe hooks. */
   readonly binding: NativeEngineHandle;
   private readonly registry: AdapterRegistry;
@@ -190,19 +93,36 @@ export class NativeEngine {
   private readonly calls = new Map<number, Settled>();
   private nextCall = 1;
   private holders = 0;
-  private keepAlive?: ReturnType<typeof setInterval> | undefined;
   private stopObserving?: () => void;
-  private ownershipFence?: (id: ThreadId) => string | undefined;
+  private ownershipFence?: Parameters<EngineSurface["bindOwnershipFence"]>[0];
   private commandPolicy?: (command: unknown, accept: () => unknown) => unknown;
   private hostInteractions?: (command: unknown) => unknown;
   private deletionPolicy?: (id: ThreadId, commandId: string) => void;
   private externalTaskStop?: { prefix: string; stop: (id: string, threadId: ThreadId) => void };
   private nextPolicy = 1;
-  readonly guests: unknown;
-  readonly hosts: unknown;
-  readonly liveMove: unknown;
-  turnOrigin: (...args: never[]) => unknown;
-  delegationsInFlight: (...args: never[]) => unknown;
+  get guests(): EngineSurface["guests"] {
+    throw incomplete("guests", "E5.7");
+  }
+
+  get hosts(): EngineSurface["hosts"] {
+    throw incomplete("hosts", "E5.7");
+  }
+
+  get liveMove(): EngineSurface["liveMove"] {
+    throw incomplete("liveMove", "E5.9");
+  }
+
+  turnOrigin = (
+    ..._args: Parameters<EngineSurface["turnOrigin"]>
+  ): ReturnType<EngineSurface["turnOrigin"]> => {
+    throw incomplete("turnOrigin", "E5.5");
+  };
+
+  delegationsInFlight = (
+    ..._args: Parameters<EngineSurface["delegationsInFlight"]>
+  ): ReturnType<EngineSurface["delegationsInFlight"]> => {
+    throw incomplete("delegationsInFlight", "E5.5");
+  };
 
   constructor(store: Store, options: EngineOptions = {}) {
     recordEvidence();
@@ -228,7 +148,7 @@ export class NativeEngine {
         list.map((entry) => ({
           provider: entry.provider,
           backend: entry.backend ?? null,
-          adapter: 0,
+          adapter: entry.handle,
           capabilities: entry.capabilities,
           discovery: entry.discovery,
         })),
@@ -259,26 +179,6 @@ export class NativeEngine {
     this.handler = {
       handle: (command, context) => internal.handle(personCommand(command), context),
     };
-    this.guests = notPortedObject("E5.7");
-    this.hosts = notPortedObject("E5.7");
-    this.liveMove = notPortedObject("E5.9");
-    for (const name of Object.keys(ITEMS)) {
-      const target = this as unknown as Record<string, unknown>;
-      if (ASYNC.has(name))
-        target[name] = async () => {
-          throw incomplete(name, ITEMS[name] ?? "E5.1");
-        };
-      else
-        target[name] = () => {
-          throw incomplete(name, ITEMS[name] ?? "E5.1");
-        };
-    }
-    this.turnOrigin = () => {
-      throw incomplete("turnOrigin", "E5.5");
-    };
-    this.delegationsInFlight = () => {
-      throw incomplete("delegationsInFlight", "E5.5");
-    };
   }
 
   /** The binding member, or the item that lands it. */
@@ -288,18 +188,16 @@ export class NativeEngine {
     return member.bind(this.binding) as (...args: unknown[]) => unknown;
   }
 
+  /** A pending facade promise: the binding refs the threadsafe function at 0 -> 1. */
   private hold(): void {
     this.holders += 1;
-    if (this.holders === 1) this.keepAlive = setInterval(() => {}, 1 << 28);
+    this.binding.hold?.();
   }
 
   private releaseHolder(): void {
     if (this.holders === 0) return;
     this.holders -= 1;
-    if (this.holders === 0 && this.keepAlive !== undefined) {
-      clearInterval(this.keepAlive);
-      this.keepAlive = undefined;
-    }
+    this.binding.releaseHold?.();
   }
 
   private call<T = void>(invoke: (call: number) => void): Promise<T> {
@@ -352,6 +250,8 @@ export class NativeEngine {
     this.closingFlag = true;
     this.releaseHolder();
     this.stopObserving?.();
+    // The terminal cleanup releases the threadsafe function last.
+    this.binding.release?.();
   }
 
   ready(): Promise<void> {
@@ -359,6 +259,8 @@ export class NativeEngine {
   }
 
   flush(): Promise<void> {
+    // Admission closed: no holder is taken and nothing is enqueued onto the shut executor.
+    if (this.closingFlag) return Promise.reject(closed());
     return this.call((call) => this.member("startFlush", "E5.1")(call));
   }
 
@@ -377,39 +279,45 @@ export class NativeEngine {
   }
 
   async ensureProvider(provider: string): Promise<void> {
+    if (this.closingFlag) throw closed();
     return this.call((call) => this.member("ensureProvider", "E5.1")(provider, call));
   }
 
-  providerAvailability(provider: string): { installed: boolean; auth: string } {
-    return JSON.parse(this.member("providerAvailability", "E5.1")(provider) as string) as {
-      installed: boolean;
-      auth: string;
-    };
+  providerAvailability(
+    ...args: Parameters<EngineSurface["providerAvailability"]>
+  ): ReturnType<EngineSurface["providerAvailability"]> {
+    return JSON.parse(this.member("providerAvailability", "E5.1")(args[0]) as string) as ReturnType<
+      EngineSurface["providerAvailability"]
+    >;
   }
 
-  capabilities(provider: string, backend?: string): unknown {
-    return JSON.parse(this.member("capabilities", "E5.1")(provider, backend) as string);
+  capabilities(
+    ...args: Parameters<EngineSurface["capabilities"]>
+  ): ReturnType<EngineSurface["capabilities"]> {
+    return JSON.parse(
+      this.member("capabilities", "E5.1")(args[0], args[1]) as string,
+    ) as ReturnType<EngineSurface["capabilities"]>;
   }
 
-  bindOwnershipFence(fence: (id: ThreadId) => string | undefined): void {
-    this.ownershipFence = fence;
+  bindOwnershipFence(...args: Parameters<EngineSurface["bindOwnershipFence"]>): void {
+    this.ownershipFence = args[0];
   }
 
-  bindCommandPolicy(policy: (command: unknown, accept: () => unknown) => unknown): void {
-    this.commandPolicy = policy;
+  bindCommandPolicy(...args: Parameters<EngineSurface["bindCommandPolicy"]>): void {
+    this.commandPolicy = args[0] as (command: unknown, accept: () => unknown) => unknown;
   }
 
-  bindHostInteractions(handler: (command: unknown) => unknown): void {
-    this.hostInteractions = handler;
+  bindHostInteractions(...args: Parameters<EngineSurface["bindHostInteractions"]>): void {
+    this.hostInteractions = args[0] as (command: unknown) => unknown;
   }
 
-  bindExternalTaskStop(prefix: string, stop: (id: string, threadId: ThreadId) => void): void {
+  bindExternalTaskStop(...args: Parameters<EngineSurface["bindExternalTaskStop"]>): void {
     // Stored for E5.10, which routes a background hold's stop to its external owner here.
-    this.externalTaskStop = { prefix, stop };
+    this.externalTaskStop = { prefix: args[0], stop: args[1] };
   }
 
-  bindDeletionPolicy(policy: (id: ThreadId, commandId: string) => void): void {
-    this.deletionPolicy = policy;
+  bindDeletionPolicy(...args: Parameters<EngineSurface["bindDeletionPolicy"]>): void {
+    this.deletionPolicy = args[0];
   }
 
   onLimitPolicy(listener: (id: ThreadId) => void): () => void {
@@ -418,6 +326,357 @@ export class NativeEngine {
     if (typeof register !== "function") throw incomplete("onLimitPolicy", "E5.1");
     register.call(this.binding, id, listener as (id: string) => void);
     return () => this.binding.dropLimitPolicy?.(id);
+  }
+  async retrySettled(
+    ..._args: Parameters<EngineSurface["retrySettled"]>
+  ): ReturnType<EngineSurface["retrySettled"]> {
+    throw incomplete("retrySettled", "E5.10");
+  }
+  ownershipRefusal(
+    ..._args: Parameters<EngineSurface["ownershipRefusal"]>
+  ): ReturnType<EngineSurface["ownershipRefusal"]> {
+    throw incomplete("ownershipRefusal", "E5.9");
+  }
+  supportsSteering(
+    ..._args: Parameters<EngineSurface["supportsSteering"]>
+  ): ReturnType<EngineSurface["supportsSteering"]> {
+    throw incomplete("supportsSteering", "E5.5");
+  }
+  messageFacts(
+    ..._args: Parameters<EngineSurface["messageFacts"]>
+  ): ReturnType<EngineSurface["messageFacts"]> {
+    throw incomplete("messageFacts", "E5.5");
+  }
+  prioritizeSubagentResult(
+    ..._args: Parameters<EngineSurface["prioritizeSubagentResult"]>
+  ): ReturnType<EngineSurface["prioritizeSubagentResult"]> {
+    throw incomplete("prioritizeSubagentResult", "E5.4");
+  }
+  spawn(..._args: Parameters<EngineSurface["spawn"]>): ReturnType<EngineSurface["spawn"]> {
+    throw incomplete("spawn", "E5.4");
+  }
+  admitCreation(
+    ..._args: Parameters<EngineSurface["admitCreation"]>
+  ): ReturnType<EngineSurface["admitCreation"]> {
+    throw incomplete("admitCreation", "E5.4");
+  }
+  creationPending(
+    ..._args: Parameters<EngineSurface["creationPending"]>
+  ): ReturnType<EngineSurface["creationPending"]> {
+    throw incomplete("creationPending", "E5.4");
+  }
+  access(..._args: Parameters<EngineSurface["access"]>): ReturnType<EngineSurface["access"]> {
+    throw incomplete("access", "E5.7");
+  }
+  targetInstance(
+    ..._args: Parameters<EngineSurface["targetInstance"]>
+  ): ReturnType<EngineSurface["targetInstance"]> {
+    throw incomplete("targetInstance", "E5.7");
+  }
+  childAccess(
+    ..._args: Parameters<EngineSurface["childAccess"]>
+  ): ReturnType<EngineSurface["childAccess"]> {
+    throw incomplete("childAccess", "E5.7");
+  }
+  offeredModes(
+    ..._args: Parameters<EngineSurface["offeredModes"]>
+  ): ReturnType<EngineSurface["offeredModes"]> {
+    throw incomplete("offeredModes", "E5.7");
+  }
+  childPermissionRefusal(
+    ..._args: Parameters<EngineSurface["childPermissionRefusal"]>
+  ): ReturnType<EngineSurface["childPermissionRefusal"]> {
+    throw incomplete("childPermissionRefusal", "E5.7");
+  }
+  attachChild(
+    ..._args: Parameters<EngineSurface["attachChild"]>
+  ): ReturnType<EngineSurface["attachChild"]> {
+    throw incomplete("attachChild", "E5.10");
+  }
+  updateChild(
+    ..._args: Parameters<EngineSurface["updateChild"]>
+  ): ReturnType<EngineSurface["updateChild"]> {
+    throw incomplete("updateChild", "E5.10");
+  }
+  machineChild(
+    ..._args: Parameters<EngineSurface["machineChild"]>
+  ): ReturnType<EngineSurface["machineChild"]> {
+    throw incomplete("machineChild", "E5.10");
+  }
+  transferHold(
+    ..._args: Parameters<EngineSurface["transferHold"]>
+  ): ReturnType<EngineSurface["transferHold"]> {
+    throw incomplete("transferHold", "E5.10");
+  }
+  externalHold(
+    ..._args: Parameters<EngineSurface["externalHold"]>
+  ): ReturnType<EngineSurface["externalHold"]> {
+    throw incomplete("externalHold", "E5.10");
+  }
+  delegationStarted(
+    ..._args: Parameters<EngineSurface["delegationStarted"]>
+  ): ReturnType<EngineSurface["delegationStarted"]> {
+    throw incomplete("delegationStarted", "E5.10");
+  }
+  delegationSettled(
+    ..._args: Parameters<EngineSurface["delegationSettled"]>
+  ): ReturnType<EngineSurface["delegationSettled"]> {
+    throw incomplete("delegationSettled", "E5.10");
+  }
+  machineHandoff(
+    ..._args: Parameters<EngineSurface["machineHandoff"]>
+  ): ReturnType<EngineSurface["machineHandoff"]> {
+    throw incomplete("machineHandoff", "E5.9");
+  }
+  adoptMachineHandoff(
+    ..._args: Parameters<EngineSurface["adoptMachineHandoff"]>
+  ): ReturnType<EngineSurface["adoptMachineHandoff"]> {
+    throw incomplete("adoptMachineHandoff", "E5.9");
+  }
+  workload(..._args: Parameters<EngineSurface["workload"]>): ReturnType<EngineSurface["workload"]> {
+    throw incomplete("workload", "E5.2");
+  }
+  providerProcesses(
+    ..._args: Parameters<EngineSurface["providerProcesses"]>
+  ): ReturnType<EngineSurface["providerProcesses"]> {
+    throw incomplete("providerProcesses", "E5.6");
+  }
+  backgroundPorts(
+    ..._args: Parameters<EngineSurface["backgroundPorts"]>
+  ): ReturnType<EngineSurface["backgroundPorts"]> {
+    throw incomplete("backgroundPorts", "E5.6");
+  }
+  rootAgent(
+    ..._args: Parameters<EngineSurface["rootAgent"]>
+  ): ReturnType<EngineSurface["rootAgent"]> {
+    throw incomplete("rootAgent", "E5.2");
+  }
+  activeRun(
+    ..._args: Parameters<EngineSurface["activeRun"]>
+  ): ReturnType<EngineSurface["activeRun"]> {
+    throw incomplete("activeRun", "E5.5");
+  }
+  aceCaller(
+    ..._args: Parameters<EngineSurface["aceCaller"]>
+  ): ReturnType<EngineSurface["aceCaller"]> {
+    throw incomplete("aceCaller", "E5.5");
+  }
+  withinAgent(
+    ..._args: Parameters<EngineSurface["withinAgent"]>
+  ): ReturnType<EngineSurface["withinAgent"]> {
+    throw incomplete("withinAgent", "E5.5");
+  }
+  openHostApproval(
+    ..._args: Parameters<EngineSurface["openHostApproval"]>
+  ): ReturnType<EngineSurface["openHostApproval"]> {
+    throw incomplete("openHostApproval", "E5.7");
+  }
+  hostError(
+    ..._args: Parameters<EngineSurface["hostError"]>
+  ): ReturnType<EngineSurface["hostError"]> {
+    throw incomplete("hostError", "E5.7");
+  }
+  hostNotice(
+    ..._args: Parameters<EngineSurface["hostNotice"]>
+  ): ReturnType<EngineSurface["hostNotice"]> {
+    throw incomplete("hostNotice", "E5.7");
+  }
+  resolveHostApproval(
+    ..._args: Parameters<EngineSurface["resolveHostApproval"]>
+  ): ReturnType<EngineSurface["resolveHostApproval"]> {
+    throw incomplete("resolveHostApproval", "E5.7");
+  }
+  closeHostGate(
+    ..._args: Parameters<EngineSurface["closeHostGate"]>
+  ): ReturnType<EngineSurface["closeHostGate"]> {
+    throw incomplete("closeHostGate", "E5.7");
+  }
+  discardRecovery(
+    ..._args: Parameters<EngineSurface["discardRecovery"]>
+  ): ReturnType<EngineSurface["discardRecovery"]> {
+    throw incomplete("discardRecovery", "E5.8");
+  }
+  cancelRecovery(
+    ..._args: Parameters<EngineSurface["cancelRecovery"]>
+  ): ReturnType<EngineSurface["cancelRecovery"]> {
+    throw incomplete("cancelRecovery", "E5.8");
+  }
+  captureContinuation(
+    ..._args: Parameters<EngineSurface["captureContinuation"]>
+  ): ReturnType<EngineSurface["captureContinuation"]> {
+    throw incomplete("captureContinuation", "E5.8");
+  }
+  cancelDelegatedInputs(
+    ..._args: Parameters<EngineSurface["cancelDelegatedInputs"]>
+  ): ReturnType<EngineSurface["cancelDelegatedInputs"]> {
+    throw incomplete("cancelDelegatedInputs", "E5.4");
+  }
+  async changeWorkspace(
+    ..._args: Parameters<EngineSurface["changeWorkspace"]>
+  ): ReturnType<EngineSurface["changeWorkspace"]> {
+    throw incomplete("changeWorkspace", "E5.9");
+  }
+  async reconcileThread(
+    ..._args: Parameters<EngineSurface["reconcileThread"]>
+  ): ReturnType<EngineSurface["reconcileThread"]> {
+    throw incomplete("reconcileThread", "E5.10");
+  }
+  async reconcileOwn(
+    ..._args: Parameters<EngineSurface["reconcileOwn"]>
+  ): ReturnType<EngineSurface["reconcileOwn"]> {
+    throw incomplete("reconcileOwn", "E5.10");
+  }
+  hasSession(
+    ..._args: Parameters<EngineSurface["hasSession"]>
+  ): ReturnType<EngineSurface["hasSession"]> {
+    throw incomplete("hasSession", "E5.6");
+  }
+  hasState(..._args: Parameters<EngineSurface["hasState"]>): ReturnType<EngineSurface["hasState"]> {
+    throw incomplete("hasState", "E5.3");
+  }
+  cleanupThreads(
+    ..._args: Parameters<EngineSurface["cleanupThreads"]>
+  ): ReturnType<EngineSurface["cleanupThreads"]> {
+    throw incomplete("cleanupThreads", "E5.10");
+  }
+  liveWork(..._args: Parameters<EngineSurface["liveWork"]>): ReturnType<EngineSurface["liveWork"]> {
+    throw incomplete("liveWork", "E5.10");
+  }
+  runsProviderWork(
+    ..._args: Parameters<EngineSurface["runsProviderWork"]>
+  ): ReturnType<EngineSurface["runsProviderWork"]> {
+    throw incomplete("runsProviderWork", "E5.10");
+  }
+  hasUnfinishedWork(
+    ..._args: Parameters<EngineSurface["hasUnfinishedWork"]>
+  ): ReturnType<EngineSurface["hasUnfinishedWork"]> {
+    throw incomplete("hasUnfinishedWork", "E5.10");
+  }
+  async stopForDeletion(
+    ..._args: Parameters<EngineSurface["stopForDeletion"]>
+  ): ReturnType<EngineSurface["stopForDeletion"]> {
+    throw incomplete("stopForDeletion", "E5.10");
+  }
+  async cleanupSession(
+    ..._args: Parameters<EngineSurface["cleanupSession"]>
+  ): ReturnType<EngineSurface["cleanupSession"]> {
+    throw incomplete("cleanupSession", "E5.10");
+  }
+  async stopForCancellation(
+    ..._args: Parameters<EngineSurface["stopForCancellation"]>
+  ): ReturnType<EngineSurface["stopForCancellation"]> {
+    throw incomplete("stopForCancellation", "E5.10");
+  }
+  forgetPurged(
+    ..._args: Parameters<EngineSurface["forgetPurged"]>
+  ): ReturnType<EngineSurface["forgetPurged"]> {
+    throw incomplete("forgetPurged", "E5.10");
+  }
+  prepareDeletion(
+    ..._args: Parameters<EngineSurface["prepareDeletion"]>
+  ): ReturnType<EngineSurface["prepareDeletion"]> {
+    throw incomplete("prepareDeletion", "E5.10");
+  }
+  setSilenceMs(
+    ..._args: Parameters<EngineSurface["setSilenceMs"]>
+  ): ReturnType<EngineSurface["setSilenceMs"]> {
+    throw incomplete("setSilenceMs", "E5.6");
+  }
+  clearWorkspaceSilenceMs(
+    ..._args: Parameters<EngineSurface["clearWorkspaceSilenceMs"]>
+  ): ReturnType<EngineSurface["clearWorkspaceSilenceMs"]> {
+    throw incomplete("clearWorkspaceSilenceMs", "E5.6");
+  }
+  liveThreadIds(
+    ..._args: Parameters<EngineSurface["liveThreadIds"]>
+  ): ReturnType<EngineSurface["liveThreadIds"]> {
+    throw incomplete("liveThreadIds", "E5.2");
+  }
+  async continueImported(
+    ..._args: Parameters<EngineSurface["continueImported"]>
+  ): ReturnType<EngineSurface["continueImported"]> {
+    throw incomplete("continueImported", "E5.8");
+  }
+  sessionMetadata(
+    ..._args: Parameters<EngineSurface["sessionMetadata"]>
+  ): ReturnType<EngineSurface["sessionMetadata"]> {
+    throw incomplete("sessionMetadata", "E5.6");
+  }
+  commandFailure(
+    ..._args: Parameters<EngineSurface["commandFailure"]>
+  ): ReturnType<EngineSurface["commandFailure"]> {
+    throw incomplete("commandFailure", "E5.4");
+  }
+  commandExecution(
+    ..._args: Parameters<EngineSurface["commandExecution"]>
+  ): ReturnType<EngineSurface["commandExecution"]> {
+    throw incomplete("commandExecution", "E5.4");
+  }
+  queuePage(
+    ..._args: Parameters<EngineSurface["queuePage"]>
+  ): ReturnType<EngineSurface["queuePage"]> {
+    throw incomplete("queuePage", "E5.4");
+  }
+  queue(..._args: Parameters<EngineSurface["queue"]>): ReturnType<EngineSurface["queue"]> {
+    throw incomplete("queue", "E5.4");
+  }
+  inputFate(
+    ..._args: Parameters<EngineSurface["inputFate"]>
+  ): ReturnType<EngineSurface["inputFate"]> {
+    throw incomplete("inputFate", "E5.4");
+  }
+  retainsAttachment(
+    ..._args: Parameters<EngineSurface["retainsAttachment"]>
+  ): ReturnType<EngineSurface["retainsAttachment"]> {
+    throw incomplete("retainsAttachment", "E5.3");
+  }
+  readRawBlob(
+    ..._args: Parameters<EngineSurface["readRawBlob"]>
+  ): ReturnType<EngineSurface["readRawBlob"]> {
+    throw incomplete("readRawBlob", "E5.3");
+  }
+  async prepareCommand(
+    ..._args: Parameters<EngineSurface["prepareCommand"]>
+  ): ReturnType<EngineSurface["prepareCommand"]> {
+    throw incomplete("prepareCommand", "E5.4");
+  }
+  admissionReopened(
+    ..._args: Parameters<EngineSurface["admissionReopened"]>
+  ): ReturnType<EngineSurface["admissionReopened"]> {
+    throw incomplete("admissionReopened", "E5.4");
+  }
+  accountRecovered(
+    ..._args: Parameters<EngineSurface["accountRecovered"]>
+  ): ReturnType<EngineSurface["accountRecovered"]> {
+    throw incomplete("accountRecovered", "E5.8");
+  }
+  resuming(..._args: Parameters<EngineSurface["resuming"]>): ReturnType<EngineSurface["resuming"]> {
+    throw incomplete("resuming", "E5.8");
+  }
+  endedOnLimit(
+    ..._args: Parameters<EngineSurface["endedOnLimit"]>
+  ): ReturnType<EngineSurface["endedOnLimit"]> {
+    throw incomplete("endedOnLimit", "E5.8");
+  }
+  treeActive(
+    ..._args: Parameters<EngineSurface["treeActive"]>
+  ): ReturnType<EngineSurface["treeActive"]> {
+    throw incomplete("treeActive", "E5.8");
+  }
+  limitContinues(
+    ..._args: Parameters<EngineSurface["limitContinues"]>
+  ): ReturnType<EngineSurface["limitContinues"]> {
+    throw incomplete("limitContinues", "E5.8");
+  }
+  heldInterrupted(
+    ..._args: Parameters<EngineSurface["heldInterrupted"]>
+  ): ReturnType<EngineSurface["heldInterrupted"]> {
+    throw incomplete("heldInterrupted", "E5.8");
+  }
+  limitsMatter(
+    ..._args: Parameters<EngineSurface["limitsMatter"]>
+  ): ReturnType<EngineSurface["limitsMatter"]> {
+    throw incomplete("limitsMatter", "E5.8");
   }
 }
 

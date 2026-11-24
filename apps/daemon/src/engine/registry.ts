@@ -11,6 +11,8 @@ type Entry = {
 export interface RegistryEntry {
   provider: ProviderKind;
   backend?: ProviderBackend;
+  /** A stable number for the adapter object, so a native view can name it across engines. */
+  handle: number;
   adapter: ProviderAdapter & { close?(): Promise<void> };
   capabilities: Capabilities;
   discovery: DiscoveryResult;
@@ -20,6 +22,9 @@ export class AdapterRegistry {
   private entries = new Map<ProviderKind, Entry>();
   private backends = new Map<string, Entry>();
   private observers = new Set<(entries: readonly RegistryEntry[]) => void>();
+  /** One stable handle per adapter object, across registrations and engines. */
+  private readonly handles = new WeakMap<object, number>();
+  private nextHandle = 1;
   /**
    * Calls `listener` with the current entries now and after every change (E5.1: the native
    * engine's view subscribes here). Returns the unsubscribe; with no listener it does nothing
@@ -33,12 +38,25 @@ export class AdapterRegistry {
     };
   }
 
+  private handle(adapter: object): number {
+    const known = this.handles.get(adapter);
+    if (known !== undefined) return known;
+    const handle = this.nextHandle++;
+    this.handles.set(adapter, handle);
+    return handle;
+  }
+
+  /** Every entry, including the older backend registrations a provider's map does not hold. */
   private snapshot(): RegistryEntry[] {
     const entries: RegistryEntry[] = [];
-    for (const entry of this.entries.values()) {
+    const seen = new Set<object>();
+    for (const entry of [...this.entries.values(), ...this.backends.values()]) {
+      if (seen.has(entry.adapter)) continue;
+      seen.add(entry.adapter);
       entries.push({
         provider: entry.adapter.provider,
         ...(entry.adapter.backend ? { backend: entry.adapter.backend } : {}),
+        handle: this.handle(entry.adapter),
         adapter: entry.adapter,
         capabilities: entry.capabilities,
         discovery: entry.discovery,

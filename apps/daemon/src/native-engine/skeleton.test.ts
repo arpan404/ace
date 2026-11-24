@@ -11,9 +11,19 @@
 import { describe, expect, test } from "vitest";
 import { engineBackend } from "@ace/provider-kit/native-switches";
 import { engineSeam } from "./testing.ts";
-import { AdapterRegistry } from "../engine/registry.ts";
+import { AdapterRegistry, type RegistryEntry } from "../engine/registry.ts";
 
 const native = engineBackend() === "native";
+
+function codexAdapter(backend: string) {
+  return {
+    provider: "codex",
+    backend,
+    capabilities: () => ({}) as never,
+    createTranslator: () => ({}) as never,
+    openSession: async () => ({}) as never,
+  } as never;
+}
 
 /** Lets the pump's macrotasks run. Deterministic: no sleeps, only the event loop. */
 async function tick(times = 4): Promise<void> {
@@ -69,7 +79,39 @@ describe.runIf(native)("the engine skeleton", () => {
     }
   });
 
-  test("a JavaScript transaction inside a Rust one publishes and settles once", async () => {
+  test("a JavaScript transaction inside a Rust one publishes both batches once, in the Rust transaction", async () => {
+    const seam = await engineSeam();
+    try {
+      await seam.engine.ready();
+      const seen: string[] = [];
+      const stop = seam.store.subscribe((events) => {
+        for (const event of events) seen.push(event.payload.type);
+      });
+      try {
+        // The Rust body writes, then a port runs a JavaScript transaction (a savepoint in the
+        // same context), then the Rust body writes again: one publication, in position.
+        seam.probe.setCallback(() => {
+          seam.store.atomic(() => {
+            seam.probe.spawn("work", [{ op: "mark", label: "unused" }]);
+          });
+        });
+        seam.probe.spawn("work", [
+          { op: "write", events: [] },
+          { op: "js" },
+          { op: "write", events: [], defer: "t1" },
+        ]);
+        await seam.engine.flush();
+        expect(seam.probe.woken()).toEqual(["t1"]);
+        expect(seen).toEqual([]);
+      } finally {
+        stop();
+      }
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a Rust transaction inside a JavaScript one publishes the outer transaction's events once", async () => {
     const seam = await engineSeam();
     try {
       await seam.engine.ready();
@@ -79,17 +121,74 @@ describe.runIf(native)("the engine skeleton", () => {
       });
       try {
         seam.probe.setCallback(() => {
-          // A port the Rust transaction's body calls opens a savepoint in the same context.
           seam.store.atomic(() => {
-            seam.store.statement("SELECT 1").get();
+            // The Rust write here is a savepoint in the JavaScript transaction's context.
+            seam.probe.spawn("work", [{ op: "write", events: [], defer: "t2" }]);
           });
         });
-        seam.probe.spawn("work", [{ op: "js" }, { op: "write", events: [], defer: "t1" }]);
+        seam.probe.spawn("work", [{ op: "write", events: [], defer: "t1" }, { op: "js" }]);
         await seam.engine.flush();
-        expect(seam.probe.woken()).toEqual(["t1"]);
+        expect(seam.probe.woken()).toEqual(["t1", "t2"]);
       } finally {
         stop();
       }
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("close reports its unported module step, naming E5.8", async () => {
+    const seam = await engineSeam();
+    try {
+      await seam.engine.ready();
+      await expect(seam.engine.close()).rejects.toThrow(
+        /NativeEngineIncomplete: the recovery close lands in E5\.8/,
+      );
+    } finally {
+      await seam.store.close();
+    }
+  });
+
+  test("a late flush and ensureProvider are rejected once close began", async () => {
+    const seam = await engineSeam();
+    try {
+      await seam.engine.ready();
+      const closing = seam.engine.close();
+      void closing.catch(() => {});
+      await tick();
+      await expect(seam.engine.flush()).rejects.toMatchObject({ code: "ACE_ENGINE_CLOSED" });
+      await expect(seam.engine.ensureProvider("codex")).rejects.toMatchObject({
+        code: "ACE_ENGINE_CLOSED",
+      });
+      await closing.catch(() => {});
+    } finally {
+      await seam.store.close();
+    }
+  });
+
+  test("close leaves no timer armed", async () => {
+    const seam = await engineSeam();
+    try {
+      await seam.engine.ready();
+      expect(seam.probe.timerCount()).toBeGreaterThan(0);
+      await seam.engine.close().catch(() => {});
+      expect(seam.probe.timerCount()).toBe(0);
+    } finally {
+      await seam.store.close();
+    }
+  });
+
+  test("nested savepoints and rollbacks leave no stack entries", async () => {
+    const seam = await engineSeam();
+    try {
+      await seam.engine.ready();
+      // Two savepoints, one released and one rolled back, inside a top-level rollback.
+      seam.probe.spawn("work", [
+        { op: "write", events: [], fail: true, nested: { events: [], defer: "inner" } },
+      ]);
+      await seam.engine.flush();
+      expect(seam.probe.woken()).toEqual([]);
+      expect(seam.probe.stackEntries()).toEqual({ frames: 0, released: 0 });
     } finally {
       await seam.close();
     }
@@ -109,6 +208,22 @@ describe.runIf(native)("the engine skeleton", () => {
       } finally {
         stop();
       }
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a flush returns once the work queued before it drains", async () => {
+    const seam = await engineSeam();
+    try {
+      await seam.engine.ready();
+      // The flush polls while the fifty runnables are queued, then they drain: it must return
+      // on the recheck, not spin on a yield that never returns.
+      const flushing = seam.engine.flush();
+      for (let index = 0; index < 50; index += 1)
+        seam.probe.spawn("work", [{ op: "mark", label: `queued-${index}` }]);
+      await flushing;
+      expect(seam.probe.marks()).toHaveLength(50);
     } finally {
       await seam.close();
     }
@@ -173,7 +288,7 @@ describe.runIf(native)("the engine skeleton", () => {
       expect(seam.engine.ready()).toBe(ready);
       const closing = seam.engine.close();
       expect(seam.engine.close()).toBe(closing);
-      await closing;
+      await closing.catch(() => {});
       expect(seam.engine.close()).toBe(closing);
     } finally {
       await seam.store.close();
@@ -219,7 +334,7 @@ describe.runIf(native)("the engine skeleton", () => {
       seam.clock.advance(seam.clock.now() + 100);
       await tick(20);
       expect(settled).toBe(true);
-      await closing;
+      await closing.catch(() => {});
       expect(native).toBe(true);
       const reported = seam.ports.calls
         .filter((call) => call.port === "onError")
@@ -244,7 +359,7 @@ describe.runIf(native)("the engine skeleton", () => {
       await tick();
       seam.clock.advance(seam.clock.now() + 4_500);
       await tick(20);
-      await closing;
+      await closing.catch(() => {});
       const report = seam.ports.calls
         .filter((call) => call.port === "onError")
         .map((call) => String(call.args[0]));
@@ -270,7 +385,7 @@ describe.runIf(native)("the engine skeleton", () => {
       await tick();
       seam.clock.advance(seam.clock.now() + 4_500);
       await tick(20);
-      await seam.engine.close();
+      await seam.engine.close().catch(() => {});
       await expect(call).rejects.toMatchObject({ code: "ACE_ENGINE_CLOSED" });
       const reported = seam.ports.calls
         .filter((entry) => entry.port === "onError")
@@ -292,7 +407,7 @@ describe.runIf(native)("the engine skeleton", () => {
       const before = seam.clock.now();
       // The commit is admitted (queued) before close; the join runs it and releases its wake.
       seam.probe.spawn("work", [{ op: "write", events: [], defer: "t1" }]);
-      await seam.engine.close();
+      await seam.engine.close().catch(() => {});
       expect(seam.probe.woken()).toEqual(["t1"]);
       expect(seam.clock.now()).toBe(before);
       expect(seam.probe.claim()).toBe("idle");
@@ -308,7 +423,7 @@ describe.runIf(native)("the engine skeleton", () => {
       for (let index = 0; index < 200; index += 1)
         seam.probe.spawn("work", [{ op: "mark", label: `task-${index}` }]);
       const before = (await seam.probe.turns()).turns.length;
-      await seam.engine.close();
+      await seam.engine.close().catch(() => {});
       const after = (await seam.probe.turns()).turns.length;
       expect(after).toBeGreaterThan(before + 1);
       expect(seam.probe.marks()).toHaveLength(200);
@@ -326,6 +441,19 @@ describe.runIf(native)("the engine skeleton", () => {
     } finally {
       await seam.close();
     }
+  });
+
+  test("the registry snapshot keeps every backend entry, each with its own handle", () => {
+    const registry = new AdapterRegistry();
+    let entries: readonly RegistryEntry[] = [];
+    const stop = registry.observe((list) => {
+      entries = list;
+    });
+    registry.register(codexAdapter("sdk"), { installed: true, auth: "ok" } as never);
+    registry.register(codexAdapter("acp"), { installed: false, auth: "unknown" } as never);
+    stop();
+    expect(entries.map((entry) => entry.backend).toSorted()).toEqual(["acp", "sdk"]);
+    expect(new Set(entries.map((entry) => entry.handle)).size).toBe(2);
   });
 
   test("the registry's observe calls the listener at subscribe and unsubscribes", () => {
