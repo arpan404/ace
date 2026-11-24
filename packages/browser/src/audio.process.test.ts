@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { fakeDelivery, phoneOwner } from "@ace/media/testing/fake-delivery";
 import { connectBrowser } from "./index.ts";
 import { decodeStreamMessage, StreamAssembler, streamKinds, type StreamMessage } from "./stream.ts";
 import type { BrowserAudioChunk } from "./stream-audio.ts";
@@ -75,6 +76,31 @@ async function until(done: () => boolean | Promise<boolean>, timeoutMs = 20_000)
     if (Date.now() > deadline) throw new Error("Timed out waiting for the stream");
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
+}
+
+/** A viewer whose view ace-media delivers: its tab's capture starts, loading the extension. */
+function mediaViewer(f: Fixture) {
+  const delivery = fakeDelivery();
+  const bridge = connectBrowser(f.service, {
+    connectionId: "viewer",
+    authorize: () => true,
+    send: () => true,
+    media: { owner: () => phoneOwner, delivery: () => delivery.port },
+  });
+  return {
+    bridge,
+    subscribe: () =>
+      bridge.handle({
+        type: "browser.subscribe",
+        threadId: "thread",
+        requestId: "subscribe",
+        subscriberId: "subscriber-1b4e28ba-2fa1-11d2-883f-0016d3cca427",
+        binaryFrames: true,
+        viewport: viewport(true),
+        video: { codecs: ["avc1.42E033", "vp8"] },
+        media: { connection: "mc_aaaaaaaaaaaa" },
+      }),
+  };
 }
 
 /** Decodes Opus chunks with WebCodecs in the page: the loudest sample and the tone's pitch. */
@@ -180,6 +206,30 @@ describe.skipIf(!executablePath)("page audio from ace's Chrome", () => {
     listener.bridge.close();
     muted.bridge.close();
   }, 90_000);
+
+  // The address bar's speaker shows only for a tab that reports it plays sound (ADR 0088,
+  // Audio); a headless tab's sound otherwise reaches no viewer.
+  it("a headless tab that plays sound lists as audible, and muting it lists it as muted", async () => {
+    const f = await fixture();
+    await f.navigate();
+    await f.evaluate(tone);
+    // A viewer with its sound on starts the capture that carries the page's sound.
+    const listener = mediaViewer(f);
+    await listener.subscribe();
+    await f.execute({ action: "click", ref: ref(await f.execute({ action: "snapshot" }), "Save") });
+    await until(async () => (await f.evaluate("window.audioContext?.state")) === "running");
+    const shown = () => {
+      const state = f.service.state("thread");
+      return state.tabs?.find((tab) => tab.tabId === state.activeTabId);
+    };
+    await until(() => shown()?.audible === true);
+    const tab = shown();
+    if (!tab) throw new Error("No shown tab");
+    await f.service.asPerson("thread", { kind: "mute", tabId: tab.tabId, muted: true });
+    await until(() => shown()?.muted === true);
+    await f.evaluate("window.animating = false");
+    listener.bridge.close();
+  }, 60_000);
 });
 
 // Windows captures a tab at the audio engine's mix rate (48 kHz with ace's fake output device)

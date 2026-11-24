@@ -142,11 +142,17 @@ export class ChromeBackend implements BrowserBackend {
       request,
       this.options.launch.deviceScaleFactor,
       this.options.cleanup.schedule,
+      async (windowId, muted) => {
+        if (!current) throw new Error("Browser closed");
+        await this.video(current.instance, request.profileDir).mute(windowId, muted);
+      },
     );
     const lifetime = new AbortController();
     const signal = AbortSignal.any([request.signal, lifetime.signal]);
     let lease: ChromeLease | undefined;
     let current: TabHost | undefined;
+    /** Hears each tab's sound from the instance's extension, until the session ends. */
+    let stopAudio: (() => void) | undefined;
     let closing: Promise<void> | undefined;
     let recovering: Promise<void> | undefined;
     const connect = async (): Promise<TabHost> => {
@@ -164,6 +170,11 @@ export class ChromeBackend implements BrowserBackend {
           browserContextId,
         );
       current = { instance, browserContextId };
+      // The extension's worker hears each tab's sound; the tabs shown here take theirs by window.
+      stopAudio?.();
+      stopAudio = this.video(instance, request.profileDir).onTabAudio((windowId, audio) =>
+        tabs.audio(windowId, audio),
+      );
       // `exited` rejects only when teardown itself failed, which `stop()` reports; the watch
       // just stops recovering.
       void instance.exited
@@ -199,6 +210,8 @@ export class ChromeBackend implements BrowserBackend {
     const close = (): Promise<void> =>
       (closing ??= (async () => {
         lifetime.abort();
+        stopAudio?.();
+        stopAudio = undefined;
         request.signal.removeEventListener("abort", abort);
         const targets = tabs.targets();
         tabs.stop();
@@ -323,6 +336,7 @@ export class ChromeBackend implements BrowserBackend {
         opener: (id) => tabs.opener(id),
         answerAuth: (id, authId, credentials) => tabs.answerAuth(id, authId, credentials),
         proceedCertificate: (id, url) => tabs.proceedCertificate(id, url),
+        mute: (id, muted) => tabs.mute(id, muted),
         chooseFiles: (id, chooserId, paths) => tabs.chooseFiles(id, chooserId, paths),
         page,
       },

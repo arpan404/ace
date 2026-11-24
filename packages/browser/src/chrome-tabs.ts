@@ -22,6 +22,7 @@ import { FileChooserPrompt } from "./file-chooser.ts";
 import { needsOpener, opensWindow, PopupPairing, type PopupKind } from "./popup-kind.ts";
 
 const EvaluateOutcome = z.object({ exceptionDetails: z.unknown().optional() });
+const TargetWindow = z.object({ windowId: z.number().int() });
 
 const Navigated = z.object({
   frame: z.object({
@@ -60,6 +61,10 @@ interface Tab {
   id: string;
   cdp: TabCdp;
   viewport: { width: number; height: number };
+  /** The Chrome window the tab is shown in: the extension reports its sound by that window. */
+  windowId?: number | undefined;
+  /** Whether the page plays sound and whether it is muted, as the extension last said. */
+  audio?: { audible: boolean; muted: boolean } | undefined;
   /** Page zoom (1 is 100%) and the device emulated in place of `viewport`, if any. */
   zoom: number;
   device?: HeadlessDevice | undefined;
@@ -128,11 +133,19 @@ export class ChromeTabs {
   /** The density of the screen that last sized the thread's tabs; they render that sharp. */
   private viewerScale: number;
   private schedule: Schedule;
-  constructor(request: BackendOpen, deviceScaleFactor: number, schedule: Schedule) {
+  /** Turns a Chrome window's tab sound off or on (the extension's worker does it). */
+  private muteTab: (windowId: number, muted: boolean) => Promise<void>;
+  constructor(
+    request: BackendOpen,
+    deviceScaleFactor: number,
+    schedule: Schedule,
+    muteTab: (windowId: number, muted: boolean) => Promise<void>,
+  ) {
     this.request = request;
     this.deviceScaleFactor = deviceScaleFactor;
     this.viewerScale = deviceScaleFactor;
     this.schedule = schedule;
+    this.muteTab = muteTab;
     this.viewport = { width: 1280, height: 720 };
     this.maxTabs = request.maxTabs ?? threadTabLimit;
     this.inspection = new BrowserInspection(request.log);
@@ -293,7 +306,28 @@ export class ChromeTabs {
       file_chooser: tab.files.chooser(),
       certificate_error: tab.certificates.read(),
       loading: tab.status.read().loading,
+      audible: tab.audio?.audible,
+      muted: tab.audio?.muted,
     }));
+  }
+  /**
+   * One tab's sound, as the extension's worker heard it: recorded on the tab shown in that
+   * window, and the session told only when it changed.
+   */
+  audio(windowId: number, audio: { audible: boolean; muted: boolean }): void {
+    for (const tab of this.tabs.values()) {
+      if (tab.windowId !== windowId) continue;
+      if (tab.audio?.audible === audio.audible && tab.audio.muted === audio.muted) return;
+      tab.audio = audio;
+      this.request.changed?.();
+      return;
+    }
+  }
+  /** The person turns a tab's sound off or on; the extension mutes the tab itself. */
+  async mute(id: string, muted: boolean): Promise<void> {
+    const tab = this.tabs.get(id);
+    if (!tab || tab.windowId === undefined) throw new Error("Browser tab unavailable");
+    await this.muteTab(tab.windowId, muted);
   }
   opener(id: string): string | undefined {
     return this.tabs.get(id)?.openerId;
@@ -684,6 +718,10 @@ export class ChromeTabs {
     tab.windowRest?.retire();
     tab.windowRest = new WindowRest((method, params) => tab.cdp.send(method, params));
     tab.cdp.bind(host.instance.connection.session(target.sessionId));
+    const { windowId } = TargetWindow.parse(await tab.cdp.send("Browser.getWindowForTarget"));
+    tab.windowId = windowId;
+    // A new target's sound starts unknown; the extension reports it as it changes.
+    tab.audio = undefined;
     const stopPopups = host.instance.targets.popups(target.targetId, (popup) =>
       tab.popups.arrived(popup),
     );

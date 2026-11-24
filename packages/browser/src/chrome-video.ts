@@ -31,6 +31,10 @@ const Evaluated = z.object({
     .optional(),
 });
 const Binding = z.object({ name: z.string(), payload: z.string() });
+/** The tab shown in a window: whether it plays sound and whether it is muted. */
+const Audio = z.object({ audible: z.boolean(), muted: z.boolean() });
+const TabAudio = Audio.extend({ windowId: z.number().int() });
+type TabAudioListener = (windowId: number, audio: z.infer<typeof Audio>) => void;
 
 const origin = `chrome-extension://${videoExtensionId}/`;
 
@@ -48,6 +52,8 @@ export class ChromeVideo implements VideoHost {
   private documentTarget: string | undefined;
   private sessions = new Set<string>();
   private captures = new Map<string, CaptureEvents>();
+  /** Told of each tab's sound as the extension's worker hears it (they outlive reinstalls). */
+  private tabAudioListeners = new Set<TabAudioListener>();
   /** Captures told to stop whose stop hasn't finished: their tab is still held until then. */
   private stopping = new Set<Promise<unknown>>();
   private ids = 0;
@@ -78,6 +84,26 @@ export class ChromeVideo implements VideoHost {
     return SupportedCodecs.parse(
       await evaluate(document, "aceVideo.supported", [codecs, width, height]),
     );
+  }
+  /**
+   * Told each time the extension's worker hears a tab's sound change, with the window the tab
+   * is shown in. One per Chrome, so every thread's tabs listen here.
+   */
+  onTabAudio(listener: TabAudioListener): () => void {
+    this.tabAudioListeners.add(listener);
+    return () => {
+      this.tabAudioListeners.delete(listener);
+    };
+  }
+  /** Whether the tab shown in `windowId` plays sound, and whether it is muted. */
+  async tabAudio(windowId: number): Promise<z.infer<typeof Audio>> {
+    const { worker } = await this.extension();
+    return Audio.parse(await evaluate(worker, "aceVideo.tabAudio", [windowId]));
+  }
+  /** Turns the sound of the tab shown in `windowId` off or on. */
+  async mute(windowId: number, muted: boolean): Promise<void> {
+    const { worker } = await this.extension();
+    await evaluate(worker, "aceVideo.mute", [windowId, muted]);
   }
   async open(
     page: BrowserCdp,
@@ -186,6 +212,8 @@ export class ChromeVideo implements VideoHost {
     this.workerTarget = attached.targetId;
     const worker = attached.session;
     await this.untilExport(worker, "ready");
+    worker.on("Runtime.bindingCalled", (raw) => this.receiveTab(raw));
+    await worker.send("Runtime.addBinding", { name: "aceVideoTab" });
     await evaluate(worker, "aceVideo.ready", []);
     const opened = await this.attach(`${origin}offscreen.html`, not.document);
     this.documentTarget = opened.targetId;
@@ -251,6 +279,21 @@ export class ChromeVideo implements VideoHost {
     }
     const event = VideoEncoderEvent.safeParse(json);
     if (event.success) deliverVideoEvent(this.captures, event.data);
+  }
+  /** The worker's tab sound changes (`aceVideoTab`), as JSON. */
+  private receiveTab(raw: unknown): void {
+    const binding = Binding.safeParse(raw);
+    if (!binding.success || binding.data.name !== "aceVideoTab") return;
+    let json: unknown;
+    try {
+      json = JSON.parse(binding.data.payload);
+    } catch {
+      return;
+    }
+    const audio = TabAudio.safeParse(json);
+    if (!audio.success) return;
+    const { windowId, audible, muted } = audio.data;
+    for (const listener of this.tabAudioListeners) listener(windowId, { audible, muted });
   }
 }
 
