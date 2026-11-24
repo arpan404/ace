@@ -502,14 +502,33 @@ pub enum FrameRef { Js(u32), Native(Box<ace_adapter_api::Frame>) }
     transaction is open (a command's or a port's follow-up, `rootAgent`'s tick, a stop or steer
     step). Its closure may have captured state the transaction has not committed. So `enqueue`
     seals the pending frames at once (they are the first kind). Then, inside an open transaction,
-    it pushes a **staged slot** at the call's place in the mailbox, which keeps its order and
-    counts toward `queued`, and hands the op to `core.defer(Deferred::Spawn(Lane::Work, admit))`.
-    `admit` owns the op. When the outermost transaction commits, it is released and spawned, and
-    when it runs it fills the slot and wakes the mailbox. If the transaction rolls back, it is
-    dropped, and its guard marks the slot discarded, subtracts the slot's count, runs
-    `update_pressure` and wakes the mailbox, which skips the slot. A parked mailbox that reaches a
+    it pushes a **staged slot** at the call's place in the mailbox, which keeps its order, and
+    hands the op to `core.defer(Deferred::Spawn(Lane::Work, admit))`. **A staged slot counts toward
+    nothing**: not `queued`, not `queued_bytes`, not pressure, and not the overflow check. So
+    uncommitted work can never overflow the mailbox or end a session. `admit` owns the op. When the
+    outermost transaction commits, it is released and spawned, and when it runs (in a later pump,
+    on committed state) it does exactly what TypeScript's `accept` does at the call
+    (`actor.ts:195`–`:252`): the stopped and overflowed checks, then the capacity check against
+    `queued` and `queued_bytes` **as they are now**, then either the count, `update_pressure` and
+    filling the slot, or `overflowed`, the overflow op queued at the tail, and the slot
+    discarded. Then it wakes the mailbox. If the transaction rolls back, `admit` is dropped, and
+    its guard marks the slot discarded and wakes the mailbox, which skips the slot. Nothing was
+    counted, so nothing is subtracted. A parked mailbox that reaches a
     slot still pending waits for it. Outside a transaction, `enqueue` pushes the op at once, as
     the first kind does.
+- **Capacity and provisional actors.** Outside a transaction, `get_or_create` is TypeScript's
+  exactly: evict the oldest actors without a reserved slot until there is room, else
+  `Engine actor capacity exceeded`. Inside an open transaction it **evicts nobody**: eviction
+  stops a committed actor's session and evicts its state, and a rollback cannot undo that.
+  Provisional actors do not count toward `max_active_threads + retiring_count()`. The call only
+  refuses, with `Engine actor capacity exceeded` at the call as TypeScript does, when no eviction
+  could make room even at commit, that is when every committed actor holds a reserved slot. The
+  count and any eviction happen at **promotion**, the deferred task's first poll after commit, on
+  committed state. That runs TypeScript's loop (oldest first, never a reserved slot, never another
+  provisional actor) and then marks the actor committed. If reservations changed in between and
+  there is still no room, the promoted actor is discarded as a rolled-back one is, its pending
+  frames are acknowledged `Done`, and `Engine actor capacity exceeded` is reported once through
+  `onError` (the call had already returned).
 - **A new actor's first poll.** `get_or_create` inside an open transaction inserts the actor marked
   `provisional` and defers its mailbox task: `core.defer(Deferred::Spawn(Lane::Work, mailbox))`.
   On commit the task is spawned, registers its waker and gets its first poll in a later pump. On
@@ -898,7 +917,13 @@ reached the one transaction stack (E5.1 decision 4, correction 8 here):
     order (`store-stream.ts:296`–`:335`): **`persist` runs inside the flush's transaction**, before
     it commits, so the thread's header and records commit with the batch's rows (and roll back
     with them); **`committed` runs after the outermost commit**, from the transaction's
-    `committed` outcome, after the buffer has retired the batch. It never runs on a savepoint's
+    `committed` outcome, **before** the buffer retires the batch. That is the real order on both
+    backends: the outcome calls `buffer.committed(threads, rows)` (`store-stream.ts:328`–`:332`),
+    which calls each thread's `snapshot.committed()` first and only then removes the batch and
+    settles (TypeScript `live-write-buffer.ts:165`–`:167`, native `native-writer/live.ts:196`–`:199`),
+    and publication (`store-stream.ts:333`) comes after both. The Rust snapshot keeps that order
+    and the code does not change. `committed` must not assume the batch is already gone from the
+    buffer, and it can rely on its rows being durable. It never runs on a savepoint's
     release or after a rollback, which only rearms (`rolledBack`). Both are synchronous entries
     and never run a task. A flush the store starts itself (before a transaction begins) keeps the
     same order inside that call. A retried batch calls `persist` again only for the threads
@@ -1055,6 +1080,19 @@ the switch on:
     Afterwards `liveThreadIds()` lacks the thread, `probe.turns()` shows no poll of its task, and
     no waker is registered for it. The same call inside a committed transaction leaves the actor
     live with its tick applied.
+    17b. "an actor created inside a rolled-back transaction at capacity evicts nobody":
+    `limits.maxActiveThreads: 2`, two committed actors with no reserved slot, then `rootAgent` for a
+    third thread inside a `store.atomic` that throws. Afterwards both original actors are live,
+    neither session was aborted, and `liveThreadIds()` is unchanged. The same call inside a
+    committed transaction evicts the oldest at promotion, as TypeScript evicts at the call, and
+    leaves the other two live. Evicting at the call makes the rollback case fail.
+    17c. "staged enqueues of a rolled-back transaction never overflow the mailbox":
+    `limits.maxQueuedFrames: 4`, three frames sealed and held behind a write hold, then five
+    `enqueue`s inside a `store.atomic` that throws. There is no overflow: `aborted()` is 0, no
+    overflow facts are applied, `outputFlow.paused()` is unchanged, and the three frames commit and
+    acknowledge once the hold is released. The same five inside a committed transaction overflow at
+    admission: the accepted prefix commits, then the three overflow facts, as TypeScript's
+    `acceptOperation` does. Counting staged slots at the call makes the rollback case fail.
 18. (step 16) "a live batch whose first attempt fails is retried as a pump task and stored": the
     probe snapshot's `persist` throws a busy error once. The retry timer fires and the task runs
     `runScheduled` (not `flush()`), which stores the batch. `persist` ran inside the retry's
@@ -1135,10 +1173,14 @@ the switch on:
 - The live buffer is the connection's one buffer, and with the engine attached its deadline and
   retry attempts run as a pump task through `runScheduled`, never through `flush()`. With the
   engine off the store's files behave exactly as before.
-- Snapshot order: `persist` inside the flush's transaction, `committed` after the outermost commit.
+- Snapshot order: `persist` inside the flush's transaction, `committed` after the outermost commit
+  and before the buffer retires the batch, then publication (`store-stream.ts:328`–`:333`).
 - Rollback scope: frame batches and ticks wake directly; receipt-dependent `enqueue`s are staged
   and deferred; an actor created in a rolled-back transaction is discarded and never polled (seam
   tests 15–17).
+- Rollback capacity: no eviction inside a transaction, and provisional actors and staged slots
+  count only at promotion and admission, on committed state. Outside a transaction eviction and
+  overflow are TypeScript's (seam tests 17b, 17c).
 - `released_thread` is E5.3's, `cursor_record` is called only for a non-empty journal, and
   `latest_generation`'s row says E5.4 reads both indexed maxima.
 - The coalescer checks the in-between signal's own agent, and the raw walk visits siblings last
