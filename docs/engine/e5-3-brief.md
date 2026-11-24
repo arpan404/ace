@@ -144,12 +144,32 @@ trusted only once its rebuild has **committed** this boot. Until then the thread
   move into `rebuilt`) is applied in the outcome's `committed` callback, never in the body. On
   `rolledBack` nothing is recorded, and the step runs again. So a rolled-back rebuild cannot leave
   the thread marked rebuilt.
-- **Readers.** Every reader asks `rebuilt(threadId)`. While false: synchronous readers
-  (`agentsReady`, and through it `quiescent` and `acceptsPersonInput`) answer **not ready**,
-  never ready and never done; asynchronous callers (`ThreadTransitions`, settle and stop paths)
-  `await readiness.whenRebuilt(threadId)` before deciding. Asking moves the thread to the front of
-  the pass's queue, so the wait is a few bounded steps, not the whole pass. The PR lists every
-  reader and which kind it is.
+- **Readers: one check, at two entry points.** Blocker state is read only through
+  `TransitionReadiness`, and both of its answering methods check `rebuilt(threadId)` first:
+  `agentsReady` (`transition-readiness.ts:88`) and `acceptsPersonInput` (`:92`). The second does
+  not read blockers today (it calls the core's `acceptsPersonInput` on the state alone), but it
+  answers "free for the person's next message", which is a readiness answer, so it gets the same
+  check: while the thread is not rebuilt it answers **false** (not free; the message queues, as for
+  a busy thread). While not rebuilt, `agentsReady` answers false, so `quiescent`
+  (`transition-history.ts:8`) answers false: never ready, never done.
+- **Every reader, and how it gets the answer** (from a grep of `quiescent(`,
+  `acceptsPersonInput(`, `agentsReady(` and the table name; the PR re-greps and amends this list):
+
+  | Call site                                                                                                       | Through                                     | Before rebuild                                                                                                                                                                 |
+  | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+  | `repository.ts:500` `quiescent`, `:505` `acceptsPersonInput`                                                    | `agentsReady`, `acceptsPersonInput`         | the two checked entry points                                                                                                                                                   |
+  | `actor.ts:459`, `thread-liveness.ts:113`, `index.ts:280`, `:283`, `sessions.ts:350`, `transition-history.ts:61` | `repo.quiescent`                            | synchronous; "not quiescent" only withholds (no settle, no release, no idle close), so false is safe                                                                           |
+  | `switch-recovery.ts:14`, `message-facts.ts:73`, `:85`                                                           | `repo.quiescent`, `repo.acceptsPersonInput` | synchronous; false keeps the thread treated as busy (queue, no recovery switch); the PR confirms neither branch acts on false                                                  |
+  | `steer-selection.ts:66`, `steer-lane.ts:119`                                                                    | `repo.quiescent`                            | false would choose steering into a turn that may not exist: the caller first `await readiness.whenRebuilt(id)` (both run in async delivery paths)                              |
+  | `transition-handler.ts:156`, `:171`, `workspace-change.ts:107`, `:165`, `:180`                                  | `repo.quiescent`                            | false refuses with `fork_tree_is_live` or `thread_tree_is_live`, a wrong refusal: the async transition path awaits `whenRebuilt` for the thread and each peer before the check |
+  | `provider-facts.ts:204` `refreshBlocked`, `repository.ts:320`, `:398` `capture`                                 | writers                                     | run as today (next bullet)                                                                                                                                                     |
+
+  No other module reads `engine_transition_blockers`. A test reads `acceptsPersonInput` and
+  `quiescent` for a thread whose last-boot blockers say ready but whose rebuild has not committed,
+  and expects false from both.
+
+- **Asking moves the thread to the front** of the pass's queue, so a wait is a few bounded steps,
+  not the whole pass.
 - **Writers during a rebuild.** `capture` and `update` run as today on the thread's current
   state; the rebuild's later steps read the stored records that the same commits wrote, so they
   agree. A thread whose rebuild has committed is skipped by the pass.
@@ -581,26 +601,27 @@ none, and have candidates after it). The one-line change at E5.1's two call site
   3 × 256). A match at or below the last emitted id is a duplicate and dropped. So every emitted id
   is final and in order, and nothing is sorted after the fact.
 
-- **Steps, and writes behind the cursors.** One scan step reads one page from each non-exhausted
-  source whose last-scanned id is the watermark (one `EngineStore::atomic`, as the TypeScript runs
-  each page in `store.atomic`) and emits at most **64** candidates, the TypeScript's page size
-  (`repository.ts:265`). Each step is one pump step; each emitted thread's recovery is its own
-  (E5.8). Recovery writes rows (intents, queue rows, status) that can make a later thread
-  eligible after a source cursor has already scanned past it. So the scan **re-queries after each
-  page, as the TypeScript does**:
-  - After a step that emitted candidates, once their recoveries have run, every source cursor and
-    every held match is discarded, and the next step starts all three sources from
-    `thread_id > last emitted id` (the last processed key), as the TypeScript's next page queries
-    `thread_id > after` (`:265`). A thread behind an advanced cursor that a recovery made eligible
-    is therefore found.
-  - After a step that emitted nothing, no recovery ran in between and commands are still refused
-    (`engine_starting`), so nothing behind the cursors changed: the sources continue from their
-    cursors. That keeps a long run of non-candidates bounded per step and the scan progressing.
-  - `done` is true when every source is exhausted and nothing is held, checked only after a
-    re-query from the last emitted id has come back with nothing.
-    The recovered set equals the TypeScript's, except that a thread made eligible by an earlier
-    recovery is recovered even when the TypeScript's larger page had already passed it, which is the
-    safer answer for priority 1.
+- **Pages, exactly as the TypeScript pages.** The TypeScript takes a page of up to **64**
+  candidates (`repository.ts:265`, `LIMIT 64` over the union ordered by `thread_id`), recovers
+  each, then queries the next page from `thread_id > after`, the last recovered id (`:256`,
+  `:272`). E5.3 builds the same pages:
+  1. **Accumulate.** Scan steps (one pump step each, one `EngineStore::atomic` each, one page of at
+     most 256 scanned rows from each non-exhausted source whose last-scanned id is the watermark)
+     add emittable matches, in order, to the page being built. No recovery runs while a page is
+     being built, and commands are refused (`engine_starting`), so nothing behind the cursors
+     changes between these steps.
+  2. **Close the page** when it holds 64 candidates (then the 65th and later matches are not
+     kept), or when every source is exhausted and nothing is held. A partial page is closed only
+     at exhaustion, never because a step found fewer.
+  3. **Recover the page**, one pump step per thread (E5.8).
+  4. **Re-query from the last recovered id.** Discard every source cursor and held match, and start
+     the next page with all three sources at `thread_id > last recovered id`, as the TypeScript's
+     next query does. A thread a recovery made eligible after a cursor had scanned past it is found
+     if its id is above the last recovered one, exactly when the TypeScript finds it.
+
+  `done` is true when a page closed at exhaustion has been recovered. So the pages, their
+  boundaries and the recovered set are the TypeScript's.
+
 - This corrects ADR 0223 §5's "`threads` by rowid, `intents` by `id`": paging those by rowid
   would need a final sort to recover in `thread_id` order.
 - **Unreadable state** (`:270`–`:277`): a candidate whose state fails to decode with an error
@@ -608,10 +629,12 @@ none, and have candidates after it). The one-line change at E5.1's two call site
 - Tests (beside it, new behaviour, and the commit says so): "a page that matches nothing does not
   end the scan" (300 idle threads, then a working one); "candidates found by different sources
   come out once, in thread_id order" (one thread in all three); "a thread an earlier recovery made
-  a candidate is recovered in the same pass"; "a thread whose eligibility a recovery writes after the
-  intents cursor has already scanned past it is still recovered" (thread `a` and `c` working, `b`
-  idle with 300 idle intents rows after it; the probe's recovery of `a` inserts a pending intent
-  for `b`; `b` is recovered between `a` and `c`); "an empty thread id is never a candidate".
+  a candidate is recovered in the same pass"; "a thread a recovery makes eligible behind an advanced cursor is recovered in the next page" (64
+  working threads `t00`…`t63`, then `u` idle; building the first page scans past `u` in every
+  source; the probe's recovery of `t00` inserts a pending intent for `u`; `u` is recovered in the
+  second page, because the re-query starts at `t63`, not at the cursors); "pages close at 64 candidates as the TypeScript's do" (130 candidates spread over 2,000
+  threads: pages of 64, 64, 2, and a recovery in the first page that makes a thread eligible below
+  the first page's last id is not recovered, as in the TypeScript, while one above it is); "an empty thread id is never a candidate".
 - Delete the probe's `emptyCandidates` stub and `State.probe_empty_candidates` (E5.1 step 12).
 - `states()` (`repository.ts:283`–`:292`) is not ported: no repository code calls it, and it reads
   every `thread_state` id at once.
