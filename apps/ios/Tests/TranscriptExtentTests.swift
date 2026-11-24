@@ -28,6 +28,51 @@ import Testing
         #expect(extent.edge(top: 2_600, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: 0) == nil)
     }
 
+    @Test func aReaderLeftInTheOlderSpacerByABounceStillPagesOlder() {
+        let extent = TranscriptExtent()
+        extent.update(["a"], movement: .replace)
+        extent.measure("a", height: 1_000)
+        extent.update(["b"], movement: .newer)
+        // The fling ran 600 pt into the older spacer, then bounced back toward newer rows: the
+        // screen's top is still in the spacer, its last movement was toward the live end.
+        #expect(extent.edge(top: 400, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: 1) == .older)
+        #expect(extent.edge(top: 400, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: 0) == .older)
+        // With rows across the screen, the movement decides as before.
+        #expect(extent.edge(top: 2_600, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: 1) == nil)
+    }
+
+    @Test func aFastFlingAsksForTheOlderPageAsSoonAsItsTravelWouldReachTheLoadedEdge() {
+        let extent = TranscriptExtent()
+        extent.update(["a"], movement: .replace)
+        extent.measure("a", height: 1_000)
+        extent.update(["b"], movement: .newer)
+        // The loaded edge is 4,000 pt (five screens) above the screen's top.
+        let fast = TranscriptFlingReach(offset: 0, velocity: 8_000).remaining(at: 0)
+        let slow = TranscriptFlingReach(offset: 0, velocity: 500).remaining(at: 0)
+
+        #expect(fast > 3_900 && fast < 4_100)
+        #expect(extent.edge(top: 5_000, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: -1,
+                            flingReach: fast) == .older)
+        #expect(extent.edge(top: 5_000, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: -1,
+                            flingReach: slow) == nil)
+        #expect(extent.edge(top: 5_000, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: -1) == nil)
+    }
+
+    @Test func aFlingLooksAheadOnlyAsFarAsItStillCarries() {
+        let fling = TranscriptFlingReach(offset: 1_000, velocity: 8_000)
+        let stop = fling.stop
+
+        // Most of the travel spent: only what's left counts.
+        #expect(fling.remaining(at: stop - 300) == 300)
+        #expect(fling.remaining(at: stop) == 0)
+        // Past its stop (a page moved the content under it), nothing is left.
+        #expect(fling.remaining(at: stop + 50) == 0)
+        // A fling toward the live end carries the other way.
+        let down = TranscriptFlingReach(offset: 5_000, velocity: -2_000)
+        #expect(down.stop < 5_000)
+        #expect(down.remaining(at: 5_000) == 5_000 - down.stop)
+    }
+
     @Test func pagingOlderKeepsTheHeightOfNewerRowsOutsideTheResidentWindow() {
         let extent = TranscriptExtent()
         extent.update(["b", "c", "d"], movement: .replace)

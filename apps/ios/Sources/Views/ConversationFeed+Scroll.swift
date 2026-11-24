@@ -87,12 +87,14 @@ extension ConversationFeed {
             keep(.phase(.gesture), proxy: proxy)
         case .decelerating:
             intent.active = true
+            intent.fling = velocity.map { TranscriptFlingReach(offset: Double(geometry.offset), velocity: $0) }
             keep(.phase(.gesture), proxy: proxy)
         case .idle:
             // Only the person's own scroll decides whether the feed follows the end; the
             // feed's animated scrolls (the keyboard, the composer) settle while text streams.
             let touched = intent.active
             intent.active = false
+            intent.fling = nil
             model.endReadingScroll()
             // A tap moved nothing: whether the feed follows stays as it was. The window held
             // under it has landed and reported its geometry by now, so a focus still landing
@@ -184,6 +186,10 @@ extension ConversationFeed {
             }
             else if new.y > old.y + 1 { intent.direction = 1 }
             endRead(moving: true)
+            pageIfNeeded(proxy)
+        } else if new.height != old.height, extent.needsContent(top: new.top, bottom: new.bottom) {
+            // A page laid out at rest and the screen still shows retained space (a fling that
+            // bounced back before the page covered it): ask for the next one until rows cover it.
             pageIfNeeded(proxy)
         }
     }

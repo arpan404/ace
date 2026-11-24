@@ -23,9 +23,6 @@ struct ConversationFeed: View {
     @Binding var behind: Bool
     /// Bumped by each Scroll to end the person taps.
     var jumps = 0
-    /// Rows that landed since the reader left the live end, for the count on Scroll to end.
-    @Binding var unseen: Int
-    @State var newRows = TranscriptNewRows()
     /// When the row on top was written, for the pill shown while the reader scrolls.
     @State var timeMarker = TranscriptTimeMarker()
     /// Words taken back from a message that wasn't sent go into the composer.
@@ -147,7 +144,10 @@ struct ConversationFeed: View {
             }
         }
         func room(_ id: String, _ height: CGFloat) -> TranscriptEntry {
-            entry(id, height) { Color.clear.frame(height: height).accessibilityHidden(true) }
+            var room = entry(id, height) { Color.clear.frame(height: height).accessibilityHidden(true) }
+            // The cell measures to whole points (`TranscriptCell`).
+            room.height = ceil(max(0, height))
+            return room
         }
         var list: [TranscriptEntry] = []
         list.append(room("room.keyboard", CGFloat(keyboardRoom.leaving)))
@@ -315,12 +315,7 @@ struct ConversationFeed: View {
             .onDisappear { disappeared() }
             // Away from the end, or reading a window apart from it: following a joined window is at
             // the end, so Scroll to end isn't offered there.
-            .onChange(of: !pinned, initial: true) { _, away in
-                updateBehind()
-                if !away { countNewRows() }
-            }
-            // New rows while the reader is away from the end are counted, never scrolled to.
-            .onChange(of: thread.screen.blockOrder) { _, _ in countNewRows() }
+            .onChange(of: !pinned, initial: true) { _, _ in updateBehind() }
             // A history window that catches up with the live end while the reader sits at its end
             // follows it again, so Scroll to end goes.
             .onChange(of: reading.joined) { _, joined in windowJoined(joined) }

@@ -146,20 +146,26 @@ struct TranscriptCollection: UIViewRepresentable {
             updating = true
             defer { updating = false; queueFlush() }
             let (ids, byID) = Self.window(next)
+            let declared = byID.compactMapValues(\.height)
             let restyled = self.style != nil && self.style != style
             self.style = style
             if ids == order {
                 _ = sequence.windowChange(movesOffset: { false })
                 waiting = nil
+                // A spacer re-estimated in place (Dynamic Type, a layout revision) takes its new
+                // height now, wherever it is, not when its cell next sizes itself on screen.
+                layout.resize(declared: declared, anchor: { self.anchorEntry(keeping: Set(ids), in: byID) })
                 let changed = adopt(byID)
                 reconfigure(restyled ? ids.filter { visible($0) } : changed)
                 return
             }
-            let anchor = anchorEntry(keeping: Set(ids))
+            let anchor = anchorEntry(keeping: Set(ids), in: byID)
             // An offset write can't land under a finger or a fling (ADR 0222): a window change
             // that would need one waits for the scroll to come to rest. The rows laid out now
             // still show what they hold now.
-            if sequence.windowChange(movesOffset: { layout.offsetChange(laying: ids, estimate: estimate, anchor: anchor) != 0 }) {
+            if sequence.windowChange(movesOffset: {
+                layout.offsetChange(laying: ids, declared: declared, estimate: estimate, anchor: anchor) != 0
+            }) {
                 PerfCounters.bump("window.held")
                 waiting = (next, estimate, style)
                 let changed = refresh(byID)
@@ -167,7 +173,7 @@ struct TranscriptCollection: UIViewRepresentable {
                 return
             }
             waiting = nil
-            lay(ids, byID, estimate: estimate, anchor: anchor, restyled: restyled)
+            lay(ids, byID, declared: declared, estimate: estimate, anchor: anchor, restyled: restyled)
         }
 
         /// Lays out the window change that waited for the scroll, whatever holds now: the
@@ -179,7 +185,8 @@ struct TranscriptCollection: UIViewRepresentable {
             defer { updating = false; queueFlush() }
             let (ids, byID) = Self.window(held.entries)
             style = held.style
-            lay(ids, byID, estimate: held.estimate, anchor: anchorEntry(keeping: Set(ids)), restyled: false)
+            lay(ids, byID, declared: byID.compactMapValues(\.height), estimate: held.estimate,
+                anchor: anchorEntry(keeping: Set(ids), in: byID), restyled: false)
         }
 
         /// The ids in order, each once, and the entry for each.
@@ -194,11 +201,11 @@ struct TranscriptCollection: UIViewRepresentable {
             return (ids, byID)
         }
 
-        private func lay(_ ids: [String], _ byID: [String: TranscriptEntry], estimate: @escaping (String) -> CGFloat?,
-                         anchor: String?, restyled: Bool) {
+        private func lay(_ ids: [String], _ byID: [String: TranscriptEntry], declared: [String: CGFloat],
+                         estimate: @escaping (String) -> CGFloat?, anchor: String?, restyled: Bool) {
             guard let view, let layout, let source else { return }
             let changed = adopt(byID)
-            layout.stage(ids, estimate: estimate, anchor: anchor)
+            layout.stage(ids, declared: declared, estimate: estimate, anchor: anchor)
             order = ids
             var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
             snapshot.appendSections([0])
@@ -243,16 +250,17 @@ struct TranscriptCollection: UIViewRepresentable {
             source.apply(snapshot, animatingDifferences: false)
         }
 
-        /// The entry at the viewport's physical top still laid out after the change: the reader's.
-        /// Away from the end, the first row on screen: a reader just short of the end, with the
-        /// composer's room still in view, keeps their rows still as a new row lands under them.
-        private func anchorEntry(keeping ids: Set<String>) -> String? {
+        /// The entry on screen still laid out after the change: the reader's
+        /// (`TranscriptStackGeometry.readerAnchor`). Away from the end, the first row on screen: a
+        /// reader just short of the end, with the composer's room still in view, keeps their rows
+        /// still as a new row lands under them, and one flinging through the far spacer has none.
+        private func anchorEntry(keeping ids: Set<String>, in next: [String: TranscriptEntry]) -> String? {
             guard let view, let layout else { return nil }
-            let geometry = layout.geometry
-            let range = geometry.indices(from: view.contentOffset.y, to: view.contentOffset.y + view.bounds.height)
-            let kept = range.lazy.map { geometry.ids[$0] }.filter { ids.contains($0) }
-            if !followsEnd, let row = kept.first(where: { self.entries[$0]?.isRow == true }) { return row }
-            return kept.first
+            let entries = entries
+            return layout.geometry.readerAnchor(
+                from: view.contentOffset.y, to: view.contentOffset.y + view.bounds.height, keeping: ids,
+                followsEnd: followsEnd, isRow: { (next[$0] ?? entries[$0])?.isRow == true },
+                isBlank: { (next[$0] ?? entries[$0])?.height != nil })
         }
 
         private func visible(_ id: String) -> Bool {
