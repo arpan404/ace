@@ -503,3 +503,51 @@ fn the_pumps_rate_over_noop_runnables() {
     );
     assert!(polls >= wanted as f64);
 }
+
+/// A budget that only stops at the 64-poll ceiling, so a turn has time left at its end.
+struct Generous;
+
+impl Budget for Generous {
+    fn start(&mut self) {}
+    fn spent(&self, started: usize) -> bool {
+        started >= 64
+    }
+}
+
+/// A budget already spent when the turn starts.
+struct Spent;
+
+impl Budget for Spent {
+    fn start(&mut self) {}
+    fn spent(&self, _started: usize) -> bool {
+        true
+    }
+}
+
+#[test]
+fn a_turn_moves_at_most_32_inbox_items_across_its_retries() {
+    let (exec, _posts) = executor();
+    let (_polls, waker) = parked(&exec, Lane::Work);
+    let wake = exec.waker();
+    for _ in 0..100 {
+        assert_eq!(wake.push(Item::Wake(waker.clone())), Push::Accepted);
+    }
+    let mut budget = Generous;
+    assert_eq!(exec.pump(&mut budget, &open), Pump::Rearm);
+    // The other 68 wait for the re-armed turn, which the shell schedules.
+    assert_eq!(
+        exec.inbox_len(),
+        68,
+        "one turn moves 32 items, retries included"
+    );
+}
+
+#[test]
+fn a_spent_budget_still_polls_the_first_runnable() {
+    let (exec, _posts) = executor();
+    let order = Rc::new(RefCell::new(Vec::new()));
+    run_once(&exec, Lane::Control, Rc::clone(&order));
+    let mut budget = Spent;
+    assert_eq!(exec.pump(&mut budget, &open), Pump::Rearm);
+    assert_eq!(order.borrow().len(), 1, "the first poll is never skipped");
+}

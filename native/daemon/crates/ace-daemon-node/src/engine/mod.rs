@@ -44,28 +44,37 @@ use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::{Env, Status};
 use napi_derive::napi;
 use ports::JsPorts;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 use std::time::{Duration, Instant};
 
 use crate::NativeDatabase;
 use crate::writer::transaction::{self, StackState};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-/// The pump's threadsafe function: weak (never keeps the loop alive) and with an unbounded
-/// queue (at most one call is ever pending).
-type PumpTsfn = ThreadsafeFunction<(), (), (), Status, false, true, 0>;
+/// The pump's threadsafe function: strong by default, dynamically ref'd and unref'd by the
+/// facade's holder count, with an unbounded queue (at most one call is ever pending).
+type PumpTsfn = ThreadsafeFunction<(), (), (), Status, false, false, 0>;
 
-/// The notifier over the shell's pump entry. The function is created weak: an idle engine never
-/// keeps its process alive, and the facade's holder count is the keepalive instead.
+/// The one threadsafe function, shared with the notifier and released at close.
+type PumpHandle = Arc<Mutex<Option<PumpTsfn>>>;
+
+/// The notifier over the shell's pump entry: the second holder of the one threadsafe function.
 struct Bell {
-    pump: Arc<PumpTsfn>,
+    pump: PumpHandle,
 }
 
 impl Notifier for Bell {
     fn notify(&self) -> Notified {
-        match self.pump.call((), ThreadsafeFunctionCallMode::NonBlocking) {
+        let pump = match self.pump.lock() {
+            Ok(pump) => pump,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let Some(pump) = pump.as_ref() else {
+            return Notified::Closing;
+        };
+        match pump.call((), ThreadsafeFunctionCallMode::NonBlocking) {
             Status::Ok => Notified::Posted,
             Status::Closing => Notified::Closing,
             _ => Notified::Posted,
@@ -141,13 +150,18 @@ pub struct NativeEngine {
     ports: Rc<JsPorts>,
     /// Kept alive while the engine lives; the stack holds a weak handle to it.
     _sink: Rc<Sink>,
-    /// Held so the notifier's function outlives the calls that post it.
-    _pump: Arc<PumpTsfn>,
+    /// The one threadsafe function, released last by `release`.
+    pump: PumpHandle,
+    /// Pending facade promises and open session queues, ref'd and unref'd as they change.
+    holders: Cell<u32>,
     /// `onLimitPolicy` listeners by id, fired by E5.8.
     limit_policies: RefCell<HashMap<u64, FunctionRef<String, ()>>>,
     /// The probe's marks and its one JS callback (E5.1 step 12), only with `engine-probe`.
     #[cfg(feature = "engine-probe")]
     probe: Rc<RefCell<probe::ProbeState>>,
+    /// The connection's stack, for the probe's bookkeeping checks.
+    #[cfg(feature = "engine-probe")]
+    stack: Rc<RefCell<StackState>>,
 }
 
 fn engine_error(error: ace_engine::EngineError) -> napi::Error {
@@ -231,13 +245,12 @@ impl NativeDatabase {
                 .map_err(|_| napi::Error::from_reason("finishClose is missing"))?,
         )?);
         let stack = self.transaction_state();
-        let pump = Arc::new(
+        let pump: PumpHandle = Arc::new(Mutex::new(Some(
             pump.build_threadsafe_function::<()>()
-                .weak::<true>()
                 .callee_handled::<false>()
                 .max_queue_size::<0>()
                 .build()?,
-        );
+        )));
         let bell = Bell {
             pump: Arc::clone(&pump),
         };
@@ -263,10 +276,13 @@ impl NativeDatabase {
             engine,
             ports,
             _sink: sink,
-            _pump: pump,
+            pump,
+            holders: Cell::new(0),
             limit_policies: RefCell::new(HashMap::new()),
             #[cfg(feature = "engine-probe")]
             probe: Rc::new(RefCell::new(probe::ProbeState::default())),
+            #[cfg(feature = "engine-probe")]
+            stack,
         };
         let _ = env;
         Ok(native)
@@ -387,6 +403,13 @@ impl NativeEngine {
     #[napi]
     pub fn ensure_provider(&self, env: Env, provider: String, call: f64) {
         let _guard = self.ports.enter(env);
+        if self.engine.core().lifecycle() == ace_engine::Lifecycle::Closing
+            || self.engine.core().lifecycle() == ace_engine::Lifecycle::Closed
+        {
+            self.ports
+                .settle_call(call as u64, Some("Engine closed".to_string()));
+            return;
+        }
         let ports = Rc::clone(&self.ports);
         let core = Rc::clone(self.engine.core());
         let task = core.executor.spawn(Lane::Control, async move {
@@ -430,6 +453,54 @@ pub struct EnginePumpStats {
 
 #[napi]
 impl NativeEngine {
+    /// A facade promise (or an open native session queue) became pending: 0 -> 1 refs the
+    /// threadsafe function so the process stays up for the work.
+    #[napi]
+    pub fn hold(&self, env: Env) {
+        let holders = self.holders.get();
+        if holders == 0
+            && let Ok(mut pump) = self.pump.lock()
+            && let Some(pump) = pump.as_mut()
+        {
+            #[allow(deprecated)]
+            let _ = pump.refer(&env);
+        }
+        self.holders.set(holders + 1);
+    }
+
+    /// A holder settled: 1 -> 0 unrefs the threadsafe function, so an idle engine never keeps
+    /// its process alive.
+    #[napi]
+    pub fn release_hold(&self, env: Env) {
+        let holders = self.holders.get();
+        if holders == 0 {
+            return;
+        }
+        let holders = holders - 1;
+        self.holders.set(holders);
+        if holders == 0
+            && let Ok(mut pump) = self.pump.lock()
+            && let Some(pump) = pump.as_mut()
+        {
+            #[allow(deprecated)]
+            let _ = pump.unref(&env);
+        }
+    }
+
+    /// The terminal cleanup: zero the reference count and release the threadsafe function.
+    #[napi]
+    pub fn release(&self, env: Env) {
+        let _ = env;
+        self.holders.set(0);
+        let pump = match self.pump.lock() {
+            Ok(mut pump) => pump.take(),
+            Err(poisoned) => poisoned.into_inner().take(),
+        };
+        // Dropping the last reference releases the function (napi's `abort` is its deprecated
+        // spelling).
+        drop(pump);
+    }
+
     /// The executor's counters, for the probe and the bench.
     #[napi]
     pub fn pump_stats(&self) -> EnginePumpStats {

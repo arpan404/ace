@@ -248,6 +248,12 @@ impl JsPorts {
         }
     }
 
+    /// Timers still armed, for the probe's close check.
+    #[cfg(feature = "engine-probe")]
+    pub fn timer_count(&self) -> usize {
+        self.timers.borrow().len()
+    }
+
     /// A timer fired: its waiting task becomes runnable (the send is the producer's wake).
     pub fn timer_fired(&self, key: u64) {
         let sender = self
@@ -338,6 +344,16 @@ impl Ports for JsPorts {
             && let Some(cancel) = entry.cancel
         {
             let _ = self.call(&cancel, ());
+        }
+    }
+
+    fn cancel_all_timers(&self) {
+        let timers: Vec<ArmedTimer> = self.timers.borrow_mut().drain().map(|(_, t)| t).collect();
+        for mut entry in timers {
+            if let Some(cancel) = entry.cancel.take() {
+                let _ = self.call(&cancel, ());
+            }
+            entry.sender.take();
         }
     }
 

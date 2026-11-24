@@ -372,12 +372,8 @@ impl Core {
                 futures::future::join_all(waiters).await;
                 continue;
             }
-            // One macrotask's worth: the pump runs the work queued behind us.
-            futures::future::poll_fn(|cx| {
-                cx.waker().wake_by_ref();
-                std::task::Poll::Pending::<()>
-            })
-            .await;
+            // One macrotask: the pump runs the work queued behind us, then this task resumes.
+            yield_once().await;
         }
     }
 
@@ -538,11 +534,18 @@ impl Engine {
     /// Starts `flush`: resolves once the ready promise settled, every worker set is idle, the
     /// ready queues are empty and no task is running, re-checked after each wait.
     pub fn start_flush(self: &Rc<Self>, call: u64) {
+        if self.core.closing.get() {
+            self.core
+                .ports
+                .settle_call(call, Some("Engine closed".into()));
+            return;
+        }
+        // The caller's task, so a flush reached through a port excludes it, not the flush task.
+        let exclude = self.core.executor.current();
         let core = Rc::clone(&self.core);
         let inner = Rc::clone(&core);
         let task = core.executor.spawn(Lane::Work, async move {
             let core = inner;
-            let exclude = core.executor.current();
             let result = core.flush_to_quiescence(exclude).await;
             core.ports
                 .settle_call(call, result.as_ref().err().map(ToString::to_string));
@@ -608,6 +611,16 @@ fn start_sweep(core: &Rc<Core>) {
 /// One close: the deadline is armed first, the sequence races it, and steps 2 to 6 never await.
 async fn close_task(core: Rc<Core>) {
     let deadline = core.ports.set_timer(CLOSE_DEADLINE_MS);
+    // The engine is closing from this moment, whichever phase the deadline cuts.
+    core.closing.set(true);
+    core.with_state(|state| {
+        state.lifecycle = Lifecycle::Closing;
+        state.flush_depth += 1;
+    })
+    .ok();
+    if let Some(key) = core.sweep.take() {
+        core.ports.cancel_timer(key);
+    }
     let sequence = Box::pin(close_sequence(Rc::clone(&core)));
     let raced = futures::future::select(sequence, Box::pin(deadline.fired)).await;
     let mut outcome = match raced {
@@ -636,6 +649,8 @@ async fn close_task(core: Rc<Core>) {
             stranded.len() + held.len()
         ));
     }
+    // Every terminal path: no timer is left armed and no parked task keeps a sender.
+    core.ports.cancel_all_timers();
     core.executor.shut();
     core.tasks.borrow_mut().clear();
     // Step 5: every facade promise still pending rejects with Engine closed.
@@ -653,6 +668,20 @@ async fn close_task(core: Rc<Core>) {
             .map(|error| error.to_string()),
     );
     core.ports.finish_close();
+}
+
+/// Yields once: the next poll returns `Ready`, after the pump has run what was queued.
+async fn yield_once() {
+    let mut yielded = false;
+    futures::future::poll_fn(|cx| {
+        if yielded {
+            return std::task::Poll::Ready(());
+        }
+        yielded = true;
+        cx.waker().wake_by_ref();
+        std::task::Poll::Pending
+    })
+    .await;
 }
 
 #[derive(Default)]
@@ -682,15 +711,6 @@ async fn close_sequence(core: Rc<Core>) -> CloseOutcome {
             Err(_) => outcome.readiness = Some(EngineError::Closed),
         }
     }
-    core.closing.set(true);
-    if let Some(key) = core.sweep.take() {
-        core.ports.cancel_timer(key);
-    }
-    core.with_state(|state| {
-        state.lifecycle = Lifecycle::Closing;
-        state.flush_depth += 1;
-    })
-    .ok();
     core.phase.set("recovery close");
     if let Ok(Err(error)) = core.with_state(recovery::close) {
         outcome.module = Some(error);

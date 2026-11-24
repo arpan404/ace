@@ -15,10 +15,9 @@ pub fn prune_idle(_state: &mut State) -> Result<(), EngineError> {
     Err(EngineError::not_ported("the idle sweep", "E5.8"))
 }
 
-/// `recovery.prepare()`: E5.8 fills this. E5.1's engine stores no recovery state yet, so there
-/// is nothing to prepare.
+/// `recovery.prepare()`: E5.8's. E5.1 fails at the call, naming the item.
 pub fn prepare(_state: &mut State) -> Result<(), EngineError> {
-    Ok(())
+    Err(EngineError::not_ported("the recovery preparation", "E5.8"))
 }
 
 /// `recovery.prepare(thread)` and `recoverEngine`'s per-thread recovery (E5.8).
@@ -27,9 +26,10 @@ pub fn recover_thread(_state: &mut State, thread: &ThreadId) -> Result<(), Engin
     Err(EngineError::not_ported("restart recovery", "E5.8"))
 }
 
-/// `recovery.close()`: E5.8 fills this. E5.1 holds no capture to flush and no policy to stop.
+/// `recovery.close()`: E5.8's. E5.1 fails at the call, naming the item; close reports it and
+/// still runs every shutdown step below.
 pub fn close(_state: &mut State) -> Result<(), EngineError> {
-    Ok(())
+    Err(EngineError::not_ported("the recovery close", "E5.8"))
 }
 
 /// Whether recovery holds no work E5.1 must wait for (E5.8 fills this).

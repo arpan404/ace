@@ -55,6 +55,8 @@ pub trait Ports {
     /// waiting task resumes in the next pump, never inside the firing.
     fn set_timer(&self, ms: f64) -> Timer;
     fn cancel_timer(&self, key: u64);
+    /// Close's terminal path: every remaining timer is cancelled and its waiting task released.
+    fn cancel_all_timers(&self);
     /// `batchScheduler.setTimer`, the second timer service (E5.2's 1 ms batch latency).
     fn set_batch_timer(&self, ms: f64) -> Timer;
 

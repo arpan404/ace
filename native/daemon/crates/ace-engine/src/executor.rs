@@ -312,10 +312,15 @@ impl Executor {
 
     fn turn(&self, budget: &mut dyn Budget) -> (Pump, u32) {
         let mut polls: u64 = 0;
+        // The inbox's share is one turn's, shared by its retries: 32 items in all.
+        let mut moved: usize = 0;
         loop {
-            self.intake(budget);
+            let capped = self.intake(budget, &mut moved);
+            let mut first = true;
             loop {
-                if polls >= 64 || budget.spent(polls as usize) {
+                // The first poll of a phase always happens, even when intake used the whole
+                // budget: a run queue that is non-empty is never skipped.
+                if !first && (polls >= 64 || budget.spent(polls as usize)) {
                     break;
                 }
                 let Some(runnable) = self.next_runnable() else {
@@ -323,6 +328,12 @@ impl Executor {
                 };
                 self.poll(runnable);
                 polls += 1;
+                first = false;
+            }
+            if capped {
+                // The rest of the inbox waits for the re-armed turn, which the shell schedules.
+                self.shared.claim.store(claim::SCHEDULED, SeqCst);
+                return (Pump::Rearm, polls as u32);
             }
             match self.end(polls as usize, budget) {
                 End::Rearm => return (Pump::Rearm, polls as u32),
@@ -332,23 +343,24 @@ impl Executor {
         }
     }
 
-    /// The intake phase: at most 32 inbox items, stopping early when its 2 ms share is gone.
-    fn intake(&self, budget: &mut dyn Budget) {
-        let mut moved = 0;
-        while moved < 32 {
+    /// The intake phase: at most 32 inbox items a turn, shared by its retries, stopping early
+    /// when its 2 ms share is gone. Returns whether the cap left items for the next turn.
+    fn intake(&self, budget: &mut dyn Budget, moved: &mut usize) -> bool {
+        while *moved < 32 {
             if budget.intake_spent() {
-                return;
+                return false;
             }
             let item = match self.shared.inbox.pop() {
                 Ok(item) => item,
-                Err(PopError::Empty) => return,
-                Err(PopError::Closed) => return,
+                Err(PopError::Empty) => return false,
+                Err(PopError::Closed) => return false,
             };
-            moved += 1;
+            *moved += 1;
             match item {
                 Item::Wake(waker) => waker.wake(),
             }
         }
+        !self.shared.inbox.is_empty()
     }
 
     /// The fairness rule: controls first, except that after eight in a row the next poll is work.

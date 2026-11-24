@@ -44,10 +44,6 @@ pub struct StackState {
     stack: TransactionStack,
     /// Open frames by their handle.
     frames: HashMap<u64, Frame>,
-    /// Each open frame's top-level frame id. Kept until the frame's wakes are released.
-    tops: HashMap<u64, u64>,
-    /// The open frames' top ids, innermost last (frames nest LIFO).
-    open: Vec<u64>,
     next_frame: u64,
     /// Released tokens, keyed by the top-level frame they were released in.
     released: HashMap<u64, Vec<u64>>,
@@ -62,7 +58,7 @@ impl StackState {
 
     /// Whether the stack is inside a transaction (top-level or savepoint).
     pub fn in_transaction(&self) -> bool {
-        !self.open.is_empty()
+        !self.frames.is_empty()
     }
 
     /// Inside an open transaction: `token` joins the after-commit list. Outside: false.
@@ -76,15 +72,15 @@ impl StackState {
             .frames
             .remove(&id)
             .ok_or_else(|| napi::Error::from_reason("transaction frame is not open"))?;
-        let top = self.open.pop().unwrap_or(id);
-        Ok((top, open))
+        Ok((id, open))
     }
 
-    /// Records a finish's released and dropped tokens.
-    fn record(&mut self, top: u64, finish: &Finish) {
+    /// Records a finish's released and dropped tokens. Only an outermost commit releases, and
+    /// its own frame id is the id `releaseWakes` is called with, so no alias is ever held.
+    fn record(&mut self, frame: u64, finish: &Finish) {
         if !finish.released.is_empty() {
             self.released
-                .entry(top)
+                .entry(frame)
                 .or_default()
                 .extend(finish.released.iter().copied());
         }
@@ -97,12 +93,7 @@ impl StackState {
 
     fn release_frame(&mut self, frame: f64) -> napi::Result<()> {
         let id = count(frame, "frame")?;
-        let top = self.tops.remove(&id).unwrap_or(id);
-        let tokens = self
-            .released
-            .remove(&top)
-            .or_else(|| self.released.remove(&id))
-            .unwrap_or_default();
+        let tokens = self.released.remove(&id).unwrap_or_default();
         if tokens.is_empty() {
             return Ok(());
         }
@@ -110,6 +101,11 @@ impl StackState {
             sink.release(tokens);
         }
         Ok(())
+    }
+
+    /// The bookkeeping a probe reads: open frames and released token lists.
+    pub fn entry_counts(&self) -> (usize, usize) {
+        (self.frames.len(), self.released.len())
     }
 
     /// Detaches the sink at engine close, returning what no publication released yet.
@@ -164,9 +160,6 @@ impl NativeTransactionStack {
             .map_err(fail)?;
         let id = state.next_frame;
         state.next_frame += 1;
-        let top = state.open.last().copied().unwrap_or(id);
-        state.open.push(top);
-        state.tops.insert(id, top);
         state.frames.insert(id, frame);
         Ok(id as f64)
     }
@@ -183,9 +176,9 @@ impl NativeTransactionStack {
     #[napi(catch_unwind)]
     pub fn succeed(&self, frame: f64) -> napi::Result<String> {
         let mut state = self.state.borrow_mut();
-        let (top, frame) = state.take(frame)?;
+        let (id, frame) = state.take(frame)?;
         let finish = state.stack.succeed(self.connection.as_ref(), frame);
-        state.record(top, &finish);
+        state.record(id, &finish);
         Ok(finish_json(&finish))
     }
 
@@ -193,9 +186,9 @@ impl NativeTransactionStack {
     #[napi(catch_unwind)]
     pub fn fail(&self, frame: f64) -> napi::Result<String> {
         let mut state = self.state.borrow_mut();
-        let (top, frame) = state.take(frame)?;
+        let (id, frame) = state.take(frame)?;
         let finish = state.stack.fail(self.connection.as_ref(), frame);
-        state.record(top, &finish);
+        state.record(id, &finish);
         Ok(finish_json(&finish))
     }
 

@@ -190,6 +190,20 @@ impl NativeEngine {
         self.probe.borrow_mut().callback = Some(std::rc::Rc::new(callback));
     }
 
+    /// Timers the binding still has armed; close must leave none.
+    #[napi]
+    pub fn probe_timer_count(&self) -> u32 {
+        self.ports.timer_count() as u32
+    }
+
+    /// The transaction shell's bookkeeping: open frames, top aliases and released lists. A
+    /// savepoint or rollback that outlives its finish is a leak the seam can see.
+    #[napi]
+    pub fn probe_stack_entries(&self) -> String {
+        let (frames, released) = self.stack.borrow().entry_counts();
+        format!("{{\"frames\":{frames},\"released\":{released}}}")
+    }
+
     /// The labels scripted tasks marked, in order.
     #[napi]
     pub fn probe_marks(&self) -> Vec<String> {
