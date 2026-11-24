@@ -143,6 +143,7 @@ struct TranscriptCollection: UIViewRepresentable {
             tap.isEnabled = false
             view.addGestureRecognizer(tap)
             touches.delegate = self
+            touches.landed = { [weak self] in self?.touchLanded() }
             touches.lifted = { [weak self] in self?.touchLifted() }
             view.addGestureRecognizer(touches)
             view.assistiveScrolled = { [weak self] in
@@ -384,9 +385,18 @@ struct TranscriptCollection: UIViewRepresentable {
 
         func scrollViewDidScrollToTop(_ scrollView: UIScrollView) { move(to: .idle) }
 
-        /// A touch that stopped a fling and lifted without dragging ends no UIKit callback.
+        /// A finger came down: the reader holds the feed from here, before any drag begins, so
+        /// nothing replaces the rows under it. A second finger during a drag changes nothing.
+        private func touchLanded() {
+            guard phase != .interacting else { return }
+            move(to: .tracking)
+        }
+
+        /// A touch that lifted without dragging, or stopped a fling and lifted, ends no UIKit
+        /// callback.
         private func touchLifted() {
-            guard let view, phase == .decelerating, !view.isDecelerating, !view.isDragging else { return }
+            guard let view, phase == .tracking || phase == .decelerating, !view.isDecelerating, !view.isDragging
+            else { return }
             move(to: .idle)
         }
 
@@ -403,6 +413,7 @@ struct TranscriptCollection: UIViewRepresentable {
 
 /// Hears every touch on the transcript without taking it.
 private final class TouchWatcher: UIGestureRecognizer {
+    var landed: (() -> Void)?
     var lifted: (() -> Void)?
 
     override init(target: Any?, action: Selector?) {
@@ -410,6 +421,11 @@ private final class TouchWatcher: UIGestureRecognizer {
         cancelsTouchesInView = false
         delaysTouchesBegan = false
         delaysTouchesEnded = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesBegan(touches, with: event)
+        landed?()
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
