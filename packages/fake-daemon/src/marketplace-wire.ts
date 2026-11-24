@@ -243,9 +243,18 @@ export class FakeMarketplaceWire {
       .filter((summary) => enabled.has(summary.source));
   }
 
+  readonly templatePublications: Extract<MarketOperation, { op: "publishTemplate" }>[] = [];
+
   #answer(operation: MarketOperation, personGrant?: string): MarketResult {
     const now = this.#now();
     switch (operation.op) {
+      case "publishTemplate":
+        this.templatePublications.push(operation);
+        return {
+          op: "publishedTemplate",
+          name: operation.id.replaceAll("_", "-"),
+          visibility: operation.review.visibility,
+        };
       case "sources":
       case "refresh":
         return {

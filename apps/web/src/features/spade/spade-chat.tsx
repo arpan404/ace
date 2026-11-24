@@ -1,3 +1,4 @@
+import { SpadeTemplateCard } from "./spade-template-card.tsx";
 import { CardFace } from "./spade-card.tsx";
 import { LaneQuietLine, OverlapQuietLine } from "./lanes/lane-line.tsx";
 import { SpadeAgentCard, type SpadeCardChoose } from "./spade-agent-card.tsx";
@@ -739,6 +740,8 @@ function RunItem(props: {
         />
       );
     case "card":
+      if (item.cardId.startsWith("template_"))
+        return <SpadeTemplateCard item={item} avatar={bot.avatar} style={bot.style} />;
       return (
         <SpadeAgentCard
           item={item}

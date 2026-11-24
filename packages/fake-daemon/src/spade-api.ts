@@ -169,6 +169,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly roles = new FakeSpadeRoles();
   /** Every request the app sent, in order. */
   readonly requests: FakeSpadeRequest[] = [];
+  readonly shareTemplates = new Map<string, Json>();
   /** The person's connected apps and each bot's allow list (ADR 0131). */
   readonly connectors = new FakeSpadeConnectors();
   readonly plugins = new FakeSpadePlugins();
@@ -572,6 +573,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
     const parts = path.split("/").slice(2).map(decodeURIComponent);
     const body = request.body ? (JSON.parse(request.body) as Json) : {};
     const [root, id, sub, subId] = parts;
+    if (root === "share-templates" && id && request.method === "GET") {
+      const template = this.shareTemplates.get(id);
+      return template ? reply(template) : problem(404, "No such template.");
+    }
     if (root === "org") return this.org.route(request.method, id, sub);
     if (root === "agents" && id && sub === "access")
       return this.org.accessRoute(request.method, id);
