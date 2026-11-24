@@ -137,6 +137,12 @@ export class SteerLane {
     if (actor.steerYield && run !== undefined && actor.steerYield.run !== run)
       actor.steerYield = undefined;
     const person = isPersonSteer(intent, repo.steerNotes.personChose(intent.id));
-    return steerRoute({ person }, state, capabilities, actor.steerYield, actor.session);
+    return steerRoute(
+      { person, createdAt: intent.createdAt },
+      state,
+      capabilities,
+      actor.steerYield,
+      actor.session,
+    );
   }
 }

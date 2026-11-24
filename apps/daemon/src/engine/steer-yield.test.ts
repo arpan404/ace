@@ -180,4 +180,33 @@ describe("steerRoute for cancel-and-restart (ACP / Antigravity) sessions", () =>
       steerRoute({ person: true }, state, acpCapabilities, undefined, { steerViaCancel: true }),
     ).toBe("yield");
   });
+
+  test("never cancels a turn that started after the steer arrived", () => {
+    const state = threadState("run-2");
+    const root = state.agents["root"];
+    if (!root) throw new Error("Expected a root agent");
+    const run = (id: string, startedAt: number) => ({
+      id: RunId.parse(id),
+      threadId: state.threadId,
+      agentId: AgentId.parse("agent-1"),
+      trigger: "user" as const,
+      state: "active" as const,
+      startedAt,
+    });
+    state.runs["run-1"] = run("run-1", 100);
+    state.runs["run-2"] = run("run-2", 300);
+    // The steer arrived while run-1 ran; run-2 began without it, after it ended.
+    expect(
+      steerRoute({ person: true, createdAt: 200 }, state, acpCapabilities, undefined, {
+        steerViaCancel: true,
+      }),
+    ).toBeUndefined();
+    // A turn already running when the steer arrived is still the turn it meant to stop.
+    root.activeRun = RunId.parse("run-1");
+    expect(
+      steerRoute({ person: true, createdAt: 200 }, state, acpCapabilities, undefined, {
+        steerViaCancel: true,
+      }),
+    ).toBe("yield");
+  });
 });
