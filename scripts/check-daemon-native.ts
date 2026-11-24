@@ -17,6 +17,10 @@ execFileSync("bun", ["scripts/generate-rust-protocol.ts", "--check"], {
   cwd: root,
   stdio: "inherit",
 });
+execFileSync("bun", ["scripts/store-vectors.ts", "--check"], {
+  cwd: root,
+  stdio: "inherit",
+});
 // The transport's route table (ADR 0226): message types come from the protocol schemas, owners
 // from `scripts/transport-owners.ts`. Committed and regenerated here, so a new message type
 // can't reach the daemon without an owner.
