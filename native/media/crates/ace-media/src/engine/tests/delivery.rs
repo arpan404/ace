@@ -1620,6 +1620,59 @@ fn a_local_views_oversized_keyframe_leaves_its_bitrate_alone() {
     );
 }
 
+fn device_unit(
+    width: u16,
+    height: u16,
+    display_width: u16,
+    display_height: u16,
+    scale: u16,
+) -> MediaFrame {
+    let mut unit = h264(true, 9, 1, Vec::new());
+    unit.width = width;
+    unit.height = height;
+    unit.display_width = display_width;
+    unit.display_height = display_height;
+    unit.scale = scale;
+    unit
+}
+
+fn device_header(unit: MediaFrame) -> (u16, u16, f64) {
+    let mut engine = watched(json!({ "kind": "device", "deviceId": "android:emulator-5554" }));
+    let effects = ingest(&mut engine, 1, unit, NOW);
+    let pieces = binaries(&effects);
+    let mut assembler = Assembler::new();
+    let Some((kind, meta, payload)) = pieces.iter().find_map(|p| {
+        assembler
+            .push(p)
+            .ok()
+            .flatten()
+            .map(|e| (e.kind, e.meta.to_vec(), e.payload.to_vec()))
+    }) else {
+        panic!("no picture reached the device view");
+    };
+    assert_eq!(kind, 4);
+    let Ok(picture) = decode_picture(4, &meta, &payload) else {
+        panic!("a header the client can't read");
+    };
+    (picture.width, picture.height, picture.scale)
+}
+
+#[test]
+fn a_transcoded_device_frame_keeps_its_source_width_in_its_header_scale() {
+    // A Simulator re-encoded at 824x1792 from a 1206x2622 source at scale 1: the client divides
+    // the encoded width by the header scale to get back the 1206 source points it sends input in.
+    let (width, height, scale) = device_header(device_unit(824, 1792, 1206, 2622, 1000));
+    assert_eq!((width, height), (824, 1792));
+    assert!(
+        (f64::from(width) / scale - 1206.0).abs() < 1.0,
+        "width/scale is the source width, got {width} / {scale}",
+    );
+    assert!(
+        (scale - 824.0 / 1206.0).abs() < 0.002,
+        "scale is encoded px per source point, got {scale}",
+    );
+}
+
 #[test]
 fn a_remote_viewer_leaving_clears_its_shared_encodes_cut_for_the_local_left() {
     let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
@@ -1694,5 +1747,31 @@ fn a_remote_viewer_leaving_clears_its_shared_encodes_cut_for_the_local_left() {
     assert_eq!(
         recovered[0].bitrate, alone[0].bitrate,
         "local-only again: {recovered:?} vs {alone:?}"
+    );
+}
+
+#[test]
+fn a_native_size_device_frame_keeps_scale_1() {
+    let (width, height, scale) = device_header(device_unit(1206, 2622, 1206, 2622, 1000));
+    assert_eq!((width, height), (1206, 2622));
+    assert!(
+        (scale - 1.0).abs() < 0.0005,
+        "a native-size frame keeps its scale, got {scale}",
+    );
+}
+
+#[test]
+fn a_downscaled_mac_frame_reports_points_in_its_header_scale() {
+    // 1440x900 encoded from a 2880x1800 source at scale 2: the header scale is 1, so
+    // width/scale is the 1440 points input uses.
+    let (width, height, scale) = device_header(device_unit(1440, 900, 2880, 1800, 2000));
+    assert_eq!((width, height), (1440, 900));
+    assert!(
+        (scale - 1.0).abs() < 0.002,
+        "scale is encoded px per point, got {scale}",
+    );
+    assert!(
+        (f64::from(width) / scale - 1440.0).abs() < 1.0,
+        "width/scale is points"
     );
 }

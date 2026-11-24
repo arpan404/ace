@@ -48,6 +48,11 @@ pub struct Transcode {
     refresh_avcc: Option<Vec<u8>>,
     size: Size,
     fps: u32,
+    /// The source picture's size, which a transcoded frame still depicts: its own size is the
+    /// encode's, while `display_*` and `scale` stay the source's, so the client's
+    /// `width / scale` is the source's coordinate width at any encode size.
+    source_width: u16,
+    source_height: u16,
 }
 
 fn even_size(wire: &EncodeSpec) -> Size {
@@ -77,6 +82,15 @@ fn refresh_spec_for(size: Size, fps: u32, qp: u8) -> Spec {
 }
 
 impl Transcode {
+    /// Stamps a transcoded frame with the source picture it depicts (serve-sim's stream is in
+    /// device pixels: one source unit per pixel, scale 1000).
+    fn depict_source(&self, frame: &mut MediaFrame) {
+        if self.source_width > 0 && self.source_height > 0 {
+            frame.display_width = self.source_width;
+            frame.display_height = self.source_height;
+            frame.scale = 1000;
+        }
+    }
     pub fn new(wire: &EncodeSpec) -> Result<Self, CodecError> {
         let size = even_size(wire);
         let fps = wire.fps.clamp(1, 240);
@@ -94,6 +108,8 @@ impl Transcode {
             refresh_avcc: None,
             size,
             fps,
+            source_width: 0,
+            source_height: 0,
         })
     }
 
@@ -133,6 +149,8 @@ impl Transcode {
         now_ms: u64,
         frames: &mut Vec<MediaFrame>,
     ) -> Result<(), CodecError> {
+        self.source_width = u16::try_from(unit.size.width).unwrap_or(u16::MAX);
+        self.source_height = u16::try_from(unit.size.height).unwrap_or(u16::MAX);
         // Asked for between serve-sim's keyframes: the decoder starts at the next one (the
         // reader opens a fresh subscription, whose first unit is one).
         if !self.primed {
@@ -186,12 +204,14 @@ impl Transcode {
                 let record = Record::Key(unit.data);
                 if let Ok(Some(mut frame)) = self.out.frame(record) {
                     frame.encode = self.id;
+                    self.depict_source(&mut frame);
                     frames.push(frame);
                 }
             } else {
                 let record = Record::Delta(unit.data);
                 if let Ok(Some(mut frame)) = self.out.frame(record) {
                     frame.encode = self.id;
+                    self.depict_source(&mut frame);
                     frames.push(frame);
                 }
             }
@@ -217,6 +237,7 @@ impl Transcode {
             let record = Record::Key(unit.data);
             if let Ok(Some(mut frame)) = self.out.frame(record) {
                 frame.encode = self.id;
+                self.depict_source(&mut frame);
                 frames.push(frame);
             }
             self.split.observe(bytes, true);

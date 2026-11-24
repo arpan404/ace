@@ -207,12 +207,27 @@ pub fn build(
             };
             let payload = annex_b(frame, key)?;
             let stream = stream_id(source);
+            // The header's scale is encoded px per source coordinate unit, so width/scale is the
+            // source's coordinate width at any encode size: a transcoded frame still depicts its
+            // source's size (`display_*`) at its source's scale. Frames that already depict it
+            // (`display * scale == width`, as a helper that scales its scale with its encode
+            // does) are left alone.
+            let source_scale = f64::from(frame.scale.max(1)) / 1000.0;
+            let already = u32::from(frame.display_width)
+                .saturating_mul(u32::from(frame.scale.max(1)))
+                == u32::from(frame.width).saturating_mul(1000);
+            let scale = if frame.display_width > 0 && frame.display_width != frame.width && !already
+            {
+                source_scale * f64::from(frame.width) / f64::from(frame.display_width)
+            } else {
+                source_scale
+            };
             let header = Picture {
                 sequence: sequence as f64,
                 timestamp: timestamp_ms.max(0.0),
                 width: frame.width.max(1),
                 height: frame.height.max(1),
-                scale: f64::from(frame.scale.max(1)) / 1000.0,
+                scale,
                 rotation: u16::from(frame.rotation % 4) * 90,
                 key,
                 still: false,
