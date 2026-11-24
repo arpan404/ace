@@ -556,7 +556,8 @@ import Testing
 
     @Test func aReconnectMidCatchUpStillKeepsThatFeedsOlderFinishOffALiveRequest() async throws {
         let center = HeldCenter()
-        let notifier = LocalNotifier(center: center, hostId: "studio")
+        let desk = AlertDesk(center: center, now: { 0 })
+        let notifier = LocalNotifier(center: center, hostId: "studio", desk: desk)
         notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
         let request = Task { await notifier.receive(cursored(alert("n:3", status: "needs_you", actions: true), 3)) }
         try await until("the live request is landing") { center.holding }
@@ -564,7 +565,9 @@ import Testing
             await notifier.catchUp(cursor: 2, entries: [cursored(alert("n:1", status: "failed", thread: "other"), 1), cursored(alert("n:2"), 2)],
                                    retracted: [])
         }
-        try await until("the feed is applying") { notifier.ledger.cursor == 2 }
+        // The feed has begun landing its alerts; its posts queue behind the held request, and its
+        // cursor moves only once they have landed.
+        try await until("the feed is applying") { desk.stack.shown.contains { $0.alertId == "n:1" } }
         notifier.connected()
         center.release()
         await request.value
