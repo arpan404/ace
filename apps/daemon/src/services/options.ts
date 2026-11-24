@@ -145,6 +145,13 @@ export type DaemonOptions = {
    * the app. Model lists finish starting behind `services.modelsReady`.
    */
   modelsReady?: Promise<void>;
+  /**
+   * Tests shorten how long the automation scheduler waits for model admission before arming;
+   * the app uses 30 s (`automation-lifecycle.ts`).
+   */
+  automationModelWaitMs?: number;
+  /** Tests shorten the held scheduler's recheck interval; the app uses 30 s. */
+  automationModelRetryMs?: number;
   workload?: HealthOptions["workload"];
   browser?: Omit<BrowserServiceOptions, "dataDir" | "onArtifact">;
   /** Outside MCP clients (ADR 0122), for tests: how client metadata is fetched, request lifetime. */

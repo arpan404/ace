@@ -76,6 +76,14 @@ export interface Dependencies {
    * run is skipped, Run now is refused and waiting runs stay waiting until it reopens.
    */
   admission?: Admission;
+  /**
+   * Whether ace's model lists are still loading. A scheduled fire needs its automation's model,
+   * so while this is true the occurrence stays due instead of being spent on a thread the
+   * engine would refuse; the service is woken again through `modelsReady()`.
+   */
+  modelsLoading?: () => boolean;
+  /** How often a scheduler held for model lists rechecks when no wake arrives; 30 s by default. */
+  modelRetryMs?: number;
 }
 export interface Admission {
   open(): boolean;

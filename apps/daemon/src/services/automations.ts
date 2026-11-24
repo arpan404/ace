@@ -23,6 +23,9 @@ export async function startAutomations(context: ServiceContext): Promise<void> {
     webhookSecrets: webhookSecrets(config.dataDir),
   });
   resources.own(() => store.close());
+  // Model lists finish loading behind `services.modelsReady`; a scheduled fire needs its
+  // automation's model, so the scheduler keeps those occurrences due until they settle.
+  let modelsSettled = services.modelsReady === undefined;
   const service = new AutomationService(
     store,
     {
@@ -33,10 +36,21 @@ export async function startAutomations(context: ServiceContext): Promise<void> {
       executor: automationExecutor(context),
       workspace: automationWorkspace(context),
       ...automationAdmission(context),
+      modelsLoading: () => !modelsSettled,
+      ...(context.options.automationModelRetryMs === undefined
+        ? {}
+        : { modelRetryMs: context.options.automationModelRetryMs }),
       onError: (error) => log.log("error", "Automation failure", logError(error)),
     },
     createGhClient({ binary: "gh" }),
   );
+  if (services.modelsReady) {
+    const settled = () => {
+      modelsSettled = true;
+      service.modelsReady();
+    };
+    void services.modelsReady.then(settled, settled);
+  }
   services.automations = service;
   services.automationWebhooks = await startAutomationWebhooks(context, store, service);
   resources.own(() => service.stop());

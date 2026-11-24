@@ -214,7 +214,12 @@ test.concurrent(
   "a missed run_once waits for model readiness and then runs exactly once",
   { timeout: 180_000 },
   async ({ expect }) => {
-    const f = await idleDaemon({ seedModels: false, deferModels: true });
+    const f = await idleDaemon({
+      seedModels: false,
+      deferModels: true,
+      armDeadlineMs: 100,
+      modelRetryMs: 100,
+    });
     try {
       let connection = await f.connect();
       const due = Math.ceil((Date.now() + 2000) / 60_000) * 60_000;
@@ -237,11 +242,16 @@ test.concurrent(
       await f.restart();
       connection = await f.connect();
       await f.daemon.settings.set("automations.enabled", true, { kind: "global" });
-      // Model admission is still running: nothing may be spent on a run that can't resolve its
-      // model, because a missed run_once only gets this one catch-up.
+      // The 100 ms arming bound has passed, so the scheduler is live; model admission is still
+      // running, so the due occurrence must stay due instead of being spent on a refused thread.
       await delay(500);
       expect(f.prompts).toEqual([]);
       expect(f.daemon.store.listThreads()).toEqual([]);
+      expect(
+        (await connection.ask({ type: "automation.list", requestId: "kept" })).schedules?.find(
+          (schedule) => schedule.id === automation.id,
+        )?.nextRunAt,
+      ).toBe(due);
       expect(
         (
           await connection.ask({
@@ -270,6 +280,72 @@ test.concurrent(
       await delay(500);
       expect(f.prompts).toEqual([automation.prompt]);
       expect(f.daemon.store.listThreads()).toHaveLength(1);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test.concurrent(
+  "the scheduler arms at its deadline without model admission and keeps the due run",
+  { timeout: 180_000 },
+  async ({ expect }) => {
+    const f = await idleDaemon({
+      seedModels: false,
+      deferModels: true,
+      armDeadlineMs: 100,
+      modelRetryMs: 100,
+    });
+    try {
+      let connection = await f.connect();
+      const due = Math.ceil((Date.now() + 2000) / 60_000) * 60_000;
+      const automation = {
+        ...f.definition("never-ready", due),
+        missedRun: "run_once" as const,
+      };
+      expect(
+        await connection.ask({
+          type: "automation.put",
+          requestId: "save",
+          automation,
+          expectedRevision: null,
+        }),
+      ).toMatchObject({ ok: true });
+      await f.daemon.settings.set("automations.enabled", false, { kind: "global" });
+      await f.stop();
+      await delay(Math.max(0, due - Date.now()) + 150);
+      await f.restart();
+      connection = await f.connect();
+      await f.daemon.settings.set("automations.enabled", true, { kind: "global" });
+      // The held admission never settles. Past the 100 ms bound the scheduler still arms: a
+      // person's Run now is accepted, while the missed occurrence itself is never spent.
+      await delay(500);
+      expect(
+        await connection.ask({
+          type: "automation.run",
+          requestId: "run-now",
+          id: automation.id,
+          variables: {},
+        }),
+      ).toMatchObject({ ok: true });
+      const snapshot = await connection.ask({ type: "automation.list", requestId: "kept" });
+      expect(snapshot.schedules?.find((schedule) => schedule.id === automation.id)?.nextRunAt).toBe(
+        due,
+      );
+      expect(
+        (
+          (
+            await connection.ask({
+              type: "automation.inbox",
+              requestId: "runs",
+              automationId: automation.id,
+              limit: 50,
+            })
+          ).inbox?.runs ?? []
+        ).filter((run) => run.trigger === "schedule"),
+      ).toEqual([]);
+      expect(f.prompts).toEqual([]);
+      expect(f.daemon.store.listThreads()).toEqual([]);
     } finally {
       await f.close();
     }

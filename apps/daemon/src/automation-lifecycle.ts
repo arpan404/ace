@@ -23,14 +23,51 @@ export async function followAutomationSetting(
    * creates a thread with the automation's model. Model lists finish loading after the services
    * start (services/models.ts admits them behind `modelsReady`), so the scheduler waits for them
    * the way delegations do; otherwise the catch-up is spent on `model_unavailable` and lost.
+   *
+   * The wait is bounded: model discovery retries on its own in the background
+   * (`@ace/models` catalog), and a first pass that never settles must not leave file and manual
+   * automations off forever. Thirty seconds covers a cold provider's first list, which is
+   * normally seconds, and is half the scheduler's own 60 s recheck, so a held run still lands
+   * near its time. Once armed, a due run whose model is still loading stays due
+   * (`packages/automations/src/service.ts`) and fires when `services.modelsReady` settles.
    */
   const startWhenReady = async () => {
     const turn = ++arming;
     const ready = context.services.modelsReady;
-    if (ready)
-      await ready.catch((error: unknown) =>
-        context.log.log("warn", "Model admission failed", logError(error)),
-      );
+    if (ready) {
+      const waitMs = context.options.automationModelWaitMs ?? 30_000;
+      const deadline = context.now() + waitMs;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const bounded = new Promise<void>((resolve) => {
+        const check = () => {
+          const left = deadline - context.now();
+          if (left > 0) {
+            timer = setTimeout(check, left);
+            timer.unref();
+            return;
+          }
+          resolve();
+        };
+        timer = setTimeout(check, Math.max(0, deadline - context.now()));
+        timer.unref();
+      });
+      try {
+        await Promise.race([
+          ready.catch((error: unknown) =>
+            context.log.log("warn", "Model admission failed", logError(error)),
+          ),
+          bounded.then(() =>
+            context.log.log(
+              "warn",
+              "Arming automations while model lists load; due runs stay due until they settle",
+              { waitMs },
+            ),
+          ),
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
     if (turn !== arming || !enabled || stopped || context.signal.aborted) return;
     service.start();
     context.services.commands?.invalidateExtras?.();

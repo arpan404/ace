@@ -9,7 +9,14 @@ import { Client } from "./socket-test-support.ts";
 import { scriptedModelInstance, seedScriptedModels } from "./testing/models.ts";
 
 /** Real daemon, SQLite, sockets and timers; only the provider CLI is scripted. */
-export async function idleDaemon(options: { seedModels?: boolean; deferModels?: boolean } = {}) {
+export async function idleDaemon(
+  options: {
+    seedModels?: boolean;
+    deferModels?: boolean;
+    armDeadlineMs?: number;
+    modelRetryMs?: number;
+  } = {},
+) {
   const home = await mkdtemp(join(tmpdir(), "ace-idle-automation-"));
   const prompts: string[] = [];
   const registry = new AdapterRegistry();
@@ -48,6 +55,12 @@ export async function idleDaemon(options: { seedModels?: boolean; deferModels?: 
       engine: { registry },
       modelInstances: restarted ? [scriptedModelInstance("codex", home)] : [],
       ...(restarted && options.deferModels ? { modelsReady: holdModels() } : {}),
+      ...(options.armDeadlineMs === undefined
+        ? {}
+        : { automationModelWaitMs: options.armDeadlineMs }),
+      ...(options.modelRetryMs === undefined
+        ? {}
+        : { automationModelRetryMs: options.modelRetryMs }),
       providerStatus: {
         env: { ...process.env, PATH: "" },
         versions: async () => ({}),
