@@ -137,10 +137,30 @@ pub trait Budget {
 }
 
 /// Send + Sync: the schedule functions and producers on tokio hold it.
-pub struct Shared { claim: AtomicU8, closed: AtomicBool, control: ConcurrentQueue<Runnable>, work: ConcurrentQueue<Runnable>, notifier: Box<dyn Notifier> }
+pub struct Shared {
+    claim: AtomicU8,
+    closed: AtomicBool,
+    /// External items (session events, I/O completions, timer firings, after-commit releases).
+    /// `ConcurrentQueue::close()` closes admission atomically: a push after it fails.
+    inbox: ConcurrentQueue<Item>,
+    /// Runnables of tasks already spawned; stay open until `shut`, so the shutdown drain runs.
+    control: ConcurrentQueue<Runnable>,
+    work: ConcurrentQueue<Runnable>,
+    notifier: Box<dyn Notifier>,
+}
 
 /// !Send: lives on the JS thread with the engine state.
-pub struct Executor { shared: Arc<Shared>, running: Cell<bool>, current: Cell<Option<TaskId>> }
+pub struct Executor {
+    shared: Arc<Shared>,
+    running: Cell<bool>,
+    current: Cell<Option<TaskId>>,
+    /// Consecutive control polls since the last work poll. Executor state, not per turn: it
+    /// survives the end of a turn, so the fairness rule holds when every turn ends after one poll.
+    control_streak: Cell<u8>,
+    /// Set by `close_admission`; the pump signals `drained` at the end of the first turn that
+    /// finds the inbox and both run queues empty.
+    draining: Cell<Option<oneshot::Sender<()>>>,
+}
 
 impl Executor {
     pub fn new(notifier: Box<dyn Notifier>) -> Executor;
@@ -150,13 +170,18 @@ impl Executor {
     /// metadata carries the task's `TaskId`, which the pump puts in `current` while it polls.
     pub fn spawn<T: 'static>(&self, lane: Lane, future: impl Future<Output = T> + 'static) -> Task<T>;
     /// A Send handle for producers on any thread (a session event, an I/O completion).
-    pub fn waker(&self) -> ExecutorWake; // ExecutorWake::wake(&self) does the producer move
+    /// `ExecutorWake::push(item)` pushes onto the inbox, then does the producer move; after
+    /// admission has closed it returns `Refused` and pushes nothing.
+    pub fn waker(&self) -> ExecutorWake;
     /// The task being polled now, if any (for barriers that must not wait on their caller).
     pub fn current(&self) -> Option<TaskId>;
     /// One turn. Returns Rearm when the continuation must be scheduled with setImmediate.
     pub fn pump(&self, budget: &mut dyn Budget, transaction_open: &dyn Fn() -> bool) -> Pump;
-    /// Terminal: no producer pushes or posts again; queued runnables are dropped (their tasks
-    /// cancel). Called by close() before the threadsafe function is released.
+    /// Shutdown, first step: closes the inbox (no external producer can enqueue from here on)
+    /// and returns a receiver the pump completes when everything admitted has run.
+    pub fn close_admission(&self) -> oneshot::Receiver<()>;
+    /// Terminal: no runnable is accepted or run again; queued runnables are dropped (their tasks
+    /// cancel). Called by the close task after the drain, before the threadsafe function goes.
     pub fn shut(&self);
 }
 pub enum Pump { Rearm, Done, Stale, Busy }
@@ -184,7 +209,9 @@ state it observed**; no rule is two fixed CAS attempts. Exactly:
   The case this loop exists for: the producer pushes, sees `Running`, and before its CAS the pump
   (which found the queues empty before the push) moves `Running → Idle`. The CAS fails with `Idle`
   observed, the loop retries `Idle → Scheduled`, and posts. Two fixed attempts would lose that
-  item's notification. With `closed` set, `wake` returns before the loop (step 4).
+  item's notification. An external producer pushes onto the inbox first; if the inbox is closed
+  the push fails, it returns `Refused`, and it does not touch the claim (step 4). With `closed`
+  set, a task waker returns before the loop.
   `post()` is `notifier.notify()`. On `Notified::Closing` (`napi_closing`, ADR 0223 `:263`): write
   one line to stderr (`engine pump not posted: environment closing`) and leave the claim
   `Scheduled`, so nothing posts again.
@@ -194,9 +221,13 @@ state it observed**; no rule is two fixed CAS attempts. Exactly:
   failure return `Stale` (a stale notification). If `transaction_open()` (the shared stack's
   `is_open`), store `Scheduled` and return `Busy`; the shell re-arms. The event loop already
   guarantees this never happens, since `Store.atomic` is synchronous; the check confirms it.
-- **The turn**: set `running`, `budget.start()`. Pick the next runnable by the **fairness rule**:
-  the control queue first, except that after 8 consecutive control runnables, if the work queue is
-  non-empty, one work runnable runs before the next control. So controls keep priority (a Stop's
+- **The turn**: set `running`, `budget.start()`. First move the inbox's items to their tasks
+  (each wakes or spawns; bounded by the same budget). Then pick the next runnable by the
+  **fairness rule**: the control queue first, except that once `control_streak` reaches 8 and the
+  work queue is non-empty, one work runnable runs before the next control. `control_streak` counts
+  across turns (it is executor state): a control poll adds one, a work poll resets it to 0, and a
+  turn's end leaves it as it is. A per-turn counter would never reach 8 if every turn's budget ran
+  out after one slow control, and work would starve. So controls keep priority (a Stop's
   interrupt is never behind bulk work) and a burst of controls cannot starve work. Poll it with
   `current` set to its task and inside `catch_unwind` (a panic that escapes `propagate_panic` is
   reported once and the runnable is dropped); count it; stop starting runnables when
@@ -236,6 +267,13 @@ interleavings are written as explicit sequences on one thread, with no sleeps:
   notification, and every item runs.
 - Fairness: 100 queued controls and 1 work runnable: the work runnable runs within the first 9
   polls; with no work queued, controls run back to back.
+- "work runs even when every turn ends after one slow control": a `Budget` that is spent after
+  every poll, 20 queued controls and 1 work runnable; the work runnable runs in the 9th turn.
+  A counter reset per turn makes this fail.
+- "a producer racing shutdown is refused once admission closes": a thread pushes through
+  `ExecutorWake` in a loop while `close_admission` runs; every push that returned `Accepted` is
+  run before `drained` completes, every later push returns `Refused`, nothing runs after `shut`,
+  nothing panics.
 - A nested `pump` from inside a runnable returns `Stale`; a panicking task leaves the pump usable
   and its `Task` reports the panic; after `shut`, `wake` posts nothing.
 
@@ -271,13 +309,20 @@ the receipt (`engine/handler.ts:544`–`:545`, and `index.ts:307`, `:924`).
   `Weak<dyn AfterCommitSink>`), created on first use. `transaction_stack()` returns a
   `NativeTransactionStack` over that same `Rc`; with the engine off there is only one caller, so
   behaviour is unchanged. `succeed` and `fail` hand `dropped` to the sink at once (dropping starts
-  nothing) and keep `released` in `StackState` as the pending release of that top-level frame.
+  nothing) and keep `released` in `StackState` **keyed by that top-level frame's id**
+  (`HashMap<FrameId, Vec<u64>>`). A subscriber can commit transaction B while A is still
+  publishing (A's context is popped before its publication, `native-writer/transaction.ts:195`),
+  so there can be more than one pending list at once, and an unkeyed list would let B overwrite or
+  consume A's.
 - **Release comes after settlement and publication.** The shell's committed path
   (`publishSteps`, `native-writer/transaction.ts:257`) runs the outer outcome, every `Publish` and
   `Settle` step and the usage listeners, then, in a `finally` placed **before**
-  `pass.rethrow()`, calls the new binding method `stack.releaseWakes()`, which takes the pending
-  list and hands it to the sink. So a woken task always sees the committed rows and the published
-  events, and a listener or settlement that throws never strands a wake. A rollback has no pending
+  `pass.rethrow()`, calls the new binding method `stack.releaseWakes(frame)` with its own top
+  frame's id, which removes exactly that frame's list and hands it to the sink. So each list is
+  released only after its own transaction's publication, a woken task always sees the committed
+  rows and the published events, and a listener or settlement that throws never strands a wake.
+  An unknown frame id is a no-op; a list still present when the engine closes is dropped and
+  reported once through `onError` (a shell bug, never silent). A rollback has no pending
   release. With the engine off the list is always empty and the call does nothing. No borrow of
   `StackState` is held while the sink runs.
 - **The sink (`ace-engine/src/executor.rs`, `AfterCommit`)**: a `HashMap<u64, Vec<Deferred>>` of
@@ -362,24 +407,47 @@ The skeleton's own flow, with where each unported step fails:
   settles them and never creates a second.
 - **Failed readiness.** If preparation or recovery fails, the ready promise rejects with that
   error, as today, and commands keep getting `engine_starting`. `close()` awaits the ready promise
-  as `:1436` does, so it rejects with the same error, but the terminal cleanup below still runs
-  (it is in a `finally`), so a failed start never leaks the threadsafe function or a timer.
-- **`close()`**, once: `Closing`; cancel the sweep; the module close steps in
+  as `:1436` does, so its result is that error, but the shutdown below still runs, so a failed
+  start never leaks the threadsafe function or a timer.
+- **`close()`** runs as one engine task, spawned once; its promise is the cached `closePromise`.
+  First the module steps: `Closing`; cancel the sweep; the module close steps in
   `index.ts:1428`–`:1466`'s order, each a declared function (E5.2, E5.6, E5.8 fill them); a final
-  flush. Then the **terminal cleanup**, in a `finally`, in this order:
-  1. stop producers: every native session queue is already drained by the module steps (ADR 0223
-     §7 rule 5); cancel every timer the engine armed; unsubscribe from the registry (step 7);
-  2. one last pump turn on the JS thread, to run what the steps above released;
-  3. detach the after-commit sink (a wake released after this is dropped), then
-     `executor.shut()`: `closed` is set, later wakes return before the claim loop, queued
-     runnables are dropped and their tasks cancel;
-  4. every facade promise still pending rejects with `Error("Engine closed")`, so a cancelled
-     task's promise never hangs; a task's own rejection always reaches its promise as the mapped
-     error;
-  5. release the threadsafe function, and with it the process reference (step 6).
+  flush. Then the **shutdown**, reached whether those steps succeeded or failed:
+  1. **Close admission.** Cancel every timer the engine armed, unsubscribe from the registry
+     (step 7), and call `executor.close_admission()`. From here no external producer can
+     enqueue: a session event, I/O completion, timer firing or after-commit release that races it
+     gets `Refused` and is dropped (it is work that arrived after shutdown began, as an item
+     arriving after `Engine.close` is ignored today). Native session queues were already drained
+     by the module steps (ADR 0223 §7 rule 5). New facade calls get `Closing`.
+  2. **Drain through the normal pump.** The close task awaits the receiver from
+     `close_admission` and yields. The drain is the ordinary pump on ordinary macrotasks (the
+     threadsafe call and `setImmediate` re-arms), with the same 64 / 4 ms budget and fairness, so
+     it may take any number of turns. It is never called from inside the close task, so it is
+     never re-entrant. At the end of the first turn that finds the inbox and both run queues
+     empty, the pump completes the receiver; tasks that are only waiting (on a promise that will
+     never settle) do not hold the drain.
+  3. **Settle the close promise.** The close task records its own result (the readiness error or
+     a module step's error, else success). It is settled by step 6 from that result alone; it is
+     never in the set step 5 rejects.
+  4. Detach the after-commit sink, then `executor.shut()`: `closed` is set, the run queues are
+     closed, queued runnables are dropped and their tasks cancel.
+  5. Every **other** facade promise still pending rejects with `Error("Engine closed")`, so
+     cancelled work never leaves a promise hanging; a task's own rejection always reaches its
+     promise as the mapped error.
+  6. Settle the cached close promise from step 3's result, zero the process-reference count,
+     release the threadsafe function (step 6). The close task returns; the pump turn it ran in
+     returns `Done` and nothing re-arms.
 
-  A `close()` called from inside a task (through a port) proceeds, and its wait excludes the
-  calling task, which sees `Closing` at its next await and ends.
+  A `close()` called from inside a task (through a port) gets the same cached promise; the close
+  task's waits exclude the calling task, which sees `Closing` at its next await and ends.
+
+- **Tests** (seam): "a shutdown drain longer than one budget completes over several macrotasks"
+  (the probe queues 200 chained runnables, then close; `turns()` shows more than one turn after
+  admission closed, every runnable ran, no pump entry returned `Stale` from inside the close
+  task); "close settles its own promise even when it cancels pending work" (a pending
+  `ensureProvider` rejects with "Engine closed" while `close()` resolves, and a second `close()`
+  returns the same object); "a failed ready still shuts down" (close rejects with the readiness
+  error, the threadsafe function is released). The racing-producer test is in step 2.
 
 - **A forced exit** (`process.exit`, a signal, a crash) runs none of this. What is lost is what was
   never committed: frames read but not in a committed batch, live deltas the store had not
@@ -535,7 +603,10 @@ stack, and the shell could lose event positions or settlement callbacks.
 - A Rust transaction never resolves a frame's acknowledgement on a savepoint's release
   (ADR 0223 §4); `EngineStore` exposes `is_outermost()` and E5.2 asserts it.
 - **Tests** (through the seam, step 12; new behaviour, since only Rust opens transactions this
-  way): "a JavaScript transaction inside a Rust one publishes both batches once, in position, and
+  way): "a transaction a subscriber commits during another's publication releases its own wakes
+  after its own publication, and the outer's are released after the outer's, each exactly once"
+  (the probe's wake log records how many publications had finished at each release; making
+  `releaseWakes` unkeyed makes it fail); "a JavaScript transaction inside a Rust one publishes both batches once, in position, and
   settles its outcome once"; "a Rust write inside a JavaScript transaction rolls back with it, and
   its deferred wake never runs"; "a subscriber that writes during publication opens a fresh
   top-level transaction, and both wakes run after their own publications"; "a throwing subscriber
@@ -661,21 +732,34 @@ export interface EngineSeam {
 }
 export function engineSeam(input?: {
   seed?: (store: Store) => void | Promise<void>; // fixtures, written before the engine opens
+  seedWithTypeScript?: { script: string; args?: readonly string[] }; // a child with the switch off
   options?: Partial<EngineOptions>; // scripted ports: @ace/adapter-testkit adapters, onError, …
 }): Promise<EngineSeam>;
 ```
 
 - **Fixtures** are rows the TypeScript engine writes, seeded through the store's APIs and the
   existing builders (`engine/test-support.ts`, `recovery-test-support.ts`), never hand-written
-  JSON. A seed may run a TypeScript `Engine` on the home and close it before the native one opens,
-  which is how an item shows that a home TypeScript wrote is read natively.
+  JSON.
+- **A home the TypeScript engine wrote** is seeded in a **child process** with the switch off:
+  `engineSeam({ seedWithTypeScript: { script, args } })` runs `bun <script>` on the temp home with
+  `ACE_ENGINE` and `ACE_NATIVE_CROSS` removed from its environment, waits for it to exit 0, then
+  opens the native engine. It cannot run in the test's own process: the backend is read when
+  `native-switches.ts` is imported (`:93`), so every `Engine` in that process is native. Tests that
+  seed this way are process tests, in one `native-engine/<item>-home.process.test.ts` per item
+  that needs it (the real edge is the second process).
 - **The probe** (`EngineProbe`, compiled only with the cargo feature `engine-probe`, which release
   packaging never sets) exposes executor and store hooks with no thread behaviour:
   `spawn(lane, script)` runs a scripted task (await a timer, call a port, write events in a
   transaction, defer a wake, flush from inside); `defer(threadId)`; `claim()`; `turns()` (polls per
   turn, longest poll); `woken()` (wakes released, in order); and, until E5.3 lands,
   `emptyCandidates()`, which answers the recovery-candidate scan with no rows so `ready()` can
-  resolve. That is the probe's one stub, and E5.3 deletes it. Without the feature, `engineSeam`
+  resolve. That is the probe's one stub, and E5.3 deletes it. E5.1 also **declares** the hook
+  E5.2 needs, so E5.2 does not edit `testing.ts`:
+  `attachSession(threadId, spec: ScriptedSessionSpec): Promise<ProbeSession>`, which attaches a
+  scripted `@ace/adapter-testkit` session to a thread's actor without E5.6's session opening
+  (`ProbeSession` offers `frame(...)`, `exit(code)` and `commands()`). Until E5.2 adds its binding
+  in `engine/probe_actor.rs`, it returns a promise rejected with
+  `NativeEngineIncomplete("attachSession lands in E5.2")`. Without the feature, `engineSeam`
   throws `the engine probe is not built: cargo build --release -p ace-daemon-node --features
   engine-probe`; it never skips.
 - Seam tests live in `native-engine/skeleton.test.ts` (E5.1's) and one `native-engine/<item>.test.ts`
@@ -814,6 +898,14 @@ test -f "$f" && bun --bun x vitest run "$f" --maxWorkers=4
   `scripts/test-home-policy.ts`.
 - `ace-daemon-node`'s `engine-probe` feature and its probe module (`engine/probe.rs`), compiled
   out of release builds.
+- **The addon wiring.** `native/daemon/crates/ace-daemon-node/Cargo.toml`: add
+  `ace-engine = { path = "../ace-engine" }` to `[dependencies]` (beside `ace-store`, `:18`, with a
+  comment saying why) and `[features] engine-probe = []`. `src/lib.rs`: `mod engine;` (`:13`)
+  already declares the module, but nothing builds an engine; add the factory on the database
+  handle, `#[napi] fn native_engine(&self, options: …) -> engine::NativeEngine`, which gives the
+  engine the handle's connection and its shared stack, as `transaction_stack()` does
+  (`writer.rs:137`), and `#[cfg(feature = "engine-probe")] mod probe;` inside `engine/mod.rs`.
+  `engine/probe_actor.rs` is declared there now (empty, E5.2's).
 - Every file under 400 lines; none over 1,500 (`bun run check:size`). Split `executor.rs` into
   `executor/{claim,pump,after_commit}.rs` if it grows past 400.
 - `ace-engine/Cargo.toml`: drop `serde_json` (rule 8: JSON goes through `ace-json`) and add
@@ -827,6 +919,8 @@ test -f "$f" && bun --bun x vitest run "$f" --maxWorkers=4
 - Run a runnable outside `pump`, or start a task from a sync entry except through `defer`.
 - Hold a transaction or a `with_state` borrow across an await.
 - Give the probe any thread behaviour, or ship the `engine-probe` feature.
+- Run a shutdown drain from inside the close task, or let an external producer enqueue after
+  `close_admission`.
 - Change the store's stored formats, `engineSchemaVersion` 9, or `finish_json`'s output.
 - Run the full suite, `bun run check`, `test:process` or any tier; one file at a time (rule 3).
 
@@ -843,6 +937,10 @@ test -f "$f" && bun --bun x vitest run "$f" --maxWorkers=4
 - A missing async binding returns a rejected promise; `ready()` and `close()` return identical
   promise objects on repeated calls.
 - The registry class is unchanged in behaviour; each native view subscribes and unsubscribes.
+- Wake lists are keyed by top frame and each is released after its own publication.
+- `control_streak` lives in the executor and survives a turn's end.
+- Shutdown closes admission first, drains on scheduled macrotasks, and settles the close promise
+  from its own result, apart from cancelled work.
 - `with_state`'s closure type admits no port, executor or store; no `&mut self` on `NativeEngine`.
 - A token is released or dropped exactly once; a rolled-back receipt's wake never runs (make one
   table row fail by moving `dropped` to `released`).
