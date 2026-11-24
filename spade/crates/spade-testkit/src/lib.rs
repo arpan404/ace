@@ -88,6 +88,7 @@ pub struct Script {
     /// Thinking before the text, in order.
     pub thoughts: Vec<FakeThought>,
     tail: Option<StreamTail>,
+    chat_argument_suffix: Option<String>,
 }
 
 impl Script {
@@ -106,6 +107,7 @@ impl Script {
             calls: Vec::new(),
             thoughts: Vec::new(),
             tail: None,
+            chat_argument_suffix: None,
         }
     }
 
@@ -124,6 +126,12 @@ impl Script {
     /// Closes the HTTP body normally, with the last SSE frame missing.
     pub fn omit_stream_end(mut self) -> Self {
         self.tail = Some(StreamTail::Eof);
+        self
+    }
+
+    /// Appends to the first Chat Completions call after its finish reason.
+    pub fn late_chat_arguments(mut self, suffix: &str) -> Self {
+        self.chat_argument_suffix = Some(suffix.to_owned());
         self
     }
 

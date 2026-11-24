@@ -393,6 +393,10 @@ async fn a_streamed_tool_call_arrives_whole_before_done_in_every_format() -> Res
     let prompt = Prompt::ask("Weather?").tools(vec![weather_tool()]);
     for reference in ["chat/kimi", "resp/sol", "msgs/haiku"] {
         let mut stream = std::pin::pin!(models.stream(reference, &prompt).await?);
+        if reference == "resp/sol" {
+            assert!(matches!(stream.next().await, Some(Ok(Delta::Text(_)))));
+            release.notify_one();
+        }
         let closed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
             while let Some(delta) = stream.next().await {
                 match delta? {
@@ -406,7 +410,9 @@ async fn a_streamed_tool_call_arrives_whole_before_done_in_every_format() -> Res
             Err("stream ended before a tool-call boundary".into())
         })
         .await??;
-        release.notify_one();
+        if reference != "resp/sol" {
+            release.notify_one();
+        }
         let deltas: Vec<Delta> = stream
             .collect::<Vec<_>>()
             .await
@@ -435,7 +441,7 @@ async fn a_streamed_tool_call_arrives_whole_before_done_in_every_format() -> Res
 }
 
 #[tokio::test]
-async fn a_responses_stream_without_its_terminal_frame_cannot_finish_a_step() -> Result {
+async fn a_responses_stream_without_its_terminal_frame_finishes_without_early_calls() -> Result {
     let fake = FakeProvider::start_with(
         Script::reply("Let me check")
             .call("call_7", "get_weather", json!({ "city": "Kathmandu" }))
@@ -445,21 +451,19 @@ async fn a_responses_stream_without_its_terminal_frame_cannot_finish_a_step() ->
     let models = models(&fake)?;
     let prompt = Prompt::ask("Weather?").tools(vec![weather_tool()]);
     let mut stream = std::pin::pin!(models.stream("resp/sol", &prompt).await?);
-    let mut closed = false;
+    let mut text = String::new();
     while let Some(delta) = stream.next().await {
-        match delta {
-            Ok(Delta::CallClosed(_)) => closed = true,
-            Ok(Delta::Call(_) | Delta::Done { .. }) => panic!("truncated response finished"),
-            Err(error) => {
-                assert!(closed);
-                assert!(error.may_have_billed());
-                assert!(!error.transient());
+        match delta? {
+            Delta::CallClosed(_) => panic!("started an early call without a terminal frame"),
+            Delta::Text(piece) => text.push_str(&piece),
+            Delta::Done { .. } => {
+                assert_eq!(text, "Let me check");
                 return Ok(());
             }
             _ => {}
         }
     }
-    Err("truncated response ended without an error".into())
+    Err("clean EOF did not finish".into())
 }
 
 #[tokio::test]
