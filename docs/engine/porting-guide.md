@@ -557,13 +557,16 @@ Steps, in order:
 
    ```rust
    pub enum GateState { Open, Paused, Failed, Draining }
-   pub struct ReadGate { /* Mutex<Inner { state: GateState, before_drain: Option<GateState>, exited: bool, output: Option<OutputControl> }> */ }
+   pub struct ReadGate { /* Mutex<Inner { state: GateState, before_drain: Option<GateState>, paused_while_draining: Option<bool>, exited: bool, output: Option<OutputControl> }> */ }
    impl ReadGate {
        pub fn attach(&self, output: OutputControl);
        /// Answers one delivered chunk under the gate's lock: `delivered.taken(false)` for Paused
        /// and Failed, `taken(true)` for Open and Draining. Never read the state and answer later.
        pub fn answer(&self, delivered: Delivered);
-       pub fn set_paused(&self, paused: bool); // under the lock; Paused→Open resumes both streams
+       /// Under the lock. Paused→Open resumes both streams. In Draining it changes nothing now
+       /// but records the latest value in `paused_while_draining`, so a pause or resume that
+       /// arrives during a stop is not lost.
+       pub fn set_paused(&self, paused: bool);
        /// Latches failure: no resume ever. In Draining it only sets `before_drain = Failed`
        /// (the drain goes on), so a later undrain restores Failed.
        pub fn fail(&self);
@@ -571,10 +574,14 @@ Steps, in order:
        /// streams. A second drain keeps the first saved state.
        pub fn drain(&self);
        pub fn exited(&self);                // sets `exited`, then drain()
-       /// A close whose stop failed: restore `before_drain` exactly and clear it. Open stays
-       /// open; Paused stays paused (the next chunk is answered taken(false)); Failed stays
-       /// failed and is never resumed. Only a later set_paused(false) moves Paused→Open, and
-       /// nothing moves Failed. A no-op once `exited` is set, or when not Draining.
+       /// A close whose stop failed: restore `before_drain`, then apply `paused_while_draining`
+       /// if one was recorded, and clear both. So: Failed stays failed whatever was recorded,
+       /// and is never resumed. Open or Paused with a recorded `false` (outputFlow.wait()
+       /// resolved during the stop) comes back Open, with both streams resumed. Open or Paused
+       /// with a recorded `true` comes back Paused. With nothing recorded, the state before the
+       /// drain comes back exactly (Paused answers the next chunk taken(false), and only a later
+       /// set_paused(false) moves it to Open). A no-op once `exited` is set, or when not
+       /// Draining.
        pub fn undrain(&self);
    }
    ```
@@ -981,18 +988,25 @@ Steps, in order:
       so a retry keeps the first attempt's record:
       1. on the first attempt only, `firstTree = recordTree(proc.pid)` while the leader is alive,
          then `proc.stdin.end()`;
-      2. on every attempt, if the leader is still alive, `fresh = recordTree(proc.pid)`, a new
-         snapshot that may name descendants started since;
-      3. `await proc.stop({ graceMs: 1000 })`, then `await firstTree.end()` and
-         `await fresh?.end()`, in that order. A `RecordedTree` can be ended again, and it keeps the
-         members it proved (`tree-stop.ts:105`–`:125`), so a retry stops the union of both
-         records, including descendants that outlived a leader which has since exited.
+      2. on every attempt, if the leader is still alive, push `recordTree(proc.pid)` onto
+         `trees: RecordedTree[]` (which starts as `[firstTree]`). It is a new snapshot that may
+         name descendants started since. `trees` lives for the session: no snapshot is ever
+         dropped, whether its attempt succeeded or failed;
+      3. `await proc.stop({ graceMs: 1000 })`, then `await tree.end()` for every tree in
+         `trees`, oldest first. A `RecordedTree` can be ended again, and it keeps the members it
+         proved (`tree-stop.ts:105`–`:125`), so every attempt stops the union of every snapshot
+         taken so far, including descendants found only by an earlier failed attempt after the
+         leader has exited.
    4. If the stop rejects: clear the in-flight promise, restore `deliberate`, call
       `handle.undrain()` (E3.0c: the gate's state before the drain comes back exactly, and a
       latched failure stays failed), and reject with the stop's error. **The session is then
       stop-only, not usable.** On Windows stdin is already closed and can't be reopened, and on
-      POSIX signals have been sent, so `closing` stays `true` and `check()` keeps refusing
-      commands. The handle, its queue, the dialogs, `firstTree` and the child are untouched, so
+      POSIX signals have been sent, so `closing` stays `true`. **No write follows a failed
+      stop.** `check()` refuses commands, and `resolve()` refuses as well: replace its
+      `checkOpen()` (`session.ts:431`) with a `checkWritable()` that throws
+      `Error("Pi session closed")` when `closed` or `closing` is set, and otherwise does what
+      `checkOpen()` does. `fork` and `rollback` already go through `check()`. The handle, its
+      queue, the dialogs, `trees` and the child are untouched, so
       frames still reach the engine, the engine can give the session back
       (`engine/sessions.ts:1064`–`:1069`), and the only thing a later `close` does is try the
       stop again (step 3).
@@ -1026,7 +1040,8 @@ Steps, in order:
   before a stop is confirmed.
 - **Reviewer checks**: a hunk-by-hunk diff of `native-session.ts` against `session.ts` shows
   only the replacements above, plus step 7's close; a failed stop leaves the session whole but
-  stop-only (`request` refuses, frames still flow, a retried close reuses `firstTree`); a
+  stop-only (`request`, `resolve` and every other write refuse, frames still flow, and a retried
+  close ends every tree in `trees`); a
   successful close resolves after `Drained`; no frame is built outside the bridge; the files
   pass in all three modes.
 
