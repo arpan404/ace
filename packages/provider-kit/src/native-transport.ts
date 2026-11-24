@@ -136,6 +136,75 @@ function isNativeLoopbackClass(value: unknown): value is NativeLoopbackClass {
   );
 }
 
+/** The fields node puts on a failed `listen`, as `bind_rejection` hands them over. */
+interface BindFailureFields {
+  code: string;
+  errno: number;
+  syscall: string;
+  address: string;
+  port: number;
+  message: string;
+}
+
+/** Those fields, checked before a JavaScript error takes them. */
+function bindFailureFields(value: unknown): BindFailureFields | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const fields = value as Record<string, unknown>;
+  if (
+    typeof fields["code"] !== "string" ||
+    typeof fields["errno"] !== "number" ||
+    typeof fields["syscall"] !== "string" ||
+    typeof fields["address"] !== "string" ||
+    typeof fields["port"] !== "number" ||
+    typeof fields["message"] !== "string"
+  )
+    return undefined;
+  return {
+    code: fields["code"],
+    errno: fields["errno"],
+    syscall: fields["syscall"],
+    address: fields["address"],
+    port: fields["port"],
+    message: fields["message"],
+  };
+}
+
+/**
+ * A listener start's failure as node's `listen` reports it. The binding writes the errno's name
+ * (`EADDRINUSE`, `EACCES`, `EADDRNOTAVAIL`, ...), node's `errno`, the call and the address as JSON
+ * in the error's message, since napi's error can carry only its status as `code`; here it becomes
+ * a real Error with those fields, so a caller that branches on `error.code` sees node's answer.
+ * Anything that is not one of those payloads is returned untouched.
+ */
+function bindFailure(error: unknown): unknown {
+  if (!(error instanceof Error)) return error;
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(error.message);
+  } catch {
+    return error;
+  }
+  const fields = bindFailureFields(decoded);
+  if (fields === undefined) return error;
+  const failure = Object.assign(new Error(fields.message), fields);
+  return failure;
+}
+
+/** The addon's class with its statics kept, its start's bind failure in node's shape. */
+function nodeShaped(loopback: NativeLoopbackClass): NativeLoopbackClass {
+  return {
+    generateSecret: () => loopback.generateSecret(),
+    start: async (options, admit, release, opened) => {
+      try {
+        return await loopback.start(options, admit, release, opened);
+      } catch (error) {
+        throw bindFailure(error);
+      }
+    },
+    underflowCount: () => loopback.underflowCount(),
+  };
+}
+
 let loaded: TransportAddon | undefined;
 
 /**
@@ -161,7 +230,7 @@ export function transportAddon(): TransportAddon {
     throw new Error(
       `The transport addon at ${path} exports no NativeLoopback class with generateSecret, start and underflowCount; rebuild it with cargo build --release in native/daemon`,
     );
-  loaded = { NativeLoopback: loopback };
+  loaded = { NativeLoopback: nodeShaped(loopback) };
   return loaded;
 }
 

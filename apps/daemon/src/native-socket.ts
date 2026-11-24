@@ -61,9 +61,12 @@ export class NativeSocket extends EventEmitter implements MainSocket {
   /** Bytes a send after close accounted for; `bufferedAmount` adds them to the socket's own. */
   #afterCloseBytes = 0;
   /**
-   * `ws`'s ready state as the handler sees it. It moves to CLOSING the moment a close,
-   * a terminate or an error starts one, which the Rust side may already know first, and to
-   * CLOSED only when the close event arrives; a send in between takes ws's after-close path.
+   * `ws`'s ready state as the handler sees it. It moves to CLOSING the moment a close, a
+   * terminate or an error starts one, and the getter also takes the Rust socket's own state
+   * once that is no longer OPEN, so a peer's close frame is visible before its `close` event
+   * crosses the threadsafe function. As in `ws` (`receiverOnConclude` calls `close()`), that is
+   * CLOSING: CLOSED is published only with the `close` event, so a queued message's handler still
+   * sees a socket that is not silently gone. A send in between takes ws's after-close path.
    */
   #state: ReadyState = OPEN;
 
@@ -76,6 +79,16 @@ export class NativeSocket extends EventEmitter implements MainSocket {
   }
 
   get readyState(): ReadyState {
+    // The Rust socket seals its state when the peer's close frame arrives, before that `close`
+    // crosses the threadsafe function. Reading it here lets a caller see a closing socket on the
+    // turn `ws` reports one: notification delivery must not hand a frame to a device whose socket
+    // is already gone (`notification-race.process`), and a close request still gets its bounded
+    // grace (`server-socket-close.ts`).
+    if (this.#state === OPEN) {
+      // CLOSING, never CLOSED: Rust's sealed state means the peer's close frame arrived, and the
+      // `close` event that publishes CLOSED is still ahead in this socket's ordered events.
+      if (this.#handle.readyState() !== OPEN) this.#state = CLOSING;
+    }
     return this.#state;
   }
 
@@ -135,9 +148,13 @@ export class NativeSocket extends EventEmitter implements MainSocket {
     }
   }
 
-  /** After a refused enqueue: CLOSED if the close event came, else CLOSING; never OPEN. */
+  /**
+   * After a refused enqueue: CLOSING until the close event publishes CLOSED. Rust may already
+   * have sealed (the peer's close frame arrived between the state check and the enqueue), and
+   * `ws` still reports CLOSING there; CLOSED is the event's alone.
+   */
   #mirrorNativeState(): void {
-    this.#state = this.#handle.readyState() === CLOSED ? CLOSED : CLOSING;
+    if (this.#state !== CLOSED) this.#state = CLOSING;
   }
 
   /** A send that queued nothing: its callback fails on the next tick, as ws's does. */
