@@ -6,7 +6,9 @@ extension ConversationFeed {
         TranscriptCollectionEvents(
             phase: { old, phase, geometry, velocity in scrollPhaseChanged(from: old, to: phase, geometry: geometry, velocity: velocity, proxy: proxy) },
             geometry: { old, new in scrollGeometryChanged(from: Self.metrics(old), to: Self.metrics(new), proxy: proxy) },
-            rowLaidOut: { id, frame in rowLaidOut(id, frame: TranscriptScrollAxis.row(frame), proxy: proxy) },
+            rowsLaidOut: { rows, geometry in
+                rowsLaidOut(rows, geometry: geometry.map { (Self.metrics($0.old), Self.metrics($0.new)) }, proxy: proxy)
+            },
             rowAppeared: { _ in
                 ThreadOpenTrace.shared.painted(thread.id); PerfProbe.add("rows.appeared", 1); PerfCounters.bump("row.appear")
                 if !rowsPainted { rowsPainted = true }
@@ -27,6 +29,20 @@ extension ConversationFeed {
         guard !moves else { return false }
         pageIfNeeded(proxy)
         return intent.consumed || (older && reading.loading)
+    }
+
+    /// Rows the layout placed again, and the offset it moved with them. The offset is taken
+    /// first, without refreshing the held place, so the place keeper sees each row where it now
+    /// is on screen: a resize the layout already corrected for isn't corrected again.
+    func rowsLaidOut(_ rows: [(id: String, frame: CGRect)],
+                     geometry: (old: TranscriptScrollIntent.Metrics, new: TranscriptScrollIntent.Metrics)?,
+                     proxy: TranscriptSurface) {
+        if let new = geometry?.new, !intent.isolatingFling {
+            intent.metrics = new
+            anchor.keeper.trackOrigin(TranscriptScrollAxis.origin(offset: -new.y, viewport: new.viewport))
+        }
+        for row in rows { rowLaidOut(row.id, frame: TranscriptScrollAxis.row(row.frame), proxy: proxy) }
+        if let geometry { scrollGeometryChanged(from: geometry.old, to: geometry.new, proxy: proxy) }
     }
 
     /// The scroll's physical geometry in the feed's terms: `y` and the distances in screen order.

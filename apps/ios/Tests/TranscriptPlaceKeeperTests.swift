@@ -63,6 +63,24 @@ import Testing
         #expect(feed.corrections.count == 1)
     }
 
+    @Test func aRowTheLayoutResizedAlongWithTheOffsetLeavesTheHeldRowAlone() {
+        var feed = Feed(rows: ["a", "b", "c", "d"])
+        feed.send(.phase(.gesture))
+        feed.send(.origin(-150))
+        feed.send(.phase(.idle))
+        #expect(feed.held == TranscriptHeldAnchor(rowID: "b", itemID: nil, top: -50))
+        // c, on screen below the held row, grows by 60. The flipped layout keeps the screen's top
+        // still: the rows past c move up the content by 60 and the offset moves with them. The
+        // feed takes the offset first, then the frames, as one change.
+        feed.keeper.trackOrigin(-90)
+        feed.layOut("a", y: -60)
+        feed.layOut("b", y: 40)
+        feed.layOut("c", y: 140, height: 160)
+        #expect(feed.top("b") == -50)
+        #expect(feed.corrections.isEmpty, "the layout already kept the reader's place")
+        #expect(feed.held == TranscriptHeldAnchor(rowID: "b", itemID: nil, top: -50))
+    }
+
     @Test func aCorrectionOwedDuringAnAnimationRunsOnceTheAnimationEnds() {
         var feed = Feed(rows: ["a", "b", "c"])
         feed.held = TranscriptHeldAnchor(rowID: "b", itemID: nil, top: 100)

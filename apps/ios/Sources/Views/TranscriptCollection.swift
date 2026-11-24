@@ -33,7 +33,12 @@ struct TranscriptCollectionEvents {
     var phase: (_ old: TranscriptScrollPhase, _ new: TranscriptScrollPhase, _ geometry: TranscriptScrollGeometry,
                 _ releaseVelocity: Double?) -> Void = { _, _, _, _ in }
     var geometry: (_ old: TranscriptScrollGeometry, _ new: TranscriptScrollGeometry) -> Void = { _, _ in }
-    var rowLaidOut: (_ id: String, _ frame: CGRect) -> Void = { _, _ in }
+    /// Rows the layout placed again, with the scroll geometry as it left it, when that changed
+    /// too: a resize it corrected the offset for, a window change. One change, so the feed never
+    /// sees a row moved against the offset from before.
+    var rowsLaidOut: (_ rows: [(id: String, frame: CGRect)], _ geometry: (old: TranscriptScrollGeometry,
+                                                                           new: TranscriptScrollGeometry)?) -> Void
+        = { _, _ in }
     var rowAppeared: (_ id: String) -> Void = { _ in }
     var rowGone: (_ id: String) -> Void = { _ in }
     /// An assistive swipe pages toward older rows or newer, moving the feed or not (at the
@@ -127,6 +132,8 @@ struct TranscriptCollection: UIViewRepresentable {
         private var gone: [String] = []
         private var reportedFrames: [String: CGRect] = [:]
         private var flushQueued = false
+        /// A row resized and its frames wait for the offset correction UIKit applies with them.
+        private var resizing = false
         private var updating = false
         /// A window change that would move the offset, held while the reader scrolls.
         private var waiting: (entries: [TranscriptEntry], estimate: (String) -> CGFloat?, style: AnyHashable)?
@@ -142,6 +149,7 @@ struct TranscriptCollection: UIViewRepresentable {
                 view.dequeueConfiguredReusableCell(using: registration, for: path, item: id)
             }
             layout.changed = { [weak self] in self?.queueFlush() }
+            layout.resized = { [weak self] in self?.resizePending() }
             tap.addTarget(self, action: #selector(tapped))
             tap.isEnabled = false
             view.addGestureRecognizer(tap)
@@ -167,6 +175,7 @@ struct TranscriptCollection: UIViewRepresentable {
         func detach() {
             view?.delegate = nil
             layout?.changed = nil
+            layout?.resized = nil
         }
 
         func holdsScreenTop(_ holds: Bool) { layout?.holdsScreenTop = holds }
@@ -308,44 +317,65 @@ struct TranscriptCollection: UIViewRepresentable {
 
         /// Reports what changed since the last report, outside any SwiftUI update.
         private func queueFlush() {
-            if updating {
-                guard !flushQueued else { return }
-                flushQueued = true
-                DispatchQueue.main.async { [weak self] in
-                    self?.flushQueued = false
-                    self?.flush()
-                }
-                return
+            if updating { flushSoon() } else { flush() }
+        }
+
+        private func flushSoon() {
+            guard !flushQueued else { return }
+            flushQueued = true
+            DispatchQueue.main.async { [weak self] in
+                self?.flushQueued = false
+                self?.flush()
             }
-            flush()
+        }
+
+        /// A row measured to a new height: its frames go out once UIKit has applied the offset
+        /// correction that comes with them (`scrollViewDidScroll`), or on the next turn of the
+        /// run loop when there was none. Reported now, against the old offset, they would show
+        /// the reader's row moved and the feed would correct it a second time.
+        private func resizePending() {
+            resizing = true
+            flushSoon()
         }
 
         private func flush() {
             guard let view, let layout else { return }
+            resizing = false
             for id in gone { events.rowGone(id) }
             gone.removeAll()
             for id in appeared { events.rowAppeared(id) }
             appeared.removeAll()
             let geometry = layout.geometry
+            var laidOut: [(id: String, frame: CGRect)] = []
             for id in shownRows {
                 guard let index = geometry.position(of: id) else { continue }
                 let frame = CGRect(x: 0, y: geometry.top(at: index), width: view.bounds.width, height: geometry.height(at: index))
                 guard reportedFrames[id] != frame else { continue }
                 reportedFrames[id] = frame
-                events.rowLaidOut(id, frame)
+                laidOut.append((id, frame))
             }
-            reportGeometry()
+            if laidOut.isEmpty {
+                reportGeometry()
+            } else {
+                events.rowsLaidOut(laidOut, takeGeometry())
+            }
         }
 
         private func reportGeometry() {
-            guard let view else { return }
+            guard let (old, now) = takeGeometry() else { return }
+            events.geometry(old, now)
+        }
+
+        /// The scroll geometry since the last report, when it changed.
+        private func takeGeometry() -> (old: TranscriptScrollGeometry, new: TranscriptScrollGeometry)? {
+            guard let view else { return nil }
             let now = TranscriptScrollGeometry(offset: view.contentOffset.y,
                                                contentHeight: layout?.geometry.contentHeight ?? view.contentSize.height,
                                                viewport: view.bounds.height)
-            guard now != reported else { return }
+            guard now != reported else { return nil }
             let old = reported
             reported = now
-            events.geometry(old, now)
+            return (old, now)
         }
 
         // MARK: Phases
@@ -366,7 +396,7 @@ struct TranscriptCollection: UIViewRepresentable {
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
-            if updating { queueFlush() } else { reportGeometry() }
+            if updating { flushSoon() } else if resizing { flush() } else { reportGeometry() }
         }
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { move(to: .interacting) }

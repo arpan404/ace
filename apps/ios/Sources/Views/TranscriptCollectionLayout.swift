@@ -22,8 +22,11 @@ import UIKit
     /// The reader is away from the live end: a row on screen that grows keeps the screen's top
     /// still and grows down past them (`TranscriptStackGeometry.offsetAdjustment`).
     var holdsScreenTop = false
-    /// The entries' frames or the content's height changed.
+    /// The entries' frames or the content's height changed with a window change.
     var changed: (() -> Void)?
+    /// An entry measured to a new height. UIKit moves the offset by the layout's correction only
+    /// after this returns, so the frames are reported with the offset once it has.
+    var resized: (() -> Void)?
     private var pending: (ids: [String], estimate: (String) -> CGFloat?, anchor: String?)?
     private var adjustment: CGFloat = 0
 
@@ -106,7 +109,7 @@ import UIKit
         let bounds = collectionView.bounds
         let reach = geometry.indices(from: geometry.top(at: index), to: bounds.maxY + bounds.height * 3)
         context.invalidateItems(at: reach.map { IndexPath(item: $0, section: 0) })
-        changed?()
+        resized?()
         return context
     }
 
