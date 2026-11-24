@@ -509,6 +509,7 @@ impl Models {
         format: Option<genai::chat::ChatResponseFormat>,
     ) -> Result<impl Stream<Item = Result<Delta, ModelError>> + Send + use<>, ModelError> {
         let signed = call.signed.is_some();
+        let responses = call.target.model.adapter_kind == crate::Format::OpenAiResponses.adapter();
         let mut options = call.options;
         if let Some(format) = format {
             options = options.with_response_format(format);
@@ -545,8 +546,17 @@ impl Models {
                     Ok(ChatStreamEvent::ReasoningChunk(chunk)) => {
                         Some(vec![Ok(Delta::Reasoning(chunk.content))])
                     }
+                    // The Responses adapter also yields End at EOF without a terminal response.
+                    Ok(ChatStreamEvent::End(end))
+                        if responses && end.captured_response_id.is_none() =>
+                    {
+                        Some(vec![Err(ModelError::Provider {
+                            model: reference.clone(),
+                            message: "the model's reply ended early".to_owned(),
+                        })])
+                    }
                     Ok(ChatStreamEvent::End(end)) => {
-                        // Complete tool calls are only known at the end, once arguments are whole.
+                        // Only the final call list can be stored.
                         let mut out: Vec<Result<Delta, ModelError>> = end
                             .captured_tool_calls()
                             .unwrap_or_default()

@@ -58,6 +58,7 @@ pub enum FakeThought {
 enum StreamTail {
     Hold(Arc<tokio::sync::Notify>),
     Cut(Arc<tokio::sync::Notify>),
+    Eof,
 }
 
 /// How the fake answers one request.
@@ -117,6 +118,12 @@ impl Script {
     /// Waits at the end, then drops the transport before the last frame.
     pub fn cut_stream_end(mut self, release: Arc<tokio::sync::Notify>) -> Self {
         self.tail = Some(StreamTail::Cut(release));
+        self
+    }
+
+    /// Closes the HTTP body normally, with the last SSE frame missing.
+    pub fn omit_stream_end(mut self) -> Self {
+        self.tail = Some(StreamTail::Eof);
         self
     }
 
@@ -460,6 +467,7 @@ fn sse(frames: Vec<Frame>, delay: Duration, tail: Option<StreamTail>) -> Respons
                             (frames, tail),
                         ));
                     }
+                    Some(StreamTail::Eof) => return None,
                     None => {}
                 }
             }

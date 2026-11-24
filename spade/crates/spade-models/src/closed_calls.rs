@@ -9,11 +9,15 @@ use tokio::sync::mpsc;
 
 use crate::ToolCall;
 
-pub(crate) fn tap(options: ChatOptions) -> (ChatOptions, mpsc::UnboundedReceiver<ToolCall>) {
+pub(crate) fn tap(mut options: ChatOptions) -> (ChatOptions, mpsc::UnboundedReceiver<ToolCall>) {
     let (send, receive) = mpsc::unbounded_channel();
     let blocks = Mutex::new(HashMap::new());
     let chat = Mutex::new(BTreeMap::new());
-    let options = options.with_raw_frame_fn(move |_, frame| {
+    let previous = options.raw_frame_sink.take();
+    let options = options.with_raw_frame_fn(move |context, frame| {
+        if let Some(previous) = &previous {
+            previous.on_frame(context, frame);
+        }
         let event = frame.event.unwrap_or("message");
         match event {
             "response.output_item.done" => {

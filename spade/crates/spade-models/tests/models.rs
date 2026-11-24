@@ -377,16 +377,36 @@ async fn tools_are_offered_and_a_call_comes_back_in_every_format() -> Result {
 
 #[tokio::test]
 async fn a_streamed_tool_call_arrives_whole_before_done_in_every_format() -> Result {
-    let fake = FakeProvider::start_with(Script::reply("Let me check").chunks(3).call(
-        "call_7",
-        "get_weather",
-        json!({ "city": "Kathmandu", "units": "metric" }),
-    ))
+    let release = std::sync::Arc::new(tokio::sync::Notify::new());
+    let fake = FakeProvider::start_with(
+        Script::reply("Let me check")
+            .chunks(3)
+            .call(
+                "call_7",
+                "get_weather",
+                json!({ "city": "Kathmandu", "units": "metric" }),
+            )
+            .hold_stream_end(release.clone()),
+    )
     .await?;
     let models = models(&fake)?;
     let prompt = Prompt::ask("Weather?").tools(vec![weather_tool()]);
     for reference in ["chat/kimi", "resp/sol", "msgs/haiku"] {
-        let stream = models.stream(reference, &prompt).await?;
+        let mut stream = std::pin::pin!(models.stream(reference, &prompt).await?);
+        let closed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while let Some(delta) = stream.next().await {
+                match delta? {
+                    Delta::CallClosed(call) => {
+                        return Ok::<_, Box<dyn std::error::Error + Send + Sync>>(call);
+                    }
+                    Delta::Done { .. } => break,
+                    _ => {}
+                }
+            }
+            Err("stream ended before a tool-call boundary".into())
+        })
+        .await??;
+        release.notify_one();
         let deltas: Vec<Delta> = stream
             .collect::<Vec<_>>()
             .await
@@ -399,15 +419,7 @@ async fn a_streamed_tool_call_arrives_whole_before_done_in_every_format() -> Res
                 _ => None,
             })
             .collect();
-        let closed: Vec<_> = deltas
-            .iter()
-            .filter_map(|delta| match delta {
-                Delta::CallClosed(call) => Some(call),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(closed, calls, "{reference}: {deltas:?}");
-        assert_eq!(calls.len(), 1, "{reference}: {deltas:?}");
+        assert_eq!(calls, vec![&closed], "{reference}: {deltas:?}");
         assert_eq!(calls[0].id, "call_7", "{reference}");
         assert_eq!(
             calls[0].arguments,
@@ -420,6 +432,34 @@ async fn a_streamed_tool_call_arrives_whole_before_done_in_every_format() -> Res
         );
     }
     Ok(())
+}
+
+#[tokio::test]
+async fn a_responses_stream_without_its_terminal_frame_cannot_finish_a_step() -> Result {
+    let fake = FakeProvider::start_with(
+        Script::reply("Let me check")
+            .call("call_7", "get_weather", json!({ "city": "Kathmandu" }))
+            .omit_stream_end(),
+    )
+    .await?;
+    let models = models(&fake)?;
+    let prompt = Prompt::ask("Weather?").tools(vec![weather_tool()]);
+    let mut stream = std::pin::pin!(models.stream("resp/sol", &prompt).await?);
+    let mut closed = false;
+    while let Some(delta) = stream.next().await {
+        match delta {
+            Ok(Delta::CallClosed(_)) => closed = true,
+            Ok(Delta::Call(_) | Delta::Done { .. }) => panic!("truncated response finished"),
+            Err(error) => {
+                assert!(closed);
+                assert!(error.may_have_billed());
+                assert!(!error.transient());
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
+    Err("truncated response ended without an error".into())
 }
 
 #[tokio::test]

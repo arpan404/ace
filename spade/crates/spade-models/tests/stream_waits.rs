@@ -7,9 +7,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use axum::body::{Body, Bytes};
+use futures_util::StreamExt;
 use spade_models::{
-    Bearers, Catalog, Credential, DispatchGuard, Endpoint, Format, Keys, Model, Models, Prompt,
-    SignIn, StreamWaits,
+    Bearers, Catalog, Credential, Delta, DispatchGuard, Endpoint, Format, Keys, Model, Models,
+    Prompt, SignIn, StreamWaits,
 };
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -125,8 +126,18 @@ async fn a_model_reasoning_quietly_behind_heartbeats_is_not_cut_off_at_the_heade
     frames.extend([(Duration::ZERO, DELTA), (Duration::ZERO, DONE)]);
     let (root, asked, answered) = backend(frames).await?;
     let (models, released) = models(&root, QUICK)?;
-    let reply = models.chat("chatgpt-a/m", &Prompt::ask("hi")).await?;
-    assert_eq!(reply.text, "ok");
+    let mut stream = std::pin::pin!(models.stream("chatgpt-a/m", &Prompt::ask("hi")).await?);
+    let mut text = String::new();
+    let mut done = false;
+    while let Some(delta) = stream.next().await {
+        match delta? {
+            Delta::Text(piece) => text.push_str(&piece),
+            Delta::Done { .. } => done = true,
+            _ => {}
+        }
+    }
+    assert!(done);
+    assert_eq!(text, "ok");
     assert_eq!(asked.load(Ordering::SeqCst), 1);
     // Leave to send went at the first frame, long before the answer's text.
     let released = released
