@@ -70,6 +70,16 @@ impl NodeIoError {
         }
     }
 
+    /// Node's errno name (`EPIPE`, `EADDRINUSE`).
+    pub fn code(&self) -> &'static str {
+        self.code
+    }
+
+    /// Node's `errno`, the negated libuv value.
+    pub fn errno(&self) -> i32 {
+        self.errno
+    }
+
     /// The JSON the shell parses.
     pub fn to_json(&self) -> String {
         let mut fields = serde_json::Map::new();
@@ -183,6 +193,8 @@ fn raw_errno_name(errno: i32) -> Option<&'static str> {
         (Errno::NOTCONN, "ENOTCONN"),
         (Errno::TIMEDOUT, "ETIMEDOUT"),
         (Errno::CONNREFUSED, "ECONNREFUSED"),
+        (Errno::ADDRINUSE, "EADDRINUSE"),
+        (Errno::ADDRNOTAVAIL, "EADDRNOTAVAIL"),
         (Errno::NOSPC, "ENOSPC"),
         (Errno::NXIO, "ENXIO"),
         (Errno::NODEV, "ENODEV"),

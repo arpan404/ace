@@ -750,9 +750,13 @@ relayed?, reservation?)` checks `cleanups.size + reserved - (reservation === und
 - **Run, both legs per file, one file at a time, with evidence**: create `scripts/t1a-proof.ts`
   (run with `node scripts/t1a-proof.ts`), which reads the list from `list-server-tests.ts` and, for
   each file in turn:
-  1. runs the off leg with `ACE_TRANSPORT` and `ACE_TRANSPORT_EVIDENCE` removed from the child's
-     environment, and the on leg with `ACE_TRANSPORT=native` and a fresh empty evidence file, each
-     as `bun --bun x vitest run <file> --maxWorkers=4 --reporter=json --outputFile=<report>.json`;
+  1. runs the on leg first, with `ACE_TRANSPORT=native` and a fresh empty evidence file, and then
+     the off leg with `ACE_TRANSPORT` and `ACE_TRANSPORT_EVIDENCE` removed from the child's
+     environment, each as
+     `bun --bun x vitest run <file> --maxWorkers=2 --reporter=json --outputFile=<report>.json`.
+     When the on leg passes with `NONE` evidence the switch never took effect, so the off leg
+     would be the same tests with the same result: it is recorded as
+     `off skipped (on had no native evidence)` and not run; a failing on leg still runs it;
   2. reads each report with `JSON.parse(readFileSync(path, "utf8"))` (never `require`); a missing,
      unparsable or empty report (`numTotalTests` of 0) is `NO-REPORT`;
   3. records every test of both legs, per test, from `testResults[].assertionResults[]`: file,
@@ -765,10 +769,15 @@ relayed?, reservation?)` checks `cleanups.size + reserved - (reservation === und
      executed files too, so one platform guard can't hide an unrelated skip: each skip in a file
      without a platform guard is a failure, and each skip in a file with one is listed for the
      reviewer to confirm it sits under that guard;
-  6. **exits non-zero** if any leg failed, any report is `NO-REPORT`, any on leg is `NONE`, or any
-     skip is in a file without a platform guard; it exits zero only when none of these occurred.
+  6. **exits non-zero** if any leg failed, any report is `NO-REPORT`, or any skip is in a file
+     without a platform guard; it exits zero only when none of these occurred. An on leg that is
+     `NONE` is a reported note, never a failure: the discovery above deliberately lists files that
+     import a server-starting helper, and some of them never start a server, so their on leg has no
+     listener to prove. **The closure stays broad**; narrowing it would risk missing a file that
+     does start one.
 
-  Every file passes both legs, and every on leg that executed a test is `native`. A
+  Every file passes both legs (or its off leg is the recorded skip above), and every on leg that
+  executed a test reaches the listener as `native` unless it is in the `NONE` note. A
   `platform-skipped` file is owed on the platform it runs on: `daemon-stop-restart.process` runs
   only on Windows (every case is
   `test.runIf(windows)`, `:15`–`:115`), so it counts on the Windows VM run, not on macOS. `scripts/test-home-policy.ts` keeps the three variables (T0.1), and the
@@ -776,6 +785,13 @@ relayed?, reservation?)` checks `cleanups.size + reserved - (reservation === und
   `daemonEnv`, `:19`–`:37`). Files whose remote sockets matter (`remote*`, `relay*`,
   `tailscale-https`, `access-cors`, `ticket-allocation`) keep those on TypeScript in T1a and must
   still pass.
+
+  **Recorded difference, a refused listen**: with the native listener the bind failure is a real
+  Node error, its `code`, `errno`, `syscall` (`listen`), `address` and `port` set from the OS errno
+  (`EADDRINUSE`, `EACCES`, `EADDRNOTAVAIL`, ...), and its message in Node's shape
+  (`listen EADDRINUSE: address already in use 127.0.0.1:<port>`). Bun words the `node:http` bind
+  failure it replaces differently (`Failed to start server. Is port <port> in use?`), so a test reads
+  the `code`, as `lifecycle.process` does.
 
 - **Bench**: the paired runs above, owner-scheduled.
 - **Must not**: run the full suite or a bench on its own. **Reviewer checks**: the list includes

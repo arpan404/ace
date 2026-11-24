@@ -61,9 +61,11 @@ export class NativeSocket extends EventEmitter implements MainSocket {
   /** Bytes a send after close accounted for; `bufferedAmount` adds them to the socket's own. */
   #afterCloseBytes = 0;
   /**
-   * `ws`'s ready state as the handler sees it. It moves to CLOSING the moment a close,
-   * a terminate or an error starts one, which the Rust side may already know first, and to
-   * CLOSED only when the close event arrives; a send in between takes ws's after-close path.
+   * `ws`'s ready state as the handler sees it. It moves to CLOSING the moment a close, a
+   * terminate or an error starts one, and the getter also takes the Rust socket's own state
+   * once that is no longer OPEN, so a peer's close frame is visible before its `close` event
+   * crosses the threadsafe function, as `ws` reports it. A send in between takes ws's
+   * after-close path.
    */
   #state: ReadyState = OPEN;
 
@@ -76,6 +78,14 @@ export class NativeSocket extends EventEmitter implements MainSocket {
   }
 
   get readyState(): ReadyState {
+    // The Rust socket seals its state when the peer's close frame arrives, before that `close`
+    // crosses the threadsafe function. Reading it here lets a caller see the closed socket on
+    // the turn `ws` reports one: notification delivery must not hand a frame to a device whose
+    // socket is already gone (`notification-race.process`).
+    if (this.#state === OPEN) {
+      const native = this.#handle.readyState();
+      if (native !== OPEN) this.#state = native === CLOSED ? CLOSED : CLOSING;
+    }
     return this.#state;
   }
 

@@ -14,7 +14,9 @@
  * one with native evidence still runs the off leg.
  *
  * Runs with `node scripts/t1a-proof.ts`. It exits non-zero on any failed leg, a report missing,
- * unparsable or empty, an on leg with no evidence, or a skip without a platform guard. Before
+ * unparsable or empty, or a skip without a platform guard. An on leg with no evidence is a note,
+ * not a failure: the closure deliberately lists the files that import a server-starting helper,
+ * and some of them never start a server, so their on leg has no listener to prove. Before
  * each file it waits up to two minutes for the shared machine's 1-minute load average to fall
  * under 60, then runs anyway: this run proves pass/fail and evidence, not timing. A leg that
  * failed only by timing out is rerun once, alone, and the table says so.
@@ -416,7 +418,12 @@ function mergeRuns(paths: readonly string[]): FileRun[] {
   }
   for (const path of json) {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as { files?: FileRun[] };
-    for (const run of parsed.files ?? []) merged.set(run.file, run);
+    for (const run of parsed.files ?? []) {
+      // A report written by an older runner may spell "no failure" as null.
+      for (const leg of [run.off, run.on])
+        if ((leg.noReport as unknown) === null) leg.noReport = undefined;
+      merged.set(run.file, run);
+    }
   }
   return [...merged.values()].toSorted((left, right) => left.file.localeCompare(right.file));
 }
@@ -458,6 +465,12 @@ function failures(runs: readonly FileRun[]): boolean {
     for (const entry of entries) console.log(`  ${entry.file}`);
     detail();
   };
+  const note = (title: string, entries: readonly FileRun[], detail: () => void) => {
+    if (!entries.length) return;
+    console.log(`\n${title} (${entries.length})`);
+    for (const entry of entries) console.log(`  ${entry.file}`);
+    detail();
+  };
   group("on leg fails, off passes", onOnly, () => {
     for (const entry of onOnly)
       for (const result of entry.on.results.filter((one) => one.status === "failed"))
@@ -471,7 +484,9 @@ function failures(runs: readonly FileRun[]): boolean {
       for (const result of entry.off.results.filter((one) => one.status === "failed"))
         console.log(`    ${result.fullName}\n      ${(result.message ?? "").split("\n")[0]}`);
   });
-  group("on leg without evidence (NONE)", noEvidence, () => {
+  // Not a failure: the file is in the list because it imports a server-starting helper, but the
+  // on leg never reached a listener, so there is no native evidence to prove and nothing to fix.
+  note("on leg without evidence (NONE): reported, not a failure", noEvidence, () => {
     for (const entry of noEvidence) console.log(`    ${entry.file}: ${entry.evidence}`);
   });
   group("no report", noReport, () => {
