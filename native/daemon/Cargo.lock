@@ -219,6 +219,7 @@ dependencies = [
 name = "ace-store"
 version = "0.1.0"
 dependencies = [
+ "ace-json",
  "base64 0.22.1",
  "libsqlite3-sys",
  "serde",

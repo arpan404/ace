@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isSidebarEvent, updateThread } from "../packages/projection/src/index.ts";
 import { foldInput } from "../apps/daemon/src/native-writer/fold.ts";
+import { compactDeltas } from "../apps/daemon/src/live-write-buffer.ts";
 import { samples } from "../apps/daemon/src/canonical-event-samples.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -432,20 +433,166 @@ function build(): Built[] {
   });
 }
 
+type CompactCase = { name: string; events: string; compacted: string };
+
+/** One `item.delta` envelope; `fields` chooses the row it belongs to. */
+function deltaEvent(
+  seq: number,
+  threadId: string,
+  append: string,
+  fields: { itemId?: string; agentId?: string; field?: string } = {},
+): Record<string, unknown> {
+  return {
+    seq,
+    id: `event-${seq}`,
+    at: 1_700_000_000_000 + seq,
+    threadId,
+    payload: {
+      type: "item.delta",
+      itemId: fields.itemId ?? "item-1",
+      agentId: fields.agentId ?? "agent-1",
+      field: fields.field ?? "text",
+      append,
+    },
+  };
+}
+
+/** A case as the texts the Rust vector test reads: the events, and the TypeScript's rows. */
+function compactCase(name: string, events: Record<string, unknown>[]): CompactCase {
+  const eventsText = JSON.stringify(events);
+  const compacted = JSON.stringify(compactDeltas(JSON.parse(eventsText) as never));
+  return { name, events: eventsText, compacted };
+}
+
+/**
+ * The live buffer's compaction vectors: adjacent deltas, split surrogate pairs, lone
+ * surrogates, the 4 KiB boundary, a different thread, item, agent or field, and other events
+ * between two deltas. Expected rows are the TypeScript `compactDeltas` result, never a
+ * re-implementation.
+ */
+function compactCases(): CompactCase[] {
+  const high = "\ud83d";
+  const low = "\ude00";
+  const lone = "\ud800";
+  return [
+    compactCase("empty", []),
+    compactCase("merge-adjacent", [
+      deltaEvent(1, "thread-1", "a"),
+      deltaEvent(2, "thread-1", "b"),
+      deltaEvent(3, "thread-1", "c"),
+    ]),
+    compactCase("no-merge-different-field", [
+      deltaEvent(1, "thread-1", "a", { field: "text" }),
+      deltaEvent(2, "thread-1", "b", { field: "reasoning" }),
+    ]),
+    compactCase("no-merge-different-agent", [
+      deltaEvent(1, "thread-1", "a", { agentId: "agent-1" }),
+      deltaEvent(2, "thread-1", "b", { agentId: "agent-2" }),
+    ]),
+    compactCase("no-merge-different-item", [
+      deltaEvent(1, "thread-1", "a", { itemId: "item-1" }),
+      deltaEvent(2, "thread-1", "b", { itemId: "item-2" }),
+    ]),
+    compactCase("no-merge-different-thread", [
+      deltaEvent(1, "thread-1", "a"),
+      deltaEvent(2, "thread-2", "b"),
+    ]),
+    compactCase("split-pair-joins", [
+      deltaEvent(1, "thread-1", high),
+      deltaEvent(2, "thread-1", low),
+    ]),
+    compactCase("lone-surrogates-survive", [
+      deltaEvent(1, "thread-1", lone.repeat(600)),
+      deltaEvent(2, "thread-1", lone.repeat(600)),
+    ]),
+    compactCase("lone-surrogates-over-budget", [
+      deltaEvent(1, "thread-1", lone.repeat(683)),
+      deltaEvent(2, "thread-1", lone.repeat(683)),
+    ]),
+    compactCase("exactly-4096-bytes", [
+      deltaEvent(1, "thread-1", "x".repeat(2048)),
+      deltaEvent(2, "thread-1", "y".repeat(2048)),
+    ]),
+    compactCase("over-4096-bytes", [
+      deltaEvent(1, "thread-1", "x".repeat(2049)),
+      deltaEvent(2, "thread-1", "y".repeat(2048)),
+    ]),
+    // The pair counts six bytes as two parts and four once joined: 2048 + 2049 is over.
+    compactCase("split-pair-over-4096", [
+      deltaEvent(1, "thread-1", `${high}${"x".repeat(2045)}`),
+      deltaEvent(2, "thread-1", `${low}${"x".repeat(2046)}`),
+    ]),
+    compactCase("other-threads-interleaved", [
+      deltaEvent(1, "thread-1", "a"),
+      deltaEvent(2, "thread-2", "b"),
+      deltaEvent(3, "thread-1", "c"),
+    ]),
+    compactCase("other-event-between", [
+      deltaEvent(1, "thread-1", "a"),
+      {
+        seq: 2,
+        id: "event-2",
+        at: 1_700_000_000_002,
+        threadId: "thread-1",
+        payload: { type: "item.updated", item: { id: "item-1", type: "message", text: "a" } },
+      },
+      deltaEvent(3, "thread-1", "b"),
+    ]),
+    compactCase("later-envelope-keys", [
+      deltaEvent(1, "thread-1", "a"),
+      { ...deltaEvent(2, "thread-1", "b"), firstSeq: 2 },
+    ]),
+    // The merged row is the later payload with `append` replaced in place, not moved last.
+    compactCase("append-keeps-its-position", [
+      {
+        seq: 1,
+        id: "event-1",
+        at: 1_700_000_000_001,
+        threadId: "thread-1",
+        payload: {
+          type: "item.delta",
+          append: "a",
+          itemId: "item-1",
+          agentId: "agent-1",
+          field: "text",
+          extra: 1,
+        },
+      },
+      {
+        seq: 2,
+        id: "event-2",
+        at: 1_700_000_000_002,
+        threadId: "thread-1",
+        payload: {
+          type: "item.delta",
+          append: "b",
+          itemId: "item-1",
+          agentId: "agent-1",
+          field: "text",
+          extra: 2,
+        },
+      },
+    ]),
+  ];
+}
+
 const cases = build();
+// The live buffer's compaction vectors (task 5.4a): what the TypeScript gives for the same
+// events, as text. The Rust `compact_deltas` replays them through `ace-store`.
+const compact = compactCases();
 // oxfmt writes `1e21` for an outer `1e+21`; `JSON.stringify` writes `1e+21`. Normalize the
 // outer seq/at numbers so the committed file passes both `--check` and `fmt:check`. Inner
 // texts keep `1e+21`: they are strings here, and both backends print `1e+21` for the fold.
-const text = `${JSON.stringify(cases, null, 2).replaceAll('"seq": 1e+21', '"seq": 1e21').replaceAll('"at": 1e+21', '"at": 1e21')}\n`;
+const text = `${JSON.stringify({ fold: cases, compact }, null, 2).replaceAll('"seq": 1e+21', '"seq": 1e21').replaceAll('"at": 1e+21', '"at": 1e21')}\n`;
 if (process.argv.includes("--check")) {
   const current = readFileSync(out, "utf8");
   if (current !== text) {
     console.error(`vectors differ: ${out} (run without --check to regenerate)`);
     process.exit(1);
   }
-  console.log(`fold vectors ok: ${cases.length} cases`);
+  console.log(`fold vectors ok: ${cases.length} fold cases, ${compact.length} compact cases`);
 } else {
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, text);
-  console.log(`wrote ${out}: ${cases.length} cases`);
+  console.log(`wrote ${out}: ${cases.length} fold cases, ${compact.length} compact cases`);
 }

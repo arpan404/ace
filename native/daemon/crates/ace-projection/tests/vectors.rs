@@ -14,9 +14,12 @@ fn fold_vectors_match_typescript() {
     let root = env!("CARGO_MANIFEST_DIR").to_owned() + "/../../vectors/fold.json";
     let text = std::fs::read_to_string(&root).expect("read fold.json");
     let parsed = ace_json::parse(&text).expect("parse fold.json");
-    let cases = match &parsed {
-        Value::Array(items) => items,
-        _ => panic!("fold.json holds an array"),
+    let Value::Object(root) = &parsed else {
+        panic!("fold.json holds an object");
+    };
+    let cases = match root.get("fold") {
+        Some(Value::Array(items)) => items,
+        _ => panic!("fold.json holds fold cases"),
     };
     let mut reaching = 0;
     for case in cases.iter() {

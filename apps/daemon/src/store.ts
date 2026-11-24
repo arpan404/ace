@@ -250,6 +250,7 @@ export class Store {
     this.nextId = options.nextId ?? timeOrderedIds();
     this.writes = new StoreWriteGate(options.writeGate);
     this.streaming = new StoreStream({
+      db: this.db,
       scheduler: options.bufferScheduler ?? bufferScheduler,
       nextId: this.nextId,
       sequences: this.sequences,

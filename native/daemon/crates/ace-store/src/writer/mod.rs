@@ -4,4 +4,5 @@
 //! stays TypeScript until 5.3.
 
 pub mod events;
+pub mod live;
 pub mod sequences;
