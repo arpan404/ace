@@ -83,6 +83,12 @@ export interface Dependencies {
    * discovery settles.
    */
   modelLoading?: (automation: Automation) => boolean;
+  /**
+   * How long one occurrence waits for that discovery before its model is treated as
+   * unavailable (30 s by default): a run is then admitted and its refusal is recorded, so a
+   * discovery that never settles cannot hold the occurrence forever.
+   */
+  modelHoldMs?: number;
   /** How often a scheduler held for model lists rechecks when no wake arrives; 30 s by default. */
   modelRetryMs?: number;
 }

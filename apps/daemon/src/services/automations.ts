@@ -67,6 +67,10 @@ export async function startAutomations(context: ServiceContext): Promise<void> {
       workspace: automationWorkspace(context),
       ...automationAdmission(context),
       modelLoading,
+      // One occurrence never waits forever for discovery; its bound is on the injected clock.
+      ...(context.options.automationModelHoldMs === undefined
+        ? {}
+        : { modelHoldMs: context.options.automationModelHoldMs }),
       ...(context.options.automationModelRetryMs === undefined
         ? {}
         : { modelRetryMs: context.options.automationModelRetryMs }),

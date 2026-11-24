@@ -14,6 +14,7 @@ export async function idleDaemon(
     seedModels?: boolean;
     deferModels?: boolean;
     armDeadlineMs?: number;
+    modelHoldMs?: number;
     modelRetryMs?: number;
     modelSettled?: (filter: import("@ace/protocol").ModelFilter) => Promise<unknown>;
   } = {},
@@ -59,6 +60,7 @@ export async function idleDaemon(
       ...(options.armDeadlineMs === undefined
         ? {}
         : { automationModelWaitMs: options.armDeadlineMs }),
+      ...(options.modelHoldMs === undefined ? {} : { automationModelHoldMs: options.modelHoldMs }),
       ...(options.modelRetryMs === undefined
         ? {}
         : { automationModelRetryMs: options.modelRetryMs }),

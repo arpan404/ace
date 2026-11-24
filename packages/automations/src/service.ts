@@ -41,6 +41,8 @@ const lateGraceMs = 2 * 60_000;
  * Readiness normally wakes it at once; this only bounds a missed notification.
  */
 const modelRetryMs = 30_000;
+/** How long one occurrence waits for model discovery before its model counts as unavailable. */
+const modelHoldMs = 30_000;
 function message(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 8192);
 }
@@ -72,8 +74,8 @@ export class AutomationService {
   private generation = 0;
   private ticking = false;
   private cancellations: Cancellations;
-  /** Due schedule ids whose model discovery is still running: kept due, never spent. */
-  private held = new Set<string>();
+  /** Due schedules kept for model discovery, and when each was first held on the injected clock. */
+  private held = new Map<string, number>();
   constructor(store: AutomationStore, deps: Dependencies, gh?: GhClient) {
     this.store = store;
     this.deps = deps;
@@ -110,6 +112,7 @@ export class AutomationService {
     if (!this.lifecycle.beginStart()) return;
     this.generation++;
     const generation = this.generation;
+    this.held.clear();
     this.controller = new AbortController();
     // Runs that waited while new work was paused start once it is resumed.
     this.stopReopen = this.deps.admission?.onReopen(() => this.drainWaiting());
@@ -552,7 +555,9 @@ export class AutomationService {
     this.arm();
   }
   private nextJob(): JobMetadata | undefined {
-    const skip = new Set([...this.polling, ...this.held]);
+    const skip = new Set(this.polling);
+    const now = this.deps.now();
+    const holdMs = this.deps.modelHoldMs ?? modelHoldMs;
     for (;;) {
       // At four live GitHub requests only schedules may start; polling excluded the rest.
       const job =
@@ -567,7 +572,14 @@ export class AutomationService {
         this.held.delete(job.automation.id);
         return job;
       }
-      this.held.add(job.automation.id);
+      const since = this.held.get(job.automation.id);
+      if (since !== undefined && now - since >= holdMs) {
+        // Discovery has had its bounded wait. Admit the run: its model_unavailable refusal is
+        // recorded and visible instead of the occurrence being held forever.
+        this.held.delete(job.automation.id);
+        return job;
+      }
+      if (since === undefined) this.held.set(job.automation.id, now);
       skip.add(job.automation.id);
     }
   }
@@ -658,12 +670,8 @@ export class AutomationService {
       });
       return true;
     }
-    // The run's thread is created with this automation's model; while discovery for it runs,
-    // keep the occurrence due (never advance it) and wait to be woken.
-    if (this.deps.modelLoading?.(job.automation) === true) {
-      this.held.add(job.automation.id);
-      return false;
-    }
+    // `nextJob` holds a schedule whose discovery is still running, and releases it once the
+    // bounded wait passes; either way the occurrence is only advanced by this admission.
     this.held.delete(job.automation.id);
     const admission = this.store.transaction(() => {
       const result = this.admit(

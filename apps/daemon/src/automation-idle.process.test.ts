@@ -545,6 +545,89 @@ test.concurrent(
   },
 );
 
+test.concurrent(
+  "a held occurrence is released as a visible failure after its bounded discovery wait",
+  { timeout: 180_000 },
+  async ({ expect }) => {
+    const discovery = Promise.withResolvers<void>();
+    const f = await idleDaemon({
+      seedModels: false,
+      modelSettled: () => discovery.promise,
+      // One occurrence never waits forever for discovery; its bound is on the clock.
+      modelHoldMs: 300,
+      modelRetryMs: 100,
+    });
+    try {
+      let connection = await f.connect();
+      const due = Math.ceil((Date.now() + 2000) / 60_000) * 60_000;
+      const automation = {
+        ...f.definition("never-discovered", due),
+        missedRun: "run_once" as const,
+      };
+      expect(
+        await connection.ask({
+          type: "automation.put",
+          requestId: "save",
+          automation,
+          expectedRevision: null,
+        }),
+      ).toMatchObject({ ok: true });
+      await f.daemon.settings.set("automations.enabled", false, { kind: "global" });
+      await f.stop();
+      await delay(Math.max(0, due - Date.now()) + 150);
+      await f.restart();
+      connection = await f.connect();
+      await f.daemon.settings.set("automations.enabled", true, { kind: "global" });
+      // Inside the bound the occurrence is held: no run, no thread, still due.
+      await delay(150);
+      expect(f.prompts).toEqual([]);
+      expect(
+        (await connection.ask({ type: "automation.list", requestId: "held" })).schedules?.find(
+          (schedule) => schedule.id === automation.id,
+        )?.nextRunAt,
+      ).toBe(due);
+      // Past the bound it is admitted and the missing model is recorded, not held forever.
+      await expect
+        .poll(
+          async () =>
+            (
+              await connection.ask({
+                type: "automation.inbox",
+                requestId: "failed",
+                automationId: automation.id,
+                limit: 50,
+              })
+            ).inbox?.runs?.map((run) => [run.status, run.result]),
+          { timeout: 30_000 },
+        )
+        .toEqual([["failed", "model_unavailable"]]);
+      expect(
+        (await connection.ask({ type: "automation.list", requestId: "spent" })).schedules?.find(
+          (schedule) => schedule.id === automation.id,
+        )?.nextRunAt,
+      ).toBeNull();
+      expect(f.prompts).toEqual([]);
+      expect(f.daemon.store.listThreads()).toEqual([]);
+      // A discovery result that arrives later does not re-run the spent occurrence.
+      discovery.resolve();
+      await delay(500);
+      expect(
+        (
+          await connection.ask({
+            type: "automation.inbox",
+            requestId: "still-one",
+            automationId: automation.id,
+            limit: 50,
+          })
+        ).inbox?.runs,
+      ).toHaveLength(1);
+      expect(f.prompts).toEqual([]);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
 test.concurrent("a manual retry and a committed deletion survive daemon restart without another execution", async ({
   expect,
 }) => {

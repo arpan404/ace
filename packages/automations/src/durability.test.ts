@@ -180,6 +180,38 @@ it("a GitHub poll failure sets both compat and trigger health, cleared only by s
   expect(list(h, "recovered").schedules?.[0]?.triggerError).toBeUndefined();
 });
 
+it("an occurrence held for discovery is released after its bounded wait and never re-run", async () => {
+  const h = harness();
+  h.service.stop();
+  const auto = scheduled("run_once");
+  if (auto.trigger.kind !== "schedule") throw new Error("Invalid test definition");
+  auto.trigger.schedule.expression = "FREQ=MINUTELY;COUNT=1";
+  h.service.put(auto);
+  h.deps.modelLoading = () => true;
+  h.deps.modelHoldMs = 5_000;
+  h.now = start;
+  h.service.start();
+  await h.timer.fire();
+  await h.service.settled();
+  // Discovery is still running: the occurrence keeps its place.
+  expect(h.inputs).toEqual([]);
+  expect(list(h, "held").schedules?.[0]?.nextRunAt).toBe(start);
+  h.now = start + 5_000;
+  await h.timer.fire();
+  // The bounded wait passed: the run is admitted (its refusal is the executor's to report).
+  expect(h.inputs).toHaveLength(1);
+  await h.finish(0);
+  expect(h.service.inbox().runs).toHaveLength(1);
+  expect(list(h, "spent").schedules?.[0]?.nextRunAt).toBeNull();
+  // Discovery arriving later never re-runs the spent occurrence.
+  h.deps.modelLoading = () => false;
+  h.service.modelsReady();
+  await h.timer.fire().catch(() => {});
+  await h.service.settled();
+  expect(h.inputs).toHaveLength(1);
+  expect(h.service.inbox().runs).toHaveLength(1);
+});
+
 it("a GitHub poll keeps its deadline while a due schedule waits for model lists", async () => {
   let polls = 0;
   const h = harness({

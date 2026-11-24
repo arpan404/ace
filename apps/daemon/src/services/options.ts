@@ -155,6 +155,11 @@ export type DaemonOptions = {
    * the app uses 30 s (`automation-lifecycle.ts`).
    */
   automationModelWaitMs?: number;
+  /**
+   * Tests shorten how long one occurrence waits for that provider's discovery before its model
+   * counts as unavailable; the app uses 30 s (`@ace/automations`).
+   */
+  automationModelHoldMs?: number;
   /** Tests shorten the held scheduler's recheck interval; the app uses 30 s. */
   automationModelRetryMs?: number;
   workload?: HealthOptions["workload"];
