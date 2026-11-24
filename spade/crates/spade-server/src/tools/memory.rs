@@ -178,13 +178,13 @@ const ASK_ABOUT: &str = "Ask the person one to five questions, shown as a card t
 Pick the kind that fits each question: `choice` (one of 2-10 options; `other: true` lets them \
 write their own), `choices` (several options, `min`/`max` picks), `confirm` (yes or no), \
 `number` (`min`, `max`, `unit`), `date` (`time: true` to ask the time as well) or `text`. Ask \
-everything you need in one call rather than one question at a time. By default your turn pauses \
-until they answer; you read each prompt with its answer. The person may choose Answer later: \
-then the call says so at once, and you go on without it where you can or end your reply saying \
-what waits on it; their answer arrives later as a <question_answer>. Set `wait: false` to ask \
-without pausing at all, for preferences that shape later work, never for something your next \
-step depends on. The person may also dismiss the card. A call that breaks a rule is refused \
-saying which; fix it and ask again.";
+everything you need in one call rather than one question at a time. Only pause the turn for \
+decisions where guessing would be wrong or wasteful. When a sensible default lets you carry on, \
+give `default` on each question (or set `blocking: false` / `wait: false`): the call returns at \
+once, you proceed with your default, and any answer from the person arrives later as a \
+<question_answer>. Without defaults (or with `blocking: true`), your turn pauses until they \
+answer, choose Answer later, or dismiss the card. A call that breaks a rule is refused saying \
+which; fix it and ask again.";
 
 impl Tool for AskUser {
     fn def(&self) -> ToolDef {
@@ -209,7 +209,12 @@ impl Tool for AskUser {
                          "description": "choices: most picks. number: the most." },
                 "unit": string("number: the unit, like nights or kg."),
                 "time": { "type": "boolean", "description": "date: ask the time too." },
-                "placeholder": string("text: a hint shown in the empty field.") },
+                "placeholder": string("text: a hint shown in the empty field."),
+                "default": { "description": "Optional: what you will carry on with if the person \
+                                             hasn't answered yet (must match this question's kind). \
+                                             When every question states a default and `blocking`/\
+                                             `wait` is not set to true, the call returns at once \
+                                             without pausing your turn." } },
             "required": ["prompt", "kind"] });
         ToolDef {
             spec: spec(
@@ -219,9 +224,15 @@ impl Tool for AskUser {
                         "properties": {
                             "questions": { "type": "array", "items": question,
                                            "minItems": 1, "maxItems": 5 },
+                            "blocking": { "type": "boolean",
+                                          "description": "false: ask without pausing your turn; \
+                                                          the answer arrives later as a \
+                                                          <question_answer>. true: wait for an \
+                                                          answer even when defaults are stated. \
+                                                          Defaults to false when every question \
+                                                          has a `default`, otherwise true." },
                             "wait": { "type": "boolean",
-                                      "description": "false: ask without pausing; the answer \
-                                                      arrives later. Default true." } },
+                                      "description": "Alias for `blocking`." } },
                         "required": ["questions"] }),
             ),
             risk: Risk::Read,

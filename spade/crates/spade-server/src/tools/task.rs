@@ -18,9 +18,11 @@ impl Tool for TaskStatus {
                 description: "Say where the task you are working on stands. `working`: more to \
                               do now, and Spade starts your next step itself after you reply. \
                               `waiting`: waiting on something outside (save a routine to check \
-                              back). `blocked_on_person`: you need the person (ask with \
-                              ask_user). `done`: finished. Set `working` when you start a task \
-                              with several steps, and `done` when it is finished."
+                              back). `blocked_on_person`: you truly cannot continue without the \
+                              person (ask with ask_user; if a sensible default lets you carry on, \
+                              stay `working` and ask with a `default` or `blocking: false`). \
+                              `done`: finished. Set `working` when you start a task with several \
+                              steps, and `done` when it is finished."
                     .to_owned(),
                 schema: json!({ "type": "object",
                                 "properties": {
