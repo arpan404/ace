@@ -23,6 +23,7 @@
  */
 import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export type NativeBackend = "native" | "typescript";
 export type CoreBackend = "native" | "wasm" | "typescript";
@@ -113,6 +114,34 @@ const offender =
           ? "ACE_ENGINE"
           : undefined;
 if (offender !== undefined && !store) throw new Error(`${offender} needs ACE_STORE=native`);
+
+/**
+ * Why `ACE_SESSIONS` cannot run, or `undefined` when it can (E3.0a). A native session diverts
+ * the pipes of a child the native supervisor spawned, so it needs the native supervisor as well
+ * as the store's SQLite, and `ACE_NATIVE_CROSS=ACE_SUPERVISOR` cannot pair with it: a boot on the
+ * TypeScript supervisor could not divert a pipe.
+ */
+export function sessionSwitchRefusal(input: {
+  sessions: readonly string[];
+  store: boolean;
+  supervisor: boolean;
+  cross: CrossSwitch | undefined;
+}): string | undefined {
+  const named = input.sessions.length > 0 || input.cross === "ACE_SESSIONS";
+  if (named && !input.store) return "ACE_SESSIONS needs ACE_STORE=native";
+  if (named && !input.supervisor) return "ACE_SESSIONS needs ACE_SUPERVISOR=native";
+  if (input.sessions.length > 0 && input.cross === "ACE_SUPERVISOR")
+    return "ACE_NATIVE_CROSS=ACE_SUPERVISOR cannot run with ACE_SESSIONS";
+  return undefined;
+}
+
+const sessionRefusal = sessionSwitchRefusal({
+  sessions: [...sessions],
+  store,
+  supervisor,
+  cross: crossSwitch,
+});
+if (sessionRefusal !== undefined) throw new Error(sessionRefusal);
 
 /**
  * `ACE_GIT=<parts>` (ADR 0224 §1, G0): a comma list of the git parts served
@@ -367,6 +396,35 @@ export function sessionBackend(provider: string): NativeBackend {
   return currentList("ACE_SESSIONS", sessions).has(provider as NativeProvider)
     ? "native"
     : "typescript";
+}
+
+const library =
+  process.platform === "win32"
+    ? "ace_daemon_node.dll"
+    : process.platform === "darwin"
+      ? "libace_daemon_node.dylib"
+      : "libace_daemon_node.so";
+
+/**
+ * The addon every session shell loads: `ACE_SESSIONS_ADDON`, else `ACE_STORE_ADDON`, else the
+ * development build in `native/daemon`. A shell that finds no file there throws
+ * `ACE_SESSIONS=<provider> needs the sessions addon at <path>`; it never falls back to the
+ * TypeScript session.
+ */
+export function sessionsAddonPath(): string {
+  // Precedence is by presence, not by truthiness: a set-but-empty value names no addon and is
+  // refused, rather than silently taking the store's or the development build.
+  const own = process.env.ACE_SESSIONS_ADDON;
+  const [name, explicit] =
+    own !== undefined
+      ? (["ACE_SESSIONS_ADDON", own] as const)
+      : (["ACE_STORE_ADDON", process.env.ACE_STORE_ADDON] as const);
+  if (explicit === undefined)
+    return fileURLToPath(
+      new URL(`../../../native/daemon/target/release/${library}`, import.meta.url),
+    );
+  if (explicit === "") throw new Error(`${name} is set but empty`);
+  return explicit;
 }
 
 /** The backend of a new engine: the current boot's, else the switch's. */

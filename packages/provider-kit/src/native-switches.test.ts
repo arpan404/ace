@@ -10,6 +10,8 @@ import {
   explicitTransportPhases,
   NativeSwitchConflict,
   resolveSwitches,
+  sessionSwitchRefusal,
+  type CrossSwitch,
   type SwitchNeed,
 } from "./native-switches.ts";
 
@@ -128,3 +130,66 @@ test.each(["", "bogus", "remote", "native, remote"])(
     expect(() => explicitTransportPhases(value)).toThrow(`ACE_TRANSPORT=${JSON.stringify(value)}`);
   },
 );
+
+interface SessionRefusalCase {
+  name: string;
+  sessions: readonly string[];
+  store: boolean;
+  supervisor: boolean;
+  cross: CrossSwitch | undefined;
+  refusal: string | undefined;
+}
+
+/** A native session needs the native store and supervisor, and never the supervisor's cross. */
+test.each<SessionRefusalCase>([
+  {
+    name: "a named session without the native store",
+    sessions: ["pi"],
+    store: false,
+    supervisor: true,
+    cross: undefined,
+    refusal: "ACE_SESSIONS needs ACE_STORE=native",
+  },
+  {
+    name: "a named session without the native supervisor",
+    sessions: ["pi"],
+    store: true,
+    supervisor: false,
+    cross: undefined,
+    refusal: "ACE_SESSIONS needs ACE_SUPERVISOR=native",
+  },
+  {
+    name: "a named session under the supervisor's cross switch",
+    sessions: ["pi"],
+    store: true,
+    supervisor: true,
+    cross: "ACE_SUPERVISOR",
+    refusal: "ACE_NATIVE_CROSS=ACE_SUPERVISOR cannot run with ACE_SESSIONS",
+  },
+  {
+    name: "both needs off, which names the store first",
+    sessions: ["pi"],
+    store: false,
+    supervisor: false,
+    cross: undefined,
+    refusal: "ACE_SESSIONS needs ACE_STORE=native",
+  },
+  {
+    name: "the cross gate naming the sessions switch without a native supervisor",
+    sessions: [],
+    store: true,
+    supervisor: false,
+    cross: "ACE_SESSIONS",
+    refusal: "ACE_SESSIONS needs ACE_SUPERVISOR=native",
+  },
+  {
+    name: "nothing naming the sessions switch, the default boot",
+    sessions: [],
+    store: false,
+    supervisor: false,
+    cross: undefined,
+    refusal: undefined,
+  },
+])("$name", ({ sessions, store, supervisor, cross, refusal }) => {
+  expect(sessionSwitchRefusal({ sessions, store, supervisor, cross })).toBe(refusal);
+});
