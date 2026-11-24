@@ -64,8 +64,15 @@ export interface RowSnapshotOptions {
   policy?: RetentionPolicy;
 }
 
-/** A thread's record key as the SDK files it (`thread:<id>`, under the daemon's identity). */
-const threadKey = /(?:^|\/)thread:[^/]+$/;
+/**
+ * A record kept as rows: a thread's live record as the SDK files it (`thread:<id>`, under the
+ * daemon's identity), or its archive (`archive:<id>`, ADR 0149).
+ */
+const threadKey = /(?:^|\/)(?:thread|archive):[^/]+$/;
+/** A thread's live record: what Settings counts as one kept chat. */
+const chatKey = /(?:^|\/)thread:[^/]+$/;
+/** The most item text one native write carries; a larger write is split. */
+export const rowWriteBytes = 4 * 1024 * 1024;
 
 /** What storage holds of one thread, as far as this session knows. */
 interface Held {
@@ -165,7 +172,7 @@ export class RowSnapshots implements ReadSnapshotStorage {
     this.#grown += write.head.length + write.items.reduce((sum, item) => sum + item.text.length, 0);
     const due =
       was === undefined || was !== write.settled || this.#grown >= this.#policy.maxBytes / 16;
-    return this.#rows.putThread(write).then(
+    return this.#putSplit(write).then(
       () => {
         // A sweep that fails is the next write's to try.
         if (due) void this.#sweep().catch(() => {});
@@ -175,6 +182,34 @@ export class RowSnapshots implements ReadSnapshotStorage {
         this.#held.delete(key);
       },
     );
+  }
+
+  /**
+   * One thread write as native writes of at most `rowWriteBytes` of items each, in order. Each
+   * carries the head; a head naming items not yet written reads back without them.
+   */
+  #putSplit(write: ThreadWrite): Promise<void> {
+    const total = write.items.reduce((sum, item) => sum + item.text.length, 0);
+    return total <= rowWriteBytes ? this.#rows.putThread(write) : this.#putParts(write);
+  }
+  async #putParts(write: ThreadWrite): Promise<void> {
+    let items: ItemRow[] = [];
+    let bytes = 0;
+    let first = true;
+    const put = async () => {
+      await this.#rows.putThread(
+        first ? { ...write, items } : { ...write, items, removed: [], replace: false },
+      );
+      first = false;
+      items = [];
+      bytes = 0;
+    };
+    for (const item of write.items) {
+      if (items.length && bytes + item.text.length > rowWriteBytes) await put();
+      items.push(item);
+      bytes += item.text.length;
+    }
+    if (first || items.length) await put();
   }
 
   async clear(): Promise<void> {
@@ -220,7 +255,10 @@ export class RowSnapshots implements ReadSnapshotStorage {
   /** What is kept: how many threads, and how many bytes the store takes on disk. */
   async usage(): Promise<{ threads: number; bytes: number }> {
     const [kept, bytes] = await Promise.all([this.#rows.index(), this.#rows.size()]);
-    return { threads: kept.filter((entry) => entry.kind === "thread").length, bytes };
+    return {
+      threads: kept.filter((entry) => entry.kind === "thread" && chatKey.test(entry.key)).length,
+      bytes,
+    };
   }
 
   /** Let go of what the policy no longer keeps. */

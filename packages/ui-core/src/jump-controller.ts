@@ -460,6 +460,23 @@ export class JumpController {
     else this.follow();
   }
 
+  /**
+   * The rows the window holds were corrected (an archived copy the daemon has since changed,
+   * ADR 0149): the same range, its items as now read. The reader's place and the cursors stay.
+   */
+  revise(items: readonly Item[], seqs: ReadonlyMap<string, number>): void {
+    const window = this.state.window;
+    if (!window || this.state.loading) return;
+    const kept = items.filter((item) => seqs.has(item.id));
+    const next: JumpWindow = {
+      ...window,
+      items: kept,
+      seqs: new Map(kept.map((item) => [item.id, seqs.get(item.id) ?? 0])),
+      targetId: window.targetId && seqs.has(window.targetId) ? window.targetId : kept[0]?.id,
+    };
+    this.set({ window: next, joined: this.state.joined && meetsTail(next, this.tail()) });
+  }
+
   /** Back to the live tail; the window is discarded at once. */
   live(): void {
     this.abort?.abort();

@@ -145,6 +145,11 @@ export interface ClientOptions {
    * keep opened history pages and expanded text (ADR 0105). None: views start empty.
    */
   readSnapshots?: import("./read-snapshot-storage.ts").ReadSnapshotStorage;
+  /**
+   * Keep every thread read as an archive in memory and in `readSnapshots`, and answer history
+   * windows from it (ADR 0149). The phone sets it. None: history windows come from the daemon.
+   */
+  archive?: import("./thread-archives.ts").ArchiveOptions;
   scheduler: Scheduler;
   random(): number;
   id(): string;

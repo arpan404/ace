@@ -27,6 +27,16 @@ export const snapshotRetention: RetentionPolicy = {
   maxBytes: 64 * 1024 * 1024,
 };
 
+/**
+ * The phone's device cache (ADR 0149): what it read stays until the person clears it or removes
+ * the app. Only the byte cap lets anything go.
+ */
+export const deviceRetention: RetentionPolicy = {
+  maxAgeMs: Number.POSITIVE_INFINITY,
+  settledThreads: Number.POSITIVE_INFINITY,
+  maxBytes: 1024 * 1024 * 1024,
+};
+
 export interface KeptSnapshot {
   key: string;
   /** `thread`: a transcript kept as one row per item; `record`: any other view's record. */
