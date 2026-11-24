@@ -4,11 +4,13 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { ThreadId } from "@ace/protocol";
 import { afterEach, expect, it } from "vitest";
+import { ZodError } from "zod";
 import { createDevThread } from "./commands.ts";
 import { Store } from "./store.ts";
 import { confirmedSql } from "./store-cross-test-support.ts";
 import { threadRowsPerBatch } from "./stored-trust-pass.ts";
 import { confirmedPerOpen } from "./thread-row-trust.ts";
+import { capabilities } from "./thread-column-samples.ts";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => {
@@ -245,6 +247,88 @@ it("a confirmed row is read as stored", () => {
   });
   expect(strayOf(open(), id)).toBe(1);
 });
+
+it("a thread write Zod rejects leaves the row, its revision and its trust stamp as they were", () => {
+  const { open, raw, peek } = setup();
+  const id = thread(open());
+  raw((db) => {
+    // `autoSettle` accepts only false; a confirmed row keeps the stored value as it is.
+    db.prepare(
+      "UPDATE threads SET client = json_set(COALESCE(client, '{}'), '$.autoSettle', json('true')) WHERE id = ?",
+    ).run(id);
+    db.prepare(forgeStamp).run(id);
+  });
+  const store = open();
+  const stored = () => ({
+    client: peek((db) => db.prepare("SELECT client FROM threads WHERE id = ?").get(id)?.client),
+    revision: peek(
+      (db) =>
+        db.prepare("SELECT revision FROM sidebar_thread_revisions WHERE thread_id = ?").get(id)
+          ?.revision,
+    ),
+    stamp: peek((db) =>
+      db.prepare("SELECT revision, canonical FROM thread_row_trust WHERE thread_id = ?").get(id),
+    ),
+    events: peek((db) => db.prepare("SELECT COUNT(*) AS n FROM events").get()?.n),
+  });
+  const before = stored();
+  expect(() =>
+    store.appendEvents(id, [{ type: "thread.client.updated", changes: { pinned: true } }], 2),
+  ).toThrow(ZodError);
+  expect(stored()).toEqual(before);
+});
+
+/**
+ * Stored `details` values `ThreadDetails.parse` rejects, one per rule: a required key, a
+ * boolean, an enum and a nonnegative integer. The shape table describes none of them, so the
+ * first is the only one the old Rust `conform` walk could see.
+ */
+const rejectedDetails = [
+  ["no required workspaceChange.state", '{"workspaceChange":{"commandId":"cmd"}}'],
+  ["a string worktreeMissing", '{"worktreeMissing":"yes"}'],
+  ["a mode outside the enum", '{"mode":"remote"}'],
+  ["a negative ahead", '{"ahead":-1}'],
+] as const;
+
+it.each(rejectedDetails)(
+  "a capabilities-only write over a confirmed row whose details have %s is refused, leaving the row as it was",
+  (_case, details) => {
+    const { open, raw, peek } = setup();
+    const store = open();
+    const id = thread(store);
+    store.appendEvents(
+      id,
+      [{ type: "thread.client.updated", changes: { details: { mode: "local" } } }],
+      2,
+    );
+    raw((db) => {
+      // A value the schema rejects, confirmed as stored so the next open keeps it rather than
+      // failing the read.
+      db.prepare("UPDATE thread_cold SET details = json(?) WHERE thread_id = ?").run(details, id);
+      db.prepare(forgeStamp).run(id);
+    });
+    const reopened = open();
+    const stored = () => ({
+      row: peek((db) => db.prepare("SELECT * FROM threads WHERE id = ?").get(id)),
+      cold: peek((db) =>
+        db.prepare("SELECT details, capabilities FROM thread_cold WHERE thread_id = ?").get(id),
+      ),
+      revision: peek(
+        (db) =>
+          db.prepare("SELECT revision FROM sidebar_thread_revisions WHERE thread_id = ?").get(id)
+            ?.revision,
+      ),
+      events: peek((db) => db.prepare("SELECT COUNT(*) AS n FROM events").get()?.n),
+    });
+    const before = stored();
+    // Only `capabilities` changes, so the cold upsert rebinds the stored details, which the
+    // writer parses on the way in: it rejects, and the whole append rolls back.
+    expect(() =>
+      reopened.appendEvents(id, [{ type: "thread.updated", capabilities: capabilities(1) }], 3),
+    ).toThrow();
+    expect(stored()).toEqual(before);
+  },
+);
 
 it("a different build's stamps are dropped, so its confirmed rows are validated again", () => {
   const { open, raw } = setup();

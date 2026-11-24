@@ -25,10 +25,12 @@ const INSERT_EVENT: &str =
 /// A stored row moves the mark in its own transaction (`event-writer.ts:182`).
 const MOVE_MARK: &str = "UPDATE host_sequence SET seq = MAX(seq,?) WHERE id = 1";
 
-/// Why a write failed. `WorkspaceUnregistered` displays the TypeError's message.
+/// Why a write failed. `WorkspaceUnregistered` displays the TypeError's message, and `Column`
+/// the encoding's.
 #[derive(Debug)]
 pub enum WriteError {
     WorkspaceUnregistered,
+    Column(ace_projection::ColumnError),
     Sqlite(crate::Error),
 }
 
@@ -36,6 +38,7 @@ impl fmt::Display for WriteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             WriteError::WorkspaceUnregistered => f.write_str("workspace_unregistered"),
+            WriteError::Column(error) => f.write_str(&error.to_string()),
             WriteError::Sqlite(error) => f.write_str(&error.message),
         }
     }
