@@ -16,9 +16,12 @@
  * `typescript` per `ACE_GIT_CROSS_START`, for `scripts/native-cross.ts`. Boot _n_
  * of a root takes the switch's value for even _n_ and the opposite for odd
  * _n_; _n_ comes from the append-only log at `ACE_NATIVE_CROSS_LOG` (one JSON
- * line per boot: root, _n_, switch, backend, pid), counted under an advisory
- * lock so sibling processes count the same boots. `ACE_STORE` and
- * `ACE_SUPERVISOR` take a value only at a new process's boot. Translators and
+ * line per boot: root, _n_, switch, the backend boot _n_ asked for, the backend
+ * actually in effect for that open, pid), counted under an advisory lock so
+ * sibling processes count the same boots. `ACE_STORE`, `ACE_SUPERVISOR` and
+ * `ACE_STORE_WRITER` take a value only at a new process's boot, so a second
+ * open in the same process runs the first boot's backend: the log's effective
+ * value is what the gate asserts, not the requested one. Translators and
  * sessions created after a boot take its backend.
  */
 import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -262,7 +265,14 @@ const bootBackend: Partial<Record<CrossSwitch, string>> = {};
 /** Process-wide switches fix their value at the process's first boot. */
 const processBoot: Partial<Record<CrossSwitch, string>> = {};
 
-type BootLine = { root: string; n: number; switch: CrossSwitch; backend: string; pid: number };
+type BootLine = {
+  root: string;
+  n: number;
+  switch: CrossSwitch;
+  backend: string;
+  effective: string;
+  pid: number;
+};
 
 function readLog(log: string): BootLine[] {
   let text: string;
@@ -367,6 +377,11 @@ function opposite(name: CrossSwitch, backend: string): string {
   }
 }
 
+/** The switches that fix their value at a process's first boot and never again (ADR 0222, constraint 2). */
+function processFixed(name: CrossSwitch): boolean {
+  return name === "ACE_STORE" || name === "ACE_SUPERVISOR" || name === "ACE_STORE_WRITER";
+}
+
 /** Records a boot of `root` for the cross switch and remembers its backend. */
 function noteBoot(root: string, kinds: readonly CrossSwitch[]): void {
   if (crossSwitch === undefined || crossLog === undefined) return;
@@ -375,14 +390,21 @@ function noteBoot(root: string, kinds: readonly CrossSwitch[]): void {
   locked(crossLog, () => {
     const fresh = readLog(crossLog);
     const n = fresh.filter((line) => line.root === root && line.switch === name).length;
-    const backend = n % 2 === 0 ? envBackend(name) : opposite(name, envBackend(name));
+    const requested = n % 2 === 0 ? envBackend(name) : opposite(name, envBackend(name));
+    let effective: string;
+    if (processFixed(name)) {
+      // A process-wide switch keeps what it took at this process's first
+      // boot; a later open here runs that value whatever this boot asked for.
+      effective = processBoot[name] ?? requested;
+      processBoot[name] = effective;
+    } else {
+      bootBackend[name] = requested;
+      effective = requested;
+    }
     appendFileSync(
       crossLog,
-      `${JSON.stringify({ root, n, switch: name, backend, pid: process.pid })}\n`,
+      `${JSON.stringify({ root, n, switch: name, backend: requested, effective, pid: process.pid })}\n`,
     );
-    if (name === "ACE_STORE" || name === "ACE_SUPERVISOR" || name === "ACE_STORE_WRITER")
-      processBoot[name] ??= backend;
-    else bootBackend[name] = backend;
   });
 }
 

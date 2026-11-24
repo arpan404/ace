@@ -21,9 +21,14 @@
  * `ACE_TRANSLATORS=pi`, `ACE_ENGINE=native`, … before calling); the
  * starting-off run unsets it. Each run gets a fresh `ACE_NATIVE_CROSS_LOG`;
  * after a green run this asserts, per run, that every root (event database
- * or process journal) that booted more than once alternated backends from
- * its first boot, and that some root booted twice. A file that never reboots
- * a root fails as "no restart" and leaves its list.
+ * or process journal) that booted more than once alternated the backend it
+ * actually ran from its first boot, and that some root booted twice. The log
+ * records the effective backend, not the boot's requested one: `ACE_STORE`,
+ * `ACE_SUPERVISOR` and `ACE_STORE_WRITER` fix their value at a process's
+ * first boot, so a file that reopens the same root in one process runs one
+ * backend twice. That file fails as "reopens in-process" instead of passing
+ * on a log whose requested values merely alternated. A file that never
+ * reboots a root fails as "no restart" and leaves its list.
  */
 
 import { spawnSync } from "node:child_process";
@@ -44,6 +49,9 @@ const known = [
   "ACE_STORE_WRITER",
 ];
 
+/** Switches whose value a process fixes at its first boot; a reopen cannot change it. */
+const processFixed = new Set(["ACE_STORE", "ACE_SUPERVISOR", "ACE_STORE_WRITER"]);
+
 const [name, file] = process.argv.slice(2);
 if (name === undefined || file === undefined || !known.includes(name))
   throw new Error(`usage: bun scripts/native-cross.ts <${known.join("|")}> <test-file>`);
@@ -60,7 +68,14 @@ if (
 )
   throw new Error(`${name} needs ACE_STORE=native`);
 
-type BootLine = { root: string; n: number; switch: string; backend: string; pid: number };
+type BootLine = {
+  root: string;
+  n: number;
+  switch: string;
+  backend: string;
+  effective: string;
+  pid: number;
+};
 
 type GitOpLine = {
   seq: number;
@@ -88,7 +103,7 @@ function gitOpsOf(log: string): GitOpLine[] {
   return linesOf<GitOpLine>(log).toSorted((a, b) => a.seq - b.seq);
 }
 
-/** Every rebooted root alternated from its first boot, and some root rebooted. */
+/** Every rebooted root alternated what it ran from its first boot, and some root rebooted. */
 function assertAlternation(log: string, label: string): void {
   const byRoot = new Map<string, BootLine[]>();
   for (const line of bootsOf(log)) {
@@ -100,15 +115,22 @@ function assertAlternation(log: string, label: string): void {
   for (const [rootPath, boots] of byRoot) {
     if (boots.length < 2) continue;
     rebooted++;
+    const first = (boots[0] as BootLine).effective;
     for (let i = 0; i < boots.length; i++) {
       const boot = boots[i] as BootLine;
       if (boot.n !== i || boot.switch !== name)
         throw new Error(`${label}: ${rootPath} boot ${i} logged as ${JSON.stringify(boot)}`);
-      const first = (boots[0] as BootLine).backend;
-      if ((boot.backend === first) !== (i % 2 === 0))
+      // The effective value is what an open after this boot actually runs, so
+      // this is the assertion that cannot be fooled by a reopen in one process.
+      if ((boot.effective === first) === (i % 2 === 0)) continue;
+      const previous = boots[i - 1];
+      if (processFixed.has(name) && previous !== undefined && previous.pid === boot.pid)
         throw new Error(
-          `${label}: ${rootPath} did not alternate from ${first}: boot ${i} is ${boot.backend}`,
+          `${label}: ${rootPath} reopens in-process; the switch is per process, so this file can't prove cross-mode`,
         );
+      throw new Error(
+        `${label}: ${rootPath} did not alternate from ${first}: boot ${i} ran ${boot.effective} (asked ${boot.backend}, pid ${boot.pid})`,
+      );
     }
   }
   if (rebooted === 0) throw new Error(`${label}: no restart: no root booted twice (log ${log})`);
