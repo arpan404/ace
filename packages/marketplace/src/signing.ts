@@ -1,3 +1,6 @@
+import { hmac } from "@noble/hashes/hmac.js";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import type { z } from "zod";
 import {
@@ -175,22 +178,80 @@ export interface WithdrawalTarget {
  * Why `target` is withdrawn, if it is: a maintainer revoked its bytes, or its publisher
  * withdrew this very version. Another entry holding the same bytes is untouched by the latter.
  */
+export function opaqueWithdrawalId(target: WithdrawalTarget): string {
+  // The archive digest is unavailable without the link. A name guess alone cannot match this.
+  return bytesToHex(
+    hmac(
+      sha256,
+      hexToBytes(target.hash),
+      new TextEncoder().encode(
+        JSON.stringify(["ace:unlisted-withdrawal:1", target.type, target.name, target.version]),
+      ),
+    ),
+  );
+}
+
 export function withdrawalReason(
   withdrawn: readonly Withdrawal[],
   target: WithdrawalTarget,
+  matchOpaque = true,
 ): string | undefined {
-  return withdrawn.find(
-    (entry) =>
+  let opaque: string | undefined;
+  return withdrawn.find((entry) => {
+    if (entry.scope === "hash")
+      return (
+        entry.hash === target.hash ||
+        (matchOpaque && entry.hash === (opaque ??= opaqueWithdrawalId(target)))
+      );
+    return (
       entry.hash === target.hash &&
-      (entry.scope === "hash" ||
-        (entry.type === target.type &&
-          entry.name === target.name &&
-          entry.version === target.version)),
-  )?.reason;
+      entry.type === target.type &&
+      entry.name === target.name &&
+      entry.version === target.version
+    );
+  })?.reason;
 }
 
 /** The identity of a withdrawal, so a list never holds the same one twice. */
 export const withdrawalKey = (entry: Withdrawal) =>
-  entry.scope === "hash"
-    ? `hash:${entry.hash}`
+  entry.scope !== "version"
+    ? `${entry.scope}:${entry.hash}`
     : `version:${entry.type}/${entry.name}@${entry.version}:${entry.hash}`;
+
+export function verifiesSpadeReview(
+  target: {
+    type: string;
+    draft: string;
+    publisher: string;
+    name: string;
+    version: string;
+    hash: string;
+    visibility: string;
+  },
+  proof: string,
+  pinned: readonly string[],
+): boolean {
+  const [items = "", signature = ""] = proof.split(".");
+  if (!/^[0-9a-f]{64}$/.test(items) || !/^[0-9a-f]{128}$/.test(signature)) return false;
+  const bytes = new TextEncoder().encode(
+    JSON.stringify([
+      "ace-spade-market-review/1",
+      target.type,
+      target.publisher,
+      target.name,
+      target.version,
+      target.hash,
+      target.visibility,
+      target.draft,
+      items,
+    ]),
+  );
+  const signed = hexToBytes(signature);
+  return pinned.some((key) => {
+    try {
+      return /^[0-9a-f]{64}$/.test(key) && ed25519.verify(signed, bytes, hexToBytes(key));
+    } catch {
+      return false;
+    }
+  });
+}

@@ -299,13 +299,15 @@ export const MarketReportReason = z.enum([
 ]);
 export const MarketReportState = z.enum(["open", "dismissed", "kept", "withdrawn", "blocked"]);
 /** `POST /v1/reports`: no account, no address kept. */
-export const MarketReportRequest = z.strictObject({
-  type: MarketEntryType,
-  name: MarketEntryName,
+const reportBody = {
   version: MarketVersion.optional(),
   reason: MarketReportReason,
   note: z.string().max(1000).default(""),
-});
+};
+export const MarketReportRequest = z.union([
+  z.strictObject({ type: MarketEntryType, name: MarketEntryName, ...reportBody }),
+  z.strictObject({ shareId: MarketShareId, ...reportBody }),
+]);
 export type MarketReportRequest = z.infer<typeof MarketReportRequest>;
 
 /* ---------------------------------------------------------------- signals */

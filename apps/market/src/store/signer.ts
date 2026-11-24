@@ -1,5 +1,5 @@
 import type { MarketCategory, MarketPublisher, MarketEntryType } from "@ace/protocol/marketplace";
-import { withdrawalReason } from "@ace/marketplace";
+import { opaqueWithdrawalId, withdrawalReason } from "@ace/marketplace";
 import {
   type PendingVersion,
   type PendingWithdrawal,
@@ -71,14 +71,74 @@ export async function pendingWithdrawals(dbs: Databases): Promise<PendingWithdra
   const rows = await fromCatalogues(dbs, async ({ db }) => {
     const { results } = await db
       .prepare(
-        `SELECT w.type, w.name, w.version, w.hash, w.reason, w.at FROM pending_withdrawals w
+        `SELECT w.type, w.name, w.version, w.hash, w.reason, w.at, e.visibility FROM pending_withdrawals w
           JOIN entries e ON e.type = w.type AND e.name = w.name
           WHERE e.audience = 'public' ORDER BY w.at LIMIT ${pendingLimit}`,
       )
-      .all<PendingWithdrawal>();
-    return results;
+      .all<PendingWithdrawal & { visibility: string }>();
+    const rows = results.map(({ visibility, ...row }) => ({
+      ...row,
+      ...(visibility === "unlisted" && { opaque: opaqueWithdrawalId(row) }),
+    }));
+    await registerOpaqueWithdrawals(db, rows);
+    return rows;
   });
   return rows.toSorted((a, b) => a.at - b.at).slice(0, pendingLimit);
+}
+
+type OpaqueTarget = {
+  type: string;
+  name: string;
+  version: string;
+  hash: string;
+  opaque?: string | undefined;
+};
+
+export async function registerOpaqueWithdrawals(db: D1Database, rows: readonly OpaqueTarget[]) {
+  const opaque = rows.filter((row) => row.opaque);
+  if (!opaque.length) return;
+  await db
+    .prepare(
+      `WITH mapping AS (
+      SELECT json_extract(value, '$.type') AS type, json_extract(value, '$.name') AS name,
+        json_extract(value, '$.version') AS version, json_extract(value, '$.hash') AS hash,
+        json_extract(value, '$.opaque') AS opaque FROM json_each(?1)
+    )
+    UPDATE versions SET withdrawal_id = mapping.opaque FROM mapping
+    WHERE versions.type = mapping.type AND versions.name = mapping.name
+      AND versions.version = mapping.version AND versions.hash = mapping.hash`,
+    )
+    .bind(JSON.stringify(opaque))
+    .run();
+}
+
+export async function privateWithdrawals(
+  dbs: Databases,
+  list: readonly Withdrawal[],
+  register = false,
+) {
+  const named = list.filter((entry) => entry.scope === "version");
+  if (!named.length) return [];
+  return fromCatalogues(dbs, async ({ type, db }) => {
+    const local = named.filter((entry) => entry.type === type);
+    if (!local.length) return [];
+    const { results } = await db
+      .prepare(
+        `SELECT e.name FROM json_each(?1) j JOIN entries e ON e.name = j.value
+        WHERE e.type = ?2 AND e.audience = 'public' AND e.visibility = 'unlisted'`,
+      )
+      .bind(JSON.stringify([...new Set(local.map(({ name }) => name))]), type)
+      .all<{ name: string }>();
+    const hidden = new Set(results.map(({ name }) => name));
+    const rows = local
+      .filter(({ name }) => hidden.has(name))
+      .map((entry) => ({
+        ...entry,
+        opaque: opaqueWithdrawalId(entry),
+      }));
+    if (register) await registerOpaqueWithdrawals(db, rows);
+    return rows;
+  });
 }
 
 /** A stored version with its entry's publisher, signed or not. */
@@ -253,7 +313,8 @@ export async function applyWithdrawn(
   const { results: before } = await db
     .prepare(
       `SELECT type, name, version, hash FROM versions
-        WHERE withdrawn IS NOT NULL OR hash IN (SELECT value FROM json_each(?1))`,
+        WHERE withdrawn IS NOT NULL OR hash IN (SELECT value FROM json_each(?1))
+          OR withdrawal_id IN (SELECT value FROM json_each(?1))`,
     )
     .bind(hashes)
     .all<Key & { hash: string }>();
@@ -262,7 +323,7 @@ export async function applyWithdrawn(
     return reason ? [{ key: `${row.type}/${row.name}@${row.version}`, reason }] : [];
   });
   const guard = "(SELECT issued = ?1 FROM applied_lists WHERE name = 'withdrawn')";
-  const touched = `withdrawn IS NOT NULL OR hash IN (SELECT value FROM json_each(?2))`;
+  const touched = `withdrawn IS NOT NULL OR hash IN (SELECT value FROM json_each(?2)) OR withdrawal_id IN (SELECT value FROM json_each(?2))`;
   await db.batch([
     db
       .prepare(
@@ -283,7 +344,7 @@ export async function applyWithdrawn(
       .prepare(
         `UPDATE entries SET generation = generation + 1 WHERE ${guard} AND EXISTS (
           SELECT 1 FROM versions v WHERE v.type = entries.type AND v.name = entries.name
-            AND (v.withdrawn IS NOT NULL OR v.hash IN (SELECT value FROM json_each(?2))))`,
+            AND (v.withdrawn IS NOT NULL OR v.hash IN (SELECT value FROM json_each(?2)) OR v.withdrawal_id IN (SELECT value FROM json_each(?2))))`,
       )
       .bind(list.issued, hashes),
     db
@@ -291,7 +352,7 @@ export async function applyWithdrawn(
         `UPDATE versions SET withdrawn = (
             SELECT json_extract(m.value, '$.reason') FROM json_each(?2) m
             WHERE json_extract(m.value, '$.key') = versions.type || '/' || versions.name || '@' || versions.version)
-          WHERE ${guard} AND (withdrawn IS NOT NULL OR hash IN (SELECT value FROM json_each(?3)))`,
+          WHERE ${guard} AND (withdrawn IS NOT NULL OR hash IN (SELECT value FROM json_each(?3)) OR withdrawal_id IN (SELECT value FROM json_each(?3)))`,
       )
       .bind(list.issued, JSON.stringify(marks), hashes),
     db

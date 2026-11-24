@@ -119,6 +119,8 @@ export {
   verifyReviewMark,
   verifyWithdrawn,
   withdrawalKey,
+  opaqueWithdrawalId,
+  verifiesSpadeReview,
   withdrawalReason,
   type MarketSigningKey,
   type WithdrawalTarget,

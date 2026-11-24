@@ -11,6 +11,7 @@ import {
   SignedReviewUpload,
   SignedVersionUpload,
   SignedWithdrawnUpload,
+  WithdrawnList,
 } from "@ace/protocol/marketplace";
 import { objectKey, type Context } from "./context.ts";
 import { bearer, failure, json, notFound, readJson, refused, sameSecret } from "./http.ts";
@@ -22,6 +23,7 @@ import {
   listVersion,
   pendingVersions,
   pendingWithdrawals,
+  privateWithdrawals,
   reviewedEntries,
   setCategories,
   setFeatured,
@@ -88,8 +90,11 @@ export async function signerRoute(
           signedList(listDb(dbs, "official"), "official"),
           signedList(listDb(dbs, "notices"), "notices"),
         ]);
+      const old = WithdrawnList.safeParse(list?.signed.body).data;
+      const redactions = old ? await privateWithdrawals(dbs, old.withdrawn, true) : [];
       return json({
         versions,
+        ...(redactions.length && { redactions }),
         withdrawals,
         ...(list ? { withdrawn: list.signed } : {}),
         ...(blocklist ? { blocklist: blocklist.signed } : {}),
@@ -227,6 +232,8 @@ async function withdrawn(request: Request, context: Context) {
   } catch (error) {
     return signatureRefused(error);
   }
+  if ((await privateWithdrawals(context.dbs, list.withdrawn)).length)
+    return failure(409, "conflict", "An unlisted withdrawal must be signed with its opaque ID.");
   const stored = await setWithdrawn(
     context.dbs,
     {

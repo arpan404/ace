@@ -215,17 +215,26 @@ export async function signPending(
     if (answer.status >= 200 && answer.status < 300) report.signed.push(label(version));
     else report.failed.push({ what: label(version), ...answer });
   }
-  if (pending.withdrawals.length > 0) {
+  if (pending.withdrawals.length > 0 || pending.redactions?.length) {
     // A publisher's withdrawal names their version, never every copy of its bytes.
-    const added: Withdrawal[] = pending.withdrawals.map((entry) => ({
-      scope: "version",
-      type: entry.type,
-      name: entry.name,
-      version: entry.version,
-      hash: entry.hash,
-      reason: entry.reason,
-      at: entry.at,
-    }));
+    const added: Withdrawal[] = pending.withdrawals.map((entry) =>
+      entry.opaque
+        ? {
+            scope: "hash",
+            hash: entry.opaque,
+            reason: "The publisher withdrew this version.",
+            at: entry.at,
+          }
+        : {
+            scope: "version",
+            type: entry.type,
+            name: entry.name,
+            version: entry.version,
+            hash: entry.hash,
+            reason: entry.reason,
+            at: entry.at,
+          },
+    );
     const answer = await addWithdrawals(io, key, now, trusted, pending, added);
     if (answer.status >= 200 && answer.status < 300) report.withdrawn = answer.added;
     else

@@ -11,6 +11,8 @@ import {
   type SignerIo,
 } from "./signer.ts";
 import {
+  opaqueWithdrawalId,
+  withdrawalReason,
   signBlocklist,
   signOfficialList,
   signVerifiedList,
@@ -513,4 +515,55 @@ describe("a bot package's contracts", () => {
       "/v1/signer/versions/spade-bot/flight-watcher/2.0.0",
     ]);
   });
+});
+
+it("signs an unlisted withdrawal without publishing its name, version, archive hash or reason", async () => {
+  const version = { type: "spade-skill", name: "hidden", version: "1.2.3", hash: "a".repeat(64) };
+  const { io, puts } = memory({
+    "/v1/signer/pending": {
+      versions: [],
+      withdrawals: [
+        {
+          ...version,
+          opaque: opaqueWithdrawalId(version),
+          reason: "Confidential context",
+          at: 20,
+        },
+      ],
+    },
+  });
+  await signPending(io, next, () => 25, trusted);
+  const list = verifyWithdrawn(bodyOf<{ withdrawn: unknown }>(puts).withdrawn, trusted);
+  expect(JSON.stringify(list.withdrawn)).not.toMatch(/hidden|1\.2\.3|Confidential|a{64}/);
+  expect(withdrawalReason(list.withdrawn, version)).toBe("The publisher withdrew this version.");
+  expect(withdrawalReason(list.withdrawn, { ...version, name: "other" })).toBeUndefined();
+});
+
+it("replaces a previously named private withdrawal even when the publish queue is empty", async () => {
+  const target = {
+    type: "spade-skill" as const,
+    name: "hidden",
+    version: "1.2.3",
+    hash: "a".repeat(64),
+  };
+  const named = { ...target, reason: "Private reason" };
+  const earlier = signedWithdrawn([named], { key: old, issued: 10 });
+  const { io, puts } = memory({
+    "/v1/signer/pending": {
+      versions: [],
+      withdrawals: [],
+      withdrawn: earlier,
+      redactions: [{ ...named, at: 10, opaque: opaqueWithdrawalId(target) }],
+    },
+  });
+  await signPending(io, next, () => 20, trusted);
+  const list = verifyWithdrawn(bodyOf<{ withdrawn: unknown }>(puts).withdrawn, trusted);
+  expect(list.withdrawn).toEqual([
+    {
+      scope: "hash",
+      hash: opaqueWithdrawalId(target),
+      reason: "This version was withdrawn.",
+      at: 10,
+    },
+  ]);
 });

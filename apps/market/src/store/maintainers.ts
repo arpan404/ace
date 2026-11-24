@@ -1,3 +1,5 @@
+import { opaqueWithdrawalId } from "@ace/marketplace";
+import { registerOpaqueWithdrawals } from "./signer.ts";
 import type {
   MarketCollection,
   MarketPublisherState,
@@ -419,14 +421,19 @@ export async function publisherVersions(dbs: Databases, handle: string) {
   const live = await fromCatalogues(dbs, async ({ db }) => {
     const { results } = await db
       .prepare(
-        `SELECT v.type, v.name, v.version, v.hash FROM versions v
+        `SELECT v.type, v.name, v.version, v.hash, e.visibility FROM versions v
           JOIN entries e ON e.type = v.type AND e.name = v.name
           WHERE e.publisher = ?1 AND v.listed = 1 AND v.withdrawn IS NULL
           ORDER BY v.type, v.name, v.version LIMIT 10000`,
       )
       .bind(publisher.id)
-      .all<Key & { hash: string }>();
-    return results;
+      .all<Key & { hash: string; visibility: string }>();
+    const rows = results.map(({ visibility, ...row }) => ({
+      ...row,
+      ...(visibility === "unlisted" && { opaque: opaqueWithdrawalId(row) }),
+    }));
+    await registerOpaqueWithdrawals(db, rows);
+    return rows;
   });
   return {
     publisher: { id: publisher.id, name: publisher.name },

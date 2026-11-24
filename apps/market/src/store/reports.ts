@@ -4,7 +4,7 @@ import type {
   ReportResolution,
 } from "@ace/protocol/marketplace";
 import type { z } from "zod";
-import type { Databases } from "./databases.ts";
+import { fromCatalogues, type Databases } from "./databases.ts";
 
 /*
  * Anonymous abuse reports (ADR 0174 §7), in the moderation database: the entry, the reason and
@@ -17,18 +17,33 @@ export const openReportsPerEntry = 500;
 export type Filed = "filed" | "missing" | "full";
 
 export async function fileReport(
-  dbs: Pick<Databases, "catalogue" | "moderation">,
+  dbs: Pick<Databases, "catalogue" | "catalogues" | "moderation">,
   report: MarketReportRequest,
   id: string,
   now: number,
 ): Promise<Filed> {
-  const catalogue = dbs.catalogue(report.type);
-  const entry = catalogue
-    ? await catalogue
-        .prepare("SELECT 1 AS found FROM entries WHERE type = ?1 AND name = ?2")
-        .bind(report.type, report.name)
-        .first()
-    : null;
+  type Key = { type: string; name: string };
+  let entry: Key | null | undefined;
+  if ("shareId" in report) {
+    const rows = await fromCatalogues(dbs, async ({ db }) => {
+      const found = await db
+        .prepare(
+          "SELECT type, name FROM entries WHERE share_id = ?1 AND audience = 'public' AND visibility = 'unlisted'",
+        )
+        .bind(report.shareId)
+        .first<Key>();
+      return found ? [found] : [];
+    });
+    entry = rows.length === 1 ? rows[0] : undefined;
+  } else {
+    entry = await dbs
+      .catalogue(report.type)
+      ?.prepare(
+        "SELECT type, name FROM entries WHERE type = ?1 AND name = ?2 AND audience = 'public' AND visibility = 'listed'",
+      )
+      .bind(report.type, report.name)
+      .first<Key>();
+  }
   if (!entry) return "missing";
   const result = await dbs.moderation
     .prepare(
@@ -38,8 +53,8 @@ export async function fileReport(
     )
     .bind(
       id,
-      report.type,
-      report.name,
+      entry.type,
+      entry.name,
       report.version ?? null,
       report.reason,
       report.note,

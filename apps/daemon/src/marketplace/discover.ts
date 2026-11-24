@@ -145,7 +145,8 @@ export async function report(
   operation: Extract<MarketOperation, { op: "report" }>,
 ): Promise<MarketResult> {
   if (!http) return failure("unavailable", "store.acehq.dev is turned off");
-  const { op: _op, ...body } = operation;
+  const { op: _op, shareId, type, name, ...report } = operation;
+  const body = shareId ? { ...report, shareId } : { ...report, type, name };
   let reply;
   try {
     reply = await http.send("POST", "/v1/reports", {

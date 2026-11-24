@@ -33,7 +33,17 @@ export async function addWithdrawals(
 ): Promise<{ status: number; text: string; added: number }> {
   // The list may be the previous key's: what counts is that a trusted key signed it.
   const stored = pending.withdrawn ? verifyWithdrawn(pending.withdrawn, trusted) : undefined;
-  const earlier = stored?.withdrawn ?? [];
+  const redactions = new Map(
+    (pending.redactions ?? []).flatMap((entry) =>
+      entry.opaque ? [[withdrawalKey({ ...entry, scope: "version" }), entry.opaque] as const] : [],
+    ),
+  );
+  const earlier = (stored?.withdrawn ?? []).map((entry): Withdrawal => {
+    const opaque = redactions.get(withdrawalKey(entry));
+    return opaque
+      ? { scope: "hash", hash: opaque, reason: "This version was withdrawn.", at: entry.at }
+      : entry;
+  });
   const known = new Set(earlier.map(withdrawalKey));
   const fresh = added.filter((entry) => !known.has(withdrawalKey(entry)));
   const list = signWithdrawn(

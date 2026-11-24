@@ -184,15 +184,19 @@ export async function signWithdrawAll(
     now,
     trusted,
     await pendingOf(io),
-    found.live.map((version): Withdrawal => ({
-      scope: "version",
-      type: version.type,
-      name: version.name,
-      version: version.version,
-      hash: version.hash,
-      reason: target.reason,
-      at,
-    })),
+    found.live.map((version): Withdrawal =>
+      version.opaque
+        ? { scope: "hash", hash: version.opaque, reason: "This version was withdrawn.", at }
+        : {
+            scope: "version",
+            type: version.type,
+            name: version.name,
+            version: version.version,
+            hash: version.hash,
+            reason: target.reason,
+            at,
+          },
+    ),
   );
 }
 

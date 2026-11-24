@@ -60,7 +60,7 @@ export function withdrawalOf(
     source === "market"
       ? state.withdrawn
       : state.withdrawn.filter((entry) => entry.scope === "hash");
-  return withdrawalReason(applies, target);
+  return withdrawalReason(applies, target, source === "market");
 }
 
 /**

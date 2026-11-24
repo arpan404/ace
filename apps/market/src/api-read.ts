@@ -1,3 +1,5 @@
+import { WithdrawnList } from "@ace/protocol/marketplace";
+import { privateWithdrawals } from "./store/signer.ts";
 import { fromCatalogues } from "./store/databases.ts";
 import { shareable } from "./share-id.ts";
 import type { Route } from "./routes.ts";
@@ -104,7 +106,11 @@ export async function readRoute(
     }
     case "withdrawn": {
       const list = await withdrawnList(dbs.lists);
-      return list ? tagged(request, list.signed) : notFound();
+      if (!list) return notFound();
+      const body = WithdrawnList.safeParse(list.signed.body);
+      if (!body.success || (await privateWithdrawals(dbs, body.data.withdrawn)).length > 0)
+        return failure(503, "unavailable", "The signed withdrawal feed is being refreshed.");
+      return tagged(request, list.signed);
     }
     case "object":
       return object(request, route.hash, "public", context);

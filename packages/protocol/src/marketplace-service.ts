@@ -77,6 +77,7 @@ export const PendingVersion = z.object({
 export type PendingVersion = z.infer<typeof PendingVersion>;
 
 export const PendingWithdrawal = z.object({
+  opaque: MarketHash.optional(),
   type: MarketEntryType,
   name: MarketEntryName,
   version: MarketVersion,
@@ -89,6 +90,7 @@ export type PendingWithdrawal = z.infer<typeof PendingWithdrawal>;
 export const SignerPending = z.object({
   versions: z.array(PendingVersion).max(500),
   withdrawals: z.array(PendingWithdrawal).max(500),
+  redactions: z.array(PendingWithdrawal).max(10000).optional(),
   /** The withdrawn list as last signed, so the signer adds to it rather than starting over. */
   withdrawn: Signed.optional(),
   /** The blocklist as last signed. */
@@ -260,6 +262,7 @@ export const PublisherVersionsBody = z.object({
         name: MarketEntryName,
         version: MarketVersion,
         hash: MarketHash,
+        opaque: MarketHash.optional(),
       }),
     )
     .max(10_000),
