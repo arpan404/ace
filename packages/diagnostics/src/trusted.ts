@@ -1,8 +1,10 @@
+import { ProviderKind } from "@ace/protocol";
+
 /**
- * A structured log value ace itself made (a provider kind, an ace id), never provider or person
- * text. The record keeps it as written while redaction still scrubs every other byte: only
- * `logTrusted` values are put back after `redactedLine`, so an environment value that happens to
- * spell the same word cannot blank the field.
+ * A structured log value ace itself made (a provider kind), never provider or person text. The
+ * record keeps it as written while redaction still scrubs every other byte: only values from
+ * this module are put back after `redactedLine`, so an environment value that happens to spell
+ * the same word cannot blank the field.
  */
 export class TrustedText {
   readonly text: string;
@@ -11,9 +13,14 @@ export class TrustedText {
   }
 }
 
-/** Marks one string as trusted structured data for `logFields` (`["provider", logTrusted(p)]`). */
-export function logTrusted(text: string): TrustedText {
-  return new TrustedText(text);
+/**
+ * Marks a provider kind for `logFields` (`["provider", logProviderKind(p)]`). The list is ace's
+ * closed `ProviderKind`; anything outside it is returned as a plain string, which redaction
+ * treats like every other value.
+ */
+export function logProviderKind(provider: string): TrustedText | string {
+  const kind = ProviderKind.safeParse(provider);
+  return kind.success ? new TrustedText(kind.data) : provider;
 }
 
 /** The key `bounded` gives a trusted value inside a record; `redactedLine` puts it back. */

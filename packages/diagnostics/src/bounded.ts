@@ -151,8 +151,10 @@ function normalize(
       }
     }
     const result: Record<string, unknown> = {};
-    for (const [key, item] of entries) {
+    for (const [field, item] of entries) {
       if (remaining <= 0) break;
+      // Only this module's TrustedText makes a trusted marker; a field spelled like one is data.
+      const key = field === TRUSTED_KEY ? "<KEY>" : field;
       if (key.length > 128 || key.length > characters) {
         remaining--;
         Object.defineProperty(result, "<KEY>", {

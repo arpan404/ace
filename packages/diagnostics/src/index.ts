@@ -37,7 +37,7 @@ export { writeSupportBundle, type BundleOptions } from "./bundle.ts";
 export { recentThreadEvents } from "./threads.ts";
 
 export { logFields, logMetadata, logError } from "./bounded.ts";
-export { logTrusted } from "./trusted.ts";
+export { logProviderKind } from "./trusted.ts";
 
 export type { LogWorkerRuntime } from "./worker-sink.ts";
 export type { HealthRuntime } from "./health.ts";
