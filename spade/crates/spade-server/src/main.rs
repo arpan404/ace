@@ -616,6 +616,7 @@ async fn run() -> Result<(), Failure> {
         engine.set_market(link.clone());
     }
     engine.set_services(services.clone());
+    engine.set_workspaces(workspaces.clone());
     if let Some(link) = &ace {
         let agents = engine
             .agents()

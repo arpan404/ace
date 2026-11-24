@@ -103,9 +103,17 @@ the text: native reading costs the text plus an image of every page.
 ## `web_fetch` and PDFs
 
 A response typed `application/pdf`, or whose body starts with `%PDF-` under a generic type
-(`application/octet-stream`), is read up to 20 MB and extracted by the same `Extractor`. The text
-is paged like any page; the title is the file name from the address. Without an extractor
-(`Fetcher::with_documents` not called) PDFs are refused as before.
+(`application/octet-stream`), is read up to 20 MB and extracted by the same `Extractor`. It follows
+the same handle pattern as HTML pages: the full extracted text (up to the workspace text limit of
+4 MB) is saved untrusted as an immutable snapshot at `web/<host>-<url-hash>-<content-hash>.md`
+(published atomically without overwriting non-fetch files), and the tool returns a compact bounded
+handle (title from the address's file name, URL, total length with PDF page count, saved path,
+outline if any, and the first 4,000-character window). Follow-up calls in the same conversation
+with an explicit `offset` (including `offset: 0`) or lexical `query` read from the persisted
+snapshot across restarts once its SHA-256 digest verifies; any cache miss (missing, evicted, or
+modified file) refetches a fresh copy into a new snapshot, and `workspace_read` /
+`workspace_search` work on it later. Without an extractor (`Fetcher::with_documents` not called)
+PDFs are refused as before.
 
 ## Images a bot makes or shares
 

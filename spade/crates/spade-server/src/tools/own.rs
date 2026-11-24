@@ -57,7 +57,7 @@ pub fn own_tools(own: Own) -> Vec<Arc<dyn Tool>> {
             search: search.clone(),
             bots: bots.clone(),
         }),
-        Arc::new(WebFetch(fetcher.clone())),
+        Arc::new(WebFetch::new(fetcher.clone()).with_workspaces(workspaces.clone(), bots.clone())),
         Arc::new(Todo),
         Arc::new(TaskStatus),
         Arc::new(TaskGoal),

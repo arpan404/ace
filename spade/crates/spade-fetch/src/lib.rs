@@ -63,6 +63,23 @@ pub const MOST_BYTES: usize = 5 * 1024 * 1024;
 /// The most bytes of a PDF Spade reads.
 pub const MOST_PDF_BYTES: usize = 20 * 1024 * 1024;
 
+/// A fetched page's full readable text, before taking a window.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FetchedPage {
+    /// The address after redirects.
+    pub url: String,
+    pub title: Option<String>,
+    /// The media type, such as `text/html` or `application/pdf`, without parameters.
+    pub content_type: String,
+    /// The whole readable text.
+    pub text: String,
+    /// Pages in the document, when it was a PDF.
+    pub pages: Option<u32>,
+    /// Whether the page was too large or too deeply built to read whole, so the text stops
+    /// early.
+    pub truncated: bool,
+}
+
 /// One window of a fetched page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fetched {
@@ -175,22 +192,37 @@ impl Fetcher {
         self
     }
 
-    /// Fetches `url` and returns the window `page` of its readable text.
-    pub async fn fetch(&self, url: &str, page: Page) -> Result<Fetched, FetchError> {
+    /// Fetches `url` and returns its full readable text, before taking a window.
+    pub async fn fetch_page(&self, url: &str) -> Result<FetchedPage, FetchError> {
         let mut body = tokio::time::timeout(self.timeout, self.body(url))
             .await
             .map_err(|_| FetchError::TimedOut(self.timeout.as_secs().max(1)))??;
         if body.reading == page::Reading::Pdf {
-            return self.pdf(&mut body, page).await;
+            return self.pdf(&mut body).await;
         }
         // Reading is bounded but CPU-bound, so it runs off the async threads.
-        tokio::task::spawn_blocking(move || readable(body, page))
+        tokio::task::spawn_blocking(move || readable(body))
             .await
             .map_err(|_| FetchError::Unreadable)
     }
 
-    /// A PDF's text, read by the document reader in its own process, a window at a time.
-    async fn pdf(&self, body: &mut Body, page: Page) -> Result<Fetched, FetchError> {
+    /// Fetches `url` and returns the window `page` of its readable text.
+    pub async fn fetch(&self, url: &str, page: Page) -> Result<Fetched, FetchError> {
+        let full = self.fetch_page(url).await?;
+        let window = page::window(&full.text, page);
+        Ok(Fetched {
+            url: full.url,
+            title: full.title,
+            content_type: full.content_type,
+            text: window.text,
+            total_chars: window.total_chars,
+            next_offset: window.next_offset,
+            truncated: full.truncated,
+        })
+    }
+
+    /// A PDF's full text, read by the document reader in its own process.
+    async fn pdf(&self, body: &mut Body) -> Result<FetchedPage, FetchError> {
         let reader = match &self.documents {
             Some(reader) if body.bytes.starts_with(b"%PDF-") => reader,
             _ => return Err(FetchError::Unsupported(body.media_type.clone())),
@@ -207,14 +239,12 @@ impl Fetcher {
             .read(bytes, &name)
             .await
             .map_err(|error| FetchError::Document(error.to_string()))?;
-        let window = page::window(&read.text, page);
-        Ok(Fetched {
+        Ok(FetchedPage {
             url: body.url.to_string(),
             title: Some(name),
             content_type: "application/pdf".to_owned(),
-            text: window.text,
-            total_chars: window.total_chars,
-            next_offset: window.next_offset,
+            text: read.text,
+            pages: read.pages,
             truncated: read.cut,
         })
     }
@@ -351,8 +381,8 @@ enum CheckedHost {
     Domain(String, Vec<SocketAddr>),
 }
 
-/// The window `page` of the readable text of `body`.
-fn readable(body: Body, page: Page) -> Fetched {
+/// The full readable text of `body`.
+fn readable(body: Body) -> FetchedPage {
     let html = body.reading == page::Reading::Html;
     let source = decode::decode(&body.bytes, body.charset.as_deref(), html);
     let (title, text, truncated) = match body.reading {
@@ -362,14 +392,12 @@ fn readable(body: Body, page: Page) -> Fetched {
         }
         page::Reading::Text | page::Reading::Pdf => (None, source.trim().to_owned(), false),
     };
-    let window = page::window(&text, page);
-    Fetched {
+    FetchedPage {
         url: body.url.to_string(),
         title,
         content_type: body.media_type,
-        text: window.text,
-        total_chars: window.total_chars,
-        next_offset: window.next_offset,
+        text,
+        pages: None,
         truncated,
     }
 }

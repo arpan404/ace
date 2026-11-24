@@ -187,8 +187,11 @@ ended: one line each with its id, state, title and the asks it owns, read from t
 
 Every tool definition is paid for on every model call of every bot, so Spade offers up front only
 the tools a bot needs constantly, in name order, and defers the rest. Core: `web_search` (ace
-cloud search, then the model endpoint's own), `web_fetch` (one page as text, a window at a time,
-refusing local and private addresses), `todo`, `asks` (the person's asks, answered by Spade from
+cloud search, then the model endpoint's own), `web_fetch` (saves a page's or PDF's full readable text as an
+immutable snapshot under `web/` in the bot's workspace and returns a bounded handle: title, URL, length,
+saved path, a heading outline with offsets and the first 4,000 characters; later calls with `offset` or
+`query` read the saved snapshot once its digest verifies, and any cache miss refetches; refuses local
+and private addresses; see media.md), `todo`, `asks` (the person's asks, answered by Spade from
 the events, ADR 0215), `task_status`, `task_goal`, `task_plan`, `decision_log`, `task_update`
 (the bot's task state; while `working`, Spade starts its next step after a reply,
 [autonomy.md](autonomy.md)), `sleep_until` and `wait_for` (the bot ends its turn and is woken at a

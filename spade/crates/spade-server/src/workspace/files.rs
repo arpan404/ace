@@ -324,22 +324,35 @@ impl Workspace {
                 .map_err(|error| PathError::at(relative, error))?;
         }
         let at = folder(&dir, parent, relative)?;
+        let temporary = format!(
+            ".{}.spade-{}",
+            name.to_string_lossy(),
+            uuid::Uuid::new_v4().simple()
+        );
         let mut options = OpenOptions::new();
         options
             .write(true)
             .create_new(true)
             .follow(FollowSymlinks::No);
-        let mut file = match at.open_with(&name, &options) {
-            Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
-            Err(error) => return Err(PathError::at(relative, error)),
-        };
-        let written = file.write_all(content).and_then(|()| file.sync_all());
+        let written = at.open_with(&temporary, &options).and_then(|mut file| {
+            file.write_all(content)?;
+            file.sync_all()
+        });
         if let Err(error) = written {
-            let _ = at.remove_file(&name);
+            let _ = at.remove_file(&temporary);
             return Err(PathError::at(relative, error));
         }
-        Ok(true)
+        match publish_no_replace(&at, temporary.as_ref(), &name) {
+            Ok(true) => Ok(true),
+            Ok(false) => {
+                let _ = at.remove_file(&temporary);
+                Ok(false)
+            }
+            Err(error) => {
+                let _ = at.remove_file(&temporary);
+                Err(PathError::at(relative, error))
+            }
+        }
     }
 
     /// Applies `changes` to `relative`'s text, all or none (see `edits.rs`). Answers the file's
@@ -513,4 +526,56 @@ pub fn window(relative: &str, text: &str, offset: usize, limit: usize) -> String
         ));
     }
     out
+}
+
+/// Publishes a newly written temporary file `temp` into `target` in the same directory `dir`
+/// without ever replacing an existing entry: `renameat2(RENAME_NOREPLACE)` on Linux,
+/// `renameatx_np(RENAME_EXCL)` on macOS, falling back to atomic `hard_link()` + unlink when
+/// the filesystem does not support no-replace renames.
+///
+/// Returns `Ok(true)` if published, `Ok(false)` if `target` already existed.
+#[cfg(unix)]
+fn publish_no_replace(
+    dir: &Dir,
+    temp: &std::ffi::OsStr,
+    target: &std::ffi::OsStr,
+) -> std::io::Result<bool> {
+    use rustix::fs::{RenameFlags, renameat_with};
+    use rustix::io::Errno;
+
+    match renameat_with(dir, temp, dir, target, RenameFlags::NOREPLACE) {
+        Ok(()) => Ok(true),
+        Err(Errno::EXIST) => Ok(false),
+        Err(Errno::NOSYS | Errno::OPNOTSUPP | Errno::INVAL) => {
+            publish_via_hard_link(dir, temp, target)
+        }
+        Err(errno) => Err(std::io::Error::from(errno)),
+    }
+}
+
+/// Portable atomic no-replace publication via `hard_link` + unlink on non-Unix platforms.
+#[cfg(not(unix))]
+fn publish_no_replace(
+    dir: &Dir,
+    temp: &std::ffi::OsStr,
+    target: &std::ffi::OsStr,
+) -> std::io::Result<bool> {
+    publish_via_hard_link(dir, temp, target)
+}
+
+fn publish_via_hard_link(
+    dir: &Dir,
+    temp: &std::ffi::OsStr,
+    target: &std::ffi::OsStr,
+) -> std::io::Result<bool> {
+    match dir.hard_link(temp, dir, target) {
+        Ok(()) => {
+            if let Err(error) = dir.remove_file(temp) {
+                tracing::warn!(%error, "temporary file left beside published workspace file");
+            }
+            Ok(true)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+        Err(error) => Err(error),
+    }
 }
