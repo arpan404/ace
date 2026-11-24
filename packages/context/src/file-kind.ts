@@ -13,6 +13,7 @@ const types: Record<string, string> = {
   wav: "audio/wav",
   mp4: "video/mp4",
   mov: "video/quicktime",
+  m4v: "video/x-m4v",
   heic: "image/heic",
   heif: "image/heif",
   tif: "image/tiff",
