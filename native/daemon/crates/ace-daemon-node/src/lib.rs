@@ -3,6 +3,10 @@
 //! errors and handles. Behaviour lives in the crates it binds. The TypeScript side
 //! (`@ace/provider-kit/native-sqlite`) shapes rows and errors the way node:sqlite does.
 
+// napi-derive registers exports only outside test builds, so in the lib test
+// target every export reads as unused.
+#![cfg_attr(test, allow(dead_code))]
+
 use ace_store::{Connection, Error, ErrorKind, OpenOptions, Statement, Value};
 use napi::bindgen_prelude::{BigInt, Either4, Either5, Null, Uint8Array};
 use napi_derive::napi;
