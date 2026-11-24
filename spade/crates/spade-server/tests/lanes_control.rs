@@ -411,16 +411,29 @@ async fn stop_on_the_bot_marks_every_queued_lane_in_one_write_or_none() -> Resul
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_lane_reopened_while_its_report_goes_out_stays_live_and_the_bot_never_reads_idle()
 -> Result {
-    let routes = vec![route(
-        "Tidy the notes",
-        vec![
-            Script::reply("Tidied."),
-            Script::reply("Tidied again.").held(Duration::from_secs(2)),
-        ],
-    )];
+    let routes = vec![
+        route(
+            "Tidy the notes",
+            vec![
+                Script::reply("Tidied."),
+                Script::reply("Tidied again.").held(Duration::from_secs(2)),
+            ],
+        ),
+        spade_testkit::Route::when(
+            "Tidy them once more.",
+            vec![
+                Script::reply("").call(
+                    "m1",
+                    "task_message",
+                    json!({"task": "Tidy the notes", "text": "Do it again."}),
+                ),
+                Script::reply("I asked it to tidy again."),
+            ],
+        ),
+    ];
     let mut main = warm_up();
     main.extend([
         starts("t1", "Tidy the notes"),
@@ -429,7 +442,9 @@ async fn a_lane_reopened_while_its_report_goes_out_stays_live_and_the_bot_never_
         Script::reply("Tidied again."),
     ]);
     let spade = Spade::start_routed(routes, main, Vec::new(), Options::default()).await?;
-    // Between reading the lane's settlement and its report going out, the person writes in it.
+    let (agent, conversation) = warm_bot(&spade).await?;
+    let parent = conversation.clone();
+    // Hold the old report until the parent forwards a new instruction to the lane.
     let engine = spade.engine.clone();
     let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let once = done.clone();
@@ -439,10 +454,32 @@ async fn a_lane_reopened_while_its_report_goes_out_stays_live_and_the_bot_never_
                 text: "Tidy them once more.".to_owned(),
                 ..Default::default()
             };
-            let _ = engine.send_message(id, message);
+            if engine.send_message(&parent, message).is_ok() {
+                tokio::task::block_in_place(|| {
+                    let until = Instant::now() + Duration::from_secs(5);
+                    while Instant::now() < until {
+                        if engine.events(id, 0).ok().flatten().is_some_and(|events| {
+                            events
+                                .iter()
+                                .filter(|event| {
+                                    matches!(
+                                        event.event,
+                                        spade_core::Event::Known(
+                                            spade_core::event::Known::ReplyStarted { .. }
+                                        )
+                                    )
+                                })
+                                .count()
+                                >= 2
+                        }) {
+                            return;
+                        }
+                        std::thread::sleep(Duration::from_millis(20));
+                    }
+                });
+            }
         }
     }));
-    let (agent, conversation) = warm_bot(&spade).await?;
     spade.say(&conversation, "Tidy the notes.").await?;
     let lane_id = id_of(
         wait_tasks(&spade, &conversation, |t| !t.is_empty())
@@ -475,6 +512,18 @@ async fn a_lane_goes_live_before_a_reply_of_it_is_stored_or_nothing_is() -> Resu
         starts("t1", "Tidy the notes"),
         Script::reply("Started."),
         Script::reply("Tidied."),
+        Script::reply("").call(
+            "m1",
+            "task_message",
+            json!({"task":"Tidy the notes","text":"Once more."}),
+        ),
+        Script::reply("I could not send it."),
+        Script::reply("").call(
+            "m2",
+            "task_message",
+            json!({"task":"Tidy the notes","text":"Once more."}),
+        ),
+        Script::reply("I sent it."),
         Script::reply("Tidied again."),
     ]);
     let spade = Spade::start_routed(routes, main, Vec::new(), Options::default()).await?;
@@ -494,6 +543,7 @@ async fn a_lane_goes_live_before_a_reply_of_it_is_stored_or_nothing_is() -> Resu
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
+    wait_count(&spade, &conversation, "reply_finished", 3).await?;
     // Putting it back on the list fails, as a crash there would: no reply of it is stored.
     {
         let connection = spade_store::Store::connect(spade.database())?;
@@ -502,16 +552,17 @@ async fn a_lane_goes_live_before_a_reply_of_it_is_stored_or_nothing_is() -> Resu
              BEGIN SELECT RAISE(ABORT, 'refused for a test'); END;",
         )?;
     }
-    let path = format!("/v1/conversations/{lane_id}/messages");
-    let (status, _) = spade.post(&path, json!({ "text": "Once more." })).await?;
-    assert!(status >= 500, "{status}");
+    spade.say(&conversation, "Once more.").await?;
+    let events = wait_count(&spade, &conversation, "reply_finished", 4).await?;
+    assert!(events.iter().any(|event| event["type"] == "tool_finished"
+        && event["call_id"] == "m1"
+        && event["is_error"] == true));
     assert_eq!(count(&spade.events(&lane_id).await?, "reply_started"), 1);
     {
         let connection = spade_store::Store::connect(spade.database())?;
         connection.execute_batch("DROP TRIGGER no_live;")?;
     }
-    let (status, body) = spade.post(&path, json!({ "text": "Once more." })).await?;
-    assert_eq!(status, 202, "{body}");
+    spade.say(&conversation, "Try it again.").await?;
     wait_count(&spade, &lane_id, "reply_started", 2).await?;
     assert!(live_in_store(&spade)?.contains(&lane_id));
     assert_ne!(roster_state(&spade, &agent).await?["state"], "idle");

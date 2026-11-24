@@ -245,6 +245,24 @@ fn only_the_persons_own_reply_routed_to_a_task_authorizes_stopping_it() {
 }
 
 #[test]
+fn a_stop_request_quoting_a_task_report_is_authorized_in_main() {
+    let events = vec![
+        person("Fix the March invoice."),
+        started("r1"),
+        lane_started("l1", &["m1"]),
+        finished("r1", "Started."),
+        report("l1", ReportState::NeedsYou),
+        e(json!({"type": "user_message", "text": "Stop, please.",
+            "reply_to": {"id": "m5", "text": "A task report"}})),
+    ];
+    assert_eq!(stop_allowed(&events, "l1", "m6"), Ok(()));
+    assert!(stop_allowed(&events, "l2", "m6").is_err());
+    let mut forwarded = events;
+    forwarded.push(messaged("l1", &[]));
+    assert!(stop_allowed(&forwarded, "l1", "m6").is_err());
+}
+
+#[test]
 fn a_reply_records_the_lane_whose_report_alone_opened_it() {
     let base = vec![person("Hi"), started("r0"), finished("r0", "Hello")];
     let mut opened = base.clone();

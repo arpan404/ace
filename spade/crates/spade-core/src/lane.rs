@@ -548,8 +548,7 @@ pub fn free_slots(stages: impl IntoIterator<Item = Stage>, at_once: usize) -> us
     helper::free_slots(stages, at_once)
 }
 
-/// The lane a person's reply to main's message `replied` (`m<seq>`) goes to, with no model call
-/// (ADR 0217 §2): a lane's quiet line (started, moved, a routed message, its report), the
+/// The lane main's message `replied` (`m<seq>`) refers to: a quiet line, the
 /// bot's message in the reply a lane's report opened, or the person's own message routed there.
 pub fn replied_to(events: &[Event], replied: &str) -> Option<String> {
     let seq = usize::try_from(crate::chat_markup::seq_of(replied)?).ok()?;
@@ -649,10 +648,8 @@ fn is_input(event: &Known) -> bool {
 pub fn stop_allowed(events: &[Event], lane: &str, because: &str) -> Result<(), String> {
     let refused = || {
         Err(
-            "task_stop needs `because`: the id of the person's own reply to this task asking to \
-             stop it (it shows as sent to the task), with no newer reply of theirs to it. Only the \
-             person stops a task: if they asked here instead, tell them to press Stop on the \
-             task or reply to it."
+            "task_stop needs `because`: the id of the person's latest message asking to stop \
+             this task, sent as a reply to its report."
                 .to_owned(),
         )
     };
@@ -666,26 +663,36 @@ pub fn stop_allowed(events: &[Event], lane: &str, because: &str) -> Result<(), S
     let Some(event) = events.get(at) else {
         return refused();
     };
-    if !crate::asks::is_persons(event, crate::asks::maker_of(events)) {
+    let maker = crate::asks::maker_of(events);
+    if !crate::asks::is_persons(event, maker) {
         return refused();
     }
-    // Only the person's own action gives a stop: their message routed to this task by their
-    // reply to it (`ask_routed`, written only for the person's `reply_to`). Main forwarding a
-    // message (`task_message`) never does. A newer message the person routed to the task, or the
-    // task starting again, makes it stale.
-    let given = |e: &Event| match e {
-        Event::Known(Known::AskRouted(routed)) => routed.lane == lane && routed.message == because,
+    let quotes_lane = |event: &Event| match event {
+        Event::Known(Known::UserMessage {
+            reply_to: Some(quote),
+            ..
+        }) if crate::asks::is_persons(event, maker) => {
+            replied_to(events, &quote.id).as_deref() == Some(lane)
+        }
         _ => false,
     };
-    let touches = |e: &Event| match e {
+    let given_at = if quotes_lane(event) {
+        at
+    } else {
+        let Some(routed_at) = events.iter().rposition(|event| {
+            matches!(event, Event::Known(Known::AskRouted(routed))
+                if routed.lane == lane && routed.message == because)
+        }) else {
+            return refused();
+        };
+        routed_at
+    };
+    let later = events[given_at + 1..].iter().any(|event| match event {
         Event::Known(Known::LaneStarted(started)) => started.lane == lane,
+        Event::Known(Known::LaneMessaged(messaged)) => messaged.lane == lane,
         Event::Known(Known::AskRouted(routed)) => routed.lane == lane,
-        _ => false,
-    };
-    let Some(given_at) = events.iter().rposition(given) else {
-        return refused();
-    };
-    let later = events[given_at + 1..].iter().any(touches);
+        event => quotes_lane(event),
+    });
     if given_at < at || later {
         return refused();
     }

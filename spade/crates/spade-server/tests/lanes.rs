@@ -1,6 +1,6 @@
 //! Task lanes (ADR 0217) through the real API with a scripted model: main starts each independent
-//! request as a lane of its own, answers quick things itself, routes a reply to the lane it
-//! answers, and hears back when a lane ends.
+//! request as a lane of its own, answers quick things itself, keeps replies to reports in main,
+//! and hears back when a lane ends.
 
 mod support;
 

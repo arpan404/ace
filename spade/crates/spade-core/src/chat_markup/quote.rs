@@ -38,6 +38,11 @@ pub fn quote_of(event: &Event, id: &str) -> Option<ReplyTo> {
             | Known::ReplyFailed { text, .. }
             | Known::ReplyInterrupted { text, .. },
         ) => (nth(text, index)?, false, None),
+        Event::Known(Known::WorkerReported(report)) if report.kind == crate::tree::Kind::Lane => {
+            (whole(&report.summary, index)?, false, None)
+        }
+        Event::Known(Known::LaneStarted(task)) => (whole(&task.title, index)?, false, None),
+        Event::Known(Known::ReplyMoved(task)) => (whole(&task.title, index)?, false, None),
         Event::Known(Known::GroupMessage {
             text, from: None, ..
         }) => (whole(text, index)?, true, None),

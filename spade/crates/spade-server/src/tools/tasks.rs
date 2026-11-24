@@ -55,9 +55,8 @@ fn spec(name: &str) -> (&'static str, Value, Risk) {
             Risk::Write,
         ),
         lane::TASK_STOP => (
-            "Stops a task, only when the person asked for that in their own reply to it: because \
-             is the id of that reply (m12), which shows as sent to the task. If they asked here \
-             instead, tell them they can press Stop on the task or reply to it.",
+            "Stops a task when the person asks in a reply to its report. Give the id of that \
+             message in main as because (for example m12).",
             json!({ "type": "object", "properties": {
                 "task": { "type": "string", "description": TASK },
                 "because": { "type": "string" }
