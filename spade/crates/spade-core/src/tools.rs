@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use spade_models::ToolSpec;
 
 pub mod pinning;
+pub mod snapshot;
 
 /// How much a tool call can change in the world, which decides whether the gate asks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

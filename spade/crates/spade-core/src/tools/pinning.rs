@@ -13,6 +13,11 @@ pub const REPEATS: u32 = 2;
 /// The most tools a tally remembers, so the stored setting stays small.
 pub const REMEMBERED: usize = 32;
 
+/// The setting a bot's tally of deferred tool runs is stored under, by its agent id.
+pub fn uses_key(agent: &str) -> String {
+    format!("tools.uses.{agent}")
+}
+
 /// How often a bot ran each deferred tool.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Uses(BTreeMap<String, u32>);
@@ -73,32 +78,6 @@ impl Uses {
     }
 }
 
-/// A stored pin list as names, one per line: sorted, no repeats, at most [`LIMIT`].
-pub fn names(text: &str) -> Vec<String> {
-    let mut names: Vec<String> = text
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(str::to_owned)
-        .collect();
-    names.sort();
-    names.dedup();
-    names.truncate(LIMIT);
-    names
-}
-
-/// The pin list as stored: names in order, one per line.
-pub fn names_text(names: &[String]) -> String {
-    let mut sorted: Vec<&String> = names.iter().collect();
-    sorted.sort();
-    sorted.dedup();
-    sorted
-        .into_iter()
-        .take(LIMIT)
-        .map(|name| format!("{name}\n"))
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,16 +136,5 @@ mod tests {
             "a tool run now outranks one run once"
         );
         assert!(Uses::parse(&uses.text()).0.len() <= REMEMBERED);
-    }
-
-    #[test]
-    fn a_pin_list_is_sorted_without_repeats_and_at_most_eight() {
-        let many: Vec<String> = (0..10).map(|n| format!("t{n}")).collect();
-        let text = names_text(&many);
-        assert_eq!(names(&text).len(), LIMIT);
-        assert_eq!(
-            names_text(&["b".to_owned(), "a".to_owned(), "b".to_owned()]),
-            "a\nb\n"
-        );
     }
 }

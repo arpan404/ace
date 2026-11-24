@@ -146,14 +146,6 @@ impl Engine {
         }
     }
 
-    /// The tools the model is offered in `id`: the same list for every bot, lane and helper, so
-    /// the provider's cache serves them all (docs/design.md, Caching). What a conversation may
-    /// run is narrowed where its calls are handled (ADR 0152, ADR 0161). The bot's learned pins
-    /// are part of the list.
-    pub(super) fn offered_for(&self, id: &str) -> Vec<spade_models::ToolSpec> {
-        self.tools.registry().pin(&self.pins_for(id)).offered()
-    }
-
     /// The standing instructions for `id`. Every conversation starts from Spade's own, so a bot's,
     /// a lane's and a helper's prompt top begins with the same bytes. A helper goes on with what
     /// makes it a helper, pinned in its row when it was made (an old one with its old text, which

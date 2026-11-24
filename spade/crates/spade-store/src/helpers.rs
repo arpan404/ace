@@ -380,6 +380,11 @@ pub(crate) fn delete_of(tx: &rusqlite::Transaction<'_>, parent: &str) -> rusqlit
             "DELETE FROM conversations WHERE id = ?1",
             params![conversation],
         )?;
+        // What it was offered goes with it (spade/docs/harness.md, Tools).
+        tx.execute(
+            "DELETE FROM settings WHERE key = ?1",
+            params![spade_core::tools::snapshot::key(&conversation)],
+        )?;
     }
     Ok(())
 }

@@ -156,13 +156,12 @@ async fn run(
         // The person's asks as they stand, so a fold after this starts here (ADR 0215).
         asks: Some(Box::new(engine.asks_of(id, events))),
     });
-    match engine.record(id, &event) {
-        Ok(_) => {
-            // The prompt's top may change here, so the bot's learned pins are frozen again now
-            // (docs/design.md, Caching; docs/harness.md, Tools).
-            engine.refreeze_pins(id);
-            true
-        }
+    // The prompt's top may change here, so the list the conversation is offered is worked out
+    // again and published with the compaction, both or neither (docs/design.md, Caching;
+    // docs/harness.md, Tools).
+    let offer = engine.offer_for_compaction(id);
+    match engine.record_with_offer(id, &event, &offer) {
+        Ok(_) => true,
         Err(error) => {
             tracing::error!(%error, "could not store a compaction");
             false
