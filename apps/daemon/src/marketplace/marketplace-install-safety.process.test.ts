@@ -8,6 +8,7 @@ import {
   sampleSkill,
   signedVersion,
   signedWithdrawn,
+  testKey,
 } from "@ace/marketplace/testing";
 import { fakeMarket, fakeSpade, marketplaceHarness } from "./test-support.ts";
 
@@ -57,6 +58,37 @@ const pluginV2 = () =>
   );
 
 describe("withdrawals learned after a review", () => {
+  it.each(["unreachable", "missing", "invalid", "untrusted", "older"] as const)(
+    "refuses a Store install when its withdrawal refresh is %s and permits a retry",
+    async (failure) => {
+      publish({ type: "spade-skill", name: "triage-mail", files: sampleSkill() });
+      market.withdraw(signedWithdrawn([], { issued: 5 }));
+      await harness.ask({ op: "refresh" }, "sources");
+      const review = await prepare("spade-skill", "triage-mail");
+
+      let interrupt = true;
+      market.route((call, _response, answer) => {
+        if (!interrupt || call.path !== "/v1/withdrawn") return false;
+        if (failure === "unreachable") answer(503, { error: "unavailable" });
+        if (failure === "missing") answer(404, { error: "not_found" });
+        if (failure === "invalid") answer(200, { body: {} });
+        if (failure === "untrusted")
+          answer(200, signedWithdrawn([], { key: testKey("untrusted", 2), issued: 6 }));
+        if (failure === "older") answer(200, signedWithdrawn([], { issued: 4 }));
+        return true;
+      });
+      expect(await install(review)).toMatchObject({
+        op: "error",
+        code: "unavailable",
+        message: expect.stringContaining("Try installing again"),
+      });
+      expect(await installed()).toEqual([]);
+      interrupt = false;
+      expect(await install(review)).toMatchObject({ op: "done" });
+      expect(await installed()).toMatchObject([{ name: "triage-mail" }]);
+    },
+  );
+
   it("refuse the install of a version withdrawn since its review, and end that review", async () => {
     const version = publish({ type: "spade-skill", name: "triage-mail", files: sampleSkill() });
     await harness.ask({ op: "refresh" }, "sources");

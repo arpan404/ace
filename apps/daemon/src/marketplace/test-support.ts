@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { gitRuntime, PluginManager, PluginService } from "@ace/plugins";
 import type { MarketOperation, MarketResult } from "@ace/protocol/marketplace";
 import { describeEntry, type ArchiveFile } from "@ace/marketplace";
-import { keySetOf, testKey, type SignedVersion } from "@ace/marketplace/testing";
+import { keySetOf, signedWithdrawn, testKey, type SignedVersion } from "@ace/marketplace/testing";
 import { type Signed } from "@ace/protocol/marketplace";
 import { SuitLibrary } from "../suits/library.ts";
 import { pluginPort } from "./plugin-port.ts";
@@ -65,7 +65,7 @@ export async function fakeMarket() {
   const hidden = new Set<string>();
   const shares = new Map<string, { type: string; name: string }>();
   let featured: { type: string; name: string }[] = [];
-  let withdrawn: Signed | undefined;
+  let withdrawn = signedWithdrawn([], { issued: 1 });
   let stamp = 1;
   let down = false;
   /** Swaps an object's bytes, as a compromised Worker would. */
@@ -143,8 +143,7 @@ export async function fakeMarket() {
     if (url.pathname === "/v1/categories")
       return send(response, 200, { categories: [{ id: "mail", title: "Mail" }] });
     if (url.pathname === "/v1/featured") return send(response, 200, { entries: featured });
-    if (url.pathname === "/v1/withdrawn")
-      return withdrawn ? send(response, 200, withdrawn) : send(response, 404, { error: "none" });
+    if (url.pathname === "/v1/withdrawn") return send(response, 200, withdrawn);
     if (parts[0] === "v1" && parts[1] === "objects") {
       const item = listed.find((entry) => entry.version.hash === parts[2]);
       if (

@@ -158,7 +158,7 @@ export class MarketHttp {
   publisher = (handle: string) => this.#json(`/v1/publishers/${encodeURIComponent(handle)}`);
 
   /** The signed withdrawn list, or undefined before the market has one. */
-  withdrawn = () => this.#signed("/v1/withdrawn");
+  withdrawn = () => this.#signed("/v1/withdrawn", { "cache-control": "no-cache" });
   /** The signed blocklist, verified list and official list (ADR 0174 §8, §13, §14). */
   blocklist = () => this.#signed("/v1/blocklist");
   verified = () => this.#signed("/v1/verified");
@@ -191,8 +191,8 @@ export class MarketHttp {
     return { status: response.status, body };
   }
 
-  async #signed(path: string): Promise<unknown> {
-    const response = await this.#get(path);
+  async #signed(path: string, headers?: Record<string, string>): Promise<unknown> {
+    const response = await this.#get(path, headers);
     if (response.status === 404) {
       await response.body?.cancel();
       return undefined;

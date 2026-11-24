@@ -6,7 +6,7 @@ import { fakeMarket, fakeSpade, marketplaceHarness } from "./test-support.ts";
  * Agent packages through the daemon's marketplace (ADR 0200 §3.9, §6.1, §8), against a real local
  * market and Spade's link: a version 3 package installs as a linked bot with only the effect
  * switches the person left on; an update and a rollback move that same bot, each after its own
- * review; the rollback reads the bytes pinned here with the market gone; a withdrawn version
+ * review; the rollback prepares with the bytes pinned here even with the market gone; a withdrawn version
  * pauses the bot and deletes nothing. One package can make several bots, each its own install; a
  * bot that moves away leaves this Marketplace; an update held for a bot's turn shows the version
  * running until Spade runs the new one.
@@ -209,18 +209,26 @@ describe("agent packages", () => {
     });
 
     // Offline: the earlier version comes from the bytes pinned here.
-    await market.close();
+    market.setDown(true);
     const back = await harness.ask(
       { op: "prepareRollback", type: "spade-bot", name: "flight-watcher" },
       "review",
     );
     expect(back.review).toMatchObject({ version: "1.0.0", updates: "2.0.0" });
     expect(back.review.body).toMatchObject({ update: { bot, rollback: true } });
-    await harness.ask(
-      { op: "install", id: back.review.id, hash: back.review.hash, choices: none },
-      "done",
-    );
-    // The rollback proves the earlier version with its signed manifest, kept here: no network.
+    const rollback = {
+      op: "install",
+      id: back.review.id,
+      hash: back.review.hash,
+      choices: none,
+    } as const;
+    expect(await harness.ask(rollback, "error")).toMatchObject({
+      code: "unavailable",
+      message: expect.stringContaining("Try installing again"),
+    });
+    market.setDown(false);
+    await harness.ask(rollback, "done");
+    // The earlier package and signed manifest still come from the pinned bytes.
     expect(spade.packageCalls.at(-1)).toMatchObject({
       bot,
       body: {

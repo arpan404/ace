@@ -378,10 +378,18 @@ export class OpenReviews {
     // an install that landed the same name since the gate looked is what this one replaces.
     if (by === "without-person" && !this.contentOnly(id, hash))
       return error("reauth", reauthSentence);
-    // A withdrawal learned since the review counts: for the entry and for all it brings.
-    await learnWithdrawn(store, this.#ports.http(), this.#ports.keys).catch(() => {});
+    // A withdrawal learned since the review counts for the entry and for all it brings.
+    const entries = [pending.review, ...pending.review.brings];
+    const refreshed = await learnWithdrawn(store, this.#ports.http(), this.#ports.keys).catch(
+      () => false,
+    );
+    if (!refreshed && entries.some((entry) => entry.source === "market"))
+      return error(
+        "unavailable",
+        "Couldn't verify Store withdrawals. Try installing again when the Store is reachable.",
+      );
     const state = readWithdrawn(store);
-    for (const entry of [pending.review, ...pending.review.brings]) {
+    for (const entry of entries) {
       const reason = withdrawalOf(state, entry.source, entry);
       if (!reason) continue;
       await this.cancel(id);
@@ -395,10 +403,7 @@ export class OpenReviews {
     // A newer list also answers for what is already installed, not only for this install.
     if (learned?.blocklist && (await this.#ports.enforceBlocklist().catch(() => false)))
       this.#ports.emit();
-    const blocked = blockedEntry(
-      [pending.review, ...pending.review.brings],
-      trust.current().blocklist,
-    );
+    const blocked = blockedEntry(entries, trust.current().blocklist);
     if (blocked) {
       await this.cancel(id);
       return error("blocked", `Blocked by ace's market: ${blocked}`);

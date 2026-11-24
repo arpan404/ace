@@ -1,4 +1,11 @@
-import { fakeOrgStanding, launchMarketWorker, type GrantKey } from "./worker.ts";
+import { signedWithdrawn } from "@ace/marketplace/testing";
+import {
+  fakeOrgStanding,
+  launchMarketWorker,
+  marketKey,
+  signerToken,
+  type GrantKey,
+} from "./worker.ts";
 
 export { marketGrant, marketKey, signerToken, type GrantKey } from "./worker.ts";
 
@@ -31,6 +38,17 @@ export async function startMarketWorker(
     ...(options.grantKeys ? { grantKeys: options.grantKeys } : {}),
     ...(standing ? { standing } : {}),
   });
+  const signed = await fetch(new URL("/v1/signer/withdrawn", url), {
+    method: "PUT",
+    headers: { authorization: `Bearer ${signerToken}`, "content-type": "application/json" },
+    body: JSON.stringify({ withdrawn: signedWithdrawn([], { key: marketKey, issued: 1 }) }),
+  });
+  if (!signed.ok) {
+    await harness.close();
+    await fake?.close();
+    throw new Error(`Couldn't seed the test market's withdrawal list: ${signed.status}`);
+  }
+  await signed.body?.cancel();
   return {
     origin: url.origin,
     // Over the Worker's own HTTP listener, as any client reaches the market.

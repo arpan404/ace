@@ -19,8 +19,10 @@ An export file or separate sharing service would require its own trust and insta
 
 1. Apply catalogue migrations 0004 and 0005 to each catalogue.
 2. Approve Spade review keys out of band. Provision a distinct, platform-protected Ed25519 seed in Spade’s OS keychain service `dev.acehq.spade`, account `ace:store-review` and pin the corresponding lowercase hexadecimal public key under the Store publisher ID in the Worker’s `SPADE_REVIEW_PUBLIC_KEYS` JSON map. The map’s values are arrays to allow rotation. Publish refuses missing or untrusted keys. The Store takes no public key from the caller.
-3. Ship the matching app, daemon, Spade and signer. Deploy the Store Worker and run the updated signer to replace legacy named withdrawals for entries now unlisted. The public feed withholds the old signed list until that replacement exists. Clients with the new matcher recognize opaque revocations, and old clients still recognize ordinary revocations.
-4. Share skill updates through the Library review at a strictly higher version. CLI drafts can stage the archive, but uploading directly to a link-only listing cannot publish it.
+3. Deploy the Worker while it still serves the current signed withdrawal list. If the Store has no list yet, publish a signed empty list before rolling out the updated daemon.
+4. Ship the matching app, daemon, Spade and signer. Update devices to recognize opaque withdrawals before replacing the legacy list. Store install confirmation, including rollback, requires a fresh, valid withdrawal response. A failed refresh leaves the review open for retry.
+5. Run the updated signer to replace legacy named withdrawals for entries now unlisted. The signer signs the replacement first, then swaps it for the legacy list in one conditional write. The endpoint continues serving the legacy list until that write succeeds.
+6. Share skill updates through the Library review at a strictly higher version. CLI drafts can stage the archive, but uploading directly to a link-only listing cannot publish it.
 
 ## Tests
 
