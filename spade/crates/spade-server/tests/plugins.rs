@@ -910,11 +910,17 @@ async fn a_plugin_agent_is_a_helper_profile_of_the_bots_allowed_it_until_the_plu
         .map(|seen| seen.body)
         .find(|body| body.to_string().contains("You are a helper Spade started"))
         .ok_or("the helper made no request")?;
-    // Its instructions and its tool list ride in its first message, with Spade's rules: the
-    // offered list is its bot's, and the profile narrows what it may run.
+    // Its profile's instructions are in its system prompt, after Spade's rules: the offered list
+    // is its bot's, and the profile narrows what it may run.
+    let system = request["messages"][0].to_string();
+    assert!(system.contains("Review the diff closely."), "{system}");
+    assert!(
+        system.contains("You are a helper Spade started"),
+        "{system}"
+    );
     let first = request["messages"][1].to_string();
-    assert!(first.contains("Review the diff closely."), "{first}");
-    assert!(first.contains("You are a helper Spade started"), "{first}");
+    assert!(first.contains("Review the diff"), "{first}");
+    assert!(!first.contains("You are a helper Spade started"), "{first}");
     let offered = request["tools"].to_string();
     assert!(offered.contains("\"lookup\""), "{offered}");
     assert!(
