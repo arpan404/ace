@@ -785,38 +785,28 @@ relayed?, reservation?)` checks `cleanups.size + reserved - (reservation === und
 
 ### T1b: the remote listeners (switch `ACE_TRANSPORT=native,remote`, default off)
 
-Briefed in full after T1a merges and T1b.0 reports, because the TLS listeners carry
-per-connection state T1a doesn't have (`sni-listener.ts`'s trusted keep-alive, `:36`–`:50` and
-`:83`–`:173`; outside MCP clients' Tailscale identity, `external-mcp/server.ts:251`–`:300`). The
-tasks, in order:
+Briefed in full in [t1b-brief.md](t1b-brief.md) (kept apart so this guide stays under 1,500
+lines); its tasks are written like T1a's and take this guide's rules and commands unchanged. T1b.0,
+the deflate spike, reported in [t1b0-deflate-spike.md](t1b0-deflate-spike.md): our own RFC 7692
+extension over `flate2`, on our own framing. The tasks, in order:
 
-1. **T1b.0 Deflate spike (a written report, no merge)**: ADR 0226 answer 1. Candidate crates with
-   RFC 7692 server support, each with its licence, maintenance and whether it supports
-   no-context-takeover per message and a post-inflate limit; a throwaway prototype against
-   `remote-compression.server.process.test.ts`. `tungstenite` 0.30 refuses RSV1 frames
-   (`src/protocol/mod.rs:643`).
-2. **T1b.1 TLS termination**: `rustls` 0.23.46 (Apache-2.0 OR ISC OR MIT) with
-   `default-features = false, features = ["ring", "std", "tls12", "logging"]`, and
-   `tokio-rustls` 0.26.6 (MIT OR Apache-2.0) also with `default-features = false, features =
-["ring", "tls12", "logging"]`, because its defaults enable `aws_lc_rs`; `ring` 0.17 (Apache-2.0
-   AND ISC, allowed) selected explicitly as the process's crypto provider; `cargo tree -e features
--i aws-lc-rs` must print nothing and `cargo deny check` pass on the resolved graph. The key and
-   certificate TypeScript already loads from `tls/` (`tls-identity.ts`) passed as PEM bytes, never
-   regenerated (pin continuity); SNI with the Tailscale certificate.
-3. **T1b.2 Per-connection state and peer identity** through the proxy hop (trusted keep-alive,
-   Tailscale peer), with the remote chain unchanged.
-4. **T1b.3 Per-message deflate** as the spike decided, with allowlisted outbound compression and the
-   1 MiB post-inflate cap.
-5. **T1b.4 Run-time toggling** (`remote-runtime.ts`, `remote-direct.ts`) of the native remote
-   listeners, with `remoteStarted`'s semantics.
+1. **T1b.1a** Rust: TLS termination (`rustls` 0.23.46 and `tokio-rustls` 0.26.6 with ring only,
+   no aws-lc-rs), the pinned identity as PEM bytes, SNI with the Tailscale certificate, and one
+   `RemoteListener` for the static and run-time listeners.
+2. **T1b.1b** The `NativeRemote` binding, its TypeScript shell, and the static listener
+   (`options.remote`), with the native listeners' wiring moved out of `server.ts`.
+3. **T1b.2** Per-connection state and peer identity through the hop: the trusted keep-alive, the
+   TLS server name and the peer address, with the remote chain unchanged.
+4. **T1b.3a** Our own WebSocket framing for both listeners (beside T1b.1), then **T1b.3b**
+   per-message deflate on the remote listeners: `ws`'s negotiation, the 1,024-byte threshold, the
+   outbound allowlist left in TypeScript and the 1 MiB post-inflate cap.
+5. **T1b.4** Run-time toggling through `remoteDirect`'s listener factory, with `remoteStarted`'s
+   semantics.
+6. **T1b.5** The proof run (T1a.8's list with `native,remote`, remote evidence required for the
+   remote files) and the paired benches (head-of-line and slow-link, direct path).
 
-Proof of Rust TLS termination: the files that dial the daemon's remote listener with the real
-client and its pinned fingerprint (`remote.server`, `remote-boundaries.server`,
-`remote-runtime.server`, `remote-restart.server`, `remote-compression.server`,
-`tailscale-https.server`, `remote-direct.process`, `remote-payloads.process`, `access-cors.server`,
-`ticket-allocation.server`), off and on, with evidence; `tls-identity-node.process` and any other
-file that runs its own Node TLS server prove nothing about Rust and are not on the list. Bench:
-items 5 and 6 of "Measurements to schedule", direct path, paired as for T1a.
+The brief lists the recorded differences from `ws` and the Node/Bun TLS stack, the failure modes
+on restart and reconnect, and the owner's open questions.
 
 ### T2: hello, authentication, devices (needs T1, store phase 5's writer default-on)
 
