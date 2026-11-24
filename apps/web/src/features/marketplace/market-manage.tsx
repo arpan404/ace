@@ -6,6 +6,7 @@ import type {
 import { MarketEntryType, MarketPublisherName } from "@ace/protocol/marketplace";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
+import { marketShareUrl } from "./market-address.ts";
 import { Empty, Section } from "./market-card.tsx";
 import { ListingEditor } from "./market-manage-listing.tsx";
 import { SignalsSection } from "./market-manage-signals.tsx";
@@ -254,13 +255,25 @@ function Manage(props: { entry: MarketOwnEntry }) {
               .join(" · ")}
           </span>
         </div>
-        <Button
-          variant="secondary"
-          disabled={!live.length || summary.visibility === "unlisted"}
-          onClick={() => nav.push({ kind: "entry", entry: { source: "market", ...key } })}
-        >
-          Open its page
-        </Button>
+        {summary.shareId ? (
+          <Button
+            variant="secondary"
+            onClick={() => {
+              const id = summary.shareId;
+              if (id) void navigator.clipboard.writeText(marketShareUrl(id));
+            }}
+          >
+            Copy link
+          </Button>
+        ) : (
+          <Button
+            variant="secondary"
+            disabled={!live.length || summary.visibility === "unlisted"}
+            onClick={() => nav.push({ kind: "entry", entry: { source: "market", ...key } })}
+          >
+            Open its page
+          </Button>
+        )}
       </div>
       {said && (
         <p role="status" className="mk-line" style={{ marginTop: 16 }}>

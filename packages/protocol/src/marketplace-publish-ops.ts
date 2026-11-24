@@ -263,6 +263,14 @@ export const marketPublishOperations = [
     reason: MarketReportReason,
     note: z.string().max(1000).default(""),
   }),
+  z.strictObject({
+    op: z.literal("shareSkill"),
+    source: z.strictObject({
+      kind: z.enum(["ace-skill", "spade-skill"]),
+      id: z.string().min(1).max(128),
+    }),
+    reviewed: MarketHash.optional(),
+  }),
   ...marketPickOperations,
   ...marketPrivacyOperations,
 ] as const;
@@ -270,7 +278,23 @@ export const marketPublishOperations = [
 export const marketPublishResults = [
   z.strictObject({ op: z.literal("templateGrant"), target: TemplateGrantTarget }),
   z.strictObject({
+    op: z.literal("skillShareReview"),
+    name: MarketEntryName,
+    hash: MarketHash,
+    files: z
+      .array(
+        z.strictObject({
+          path: z.string(),
+          text: z.string(),
+          executable: z.boolean(),
+        }),
+      )
+      .min(1),
+  }),
+  z.strictObject({ op: z.literal("skillShared"), id: z.uuidv7() }),
+  z.strictObject({
     op: z.literal("publishedTemplate"),
+    shareId: z.uuidv7().optional(),
     name: MarketEntryName,
     visibility: MarketVisibility,
   }),

@@ -1,3 +1,5 @@
+import { ShareSkillButton } from "@/features/marketplace/index.ts";
+import { useBetaEnabled } from "@/lib/beta-enabled.ts";
 import { spadeSkillsOf } from "@ace/ui-core/spade-chat";
 import { formatAge } from "@ace/ui-core/time";
 import { FileIcon, FolderIcon, StackIcon } from "@ace/icons";
@@ -160,6 +162,7 @@ function Skills(props: { bot: RosterBot }) {
     queryKey: ["spade", "skill-store", machine.key],
     queryFn: ({ signal }) => readSkillStore(client, { signal }),
   });
+  const market = useBetaEnabled("marketplace");
   const mine = store.data ? spadeSkillsOf(store.data, bot.id) : [];
   return (
     <ProfileSection label="Skills" bare={store.isSuccess && mine.length === 0}>
@@ -180,6 +183,13 @@ function Skills(props: { bot: RosterBot }) {
             <Icon icon={StackIcon} size={16} className="shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate">{skill.name}</span>
             <span className="shrink-0 text-xs text-subtle-foreground">{word}</span>
+            {market === true && skill.origin === "spade" && (
+              <ShareSkillButton
+                client={client}
+                source={{ kind: "spade-skill", id: skill.id }}
+                name={skill.name}
+              />
+            )}
           </div>
         ))
       )}

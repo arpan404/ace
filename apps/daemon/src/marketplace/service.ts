@@ -1,13 +1,15 @@
+import { shareSkill } from "./share-skill.ts";
 import { publishTemplate } from "./publish-template.ts";
 import { join } from "node:path";
 import {
+  EntryBody,
   Signed,
   VersionManifest,
   type MarketInstalled,
   type MarketOperation,
   type MarketResult,
 } from "@ace/protocol/marketplace";
-import { privacySpans, withSentences } from "@ace/marketplace";
+import { readFeedEntry, privacySpans, withSentences } from "@ace/marketplace";
 import { offeredUpdate } from "@ace/ui-core/market";
 import { homeOf, publicInstall, readListed, searchListings } from "./browse.ts";
 import { applyBlocklist, turnOnUnlessBlocked } from "./blocklist.ts";
@@ -16,7 +18,7 @@ import { GitCatalogs } from "./git.ts";
 import { MarketHttp, type MemberReads } from "./http.ts";
 import { removeInstall } from "./install.ts";
 import { undoJournal } from "./journal.ts";
-import { readWithdrawn, refreshSource, type RowMarks } from "./listings.ts";
+import { readWithdrawn, refreshSource, summaryOf, type RowMarks } from "./listings.ts";
 import { marketError as error, thrownError } from "./market-error.ts";
 import { OpenReviews } from "./open-reviews.ts";
 import type { MarketplaceOptions, MarketRequestPorts } from "./options.ts";
@@ -297,6 +299,40 @@ export class MarketplaceService {
           operation.type,
           operation.name,
         );
+      case "readShare":
+      case "prepareShare": {
+        const source = this.#store.source("market");
+        const reads = this.#http()?.share(operation.id);
+        if (!reads || !source?.enabled) return error("unavailable", "The Store is turned off.");
+        const page = EntryBody.parse(await reads.entry("", ""));
+        const summary = readFeedEntry(page.entry);
+        if (
+          !page.unlisted ||
+          "problem" in summary ||
+          (summary.type !== "spade-bot" && summary.type !== "spade-skill")
+        )
+          return error("not_found", "This share link is unavailable.");
+        if (operation.op === "readShare")
+          return {
+            op: "read",
+            entry: {
+              summary: summaryOf(source, summary, this.#marks()),
+              description: page.description,
+              versions: page.versions,
+            },
+          };
+        return this.#serial(() =>
+          this.#reviews.prepare(
+            "market",
+            summary.type,
+            summary.name,
+            undefined,
+            undefined,
+            undefined,
+            reads,
+          ),
+        );
+      }
       case "look":
         return this.#looks.read(operation);
       case "prepare":
@@ -468,6 +504,23 @@ export class MarketplaceService {
           this.#store.source("market"),
           operation.handle,
         );
+      case "shareSkill": {
+        if (ports.withoutPerson !== false)
+          return error("forbidden", "Only the person can share a skill.");
+        const privacy = this.#options.templates?.scanSkill;
+        const pick = this.#pick(ports.names);
+        if (!privacy || !pick)
+          return error("unavailable", "Spade isn't ready to check this skill.");
+        return this.#serial(() =>
+          shareSkill(
+            operation,
+            pick,
+            privacy,
+            { http: this.#http(), grant: ports.grant, personGrant: ports.personGrant },
+            ports.names ?? [],
+          ),
+        );
+      }
       case "publishTemplate": {
         if (ports.withoutPerson !== false)
           return error("forbidden", "Only the person can publish a template.");

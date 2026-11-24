@@ -106,11 +106,16 @@ export async function market<T extends MarketResult["op"]>(
     const grant = await grantFor(operation, personGrant);
     if (grant) result = (await ask(grant)).result;
   }
-  if (result.op === "templateGrant" && operation.op === "publishTemplate") {
+  if (
+    result.op === "templateGrant" &&
+    (operation.op === "publishTemplate" || operation.op === "shareSkill")
+  ) {
     const { target } = result;
     if (
-      target.name !== operation.id.replaceAll("_", "-") ||
-      target.visibility !== operation.review.visibility ||
+      (operation.op === "publishTemplate"
+        ? target.name !== operation.id.replaceAll("_", "-") ||
+          target.visibility !== operation.review.visibility
+        : target.hash !== operation.reviewed || target.visibility !== "unlisted") ||
       target.version !== "1.0.0"
     )
       throw new MarketFailure("conflict");
@@ -274,6 +279,18 @@ export function useMarketReview(
     retry: false,
     read: (client, signal) =>
       prepareReview(client, key, options.update, signal, rollback, options.bot),
+  });
+}
+
+export function useSharedReview(id: string) {
+  return useDaemonQuery<PreparedReview>({
+    queryKey: [...marketKey, "shared", id],
+    staleTime: reviewStale,
+    retry: false,
+    read: async (client, signal) => {
+      const prepared = await market(client, { op: "prepareShare", id }, "review", signal);
+      return readAll(client, prepared.review, signal);
+    },
   });
 }
 

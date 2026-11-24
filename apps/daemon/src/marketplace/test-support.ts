@@ -63,6 +63,7 @@ export interface Listed {
 export async function fakeMarket() {
   const listed: Listed[] = [];
   const hidden = new Set<string>();
+  const shares = new Map<string, { type: string; name: string }>();
   let featured: { type: string; name: string }[] = [];
   let withdrawn: Signed | undefined;
   let stamp = 1;
@@ -114,7 +115,14 @@ export async function fakeMarket() {
     if (down) return send(response, 503, { error: "down" });
     for (const route of routes)
       if (route(call, response, (status, body) => send(response, status, body))) return;
-    const parts = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+    const segments = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+    const [, scope, id = "", route, argument] = segments;
+    const share = scope === "i" ? shares.get(id) : undefined;
+    const parts = share
+      ? route === "objects"
+        ? ["v1", "objects", argument]
+        : ["v1", "entries", share.type, share.name, argument]
+      : segments;
     if (url.pathname === "/v1/index") {
       const keys = new Set(
         listed
@@ -139,7 +147,11 @@ export async function fakeMarket() {
       return withdrawn ? send(response, 200, withdrawn) : send(response, 404, { error: "none" });
     if (parts[0] === "v1" && parts[1] === "objects") {
       const item = listed.find((entry) => entry.version.hash === parts[2]);
-      if (!item) return send(response, 404, { error: "not_found" });
+      if (
+        !item ||
+        (share && (item.version.type !== share.type || item.version.name !== share.name))
+      )
+        return send(response, 404, { error: "not_found" });
       response.writeHead(200, { "content-type": "application/x-tar" });
       return response.end(tampered.get(item.version.hash) ?? item.version.archive);
     }
@@ -148,7 +160,11 @@ export async function fakeMarket() {
       const versions = listed.filter(
         (item) => item.version.type === type && item.version.name === name,
       );
-      if (versions.length === 0) return send(response, 404, { error: "not_found" });
+      if (
+        versions.length === 0 ||
+        (!share && [...shares.values()].some((row) => row.type === type && row.name === name))
+      )
+        return send(response, 404, { error: "not_found" });
       if (version === undefined)
         return send(response, 200, {
           entry: feedEntry(versions.at(-1)!),
@@ -185,7 +201,8 @@ export async function fakeMarket() {
       claims.set(`${type}/${name}`, fields);
       stamp++;
     },
-    publish(version: SignedVersion, files: ArchiveFile[], visibility = "listed") {
+    publish(version: SignedVersion, files: ArchiveFile[], visibility = "listed", shareId?: string) {
+      if (shareId) shares.set(shareId, { type: version.type, name: version.name });
       if (visibility === "unlisted") hidden.add(`${version.type}/${version.name}`);
       listed.push({ version, files });
       stamp++;

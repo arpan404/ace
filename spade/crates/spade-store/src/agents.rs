@@ -411,6 +411,11 @@ impl Store {
             "DELETE FROM settings WHERE key = ?1",
             params![crate::digests::digests_key(id)],
         )?;
+        // A deleted bot can no longer have an in-flight publication (ADR 0228).
+        tx.execute(
+            "DELETE FROM settings WHERE key GLOB ?1",
+            params![format!("template-attempt:{id}:*")],
+        )?;
         // Its model roles (ADR 0162).
         tx.execute(
             "DELETE FROM settings WHERE key = ?1",

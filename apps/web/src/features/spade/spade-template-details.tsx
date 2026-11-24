@@ -85,8 +85,13 @@ function ReviewFields(props: SheetProps & { details: ShareTemplateDetails }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
   const readOnly = pending || props.details.visibility !== null;
+  const replaceEdits = (next: TemplateEdits) => {
+    const remaining = new Set(reviewItems(props.details.draft, next).map((item) => item.key));
+    setReviewed((current) => new Set([...current].filter((item) => remaining.has(item))));
+    setEdits(next);
+  };
   const set = <K extends keyof TemplateEdits>(key: K, value: TemplateEdits[K]) =>
-    setEdits((previous) => ({ ...previous, [key]: value }));
+    replaceEdits({ ...edits, [key]: value });
   const remove = (
     key:
       | "skills"
@@ -99,8 +104,7 @@ function ReviewFields(props: SheetProps & { details: ShareTemplateDetails }) {
       | "plugins"
       | "event_routines",
     index: number,
-  ) =>
-    setEdits((previous) => ({ ...previous, [key]: previous[key].filter((_, i) => i !== index) }));
+  ) => replaceEdits({ ...edits, [key]: edits[key].filter((_, i) => i !== index) });
   const submit = async () => {
     if (pending || !allReviewed) return;
     setPending(true);

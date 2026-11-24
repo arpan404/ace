@@ -28,7 +28,8 @@ export interface TemplatePort {
     draft: ShareTemplateDraft,
     binding: TemplateBinding,
   ): Promise<void>;
-  published(id: string, binding: TemplateBinding): Promise<void>;
+  scanSkill?(texts: readonly string[]): Promise<void>;
+  published(id: string, binding: TemplateBinding, shareId?: string): Promise<void>;
 }
 
 function templateFiles(draft: ShareTemplateDraft): ArchiveFile[] {
@@ -51,7 +52,7 @@ function templateFiles(draft: ShareTemplateDraft): ArchiveFile[] {
   ];
 }
 
-function privateText(value: unknown, names: readonly string[]): boolean {
+export function privateText(value: unknown, names: readonly string[]): boolean {
   if (typeof value === "string") return privacySpans(value, { names }).length > 0;
   return value !== null && typeof value === "object"
     ? Object.entries(value).some(
@@ -70,6 +71,7 @@ function matchesListing(
     entry.summary.type === "spade-bot" &&
     entry.summary.name === name &&
     entry.summary.visibility === visibility &&
+    (visibility !== "unlisted" || entry.summary.shareId !== undefined) &&
     entry.versions.some(
       (row) =>
         row.version === version &&
@@ -144,8 +146,14 @@ export async function publishTemplate(
   if (recover.op === "publish" && recover.answer.kind === "entry") {
     if (!matchesListing(recover.answer.entry, name, version, binding))
       return marketError("conflict", "This template already has a different publication.");
-    await port.published(id, binding);
-    return { op: "publishedTemplate", name, visibility: review.visibility };
+    const { shareId } = recover.answer.entry.summary;
+    await port.published(id, binding, shareId);
+    return {
+      op: "publishedTemplate",
+      name,
+      visibility: review.visibility,
+      ...(shareId && { shareId }),
+    };
   }
   if (recover.op === "error" && recover.code !== "not_found") return recover;
 
@@ -193,7 +201,8 @@ export async function publishTemplate(
     result.data.name !== name ||
     result.data.version !== version ||
     result.data.hash !== hash ||
-    result.data.visibility !== review.visibility
+    result.data.visibility !== review.visibility ||
+    (review.visibility === "unlisted" && !result.data.shareId)
   )
     return marketError(
       "conflict",
@@ -204,9 +213,16 @@ export async function publishTemplate(
   if (
     confirmed.op !== "publish" ||
     confirmed.answer.kind !== "entry" ||
-    !matchesListing(confirmed.answer.entry, name, version, binding)
+    !matchesListing(confirmed.answer.entry, name, version, binding) ||
+    confirmed.answer.entry.summary.shareId !== result.data.shareId
   )
     return marketError("conflict", "The Store has not confirmed the reviewed publication.");
-  await port.published(id, binding);
-  return { op: "publishedTemplate", name, visibility: review.visibility };
+  const { shareId } = result.data;
+  await port.published(id, binding, shareId);
+  return {
+    op: "publishedTemplate",
+    name,
+    visibility: review.visibility,
+    ...(shareId && { shareId }),
+  };
 }

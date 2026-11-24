@@ -20,7 +20,7 @@ import { ManageCrumb, ManagePage } from "./market-manage.tsx";
 import { ProfilePage } from "./market-profile.tsx";
 import { PublishPage } from "./market-publish.tsx";
 import { CollectionPage, PublisherPage, usePageTitle } from "./market-publisher.tsx";
-import { ReviewPage } from "./market-review.tsx";
+import { ReviewPage, SharedReviewPage } from "./market-review.tsx";
 
 /*
  * What one layer of the modal's stack shows: the place, or the page on top of it with the crumb
@@ -83,6 +83,8 @@ function crumbOf(page: Page) {
       return "Your profile";
     case "publish":
       return "Publish";
+    case "share":
+      return "Review";
     case "manage":
       return <ManageCrumb type={page.type} name={page.name} />;
     case "catalogs":
@@ -93,6 +95,7 @@ function crumbOf(page: Page) {
 /** The crumbs sit in the same column as the page under them, so both start at one left edge. */
 const widthOf = (page: Page | undefined) =>
   page?.kind === "review" ||
+  page?.kind === "share" ||
   page?.kind === "publish" ||
   page?.kind === "entry" ||
   page?.kind === "app"
@@ -131,6 +134,8 @@ function TopPage(props: { page: Page }) {
   switch (page.kind) {
     case "entry":
       return <EntryPage entry={page.entry} />;
+    case "share":
+      return <SharedReviewPage id={page.id} />;
     case "review":
       return (
         <ReviewPage

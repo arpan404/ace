@@ -16,6 +16,7 @@ import { fakeMarket, fakeSpade, marketplaceHarness } from "./test-support.ts";
 const id = `template_${"a".repeat(32)}`;
 const name = id.replaceAll("_", "-");
 const type = "spade-bot";
+const shareId = "019adfd4-3a58-7bed-92a8-2d919dc241ab";
 const version = "1.0.0";
 const key = { type, name, version } as const;
 
@@ -26,6 +27,8 @@ let receipt: TemplateBinding | undefined;
 let candidate: ShareTemplateDraft | undefined;
 let loseReply: boolean;
 let skillFile: string;
+let sharingSkill: boolean;
+let wrongVisibility: boolean;
 const standing = {
   withoutPerson: false,
   names: ["Ada Example", "ada@example.test"],
@@ -39,10 +42,34 @@ beforeEach(async () => {
   receipt = undefined;
   candidate = undefined;
   loseReply = false;
+  sharingSkill = false;
+  wrongVisibility = false;
   skillFile = "Capture cold and warm timings.";
   harness = await marketplaceHarness({
     origin: market.origin,
     spade,
+    pick: {
+      spade: {
+        bots: async () => [],
+        recipe: async () => undefined,
+        skills: async () => [
+          { id: "my-skill", name: "measure", description: "Measure rendering performance." },
+        ],
+        skillFiles: async () => [
+          {
+            path: "SKILL.md",
+            executable: false,
+            content: new TextEncoder().encode(
+              `---\nname: measure\ndescription: Measure rendering performance.\n---\n${skillFile}\n`,
+            ),
+          },
+        ],
+      },
+      aceSkills: undefined,
+      plugins: undefined,
+      names: async () => [],
+      installedFromMarket: () => false,
+    },
     templates: {
       authorize: async (_id, review) => ({
         bot: "a_local",
@@ -71,6 +98,7 @@ beforeEach(async () => {
           needs: { connectors: [] },
         },
       }),
+      scanSkill: async () => {},
       begin: async (_id, _review, draft) => {
         candidate = draft;
       },
@@ -106,21 +134,22 @@ beforeEach(async () => {
     entries: [],
   };
   let staged: ReturnType<typeof readArchive> | undefined;
-  let saved: { hash: string; visibility: string } | undefined;
+  let saved: { hash: string; visibility: string; shareId?: string } | undefined;
   market.route((call, _response, answer) => {
     const url = new URL(call.path, "https://example.test");
+    const target = sharingSkill ? { type: "spade-skill" as const, name: "measure", version } : key;
     if (call.path === "/v1/me") {
       answer(200, me);
-    } else if (call.path === `/v1/me/entries/${type}/${name}`) {
+    } else if (call.path === `/v1/me/entries/${target.type}/${target.name}`) {
       if (!saved) answer(404, { error: "not_found" });
       else
         answer(200, {
           summary: {
-            type,
-            name,
+            ...target,
             title: "Render benchmarks",
             line: "",
             visibility: saved.visibility,
+            ...(saved.shareId && { shareId: saved.shareId }),
             archived: false,
             pinned: false,
             reviewed: false,
@@ -152,10 +181,10 @@ beforeEach(async () => {
           ],
         });
     } else if (call.method === "POST" && url.pathname === "/v1/me/drafts") {
-      staged = readArchive(new Uint8Array(call.body), typeLimits[type]);
+      staged = readArchive(new Uint8Array(call.body), typeLimits[target.type]);
       const hash = contentHash(hashFiles(staged));
       const draft: MarketDraft = {
-        ...key,
+        ...target,
         id: "drf_abcdefgh",
         hash,
         size: call.body.byteLength,
@@ -182,17 +211,23 @@ beforeEach(async () => {
       };
       answer(201, draft);
     } else if (call.method === "POST" && url.pathname === versionPath && staged) {
-      const signed = signedVersion({ ...key, files: staged });
+      const signed = signedVersion({ ...target, files: staged });
       if (call.authorization !== "Bearer test-person-grant") {
         answer(403, { error: "forbidden" });
       } else if (url.searchParams.get("reviewed") !== signed.hash) {
         answer(409, { error: "conflict" });
       } else {
         const visibility = url.searchParams.get("visibility") ?? "";
-        market.publish(signed, staged, visibility);
-        saved = { hash: signed.hash, visibility };
+        market.publish(signed, staged, visibility, visibility === "unlisted" ? shareId : undefined);
+        saved = { hash: signed.hash, visibility, ...(visibility === "unlisted" && { shareId }) };
         if (loseReply) answer(503, { error: "unavailable" });
-        else answer(201, { status: "pending", ...key, ...saved });
+        else
+          answer(201, {
+            status: "pending",
+            ...target,
+            ...saved,
+            visibility: wrongVisibility ? "listed" : visibility,
+          });
       }
     } else return false;
     return true;
@@ -299,7 +334,12 @@ test.each(["listed", "unlisted"] as const)(
         ...standing,
         personGrant: "test-person-grant",
       }),
-    ).toEqual({ op: "publishedTemplate", name, visibility });
+    ).toEqual({
+      op: "publishedTemplate",
+      name,
+      visibility,
+      ...(visibility === "unlisted" && { shareId }),
+    });
     const uploaded = market.seen.find(
       ({ method, path }) => method === "POST" && path.startsWith("/v1/me/drafts?"),
     );
@@ -321,9 +361,18 @@ test.each(["listed", "unlisted"] as const)(
       "search",
     );
     expect(search.entries.some((entry) => entry.name === name)).toBe(visibility === "listed");
-    const listing = await harness.ask({ op: "read", source: "market", type, name }, "read");
+    const ordinary = { source: "market", type, name };
+    const listing = await harness.ask(
+      visibility === "listed" ? { op: "read", ...ordinary } : { op: "readShare", id: shareId },
+      "read",
+    );
     expect(listing.entry.summary.title).toBe("Render benchmarks");
-    const { review } = await harness.ask({ op: "prepare", source: "market", type, name }, "review");
+    const { review } = await harness.ask(
+      visibility === "listed"
+        ? { op: "prepare", ...ordinary }
+        : { op: "prepareShare", id: shareId },
+      "review",
+    );
     expect(review.unlisted === true).toBe(visibility === "unlisted");
     await harness.ask(
       {
@@ -361,7 +410,67 @@ test("a lost Store reply is reconciled from the stored hash and visibility after
     op: "publishedTemplate",
     name,
     visibility: "unlisted",
+    shareId,
   });
   expect(receipt).toMatchObject({ visibility: "unlisted" });
   expect(market.seen.filter(({ path }) => path.startsWith(versionPath))).toHaveLength(1);
+});
+
+test("an unlisted skill needs the reviewed bytes and a person grant and installs by ID", async () => {
+  sharingSkill = true;
+  const source = { kind: "spade-skill", id: "my-skill" } as const;
+  const preview = { op: "shareSkill", source } as const;
+  expect(await harness.service.request(preview)).toMatchObject({ op: "error", code: "forbidden" });
+  expect(await harness.service.request(preview, { ...standing, names: [] })).toMatchObject({
+    op: "error",
+    code: "signed_out",
+  });
+  const review = await harness.service.request(preview, standing);
+  expect(review).toMatchObject({
+    op: "skillShareReview",
+    files: [{ path: "SKILL.md", text: expect.stringContaining(skillFile) }],
+  });
+  if (review.op !== "skillShareReview") throw new Error("Expected a skill review.");
+  const confirmed = { ...preview, reviewed: review.hash };
+  const original = skillFile;
+  skillFile = "The procedure has changed.";
+  expect(await harness.service.request(confirmed, standing)).toMatchObject({
+    op: "error",
+    code: "conflict",
+  });
+  skillFile = "Send the timings to Ada Example.";
+  expect(await harness.service.request(confirmed, standing)).toMatchObject({
+    op: "error",
+    code: "invalid",
+  });
+  expect(market.seen).toEqual([]);
+  skillFile = original;
+  expect(await harness.service.request(confirmed, standing)).toMatchObject({
+    op: "templateGrant",
+    target: { name: "measure", hash: review.hash, visibility: "unlisted" },
+  });
+  expect(
+    await harness.service.request(confirmed, {
+      ...standing,
+      personGrant: "test-person-grant",
+    }),
+  ).toEqual({ op: "skillShared", id: shareId });
+
+  const named = { source: "market", type: "spade-skill", name: "measure" };
+  expect(await harness.service.request({ op: "read", ...named })).toMatchObject({
+    op: "error",
+    code: "not_found",
+  });
+  const { review: install } = await harness.ask({ op: "prepareShare", id: shareId }, "review");
+  expect(install).toMatchObject({ name: "measure", hash: review.hash, unlisted: true });
+});
+
+test("the daemon refuses a Store receipt with the wrong visibility", async () => {
+  wrongVisibility = true;
+  const result = await harness.service.request(operation("unlisted"), {
+    ...standing,
+    personGrant: "test-person-grant",
+  });
+  expect(result).toMatchObject({ op: "error", code: "conflict" });
+  expect(receipt).toBeUndefined();
 });

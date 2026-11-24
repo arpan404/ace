@@ -91,6 +91,7 @@ export interface PreparePorts {
    * as this device trusts it. Its manifests verify against that chain, never ace's keys.
    */
   registry?: { org: string; reads: EntryReads; chain: VerifiedChain } | undefined;
+  share?: EntryReads | undefined;
 }
 
 /** What ADR 0014's manager needs to review a plugin from bytes the marketplace verified. */
@@ -224,10 +225,15 @@ async function fromMarket(
   const registry = ports.registry;
   const turnedOn = ports.http;
   if (!turnedOn) throw new Refused("store.acehq.dev is turned off", { code: "unavailable" });
-  const http: EntryReads = registry?.reads ?? turnedOn;
+  const http: EntryReads = registry?.reads ?? ports.share ?? turnedOn;
   const page = EntryBody.safeParse(await http.entry(type, name));
   if (!page.success) throw new Refused("The market's entry page isn't in a form this build reads");
   const summary = readFeedEntry(page.data.entry);
+  if (
+    ports.share &&
+    (!page.data.unlisted || "problem" in summary || summary.type !== type || summary.name !== name)
+  )
+    throw new Refused("The share link no longer points to this package.", { code: "not_found" });
   const withdrawn = (item: { version: string; hash: string }) =>
     ports.withdrawal({ type, name, version: item.version, hash: item.hash });
   const version =
@@ -353,10 +359,11 @@ export async function prepareWithBrings(
   };
   const entry = await withPrevious(await prepareEntry(ports, source, type, name, version));
   const brings: PreparedEntry[] = [];
+  const bringPorts = { ...ports, share: undefined };
   if (entry.checked.inspection?.type === "spade-bot")
     for (const brought of recipeEntries(entry.checked.inspection.recipe)) {
       const prepared = await prepareEntry(
-        ports,
+        bringPorts,
         source,
         brought.type,
         brought.name,

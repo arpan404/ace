@@ -93,6 +93,7 @@ pub struct AppState {
 pub fn router(state: AppState) -> Router {
     let v1 = Router::new()
         .route("/conversations", get(list).post(no_new_chats))
+        .route("/share-skills/privacy", post(share_templates::scan_skill))
         .route("/share-templates/{id}", get(share_templates::read))
         .route(
             "/share-templates/{id}/authorize",

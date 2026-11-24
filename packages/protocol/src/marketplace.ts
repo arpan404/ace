@@ -28,6 +28,7 @@ import {
   PackagePlan,
   PackageTrigger,
 } from "./marketplace-package.ts";
+import { MarketShareId } from "./marketplace-publisher.ts";
 import { MarketScanReport } from "./marketplace-scan.ts";
 import { MarketKeyId, MarketOrgId } from "./marketplace-signed.ts";
 
@@ -403,6 +404,8 @@ export const MarketOperation = z.discriminatedUnion("op", [
   }),
   z.strictObject({ op: z.literal("home") }),
   z.strictObject({ op: z.literal("read"), ...entryKey }),
+  z.strictObject({ op: z.literal("readShare"), id: MarketShareId }),
+  z.strictObject({ op: z.literal("prepareShare"), id: MarketShareId }),
   /**
    * What a listed Suit or bot looks like, for its card: a bot's face, a Suit's `suit.json`, from
    * its checked bytes. Opens no review and waits on no install; the daemon keeps each version's.
@@ -482,6 +485,7 @@ export const marketReadOperations: readonly MarketOperation["op"][] = [
   "search",
   "home",
   "read",
+  "readShare",
   "look",
   "readReview",
   "installed",

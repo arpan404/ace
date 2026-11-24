@@ -6,3 +6,5 @@ export { useOrgRegistry, useOrgRegistryWithdraw } from "./market-registry.ts";
 export { market } from "./market-api.ts";
 
 export { usePersonGrant } from "./market-publishing.ts";
+export { ShareSkillButton } from "./share-skill-button.tsx";
+export { marketShareUrl } from "./market-address.ts";

@@ -32,8 +32,12 @@ struct Review {
     plugins: Option<Vec<String>>,
 }
 
-fn attempt_key(id: &str) -> String {
-    format!("template-attempt:{id}")
+fn attempt_key(bot: &str, id: &str) -> String {
+    format!("template-attempt:{bot}:{id}")
+}
+
+fn share_id_key(id: &str) -> String {
+    format!("template-share-id:{id}")
 }
 
 fn published_key(id: &str) -> String {
@@ -55,11 +59,11 @@ struct Attempt {
     draft: Draft,
 }
 
-fn attempt(state: &AppState, id: &str) -> Result<Option<Attempt>, String> {
+fn attempt(state: &AppState, bot: &str, id: &str) -> Result<Option<Attempt>, String> {
     state
         .engine
         .store()
-        .setting(&attempt_key(id))
+        .setting(&attempt_key(bot, id))
         .map_err(|e| e.to_string())?
         .map(|data| serde_json::from_str(&data).map_err(|e| e.to_string()))
         .transpose()
@@ -90,7 +94,6 @@ fn load(state: &AppState, id: &str) -> Result<Draft, Box<Response>> {
             if state.engine.share_source_live(&draft.bot) {
                 Ok(draft)
             } else {
-                let _ = state.engine.store().set_setting(&attempt_key(id), None);
                 Err(Box::new(problem(
                     StatusCode::GONE,
                     "The source bot was deleted. Publication was cancelled.",
@@ -118,6 +121,42 @@ fn stamped(state: &AppState, id: &str, operation: &str, headers: &HeaderMap, byt
         .person_says(stamp, &format!("template:{id}"), &value)
 }
 
+pub(super) async fn scan_skill(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    bytes: Bytes,
+) -> Response {
+    if !stamped(&state, "skill", "skill-privacy", &headers, &bytes) {
+        return problem(StatusCode::FORBIDDEN, crate::security::attest::CONFIRM);
+    }
+    let Ok(texts) = serde_json::from_slice::<Vec<String>>(&bytes) else {
+        return problem(StatusCode::BAD_REQUEST, "The skill couldn't be read.");
+    };
+    let scan = || -> Result<bool, String> {
+        let words = share_template::private_words(
+            &state.engine,
+            None,
+            state.connectors.as_deref(),
+            &share_template::system_words(),
+        )?;
+        Ok(spade_core::template_privacy::contains_private_text(
+            &json!(texts),
+            &words,
+        ))
+    };
+    match scan() {
+        Ok(false) => Json(json!({"ok": true})).into_response(),
+        Ok(true) => problem(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "The skill contains private text.",
+        ),
+        Err(_) => problem(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Spade couldn't check the skill's privacy.",
+        ),
+    }
+}
+
 pub(super) async fn read(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     state
         .engine
@@ -131,7 +170,7 @@ pub(super) async fn read(State(state): State<AppState>, Path(id): Path<String>) 
                     );
                 };
                 let revision = revision(&draft);
-                let draft = match attempt(&state, &id) {
+                let draft = match attempt(&state, &draft.bot, &id) {
                     Ok(Some(pending)) if pending.binding.revision == revision => pending.draft,
                     Ok(_) => draft,
                     Err(_) => {
@@ -141,7 +180,10 @@ pub(super) async fn read(State(state): State<AppState>, Path(id): Path<String>) 
                         );
                     }
                 };
-                Json(json!({"revision": revision, "draft": draft, "visibility": status}))
+                let Ok(share_id) = state.engine.store().setting(&share_id_key(&id)) else {
+                    return problem(StatusCode::INTERNAL_SERVER_ERROR, "Couldn't read the share link.");
+                };
+                Json(json!({"revision": revision, "draft": draft, "visibility": status, "shareId": share_id}))
                     .into_response()
             }
             Err(response) => *response,
@@ -260,7 +302,7 @@ pub(super) async fn begin(
                 "The package changed after its privacy check.",
             );
         }
-        match attempt(&state, &id) {
+        match attempt(&state, &draft.bot, &id) {
             Ok(Some(previous)) if previous.binding == binding && previous.draft == draft => {
                 return Json(json!({"ok": true})).into_response();
             }
@@ -278,13 +320,9 @@ pub(super) async fn begin(
                 );
             }
         }
+        let key = attempt_key(&draft.bot, &id);
         let saved = serde_json::to_string(&Attempt { binding, draft }).is_ok_and(|data| {
-            data.len() <= 540 * 1024
-                && state
-                    .engine
-                    .store()
-                    .set_setting(&attempt_key(&id), Some(&data))
-                    .is_ok()
+            data.len() <= 540 * 1024 && state.engine.store().set_setting(&key, Some(&data)).is_ok()
         });
         if saved {
             Json(json!({"ok": true})).into_response()
@@ -389,7 +427,7 @@ fn apply_review(state: &AppState, draft: &mut Draft, review: Review) -> Result<(
     });
     let names = share_template::private_words(
         &state.engine,
-        &draft.bot,
+        Some(&draft.bot),
         state.connectors.as_deref(),
         &share_template::system_words(),
     )?;
@@ -417,7 +455,14 @@ pub(super) async fn published(
     if !stamped(&state, &id, "published", &headers, &bytes) {
         return problem(StatusCode::FORBIDDEN, crate::security::attest::CONFIRM);
     }
-    let Ok(binding) = serde_json::from_slice::<Binding>(&bytes) else {
+    let Ok(mut receipt) = serde_json::from_slice::<Value>(&bytes) else {
+        return problem(StatusCode::BAD_REQUEST, "That isn't a publication receipt.");
+    };
+    let share_id = receipt
+        .as_object_mut()
+        .and_then(|fields| fields.remove("shareId"));
+    let share_id = share_id.as_ref().and_then(Value::as_str);
+    let Ok(binding) = serde_json::from_value::<Binding>(receipt) else {
         return problem(StatusCode::BAD_REQUEST, "That isn't a publication receipt.");
     };
     state.engine.share_template_write(|| {
@@ -425,13 +470,20 @@ pub(super) async fn published(
             Ok(draft) => draft,
             Err(response) => return *response,
         };
-        let Ok(Some(pending)) = attempt(&state, &id) else {
+        let Ok(Some(pending)) = attempt(&state, &draft.bot, &id) else {
             return problem(
                 StatusCode::CONFLICT,
                 "There's no matching publication attempt.",
             );
         };
-        if pending.binding != binding
+        let valid_share = share_id
+            .and_then(|id| uuid::Uuid::parse_str(id).ok())
+            .is_some_and(|id| {
+                id.get_version_num() == 7 && id.get_variant() == uuid::Variant::RFC4122
+            });
+        if (binding.visibility == "unlisted" && !valid_share)
+            || (binding.visibility == "listed" && share_id.is_some())
+            || pending.binding != binding
             || revision(&draft) != binding.revision
             || draft.bot != pending.draft.bot
         {
@@ -449,7 +501,8 @@ pub(super) async fn published(
         match state.engine.store().set_settings(&[
             (&Draft::key(&id), Some(&data)),
             (&published_key(&id), Some(&binding.visibility)),
-            (&attempt_key(&id), None),
+            (&share_id_key(&id), share_id),
+            (&attempt_key(&draft.bot, &id), None),
         ]) {
             Ok(()) => Json(json!({ "ok": true })).into_response(),
             Err(_) => problem(

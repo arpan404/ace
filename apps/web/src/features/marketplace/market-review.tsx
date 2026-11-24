@@ -11,6 +11,7 @@ import {
   useInstall,
   useMarketEntry,
   useMarketReview,
+  useSharedReview,
   type EntryKey,
   type PreparedReview,
 } from "./market-api.ts";
@@ -104,6 +105,13 @@ export function ReviewPage(props: {
       installed={read.data?.entry.installed}
     />
   );
+}
+
+export function SharedReviewPage({ id }: { id: string }) {
+  const review = useSharedReview(id);
+  if (review.isError) return <Empty title={failureSentence(review.error, "review")} />;
+  if (!review.data) return null;
+  return <ReviewBody key={review.data.review.id} prepared={review.data} installed={undefined} />;
 }
 
 function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalled | undefined }) {

@@ -13,7 +13,7 @@ import {
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
-import { market, usePersonGrant } from "@/features/marketplace/index.ts";
+import { market, marketShareUrl, usePersonGrant } from "@/features/marketplace/index.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { spadeHttp } from "./spade-requests.ts";
 import { useCardAccent } from "./spade-accent.ts";
@@ -51,15 +51,17 @@ export function SpadeTemplateCard(props: {
           personGrant,
         );
       }}
-      live={async (signal) => {
+      live={async (signal, shareId) => {
         const { entry } = await market(
           client,
-          {
-            op: "read",
-            source: "market",
-            type: "spade-bot",
-            name: id.replaceAll("_", "-"),
-          },
+          shareId
+            ? { op: "readShare", id: shareId }
+            : {
+                op: "read",
+                source: "market",
+                type: "spade-bot",
+                name: id.replaceAll("_", "-"),
+              },
           "read",
           signal,
         );
@@ -78,7 +80,7 @@ export function TemplateCard(props: {
   style?: SpadeAgentStyle | undefined;
   read(signal: AbortSignal): Promise<ShareTemplateDetails>;
   publish(review: ShareTemplateReview): Promise<void>;
-  live(signal: AbortSignal): Promise<boolean>;
+  live(signal: AbortSignal, shareId?: string): Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
   const [destination, setDestination] = useState<MarketVisibility>("listed");
@@ -88,10 +90,11 @@ export function TemplateCard(props: {
     retry: false,
   });
   const visibility = details.data?.visibility;
+  const shareId = details.data?.shareId ?? undefined;
   const ongoing = useQuery({
-    queryKey: ["spade-share-template-live", props.scope, props.item.cardId],
-    queryFn: ({ signal }) => props.live(signal),
-    enabled: visibility != null,
+    queryKey: ["spade-share-template-live", props.scope, props.item.cardId, shareId],
+    queryFn: ({ signal }) => props.live(signal, shareId),
+    enabled: visibility === "listed" || shareId !== undefined,
     retry: false,
     refetchInterval: (query) => (query.state.data === true ? false : 30_000),
   });
@@ -131,7 +134,9 @@ export function TemplateCard(props: {
         : visibility === "unlisted"
           ? "Shared by link"
           : "Published";
-  const link = `https://app.acehq.dev/store?at=bot/${props.item.cardId.replaceAll("_", "-")}`;
+  const link = shareId
+    ? marketShareUrl(shareId)
+    : `https://app.acehq.dev/store?at=bot/${props.item.cardId.replaceAll("_", "-")}`;
   function review(next: MarketVisibility) {
     setDestination(next);
     setOpen(true);

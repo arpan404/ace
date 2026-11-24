@@ -136,50 +136,62 @@ pub(crate) fn system_words() -> Vec<String> {
 
 pub(crate) fn private_words(
     engine: &Engine,
-    bot: &str,
+    bot: Option<&str>,
     connectors: Option<&spade_connect::Connectors>,
     names: &[String],
 ) -> Result<Vec<String>, String> {
     let mut words = names.to_vec();
-    let agent = engine.store().agent(bot).map_err(|e| e.to_string())?;
-    if let Some(agent) = agent {
-        words.push(agent.model);
-    }
-    if let Some(view) = engine.agent_roles_view(bot).map_err(|e| e.to_string())?
-        && let Some(roles) = view["roles"].as_array()
+    let agents = engine.store().agents().map_err(|e| e.to_string())?;
+    for agent in agents
+        .iter()
+        .filter(|agent| bot.is_none_or(|bot| bot == agent.id || agent.kind == crate::engine::MAIN))
     {
-        for role in roles {
-            if let Some(model) = role["model"].as_str() {
-                words.push(model.to_owned());
-            }
-            if let Some(route) = role["route"].as_array() {
-                words.extend(route.iter().filter_map(Value::as_str).map(str::to_owned));
+        let owner = agent.id.as_str();
+        words.push(agent.model.clone());
+        if let Some(view) = engine.agent_roles_view(owner).map_err(|e| e.to_string())?
+            && let Some(roles) = view["roles"].as_array()
+        {
+            for role in roles {
+                if let Some(model) = role["model"].as_str() {
+                    words.push(model.to_owned());
+                }
+                if let Some(route) = role["route"].as_array() {
+                    words.extend(route.iter().filter_map(Value::as_str).map(str::to_owned));
+                }
             }
         }
-    }
-    for scope in [Notes::Own(bot), Notes::Shared] {
         words.extend(
             engine
                 .store()
-                .notes(scope)
+                .notes(Notes::Own(owner))
                 .map_err(|e| e.to_string())?
                 .into_iter()
                 .map(|note| note.text),
+        );
+        words.extend(
+            engine
+                .store()
+                .knowledge(owner, None)
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .map(|entry| entry.body),
         );
     }
     words.extend(
         engine
             .store()
-            .knowledge(bot, None)
+            .notes(Notes::Shared)
             .map_err(|e| e.to_string())?
             .into_iter()
-            .map(|entry| entry.body),
+            .map(|note| note.text),
     );
     if let Some(hub) = connectors {
         for custom in hub.list().into_iter().filter(|app| app.catalogue.is_none()) {
             words.extend([custom.id, custom.name, custom.url]);
         }
     }
+    words.sort_unstable();
+    words.dedup();
     Ok(words)
 }
 
@@ -195,7 +207,7 @@ pub(crate) async fn make(
     if proposal.skills.len() > 32 || proposal.routines.len() + proposal.event_routines.len() > 32 {
         return Err("Choose at most 32 skills and 32 routines.".to_owned());
     }
-    let private = private_words(engine, bot, connectors, names)?;
+    let private = private_words(engine, Some(bot), connectors, names)?;
     let mut left_out = vec![
         "Conversation history, private memories, grants, credentials and the exact model stay here.".to_owned(),
     ];

@@ -107,6 +107,7 @@ export class OpenReviews {
     bot?: string,
     /** From an organization's registry, read as a member (ADR 0206 §5.4). */
     registry?: PreparePorts["registry"],
+    share?: PreparePorts["share"],
   ): Promise<MarketResult> {
     const { store } = this.#ports;
     const source = store.source(sourceId);
@@ -115,7 +116,7 @@ export class OpenReviews {
       return error("invalid", "Only store.acehq.dev has organizations' registries");
     if (this.#pending.size >= maxPending)
       return error("busy", "Too many reviews are open; finish or cancel one");
-    const ports = { ...(await this.#preparePorts(source.id)), registry };
+    const ports = { ...(await this.#preparePorts(source.id)), registry, share };
     const { entry, brings } = await prepareWithBrings(
       ports,
       store,

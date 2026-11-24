@@ -4,6 +4,8 @@
  * were: `?market=looks`, `?market=bot/inbox`, `?market=suit/mizzle/review`, `?market=@mira`.
  */
 
+import { MarketShareId } from "@ace/protocol/marketplace";
+
 /** The five places of the top bar, and Installed at its right. */
 export const marketPlaces = ["discover", "looks", "bots", "tools", "apps", "installed"] as const;
 export type MarketPlace = (typeof marketPlaces)[number];
@@ -18,6 +20,7 @@ export interface MarketEntryKey {
 /** A page pushed over a place. */
 export type MarketPage =
   | { kind: "entry"; entry: MarketEntryKey }
+  | { kind: "share"; id: string }
   | {
       kind: "review";
       entry: MarketEntryKey;
@@ -99,6 +102,7 @@ export function parseMarket(value: unknown): MarketView | undefined {
   if (text === "me") return view("discover", [{ kind: "profile" }]);
   if (text === "publish") return view("discover", [{ kind: "profile" }, { kind: "publish" }]);
   if (text === "catalogs") return view("installed", [{ kind: "catalogs" }]);
+  if (MarketShareId.safeParse(text).success) return view("discover", [{ kind: "share", id: text }]);
   const place = marketPlaces.find((known) => known === text);
   if (place) return view(place);
   if (text.startsWith("me/")) {
@@ -137,6 +141,8 @@ const entryText = (entry: MarketEntryKey) =>
 export function formatMarket(at: MarketView): string {
   const top = at.pages.at(-1);
   switch (top?.kind) {
+    case "share":
+      return top.id;
     case "entry":
       return entryText(top.entry);
     case "review":
@@ -167,3 +173,6 @@ export const entryAddress = (entry: MarketEntryKey) => entryText(entry);
 
 export const sameEntry = (a: MarketEntryKey, b: MarketEntryKey) =>
   a.source === b.source && a.type === b.type && a.name === b.name;
+
+export const marketShareUrl = (id: string) =>
+  `https://app.acehq.dev/store?at=${encodeURIComponent(id)}`;

@@ -143,6 +143,17 @@ export class MarketHttp {
   version = (type: string, name: string, version: string) =>
     this.#json(`${entryPath(type, name)}/${encodeURIComponent(version)}`);
 
+  share(id: string): EntryReads {
+    const base = `/v1/i/${encodeURIComponent(id)}`;
+    return {
+      origin: this.origin,
+      entry: () => this.#json(base),
+      version: (_type, _name, version) =>
+        this.#json(`${base}/versions/${encodeURIComponent(version)}`),
+      object: (hash) => this.#object(hash, {}, base),
+    };
+  }
+
   discover = () => this.#json("/v1/discover");
   publisher = (handle: string) => this.#json(`/v1/publishers/${encodeURIComponent(handle)}`);
 

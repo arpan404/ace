@@ -19,7 +19,12 @@ export const reauthSentence = "Confirm your identity to continue.";
  * withdraw, transfers and answering one, handle changes, deleting an entry and verification).
  */
 export function needsPerson(operation: MarketOperation): boolean {
-  if (operation.op === "publishTemplate" || isPersonOnlyOperation(operation.op)) return true;
+  if (
+    operation.op === "publishTemplate" ||
+    operation.op === "shareSkill" ||
+    isPersonOnlyOperation(operation.op)
+  )
+    return true;
   return operation.op === "publish" && isPersonOnlyAction(operation.request.action);
 }
 

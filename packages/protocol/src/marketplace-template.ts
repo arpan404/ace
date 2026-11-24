@@ -119,6 +119,7 @@ export const ShareTemplateDetails = z.object({
   revision: MarketHash,
   draft: ShareTemplateDraft,
   visibility: MarketVisibility.nullable(),
+  shareId: z.uuidv7().nullish(),
 });
 
 export type ShareTemplateDraft = z.infer<typeof ShareTemplateDraft>;

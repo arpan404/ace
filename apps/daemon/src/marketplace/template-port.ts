@@ -11,7 +11,7 @@ export function templatePort(input: {
 }): TemplatePort {
   async function stamped(
     id: string,
-    operation: "authorize" | "begin" | "published",
+    operation: "authorize" | "begin" | "published" | "skill-privacy",
     data: unknown,
   ) {
     const connection = input.connection();
@@ -24,7 +24,10 @@ export function templatePort(input: {
       connection,
       {
         method: "POST",
-        path: `/v1/share-templates/${encodeURIComponent(id)}/${operation}`,
+        path:
+          operation === "skill-privacy"
+            ? "/v1/share-skills/privacy"
+            : `/v1/share-templates/${encodeURIComponent(id)}/${operation}`,
         body,
         contentType: "application/json",
         headers: {
@@ -48,8 +51,11 @@ export function templatePort(input: {
     async begin(id, review, draft, binding) {
       await stamped(id, "begin", { review, draft, binding });
     },
-    async published(id, binding) {
-      await stamped(id, "published", binding);
+    async scanSkill(texts) {
+      await stamped("skill", "skill-privacy", texts);
+    },
+    async published(id, binding, shareId) {
+      await stamped(id, "published", { ...binding, shareId });
     },
   };
 }

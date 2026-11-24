@@ -45,6 +45,9 @@ export function reviewItems(draft: ShareTemplateDraft, edits: TemplateEdits) {
   for (const contract of recipe.contracts ?? []) {
     if (edits.contracts.includes(contract.name)) add(`Contract · ${contract.name}`, contract);
   }
+  for (const need of recipe.needs.connectors) {
+    if (edits.connectors.includes(need.id)) add(`App · ${need.id}`, need);
+  }
   add("Personality", recipe.personality);
   if (Array.isArray(recipe.effects) && recipe.effects.length)
     add("Requested effects", recipe.effects);

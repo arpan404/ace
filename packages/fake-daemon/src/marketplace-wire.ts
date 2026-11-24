@@ -248,6 +248,11 @@ export class FakeMarketplaceWire {
   #answer(operation: MarketOperation, personGrant?: string): MarketResult {
     const now = this.#now();
     switch (operation.op) {
+      case "readShare":
+      case "prepareShare":
+        return { op: "error", code: "not_found", message: "This share link is unavailable." };
+      case "shareSkill":
+        return { op: "error", code: "not_found", message: "This skill is not in the library." };
       case "publishTemplate":
         this.templatePublications.push(operation);
         return {

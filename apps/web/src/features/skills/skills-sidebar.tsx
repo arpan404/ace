@@ -37,6 +37,8 @@ import { groupByHome, homeLabel, rowMarks, type SkillHome } from "./library-mode
 import { ProviderMarks } from "./provider-marks.tsx";
 import { useRemovalReconciler } from "./remove-plugin.tsx";
 import { skillTitle, type Skill, type SkillKind } from "./skills-model.ts";
+import { useClient } from "@ace/client-react";
+import { ShareSkillButton } from "@/features/marketplace/index.ts";
 import { useSkills } from "./skills-source.ts";
 import { useBetaEnabled } from "@/lib/beta-enabled.ts";
 
@@ -166,20 +168,37 @@ export function SkillsSidebar() {
 
 function SkillRow({ skill }: { skill: Skill }) {
   const marks = rowMarks(skill.providers);
+  const client = useClient();
+  const marketplace = useBetaEnabled("marketplace");
+  const share =
+    marketplace === true &&
+    skill.library?.scope === "personal" &&
+    skill.library.editable &&
+    !skill.library.source;
   return (
-    <Link to="/skills/$skillId" params={{ skillId: skill.id }} {...panelRow()}>
-      <PanelRowBody
-        icon={kindIcon(skill.kind)}
-        title={skillTitle(skill)}
-        trailing={
-          !skill.enabled ? (
-            <StatusLabel tone="idle" label="Off" />
-          ) : marks.length ? (
-            <ProviderMarks providers={marks} size={12} />
-          ) : undefined
-        }
-      />
-    </Link>
+    <div className="flex items-center">
+      <Link to="/skills/$skillId" params={{ skillId: skill.id }} {...panelRow("min-w-0 flex-1")}>
+        <PanelRowBody
+          icon={kindIcon(skill.kind)}
+          title={skillTitle(skill)}
+          trailing={
+            !skill.enabled ? (
+              <StatusLabel tone="idle" label="Off" />
+            ) : marks.length ? (
+              <ProviderMarks providers={marks} size={12} />
+            ) : undefined
+          }
+        />
+      </Link>
+      {share && (
+        <ShareSkillButton
+          client={client}
+          source={{ kind: "ace-skill", id: skill.id }}
+          name={skill.name}
+          title={skill.library?.title}
+        />
+      )}
+    </div>
   );
 }
 

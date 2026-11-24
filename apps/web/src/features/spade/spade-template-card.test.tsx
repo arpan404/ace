@@ -102,6 +102,10 @@ test.each([
       await userEvent.click(within(item).getByRole("checkbox"));
     }
     expect(confirmation.disabled).toBe(false);
+    const task = review.getByRole("textbox", { name: "Task" });
+    await userEvent.type(task, "x");
+    await userEvent.type(task, "{Backspace}");
+    expect(confirmation.disabled).toBe(true);
     await userEvent.type(review.getByRole("textbox", { name: "Task" }), " Review variance.");
     expect(confirmation.disabled).toBe(true);
     await userEvent.click(checklist.getByRole("checkbox", { name: "Reviewed Task" }));

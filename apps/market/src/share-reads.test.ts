@@ -1,6 +1,7 @@
 import { grantPublicKey, signMarketGrant } from "@ace/account-grant";
 import { readFileSync, readdirSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import { URL as FileUrl } from "node:url";
 import { expect, test } from "vitest";
 import { meRoute } from "./api-me.ts";
 import { configuredKeys } from "./grant-keys.ts";
@@ -11,9 +12,9 @@ import { shareId } from "./share-id.ts";
 
 function database(name: "catalogue" | "counts" | "publishers") {
   const sql = new DatabaseSync(":memory:");
-  const migrations = new URL(`../migrations/${name}/`, import.meta.url);
+  const migrations = new FileUrl(`../migrations/${name}/`, import.meta.url);
   for (const file of readdirSync(migrations).toSorted())
-    sql.exec(readFileSync(new URL(file, migrations), "utf8"));
+    sql.exec(readFileSync(new FileUrl(file, migrations), "utf8"));
   // Pass the Worker's actual SQL to SQLite. D1 adds async binding and an envelope to these reads.
   const binding = {
     prepare(query: string) {
@@ -64,7 +65,7 @@ test.each(["spade-bot", "spade-skill"] as const)(
           counts: counts.db,
           publishers: publishers.db,
         },
-      } as Context;
+      } as unknown as Context;
       const fetch = async (path: string) => {
         const url = new URL(path, "https://market.example");
         const matched = matchRoute("GET", url.pathname);
@@ -137,7 +138,7 @@ test.each([
           catalogue: () => catalogue.db,
           catalogues: [{ type, db: catalogue.db }],
         },
-      } as Context;
+      } as unknown as Context;
       const url = new URL(`https://market.example/v1/me/drafts/${draft}/publish`);
       url.search = new URLSearchParams({
         visibility: "unlisted",
