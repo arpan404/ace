@@ -62,6 +62,27 @@ builds with budgets and caps, are read as raw data and fold to nothing ([ADR 016
   usually are). No call is timed out by the harness: one still running after the
   foreground window (`Limits.foreground`, 30 s) carries on as a background job with the same run,
   its call answered with the job id, and the turn goes on ([ADR 0158](../../docs/adr/0158-spade-no-fixed-step-or-time-limits.md)). A declined call returns "The person declined this action."
+- **While the step streams**, an explicit provider call boundary lets Spade start the gate up to
+  the step's parallel tool limit. OpenAI Responses closes each output item, Anthropic closes each
+  tool block, and Chat Completions closes its list of calls with the tool-call finish reason.
+  Spade reserves conversation-unique ids before this work starts. The final provider call list
+  still supplies the order and arguments for `step_finished`. Only exact matches can bring
+  work forward. The regular gate still runs from the stored step and current settings.
+- A built-in local read can run early when its implementation allows its output to be discarded
+  without leaving effects. Workspace list, find, and text or image reads can use an existing
+  workspace this way. An eligible model review can start early too. Its judgment holds
+  only if the gate still asks the same reviewer the same question, with the same launch and
+  binding. Results and verdicts are held in memory until the step is stored. Approvals, questions,
+  plugin pre-tool hooks, and execution of effectful calls all follow the stored step. This includes
+  sandboxed runs, which can change workspace files. Command classification that can stage files
+  or set up a workspace also waits. A provider without an explicit boundary supplies its calls
+  at the end.
+- Stop, a cut stream, an immediate pause, or a crash discards early reads and judgments for an
+  unstored step. The log contains no tool start to recover for them. Spade estimates usage when
+  it cancels a review request in flight. After streaming starts, a failure never triggers an
+  automatic resend. A planned pause can still resume a cut step under the pause rules below. Once the step is stored,
+  restart uses the log: an unstarted call goes through the gate, a stored review is reused as
+  before, and a stored start follows the existing unknown-outcome rules.
 - **Steering:** a message sent mid-turn is stored at once and the next model call sees it, placed
   after any running tools' results, and after the step it arrived during. A turn finishes only if
   nothing arrived after its last step's prompt was built (`seen`), checked under the same lock that
@@ -116,14 +137,12 @@ builds with budgets and caps, are read as raw data and fold to nothing ([ADR 016
   say the account's quota or credit is used up: the person has to act, and the reply's failure
   says so.
 - **Waiting out an outage** (ADR 0158, ADR 0160): when those three tries are used up on a
-  failure that may pass (unreachable, `408`, `429`, `5xx`), or a stream is cut by one after it
-  started, the turn does not fail. It stores an outage wake, `wake_set {reply, purpose: {kind:
-outage, attempt, error}, due_ms}`, and waits for it: 1, 2, 4 … minutes, at most an hour, or
+  failure that may pass (unreachable, `408`, `429`, `5xx`), the turn stores an outage wake,
+  `wake_set {reply, purpose: {kind: outage, attempt, error}, due_ms}`, and waits for it: 1, 2, 4 … minutes, at most an hour, or
   the endpoint's longer `retry-after` (still at most an hour); the backoff starts again once a
   step of the turn finishes. When it fires (`wake_fired`, with no note) the step is sent again as
-  it was, and the three quick tries start again; what a cut stream had shown is dropped, as on a
-  resumed pause. As many rounds as it takes. The reply stays open and the bot reads as `sleeping`
-  with "The model is not answering; trying again at 14:05 (…)". Stop ends the wait and the
+  it was, and the three quick tries start again. As many rounds as it takes. The reply stays open
+  and the bot reads as `sleeping` with "The model is not answering; trying again at 14:05 (…)". Stop ends the wait and the
   reply; the person cancelling the wake ends the reply stopped; the person waking it, or writing
   (their message goes with the step), sends the step now. A pause ends the wait like any other,
   and after a pause or a restart the turn resumes and waits on the same wake. A helper's turn

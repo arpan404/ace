@@ -16,7 +16,11 @@ use spade_core::maintenance::{Pause, Point, halts};
 use spade_core::tools::{Risk, TOOL_SEARCH, describe};
 use tokio::sync::watch;
 
-use super::super::{Engine, jobs, roster, trim, turn};
+use super::super::{
+    Engine, jobs, roster,
+    stream_calls::{Prepared, StreamCalls},
+    trim, turn,
+};
 use super::again::{self, Again, Held, ask_again};
 use super::{Handled, ceiling, classify};
 use crate::tools::{ToolOutput, TurnFacts};
@@ -38,9 +42,11 @@ pub(super) async fn run_tools(
     facts: &TurnFacts,
     stop: &mut watch::Receiver<bool>,
     pause: &mut watch::Receiver<Pause>,
+    prepared: &mut StreamCalls,
 ) -> Handled {
     let limit = engine.limits.max_parallel_tools.max(1);
     let mut queue = calls.into_iter();
+    let mut earlier_effect = false;
     let mut running = FuturesUnordered::new();
     // Results that came back and wait to be stored, oldest first, and the one being stored now.
     // Storing runs alongside the tools, so a write that keeps failing never stops Stop or a
@@ -93,8 +99,8 @@ pub(super) async fn run_tools(
                     continue;
                 }
             };
-            // A tool runs only once its start is stored, so a restart can never mistake a call
-            // that ran for one that did not.
+            // Record the start before any effectful launch or use of a prepared read, so a
+            // restart never mistakes a call without a result for a call it can safely repeat.
             // What the tool is now is stored with its start, so compaction reads a write as one
             // even once the tool is gone or reclassified.
             let def = engine.registry_for(id).get(&name).cloned();
@@ -142,6 +148,10 @@ pub(super) async fn run_tools(
                 .tools
                 .get_for(id, &name)
                 .and_then(|tool| tool.effect(&arguments));
+            // A prepared read predates this step's writes. Let the normal queue read afresh
+            // when an earlier call can change what it sees.
+            let reuse_read = !earlier_effect && effect == Some(effect::Effect::Read);
+            earlier_effect |= effect != Some(effect::Effect::Read);
             let started = Event::Known(Known::ToolStarted {
                 reply: reply.to_owned(),
                 call_id: call.id.clone(),
@@ -181,7 +191,20 @@ pub(super) async fn run_tools(
             }
             let (engine, id, facts) = (engine.clone(), id.to_owned(), facts.clone());
             let gate = reading.map(|reading| (reading, raised));
+            let early = prepared.take_task(&call.id).filter(|_| reuse_read);
             running.push(async move {
+                if gate.is_none()
+                    && let Some(early) = early
+                    && let Some(Prepared::Read(tool, output)) = early.result().await
+                    && engine
+                        .tools
+                        .get_for(&id, &name)
+                        .is_some_and(|now| Arc::ptr_eq(&tool, &now))
+                    && !matches!(&output, Ran::Done(output) if output.is_error)
+                {
+                    return (call, name, output);
+                }
+
                 let output = run_one(&engine, &id, &call.id, &name, arguments, &facts, gate).await;
                 (call, name, output)
             });
@@ -246,7 +269,7 @@ async fn stored(storing: &mut Option<Storing<'_>>) {
 }
 
 /// How a call came back from the foreground.
-enum Ran {
+pub(in super::super) enum Ran {
     Done(ToolOutput),
     /// Still running when the foreground window closed: the run itself, to carry on as a job.
     Outlived(crate::tools::ToolFuture),
@@ -293,7 +316,14 @@ async fn run_one(
     if let std::task::Poll::Ready(output) = first {
         return Ran::Done(output);
     }
-    match tokio::time::timeout(engine.limits.foreground, &mut work).await {
+    in_foreground(engine.limits.foreground, work).await
+}
+
+pub(super) async fn in_foreground(
+    window: std::time::Duration,
+    mut work: crate::tools::ToolFuture,
+) -> Ran {
+    match tokio::time::timeout(window, &mut work).await {
         Ok(output) => Ran::Done(output),
         Err(_) => Ran::Outlived(work),
     }

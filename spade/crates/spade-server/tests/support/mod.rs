@@ -187,6 +187,16 @@ impl FakeTool {
 }
 
 impl Tool for FakeTool {
+    fn run_early(
+        &self,
+        key: &str,
+        arguments: Value,
+        facts: &spade_server::tools::TurnFacts,
+    ) -> Option<spade_server::tools::ToolFuture> {
+        (self.def.risk == Risk::Read && self.app.is_none())
+            .then(|| self.run_in(key, arguments, facts))
+    }
+
     fn def(&self) -> ToolDef {
         self.def.clone()
     }

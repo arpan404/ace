@@ -24,6 +24,7 @@ use super::Engine;
 use super::apps::Requested;
 use super::autonomy::Reviewed;
 use super::classify::Screened;
+use super::stream_calls::{Prepared, Work};
 use crate::tools::{ToolOutput, TurnFacts};
 use crate::workspace::outside::{self, Bound, Warrant};
 use crate::workspace::shell::Launch;
@@ -49,6 +50,7 @@ pub(super) enum Handled {
 }
 
 /// Gates, runs or declines the last step's open calls.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn handle_calls(
     engine: &Arc<Engine>,
     id: &str,
@@ -57,6 +59,7 @@ pub(super) async fn handle_calls(
     calls: Vec<Pending>,
     stop: &mut watch::Receiver<bool>,
     pause: &mut watch::Receiver<Pause>,
+    mut work: Work<'_>,
 ) -> Handled {
     let registry = engine.registry_for(id);
     let transcript = Transcript::fold(events);
@@ -100,6 +103,9 @@ pub(super) async fn handle_calls(
     let mut orphaned: Vec<(Call, String)> = Vec::new();
     for pending in calls {
         let (name, arguments) = resolve(&pending.call);
+        if work.early() && (!engine.uses_allow(id, &name) || registry.get(&name).is_none()) {
+            return Handled::Continue;
+        }
         match pending.status {
             // A packaged bot has only the tools of the modules it uses (ADR 0200 §4.3), checked
             // before any tool the turn loop answers itself: `tool_search`, `ask_user` and
@@ -315,6 +321,11 @@ pub(super) async fn handle_calls(
                         if classed.incomplete
                             && matches!(classed.runs, Runs::AsksOutside | Runs::Outside));
                     let classed = classified.classed();
+                    if work.early()
+                        && (matches!(classed.runs, Runs::Sandbox | Runs::AsksOutside) || incomplete)
+                    {
+                        return Handled::Continue;
+                    }
                     // How far this call would launch: every verdict reused for it (an Always allow,
                     // a stored review, a grant) must have been given for that or wider.
                     let limit = authorized(classed.runs);
@@ -370,9 +381,20 @@ pub(super) async fn handle_calls(
                     let rule = gate::decide(def.risk, always, tainted);
                     // A connected app's tool, read for this call with its definition pinned
                     // (ADR 0202, amendment 5).
-                    let app_call = snapshot
-                        .as_ref()
-                        .and_then(|tool| engine.app_call_with(id, tool, &arguments));
+                    let app_call = if work.early() {
+                        if let Some((app, _)) = snapshot.as_ref().and_then(|tool| tool.app())
+                            && !engine.has_app_pins(&app)
+                        {
+                            return Handled::Continue;
+                        }
+                        snapshot
+                            .as_ref()
+                            .and_then(|tool| engine.pinned_app_call(tool, &arguments))
+                    } else {
+                        snapshot
+                            .as_ref()
+                            .and_then(|tool| engine.app_call_with(id, tool, &arguments))
+                    };
                     // A verdict stored for this call (before a restart) holds only for the
                     // definition it was given on.
                     let app_bound = app_call
@@ -392,6 +414,9 @@ pub(super) async fn handle_calls(
                         Some(app) => app.reading.effect,
                         None => snapshot.as_ref().and_then(|tool| tool.effect(&arguments)),
                     };
+                    if work.early() && declared == Some(effect::Effect::Drive) {
+                        return Handled::Continue;
+                    }
                     // A sandboxed command, or a file write in the workspace: checkpointed first;
                     // when the checkpoint can't be taken, reviewed instead.
                     let held = engine
@@ -596,6 +621,17 @@ pub(super) async fn handle_calls(
                     let switched = driven.is_some() && route == Route::Run;
                     // In Full access nothing is reviewed, but Spade's classifier may still raise a
                     // command outside the sandbox or an app's tool it reads as a hard stop.
+                    if work.early()
+                        && (matches!(route, Route::Ask { .. } | Route::Refuse(_))
+                            || (route == Route::Run && effect::full_access_screens(&gate))
+                            || (matches!(route, Route::Review(_))
+                                && !super::classify::leaves_for_reviewer(&screening(matches!(
+                                    &route,
+                                    Route::Review(Some(_))
+                                )))))
+                    {
+                        return Handled::Continue;
+                    }
                     let route = match route {
                         route if switched => route,
                         route if incomplete => {
@@ -693,10 +729,14 @@ pub(super) async fn handle_calls(
                             // as low-risk or raise a person-only effect; otherwise it abstains
                             // and the reviewer decides as before.
                             let screening = screening(concern.is_some());
-                            engine.screening_now();
-                            let screened = match engine.screen(id, reply, events, &screening) {
-                                Ok(screened) => screened,
-                                Err(error) => return Handled::Failed(error.to_string()),
+                            let screened = if work.early() {
+                                Screened::Review
+                            } else {
+                                engine.screening_now();
+                                match engine.screen(id, reply, events, &screening) {
+                                    Ok(screened) => screened,
+                                    Err(error) => return Handled::Failed(error.to_string()),
+                                }
                             };
                             match screened {
                                 Screened::Run => Decision::Run,
@@ -747,6 +787,7 @@ pub(super) async fn handle_calls(
                                     }
                                     match super::autonomy::review(
                                         engine, id, reply, events, &registry, under, stop,
+                                        &mut work,
                                     )
                                     .await
                                     {
@@ -795,6 +836,7 @@ pub(super) async fn handle_calls(
                             limit,
                             app_bound.clone(),
                             stop,
+                            &mut work,
                         )
                         .await
                         {
@@ -806,6 +848,26 @@ pub(super) async fn handle_calls(
                             }
                             super::review::Reviewed::Stopped => return Handled::Stopped,
                         }
+                    }
+                    if let Work::Early(prepared) = &mut work {
+                        if decision == Decision::Run
+                            && rule_ran
+                            && declared == Some(effect::Effect::Read)
+                            && !def.background
+                            && classed.runs == Runs::Host
+                            && ceiling.is_none()
+                            && org.is_none()
+                            && let Some(tool) = snapshot
+                            && let Some(core) = engine.tools.core_tool(&name)
+                            && Arc::ptr_eq(&core, &tool)
+                            && !*stop.borrow()
+                            && let Some(read) = tool.run_early(&key, arguments, &facts)
+                        {
+                            let read = crate::tools::marked(tool.as_ref(), read);
+                            let ran = run::in_foreground(engine.limits.foreground, read).await;
+                            prepared.result = Some(Prepared::Read(tool, ran));
+                        }
+                        return Handled::Continue;
                     }
                     match decision {
                         Decision::Run => {
@@ -859,6 +921,9 @@ pub(super) async fn handle_calls(
                             runnable.push((pending.call, name, arguments));
                         }
                         Decision::Ask => {
+                            if let Work::Stored(prepared) = &mut work {
+                                prepared.take_task(&pending.call.id);
+                            }
                             // Raised to the person for an effect its package never declared, or
                             // the person turned off: refused, never asked (ADR 0200 §3.4).
                             let raised =
@@ -1033,12 +1098,20 @@ pub(super) async fn handle_calls(
         let unknown = ToolOutput::maybe_ran(context::MAYBE_RAN);
         finish_tool(engine, id, reply, &call, &name, unknown).await;
     }
+    if let Work::Stored(prepared) = &mut work {
+        prepared.keep(|id| runnable.iter().any(|(call, _, _)| call.id == id));
+    }
     if !runnable.is_empty() {
         let held = Holding {
             bound: &bound,
             raised: &raised_at,
         };
-        return run_tools(engine, id, reply, runnable, held, &facts, stop, pause).await;
+        if let Work::Stored(prepared) = work {
+            return run_tools(
+                engine, id, reply, runnable, held, &facts, stop, pause, prepared,
+            )
+            .await;
+        }
     }
     if waiting {
         let live = engine.live(id);
@@ -1212,7 +1285,7 @@ fn asked_outside(events: &[Event], call_id: &str) -> bool {
 }
 
 /// A call's real tool and arguments: `call_tool` names its tool inside.
-fn resolve(call: &Call) -> (String, Value) {
+pub(super) fn resolve(call: &Call) -> (String, Value) {
     if call.name == CALL_TOOL
         && let Some((name, arguments)) = unwrap_call_tool(&call.arguments)
     {
@@ -1224,4 +1297,4 @@ fn resolve(call: &Call) -> (String, Value) {
 mod again;
 mod ceiling;
 mod classified;
-mod run;
+pub(super) mod run;

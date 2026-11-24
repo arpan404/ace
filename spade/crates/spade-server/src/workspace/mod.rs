@@ -166,6 +166,7 @@ impl Workspaces {
             mutation,
             hook: self.hook.lock().unwrap_or_else(|p| p.into_inner()).clone(),
             bot: bot.to_owned(),
+            create: true,
             trust: Trust::new(
                 self.root.join(TRUST_DIR).join(format!("{bot}.json")),
                 self.trust_lock.clone(),
@@ -215,19 +216,30 @@ pub struct Workspace {
     mutation: std::sync::Arc<std::sync::Mutex<()>>,
     hook: Hook,
     bot: String,
+    create: bool,
     trust: Trust,
 }
 
 impl Workspace {
+    /// A read during an unfinished step may only open a workspace that already exists.
+    fn existing(mut self) -> Self {
+        self.create = false;
+        self
+    }
+
     /// The folder, opened as a handle every operation is relative to; created if missing. A
     /// symlink in the folder's own place is refused.
     pub fn dir(&self) -> Result<Dir, PathError> {
-        std::fs::create_dir_all(&self.root)?;
+        if self.create {
+            std::fs::create_dir_all(&self.root)?;
+        }
         let root = Dir::open_ambient_dir(&self.root, ambient_authority())?;
-        match root.create_dir(&self.bot) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.into()),
+        if self.create {
+            match root.create_dir(&self.bot) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error.into()),
+            }
         }
         root.open_dir_nofollow(&self.bot)
             .map_err(|_| PathError::Outside(self.bot.clone()))

@@ -82,6 +82,7 @@ mod services;
 mod sign_in;
 pub use services::StartAgain;
 mod speech;
+mod stream_calls;
 mod style;
 mod suggest;
 mod thread_asks;

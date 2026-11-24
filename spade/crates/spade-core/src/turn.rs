@@ -128,39 +128,55 @@ pub fn unique_call_ids(
     calls: Vec<Call>,
     mut mint: impl FnMut() -> String,
 ) -> Vec<Call> {
-    // The ids already used that this step's calls also use: one pass, copying only those.
-    let wanted: std::collections::HashSet<&str> = calls.iter().map(|c| c.id.as_str()).collect();
-    let mut used: std::collections::HashSet<String> = events
-        .iter()
-        .filter_map(|event| match event {
-            Event::Known(Known::StepFinished { calls, .. }) => Some(calls),
-            _ => None,
-        })
-        .flatten()
-        .filter(|call| wanted.contains(call.id.as_str()))
-        .map(|call| call.id.clone())
-        .collect();
-    let stored = |id: &str| {
-        events.iter().any(|event| {
-            matches!(event, Event::Known(Known::StepFinished { calls, .. })
-                if calls.iter().any(|c| c.id == id))
-        })
-    };
+    let mut ids = CallIds::from_events(events);
     calls
         .into_iter()
-        .map(|mut call| {
-            if call.id.is_empty() || !used.insert(call.id.clone()) {
-                // Rare: only a reused id is replaced, and the new one is checked against all.
-                loop {
-                    call.id = mint();
-                    if !call.id.is_empty() && !stored(&call.id) && used.insert(call.id.clone()) {
-                        break;
-                    }
-                }
-            }
-            call
-        })
+        .map(|call| ids.assign(call, &mut mint))
         .collect()
+}
+
+/// Ids held by stored steps or reserved by calls closed in the current stream.
+pub struct CallIds(std::collections::HashSet<String>);
+
+impl CallIds {
+    pub fn from_events(events: &[Event]) -> Self {
+        Self(
+            events
+                .iter()
+                .filter_map(|event| match event {
+                    Event::Known(Known::StepFinished { calls, .. }) => Some(calls),
+                    _ => None,
+                })
+                .flatten()
+                .map(|call| call.id.clone())
+                .collect(),
+        )
+    }
+
+    pub fn assign(&mut self, mut call: Call, mut mint: impl FnMut() -> String) -> Call {
+        while call.id.is_empty() || !self.0.insert(call.id.clone()) {
+            call.id = mint();
+        }
+        call
+    }
+}
+
+/// Calls whose special handling or classification can create state wait for the stored step.
+pub fn can_gate_while_streaming(name: &str) -> bool {
+    !matches!(
+        name,
+        crate::tools::TOOL_SEARCH
+            | crate::context::ASK_USER
+            | crate::question::connect::APP_CONNECT_REQUEST
+            | crate::question::suggest::PACKAGE_SUGGEST
+            | crate::asks::ASKS
+            | crate::decision::DECISION_LOG
+            | crate::autonomy::SHELL
+            | crate::service::SERVICE_START
+            | "python"
+            | "workspace_write"
+            | "workspace_edit"
+    ) && !crate::goal::is_tool(name)
 }
 
 /// Whether the person pressed Stop on `reply`.
@@ -483,14 +499,16 @@ mod tests {
             step(vec![call("call_0")], 0),
         ];
         let mut minted = 0;
-        let calls = unique_call_ids(
-            &events,
-            vec![call("call_0"), call("call_1"), call("call_1"), call("")],
-            || {
-                minted += 1;
-                format!("t{minted}")
-            },
-        );
+        let mut ids = CallIds::from_events(&events);
+        let calls: Vec<_> = [call("call_0"), call("call_1"), call("call_1"), call("")]
+            .into_iter()
+            .map(|call| {
+                ids.assign(call, || {
+                    minted += 1;
+                    format!("t{minted}")
+                })
+            })
+            .collect();
         let ids: Vec<&str> = calls.iter().map(|c| c.id.as_str()).collect();
         assert_eq!(ids, vec!["t1", "call_1", "t2", "t3"]);
     }

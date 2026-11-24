@@ -9,6 +9,7 @@ use std::time::Duration;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use spade_core::autonomy;
+use spade_core::routing::Role;
 use spade_models::Prompt;
 use tokio::sync::watch;
 
@@ -22,6 +23,27 @@ pub(super) enum Judged<T> {
     Failed(&'static str, u64),
     TimedOut(u64),
     Stopped,
+}
+
+/// Dropping a speculative review can cut a request the provider has already billed.
+struct InFlight<'a> {
+    engine: &'a Arc<Engine>,
+    id: &'a str,
+    model: &'a str,
+    prompt: &'a Prompt,
+    cancelled: bool,
+}
+
+impl Drop for InFlight<'_> {
+    fn drop(&mut self) {
+        if self.cancelled {
+            let estimate = likely_usage(prompt_tokens(self.prompt), Default::default(), 0);
+            self.engine
+                .admit(self.id, self.model)
+                .for_role(Role::Review)
+                .settle(&estimate);
+        }
+    }
 }
 
 /// Asks `model` for a `T`, trying once more when its answer can't be read.
@@ -40,16 +62,23 @@ pub(super) async fn judge<T: JsonSchema + DeserializeOwned>(
     let mut tries = 0;
     loop {
         tries += 1;
-        let admitted = engine
-            .admit(id, model)
-            .for_role(spade_core::routing::Role::Review);
+        let admitted = engine.admit(id, model).for_role(Role::Review);
+        let mut in_flight = InFlight {
+            engine,
+            id,
+            model,
+            prompt,
+            cancelled: true,
+        };
         let asked = tokio::select! {
+            biased;
+            _ = stop.wait_for(|stopped| *stopped) => None,
             answer = tokio::time::timeout_at(
                 deadline,
                 engine.models.generate::<T>(model, prompt),
             ) => Some(answer),
-            _ = stop.wait_for(|stopped| *stopped) => None,
         };
+        in_flight.cancelled = false;
         let error = match asked {
             None => {
                 admitted.settle(&estimate());

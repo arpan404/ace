@@ -199,6 +199,11 @@ impl ToolOutput {
 
 pub trait Tool: Send + Sync {
     fn def(&self) -> ToolDef;
+    /// A read that can run before its step is stored. Dropping it must leave no externally
+    /// visible effects. An early error is checked again through the regular entry point.
+    fn run_early(&self, _key: &str, _arguments: Value, _facts: &TurnFacts) -> Option<ToolFuture> {
+        None
+    }
     /// Runs one call. `key` is unique across conversations and the same for this call across
     /// retries and restarts: tools that change things pass it on as an idempotency key, so a
     /// repeated call cannot act twice.
@@ -422,6 +427,10 @@ impl Toolbox {
         } else {
             Registry::with_search(defs.into_values())
         }
+    }
+
+    pub(crate) fn core_tool(&self, name: &str) -> Option<Arc<dyn Tool>> {
+        self.core.get(name).cloned()
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {

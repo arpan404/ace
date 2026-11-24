@@ -157,11 +157,9 @@ pub(super) fn shown_def(
 
 /// Runs file work off the async threads and turns its error into words for the model.
 fn blocking(
-    place: &Place,
-    key: &str,
+    workspace: Result<Workspace, ToolOutput>,
     work: impl FnOnce(Workspace) -> Result<ToolOutput, PathError> + Send + 'static,
 ) -> ToolFuture {
-    let workspace = place.workspace(key);
     Box::pin(async move {
         let workspace = match workspace {
             Ok(workspace) => workspace,
@@ -206,11 +204,21 @@ impl Tool for WorkspaceList {
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
+        self.read(self.0.workspace(key), arguments)
+    }
+
+    fn run_early(&self, key: &str, arguments: Value, _facts: &TurnFacts) -> Option<ToolFuture> {
+        Some(self.read(self.0.workspace(key).map(Workspace::existing), arguments))
+    }
+}
+
+impl WorkspaceList {
+    fn read(&self, workspace: Result<Workspace, ToolOutput>, arguments: Value) -> ToolFuture {
         let args: ListArgs = match parse(arguments) {
             Ok(args) => args,
             Err(output) => return Box::pin(async move { output }),
         };
-        blocking(&self.0, key, move |workspace| {
+        blocking(workspace, move |workspace| {
             let listing = workspace.list(&args.path)?;
             // Names are content too: trusted only when every entry shown is a trusted file.
             let trusted = workspace.listing_trusted(&listing);
@@ -270,11 +278,29 @@ impl Tool for WorkspaceRead {
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
+        self.read(self.0.workspace(key), arguments, true)
+    }
+
+    fn run_early(&self, key: &str, arguments: Value, _facts: &TurnFacts) -> Option<ToolFuture> {
+        Some(self.read(
+            self.0.workspace(key).map(Workspace::existing),
+            arguments,
+            false,
+        ))
+    }
+}
+
+impl WorkspaceRead {
+    fn read(
+        &self,
+        workspace: Result<Workspace, ToolOutput>,
+        arguments: Value,
+        documents: bool,
+    ) -> ToolFuture {
         let args: ReadArgs = match parse(arguments) {
             Ok(args) => args,
             Err(output) => return Box::pin(async move { output }),
         };
-        let workspace = self.0.workspace(key);
         let engine = self.0.bots.get();
         Box::pin(async move {
             let workspace = match workspace {
@@ -287,6 +313,11 @@ impl Tool for WorkspaceRead {
                 let read = match super::reading::shape(&workspace.head(&path)?) {
                     super::reading::Shape::Image => {
                         Read::Image(workspace.bytes_up_to(&path, super::reading::LARGEST_IMAGE)?)
+                    }
+                    super::reading::Shape::Document if !documents => {
+                        return Err(PathError::Io(
+                            "Document reading waits for the stored step.".to_owned(),
+                        ));
                     }
                     super::reading::Shape::Document => Read::Document(
                         workspace.bytes_up_to(&path, super::reading::LARGEST_DOCUMENT)?,
@@ -374,7 +405,7 @@ impl Tool for WorkspaceSearch {
             Err(output) => return Box::pin(async move { output }),
         };
         let name = output_name(key);
-        blocking(&self.0, key, move |workspace| {
+        blocking(self.0.workspace(key), move |workspace| {
             let needle = super::matching::Needle::new(&args.text, args.regex, args.ignore_case)
                 .map_err(PathError::Io)?;
             let only = args
@@ -421,11 +452,21 @@ impl Tool for WorkspaceFind {
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
+        self.read(self.0.workspace(key), arguments)
+    }
+
+    fn run_early(&self, key: &str, arguments: Value, _facts: &TurnFacts) -> Option<ToolFuture> {
+        Some(self.read(self.0.workspace(key).map(Workspace::existing), arguments))
+    }
+}
+
+impl WorkspaceFind {
+    fn read(&self, workspace: Result<Workspace, ToolOutput>, arguments: Value) -> ToolFuture {
         let args: FindArgs = match parse(arguments) {
             Ok(args) => args,
             Err(output) => return Box::pin(async move { output }),
         };
-        blocking(&self.0, key, move |workspace| {
+        blocking(workspace, move |workspace| {
             let glob = super::matching::Glob::new(&args.pattern).map_err(PathError::Io)?;
             let (found, note) = workspace.find(&args.path, &glob)?;
             let start = workspace.normal(&args.path)?;
@@ -497,7 +538,7 @@ impl Tool for WorkspaceWrite {
         };
         let untrusted = turn.untrusted.clone();
         let (place, key) = (self.0.clone(), key.to_owned());
-        blocking(&self.0, &key.clone(), move |workspace| {
+        blocking(self.0.workspace(&key), move |workspace| {
             let path = workspace.normal(&args.path)?;
             // Checked and written under the workspace's file lock, so the person's write can't
             // land between (ADR 0143).
@@ -605,7 +646,7 @@ impl Tool for WorkspaceEdit {
         };
         let untrusted = turn.untrusted.clone();
         let (place, key) = (self.0.clone(), key.to_owned());
-        blocking(&self.0, &key.clone(), move |workspace| {
+        blocking(self.0.workspace(&key), move |workspace| {
             let path = workspace.normal(&path)?;
             workspace.changing(|| {
                 if let Some(yielded) = place.yields(&key, &path) {
