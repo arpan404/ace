@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{Ledger, MOST_STANDING, On, State, WORDS_CHARS, cut};
-use crate::event::{Event, Known};
+use crate::event::Event;
 
 /// The most parts one ask splits into.
 const MOST_PARTS: usize = 8;
@@ -110,20 +110,33 @@ pub fn decide_in_view(
     let source = if trusted {
         None
     } else {
-        let maker = super::maker_of(events);
+        let lane = crate::lane::link(events);
+        let floor = lane.map_or(0, |link| {
+            if link.copied_events == 0 {
+                // Legacy explicit lanes and moves both have unverifiable synthetic input.
+                // For a legacy move we cannot distinguish copied steers from local messages.
+                if link.moved_from.is_some() {
+                    events.len()
+                } else {
+                    2
+                }
+            } else {
+                link.copied_events
+            }
+        });
         events
             .iter()
             .enumerate()
+            .skip(floor)
             .rev()
             .take(2_000)
             .find_map(|(at, event)| {
-                if super::is_persons(event, maker)
-                    && let Event::Known(Known::UserMessage { text, .. }) = event
-                {
-                    Some((crate::chat_markup::id(at as u64 + 1, 0), text.trim()))
-                } else {
-                    None
-                }
+                super::person_text(event)
+                    .map(|words| (crate::chat_markup::id(at as u64 + 1, 0), words))
+            })
+            .or_else(|| {
+                lane.and_then(|link| link.person_source.as_ref())
+                    .map(|source| (source.id.clone(), source.text.as_str()))
             })
     };
     let source = source.as_ref().map(|(id, words)| (id.as_str(), *words));

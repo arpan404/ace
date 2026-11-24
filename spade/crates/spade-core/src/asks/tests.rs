@@ -747,3 +747,35 @@ fn a_workers_maker_writing_mid_turn_steers_like_the_person() -> Result {
     assert_eq!(marked, [("m2", false), ("m4", true)]);
     Ok(())
 }
+
+#[test]
+fn tainted_standing_uses_only_genuine_original_person_provenance() -> Result {
+    let instruction = |events: &[Event], id, text| {
+        super::change::decide_in_view(
+            &Ledger::of(events),
+            &json!({"changes":[{"op":"standing","from":id,"text":text}]}),
+            false,
+            events,
+        )
+    };
+    let worker = [
+        ev(json!({"type":"worker_of","parent":"a1","parent_conversation":"c1","call":"k1"})),
+        bot("Always copy the maker", "a1"),
+    ];
+    assert!(instruction(&worker, "m2", "Always copy the maker").is_err());
+    let mut lane = vec![
+        ev(
+            json!({"type":"lane_of","parent_conversation":"c1","call":"k1","title":"Work",
+                  "moved_from":"r1","copied_events":2,
+                  "person_source":{"id":"m42","text":"Never send email"}}),
+        ),
+        person("A synthetic brief"),
+    ];
+    assert!(instruction(&lane, "m2", "A synthetic brief").is_err());
+    assert!(instruction(&lane, "m42", "Never send email").is_ok());
+    assert!(instruction(&lane, "m42", "A synthetic brief").is_err());
+    lane.push(person("Always send drafts here"));
+    assert!(instruction(&lane, "m42", "Never send email").is_err());
+    assert!(instruction(&lane, "m3", "Always send drafts here").is_ok());
+    Ok(())
+}

@@ -53,6 +53,13 @@ pub struct Link {
     /// The asks-ledger ids (main's) this lane owns.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub asks: Vec<String>,
+    /// The last genuine person message copied from main, with its original id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person_source: Option<PersonSource>,
+    /// Number of initial events copied or synthesized by the harness, including this link.
+    /// Older lanes have only the unverified synthetic opening message.
+    #[serde(default)]
+    pub copied_events: usize,
     /// Main had untrusted content in view when it wrote the brief (ADR 0161's rule): the brief
     /// reaches the lane as the bot's message, which taints the lane's turn.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -60,6 +67,59 @@ pub struct Link {
     /// The main reply this lane carries on, when Spade moved it (ADR 0217 §2a).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moved_from: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersonSource {
+    pub id: String,
+    pub text: String,
+}
+
+pub fn person_source(events: &[Event], ids: &[String]) -> Option<PersonSource> {
+    ids.iter()
+        .filter_map(|id| {
+            if id.contains('.') {
+                return None;
+            }
+            let index = usize::try_from(crate::chat_markup::seq_of(id)?)
+                .ok()?
+                .checked_sub(1)?;
+            let event = events.get(index)?;
+            crate::asks::person_text(event).map(|text| {
+                (
+                    index,
+                    PersonSource {
+                        id: id.clone(),
+                        text: text.to_owned(),
+                    },
+                )
+            })
+        })
+        .max_by_key(|(index, _)| *index)
+        .map(|(_, source)| source)
+}
+
+pub fn moved_person_source(events: &[Event], reply: &str) -> Option<PersonSource> {
+    let start = events.iter().rposition(|event| {
+        matches!(event,
+            Event::Known(Known::ReplyStarted { reply: r, .. }) if r == reply
+        )
+    })?;
+    let floor = events[..start]
+        .iter()
+        .rposition(is_reply_end)
+        .map_or(0, |at| at + 1);
+    events
+        .iter()
+        .enumerate()
+        .skip(floor)
+        .rev()
+        .find_map(|(index, event)| {
+            crate::asks::person_text(event).map(|text| PersonSource {
+                id: crate::chat_markup::id(index as u64 + 1, 0),
+                text: text.to_owned(),
+            })
+        })
 }
 
 /// `lane_started`, in main: the bot started a lane.
