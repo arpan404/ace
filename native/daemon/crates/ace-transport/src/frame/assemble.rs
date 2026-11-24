@@ -14,12 +14,22 @@ pub const MAX_FRAGMENTS: usize = 16 * 1024;
 /// body can refuse the byte that takes a message over its limit before the rest
 /// of the message exists.
 pub trait MessageBody: Send {
+    /// One message's first data frame: whether it is compressed (RSV1 set). A body
+    /// that decodes an extension switches between plain and decoding for it, since
+    /// a peer may send either on a socket that negotiated.
+    fn begin(&mut self, compressed: bool) {
+        let _ = compressed;
+    }
     /// One fragment's payload; returns the message's bytes so far, or the close
     /// code to fail with.
     fn feed(&mut self, fragment: &[u8], fin: bool) -> Result<usize, CloseCode>;
     /// The whole message, exclusively owned.
     fn finish(&mut self) -> Vec<u8>;
     fn reset(&mut self);
+    /// Whether RSV1 may arrive at all: only a body that decodes an extension can.
+    fn allows_rsv1(&self) -> bool {
+        false
+    }
 }
 
 /// The bytes themselves: appends, refusing the byte past [`MAX_MESSAGE_BYTES`]
@@ -179,6 +189,9 @@ impl<B: MessageBody> Assembler<B> {
                 if !frame.fin {
                     self.kind = Some(frame.opcode);
                 }
+                // The first data frame says whether this message's bytes are an
+                // extension's (T1b.3b): continuations never carry RSV1.
+                self.body.begin(frame.rsv1);
                 frame.opcode
             }
             Opcode::Continuation => self.kind.ok_or(CloseCode::Protocol)?,
@@ -199,6 +212,11 @@ impl<B: MessageBody> Assembler<B> {
             return Err(CloseCode::InvalidUtf8);
         }
         Ok(Some(Message { data, binary }))
+    }
+
+    /// The body underneath, for tests and for the extension T1b.3b installs.
+    pub fn body(&self) -> &B {
+        &self.body
     }
 
     /// The body underneath, for tests and for the extension T1b.3b installs.

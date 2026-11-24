@@ -10,7 +10,8 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use ace_transport::{
-    AdmissionDecision, AdmissionOutcome, SocketSink, UpgradeAdmission, UpgradeIo, UpgradeRequest,
+    AdmissionDecision, AdmissionOutcome, Deflate, SocketSink, UpgradeAdmission, UpgradeIo,
+    UpgradeRequest,
 };
 use napi::Status;
 use napi::bindgen_prelude::{FnArgs, Promise};
@@ -273,7 +274,13 @@ async fn resolve(
 pub struct Sinking(pub Arc<Shared>);
 
 impl SocketSink for Sinking {
-    fn opened(&self, reservation: u64, stream: Box<dyn UpgradeIo>, user_agent: Option<String>) {
+    fn opened(
+        &self,
+        reservation: u64,
+        stream: Box<dyn UpgradeIo>,
+        user_agent: Option<String>,
+        deflate: Option<Deflate>,
+    ) {
         let shared = &self.0;
         if shared.admission.opened(reservation).is_none() {
             // Released, abandoned or timed out: the stream is dropped and no
@@ -283,7 +290,12 @@ impl SocketSink for Sinking {
         }
         // The socket joins the close wait before the wire count lets it go, so
         // the close never sees neither.
-        let socket = NativeSocketHandle::open(Arc::clone(shared), stream);
+        let socket = NativeSocketHandle::open(
+            Arc::clone(shared),
+            stream,
+            deflate,
+            shared.stats.get().cloned(),
+        );
         if let Some(stats) = shared.stats.get() {
             // A `101` flushed and a socket exists behind it (T1b.1b).
             stats.upgrade();

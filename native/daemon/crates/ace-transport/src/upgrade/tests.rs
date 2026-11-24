@@ -19,6 +19,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
 
 use crate::conn_io::ConnIo;
+use crate::deflate::Deflate;
 use crate::driver::{Grace, UpgradeIo};
 use crate::head::{self, Parsed};
 use crate::peer::Peer;
@@ -80,7 +81,7 @@ fn with(
 }
 
 fn refusal(fields: &[(&'static str, &'static str)]) -> Vec<u8> {
-    match handshake(&request("GET", fields)) {
+    match handshake(&request("GET", fields), false) {
         Err(refusal) => refusal.bytes(),
         Ok(_) => panic!("expected a refusal for {fields:?}"),
     }
@@ -90,7 +91,7 @@ fn refusal(fields: &[(&'static str, &'static str)]) -> Vec<u8> {
 fn every_refusal_is_exactly_abort_handshakes_bytes() {
     const METHOD: &[u8] = b"HTTP/1.1 405 Method Not Allowed\r\nConnection: close\r\nContent-Type: text/html\r\nContent-Length: 19\r\n\r\nInvalid HTTP method";
     assert_eq!(
-        match handshake(&request("POST", &candidate())) {
+        match handshake(&request("POST", &candidate()), false) {
             Err(refusal) => refusal.bytes(),
             Ok(_) => panic!("expected a refusal"),
         },
@@ -136,28 +137,106 @@ fn every_refusal_is_exactly_abort_handshakes_bytes() {
 
 #[test]
 fn an_accepted_handshake_is_exactly_complete_upgrades_bytes() {
-    let accepted = handshake(&request("GET", &candidate())).expect("a valid handshake");
+    let accepted = handshake(&request("GET", &candidate()), false).expect("a valid handshake");
     let expected = format!(
         "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {ACCEPT}\r\n\r\n"
     );
     assert_eq!(accepted.bytes(), expected.as_bytes());
     // `+value` equals 8 or 13: Number() accepts these spellings and no sign.
     for version in ["0xd", " 13 ", "13.0", "1.3e1"] {
-        let accepted = handshake(&request(
-            "GET",
-            &with(&candidate(), "Sec-WebSocket-Version", version),
-        ))
+        let accepted = handshake(
+            &request("GET", &with(&candidate(), "Sec-WebSocket-Version", version)),
+            false,
+        )
         .expect("a valid version");
         assert_eq!(accepted.bytes(), expected.as_bytes(), "{version:?}");
     }
 
     let mut offered = candidate();
     offered.push(("Sec-WebSocket-Protocol", "chat, superchat"));
-    let accepted = handshake(&request("GET", &offered)).expect("a valid handshake");
+    let accepted = handshake(&request("GET", &offered), false).expect("a valid handshake");
     let expected = format!(
         "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {ACCEPT}\r\nSec-WebSocket-Protocol: chat\r\n\r\n"
     );
     assert_eq!(accepted.bytes(), expected.as_bytes());
+}
+
+#[test]
+fn a_remote_101_names_the_extension_after_the_protocol_and_a_loopback_one_never_does() {
+    let mut offered = candidate();
+    offered.push(("Sec-WebSocket-Protocol", "chat"));
+    offered.push((
+        "Sec-WebSocket-Extensions",
+        "permessage-deflate; client_max_window_bits",
+    ));
+    let head = request("GET", &offered);
+    let expected = format!(
+        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {ACCEPT}\r\nSec-WebSocket-Protocol: chat\r\nSec-WebSocket-Extensions: permessage-deflate; server_no_context_takeover; client_no_context_takeover\r\n\r\n"
+    );
+    let remote = handshake(&head, true).expect("the offer is accepted");
+    assert_eq!(remote.bytes(), expected.as_bytes());
+    assert_eq!(
+        remote
+            .deflate()
+            .and_then(|deflate| deflate.client_max_window_bits()),
+        None,
+        "a window without a value is not echoed"
+    );
+
+    // The loopback listener has no `perMessageDeflate`: the header is ignored, so
+    // neither an answer nor a refusal comes of it.
+    let loopback = handshake(&head, false).expect("the offer is ignored");
+    assert_eq!(
+        loopback.bytes(),
+        format!(
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {ACCEPT}\r\nSec-WebSocket-Protocol: chat\r\n\r\n"
+        )
+        .as_bytes()
+    );
+    assert_eq!(loopback.deflate(), None);
+}
+
+#[test]
+fn a_malformed_extension_offer_is_ws_s_400() {
+    const EXTENSIONS: &[u8] = b"HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Type: text/html\r\nContent-Length: 55\r\n\r\nInvalid or unacceptable Sec-WebSocket-Extensions header";
+    for offer in [
+        "permessage-deflate; foo",
+        "permessage-deflate; server_max_window_bits=7",
+        "permessage-deflate; client_max_window_bits=",
+        "",
+    ] {
+        let mut fields = candidate();
+        fields.push(("Sec-WebSocket-Extensions", offer));
+        let head = request("GET", &fields);
+        assert_eq!(
+            match handshake(&head, true) {
+                Err(refusal) => refusal.bytes(),
+                Ok(_) => panic!("{offer:?} is refused"),
+            },
+            EXTENSIONS,
+            "{offer:?}"
+        );
+        // The same header on loopback is no header at all.
+        assert!(handshake(&head, false).is_ok(), "{offer:?}");
+    }
+}
+
+#[test]
+fn several_extension_lines_are_one_list() {
+    let mut fields = candidate();
+    fields.push(("Sec-WebSocket-Extensions", "x-webkit-deflate-frame"));
+    fields.push((
+        "Sec-WebSocket-Extensions",
+        "permessage-deflate; server_max_window_bits=10",
+    ));
+    let accepted = handshake(&request("GET", &fields), true).expect("a valid offer");
+    let answer = String::from_utf8(accepted.bytes()).expect("the 101 is ASCII");
+    assert!(
+        answer.contains(
+            "Sec-WebSocket-Extensions: permessage-deflate; server_max_window_bits=10; server_no_context_takeover; client_no_context_takeover\r\n"
+        ),
+        "the second line's offer is the one answered: {answer}"
+    );
 }
 
 #[test]
@@ -261,7 +340,13 @@ impl HandingSink {
 }
 
 impl SocketSink for HandingSink {
-    fn opened(&self, _reservation: u64, stream: Box<dyn UpgradeIo>, _user_agent: Option<String>) {
+    fn opened(
+        &self,
+        _reservation: u64,
+        stream: Box<dyn UpgradeIo>,
+        _user_agent: Option<String>,
+        _deflate: Option<Deflate>,
+    ) {
         if let Some(send) = self.0.lock().expect("the sink's lock").take() {
             let _ = send.send(stream);
         }
@@ -272,7 +357,13 @@ impl SocketSink for HandingSink {
 struct RecordingSink(StdMutex<Vec<(u64, Option<String>)>>);
 
 impl SocketSink for RecordingSink {
-    fn opened(&self, reservation: u64, stream: Box<dyn UpgradeIo>, user_agent: Option<String>) {
+    fn opened(
+        &self,
+        reservation: u64,
+        stream: Box<dyn UpgradeIo>,
+        user_agent: Option<String>,
+        _deflate: Option<Deflate>,
+    ) {
         drop(stream);
         self.0
             .lock()

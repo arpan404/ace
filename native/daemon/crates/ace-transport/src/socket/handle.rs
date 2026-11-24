@@ -64,8 +64,10 @@ impl SocketHandle {
 
     /// `ws`'s `send` while the state is `OPEN`. A frame is either queued (and
     /// then owes exactly one `Sent`) or refused with a reason and nothing
-    /// emitted, charged or counted.
-    pub fn send(&self, data: Bytes, binary: bool, id: u64) -> SendResult {
+    /// emitted, charged or counted. `compress` is the shell's answer for this
+    /// message (T1b.3b): the writer adds `ws`'s threshold and never compresses a
+    /// frame on a socket that negotiated no extension.
+    pub fn send(&self, data: Bytes, binary: bool, compress: bool, id: u64) -> SendResult {
         let length = data.len() as u64 + MESSAGE_OVERHEAD;
         // `ws` refuses a text send that is not UTF-8, and queues nothing.
         let Ok(frame) = message(data, binary) else {
@@ -94,6 +96,7 @@ impl SocketHandle {
             charge: length,
             memory: 0,
             control: false,
+            compress,
         }) {
             Ok(()) => SendResult::Queued,
             Err(_) => {
@@ -141,6 +144,7 @@ impl SocketHandle {
                 charge: 0,
                 memory: 0,
                 control: false,
+                compress: false,
             });
         }
         drop(inner);

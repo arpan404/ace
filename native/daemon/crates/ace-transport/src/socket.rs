@@ -18,8 +18,10 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use zeroize::Zeroize;
 
+use crate::deflate::Deflate;
 use crate::driver::UpgradeIo;
 use crate::frame::{Opcode, Outbound as Frame};
+use crate::stats::Stats;
 
 mod drive;
 mod events;
@@ -75,6 +77,9 @@ struct Queued {
     /// What the pong memory ceiling counts: frame bytes plus the entry itself.
     memory: u64,
     control: bool,
+    /// Whether this send asked for compression: the shell's allowlist answer,
+    /// `true` when it said nothing (T1b.3b).
+    compress: bool,
 }
 
 /// A queued pong's own allocation, counted against [`CONTROL_BYTES`] beside its
@@ -119,6 +124,9 @@ struct Shared {
     expired: CancellationToken,
     /// The runtime it was opened on: `close` starts its timer from any thread.
     runtime: Handle,
+    /// The listener's counters, when this socket belongs to one (T1b.1b): the
+    /// compressed and inflated messages it handled.
+    stats: Option<Arc<Stats>>,
 }
 
 impl Shared {
@@ -168,6 +176,7 @@ impl Shared {
                 charge,
                 memory,
                 control: true,
+                compress: false,
             })
             .is_err()
         {
@@ -278,8 +287,14 @@ impl Shared {
 
 /// Opens a socket over either kind of stream the handshake hands on (the raw
 /// path's `Prefixed<Box<dyn ConnIo>>`, the keep-alive path's upgraded stream),
-/// `OPEN` at once on the caller's tokio runtime (T1a.5).
-pub fn open(stream: Box<dyn UpgradeIo>) -> (SocketHandle, SocketEvents) {
+/// `OPEN` at once on the caller's tokio runtime (T1a.5). `deflate` is the
+/// `permessage-deflate` extension the connection negotiated (T1b.3b); `stats` the
+/// listener's counters, when it has them.
+pub fn open(
+    stream: Box<dyn UpgradeIo>,
+    deflate: Option<Deflate>,
+    stats: Option<Arc<Stats>>,
+) -> (SocketHandle, SocketEvents) {
     let (events, incoming) = mpsc::unbounded_channel();
     let (outbound, queued) = mpsc::unbounded_channel();
     let (wake, woken) = mpsc::channel(1);
@@ -303,8 +318,15 @@ pub fn open(stream: Box<dyn UpgradeIo>) -> (SocketHandle, SocketEvents) {
         ending: Mutex::new(None),
         expired: CancellationToken::new(),
         runtime: Handle::current(),
+        stats,
     });
-    Handle::current().spawn(drive::run(stream, Arc::clone(&shared), queued, woken));
+    Handle::current().spawn(drive::run(
+        stream,
+        Arc::clone(&shared),
+        queued,
+        woken,
+        deflate,
+    ));
     let events = SocketEvents {
         receiver: incoming,
         shared: Arc::clone(&shared),

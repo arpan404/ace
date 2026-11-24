@@ -20,6 +20,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
 
+use crate::deflate::Deflate;
 use crate::driver::{RefuseUpgrades, UpgradeHandler, UpgradeIo};
 use crate::head;
 use crate::hop::HopSecret;
@@ -163,7 +164,13 @@ impl UpgradeAdmission for AcceptingAdmission {
 struct RecordingSink(Mutex<Vec<u64>>);
 
 impl SocketSink for RecordingSink {
-    fn opened(&self, reservation: u64, stream: Box<dyn UpgradeIo>, _user_agent: Option<String>) {
+    fn opened(
+        &self,
+        reservation: u64,
+        stream: Box<dyn UpgradeIo>,
+        _user_agent: Option<String>,
+        _deflate: Option<Deflate>,
+    ) {
         self.0.lock().expect("no poison").push(reservation);
         drop(stream);
     }

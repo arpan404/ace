@@ -60,7 +60,7 @@ async fn a_close_is_idempotent_and_a_send_after_it_is_refused() {
     assert_eq!(handle.ready_state(), CLOSED);
     assert_eq!(handle.buffered_amount(), 0);
     assert_eq!(
-        handle.send(Bytes::from_static(b"late"), false, 9),
+        handle.send(Bytes::from_static(b"late"), false, true, 9),
         SendResult::NotOpen
     );
     let after = tokio::time::timeout(Duration::from_secs(2), events.recv())
@@ -77,7 +77,7 @@ async fn a_local_close_the_peer_never_answers_ends_with_1006() {
     // The client never reads, so it never answers the close frame: only `ws`'s
     // close timeout can end the socket, and the test advances the clock to it.
     let (server, _client) = tokio::io::duplex(1 << 16);
-    let (handle, mut events) = open(Box::new(server));
+    let (handle, mut events) = open(Box::new(server), None, None);
     handle
         .close(Some(1001), "bye".to_owned())
         .expect("a valid close");
@@ -96,7 +96,7 @@ async fn a_queued_write_does_not_postpone_the_close_deadline() {
     // and the abandoned send is failed before the one `Close`.
     let (handle, mut events, _client) = pair(4).await;
     assert_eq!(
-        handle.send(Bytes::from(vec![0u8; 4096]), true, 1),
+        handle.send(Bytes::from(vec![0u8; 4096]), true, true, 1),
         SendResult::Queued
     );
     handle
@@ -212,7 +212,7 @@ async fn an_oversized_message_sends_1009_and_reports_1006() {
 #[tokio::test]
 async fn invalid_utf8_in_a_text_frame_closes_with_1007() {
     let (server, mut client) = tokio::io::duplex(1 << 16);
-    let (_handle, mut events) = open(Box::new(server));
+    let (_handle, mut events) = open(Box::new(server), None, None);
     client
         .write_all(&masked_text(&[0xff, 0xfe]))
         .await
@@ -247,7 +247,7 @@ async fn terminate_reports_close_1006_and_drops_the_connection() {
         other => panic!("expected Close 1006, got {other:?}"),
     }
     assert_eq!(
-        handle.send(Bytes::from_static(b"late"), false, 3),
+        handle.send(Bytes::from_static(b"late"), false, true, 3),
         SendResult::NotOpen
     );
     let outcome = tokio::time::timeout(Duration::from_secs(2), client.next())
@@ -265,7 +265,7 @@ async fn a_frame_that_cannot_be_flushed_is_failed_before_close() {
     // still owed and it must be reported as failed, before `Close`.
     let (handle, mut events, _client) = pair(4).await;
     assert_eq!(
-        handle.send(Bytes::from(vec![9u8; 4096]), true, 11),
+        handle.send(Bytes::from(vec![9u8; 4096]), true, true, 11),
         SendResult::Queued
     );
     handle.terminate();
@@ -329,9 +329,9 @@ async fn a_peer_close_mid_write_finishes_that_frame_before_answering() {
     // the close go out; appending the close to the pending buffer would corrupt
     // the stream.
     let (server, mut client) = tokio::io::duplex(1);
-    let (handle, _events) = open(Box::new(server));
+    let (handle, _events) = open(Box::new(server), None, None);
     assert_eq!(
-        handle.send(Bytes::from(vec![7u8; 4096]), true, 1),
+        handle.send(Bytes::from(vec![7u8; 4096]), true, true, 1),
         SendResult::Queued
     );
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -361,7 +361,7 @@ async fn a_peer_close_mid_write_finishes_that_frame_before_answering() {
 #[tokio::test]
 async fn a_peer_reply_after_the_local_close_writes_no_second_close() {
     let (server, mut client) = tokio::io::duplex(1 << 16);
-    let (handle, mut events) = open(Box::new(server));
+    let (handle, mut events) = open(Box::new(server), None, None);
     handle
         .close(Some(4008), "bye".to_owned())
         .expect("a valid close");
@@ -399,9 +399,9 @@ async fn a_peer_close_before_the_local_close_flushes_keeps_the_local_code() {
     // A one-byte duplex keeps the data frame in flight, so `close()` queues
     // behind it. The peer's close must not replace the local code ws would send.
     let (server, mut client) = tokio::io::duplex(1);
-    let (handle, _events) = open(Box::new(server));
+    let (handle, _events) = open(Box::new(server), None, None);
     assert_eq!(
-        handle.send(Bytes::from(vec![7u8; 4096]), true, 1),
+        handle.send(Bytes::from(vec![7u8; 4096]), true, true, 1),
         SendResult::Queued
     );
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -456,7 +456,7 @@ async fn a_peer_close_interrupting_a_local_close_does_not_send_it_twice() {
     // A one-byte duplex leaves the local close mid-frame. The peer's close then
     // arrives: teardown must finish that frame and stop, not write it again.
     let (server, mut client) = tokio::io::duplex(1);
-    let (handle, mut events) = open(Box::new(server));
+    let (handle, mut events) = open(Box::new(server), None, None);
     handle
         .close(Some(4008), "bye".to_owned())
         .expect("a valid close");

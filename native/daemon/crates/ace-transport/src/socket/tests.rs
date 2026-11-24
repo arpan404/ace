@@ -25,7 +25,7 @@ type Client = WebSocketStream<DuplexStream>;
 /// A socket and a client talking to it over a duplex of `buffer` bytes.
 async fn pair(buffer: usize) -> (SocketHandle, SocketEvents, Client) {
     let (server, client) = tokio::io::duplex(buffer);
-    let (handle, events) = open(Box::new(server));
+    let (handle, events) = open(Box::new(server), None, None);
     let client = WebSocketStream::from_raw_socket(client, Role::Client, None).await;
     (handle, events, client)
 }
@@ -99,7 +99,10 @@ async fn a_send_is_charged_once_and_completes_exactly_once() {
     assert_eq!(handle.buffered_amount(), 0);
 
     let payload = Bytes::from(vec![7u8; 4096]);
-    assert_eq!(handle.send(payload.clone(), true, 41), SendResult::Queued);
+    assert_eq!(
+        handle.send(payload.clone(), true, true, 41),
+        SendResult::Queued
+    );
     assert_eq!(
         handle.buffered_amount(),
         4096 + MESSAGE_OVERHEAD,
@@ -124,7 +127,10 @@ async fn a_hundred_empty_sends_leave_no_charge_behind() {
     // with its charge: nothing may be left on a drained socket.
     let (handle, mut events, _client) = pair(1 << 16).await;
     for id in 0..100 {
-        assert_eq!(handle.send(Bytes::new(), true, id), SendResult::Queued);
+        assert_eq!(
+            handle.send(Bytes::new(), true, true, id),
+            SendResult::Queued
+        );
     }
     for _ in 0..100 {
         match next(&mut events).await {
@@ -141,10 +147,10 @@ async fn a_send_is_refused_once_the_outbound_queue_is_full() {
     let (handle, _events, _client) = pair(4).await;
     let tiny = Bytes::from_static(b"x");
     for _ in 0..OUTBOUND_MESSAGES {
-        assert_eq!(handle.send(tiny.clone(), true, 0), SendResult::Queued);
+        assert_eq!(handle.send(tiny.clone(), true, true, 0), SendResult::Queued);
     }
     assert_eq!(
-        handle.send(tiny, true, 0),
+        handle.send(tiny, true, true, 0),
         SendResult::Full,
         "an undrained queue refuses more, as backpressure"
     );
@@ -157,17 +163,17 @@ async fn unread_sent_events_hold_the_outbound_queue_full() {
     let (handle, mut events, _client) = pair(1 << 18).await;
     let tiny = Bytes::from_static(b"x");
     for _ in 0..OUTBOUND_MESSAGES {
-        assert_eq!(handle.send(tiny.clone(), true, 0), SendResult::Queued);
+        assert_eq!(handle.send(tiny.clone(), true, true, 0), SendResult::Queued);
     }
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert_eq!(
-        handle.send(tiny.clone(), true, 0),
+        handle.send(tiny.clone(), true, true, 0),
         SendResult::Full,
         "unread Sent events keep the queue full"
     );
     assert!(matches!(next(&mut events).await, SocketEvent::Sent { .. }));
     assert_eq!(
-        handle.send(tiny, true, 0),
+        handle.send(tiny, true, true, 0),
         SendResult::Queued,
         "taking one Sent frees one place"
     );
@@ -177,7 +183,7 @@ async fn unread_sent_events_hold_the_outbound_queue_full() {
 async fn a_text_send_that_is_not_utf8_is_refused_without_charging() {
     let (handle, mut events, _client) = pair(1 << 16).await;
     assert_eq!(
-        handle.send(Bytes::from_static(&[0xff, 0xfe]), false, 7),
+        handle.send(Bytes::from_static(&[0xff, 0xfe]), false, true, 7),
         SendResult::InvalidUtf8,
         "a text frame must be UTF-8; the shell fails that send's callback"
     );
@@ -289,7 +295,7 @@ async fn pause_stops_reading_until_resume() {
 async fn a_control_reply_keeps_its_place_behind_queued_data() {
     let (handle, mut events, mut client) = pair(1 << 16).await;
     assert_eq!(
-        handle.send(Bytes::from_static(b"first"), true, 1),
+        handle.send(Bytes::from_static(b"first"), true, true, 1),
         SendResult::Queued
     );
     client
@@ -315,7 +321,7 @@ async fn a_control_reply_keeps_its_place_behind_queued_data() {
 #[tokio::test]
 async fn more_than_16384_fragments_closes_with_1008() {
     let (server, mut client) = tokio::io::duplex(1 << 16);
-    let (_handle, mut events) = open(Box::new(server));
+    let (_handle, mut events) = open(Box::new(server), None, None);
     let mut bytes = masked_part(0x1, false, b"");
     for _ in 0..MAX_FRAGMENTS {
         bytes.extend(masked_part(0x0, false, b""));
@@ -381,7 +387,7 @@ async fn a_ping_flood_keeps_reading_data_and_close_and_loses_no_pong() {
     // More queued pongs than the old 16,384 cap, with a 4 KiB writer: the reader
     // must keep reading the data frame and the close behind the flood.
     let (server, client) = tokio::io::duplex(4 * 1024);
-    let (handle, mut events) = open(Box::new(server));
+    let (handle, mut events) = open(Box::new(server), None, None);
     let total = 20_000usize;
     let ping = masked_frame(0x9, b"p");
     let mut bytes = Vec::with_capacity(total * ping.len() + 8);
@@ -434,7 +440,7 @@ async fn a_pong_backlog_past_the_memory_ceiling_closes_with_1008() {
     // ws has no bound here; ours is a memory ceiling, four times the outbox's
     // resync threshold, and passing it is a policy close.
     let (server, client) = tokio::io::duplex(64 * 1024);
-    let (_handle, mut events) = open(Box::new(server));
+    let (_handle, mut events) = open(Box::new(server), None, None);
     let payload = vec![0x5a; 125];
     let ping = masked_frame(0x9, &payload);
     // Past the ceiling plus the writer's 64 KiB pipe, which settles that many.
@@ -480,7 +486,7 @@ async fn a_pong_backlog_past_the_memory_ceiling_closes_with_1008() {
 /// reader has accounted for the last one.
 async fn queued_pong_bytes(payload_len: usize, total: usize, buffer: usize) -> u64 {
     let (server, client) = tokio::io::duplex(buffer);
-    let (handle, _events) = open(Box::new(server));
+    let (handle, _events) = open(Box::new(server), None, None);
     let ping = masked_frame(0x9, &vec![0x5a; payload_len]);
     let mut bytes = Vec::with_capacity(total * ping.len());
     for _ in 0..total {
@@ -523,7 +529,7 @@ async fn an_empty_ping_flood_hits_the_memory_ceiling_and_closes_1008() {
     // An empty pong charges 2 frame bytes, so bufferedAmount alone would never
     // bound a flood; the memory ceiling counts the queue entry too.
     let (server, client) = tokio::io::duplex(64 * 1024);
-    let (_handle, mut events) = open(Box::new(server));
+    let (_handle, mut events) = open(Box::new(server), None, None);
     let per_pong = 2 + CONTROL_ENTRY_BYTES;
     let total = usize::try_from(CONTROL_BYTES / per_pong).expect("the ceiling fits") + 50_000;
     let ping = masked_frame(0x9, b"");
@@ -563,7 +569,7 @@ async fn a_local_close_queues_behind_a_pong_backlog() {
     // A one-byte writer keeps every pong queued, so the close is enqueued behind
     // all of them; it must come out last, in one piece.
     let (server, client) = tokio::io::duplex(1);
-    let (handle, _events) = open(Box::new(server));
+    let (handle, _events) = open(Box::new(server), None, None);
     let total = 2_000usize;
     let ping = masked_frame(0x9, b"p");
     let mut bytes = Vec::with_capacity(total * ping.len());

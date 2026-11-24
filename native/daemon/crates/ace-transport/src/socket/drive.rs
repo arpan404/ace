@@ -15,12 +15,13 @@ use tokio::io::{ReadHalf, WriteHalf};
 use tokio::sync::mpsc;
 
 use super::{CLOSED, CLOSING, OPEN, Queued, Shared, SocketEvent, lock};
+use crate::deflate::{Body, Deflate, Deflater, deflate_window, may_compress};
 use crate::driver::UpgradeIo;
 use crate::frame::assemble::{Message, conclude};
 use crate::frame::{Frame, FrameError, FrameReader, FrameWriter, Opcode, Outbound};
 use crate::prefixed::WRITE_TIMEOUT;
 
-type Source = FrameReader<ReadHalf<Box<dyn UpgradeIo>>>;
+type Source = FrameReader<ReadHalf<Box<dyn UpgradeIo>>, Body>;
 type Sink = FrameWriter<WriteHalf<Box<dyn UpgradeIo>>>;
 
 /// How a socket's conversation ended, and what it still owes the wire.
@@ -60,8 +61,9 @@ impl Ending {
         let message = error.to_string();
         let wire = match &error {
             FrameError::TooBig(_) => Wire::Close(1009),
-            // Invalid UTF-8 in a text frame is its own code, not a protocol one.
-            FrameError::InvalidUtf8(_) => Wire::Close(1007),
+            // Invalid UTF-8 in a text frame is its own code, not a protocol one;
+            // a compressed message that does not decode is its neighbour.
+            FrameError::InvalidUtf8(_) | FrameError::Compression(_) => Wire::Close(1007),
             FrameError::Protocol(_) => Wire::Close(1002),
             FrameError::TooManyFragments(_) => Wire::Close(1008),
             FrameError::Io(_) => Wire::Nothing,
@@ -105,12 +107,17 @@ pub(super) async fn run(
     shared: Arc<Shared>,
     queued: mpsc::UnboundedReceiver<Queued>,
     woken: mpsc::Receiver<()>,
+    deflate: Option<Deflate>,
 ) {
     let (reader, writer) = tokio::io::split(stream);
-    let source = FrameReader::new(reader);
+    let body = match deflate {
+        Some(_) => Body::compressed(),
+        None => Body::plain(),
+    };
+    let source = FrameReader::with_body(reader, body);
     let sink = FrameWriter::new(writer);
     let reader = tokio::spawn(read(source, Arc::clone(&shared), woken));
-    write(sink, Arc::clone(&shared), queued).await;
+    write(sink, Arc::clone(&shared), queued, deflate).await;
     // The writer has ended the conversation; the reader returns at once.
     let _ = reader.await;
 }
@@ -118,6 +125,9 @@ pub(super) async fn run(
 /// Delivers what arrives until the socket ends, and records why. A peer's ping
 /// is answered here and never surfaced; a pong is ignored, as `autoPong` does.
 async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver<()>) {
+    // The message in flight is compressed (its first data frame set RSV1), so
+    // completing it counts one inflated message.
+    let mut inflating = false;
     let ending = loop {
         let readable = shared.readable();
         tokio::select! {
@@ -126,15 +136,28 @@ async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver
             // nothing more.
             _ = shared.over.cancelled() => return,
             frame = source.next(), if readable => match frame {
-                Some(Ok(frame)) => match frame_in(&shared, &mut source, frame) {
-                    Ok(Some(message)) => {
-                        if !shared.deliver(message.data, message.binary) {
-                            break Ending::lost();
-                        }
+                Some(Ok(frame)) => {
+                    if matches!(frame.opcode, Opcode::Text | Opcode::Binary) && frame.rsv1 {
+                        inflating = true;
                     }
-                    Ok(None) => {}
-                    Err(ending) => break ending,
-                },
+                    match frame_in(&shared, &mut source, frame) {
+                        Ok(Some(message)) => {
+                            if inflating
+                                && let Some(stats) = &shared.stats
+                            {
+                                stats.inflated_in();
+                            }
+                            inflating = false;
+                            if !shared.deliver(message.data, message.binary) {
+                                break Ending::lost();
+                            }
+                        }
+                        // A control frame between fragments, or a fragment that
+                        // did not finish the message: nothing is delivered.
+                        Ok(None) => {}
+                        Err(ending) => break ending,
+                    }
+                }
                 Some(Err(error)) => break Ending::failed(error),
                 None => break Ending::lost(),
             },
@@ -175,8 +198,18 @@ fn frame_in(shared: &Shared, source: &mut Source, frame: Frame) -> Result<Option
 
 /// Flushes what `send` queued until the conversation ends, then ends it. A local
 /// close starts `ws`'s close timeout at the call, so a queue of frames still
-/// waiting cannot postpone the socket being destroyed.
-async fn write(mut sink: Sink, shared: Arc<Shared>, mut queued: mpsc::UnboundedReceiver<Queued>) {
+/// waiting cannot postpone the socket being destroyed. Compression happens here,
+/// on the writer's own task and in the socket's order: one context, reset after
+/// every message (no context takeover).
+async fn write(
+    mut sink: Sink,
+    shared: Arc<Shared>,
+    mut queued: mpsc::UnboundedReceiver<Queued>,
+    deflate: Option<Deflate>,
+) {
+    let mut deflater = deflate
+        .as_ref()
+        .map(|deflate| Deflater::new(deflate_window(deflate.server_max_window_bits())));
     loop {
         let item = tokio::select! {
             biased;
@@ -193,7 +226,8 @@ async fn write(mut sink: Sink, shared: Arc<Shared>, mut queued: mpsc::UnboundedR
         };
         let owed = item.own.map(|own| own.id);
         let close = item.frame.opcode == Opcode::Close;
-        match flushed(&shared, sink.send(item.frame)).await {
+        let frame = compressed(item.frame, item.compress, deflater.as_mut(), &shared);
+        match flushed(&shared, sink.send(frame)).await {
             Ok(Ok(())) => {
                 if close {
                     shared.close_flushed();
@@ -347,6 +381,36 @@ async fn close_frame(sink: &mut Sink, shared: &Shared, payload: Vec<u8>) {
     };
     if matches!(terminal(shared, sink.send(frame)).await, Some(Ok(()))) {
         shared.close_flushed();
+    }
+}
+
+/// The frame this send puts on the wire: deflated with RSV1 set when the socket
+/// negotiated `permessage-deflate`, the shell asked for it and the payload
+/// reached the threshold; exactly as sent otherwise. A deflate that fails sends
+/// the message plain rather than a broken frame, and nothing is compressed on a
+/// socket that negotiated no extension (T1b.0 §3's trap).
+fn compressed(
+    frame: Outbound,
+    ask: bool,
+    deflater: Option<&mut Deflater>,
+    shared: &Shared,
+) -> Outbound {
+    let Some(deflater) = deflater else {
+        return frame;
+    };
+    if !may_compress(frame.opcode, frame.payload.len(), ask) {
+        return frame;
+    }
+    let Some(payload) = deflater.deflate(&frame.payload) else {
+        return frame;
+    };
+    if let Some(stats) = &shared.stats {
+        stats.deflated_out();
+    }
+    Outbound {
+        opcode: frame.opcode,
+        rsv1: true,
+        payload: Bytes::from(payload),
     }
 }
 
