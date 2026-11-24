@@ -8,7 +8,7 @@ activity log and an optional model review end to end). Builds on
 calls), [ADR 0129](0129-spade-routines.md) and [ADR 0130](0130-spade-skills-and-workspace.md)
 (each bot's workspace and the trust rules for files). The contract is in
 [spade/docs/oversight.md](../../spade/docs/oversight.md).
-Amended by [ADR 0166](0166-spade-has-no-spending-limits.md): decision 2 (the caps) and research's spend budget are removed; spend shows as information only.
+Amended by [ADR 0166](0166-spade-has-no-spending-limits.md): decision 2 (the caps) and research's spend budget are removed; spend shows as information only. Amendment 1 below replaces research's pipeline with a fan-out to read-only helpers.
 
 ## Context
 
@@ -98,3 +98,32 @@ Three gaps follow from working autonomously:
 - The review escalates a write it judges wrong, can never let through a call the gate asks about,
   and makes no model call when off.
 - The app lists a bot's activity with filters and search, and saves its spending caps.
+
+## Amendment 1 (2026-11-23): research fans out to read-only helpers
+
+The owner's own Spade spent most of its calls reading web pages one at a time in the bot's
+context (`web_fetch` was 202 of about 460 calls in a stretch of work). Decision 1's fixed plan,
+gather, write and check pipeline is replaced by a fan-out that keeps reading out of the bot's
+context and out of any one context. The trust rules stand: the result is untrusted, the report is
+never a trusted file, and every helper is read-only.
+
+1. **A team, not one reader.** One typed call splits the question into parts; each part is one
+   `explore` helper (ADR 0152) on the `helper` role, in a hidden conversation of its own. No
+   prompt holds more than its own part's pages. A `standard` run is one plan call, four helper
+   turns and one summary call, instead of a plan, a writer and a checker over every page read.
+2. **The first writes the cache, the rest follow.** The helpers share the bot's system prompt and
+   tool list ([spade/docs/helpers.md](../../spade/docs/helpers.md)), so the first starts alone and
+   the rest start once its stream has begun: the provider's prompt cache the first request writes
+   serves the others.
+3. **Lean reading is the helper's job.** A helper searches with `web_search` and reads a page
+   through `web_fetch`'s saved text, outline and `query` passages rather than whole pages; the
+   saved workspace path travels into the report beside the URL.
+4. **The report is assembled, not only written.** Findings come from the helpers' own lines, each
+   with the page it names; a finding naming a page its helper did not fetch is left out. One typed
+   call writes the answer and the disagreements and gaps; the confidence note is worked out from
+   what came back. The job's result is the report itself (usually 2,000-4,000 characters), then
+   its path and coverage.
+
+Consequence: research costs a plan, a summary and the helpers' turns rather than a writer and a
+checker over every page. Spade no longer re-reads the pages itself, so a claim rests on the
+helper's reading and the URL it cites, not on passages Spade holds to check against.
