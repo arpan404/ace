@@ -669,7 +669,17 @@ impl PiWire {
         let push = self.stdout.push(chunk);
         let mut effects = Vec::new();
         for line in lines(&push.lines) {
-            effects.extend(self.stdout_line(line));
+            let mut line_effects = self.stdout_line(line);
+            let fatal = line_effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::Fatal { .. }));
+            effects.append(&mut line_effects);
+            if fatal {
+                // Today `fatal()` ran `rpc.close()` inside the failing line, and the next
+                // line's callback returns on `closed` (`rpc.ts:48`): the rest of the chunk
+                // is never read, so its settlements are never produced.
+                break;
+            }
         }
         if let Some(error) = push.error {
             effects.push(Effect::Fatal { message: error });

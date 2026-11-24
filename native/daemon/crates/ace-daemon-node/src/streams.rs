@@ -5,6 +5,10 @@
 //! `RangeError` a refused limit is today. Lines and records cross one chunk at a
 //! time, joined, so a burst costs one call and one copy, not one per line.
 
+// napi-derive registers this module's exports only outside test builds, so in
+// the lib test target every export reads as unused.
+#![cfg_attr(test, allow(dead_code))]
+
 use ace_supervisor::budget::{
     DropPhase, DroppedNotes, DroppingGate, Framed, OutputGate, StreamError, byte_count,
 };

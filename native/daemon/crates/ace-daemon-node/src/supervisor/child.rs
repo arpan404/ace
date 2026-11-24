@@ -74,6 +74,14 @@ pub struct NativeOutputTarget {
     target: DivertTarget,
 }
 
+impl NativeOutputTarget {
+    /// The session binding's consumer and controls (E3-pi.2 and later): only a
+    /// Rust session makes one.
+    pub(crate) fn new(target: DivertTarget) -> Self {
+        Self { target }
+    }
+}
+
 /// Spawns a supervised child; its events arrive on `events` in order. With a
 /// `target` the child's pipes go to that session's consumer instead (E3.0b),
 /// and `target.ports` is filled before this returns.
