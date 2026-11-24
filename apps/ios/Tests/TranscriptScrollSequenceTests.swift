@@ -180,6 +180,19 @@ import Testing
         #expect(up == [.phase(old: .tracking, new: .idle)])
     }
 
+    @Test func aTouchThatCatchesAFlingStillDeceleratingAsItLiftsRestsWhenTheFlingEnds() {
+        var sequence = TranscriptScrollSequence()
+        _ = run(&sequence, .touchDown, .dragBegan, .dragEnded(decelerates: true), .touchUp(scrolling: true))
+        _ = sequence.handle(.touchDown)
+        _ = held(&sequence)
+
+        let up = sequence.handle(.touchUp(scrolling: true))
+        let rested = sequence.handle(.decelerationEnded)
+
+        #expect(up.isEmpty)
+        #expect(rested == [.land, .report, .phase(old: .tracking, new: .idle)])
+    }
+
     @Test func aSecondFingerDuringADragChangesNothing() {
         var sequence = TranscriptScrollSequence()
         _ = run(&sequence, .touchDown, .dragBegan)

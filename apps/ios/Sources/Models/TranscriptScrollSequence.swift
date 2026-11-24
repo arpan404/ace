@@ -96,7 +96,8 @@ struct TranscriptScrollSequence: Sendable {
             touched = false
             next = decelerates ? .decelerating : .idle
         case .decelerationEnded:
-            if phase == .decelerating { next = .idle }
+            // A touch that caught the fling and lifted while it still ran rests here.
+            if phase == .decelerating || phase == .tracking && !touched { next = .idle }
         case .animationStarting:
             forcesLanding = true
         case .animationStarted:
