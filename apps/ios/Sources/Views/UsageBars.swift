@@ -8,8 +8,7 @@ struct UsageToolbarButton: View {
     var body: some View {
         let bars = client?.usageBars ?? []
         Button(action: open) {
-            // The glyph stays at the bar icon size: the bar's own button padding already
-            // gives it the 44pt tap, so a frame here would widen the shared glass capsule.
+            // The glyph stays at the bar icon size; the header gives the button its slot.
             UsageBars(bars: bars)
         }
         .disabled(client == nil)

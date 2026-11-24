@@ -97,6 +97,9 @@ import UIKit
         static let icon: CGFloat = 16
         /// An icon in a header button or the tab bar.
         static let barIcon: CGFloat = 20
+        /// One button inside a header's shared glass capsule: as tall as a tap, a little narrower,
+        /// so several sit together without the system's per-item padding.
+        static let barButton: CGFloat = 40
         /// An empty state's glyph.
         static let emptyIcon: CGFloat = 28
         /// The play button on a video in a message.
