@@ -62,9 +62,14 @@ impl Confine for Security {
                 .unwrap_or_else(|| self.home.join(".ace"));
             let mut secrets = spade_sandbox::credentials::places(&self.home);
             secrets.extend(self.attestor.path().map(Path::to_path_buf));
+            let real = spade_sandbox::policy::real;
+            let workspace = self.bot_of(home).and_then(|bot| {
+                let expected = real(&self.spade_data).join("workspace").join(bot);
+                (real(home) == expected && !expected.starts_with(real(&ace))).then_some(expected)
+            });
             let profile = spade_sandbox::seatbelt::credentials_only(
                 &[ace, self.spade_data.clone()],
-                home,
+                workspace.as_deref(),
                 &secrets,
             );
             Ok(Some(Box::new(move |program, args| {

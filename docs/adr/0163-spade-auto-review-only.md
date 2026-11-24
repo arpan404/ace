@@ -380,3 +380,12 @@ other platforms without this guard refuse those launches. Full access declines
 connector forms. An intervening write or new untrusted result invalidates a
 reusable allow. A stored escalation needs matching review context and a prior
 refusal to replay.
+
+
+The macOS guard blocks common execution brokers, LaunchServices and launchd
+lookups, Apple Events, and creation of symlinks. The workspace exception is
+limited to the bot's canonical workspace under Spade's data root. Known
+credential paths remain denied even inside that exception. Pre-existing hard
+links may expose credential files by an unlisted path. This is a selective
+guard. Other brokers, inherited IPC rights, and services reachable over the
+open network can still act outside the process tree.

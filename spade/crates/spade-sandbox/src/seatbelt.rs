@@ -102,41 +102,89 @@ pub fn profile_offline(policy: &Policy) -> String {
     profile_in(policy, false, true)
 }
 
-/// The file-only guard for a Full access command outside the workspace sandbox.
+/// The credential and execution-broker guard for a Full access outside command.
 pub fn credentials_only(
     roots: &[std::path::PathBuf],
-    workspace: &Path,
+    workspace: Option<&Path>,
     secrets: &[std::path::PathBuf],
 ) -> String {
     let mut out = String::from("(version 1)\n(allow default)\n");
+    fn data_alias(path: &Path) -> Option<std::path::PathBuf> {
+        path.strip_prefix("/")
+            .ok()
+            .map(|tail| Path::new("/System/Volumes/Data").join(tail))
+    }
     let paths = |paths: &[std::path::PathBuf]| {
         paths
             .iter()
             .flat_map(|path| {
                 let real = crate::policy::real(path);
-                let data = real
-                    .strip_prefix("/")
-                    .ok()
-                    .map(|tail| Path::new("/System/Volumes/Data").join(tail));
-                [Some(path.clone()), Some(real), data].into_iter().flatten()
+                [Some(path.clone()), data_alias(&real), Some(real)]
+                    .into_iter()
+                    .flatten()
             })
             .collect::<Vec<_>>()
     };
     rule(
         &mut out,
         "deny file-read* file-write*",
-        paths(roots).iter().map(|p| subpath(p)),
+        paths(roots).iter().map(|path| subpath(path)),
     );
+    // Do not resolve the exception again after the caller validated its canonical name.
     rule(
         &mut out,
         "allow file-read* file-write*",
-        paths(&[workspace.to_owned()]).iter().map(|p| subpath(p)),
+        workspace.into_iter().flat_map(|path| {
+            [
+                Some(subpath(path)),
+                data_alias(path).as_deref().map(subpath),
+            ]
+            .into_iter()
+            .flatten()
+        }),
     );
     rule(
         &mut out,
         "deny file-read* file-write*",
         paths(secrets).iter().map(|p| subpath(p)),
     );
+    // Symlink creation receives the new link's path, without a resolved target.
+    out.push_str("(deny file-write-create (vnode-type SYMLINK))\n");
+    rule(
+        &mut out,
+        "deny file-link file-write-create",
+        paths(secrets).iter().map(|path| subpath(path)),
+    );
+    rule(
+        &mut out,
+        "deny file-link",
+        paths(roots).iter().map(|path| subpath(path)),
+    );
+    let brokers = [
+        "/usr/bin/open",
+        "/bin/launchctl",
+        "/usr/bin/osascript",
+        "/usr/libexec/lsd",
+        "/sbin/launchd",
+    ];
+    rule(
+        &mut out,
+        "deny process-exec",
+        brokers.into_iter().map(|path| literal(Path::new(path))),
+    );
+    rule(
+        &mut out,
+        "deny mach-lookup",
+        [
+            global("com.apple.coreservices.launchservicesd"),
+            global("com.apple.xpc.launchd"),
+            global("com.apple.launchd"),
+            r#"(global-name-regex #"^com[.]apple[.](lsd|coreservices[.]launchservicesd|launchd|xpc[.]launchd)([.]|$)")"#
+                .to_owned(),
+        ]
+        .into_iter(),
+    );
+    out.push_str("(deny appleevent-send)\n");
     out
 }
 
@@ -362,6 +410,76 @@ fn ancestors(policy: &Policy) -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn outside_guard_blocks_brokers_and_credential_aliases_but_allows_network_and_children()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::process::Command;
+        let temp = tempfile::tempdir()?;
+        let root = temp.path();
+        let ssh = root.join(".ssh");
+        let secret = ssh.join("fixture");
+        let allowed = root.join("allowed");
+        std::fs::create_dir_all(&ssh)?;
+        std::fs::create_dir_all(&allowed)?;
+        std::fs::write(&secret, "dummy credential")?;
+        let listener = TcpListener::bind(("127.0.0.1", 0))?;
+        let port = listener.local_addr()?.port();
+        let http = std::thread::spawn(move || -> std::io::Result<()> {
+            let (mut stream, _) = listener.accept()?;
+            stream.set_read_timeout(Some(std::time::Duration::from_secs(3)))?;
+            let mut request = [0; 4096];
+            assert!(stream.read(&mut request)? > 0);
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\n\r\nnetwork")
+        });
+        let data = root.join("spade");
+        let workspace = data.join("workspace/bot");
+        let private = data.join("private-state");
+        std::fs::create_dir_all(&workspace)?;
+        std::fs::write(&private, "do not reopen")?;
+        let canonical_workspace = workspace.canonicalize()?;
+        let profile = credentials_only(&[data], Some(&canonical_workspace), &[ssh]);
+        let run = Command::new(SANDBOX_EXEC)
+            .args([
+                "-p",
+                &profile,
+                "/bin/sh",
+                "-c",
+                r#"
+                /usr/bin/open -a TextEdit "$1" 2>/dev/null && exit 10
+                /bin/launchctl submit -l "$4" -- /usr/bin/true 2>/dev/null && exit 11
+                /usr/bin/osascript -e 'return 1' 2>/dev/null && exit 12
+                /bin/ln -s "$1" "$2/symbolic" 2>/dev/null && exit 13
+                /bin/ln "$1" "$2/hard" 2>/dev/null && exit 14
+                /bin/cat "$5" 2>/dev/null && exit 15
+                /bin/sh -c 'printf child:' > "$6/marker" || exit 16
+                /bin/cat "$6/marker"
+                /usr/bin/curl -fsS --noproxy '*' --max-time 3 "$3"
+            "#,
+                "guard-test",
+            ])
+            .arg(&secret)
+            .arg(&allowed)
+            .arg(format!("http://127.0.0.1:{port}/"))
+            .arg(format!("app.ace.guard-test.{}", std::process::id()))
+            .arg(&private)
+            .arg(&workspace)
+            .output()?;
+        assert!(
+            run.status.success(),
+            "{:?}: {}",
+            run.status,
+            String::from_utf8_lossy(&run.stderr)
+        );
+        http.join().map_err(|_| "local HTTP fixture panicked")??;
+        assert_eq!(run.stdout, b"child:network");
+        assert!(!allowed.join("symbolic").is_symlink());
+        assert!(!allowed.join("hard").exists());
+        Ok(())
+    }
+
     use super::*;
 
     fn policy() -> Policy {
