@@ -2,6 +2,7 @@ import { parentPort, workerData } from "node:worker_threads";
 import { z } from "zod";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import { openFileSink } from "./file-sink.ts";
+import { redactedLine } from "./trusted.ts";
 const config = z
   .object({
     directory: z.string(),
@@ -37,7 +38,7 @@ const handle = async (input: unknown): Promise<void> => {
   try {
     const message = request.parse(input);
     if (message.type === "resize") await sink.resize(message.totalBytes);
-    else await sink.write(message.records.map((entry) => redact(JSON.stringify(entry)) + "\n"));
+    else await sink.write(message.records.map((entry) => redactedLine(entry, redact) + "\n"));
     port.postMessage({ ok: true });
   } catch {
     port.postMessage({ ok: false });

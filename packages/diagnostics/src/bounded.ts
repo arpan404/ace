@@ -1,5 +1,6 @@
 import { isSecretKey } from "@ace/redaction";
 import { errorSummary, ownData, stackFrames } from "./error-summary.ts";
+import { TRUSTED_KEY, TrustedText } from "./trusted.ts";
 class Fields {
   entries: readonly (readonly [string, unknown])[];
   constructor(entries: readonly (readonly [string, unknown])[]) {
@@ -116,6 +117,13 @@ function normalize(
     if (input === undefined) return undefined;
     if (typeof input === "bigint") return String(input);
     if (typeof input !== "object") return "<UNSUPPORTED>";
+    if (input instanceof TrustedText) {
+      const text = ownData(input, "text");
+      if (typeof text !== "string" || text.length > 2048 || text.length > characters)
+        return "<OVERSIZED>";
+      characters -= text.length;
+      return { [TRUSTED_KEY]: text };
+    }
     if (seen.has(input)) return "<CYCLE>";
     seen.add(input);
     if (input instanceof ErrorEvidence)
