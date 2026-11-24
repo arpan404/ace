@@ -79,6 +79,7 @@ test("the model picker offers a running Ollama's models, and picking one chooses
   await openNew("New bot");
   // A new bot's model is at the top of its page, with how it runs.
   await userEvent.click(await screen.findByRole("button", { name: "Model" }));
+  await userEvent.click(await screen.findByRole("tab", { name: "On this computer" }));
   const local = within(await screen.findByRole("group", { name: "On this computer" }));
   await userEvent.click(local.getByRole("option", { name: /^qwen3:8b/ }));
   await waitFor(() =>
@@ -97,6 +98,7 @@ test("a local model that didn't call tools in Spade's check isn't taken as a bot
   await openNew("New bot");
   // A new bot's model is at the top of its page, with how it runs.
   await userEvent.click(await screen.findByRole("button", { name: "Model" }));
+  await userEvent.click(await screen.findByRole("tab", { name: "On this computer" }));
   const local = within(await screen.findByRole("group", { name: "On this computer" }));
   await userEvent.click(local.getByRole("option", { name: /^gemma3:4b/ }));
   // The checks run, then the picker says why it can't run a bot and keeps the choice as it was.

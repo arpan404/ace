@@ -542,6 +542,56 @@ async fn a_model_list_refused_with_a_401_gets_one_new_token_and_lists() -> Resul
 }
 
 #[tokio::test]
+async fn a_chatgpt_model_list_clears_zero_dot_x_minimal_client_version_gates() -> Result {
+    use axum::extract::Query;
+    use std::collections::HashMap;
+    let app = axum::Router::new().route(
+        "/models",
+        axum::routing::get(|Query(params): Query<HashMap<String, String>>| async move {
+            let version = params
+                .get("client_version")
+                .and_then(|v| {
+                    let mut parts = v.split('.').map(|p| p.parse::<u32>().ok());
+                    Some((parts.next()??, parts.next()??, parts.next()??))
+                })
+                .unwrap_or((0, 0, 0));
+            let models = if version >= (0, 171, 0) {
+                serde_json::json!([
+                    {
+                        "slug": "gpt-6.2-sol",
+                        "display_name": "GPT-6.2-Sol",
+                        "visibility": "list",
+                        "context_window": 500_000,
+                        "input_modalities": ["text", "image"]
+                    },
+                    {
+                        "slug": "codex-auto-review",
+                        "display_name": "Codex Auto Review",
+                        "visibility": "hide"
+                    }
+                ])
+            } else {
+                serde_json::json!([])
+            };
+            axum::Json(serde_json::json!({ "models": models }))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let root = format!("http://{}/", listener.local_addr()?);
+    tokio::spawn(async move { axum::serve(listener, app).await });
+
+    let client = client_for(&root, &root, Some("access-1"))?;
+    let listed = client.models.list("chatgpt").await?;
+    assert_eq!(
+        listed.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        vec!["gpt-6.2-sol"]
+    );
+    assert_eq!(listed[0].name.as_deref(), Some("GPT-6.2-Sol"));
+    assert_eq!(listed[0].context, Some(500_000));
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_signed_in_accounts_list_failure_says_only_fixed_words() -> Result {
     let root = listing(true).await?;
     let client = client_for(&root, &root, Some("access-1"))?;

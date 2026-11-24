@@ -3,24 +3,25 @@ import {
   spadeChecking,
   spadeEndpointUsable,
   spadeLocalChoices,
-  spadeModelGroups,
   spadeModelLabel,
   spadeWaitForChecks,
+  splitSpadeModel,
   type SpadeEndpoint,
   type SpadeModelOption,
   type SpadeModelSources,
 } from "@ace/ui-core/spade-chat";
-import { CaretDownIcon, CheckIcon } from "@ace/icons";
+import { CaretDownIcon } from "@ace/icons";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
-import { useState, type KeyboardEvent } from "react";
-import { Input } from "@/components/ui/input.tsx";
-import { menuItem, menuLabel } from "@/components/ui/menu-styles.ts";
+import { useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { selectTrigger } from "@/components/ui/select.tsx";
-import { useListHighlight } from "@/components/ui/use-list-highlight.ts";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
+import { useNow } from "@/lib/time.ts";
 import { pickLocalModel, readLiveModels, readModels } from "./spade-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
+import { SpadeModelMark } from "./spade-marks.tsx";
+import { SpadeModelPickerPanel } from "./spade-model-picker-panel.tsx";
 import {
   modelsKey,
   useEndpointModels,
@@ -29,12 +30,10 @@ import {
 } from "./use-spade-models.ts";
 
 /**
- * A model (ADR 0126, 0205), picked in one control: a button reading "Claude Sonnet 5.5 ·
- * OpenRouter" that opens every model of the person's endpoints (those on this computer first)
- * and the models of local servers not added yet. Grouped by where each comes from, searchable,
- * and any id typed in for an endpoint. An endpoint's models are what it lists now merged with
- * the saved ones. `value` is `endpoint/model`, or "" for the empty choice `none` names ("Each
- * bot's own"), which `onChange` reports as "".
+ * A model (ADR 0126, 0205), picked in ace's main model picker style: a select-styled trigger
+ * carrying the model's mark and name ("Claude Sonnet 5.5 · OpenRouter") that opens a panel with
+ * a left vertical rail of Favorites and each account, integrated search and refresh, and two-line
+ * model rows. `value` is `endpoint/model`, or "" for the empty choice `none` names.
  */
 export function SpadeModelPicker(props: {
   value: string;
@@ -58,9 +57,10 @@ export function SpadeModelPicker(props: {
 }) {
   const [open, setOpen] = useState(false);
   const forBots = props.forBots === true;
-  const sources = useModelSources(open, forBots);
+  const { sources, keychain, refreshing, refresh } = useModelSources(open, forBots);
   const client = useSpadeClient();
   const cache = useQueryClient();
+  const now = useNow();
   const [problem, setProblem] = useState<string>();
   const [busy, setBusy] = useState(false);
   const done = (value: string) => {
@@ -107,39 +107,68 @@ export function SpadeModelPicker(props: {
       setBusy(false);
     }
   };
+  const effectiveValue = !props.value && props.follows ? props.follows : props.value;
   const shown =
     !props.value && props.follows
       ? spadeModelLabel(sources, props.follows)
       : spadeModelLabel(sources, props.value, props.none);
   const followsName = props.follows ? spadeModelLabel(sources, props.follows).name : undefined;
+  const effectiveParts = effectiveValue ? splitSpadeModel(effectiveValue) : undefined;
+  const effectiveEndpoint = effectiveParts
+    ? sources.endpoints.find((each) => each.endpoint.id === effectiveParts.endpoint)?.endpoint
+    : undefined;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         id={props.id}
+        data-slot={props.className ? undefined : "select"}
+        {...part("select", undefined, "model")}
         aria-label={props.label ?? "Model"}
         className={cn(
           selectTrigger,
-          "w-72 max-w-full min-w-0 @max-[440px]:w-full",
+          "w-64 max-w-full min-w-0 @max-[440px]:w-full",
           props.className,
         )}
       >
-        <span className="min-w-0 flex-1 truncate text-left">
-          {shown.name}
-          {shown.source && <span className="text-muted-foreground">{` · ${shown.source}`}</span>}
+        <span className="inline-flex min-w-0 flex-1 items-center gap-2 text-left">
+          {effectiveEndpoint && effectiveParts && (
+            <SpadeModelMark
+              model={{ id: effectiveParts.model, name: shown.name }}
+              account={effectiveEndpoint}
+              size={14}
+              className="shrink-0"
+              decorative
+            />
+          )}
+          <span className="min-w-0 flex-1 truncate">
+            {shown.name}
+            {shown.source && <span className="text-muted-foreground">{` · ${shown.source}`}</span>}
+          </span>
         </span>
         <CaretDownIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-(--anchor-width) min-w-96 p-1" aria-label="Models">
-        <ModelList
+      <PopoverContent align="end" className="overflow-hidden p-0" aria-label="Models">
+        <SpadeModelPickerPanel
           sources={sources}
           value={props.value}
+          keychain={keychain}
+          now={now}
           none={props.none}
           noneFacts={followsName}
+          refreshing={refreshing}
           disabled={busy}
+          onRefresh={refresh}
           onPick={(option) => void pick(option)}
+          onClose={() => setOpen(false)}
         />
-        {checking && <p className="px-2 py-1 text-xs text-muted-foreground">{spadeChecking}</p>}
-        {problem && <p className="px-2 py-1 text-xs text-destructive">{problem}</p>}
+        {checking && (
+          <p className="border-t border-border px-3 py-1.5 text-xs text-muted-foreground">
+            {spadeChecking}
+          </p>
+        )}
+        {problem && (
+          <p className="border-t border-border px-3 py-1.5 text-xs text-destructive">{problem}</p>
+        )}
       </PopoverContent>
     </Popover>
   );
@@ -150,9 +179,18 @@ export function SpadeModelPicker(props: {
  * local servers are looked at live only while the list is open (`live`), and an endpoint never
  * while its key isn't known.
  */
-function useModelSources(live: boolean, forBots: boolean): SpadeModelSources {
+function useModelSources(
+  live: boolean,
+  forBots: boolean,
+): {
+  sources: SpadeModelSources;
+  keychain: boolean;
+  refreshing: boolean;
+  refresh(): void;
+} {
   const machine = useSpadeMachine().key;
   const client = useSpadeClient();
+  const cache = useQueryClient();
   const models = useSpadeModels(true);
   const local = useLocalServers(live);
   const endpoints = models.data?.endpoints ?? [];
@@ -167,148 +205,34 @@ function useModelSources(live: boolean, forBots: boolean): SpadeModelSources {
       retry: false,
     })),
   });
+  const refreshing =
+    models.isFetching || local.isFetching || lists.some((query) => query.isFetching);
+  const refresh = () => {
+    void cache.invalidateQueries({ queryKey: [...modelsKey, machine] });
+    void local.refetch();
+  };
   return {
-    endpoints: endpoints.map((endpoint, at) => ({
-      endpoint,
-      models: mergeSpadeModels(endpoint.models, lists[at]?.data),
-    })),
-    adds: spadeLocalChoices(local.data ?? []).map(({ server, model }) => ({
-      server: { id: server.id, name: server.name },
-      model,
-    })),
-    forBots,
+    sources: {
+      endpoints: endpoints.map((endpoint, at) => ({
+        endpoint,
+        models: mergeSpadeModels(endpoint.models, lists[at]?.data),
+      })),
+      adds: spadeLocalChoices(local.data ?? []).map(({ server, model }) => ({
+        server: { id: server.id, name: server.name },
+        model,
+      })),
+      forBots,
+    },
+    keychain: models.data?.keychain ?? true,
+    refreshing,
+    refresh,
   };
-}
-
-/** The open list: a search field over the groups, the arrow keys moving through them. */
-function ModelList(props: {
-  sources: SpadeModelSources;
-  value: string;
-  none: string | undefined;
-  /** Beside the empty choice: what it comes to. */
-  noneFacts?: string | undefined;
-  disabled?: boolean | undefined;
-  onPick(option: SpadeModelOption): void;
-}) {
-  const [query, setQuery] = useState("");
-  const groups = spadeModelGroups(props.sources, query, props.none, props.noneFacts);
-  const flat = groups.flatMap((group) => group.options);
-  const list = useListHighlight({ count: flat.length });
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    const action = list.key(event, () => true);
-    if (action.kind === "pick") {
-      event.preventDefault();
-      const option = flat[action.at];
-      if (option && !props.disabled) props.onPick(option);
-    } else if (action.kind === "pass" && event.key === "Enter") {
-      event.preventDefault();
-      const first = flat[0];
-      if (first && !props.disabled) props.onPick(first);
-    }
-  };
-  const nothing = props.sources.endpoints.length === 0 && !props.sources.adds?.length;
-  // Where each group's first option sits in the flat list the keys move through.
-  const starts = groups.map((_, index) =>
-    groups.slice(0, index).reduce((sum, group) => sum + group.options.length, 0),
-  );
-  return (
-    <>
-      <Input
-        role="combobox"
-        aria-label="Search models"
-        aria-expanded
-        aria-controls={list.listId}
-        aria-activedescendant={list.current === undefined ? undefined : list.optionId(list.current)}
-        placeholder="Search or type a model id"
-        // oxlint-disable-next-line jsx-a11y/no-autofocus -- the list opens to its search.
-        autoFocus
-        spellCheck={false}
-        autoComplete="off"
-        value={query}
-        onChange={(event) => {
-          setQuery(event.target.value);
-          list.reset();
-        }}
-        onKeyDown={onKeyDown}
-        className="mb-1"
-      />
-      <div
-        id={list.listId}
-        role="listbox"
-        aria-label="Models"
-        onPointerLeave={list.leave}
-        className="no-scrollbar max-h-72 overflow-y-auto"
-      >
-        {groups.map((group, groupAt) => (
-          <div key={group.label ?? ""} role="group" aria-label={group.label ?? props.none}>
-            {group.label && <div className={cn(menuLabel, "pt-2")}>{group.label}</div>}
-            {group.options.map((option, optionAt) => {
-              const index = (starts[groupAt] ?? 0) + optionAt;
-              return (
-                <ModelOption
-                  key={option.value || "none"}
-                  id={list.optionId(index)}
-                  option={option}
-                  chosen={option.value === props.value && !option.typed}
-                  active={list.current === index}
-                  onPoint={() => list.point(index)}
-                  onPick={() => {
-                    if (!props.disabled) props.onPick(option);
-                  }}
-                />
-              );
-            })}
-          </div>
-        ))}
-        {nothing && (
-          <p className="px-2 py-1.5 text-ui text-muted-foreground">
-            Add a provider in Models first.
-          </p>
-        )}
-        {!nothing && flat.length === 0 && (
-          <p className="px-2 py-1.5 text-ui text-muted-foreground">No model matches.</p>
-        )}
-      </div>
-    </>
-  );
-}
-
-function ModelOption(props: {
-  id: string;
-  option: SpadeModelOption;
-  chosen: boolean;
-  active: boolean;
-  onPoint(): void;
-  onPick(): void;
-}) {
-  const { option } = props;
-  return (
-    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- keys pick through the combobox's aria-activedescendant
-    <div
-      id={props.id}
-      role="option"
-      aria-selected={props.chosen}
-      tabIndex={-1}
-      onPointerMove={props.active ? undefined : props.onPoint}
-      onMouseDown={(event) => event.preventDefault()}
-      onClick={props.onPick}
-      aria-disabled={option.cant ? true : undefined}
-      title={option.cant}
-      className={cn(menuItem, props.active && "bg-accent", option.cant && "text-muted-foreground")}
-    >
-      <span className="max-w-[60%] shrink-0 truncate">{option.name}</span>
-      <span className="min-w-0 flex-1 truncate text-right text-xs text-subtle-foreground">
-        {option.facts}
-      </span>
-      <CheckIcon aria-hidden size={14} className={cn(!props.chosen && "invisible")} />
-    </div>
-  );
 }
 
 /**
  * A model from one endpoint, where the endpoint is already chosen (first-run setup, Add a model):
- * its live list merged with saved ones, from the same read the chat's picker makes, searchable,
- * or a typed id. `omit` leaves out ids already there (the endpoint's saved models).
+ * its live list merged with saved ones, searchable, or a typed id, in ace's single-provider
+ * model picker style (without the left rail).
  */
 export function SpadeModelChoice(props: {
   endpoint: SpadeEndpoint;
@@ -323,6 +247,7 @@ export function SpadeModelChoice(props: {
   const [open, setOpen] = useState(props.opened === true);
   const listed = useEndpointModels(props.endpoint);
   const { live } = listed;
+  const now = useNow();
   const models = props.omit
     ? listed.models.filter((model) => !props.omit?.includes(model.id))
     : listed.models;
@@ -335,26 +260,45 @@ export function SpadeModelChoice(props: {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         id={props.id}
+        data-slot="select"
+        {...part("select", undefined, "model")}
         aria-label={props.label ?? "Model"}
-        className={cn(selectTrigger, "w-72 max-w-full min-w-0 @max-[440px]:w-full")}
+        className={cn(selectTrigger, "w-64 max-w-full min-w-0 @max-[440px]:w-full")}
       >
-        <span className="min-w-0 flex-1 truncate text-left">
-          {current?.name ?? (props.model || "Choose a model")}
+        <span className="inline-flex min-w-0 flex-1 items-center gap-2 text-left">
+          {props.model && (
+            <SpadeModelMark
+              model={{ id: props.model, name: current?.name ?? props.model }}
+              account={props.endpoint}
+              size={14}
+              className="shrink-0"
+              decorative
+            />
+          )}
+          <span className="min-w-0 flex-1 truncate">
+            {current?.name ?? (props.model || "Choose a model")}
+          </span>
         </span>
         <CaretDownIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-(--anchor-width) min-w-96 p-1" aria-label="Models">
-        <ModelList
+      <PopoverContent align="end" className="overflow-hidden p-0" aria-label="Models">
+        <SpadeModelPickerPanel
           sources={sources}
           value={value}
+          keychain
+          now={now}
           none={undefined}
+          only
+          refreshing={live.isFetching}
+          onRefresh={() => void live.refetch()}
           onPick={(picked) => {
             props.onChange(picked.value.slice(props.endpoint.id.length + 1));
             setOpen(false);
           }}
+          onClose={() => setOpen(false)}
         />
         {live.isError && (
-          <p className="px-2 pt-1 pb-0.5 text-xs text-subtle-foreground">
+          <p className="border-t border-border px-3 py-1.5 text-xs text-subtle-foreground">
             {`Couldn't list its models. ${live.error.message}`}
           </p>
         )}

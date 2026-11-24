@@ -750,3 +750,62 @@ async fn a_restored_home_without_its_sign_in_keys_shows_those_accounts_signed_ou
     assert_eq!(account(&spade, &id).await?["account"]["signed_in"], false);
     Ok(())
 }
+
+#[tokio::test]
+async fn renewing_a_chatgpt_account_with_no_saved_models_populates_its_listed_models() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let fake = FakeSignIn::start().await?;
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = calls.clone();
+    let app = axum::Router::new().route(
+        "/models",
+        axum::routing::get(move || {
+            let count = count.clone();
+            async move {
+                let n = count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let models = if n == 0 {
+                    // First sign-in got an empty list (as with an outdated client_version).
+                    json!([])
+                } else {
+                    json!([
+                        { "slug": "gpt-6.2-sol", "display_name": "GPT-6.2-Sol", "visibility": "list" }
+                    ])
+                };
+                axum::Json(json!({ "models": models }))
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let backend = format!("http://{}/", listener.local_addr()?);
+    tokio::spawn(async move { axum::serve(listener, app).await });
+
+    let config = Config {
+        issuer: fake.issuer.clone(),
+        client_id: fake.client_id.clone(),
+        callback_port: 0,
+        originator: "spade".to_owned(),
+        wait: Duration::from_secs(20),
+        backend,
+    };
+    let accounts = Arc::new(Accounts::new(
+        Some(vault_of(&spade)),
+        config,
+        Arc::new(|| 1_000),
+    )?);
+    spade
+        .engine
+        .set_sign_ins(Flows::new(accounts, Arc::new(spade_connect::OsRandom)));
+
+    let id = signed_in(&spade).await?;
+    assert_eq!(account(&spade, &id).await?["models"], json!([]));
+
+    // Renewing the empty account fetches and saves its listed models.
+    assert_eq!(signed_in(&spade).await?, id);
+    let shown = account(&spade, &id).await?;
+    let ids: Vec<&str> = shown["models"]
+        .as_array()
+        .map(|all| all.iter().filter_map(|m| m["id"].as_str()).collect())
+        .unwrap_or_default();
+    assert_eq!(ids, vec!["gpt-6.2-sol"]);
+    Ok(())
+}

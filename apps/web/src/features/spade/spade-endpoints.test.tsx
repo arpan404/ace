@@ -245,11 +245,17 @@ test("Manage lists what the endpoint lists, with facts only where they are known
   await models.findByText("Sonnet");
   // Llama's list gave no tools, so none are claimed.
   const list = within(models.getByRole("list", { name: "Models" }));
-  expect(list.getAllByRole("listitem").map((row) => row.textContent)).toEqual([
+  const items = list.getAllByRole("listitem");
+  expect(items.map((row) => row.textContent)).toEqual([
     "Saved model",
     "Llama128K context",
-    "Sonnet200K context · images, tools",
+    "Sonnet200K context·",
   ]);
+  const [, llama, sonnet] = items;
+  if (!llama || !sonnet) throw new Error("Expected Llama and Sonnet rows");
+  expect(within(sonnet).getByRole("img", { name: "Images" })).toBeTruthy();
+  expect(within(sonnet).getByRole("img", { name: "Tools" })).toBeTruthy();
+  expect(within(llama).queryByRole("img", { name: "Tools" })).toBeNull();
   await userEvent.click(models.getByRole("switch", { name: "Llama on OpenRouter" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/endpoints/openrouter/models")).toEqual([

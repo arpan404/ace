@@ -243,7 +243,12 @@ pub fn parse(body: &[u8], max_models: usize) -> Result<Vec<Listed>, String> {
 fn item(raw: &Value) -> Option<Listed> {
     // The ChatGPT backend's list (ADR 0214) names a model by `slug`, and hides some.
     let slug = raw.get("id").is_none() && raw.get("slug").is_some();
-    if slug && raw.get("visibility").and_then(Value::as_str) == Some("hide") {
+    if slug
+        && matches!(
+            raw.get("visibility").and_then(Value::as_str),
+            Some("hide" | "none")
+        )
+    {
         return None;
     }
     let id = raw.get(if slug { "slug" } else { "id" })?.as_str()?.trim();
@@ -329,16 +334,39 @@ mod tests {
     #[test]
     fn a_chatgpt_list_names_models_by_slug_and_leaves_out_hidden_ones() {
         let body = br#"{"models":[
-            {"slug":"gpt-5.5","display_name":"GPT-5.5","context_window":272000,
+            {"slug":"gpt-6.2-sol","display_name":"GPT-6.2-Sol","context_window":500000,
              "visibility":"list","input_modalities":["text","image"]},
-            {"slug":"codex-auto-review","display_name":"Review","visibility":"hide"},
-            {"slug":"gpt-5.5-mini","visibility":"list"}
+            {"slug":"gpt-6.2-astra","display_name":"GPT-6.2-Astra","context_window":272000,
+             "visibility":"list","input_modalities":["text","image"]},
+            {"slug":"gpt-6.1-terra","display_name":"GPT-6.1 Terra","context_window":500000,
+             "visibility":"list","input_modalities":["text","image"]},
+            {"slug":"gpt-reserve","display_name":"GPT-Reserve","visibility":"hide"},
+            {"slug":"gpt-6.1-sol","display_name":"GPT-6.1-Sol","context_window":500000,
+             "visibility":"list","input_modalities":["text","image"]},
+            {"slug":"gpt-6-astra","display_name":"GPT-6-Astra","context_window":272000,
+             "visibility":"list","input_modalities":["text","image"]},
+            {"slug":"gpt-6-sol","display_name":"GPT-6-Sol","context_window":272000,
+             "visibility":"list","input_modalities":["text","image"]},
+            {"slug":"gpt-6-luna","visibility":"list"},
+            {"slug":"codex-auto-review","display_name":"Codex Auto Review","visibility":"hide"},
+            {"slug":"gpt-internal","display_name":"Internal","visibility":"none"}
         ]}"#;
         let models = parse(body, 100).unwrap_or_default();
         let ids: Vec<_> = models.iter().map(|m| m.id.as_str()).collect();
-        assert_eq!(ids, vec!["gpt-5.5", "gpt-5.5-mini"]);
-        assert_eq!(models[0].name.as_deref(), Some("GPT-5.5"));
-        assert_eq!(models[0].context, Some(272_000));
+        assert_eq!(
+            ids,
+            vec![
+                "gpt-6.2-sol",
+                "gpt-6.2-astra",
+                "gpt-6.1-terra",
+                "gpt-6.1-sol",
+                "gpt-6-astra",
+                "gpt-6-sol",
+                "gpt-6-luna",
+            ]
+        );
+        assert_eq!(models[0].name.as_deref(), Some("GPT-6.2-Sol"));
+        assert_eq!(models[0].context, Some(500_000));
         assert_eq!(
             models[0].capabilities,
             Some(vec![
@@ -348,7 +376,7 @@ mod tests {
             ])
         );
         assert_eq!(
-            models[1].capabilities,
+            models[6].capabilities,
             Some(vec![Capability::Tools, Capability::Reasoning])
         );
     }

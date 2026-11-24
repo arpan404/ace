@@ -1,4 +1,6 @@
+import { serviceInfo } from "@ace/ui-core";
 import type { SpadePreset } from "@ace/ui-core/spade-chat";
+import { KeyIcon } from "@ace/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -11,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 import { Input } from "@/components/ui/input.tsx";
+import { BrandMark } from "@/components/ui/provider-icons.tsx";
 import { addPresetAccount } from "./spade-accounts-api.ts";
 import { ChatgptSignInDialog } from "./spade-chatgpt-sign-in.tsx";
 import { SpadeChoices } from "./spade-choices.tsx";
@@ -40,6 +43,7 @@ export function AddAccountDialog(props: {
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
   if (signingIn) return <ChatgptSignInDialog onClose={props.onClose} />;
+  const brand = serviceInfo(props.preset?.id ?? props.name.toLowerCase()).brand;
   const add = async () => {
     if (!props.preset || !name.trim()) return;
     setSaving(true);
@@ -58,7 +62,15 @@ export function AddAccountDialog(props: {
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{`Add ${article(props.name)} ${props.name} account`}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <BrandMark
+              size={20}
+              decorative
+              choose={() => ({ brand, label: props.name })}
+              fallbackLabel={props.name}
+            />
+            {`Add ${article(props.name)} ${props.name} account`}
+          </DialogTitle>
         </DialogHeader>
         <DialogBody>
           {props.chatgpt && (
@@ -71,11 +83,20 @@ export function AddAccountDialog(props: {
                   value: "chatgpt",
                   label: "Sign in with ChatGPT",
                   description: "Bots on it use your ChatGPT plan.",
+                  icon: (
+                    <BrandMark
+                      size={16}
+                      decorative
+                      choose={() => ({ brand: "openai", label: "ChatGPT" })}
+                      fallbackLabel="ChatGPT"
+                    />
+                  ),
                 },
                 {
                   value: "key",
                   label: "API key",
                   description: `Billed to ${props.name} API use. You paste the key once it's added.`,
+                  icon: <KeyIcon aria-hidden size={15} />,
                 },
               ]}
             />

@@ -1,28 +1,42 @@
+import { serviceInfo } from "@ace/ui-core";
 import {
   spadeFormatNames,
   spadeFormats,
   spadeLocalServerWords,
-  type SpadeLocalServer,
   type SpadeFormat,
+  type SpadeLocalServer,
   type SpadePreset,
 } from "@ace/ui-core/spade-chat";
+import { CaretRightIcon, MagnifyingGlassIcon } from "@ace/icons";
 import { useQueryClient } from "@tanstack/react-query";
-import { useId, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Dialog,
   DialogBody,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 import { Input, Textarea } from "@/components/ui/input.tsx";
+import { BrandMark } from "@/components/ui/provider-icons.tsx";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
+import { cn } from "@/lib/cn.ts";
 import { addEndpoint } from "./spade-api.ts";
-import { modelsKey, useLocalServers } from "./use-spade-models.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
+import {
+  buildAzureUrl,
+  buildCloudflareUrl,
+  buildVertexUrl,
+  gcpRegions,
+  mergeProviderTemplates,
+  type CloudProviderKind,
+  type SpadeProviderTemplate,
+} from "./spade-provider-catalog.ts";
+import { modelsKey, useLocalServers } from "./use-spade-models.ts";
 
 /** `Name: value` lines as headers; a line without a colon is left out. */
 export function parseHeaderLines(text: string): Record<string, string> {
@@ -35,13 +49,19 @@ export function parseHeaderLines(text: string): Record<string, string> {
   return headers;
 }
 
-function Field(props: { label: string; htmlFor: string; children: ReactNode }) {
+function Field(props: {
+  label: string;
+  htmlFor: string;
+  hint?: string | undefined;
+  children: ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-1.5">
-      <label htmlFor={props.htmlFor} className="w-fit text-ui font-medium">
+      <label htmlFor={props.htmlFor} className="w-fit text-ui font-medium text-foreground">
         {props.label}
       </label>
       {props.children}
+      {props.hint && <p className="text-xs text-subtle-foreground">{props.hint}</p>}
     </div>
   );
 }
@@ -53,10 +73,9 @@ const formatOptions = spadeFormats.map((value): SelectOption<SpadeFormat> => ({
 }));
 
 /**
- * Add a provider: an endpoint from one of Spade's presets (its address, format and session header filled in)
- * or custom: name, format, base URL, extra headers, a session header, and whether it needs a key
- * (a local server doesn't). The key is set on the
- * endpoint's row once it is added, never here.
+ * Add a provider: quick-pick from Spade's presets, cloud providers (Google Vertex AI on GCP,
+ * Azure OpenAI, Cloudflare AI Gateway), popular inference providers (OpenRouter, Groq, Together,
+ * Fireworks, DeepSeek, xAI, Mistral, Cerebras), local servers, or a custom endpoint.
  */
 export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onClose(): void }) {
   const ids = {
@@ -67,32 +86,63 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
     headers: useId(),
     session: useId(),
     key: useId(),
+    gcpProject: useId(),
+    gcpRegion: useId(),
+    gcpCustomRegion: useId(),
+    azureResource: useId(),
+    cfAccount: useId(),
+    cfGateway: useId(),
   };
   const client = useSpadeClient();
   const cache = useQueryClient();
+  const templates = useMemo(() => mergeProviderTemplates(props.presets), [props.presets]);
   const [from, setFrom] = useState(custom);
+  const [search, setSearch] = useState("");
   const [name, setName] = useState("");
   const [format, setFormat] = useState<SpadeFormat>("openai-chat");
   const [url, setUrl] = useState("");
   const [headers, setHeaders] = useState("");
   const [session, setSession] = useState("");
-  // A local server (Ollama, LM Studio) takes no key.
   const [needsKey, setNeedsKey] = useState(true);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  // Cloud endpoint helpers
+  const [gcpProject, setGcpProject] = useState("");
+  const [gcpRegion, setGcpRegion] = useState("global");
+  const [gcpCustomRegion, setGcpCustomRegion] = useState("");
+  const [azureResource, setAzureResource] = useState("");
+  const [cfAccount, setCfAccount] = useState("");
+  const [cfGateway, setCfGateway] = useState("");
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
   const locals = useLocalServers(true).data ?? [];
+
+  const activeTemplate = templates.find((candidate) => candidate.id === from);
+  const activeCloud: CloudProviderKind | undefined = activeTemplate?.cloud;
+
   const choose = (next: string) => {
     const local = locals.find((candidate) => localChoice(candidate) === next);
     if (local) return fillLocal(local);
     setFrom(next);
-    const preset = props.presets.find((candidate) => candidate.id === next);
-    if (!preset) return;
-    setName(preset.name);
-    if (preset.format) setFormat(preset.format);
-    setUrl(preset.baseUrl);
-    setSession(preset.sessionHeader ?? "");
+    if (next === custom) return;
+    const template = templates.find((candidate) => candidate.id === next);
+    if (!template) return;
+    setName(template.name);
+    setFormat(template.format);
+    setNeedsKey(true);
+    setSession(template.sessionHeader ?? "");
+    if (template.sessionHeader) setShowAdvanced(true);
+    if (template.cloud === "vertex") {
+      const region = gcpRegion === "custom" ? gcpCustomRegion : gcpRegion;
+      setUrl(buildVertexUrl(gcpProject, region, template.format));
+    } else if (template.cloud === "azure") {
+      setUrl(buildAzureUrl(azureResource));
+    } else if (template.cloud === "cloudflare") {
+      setUrl(buildCloudflareUrl(cfAccount, cfGateway));
+    } else {
+      setUrl(template.baseUrl);
+    }
   };
-  // A model server on this computer: its address and format, and no key.
+
   const fillLocal = (local: SpadeLocalServer) => {
     setFrom(localChoice(local));
     setName(local.name);
@@ -101,6 +151,41 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
     setSession("");
     setNeedsKey(false);
   };
+
+  const updateFormat = (next: SpadeFormat) => {
+    setFormat(next);
+    if (activeCloud === "vertex") {
+      const region = gcpRegion === "custom" ? gcpCustomRegion : gcpRegion;
+      setUrl(buildVertexUrl(gcpProject, region, next));
+    }
+  };
+
+  const updateVertex = (project: string, regionChoice: string, customReg: string) => {
+    setGcpProject(project);
+    setGcpRegion(regionChoice);
+    setGcpCustomRegion(customReg);
+    const resolved = regionChoice === "custom" ? customReg : regionChoice;
+    setUrl(buildVertexUrl(project, resolved, format));
+  };
+
+  const updateAzure = (resource: string) => {
+    setAzureResource(resource);
+    setUrl(buildAzureUrl(resource));
+  };
+
+  const updateCloudflare = (accountId: string, gateway: string) => {
+    setCfAccount(accountId);
+    setCfGateway(gateway);
+    setUrl(buildCloudflareUrl(accountId, gateway));
+  };
+
+  const query = search.trim().toLowerCase();
+  const visibleTemplates = query
+    ? templates.filter((item) =>
+        `${item.name} ${item.description} ${item.id}`.toLowerCase().includes(query),
+      )
+    : templates;
+
   const ready = name.trim() !== "" && /^https?:\/\/\S+$/.test(url.trim());
   const add = async () => {
     setSaving(true);
@@ -124,78 +209,253 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
       setSaving(false);
     }
   };
+
+  const selectOptions: SelectOption<string>[] = [
+    { value: custom, label: "Custom" },
+    ...templates.map((item) => ({ value: item.id, label: item.name })),
+    ...locals.map((local) => ({
+      value: localChoice(local),
+      label: `${local.name} (on this computer)`,
+    })),
+  ];
+
   return (
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
-      <DialogContent>
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>Add a provider</DialogTitle>
+          <DialogDescription>
+            Connect a cloud region, inference provider, local model server, or custom endpoint.
+          </DialogDescription>
         </DialogHeader>
-        <DialogBody>
+        <DialogBody className="gap-4">
           <LocalServers servers={locals} onUse={fillLocal} />
-          <Field label="From" htmlFor={ids.from}>
-            <Select
-              id={ids.from}
-              label="From"
-              value={from}
-              options={[
-                { value: custom, label: "Custom" },
-                ...props.presets.map((preset) => ({ value: preset.id, label: preset.name })),
-                ...locals.map((local) => ({
-                  value: localChoice(local),
-                  label: `${local.name} (on this computer)`,
-                })),
-              ]}
-              onValueChange={choose}
-              className="w-full"
-            />
-          </Field>
-          <Field label="Name" htmlFor={ids.name}>
-            <Input id={ids.name} value={name} onChange={(event) => setName(event.target.value)} />
-          </Field>
-          <Field label="Format" htmlFor={ids.format}>
-            <Select<SpadeFormat>
-              id={ids.format}
-              label="Format"
-              value={format}
-              options={formatOptions}
-              onValueChange={setFormat}
-              className="w-full"
-            />
-          </Field>
-          <Field label="Base URL" htmlFor={ids.url}>
+
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <label htmlFor={ids.from} className="text-ui font-medium text-foreground">
+                From
+              </label>
+              <div className="w-52">
+                <Select
+                  id={ids.from}
+                  label="From"
+                  value={from}
+                  options={selectOptions}
+                  onValueChange={choose}
+                  className="w-full"
+                />
+              </div>
+            </div>
+            <label className="flex h-8 min-w-0 items-center gap-1.5 rounded-md bg-secondary/40 px-2.5 text-muted-foreground shadow-[inset_0_0_0_1px_var(--border-soft)] has-focus-visible:shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--ring)_50%,transparent)]">
+              <MagnifyingGlassIcon aria-hidden size={13} className="shrink-0" />
+              <input
+                type="search"
+                value={search}
+                aria-label="Filter providers"
+                placeholder="Search GCP Vertex AI, OpenRouter, Groq, Azure…"
+                onChange={(event) => setSearch(event.currentTarget.value)}
+                className="min-w-0 flex-1 bg-transparent text-xs text-foreground placeholder:text-subtle-foreground focus:outline-none [&::-webkit-search-cancel-button]:hidden"
+              />
+            </label>
+            <div className="grid max-h-36 grid-cols-2 gap-1.5 overflow-y-auto p-0.5 sm:grid-cols-3">
+              {visibleTemplates.map((template) => (
+                <ProviderTileButton
+                  key={template.id}
+                  template={template}
+                  selected={from === template.id}
+                  onPick={() => choose(template.id)}
+                />
+              ))}
+              {!query && (
+                <button
+                  type="button"
+                  onClick={() => choose(custom)}
+                  className={cn(
+                    "flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors duration-(--motion-fast) focus-ring-inset",
+                    from === custom
+                      ? "border-foreground/75 bg-accent/50 ring-1 ring-inset ring-foreground/75"
+                      : "border-border-soft hover:border-border hover:bg-accent/25",
+                  )}
+                >
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate text-xs font-medium text-foreground">Custom</span>
+                    <span className="truncate text-[11px] text-subtle-foreground">
+                      Any compatible URL
+                    </span>
+                  </span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {activeCloud === "vertex" && (
+            <div className="grid grid-cols-1 gap-3 rounded-lg border border-border-soft bg-secondary/35 p-3 sm:grid-cols-2">
+              <Field label="GCP project ID" htmlFor={ids.gcpProject}>
+                <Input
+                  id={ids.gcpProject}
+                  placeholder="my-gcp-project"
+                  spellCheck={false}
+                  value={gcpProject}
+                  onChange={(event) => updateVertex(event.target.value, gcpRegion, gcpCustomRegion)}
+                />
+              </Field>
+              <Field label="Region" htmlFor={ids.gcpRegion}>
+                <Select
+                  id={ids.gcpRegion}
+                  label="Region"
+                  value={gcpRegion}
+                  options={gcpRegions}
+                  onValueChange={(next) => updateVertex(gcpProject, next, gcpCustomRegion)}
+                  className="w-full"
+                />
+              </Field>
+              {gcpRegion === "custom" && (
+                <div className="sm:col-span-2">
+                  <Field label="Custom region" htmlFor={ids.gcpCustomRegion}>
+                    <Input
+                      id={ids.gcpCustomRegion}
+                      placeholder="europe-west3"
+                      spellCheck={false}
+                      value={gcpCustomRegion}
+                      onChange={(event) => updateVertex(gcpProject, "custom", event.target.value)}
+                    />
+                  </Field>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeCloud === "azure" && (
+            <div className="rounded-lg border border-border-soft bg-secondary/35 p-3">
+              <Field label="Azure resource name" htmlFor={ids.azureResource}>
+                <Input
+                  id={ids.azureResource}
+                  placeholder="my-openai-resource"
+                  spellCheck={false}
+                  value={azureResource}
+                  onChange={(event) => updateAzure(event.target.value)}
+                />
+              </Field>
+            </div>
+          )}
+
+          {activeCloud === "cloudflare" && (
+            <div className="grid grid-cols-1 gap-3 rounded-lg border border-border-soft bg-secondary/35 p-3 sm:grid-cols-2">
+              <Field label="Account ID" htmlFor={ids.cfAccount}>
+                <Input
+                  id={ids.cfAccount}
+                  placeholder="32-char account id"
+                  spellCheck={false}
+                  value={cfAccount}
+                  onChange={(event) => updateCloudflare(event.target.value, cfGateway)}
+                />
+              </Field>
+              <Field label="Gateway name" htmlFor={ids.cfGateway}>
+                <Input
+                  id={ids.cfGateway}
+                  placeholder="my-gateway"
+                  spellCheck={false}
+                  value={cfGateway}
+                  onChange={(event) => updateCloudflare(cfAccount, event.target.value)}
+                />
+              </Field>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Name" htmlFor={ids.name}>
+              <Input
+                id={ids.name}
+                placeholder="OpenRouter"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </Field>
+            <Field label="Format" htmlFor={ids.format}>
+              <Select<SpadeFormat>
+                id={ids.format}
+                label="Format"
+                value={format}
+                options={formatOptions}
+                onValueChange={updateFormat}
+                className="w-full"
+              />
+            </Field>
+          </div>
+
+          <Field
+            label="Base URL"
+            htmlFor={ids.url}
+            hint={
+              activeCloud === "vertex"
+                ? "Auto-built from your GCP project, region, and API format — edit freely if using a proxy."
+                : undefined
+            }
+          >
             <Input
               id={ids.url}
               placeholder="https://api.example.com/v1/"
               spellCheck={false}
+              className="font-mono text-xs"
               value={url}
               onChange={(event) => setUrl(event.target.value)}
             />
           </Field>
-          <Field label="Headers" htmlFor={ids.headers}>
-            <Textarea
-              id={ids.headers}
-              placeholder="Name: value, one a line"
-              spellCheck={false}
-              value={headers}
-              onChange={(event) => setHeaders(event.target.value)}
-              className="min-h-14 font-mono"
-            />
-          </Field>
-          <Field label="Session header" htmlFor={ids.session}>
-            <Input
-              id={ids.session}
-              placeholder="None"
-              spellCheck={false}
-              value={session}
-              onChange={(event) => setSession(event.target.value)}
-            />
-          </Field>
-          <div className="flex items-center justify-between gap-4">
-            <label htmlFor={ids.key} className="text-ui font-medium">
-              Needs a key
-            </label>
+
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-border-soft px-3 py-2.5">
+            <div className="flex flex-col gap-0.5">
+              <label htmlFor={ids.key} className="text-ui font-medium text-foreground">
+                Needs a key
+              </label>
+              <span className="text-xs text-muted-foreground">
+                Turn off for local model servers or keyless gateways.
+              </span>
+            </div>
             <Switch id={ids.key} checked={needsKey} onCheckedChange={setNeedsKey} />
           </div>
+
+          <div className="flex flex-col gap-3">
+            <button
+              type="button"
+              onClick={() => setShowAdvanced((open) => !open)}
+              className="flex w-fit items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-ring"
+            >
+              <CaretRightIcon
+                aria-hidden
+                size={12}
+                className={cn(
+                  "transition-transform duration-(--motion-fast)",
+                  showAdvanced && "rotate-90",
+                )}
+              />
+              Advanced options (headers, session header)
+            </button>
+            {showAdvanced && (
+              <div className="flex flex-col gap-3">
+                <Field label="Headers" htmlFor={ids.headers}>
+                  <Textarea
+                    id={ids.headers}
+                    placeholder="Name: value, one a line"
+                    spellCheck={false}
+                    value={headers}
+                    onChange={(event) => setHeaders(event.target.value)}
+                    className="min-h-14 font-mono text-xs"
+                  />
+                </Field>
+                <Field label="Session header" htmlFor={ids.session}>
+                  <Input
+                    id={ids.session}
+                    placeholder="None"
+                    spellCheck={false}
+                    value={session}
+                    onChange={(event) => setSession(event.target.value)}
+                  />
+                </Field>
+              </div>
+            )}
+          </div>
+
           {problem && (
             <p role="alert" className="text-ui text-destructive">
               {problem}
@@ -215,6 +475,39 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
   );
 }
 
+function ProviderTileButton(props: {
+  template: SpadeProviderTemplate;
+  selected: boolean;
+  onPick(): void;
+}) {
+  const { template } = props;
+  const brand = serviceInfo(template.brandId).brand;
+  return (
+    <button
+      type="button"
+      onClick={props.onPick}
+      className={cn(
+        "flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors duration-(--motion-fast) focus-ring-inset",
+        props.selected
+          ? "border-foreground/75 bg-accent/50 ring-1 ring-inset ring-foreground/75"
+          : "border-border-soft hover:border-border hover:bg-accent/25",
+      )}
+    >
+      <BrandMark
+        size={16}
+        decorative
+        className="shrink-0"
+        choose={() => ({ brand, label: template.name })}
+        fallbackLabel={template.name}
+      />
+      <span className="flex min-w-0 flex-col">
+        <span className="truncate text-xs font-medium text-foreground">{template.name}</span>
+        <span className="truncate text-[11px] text-subtle-foreground">{template.description}</span>
+      </span>
+    </button>
+  );
+}
+
 /** A local server's value in the From list, apart from the presets' ids. */
 const localChoice = (local: SpadeLocalServer) => `local:${local.id}`;
 
@@ -230,15 +523,28 @@ function LocalServers(props: {
   const servers = props.servers;
   if (!servers.some((local) => local.running)) return null;
   return (
-    <section aria-labelledby={headingId} className="flex flex-col gap-1">
-      <h3 id={headingId} className="text-ui font-medium">
+    <section
+      aria-labelledby={headingId}
+      className="flex flex-col gap-1.5 rounded-lg border border-border-soft bg-secondary/35 p-3"
+    >
+      <h3 id={headingId} className="text-xs font-medium text-muted-foreground">
         On this computer
       </h3>
-      <ul className="flex flex-col">
+      <ul className="flex flex-col divide-y divide-border-soft">
         {servers.map((local) => (
-          <li key={local.id} className="flex min-h-9 items-center gap-3">
+          <li
+            key={local.id}
+            className="flex min-h-9 items-center gap-2.5 py-1.5 first:pt-0 last:pb-0"
+          >
+            <BrandMark
+              size={16}
+              decorative
+              className="shrink-0"
+              choose={() => ({ brand: serviceInfo(local.id).brand, label: local.name })}
+              fallbackLabel={local.name}
+            />
             <div className="flex min-w-0 flex-1 flex-col">
-              <span className="text-ui">{local.name}</span>
+              <span className="text-ui font-medium text-foreground">{local.name}</span>
               <span className="truncate text-xs text-muted-foreground">
                 {local.endpoint ? "Added already" : spadeLocalServerWords(local)}
               </span>
@@ -249,7 +555,7 @@ function LocalServers(props: {
               )}
             </div>
             {local.running && !local.endpoint && (
-              <Button variant="ghost" size="sm" onClick={() => props.onUse(local)}>
+              <Button variant="secondary" size="sm" onClick={() => props.onUse(local)}>
                 Use
               </Button>
             )}

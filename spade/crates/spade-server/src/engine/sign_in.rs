@@ -314,6 +314,11 @@ impl Engine {
         flows.after_keep(&id).await;
         // Committed only while these tokens are still the account's: a sign-out or removal that
         // came in between wins, and the account is never shown signed in without them.
+        enum Commit {
+            Saved { empty: bool },
+            SignedOut,
+            Removed,
+        }
         let committed = {
             let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
             let row = self
@@ -324,28 +329,31 @@ impl Engine {
                 .find(|e| e.id == id)
                 .filter(|_| !self.retiring(&id));
             match row {
-                Some(_) if !accounts.is_current(&id, generation) => Some(false),
+                Some(_) if !accounts.is_current(&id, generation) => Commit::SignedOut,
                 Some(mut row) => {
+                    let empty = row.models.is_empty();
                     row.sign_in = Some(facts);
                     self.store
                         .update_endpoint(&row)
                         .map_err(|e| e.to_string())?;
                     self.sync_endpoints().map_err(|e| e.to_string())?;
-                    Some(true)
+                    Commit::Saved { empty }
                 }
-                None => None,
+                None => Commit::Removed,
             }
         };
-        match committed {
-            Some(true) => {}
-            Some(false) => return Err("the account was signed out while signing in".to_owned()),
-            None => {
+        let empty = match committed {
+            Commit::Saved { empty } => empty,
+            Commit::SignedOut => {
+                return Err("the account was signed out while signing in".to_owned());
+            }
+            Commit::Removed => {
                 // Removed while it signed in: the tokens just kept go too.
                 let _ = accounts.forget(&id).await;
                 return Err("the account was removed while signing in".to_owned());
             }
-        }
-        if added {
+        };
+        if added || empty {
             self.save_listed_models(&id).await;
         }
         Ok(id)

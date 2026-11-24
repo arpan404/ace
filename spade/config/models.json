@@ -1,5 +1,5 @@
 {
-  "checked": "2026-11-13",
+  "checked": "2026-11-23",
   "local": [],
   "roles": {
     "main": "opencode-go/kimi-k3.1-pro",
@@ -111,6 +111,45 @@
       "key": { "env": "OPENAI_API_KEY" },
       "models": [
         {
+          "id": "gpt-6.2-sol",
+          "name": "GPT-6.2 Sol",
+          "context": 1050000,
+          "capabilities": ["tools", "images", "web-search"],
+          "price": {
+            "input": 2,
+            "output": 10,
+            "cache_read": 0.1,
+            "cache_write": 2.5,
+            "per_search": 0.01
+          }
+        },
+        {
+          "id": "gpt-6.2-astra",
+          "name": "GPT-6.2 Astra",
+          "context": 1050000,
+          "capabilities": ["tools", "images", "web-search"],
+          "price": {
+            "input": 8,
+            "output": 40,
+            "cache_read": 0.4,
+            "cache_write": 10,
+            "per_search": 0.01
+          }
+        },
+        {
+          "id": "gpt-6.1-terra",
+          "name": "GPT-6.1 Terra",
+          "context": 1050000,
+          "capabilities": ["tools", "images", "web-search"],
+          "price": {
+            "input": 1,
+            "output": 5,
+            "cache_read": 0.05,
+            "cache_write": 1.25,
+            "per_search": 0.01
+          }
+        },
+        {
           "id": "gpt-6.1-sol",
           "name": "GPT-6.1 Sol",
           "context": 1050000,
@@ -120,6 +159,45 @@
             "output": 10,
             "cache_read": 0.1,
             "cache_write": 2.5,
+            "per_search": 0.01
+          }
+        },
+        {
+          "id": "gpt-6-astra",
+          "name": "GPT-6 Astra",
+          "context": 1050000,
+          "capabilities": ["tools", "images", "web-search"],
+          "price": {
+            "input": 10,
+            "output": 50,
+            "cache_read": 1,
+            "cache_write": 12.5,
+            "per_search": 0.01
+          }
+        },
+        {
+          "id": "gpt-6-sol",
+          "name": "GPT-6 Sol",
+          "context": 1050000,
+          "capabilities": ["tools", "images", "web-search"],
+          "price": {
+            "input": 2,
+            "output": 10,
+            "cache_read": 0.2,
+            "cache_write": 2.5,
+            "per_search": 0.01
+          }
+        },
+        {
+          "id": "gpt-6-luna",
+          "name": "GPT-6 Luna",
+          "context": 1050000,
+          "capabilities": ["tools", "images", "web-search"],
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
             "per_search": 0.01
           }
         }
