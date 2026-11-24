@@ -80,6 +80,45 @@ pub struct Price {
     /// US dollars per web search the endpoint's own search tool makes, on top of its tokens.
     #[serde(default)]
     pub per_search: Option<f64>,
+    /// What a long prompt costs instead: over [`LongContext::above`] input tokens the whole
+    /// request is billed at these rates, as OpenAI bills prompts above 272,000 input tokens.
+    #[serde(default)]
+    pub long_context: Option<LongContext>,
+}
+
+/// A long-context request's rates, in US dollars per million tokens. Cache prices default to the
+/// long-context input price when absent.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LongContext {
+    /// Input tokens above which the whole request is billed at these rates.
+    pub above: u64,
+    pub input: f64,
+    pub output: f64,
+    #[serde(default)]
+    pub cache_read: Option<f64>,
+    #[serde(default)]
+    pub cache_write: Option<f64>,
+}
+
+impl Price {
+    /// These rates as a request of `input_tokens` is billed: more input than the long-context
+    /// threshold bills the whole request at the long-context rates, as OpenAI does above 272,000
+    /// input tokens.
+    pub fn at(&self, input_tokens: u64) -> Price {
+        match self.long_context {
+            Some(tier) if input_tokens > tier.above => Price {
+                input: tier.input,
+                output: tier.output,
+                cache_read: Some(tier.cache_read.unwrap_or(tier.input)),
+                cache_write: Some(tier.cache_write.unwrap_or(tier.input)),
+                per_call: self.per_call,
+                per_search: self.per_search,
+                long_context: self.long_context,
+            },
+            _ => *self,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -460,6 +499,20 @@ fn check_endpoint(endpoint: FileEndpoint, problems: &mut Vec<String>) -> Endpoin
                     problems.push(format!(
                         "{label}/{model_id}: prices must be zero or more dollars per million tokens"
                     ));
+                }
+                if let Some(tier) = price.long_context {
+                    let rates = [
+                        Some(tier.input),
+                        Some(tier.output),
+                        tier.cache_read,
+                        tier.cache_write,
+                    ];
+                    if tier.above == 0 || !rates.into_iter().flatten().all(valid) {
+                        problems.push(format!(
+                            "{label}/{model_id}: the long-context tier needs an input count above \
+                             zero and prices of zero or more dollars per million tokens"
+                        ));
+                    }
                 }
             }
             Model {
