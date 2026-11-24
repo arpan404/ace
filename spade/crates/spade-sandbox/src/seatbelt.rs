@@ -148,8 +148,6 @@ pub fn credentials_only(
         "deny file-read* file-write*",
         paths(secrets).iter().map(|p| subpath(p)),
     );
-    // Symlink creation receives the new link's path, without a resolved target.
-    out.push_str("(deny file-write-create (vnode-type SYMLINK))\n");
     rule(
         &mut out,
         "deny file-link file-write-create",
@@ -166,6 +164,12 @@ pub fn credentials_only(
         "/usr/bin/osascript",
         "/usr/libexec/lsd",
         "/sbin/launchd",
+        "/usr/bin/security",
+        "/usr/bin/mdfind",
+        "/usr/bin/mdls",
+        "/usr/bin/mdutil",
+        "/usr/bin/shortcuts",
+        "/usr/bin/automator",
     ];
     rule(
         &mut out,
@@ -183,6 +187,16 @@ pub fn credentials_only(
                 .to_owned(),
         ]
         .into_iter(),
+    );
+    // Leave trustd available for certificate validation. SQLite stays confined by the
+    // same file rules as any other direct reader.
+    let credential_services = "^com[.]apple[.](SecurityServer|securityd|securitydservice|secd|applekeystored|keychainsharingmessagingd|corespotlightd|security[.](agent|authhost|KeychainStasher|XPCKeychainSandboxCheck|cloudkeychainproxy3|sfkeychainserver|kcsharing)|metadata[.](mds|mdwrite))([.]|$)";
+    rule(
+        &mut out,
+        "deny mach-lookup",
+        ["global-name-regex", "local-name-regex"]
+            .into_iter()
+            .map(|filter| format!(r#"({filter} #"{credential_services}")"#)),
     );
     out.push_str("(deny appleevent-send)\n");
     out
@@ -451,7 +465,18 @@ mod tests {
                 /usr/bin/open -a TextEdit "$1" 2>/dev/null && exit 10
                 /bin/launchctl submit -l "$4" -- /usr/bin/true 2>/dev/null && exit 11
                 /usr/bin/osascript -e 'return 1' 2>/dev/null && exit 12
-                /bin/ln -s "$1" "$2/symbolic" 2>/dev/null && exit 13
+                /bin/ln -s "$1" "$6/symbolic" || exit 13
+                /bin/cat "$6/symbolic" 2>/dev/null && exit 17
+                (printf changed > "$6/symbolic") 2>/dev/null && exit 18
+                exec_denied() {
+                    message=$("$@" 2>&1)
+                    [ "$?" -eq 126 ] || return 1
+                    case "$message" in *"Operation not permitted"*) return 0;; esac
+                    return 1
+                }
+                exec_denied /usr/bin/security find-generic-password -s spade-test-fixture "$1" || exit 19
+                exec_denied /usr/bin/security dump-keychain "$1" || exit 20
+                exec_denied /usr/bin/mdfind -onlyin "$6" spade-test-fixture || exit 21
                 /bin/ln "$1" "$2/hard" 2>/dev/null && exit 14
                 /bin/cat "$5" 2>/dev/null && exit 15
                 /bin/sh -c 'printf child:' > "$6/marker" || exit 16
@@ -475,8 +500,82 @@ mod tests {
         );
         http.join().map_err(|_| "local HTTP fixture panicked")??;
         assert_eq!(run.stdout, b"child:network");
-        assert!(!allowed.join("symbolic").is_symlink());
+        assert!(workspace.join("symbolic").is_symlink());
+        assert_eq!(std::fs::read_to_string(secret)?, "dummy credential");
         assert!(!allowed.join("hard").exists());
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "Requires public HTTPS access and a local Node/npm installation"]
+    fn guarded_outside_commands_keep_tls_public_git_and_offline_npm()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use std::process::Command;
+        let root = tempfile::tempdir()?;
+        let workspace = root.path().join("workspace");
+        let project = workspace.join("app");
+        let package = workspace.join("tiny");
+        let temp = workspace.join("tmp");
+        for dir in [&project, &package, &temp] {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::write(
+            package.join("package.json"),
+            r#"{"name":"guard-fixture","version":"1.0.0","bin":{"guard-fixture":"cli.js"}}"#,
+        )?;
+        std::fs::write(package.join("cli.js"), "#!/usr/bin/env node\n")?;
+        let canonical = workspace.canonicalize()?;
+        let profile = credentials_only(&[], Some(&canonical), &[]);
+        let guarded =
+            |program: &str, args: &[&str]| -> Result<String, Box<dyn std::error::Error>> {
+                let output = Command::new(SANDBOX_EXEC)
+                    .args(["-p", &profile, program])
+                    .args(args)
+                    .env_clear()
+                    .env("HOME", &workspace)
+                    .env("TMPDIR", &temp)
+                    .env("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+                    .env("GIT_TERMINAL_PROMPT", "0")
+                    .current_dir(&project)
+                    .output()?;
+                assert!(
+                    output.status.success(),
+                    "{program} {args:?}: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                Ok(String::from_utf8(output.stdout)?)
+            };
+        assert!(
+            guarded(
+                "/usr/bin/curl",
+                &["-fsS", "--max-time", "15", "https://example.com/"]
+            )?
+            .contains("Example Domain")
+        );
+        assert!(
+            guarded(
+                "/usr/bin/git",
+                &[
+                    "-c",
+                    "http.lowSpeedLimit=1",
+                    "-c",
+                    "http.lowSpeedTime=15",
+                    "ls-remote",
+                    "https://github.com/rust-lang/rustfmt.git",
+                    "HEAD"
+                ]
+            )?
+            .contains("HEAD")
+        );
+        guarded(
+            "/bin/sh",
+            &[
+                "-c",
+                "npm init -y --offline && npm install --offline --no-audit --no-fund --ignore-scripts ../tiny",
+            ],
+        )?;
+        assert!(project.join("node_modules/.bin/guard-fixture").is_symlink());
         Ok(())
     }
 
