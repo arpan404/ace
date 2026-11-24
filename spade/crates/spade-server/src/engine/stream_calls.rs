@@ -13,10 +13,10 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use super::{Engine, calls};
-use crate::tools::{Tool, ToolOutput};
+use crate::tools::{EarlyRead, Tool, work_budget};
 
 pub(super) enum Prepared {
-    Read(Arc<dyn Tool>, ToolOutput),
+    Read(Arc<dyn Tool>, EarlyRead),
     Review(Box<Event>),
 }
 
@@ -99,7 +99,8 @@ impl Work<'_> {
     }
 
     /// Reuse a matching review or ask now. The draft carries the normal event fields before
-    /// the reviewer fills in the verdict, reason and cost.
+    /// the reviewer fills in the verdict, reason and cost. The judge already settled that cost
+    /// against the conversation. The event describes the judgment without settling it again.
     pub(super) async fn review(
         &mut self,
         engine: &Engine,
@@ -229,18 +230,22 @@ impl StreamCalls {
                 result: None,
                 review: worker_review,
             };
-            calls::handle_calls(
-                &engine,
-                &id,
-                &reply,
-                &events,
-                vec![Pending {
-                    call,
-                    status: Status::New,
-                }],
-                &mut stop,
-                &mut pause,
-                Work::Early(&mut prepared),
+            let permit = work_budget::acquire(&engine.work_budget).await?;
+            work_budget::with(
+                permit,
+                calls::handle_calls(
+                    &engine,
+                    &id,
+                    &reply,
+                    &events,
+                    vec![Pending {
+                        call,
+                        status: Status::New,
+                    }],
+                    &mut stop,
+                    &mut pause,
+                    Work::Early(&mut prepared),
+                ),
             )
             .await;
             prepared.result

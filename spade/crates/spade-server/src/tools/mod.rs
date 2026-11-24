@@ -72,7 +72,15 @@ pub use web_fetch::WebFetch;
 pub use web_search::WebSearch;
 pub use workers::with_worker_tools;
 
+pub(crate) mod work_budget;
+
 pub type ToolFuture = Pin<Box<dyn Future<Output = ToolOutput> + Send>>;
+pub type EarlyReadFuture = Pin<Box<dyn Future<Output = Option<EarlyRead>> + Send>>;
+
+pub struct EarlyRead {
+    pub output: ToolOutput,
+    pub current: Box<dyn FnOnce() -> bool + Send>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolOutput {
@@ -199,9 +207,14 @@ impl ToolOutput {
 
 pub trait Tool: Send + Sync {
     fn def(&self) -> ToolDef;
-    /// A read that can run before its step is stored. Dropping it must leave no externally
-    /// visible effects. An early error is checked again through the regular entry point.
-    fn run_early(&self, _key: &str, _arguments: Value, _facts: &TurnFacts) -> Option<ToolFuture> {
+    /// A read that can run before its step is stored. It must be safe to discard its output.
+    /// Missing or stale output goes through the regular entry point.
+    fn run_early(
+        &self,
+        _key: &str,
+        _arguments: Value,
+        _facts: &TurnFacts,
+    ) -> Option<EarlyReadFuture> {
         None
     }
     /// Runs one call. `key` is unique across conversations and the same for this call across

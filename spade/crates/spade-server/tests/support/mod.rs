@@ -199,8 +199,16 @@ impl Tool for FakeTool {
         key: &str,
         arguments: Value,
         facts: &spade_server::tools::TurnFacts,
-    ) -> Option<spade_server::tools::ToolFuture> {
-        self.early_read.then(|| self.run_in(key, arguments, facts))
+    ) -> Option<spade_server::tools::EarlyReadFuture> {
+        self.early_read.then(|| {
+            let read = self.run_in(key, arguments, facts);
+            Box::pin(async move {
+                Some(spade_server::tools::EarlyRead {
+                    output: read.await,
+                    current: Box::new(|| true),
+                })
+            }) as spade_server::tools::EarlyReadFuture
+        })
     }
 
     fn def(&self) -> ToolDef {

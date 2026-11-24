@@ -870,14 +870,14 @@ pub(super) async fn handle_calls(
                             && Arc::ptr_eq(&core, &tool)
                             && !*stop.borrow()
                             && let Some(read) = tool.run_early(&key, arguments, &facts)
-                        {
-                            let read = crate::tools::marked(tool.as_ref(), read);
-                            if let Ok(output) =
+                            && let Ok(Some(mut read)) =
                                 tokio::time::timeout(engine.limits.foreground, read).await
-                                && !output.is_error
-                            {
-                                prepared.result = Some(Prepared::Read(tool, output));
+                            && !read.output.is_error
+                        {
+                            if def.untrusted_output {
+                                read.output = read.output.untrusted();
                             }
+                            prepared.result = Some(Prepared::Read(tool, read));
                         }
                         return Handled::Continue;
                     }

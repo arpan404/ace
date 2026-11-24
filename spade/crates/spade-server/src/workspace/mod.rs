@@ -8,6 +8,7 @@
 //! place, and a file with more than one hard link is never written.
 
 mod ambient;
+mod early_read;
 mod edits;
 mod files;
 mod identity;
@@ -125,6 +126,8 @@ pub struct Workspaces {
     /// files (ADR 0143), so neither lands between the other's check and its write.
     mutations: Locks,
     hook: std::sync::Arc<std::sync::Mutex<Hook>>,
+    #[cfg(feature = "test-hooks")]
+    early_read_hook: std::sync::Arc<std::sync::Mutex<Hook>>,
 }
 
 impl Workspaces {
@@ -134,6 +137,8 @@ impl Workspaces {
             trust_lock: std::sync::Arc::default(),
             mutations: Locks::default(),
             hook: std::sync::Arc::default(),
+            #[cfg(feature = "test-hooks")]
+            early_read_hook: std::sync::Arc::default(),
         }
     }
 
@@ -143,6 +148,15 @@ impl Workspaces {
     pub fn before_bot_commit(&self, hook: impl Fn(&str) + Send + Sync + 'static) {
         *self.hook.lock().unwrap_or_else(|p| p.into_inner()) =
             Hook(Some(std::sync::Arc::new(hook)));
+    }
+
+    /// Runs after an early read samples the file and trust, on the blocking worker.
+    #[cfg(feature = "test-hooks")]
+    pub fn after_early_read(&self, hook: impl Fn(&str) + Send + Sync + 'static) {
+        *self
+            .early_read_hook
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Hook(Some(std::sync::Arc::new(hook)));
     }
 
     /// The bot's workspace. Its folder is created on first use; `bot` must be an id Spade made.
@@ -165,6 +179,12 @@ impl Workspaces {
             root: self.root.clone(),
             mutation,
             hook: self.hook.lock().unwrap_or_else(|p| p.into_inner()).clone(),
+            #[cfg(feature = "test-hooks")]
+            early_read_hook: self
+                .early_read_hook
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone(),
             bot: bot.to_owned(),
             create: true,
             trust: Trust::new(
@@ -215,6 +235,8 @@ pub struct Workspace {
     /// This bot's lock for changing its files (see [`Workspaces`]).
     mutation: std::sync::Arc<std::sync::Mutex<()>>,
     hook: Hook,
+    #[cfg(feature = "test-hooks")]
+    early_read_hook: Hook,
     bot: String,
     create: bool,
     trust: Trust,

@@ -215,6 +215,7 @@ pub struct Engine {
     /// each model step of theirs.
     episodes_owed: Mutex<std::collections::HashSet<String>>,
     limits: Limits,
+    work_budget: Arc<tokio::sync::Semaphore>,
     skills: Option<Arc<dyn SkillLibrary>>,
     images: ImageStore,
     /// Image reads, uploads and an arrival's placing and undoing, by hash (ADR 0187).
@@ -436,6 +437,9 @@ impl Engine {
             clock: setup.clock,
             ids: setup.ids,
             episodes_owed: Mutex::default(),
+            work_budget: Arc::new(tokio::sync::Semaphore::new(
+                setup.limits.max_parallel_tools.max(1),
+            )),
             limits: setup.limits,
             skills: setup.skills,
             images: setup.images,

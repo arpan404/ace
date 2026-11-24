@@ -86,9 +86,22 @@ pub(super) fn open_regular(
         use cap_std::fs::OpenOptionsExt;
         options.custom_flags(NONBLOCK);
     }
-    let file = at
-        .open_with(path, &options)
-        .map_err(|error| PathError::at(relative, error))?;
+    #[cfg(target_os = "linux")]
+    let opened = {
+        use cap_std::fs::OpenOptionsExt;
+        const NOATIME: i32 = 0o1000000;
+        options.custom_flags(NONBLOCK | NOATIME);
+        match at.open_with(path, &options) {
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                options.custom_flags(NONBLOCK);
+                at.open_with(path, &options)
+            }
+            other => other,
+        }
+    };
+    #[cfg(not(target_os = "linux"))]
+    let opened = at.open_with(path, &options);
+    let file = opened.map_err(|error| PathError::at(relative, error))?;
     let kind = file.metadata()?.file_type();
     if kind.is_dir() {
         return Err(PathError::Io(format!(

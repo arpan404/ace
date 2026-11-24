@@ -62,29 +62,32 @@ builds with budgets and caps, are read as raw data and fold to nothing ([ADR 016
   usually are). No call is timed out by the harness: one still running after the
   foreground window (`Limits.foreground`, 30 s) carries on as a background job with the same run,
   its call answered with the job id, and the turn goes on ([ADR 0158](../../docs/adr/0158-spade-no-fixed-step-or-time-limits.md)). A declined call returns "The person declined this action."
-- **While the step streams**, an explicit provider call boundary lets Spade start the gate up to
-  the step's parallel tool limit. OpenAI Responses closes each output item, Anthropic closes each
-  tool block, and Chat Completions closes its list of calls with the tool-call finish reason.
-  Spade reserves conversation-unique ids before this work starts. The final provider call list
-  still supplies the order and arguments for `step_finished`. Only exact matches can bring
-  work forward. The regular gate still runs from the stored step and current settings.
-- A built-in local read can run early when its implementation allows its output to be discarded
-  without leaving effects. Workspace list, find, and text or image reads can use an existing
-  workspace this way. An eligible model review can start early too. Its judgment holds
-  only if the gate still asks the same reviewer the same question, with the same launch and
-  binding. Results and verdicts are held in memory until the step is stored. Approvals, questions,
-  and effectful calls, including sandboxed commands, all follow the stored step. Spade also
-  waits for the stored step for bots with plugin pre-tool hooks or local plugin servers, when
-  an app's pins need seeding, and for packaged or shared bots. Classification that
-  can stage files or set up a workspace waits as well. Providers without explicit call
-  boundaries supply their calls at the end.
-- Stop, a cut stream, an immediate pause, or a crash discards early reads and judgments for an
-  unstored step. The log contains no tool start to recover for them. Spade estimates usage when
-  it cancels a review request in flight. After streaming starts, a failure never triggers an
-  automatic resend. A planned pause can still resume a cut step under the pause rules below.
-  Recovery uses the log. An unstarted stored call goes through the gate when the turn resumes,
-  a stored review can be reused, and a stored start without a result follows the existing
-  unknown-outcome rules.
+- **While the step streams**, Anthropic closes each tool block, and Chat Completions closes
+  its calls with the tool-call finish reason. OpenAI Responses holds its item boundaries until a
+  real terminal event. A clean EOF without that event still uses the SDK's final reply and skips
+  early gating. Spade assigns conversation-unique ids before early work. The final provider
+  call list supplies the order and arguments for `step_finished`. The ordinary gate runs on
+  the stored step with current settings and can reuse early work only for an exact call match.
+- A workspace text or image read can start early in an existing workspace. Before using its
+  output, Spade checks the file's identity, size and modification time, and checks its trust
+  record again. Any change triggers a fresh read. Listings, searches and document reads wait
+  for storage. File opens use `O_NOATIME` on Linux where allowed. On macOS and where the flag
+  is unavailable, an ordinary read may update access time. Early and ordinary foreground work
+  share the same tool concurrency limit. Blocking file work keeps its slot until it exits,
+  even if Stop or a timeout cancels the caller.
+- An eligible early review sends the call and context to the person's configured review model
+  before the step is stored. Spade records spend against the conversation even if the step is
+  never stored. Each request settles once. Reusing its verdict adds no ledger entry, and a
+  cancelled request that may have been billed gets an estimate. The verdict stays in memory
+  until the stored gate asks the same question with the same reviewer, launch and binding.
+- Approvals, questions and effectful calls follow the stored step. Bots with plugin pre-tool
+  hooks or local plugin servers, packaged or shared bots, and app calls that need pins seeded
+  also wait. Stop, a cut stream, an immediate pause, or a crash discards early read results and
+  review verdicts for an unstored step. It leaves no call or approval event to recover. After
+  streaming starts, a failure never triggers an automatic resend. A planned pause can still
+  resume a cut step under the pause rules below. Recovery uses the log. An unstarted stored call
+  goes through the gate when the turn resumes, a stored review can be reused, and a stored start
+  without a result follows the existing unknown-outcome rules.
 - **Steering:** a message sent mid-turn is stored at once and the next model call sees it, placed
   after any running tools' results, and after the step it arrived during. A turn finishes only if
   nothing arrived after its last step's prompt was built (`seen`), checked under the same lock that

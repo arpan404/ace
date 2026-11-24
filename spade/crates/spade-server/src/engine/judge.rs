@@ -14,7 +14,7 @@ use spade_models::Prompt;
 use tokio::sync::watch;
 
 use super::Engine;
-use super::ledger::{likely_usage, prompt_tokens};
+use super::ledger::{Admission, likely_usage, prompt_tokens};
 
 /// What asking the reviewer came to, with what every try cost.
 pub(super) enum Judged<T> {
@@ -27,21 +27,18 @@ pub(super) enum Judged<T> {
 
 /// Dropping a speculative review can cut a request the provider has already billed.
 struct InFlight<'a> {
-    engine: &'a Arc<Engine>,
-    id: &'a str,
-    model: &'a str,
+    admission: Option<Admission>,
     prompt: &'a Prompt,
-    cancelled: bool,
 }
 
 impl Drop for InFlight<'_> {
     fn drop(&mut self) {
-        if self.cancelled {
-            let estimate = likely_usage(prompt_tokens(self.prompt), Default::default(), 0);
-            self.engine
-                .admit(self.id, self.model)
-                .for_role(Role::Review)
-                .settle(&estimate);
+        if let Some(admission) = self.admission.take() {
+            admission.settle(&likely_usage(
+                prompt_tokens(self.prompt),
+                Default::default(),
+                0,
+            ));
         }
     }
 }
@@ -55,6 +52,13 @@ pub(super) async fn judge<T: JsonSchema + DeserializeOwned>(
     timeout: Duration,
     stop: &mut watch::Receiver<bool>,
 ) -> Judged<T> {
+    let Some(_permit) = (tokio::select! {
+        biased;
+        _ = stop.wait_for(|stopped| *stopped) => return Judged::Stopped,
+        permit = crate::tools::work_budget::acquire(&engine.work_budget) => permit,
+    }) else {
+        return Judged::Stopped;
+    };
     let deadline = tokio::time::Instant::now() + timeout;
     // A call cut off before its usage came is still paid for: at least its prompt.
     let estimate = || likely_usage(prompt_tokens(prompt), Default::default(), 0);
@@ -62,23 +66,28 @@ pub(super) async fn judge<T: JsonSchema + DeserializeOwned>(
     let mut tries = 0;
     loop {
         tries += 1;
-        let admitted = engine.admit(id, model).for_role(Role::Review);
         let mut in_flight = InFlight {
-            engine,
-            id,
-            model,
+            admission: None,
             prompt,
-            cancelled: true,
+        };
+        let request = async {
+            in_flight.admission = Some(engine.admit(id, model).for_role(Role::Review));
+            engine.models.generate::<T>(model, prompt).await
         };
         let asked = tokio::select! {
             biased;
             _ = stop.wait_for(|stopped| *stopped) => None,
             answer = tokio::time::timeout_at(
                 deadline,
-                engine.models.generate::<T>(model, prompt),
+                request,
             ) => Some(answer),
         };
-        in_flight.cancelled = false;
+        let Some(admitted) = in_flight.admission.take() else {
+            return match asked {
+                None => Judged::Stopped,
+                _ => Judged::TimedOut(cost),
+            };
+        };
         let error = match asked {
             None => {
                 admitted.settle(&estimate());

@@ -4,6 +4,7 @@
 //! and works only in that bot's folder.
 
 use std::sync::Arc;
+
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -14,7 +15,7 @@ use spade_models::ToolSpec;
 use super::shell::Shell;
 use super::shell_tool::ShellTool;
 use super::{PathError, Workspace, Workspaces};
-use crate::tools::{EngineHandle, Tool, ToolFuture, ToolOutput, TurnFacts, parse};
+use crate::tools::{EarlyReadFuture, EngineHandle, Tool, ToolFuture, ToolOutput, TurnFacts, parse};
 
 /// The shell's deadline when the model names none. The model may name any longer one (ADR
 /// 0158); a command still running after the engine's foreground window moves to the background
@@ -165,7 +166,7 @@ fn blocking(
             Ok(workspace) => workspace,
             Err(output) => return output,
         };
-        tokio::task::spawn_blocking(move || work(workspace))
+        crate::tools::work_budget::blocking(move || work(workspace))
             .await
             .unwrap_or_else(|_| Err(PathError::Io("the file work stopped".to_owned())))
             .unwrap_or_else(|error| ToolOutput::error(error.to_string()))
@@ -205,10 +206,6 @@ impl Tool for WorkspaceList {
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
         self.read(self.0.workspace(key), arguments)
-    }
-
-    fn run_early(&self, key: &str, arguments: Value, _facts: &TurnFacts) -> Option<ToolFuture> {
-        Some(self.read(self.0.workspace(key).map(Workspace::existing), arguments))
     }
 }
 
@@ -278,25 +275,34 @@ impl Tool for WorkspaceRead {
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
-        self.read(self.0.workspace(key), arguments, true)
+        self.read(self.0.workspace(key), arguments)
     }
 
-    fn run_early(&self, key: &str, arguments: Value, _facts: &TurnFacts) -> Option<ToolFuture> {
-        Some(self.read(
-            self.0.workspace(key).map(Workspace::existing),
-            arguments,
-            false,
-        ))
+    fn run_early(
+        &self,
+        key: &str,
+        arguments: Value,
+        _facts: &TurnFacts,
+    ) -> Option<EarlyReadFuture> {
+        let workspace = self.0.workspace(key).ok()?.existing();
+        let args: ReadArgs = parse(arguments).ok()?;
+        Some(Box::pin(async move {
+            crate::tools::work_budget::blocking(move || {
+                super::early_read::sample(
+                    workspace,
+                    &args.path,
+                    args.offset.unwrap_or(1),
+                    args.limit.unwrap_or(super::files::READ_LINES),
+                )
+            })
+            .await
+            .ok()?
+        }))
     }
 }
 
 impl WorkspaceRead {
-    fn read(
-        &self,
-        workspace: Result<Workspace, ToolOutput>,
-        arguments: Value,
-        documents: bool,
-    ) -> ToolFuture {
+    fn read(&self, workspace: Result<Workspace, ToolOutput>, arguments: Value) -> ToolFuture {
         let args: ReadArgs = match parse(arguments) {
             Ok(args) => args,
             Err(output) => return Box::pin(async move { output }),
@@ -308,16 +314,11 @@ impl WorkspaceRead {
                 Err(output) => return output,
             };
             let path = args.path.clone();
-            let read = tokio::task::spawn_blocking(move || {
+            let read = crate::tools::work_budget::blocking(move || {
                 let path = workspace.normal(&path)?;
                 let read = match super::reading::shape(&workspace.head(&path)?) {
                     super::reading::Shape::Image => {
                         Read::Image(workspace.bytes_up_to(&path, super::reading::LARGEST_IMAGE)?)
-                    }
-                    super::reading::Shape::Document if !documents => {
-                        return Err(PathError::Io(
-                            "Document reading waits for the stored step.".to_owned(),
-                        ));
                     }
                     super::reading::Shape::Document => Read::Document(
                         workspace.bytes_up_to(&path, super::reading::LARGEST_DOCUMENT)?,
@@ -453,10 +454,6 @@ impl Tool for WorkspaceFind {
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
         self.read(self.0.workspace(key), arguments)
-    }
-
-    fn run_early(&self, key: &str, arguments: Value, _facts: &TurnFacts) -> Option<ToolFuture> {
-        Some(self.read(self.0.workspace(key).map(Workspace::existing), arguments))
     }
 }
 
