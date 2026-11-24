@@ -251,8 +251,8 @@ Spade wrote there. The engine passes each call what the turn has read (`TurnFact
   path. `workspace_edit` records the new hash only from a clean prompt and only when the file was
   trusted before (its old hash matched); otherwise it removes the path.
 - Nothing else ever adds to the record: not the shell, not kept outputs, not saved `web_fetch`
-  pages (`web/<host>-<short-hash>.md`, which also remove any prior trust record at that path), not
-  the API.
+  snapshots (`web/<host>-<url-hash>-<content-hash>.md`, created without overwriting existing
+  non-fetch files and never marked trusted), not the API.
 - A file is trusted when its path is recorded with its current content's hash and it is a regular
   file reached through real folders only (no link on the way, not a link itself).
 - `workspace_read` of a file that isn't trusted, `workspace_list` of a folder unless every entry
