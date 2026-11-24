@@ -258,7 +258,7 @@ async fn a_helper_of_mains_moved_work_asks_in_main_and_reports_to_the_lane() -> 
             vec![Script::failing(500)],
         ),
         Route::when(
-            "You are a helper Spade started",
+            spade_core::helper::RULES,
             vec![
                 Script::reply("")
                     .call("n1", "send_note", json!({ "to": "Sam" }))

@@ -908,7 +908,7 @@ async fn a_plugin_agent_is_a_helper_profile_of_the_bots_allowed_it_until_the_plu
         .seen()
         .into_iter()
         .map(|seen| seen.body)
-        .find(|body| body.to_string().contains("You are a helper Spade started"))
+        .find(|body| body.to_string().contains(spade_core::helper::RULES))
         .ok_or("the helper made no request")?;
     // Its profile's instructions are in its system prompt, after Spade's rules: the offered list
     // is its bot's, and the profile narrows what it may run.
