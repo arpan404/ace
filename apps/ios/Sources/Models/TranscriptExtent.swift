@@ -146,15 +146,8 @@ struct BlockSeqSpan: Decodable, Equatable, Sendable {
         (before > 0 && top < before) || (after > 0 && bottom < after)
     }
 
-    /// How far a fling released at `velocity` points a second travels before it rests, at
-    /// UIKit's normal deceleration (0.998 of the speed kept each millisecond).
-    static func flingReach(velocity: Double) -> Double {
-        let kept = 0.998
-        return abs(velocity) / 1000 * kept / (1 - kept)
-    }
-
     /// The page to ask for now, if any. `flingReach` is how far the reader's fling still
-    /// carries (`flingReach(velocity:)`): a fast fling asks while the loaded edge is still
+    /// carries (`TranscriptFlingReach.remaining`): a fast fling asks while the loaded edge is still
     /// screens away, so the page is in flight before the fling reaches the spacer past it.
     ///
     /// A screen reaching into retained space pages toward that space whatever the last movement

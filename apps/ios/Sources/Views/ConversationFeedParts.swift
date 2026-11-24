@@ -37,10 +37,11 @@ enum TranscriptEnd {
     var appendedRevision: Int?
     /// A page can rearm the current gesture once scroll geometry reports further upward motion.
     var rearmAfterAppend = false
-    /// How far the reader's fling carries from its release (`TranscriptExtent.flingReach`); 0
-    /// with no fling running.
-    var flingReach = 0.0
-    func begin() { active = true; consumed = false; rearmAfterAppend = false; flingReach = 0 }
+    /// Where the reader's fling rests, from its release; nil with no fling running.
+    var fling: TranscriptFlingReach?
+    /// How far the fling still carries from where the scroll is now.
+    var flingReach: Double { fling?.remaining(at: -Double(metrics.y)) ?? 0 }
+    func begin() { active = true; consumed = false; rearmAfterAppend = false; fling = nil }
 }
 
 /// While the keyboard is up, a tap on the conversation only puts it away: the tap takes priority
