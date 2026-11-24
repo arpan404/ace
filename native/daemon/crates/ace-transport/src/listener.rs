@@ -4,16 +4,17 @@
 //! idle connections at once, and lets in-flight work finish until its deadline
 //! before dropping the rest.
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::net::TcpListener;
-use tokio::sync::Semaphore;
+use tokio::sync::{Semaphore, oneshot};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 
-use crate::driver::{self, UpgradeHandler};
+use crate::driver::{self, Grace, UpgradeHandler};
 use crate::error::TransportError;
 use crate::peer::Peer;
 use crate::proxy::{ProxyTarget, is_localhost};
@@ -34,6 +35,8 @@ pub const DEFAULT_MAX_TCP_CONNECTIONS: usize = 1024;
 pub struct LoopbackListener {
     local: SocketAddr,
     shutdown: CancellationToken,
+    /// The close deadline, handed to the accept loop as it starts draining.
+    deadline: oneshot::Sender<Duration>,
     accept: JoinHandle<()>,
 }
 
@@ -72,16 +75,19 @@ impl LoopbackListener {
             .local_addr()
             .map_err(|source| TransportError::Bind { addr, source })?;
         let shutdown = CancellationToken::new();
+        let (deadline, closing_deadline) = oneshot::channel();
         let accept = tokio::spawn(accept_connections(
             listener,
             target,
             upgrades,
             shutdown.clone(),
             Arc::new(Semaphore::new(max_tcp_connections)),
+            closing_deadline,
         ));
         Ok(Self {
             local,
             shutdown,
+            deadline,
             accept,
         })
     }
@@ -93,22 +99,33 @@ impl LoopbackListener {
     }
 
     /// Stop accepting, tell every connection and upgrade handler the listener is
-    /// closing, and let what is in flight finish until `deadline`; then drop the
-    /// rest.
+    /// closing, and let what is in flight finish until `deadline`. At the
+    /// deadline the accept loop cancels every connection whose upgrade has not
+    /// reached `Writing`; a connection writing its `101` is waited for, bounded
+    /// only by the stream's write timeout (T1a.2's `TimedIo`), so a deadline
+    /// never splits a `101` from the socket it registers.
     ///
-    /// T1a.2 has no upgrade state machine, so a connection is simply dropped at
-    /// the deadline. T1a.5 keeps a connection whose upgrade is in `Writing`.
+    /// The loop settles every connection it cancels: an upgrade still deciding is
+    /// abandoned, and one that was accepted releases its reservation.
     pub async fn close(mut self, deadline: Duration) {
+        // The deadline reaches the accept loop before the stop does, so it
+        // always has the window to drain with.
+        let _ = self.deadline.send(deadline);
         self.shutdown.cancel();
-        if tokio::time::timeout(deadline, &mut self.accept)
-            .await
-            .is_err()
-        {
-            // Dropping the accept task drops its set of connection tasks, which
-            // closes their streams.
-            self.accept.abort();
-        }
+        let _ = (&mut self.accept).await;
     }
+}
+
+/// One connection's close-deadline state: the token that cancels it, and the
+/// guard its upgrade arms when it starts writing its `101`.
+#[derive(Clone)]
+struct Connection {
+    cancel: CancellationToken,
+    grace: Grace,
+}
+
+fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poison| poison.into_inner())
 }
 
 async fn accept_connections(
@@ -117,8 +134,11 @@ async fn accept_connections(
     upgrades: Arc<dyn UpgradeHandler>,
     shutdown: CancellationToken,
     permits: Arc<Semaphore>,
+    closing_deadline: oneshot::Receiver<Duration>,
 ) {
-    let mut connections = JoinSet::new();
+    let connections = Arc::new(Mutex::new(HashMap::<u64, Connection>::new()));
+    let mut tasks = JoinSet::new();
+    let mut next = 0u64;
     loop {
         tokio::select! {
             _ = shutdown.cancelled() => break,
@@ -140,29 +160,73 @@ async fn accept_connections(
                     let connection_target = target.clone();
                     let connection_upgrades = Arc::clone(&upgrades);
                     let connection_shutdown = shutdown.clone();
-                    connections.spawn(async move {
+                    let cancel = CancellationToken::new();
+                    let grace = Grace::new();
+                    let id = next;
+                    next += 1;
+                    locked(&connections).insert(
+                        id,
+                        Connection {
+                            cancel: cancel.clone(),
+                            grace: grace.clone(),
+                        },
+                    );
+                    let registry = Arc::clone(&connections);
+                    tasks.spawn(async move {
                         // Held for the connection's whole life; released with it.
                         let _permit = permit;
-                        driver::serve(
-                            stream,
-                            peer,
-                            connection_target,
-                            connection_upgrades,
-                            connection_shutdown,
-                        )
-                        .await;
+                        tokio::select! {
+                            biased;
+                            // The close deadline reached a connection that was
+                            // not writing: its stream is dropped here.
+                            _ = cancel.cancelled() => {}
+                            () = driver::serve(
+                                stream,
+                                peer,
+                                connection_target,
+                                connection_upgrades,
+                                connection_shutdown,
+                                grace,
+                            ) => {}
+                        }
+                        locked(&registry).remove(&id);
                     });
                 }
                 Err(_) => tokio::time::sleep(ACCEPT_RETRY).await,
             },
-            joined = connections.join_next(), if !connections.is_empty() => {
+            joined = tasks.join_next(), if !tasks.is_empty() => {
                 drop(joined);
             }
         }
     }
     // Stop accepting before waiting for what is in flight.
     drop(listener);
-    while connections.join_next().await.is_some() {}
+    let deadline = closing_deadline.await.unwrap_or(Duration::ZERO);
+    deadline_drain(&mut tasks, &connections, deadline).await;
+}
+
+/// Waits for the connection set until `deadline`; then cancels every connection
+/// whose upgrade has not armed its grace, and waits for the rest. An armed
+/// connection is writing its `101`, whose only bound is the stream's write
+/// timeout.
+async fn deadline_drain(
+    tasks: &mut JoinSet<()>,
+    connections: &Mutex<HashMap<u64, Connection>>,
+    deadline: Duration,
+) {
+    if tokio::time::timeout(deadline, async {
+        while tasks.join_next().await.is_some() {}
+    })
+    .await
+    .is_ok()
+    {
+        return;
+    }
+    let open: Vec<Connection> = locked(connections).values().cloned().collect();
+    for connection in open {
+        connection.grace.cancel(&connection.cancel);
+    }
+    while tasks.join_next().await.is_some() {}
 }
 
 #[cfg(test)]

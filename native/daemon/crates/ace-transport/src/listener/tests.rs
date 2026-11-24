@@ -440,3 +440,5 @@ async fn close_stops_accepting_and_drops_a_connection_that_sent_nothing() {
         "the listener no longer accepts"
     );
 }
+
+mod deadline;

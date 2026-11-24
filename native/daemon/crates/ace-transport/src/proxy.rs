@@ -35,7 +35,7 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use crate::driver::{UpgradeHandler, UpgradeIo, UpgradeReply};
+use crate::driver::{Grace, UpgradeHandler, UpgradeIo, UpgradeReply};
 use crate::error::TransportError;
 use crate::head::{self, RequestHead};
 use crate::hop::{self, HopSecret};
@@ -382,13 +382,22 @@ impl<B: Body<Data = Bytes>> Drop for TrackedBody<B> {
     }
 }
 
+/// What a connection's close needs: the listener's stop signal and the close
+/// deadline's per-connection guard, which the upgrade arms when it writes its
+/// `101`.
+#[derive(Clone)]
+pub struct Stop {
+    pub shutdown: CancellationToken,
+    pub grace: Grace,
+}
+
 /// Everything one exchange needs, cloned per request.
 #[derive(Clone)]
 struct Exchange {
     target: ProxyTarget,
     upgrades: Arc<dyn UpgradeHandler>,
     peer: Peer,
-    shutdown: CancellationToken,
+    stop: Stop,
     activity: Arc<RequestActivity>,
     deadlines: Arc<ExchangeDeadline>,
     /// The first request head's target, exactly as the driver read it. hyper's
@@ -408,7 +417,7 @@ impl ProxyService {
         target: ProxyTarget,
         upgrades: Arc<dyn UpgradeHandler>,
         peer: Peer,
-        shutdown: CancellationToken,
+        stop: Stop,
         activity: Arc<RequestActivity>,
         deadlines: Arc<ExchangeDeadline>,
         first_target: Option<String>,
@@ -418,7 +427,7 @@ impl ProxyService {
                 target,
                 upgrades,
                 peer,
-                shutdown,
+                stop,
                 activity,
                 deadlines,
                 first_target: Arc::new(Mutex::new(first_target)),
@@ -458,7 +467,12 @@ async fn upgrade(
 ) -> Result<Response<HopBody>, ProxyError> {
     let reply = exchange
         .upgrades
-        .upgrade_hyper(head, exchange.peer, exchange.shutdown.clone())
+        .upgrade_hyper(
+            head,
+            exchange.peer,
+            exchange.stop.shutdown.clone(),
+            exchange.stop.grace.clone(),
+        )
         .await;
     match reply {
         // hyper ends the connection with no response when the service fails.

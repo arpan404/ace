@@ -10,13 +10,14 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex as StdMutex};
+use std::time::Duration;
 
 use bytes::Bytes;
 use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
 
-use crate::driver::UpgradeIo;
+use crate::driver::{Grace, UpgradeIo};
 use crate::head::{self, Parsed};
 use crate::peer::Peer;
 use crate::prefixed::{Prefixed, WRITE_TIMEOUT};
@@ -185,6 +186,7 @@ fn the_request_keeps_the_raw_target_and_node_header_values() {
 struct StubAdmission {
     outcome: StdMutex<Option<AdmissionOutcome>>,
     requests: StdMutex<Vec<UpgradeRequest>>,
+    writing: StdMutex<Vec<u64>>,
     released: StdMutex<Vec<u64>>,
 }
 
@@ -193,6 +195,17 @@ impl StubAdmission {
         Self {
             outcome: StdMutex::new(Some(outcome)),
             requests: StdMutex::new(Vec::new()),
+            writing: StdMutex::new(Vec::new()),
+            released: StdMutex::new(Vec::new()),
+        }
+    }
+
+    /// A decision that never arrives, as a client that went away finds it.
+    fn never() -> Self {
+        Self {
+            outcome: StdMutex::new(None),
+            requests: StdMutex::new(Vec::new()),
+            writing: StdMutex::new(Vec::new()),
             released: StdMutex::new(Vec::new()),
         }
     }
@@ -204,13 +217,18 @@ impl UpgradeAdmission for StubAdmission {
         request: UpgradeRequest,
     ) -> Pin<Box<dyn Future<Output = AdmissionOutcome> + Send>> {
         self.requests.lock().expect("the stub's lock").push(request);
-        let outcome = self
-            .outcome
+        match self.outcome.lock().expect("the stub's lock").take() {
+            Some(outcome) => Box::pin(async move { outcome }),
+            None => Box::pin(std::future::pending()),
+        }
+    }
+
+    fn writing(&self, reservation: u64) -> bool {
+        self.writing
             .lock()
             .expect("the stub's lock")
-            .take()
-            .unwrap_or(AdmissionOutcome::TimedOut);
-        Box::pin(async move { outcome })
+            .push(reservation);
+        true
     }
 
     fn release(&self, reservation: u64) {
@@ -239,7 +257,7 @@ async fn raw(
     request: &str,
     outcome: AdmissionOutcome,
     closing: bool,
-) -> (Vec<u8>, Vec<u64>, Vec<(u64, Option<String>)>) {
+) -> (Vec<u8>, Vec<u64>, Vec<u64>, Vec<(u64, Option<String>)>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("a listener");
     let address = listener.local_addr().expect("the listener's address");
     let mut client = TcpStream::connect(address).await.expect("a client");
@@ -258,13 +276,15 @@ async fn raw(
             Prefixed::new(Bytes::new(), server, WRITE_TIMEOUT),
             peer,
             shutdown,
+            Grace::new(),
         )
         .await;
     let mut written = Vec::new();
     client.read_to_end(&mut written).await.expect("the answer");
+    let writing = admission.writing.lock().expect("the stub's lock").clone();
     let released = admission.released.lock().expect("the stub's lock").clone();
     let opened = sink.0.lock().expect("the sink's lock").clone();
-    (written, released, opened)
+    (written, writing, released, opened)
 }
 
 fn valid(method: &str) -> String {
@@ -280,12 +300,13 @@ async fn a_raw_upgrade_answers_in_ws_bytes_and_releases_only_on_refusal() {
     );
 
     let accepted = AdmissionOutcome::Decided(AdmissionDecision::Accept { reservation: 7 });
-    let (written, released, opened) = raw(&valid("GET"), accepted, false).await;
+    let (written, writing, released, opened) = raw(&valid("GET"), accepted, false).await;
     assert_eq!(written, accept.as_bytes());
+    assert_eq!(writing, vec![7], "the 101 is written past every deadline");
     assert!(released.is_empty());
     assert_eq!(opened, vec![(7, Some("probe".to_owned()))]);
 
-    let (written, _, opened) = raw(
+    let (written, _, _, opened) = raw(
         &valid("GET"),
         AdmissionOutcome::Decided(AdmissionDecision::Drop),
         false,
@@ -294,7 +315,7 @@ async fn a_raw_upgrade_answers_in_ws_bytes_and_releases_only_on_refusal() {
     assert!(written.is_empty(), "a drop writes nothing");
     assert!(opened.is_empty());
 
-    let (written, released, _) = raw(
+    let (written, _, released, _) = raw(
         &valid("GET"),
         AdmissionOutcome::Decided(AdmissionDecision::Forbidden),
         false,
@@ -307,24 +328,112 @@ async fn a_raw_upgrade_answers_in_ws_bytes_and_releases_only_on_refusal() {
         AdmissionOutcome::Decided(AdmissionDecision::Unavailable),
         AdmissionOutcome::TimedOut,
     ] {
-        let (written, released, _) = raw(&valid("GET"), outcome, false).await;
+        let (written, _, released, _) = raw(&valid("GET"), outcome, false).await;
         assert_eq!(written, UNAVAILABLE);
         assert!(released.is_empty());
     }
 
-    let (written, released, opened) = raw(&valid("POST"), accepted, false).await;
+    let (written, writing, released, opened) = raw(&valid("POST"), accepted, false).await;
     assert_eq!(written, Refusal::INVALID_METHOD.bytes());
+    assert!(
+        writing.is_empty(),
+        "a failed check never reaches the 101, so nothing is writing"
+    );
     assert_eq!(released, vec![7]);
     assert!(opened.is_empty());
 
     let missing_key = "GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\n\r\n";
-    let (written, released, opened) = raw(missing_key, accepted, false).await;
+    let (written, writing, released, opened) = raw(missing_key, accepted, false).await;
     assert_eq!(written, Refusal::INVALID_KEY.bytes());
+    assert!(writing.is_empty());
     assert_eq!(released, vec![7]);
     assert!(opened.is_empty());
 
-    let (written, released, opened) = raw(&valid("GET"), accepted, true).await;
+    let (written, writing, released, opened) = raw(&valid("GET"), accepted, true).await;
     assert_eq!(written, Refusal::CLOSING.bytes());
+    assert!(writing.is_empty(), "a closing listener writes no 101");
     assert_eq!(released, vec![7]);
     assert!(opened.is_empty());
+}
+
+#[tokio::test]
+async fn a_client_with_bytes_waiting_is_not_mistaken_for_one_that_left() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("a listener");
+    let address = listener.local_addr().expect("the listener's address");
+    let mut client = TcpStream::connect(address).await.expect("a client");
+    let (server, _) = listener.accept().await.expect("the connection");
+    let peer = Peer::of(&server).expect("the socket's addresses");
+    let admission = Arc::new(StubAdmission::never());
+    let sink = Arc::new(RecordingSink::default());
+    let upgrades = WebSocketUpgrades::new(admission.clone(), sink.clone());
+
+    let upgrade = upgrades.upgrade_raw(
+        head(&valid("GET")),
+        Prefixed::new(Bytes::new(), server, WRITE_TIMEOUT),
+        peer,
+        CancellationToken::new(),
+        Grace::new(),
+    );
+    tokio::pin!(upgrade);
+    // Bytes the client sent before its `101`: a client that is there, not gone.
+    client
+        .write_all(b"x")
+        .await
+        .expect("the client sends a byte");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(150), &mut upgrade)
+            .await
+            .is_err(),
+        "a client with bytes waiting is waited for, not abandoned"
+    );
+    assert!(
+        admission
+            .released
+            .lock()
+            .expect("the stub's lock")
+            .is_empty(),
+        "nothing was reserved, so nothing is released"
+    );
+    assert!(sink.0.lock().expect("the sink's lock").is_empty());
+}
+
+#[tokio::test]
+async fn a_client_that_leaves_while_its_decision_is_pending_is_abandoned() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("a listener");
+    let address = listener.local_addr().expect("the listener's address");
+    let client = TcpStream::connect(address).await.expect("a client");
+    let (server, _) = listener.accept().await.expect("the connection");
+    let peer = Peer::of(&server).expect("the socket's addresses");
+    let admission = Arc::new(StubAdmission::never());
+    let sink = Arc::new(RecordingSink::default());
+    let upgrades = WebSocketUpgrades::new(admission.clone(), sink.clone());
+
+    let upgrade = upgrades.upgrade_raw(
+        head(&valid("GET")),
+        Prefixed::new(Bytes::new(), server, WRITE_TIMEOUT),
+        peer,
+        CancellationToken::new(),
+        Grace::new(),
+    );
+    tokio::pin!(upgrade);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    drop(client);
+
+    tokio::time::timeout(Duration::from_secs(2), upgrade)
+        .await
+        .expect("a gone client ends the wait for its decision");
+    assert_eq!(
+        admission.requests.lock().expect("the stub's lock").len(),
+        1,
+        "the decision was asked for"
+    );
+    assert!(
+        admission
+            .released
+            .lock()
+            .expect("the stub's lock")
+            .is_empty(),
+        "nothing was reserved, so nothing is released"
+    );
+    assert!(sink.0.lock().expect("the sink's lock").is_empty());
 }

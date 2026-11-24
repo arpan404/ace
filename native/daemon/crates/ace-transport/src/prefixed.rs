@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::net::TcpStream;
 use tokio::time::Sleep;
 
 /// How long a single write or flush may make no progress before the connection
@@ -157,6 +158,27 @@ impl<S: AsyncRead + Unpin> AsyncRead for Prefixed<S> {
     }
 }
 
+impl Prefixed<TcpStream> {
+    /// Waits until the client's read side closes, without taking a byte: a peek,
+    /// which is how the driver tells a client that went away from one still
+    /// waiting while its upgrade is being decided.
+    pub async fn peer_closed(&mut self) -> bool {
+        if !self.prefix.is_empty() {
+            // Bytes already read are a client that sent more, not one that left.
+            return false;
+        }
+        let mut byte = [0u8; 1];
+        loop {
+            match self.inner.inner.peek(&mut byte).await {
+                Ok(0) => return true,
+                Ok(_) => return false,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(_) => return true,
+            }
+        }
+    }
+}
+
 impl<S: AsyncWrite + Unpin> AsyncWrite for Prefixed<S> {
     fn poll_write(
         self: Pin<&mut Self>,
@@ -296,6 +318,45 @@ mod tests {
             .await
             .expect("the rest spans prefix and socket");
         assert_eq!(&rest, b"cdef");
+    }
+
+    #[tokio::test]
+    async fn a_client_that_goes_away_is_seen_and_its_bytes_are_left_to_read() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("a loopback listener");
+        let addr = listener.local_addr().expect("its address");
+        let mut client = TcpStream::connect(addr).await.expect("a loopback client");
+        let (accepted, _) = listener.accept().await.expect("an accepted socket");
+        let mut io = Prefixed::new(Bytes::new(), accepted, WRITE_TIMEOUT);
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), io.peer_closed())
+                .await
+                .is_err(),
+            "a client that is still there is not gone"
+        );
+        client
+            .write_all(b"x")
+            .await
+            .expect("the client sends a byte");
+        assert!(
+            !io.peer_closed().await,
+            "a client with bytes waiting is present, not gone"
+        );
+        let mut byte = [0u8; 1];
+        io.read_exact(&mut byte)
+            .await
+            .expect("the peek took nothing from the stream");
+        assert_eq!(&byte, b"x");
+
+        drop(client);
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), io.peer_closed())
+                .await
+                .expect("the closed client is noticed"),
+            "a client that went away is gone"
+        );
     }
 
     #[tokio::test]

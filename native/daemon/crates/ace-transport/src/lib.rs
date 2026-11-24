@@ -15,7 +15,7 @@ pub mod proxy;
 pub mod socket;
 pub mod upgrade;
 
-pub use driver::{RefuseUpgrades, UpgradeHandler, UpgradeIo, UpgradeReply};
+pub use driver::{Grace, RefuseUpgrades, UpgradeHandler, UpgradeIo, UpgradeReply};
 pub use error::TransportError;
 pub use head::RequestHead;
 pub use hop::HopSecret;

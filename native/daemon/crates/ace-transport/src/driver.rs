@@ -8,6 +8,7 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -21,13 +22,55 @@ use tokio_util::sync::CancellationToken;
 use crate::head::{self, RequestHead};
 use crate::peer::Peer;
 use crate::prefixed::{Prefixed, TimedIo, WRITE_TIMEOUT};
-use crate::proxy::{ExchangeDeadline, ProxyService, ProxyTarget, RequestActivity};
+use crate::proxy::{ExchangeDeadline, ProxyService, ProxyTarget, RequestActivity, Stop};
 
 /// Node's `headersTimeout`: a connection's request head must arrive in this.
 pub const HEADERS_TIMEOUT: Duration = Duration::from_secs(60);
 /// Node's `keepAliveTimeout`: an idle connection waiting on its next request
 /// closes after this, once a response has finished on it.
 pub const KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Whether a connection may still be cancelled by the close deadline.
+///
+/// Every connection starts waiting. An upgrade arms it immediately before its
+/// `101` is written, and the deadline cancels the connection only if it can
+/// swap the same word first, so exactly one of the two wins: a `101` that has
+/// begun is never cut off by a deadline, and a connection the deadline reached
+/// first never starts writing.
+#[derive(Clone, Default)]
+pub struct Grace(Arc<AtomicU8>);
+
+const WAITING: u8 = 0;
+const WRITING: u8 = 1;
+const CANCELLED: u8 = 2;
+
+impl Grace {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The upgrade is writing its `101` now. False when the deadline already
+    /// cancelled this connection, in which case nothing may be written.
+    pub fn arm(&self) -> bool {
+        self.0
+            .compare_exchange(WAITING, WRITING, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    /// The close deadline passed: cancel the connection unless its upgrade armed
+    /// itself first. True when the connection was cancelled.
+    pub fn cancel(&self, connection: &CancellationToken) -> bool {
+        if self
+            .0
+            .compare_exchange(WAITING, CANCELLED, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+        {
+            connection.cancel();
+            return true;
+        }
+        false
+    }
+}
 
 /// A stream an upgrade can hand on: `Prefixed<TcpStream>` on the raw path, and
 /// hyper's upgraded stream on the keep-alive path.
@@ -56,6 +99,7 @@ pub trait UpgradeHandler: Send + Sync + 'static {
         stream: Prefixed<TcpStream>,
         peer: Peer,
         shutdown: CancellationToken,
+        grace: Grace,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
 
     /// Later on a keep-alive connection: the same decision, answered through
@@ -65,6 +109,7 @@ pub trait UpgradeHandler: Send + Sync + 'static {
         head: RequestHead,
         peer: Peer,
         shutdown: CancellationToken,
+        grace: Grace,
     ) -> Pin<Box<dyn Future<Output = UpgradeReply> + Send>>;
 
     /// After a `Switch` reply: hyper's upgrade resolved (`Some`) or failed
@@ -83,6 +128,7 @@ impl UpgradeHandler for RefuseUpgrades {
         stream: Prefixed<TcpStream>,
         _peer: Peer,
         _shutdown: CancellationToken,
+        _grace: Grace,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(async move {
             // Dropping the stream closes it with no bytes written.
@@ -95,6 +141,7 @@ impl UpgradeHandler for RefuseUpgrades {
         _head: RequestHead,
         _peer: Peer,
         _shutdown: CancellationToken,
+        _grace: Grace,
     ) -> Pin<Box<dyn Future<Output = UpgradeReply> + Send>> {
         Box::pin(async move { UpgradeReply::Drop })
     }
@@ -111,6 +158,7 @@ pub(crate) async fn serve(
     target: ProxyTarget,
     upgrades: Arc<dyn UpgradeHandler>,
     shutdown: CancellationToken,
+    grace: Grace,
 ) {
     let mut buf = Vec::with_capacity(1024);
     let read = tokio::select! {
@@ -131,14 +179,16 @@ pub(crate) async fn serve(
         // only what was read past the head is replayed.
         let rest = Bytes::copy_from_slice(&buf[consumed..]);
         let stream = Prefixed::new(rest, stream, WRITE_TIMEOUT);
-        upgrades.upgrade_raw(head, stream, peer, shutdown).await;
+        upgrades
+            .upgrade_raw(head, stream, peer, shutdown, grace)
+            .await;
         return;
     }
 
     // hyper parses the first head itself: it gets everything the peek read.
     let io = TokioIo::new(Prefixed::new(Bytes::from(buf), stream, WRITE_TIMEOUT));
     let first_target = head.target;
-    serve_hyper(io, peer, target, upgrades, shutdown, first_target).await;
+    serve_hyper(io, peer, target, upgrades, shutdown, grace, first_target).await;
 }
 
 async fn serve_hyper(
@@ -147,6 +197,7 @@ async fn serve_hyper(
     target: ProxyTarget,
     upgrades: Arc<dyn UpgradeHandler>,
     shutdown: CancellationToken,
+    grace: Grace,
     first_target: String,
 ) {
     let activity = RequestActivity::new();
@@ -155,7 +206,10 @@ async fn serve_hyper(
         target,
         upgrades,
         peer,
-        shutdown.clone(),
+        Stop {
+            shutdown: shutdown.clone(),
+            grace,
+        },
         Arc::clone(&activity),
         Arc::clone(&deadlines),
         Some(first_target),
