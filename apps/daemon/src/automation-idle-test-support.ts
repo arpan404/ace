@@ -30,11 +30,16 @@ export async function idleDaemon() {
     }),
     { installed: true, auth: "logged_in", loginHint: "scripted" },
   );
-  const boot = () =>
+  /**
+   * A restart registers the scripted provider's instance as it starts, as a real daemon finds
+   * its installed CLIs at boot, so a schedule's missed run can resolve its model from the first
+   * moment; the first start leaves it to `prepare`, as before.
+   */
+  const boot = (restarted = false) =>
     startDaemon({
       config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
       engine: { registry },
-      modelInstances: [],
+      modelInstances: restarted ? [scriptedModelInstance("codex", home)] : [],
       providerStatus: {
         env: { ...process.env, PATH: "" },
         versions: async () => ({}),
@@ -120,7 +125,7 @@ export async function idleDaemon() {
         await disconnect();
         await daemon.close();
       }
-      daemon = await boot();
+      daemon = await boot(true);
       stopped = false;
       await prepare();
     },
