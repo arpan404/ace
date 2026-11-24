@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The socket and its lifecycle (T1a.4). `tokio-tungstenite` frames the bytes and
 //! answers the protocol's own control frames; this module owns what `ws` owns
-//! above that: the ready state, the buffered amount, pause and resume, the bound
-//! in front of JavaScript, and exactly one event per outcome. Nothing here parses
-//! an ace message: a peer's JSON ping stays a text `Message` (T1a.6).
+//! above that: the ready state, the buffered amount, pause and resume, the bound in
+//! front of JavaScript, and one event per outcome. Nothing here parses an ace
+//! message: a peer's JSON ping stays a text `Message` (T1a.6).
 //!
 //! `drive` runs the two tasks, so a slow write never stops a control frame being
-//! read; `events` is what the owner receives. The socket's lifetime is its
-//! owner's: dropping the last handle or the events receiver closes the stream.
+//! read; `events` is what the owner receives. Dropping the handle or the receiver
+//! closes the socket.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -41,9 +41,8 @@ pub const MESSAGE_OVERHEAD: u64 = 256;
 pub const DELIVERY_BYTES: u64 = 1024 * 1024;
 /// The messages the reader waits at, so empty ones are bounded too.
 pub const DELIVERY_MESSAGES: u64 = 64;
-/// Sends still awaiting their flush before `send` refuses: the outbox's 4 MiB
-/// hard limit (`outbox.ts:26`) divided by the 256-byte charge, so an empty-send
-/// flood stops where the byte budget does.
+/// Sends whose `Sent` the owner has not taken before `send` refuses: the outbox's
+/// 4 MiB hard limit (`outbox.ts:26`) over the 256-byte charge.
 pub const OUTBOUND_MESSAGES: u64 = 16_384;
 /// `ws`'s `closeTimeout`: an unanswered local close is destroyed and reported `1006`.
 pub const CLOSE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -79,12 +78,10 @@ struct Own {
     length: u64,
 }
 
-/// One thing for the writer: a frame, the `send` whose completion it is, and
-/// whether writing it starts the close handshake.
+/// One thing for the writer: a frame, and the `send` whose completion it is.
 struct Outbound {
     frame: Message,
     own: Option<Own>,
-    closes: bool,
 }
 
 /// The socket's state, its outbound queue and its events under one lock, so a
@@ -101,7 +98,7 @@ struct Shared {
     inner: Mutex<Inner>,
     /// Charged bytes accepted by `send` and not yet flushed.
     buffered: AtomicU64,
-    /// Sends accepted and not yet completed, which bounds the queue.
+    /// Sends whose `Sent` the owner has not taken, which bounds the queue.
     pending: AtomicU64,
     paused: AtomicBool,
     /// Charged bytes and messages waiting for JavaScript, so for the reader.
@@ -114,9 +111,8 @@ struct Shared {
     stop: CancellationToken,
     /// The first task to end records why; the writer reports it.
     ending: Mutex<Option<Ending>>,
-    /// How long a local close waits for the peer's, injected so a test can shorten
-    /// it; production uses [`CLOSE_TIMEOUT`].
-    close_timeout: Duration,
+    /// A local close ran past [`CLOSE_TIMEOUT`]: the socket is destroyed.
+    expired: CancellationToken,
 }
 
 impl SocketHandle {
@@ -145,40 +141,45 @@ impl SocketHandle {
         shared.buffered.fetch_add(length, Ordering::Relaxed);
         shared.pending.fetch_add(1, Ordering::Relaxed);
         let own = Some(Own { id, length });
-        match outbound.send(Outbound {
-            frame,
-            own,
-            closes: false,
-        }) {
+        match outbound.send(Outbound { frame, own }) {
             Ok(()) => SendResult::Queued,
             Err(_) => {
-                debit(&shared.buffered, length);
-                debit(&shared.pending, 1);
+                debit(&shared.buffered, length, "buffered");
+                debit(&shared.pending, 1, "pending");
                 SendResult::NotOpen
             }
         }
     }
 
     /// `ws`'s `close`: idempotent, and a socket already closing keeps its code.
-    /// The handshake is bounded by [`CLOSE_TIMEOUT`] and by the TypeScript
-    /// closer's `terminate` (`server-socket-close.ts`), as `ws`'s socket is.
+    /// Its deadline starts here, as `ws`'s close timer does, so frames still
+    /// waiting cannot postpone it.
     pub fn close(&self, code: Option<u16>, reason: String) {
         let frame = Message::Close(code.map(|code| CloseFrame {
             code: CloseCode::from(code),
             reason: Utf8Bytes::from(reason),
         }));
-        let mut inner = lock(&self.shared.inner);
-        if inner.state != OPEN {
-            return;
+        {
+            let mut inner = lock(&self.shared.inner);
+            if inner.state != OPEN {
+                return;
+            }
+            inner.state = CLOSING;
+            if let Some(outbound) = inner.outbound.as_ref() {
+                let _ = outbound.send(Outbound { frame, own: None });
+            }
         }
-        inner.state = CLOSING;
-        if let Some(outbound) = inner.outbound.as_ref() {
-            let _ = outbound.send(Outbound {
-                frame,
-                own: None,
-                closes: true,
-            });
-        }
+        let expired = self.shared.expired.clone();
+        let over = self.shared.over.clone();
+        let deadline = tokio::time::sleep(CLOSE_TIMEOUT);
+        tokio::spawn(async move {
+            tokio::select! {
+                biased;
+                // The handshake finished first, or the socket ended.
+                _ = over.cancelled() => {}
+                () = deadline => expired.cancel(),
+            }
+        });
     }
 
     /// `ws`'s `terminate`: drops the connection where it stands and reports
@@ -225,8 +226,8 @@ impl SocketHandle {
     /// which lets the reader read again once it is under the bound.
     pub fn delivered(&self, charge: u64) {
         let shared = &self.shared;
-        debit(&shared.waiting_bytes, charge);
-        debit(&shared.waiting_messages, 1);
+        debit(&shared.waiting_bytes, charge, "waiting_bytes");
+        debit(&shared.waiting_messages, 1, "waiting_messages");
         shared.wake();
     }
 }
@@ -267,14 +268,12 @@ impl Shared {
         let _ = self.emit(SocketEvent::Sent { id, error });
     }
 
-    /// Releases a frame's charge without completing it; `finish` reports the
-    /// `Sent` once the state is sealed.
+    /// Releases a frame's bytes without completing it; `finish` reports the `Sent`
+    /// once sealed, and the owner's taking it is what releases `pending`.
     fn release(&self, own: Option<Own>) {
-        let Some(own) = own else {
-            return;
-        };
-        debit(&self.buffered, own.length);
-        debit(&self.pending, 1);
+        if let Some(own) = own {
+            debit(&self.buffered, own.length, "buffered");
+        }
     }
 
     fn complete(&self, own: Option<Own>, error: Option<String>) {
@@ -327,18 +326,9 @@ impl Shared {
 }
 
 /// Opens a socket over either kind of stream the handshake hands on (the raw
-/// path's `Prefixed<TcpStream>`, the keep-alive path's upgraded stream). It is
-/// `OPEN` at once, and its tasks run on the caller's tokio runtime (T1a.5).
+/// path's `Prefixed<TcpStream>`, the keep-alive path's upgraded stream), `OPEN` at
+/// once on the caller's tokio runtime (T1a.5).
 pub fn open(stream: Box<dyn UpgradeIo>) -> (SocketHandle, SocketEvents) {
-    open_with(stream, CLOSE_TIMEOUT)
-}
-
-/// `open` with the close handshake's timeout injected, so it can be exercised
-/// without waiting 30 s.
-pub fn open_with(
-    stream: Box<dyn UpgradeIo>,
-    close_timeout: Duration,
-) -> (SocketHandle, SocketEvents) {
     let (events, incoming) = mpsc::unbounded_channel();
     let (outbound, queued) = mpsc::unbounded_channel();
     let (wake, woken) = mpsc::channel(1);
@@ -357,7 +347,7 @@ pub fn open_with(
         over: CancellationToken::new(),
         stop: CancellationToken::new(),
         ending: Mutex::new(None),
-        close_timeout,
+        expired: CancellationToken::new(),
     });
     let owner = Arc::new(Owner(Arc::clone(&shared)));
     tokio::spawn(drive::run(stream, Arc::clone(&shared), queued, woken));
@@ -389,11 +379,21 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 /// A counter's debit. A debit for something never charged is a bug: the
 /// subtraction is checked, so a debug build stops and a release build leaves the
-/// counter alone rather than hiding it as a zero.
-fn debit(counter: &AtomicU64, amount: u64) {
+/// counter alone, saying so once instead of dropping the debit silently.
+fn debit(counter: &AtomicU64, amount: u64, name: &str) {
     let _ = counter.try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
         let next = value.checked_sub(amount);
-        debug_assert!(next.is_some(), "a debit for a charge that was never made");
+        if next.is_none() {
+            report_underflow(name);
+        }
         next
     });
+}
+
+/// The one line an unpaired debit leaves behind: this module's bug, not the peer's.
+fn report_underflow(name: &str) {
+    static REPORTED: AtomicBool = AtomicBool::new(false);
+    if !REPORTED.swap(true, Ordering::Relaxed) {
+        eprintln!("ace-transport: a debit for a charge that was never made ({name})");
+    }
 }

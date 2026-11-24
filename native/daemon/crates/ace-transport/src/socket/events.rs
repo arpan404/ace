@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use zeroize::Zeroize;
 
-use super::{Ending, Shared, lock};
+use super::{Ending, Shared, debit, lock};
 
 /// One thing that happened to a socket, in production order.
 #[derive(Debug)]
@@ -41,12 +41,24 @@ pub struct SocketEvents {
 }
 
 impl SocketEvents {
+    /// The next event. Taking a `Sent` is what releases its place in the outbound
+    /// queue's bound: a caller that stops reading stops being able to send.
     pub async fn recv(&mut self) -> Option<SocketEvent> {
-        self.receiver.recv().await
+        let event = self.receiver.recv().await;
+        self.release(event.as_ref());
+        event
     }
 
     pub fn try_recv(&mut self) -> Result<SocketEvent, mpsc::error::TryRecvError> {
-        self.receiver.try_recv()
+        let event = self.receiver.try_recv()?;
+        self.release(Some(&event));
+        Ok(event)
+    }
+
+    fn release(&self, event: Option<&SocketEvent>) {
+        if matches!(event, Some(SocketEvent::Sent { .. })) {
+            debit(&self.shared.pending, 1, "pending");
+        }
     }
 }
 

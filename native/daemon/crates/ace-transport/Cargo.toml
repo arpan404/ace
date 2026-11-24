@@ -55,3 +55,8 @@ tokio-tungstenite = { version = "0.30", default-features = false }
 tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 # zeroize: the hop secret is wiped on drop in a way the optimizer cannot remove.
 zeroize = { version = "1" }
+
+[dev-dependencies]
+# tokio/test-util: the socket's close deadline is driven by tokio's clock, which a
+# test advances (`start_paused`) instead of waiting 30 s.
+tokio = { version = "1.54", features = ["test-util"] }

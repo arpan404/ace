@@ -132,6 +132,29 @@ async fn a_send_is_refused_once_the_outbound_queue_is_full() {
 }
 
 #[tokio::test]
+async fn unread_sent_events_hold_the_outbound_queue_full() {
+    // The frames themselves flush long before this, but their `Sent`s have not
+    // been taken, so it is the undelivered events the cap counts, not the writes.
+    let (handle, mut events, _client) = pair(1 << 18).await;
+    let tiny = Bytes::from_static(b"x");
+    for _ in 0..OUTBOUND_MESSAGES {
+        assert_eq!(handle.send(tiny.clone(), true, 0), SendResult::Queued);
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(
+        handle.send(tiny.clone(), true, 0),
+        SendResult::NotOpen,
+        "unread Sent events keep the queue full"
+    );
+    assert!(matches!(next(&mut events).await, SocketEvent::Sent { .. }));
+    assert_eq!(
+        handle.send(tiny, true, 0),
+        SendResult::Queued,
+        "taking one Sent frees one place"
+    );
+}
+
+#[tokio::test]
 async fn messages_arrive_with_their_binary_flag_and_bytes() {
     let (_handle, mut events, mut client) = pair(1 << 16).await;
     client

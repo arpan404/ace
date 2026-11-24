@@ -12,7 +12,9 @@ use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
 use super::{masked_text, next, pair, read};
-use crate::socket::{CLOSED, CLOSING, MAX_MESSAGE_BYTES, SendResult, SocketEvent, open, open_with};
+use crate::socket::{
+    CLOSE_TIMEOUT, CLOSED, CLOSING, MAX_MESSAGE_BYTES, SendResult, SocketEvent, open,
+};
 
 #[tokio::test]
 async fn a_close_is_idempotent_and_a_send_after_it_is_refused() {
@@ -51,17 +53,44 @@ async fn a_close_is_idempotent_and_a_send_after_it_is_refused() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_local_close_the_peer_never_answers_ends_with_1006() {
     // The client never reads, so it never answers the close frame: only `ws`'s
-    // close timeout can end the socket, injected short so the test stays quick.
+    // close timeout can end the socket, and the test advances the clock to it.
     let (server, _client) = tokio::io::duplex(1 << 16);
-    let (handle, mut events) = open_with(Box::new(server), Duration::from_millis(50));
+    let (handle, mut events) = open(Box::new(server));
     handle.close(Some(1001), "bye".to_owned());
+    tokio::time::advance(CLOSE_TIMEOUT).await;
 
     match next(&mut events).await {
         SocketEvent::Close { code, .. } => assert_eq!(code, 1006),
         other => panic!("expected Close 1006 after the close timeout, got {other:?}"),
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_queued_write_does_not_postpone_the_close_deadline() {
+    // A four-byte duplex: the write cannot flush, so it is still in flight when
+    // `close()` starts the deadline. The deadline still ends the socket at 30 s,
+    // and the abandoned send is failed before the one `Close`.
+    let (handle, mut events, _client) = pair(4).await;
+    assert_eq!(
+        handle.send(Bytes::from(vec![0u8; 4096]), true, 1),
+        SendResult::Queued
+    );
+    handle.close(Some(1001), "bye".to_owned());
+    tokio::time::advance(CLOSE_TIMEOUT).await;
+
+    match next(&mut events).await {
+        SocketEvent::Sent { id, error } => {
+            assert_eq!(id, 1);
+            assert!(error.is_some(), "the abandoned send is reported failed");
+        }
+        other => panic!("expected the owed Sent first, got {other:?}"),
+    }
+    match next(&mut events).await {
+        SocketEvent::Close { code, .. } => assert_eq!(code, 1006),
+        other => panic!("expected Close 1006 at the deadline, got {other:?}"),
     }
 }
 

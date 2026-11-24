@@ -7,12 +7,10 @@
 
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
 
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
-use tokio::time::Instant;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::{CloseFrame, Role, WebSocketConfig};
@@ -145,18 +143,17 @@ async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver
     shared.end(ending);
 }
 
-/// Flushes what `send` queued until the conversation ends, then ends it. Once a
-/// local close is on the wire the peer gets the close timeout to answer it; after
-/// that the socket is destroyed, as `ws`'s close timeout does.
+/// Flushes what `send` queued until the conversation ends, then ends it. A local
+/// close starts `ws`'s close timeout at the call, so a queue of frames still
+/// waiting cannot postpone the socket being destroyed.
 async fn write(mut sink: Sink, shared: Arc<Shared>, mut queued: mpsc::UnboundedReceiver<Outbound>) {
-    let mut awaiting: Option<Instant> = None;
     loop {
         let item = tokio::select! {
             biased;
             _ = shared.over.cancelled() => {
                 return finish(sink, &shared, &mut queued, shared.ended(), None).await;
             }
-            () = unanswered(awaiting, shared.close_timeout) => {
+            _ = shared.expired.cancelled() => {
                 return finish(sink, &shared, &mut queued, Ending::lost(), None).await;
             }
             item = queued.recv() => item,
@@ -165,14 +162,8 @@ async fn write(mut sink: Sink, shared: Arc<Shared>, mut queued: mpsc::UnboundedR
             return finish(sink, &shared, &mut queued, Ending::lost(), None).await;
         };
         let owed = item.own.map(|own| own.id);
-        let closes = item.closes;
         match flushed(&shared, sink.send(item.frame)).await {
-            Ok(Ok(())) => {
-                shared.complete(item.own, None);
-                if closes {
-                    awaiting = Some(Instant::now());
-                }
-            }
+            Ok(Ok(())) => shared.complete(item.own, None),
             Ok(Err(error)) => {
                 shared.complete(item.own, Some(not_open(shared.state())));
                 return finish(sink, &shared, &mut queued, Ending::failed(error), None).await;
@@ -187,17 +178,9 @@ async fn write(mut sink: Sink, shared: Arc<Shared>, mut queued: mpsc::UnboundedR
     }
 }
 
-/// Waits out `ws`'s close timeout once our close frame is on the wire, and never
-/// otherwise.
-async fn unanswered(awaiting: Option<Instant>, timeout: Duration) {
-    match awaiting {
-        Some(at) => tokio::time::sleep_until(at + timeout).await,
-        None => std::future::pending().await,
-    }
-}
-
 /// Runs one write to its end, or abandons it because the conversation ended: the
-/// stream is dropped whole then, so no half-written frame is resumed.
+/// stream is dropped whole then, so no half-written frame is resumed. The close
+/// deadline abandons it too, however long the queue in front of it is.
 async fn flushed<F: Future<Output = Result<(), WsError>>>(
     shared: &Shared,
     write: F,
@@ -206,6 +189,7 @@ async fn flushed<F: Future<Output = Result<(), WsError>>>(
     tokio::select! {
         biased;
         _ = shared.over.cancelled() => Err(shared.ended()),
+        _ = shared.expired.cancelled() => Err(Ending::lost()),
         outcome = &mut write => Ok(outcome),
     }
 }
