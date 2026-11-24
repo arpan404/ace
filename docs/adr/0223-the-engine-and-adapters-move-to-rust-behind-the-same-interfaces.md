@@ -541,8 +541,9 @@ wrong; at worst a leader is held unreaped or a record stays unresolved:
   - E3, per provider, its session files that recover or resume a saved session: Codex
     `item-invalidated-recovery.process`, `overlapping-recovery.process`, `review-recovery.process`;
     Cursor `checkpoint-recovery.process`, `recovered-seam.process`; OpenCode
-    `ancestry-recovery.process`, `server-pool-recovery.process`; and the engine files of E1's list
-    for that provider. A file a builder finds that resumes a session and isn't listed joins its
+    `ancestry-recovery.process`, `server-pool-recovery.process`; Pi
+    `engine/pi-restart-resume.process` (the one test the owner allowed, porting guide E3-pi.2b);
+    and the engine files of E1's list for that provider. A file a builder finds that resumes a session and isn't listed joins its
     provider's list; the assertion keeps any that never reboot out.
   - E4: none. The daemon never stores state through the core facade (the TypeScript engine
     persists its own `ThreadState`); E5's gate covers state the native core writes.
