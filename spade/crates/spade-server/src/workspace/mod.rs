@@ -54,6 +54,9 @@ pub const OUTPUTS: &str = ".spade/outputs";
 /// Where each bot's trust record is kept, inside the workspaces' root (outside every bot's own
 /// folder; bot ids never start with a dot).
 const TRUST_DIR: &str = ".trust";
+/// Where each bot's persisted `web_fetch` conversation-to-snapshot index is kept, outside every
+/// bot's own folder so workspace tools and shell commands cannot tamper with it.
+const WEB_INDEX_DIR: &str = ".web-fetch";
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum PathError {
@@ -185,10 +188,17 @@ impl Workspaces {
         Ok(python::runtime_of(&self.root, bot))
     }
 
+    /// Path to the bot's persisted `web_fetch` snapshot index, outside its workspace folder.
+    pub fn web_fetch_index(&self, bot: &str) -> Result<PathBuf, PathError> {
+        self.of(bot)?;
+        Ok(self.root.join(WEB_INDEX_DIR).join(format!("{bot}.json")))
+    }
+
     /// Deletes the bot's workspace, everything in it, its trust record and its Python runtime.
     pub fn remove(&self, bot: &str) -> Result<(), PathError> {
         let workspace = self.of(bot)?;
         workspace.trust.forget();
+        let _ = std::fs::remove_file(self.root.join(WEB_INDEX_DIR).join(format!("{bot}.json")));
         match std::fs::remove_dir_all(python::runtime_of(&self.root, bot)) {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
             _ => {}
