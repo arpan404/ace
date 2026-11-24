@@ -2,10 +2,19 @@ import { createServer, type Server } from "node:http";
 import { createECDH, generateKeyPairSync, randomBytes } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { afterEach, expect, it } from "vitest";
-import { DeviceId, type Notification, type ServerMessage } from "@ace/protocol";
+import { pairingLinkProof } from "@ace/client/link-proof";
+import { DeviceId, SocketTicket, type Notification, type ServerMessage } from "@ace/protocol";
 import { connectClientViaRelay, startRelay, type ClientChannel } from "@ace/relay";
 import { keyPair } from "@ace/secure-channel";
-import { createPushGatewayTransport } from "@ace/notify";
+import { createPushGatewayTransport, NotificationWorker } from "@ace/notify";
+import { SettingsService } from "@ace/settings";
+import { GatewayConfig } from "../../push-gateway/src/config.ts";
+import { startGateway } from "../../push-gateway/src/server.ts";
+import { apnsKeyPair, startFakeApns } from "../../push-gateway/src/testing/fake-apns.ts";
+import { pushTarget } from "./notification-config.ts";
+import { followRemotePushSetting } from "./notification-live-activity.ts";
+import { notificationFixture } from "./notification-test-support.ts";
+import { accessRequest } from "./client-access.ts";
 import { fixture } from "./socket-test-support.ts";
 import { createDaemonNotifications, type DaemonNotifications } from "./notifications.ts";
 
@@ -294,4 +303,454 @@ it("a push wakes a relay-only phone, which resumes an interrupted feed from its 
   // A client that lost local state may explicitly ask for the bounded history again.
   await next.send({ type: "notification.feed", requestId: "rebuild", afterCursor: 0 });
   expect((await nextOf(next, "notification.feed.result")).entries).toEqual(feed.entries);
+});
+
+/**
+ * The daemon against a real local push gateway and a fake APNs (the gateway's own process-test
+ * setup). The gateway is reached through `forward`, which also records every registration body
+ * and can answer the capabilities route as an older gateway would.
+ */
+async function activityDaemon(options: { capabilities?: boolean } = {}) {
+  const apns = await startFakeApns();
+  const time = Date.parse("2026-11-24T12:00:00Z");
+  const now = () => time;
+  const gateway = await startGateway(
+    GatewayConfig.parse({
+      port: 0,
+      bind: "127.0.0.1",
+      publicOrigin: "http://127.0.0.1:1",
+      apns: {
+        teamId: "TEAM123456",
+        keyId: "KEY1234567",
+        privateKey: apnsKeyPair().pem,
+        topic: "app.ace.ios",
+        origins: { production: apns.origin, sandbox: apns.origin },
+      },
+      sealKeys: [randomBytes(32)],
+      limits: { perIp: 600 },
+    }),
+    { now, random: randomBytes, log: () => {} },
+  );
+  const registrations: { token: string; environment: string; kind?: string }[] = [];
+  const forward: typeof fetch = (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.pathname === "/v1/capabilities" && options.capabilities === false)
+      return Promise.resolve(new Response("", { status: 404 }));
+    if (url.pathname === "/v1/registrations" && typeof init?.body === "string")
+      registrations.push(JSON.parse(init.body) as (typeof registrations)[number]);
+    url.port = String(gateway.port);
+    return fetch(url, init);
+  };
+  const errors: unknown[] = [];
+  let settings!: SettingsService;
+  let notifications!: DaemonNotifications;
+  const f = await fixture({}, (store, home) => {
+    settings = new SettingsService({ dataDir: home });
+    // The switch follows the real setting; the origin points at this test's gateway.
+    const target = async () => ({
+      enabled: (await pushTarget(settings)).enabled,
+      origin: "http://127.0.0.1:1",
+    });
+    const push = createPushGatewayTransport(
+      { privateKey: daemonKey(), hostId: "test-host", target },
+      now,
+      forward,
+    );
+    notifications = createDaemonNotifications(
+      home,
+      store,
+      (error) => errors.push(error),
+      { push },
+      0,
+      { liveActivity: { gateway: push, target, allowed: () => true } },
+    );
+    return { notifications: { ...notifications.service } };
+  });
+  notifications.setSender((device, notification) => f.server.notify(device, notification));
+  notifications.setConnected(() => f.server.notificationDevices());
+  notifications.activate();
+  cleanups.push(async () => {
+    await notifications.close();
+    await f.close();
+    await settings.close();
+    await gateway.close();
+    await apns.close();
+  });
+  const raise = async () => {
+    f.store.appendEvents(f.thread.id, [
+      { type: "thread.updated", status: { state: "working", agents: 1 } },
+      { type: "thread.updated", status: { state: "needs_you", interactions: 1 } },
+    ]);
+    return notifications.tick();
+  };
+  return { f, apns, gateway, settings, errors, notifications, registrations, raise };
+}
+
+const liveActivityOf = (startToken?: string, activityToken?: string) => ({
+  ...(startToken ? { startToken } : {}),
+  ...(activityToken ? { activityToken } : {}),
+  environment: "sandbox" as const,
+  frequentUpdates: true,
+  slot: 2,
+});
+const startOf = "a1".repeat(32);
+const activityOf = "b2".repeat(32);
+const kindRegistrations = (registrations: readonly { kind?: string }[]) =>
+  registrations.filter((entry) => entry.kind !== undefined);
+
+it("registers a phone's live activity tokens under their own kinds", async () => {
+  const daemon = await activityDaemon();
+  const client = await daemon.f.connect();
+  expect(await client.next()).toMatchObject({ type: "welcome" });
+  client.send({
+    type: "notification.register",
+    requestId: "register",
+    device: { channel: "websocket", platform: "phone" },
+    liveActivity: liveActivityOf(startOf, activityOf),
+  });
+  expect(await client.next()).toEqual({
+    type: "notification.register.result",
+    requestId: "register",
+  });
+  await poll(
+    async () => (kindRegistrations(daemon.registrations).length === 2 ? true : undefined),
+    15_000,
+  );
+  expect(kindRegistrations(daemon.registrations)).toEqual(
+    expect.arrayContaining([
+      { token: startOf, environment: "sandbox", kind: "start" },
+      { token: activityOf, environment: "sandbox", kind: "liveactivity" },
+    ]),
+  );
+  expect(await daemon.notifications.service.liveActivityTargets()).toEqual([
+    {
+      token: startOf,
+      environment: "sandbox",
+      kind: "start",
+      frequentUpdates: true,
+      slot: 2,
+      devices: ["device"],
+    },
+    {
+      token: activityOf,
+      environment: "sandbox",
+      kind: "liveactivity",
+      frequentUpdates: true,
+      slot: 2,
+      devices: ["device"],
+    },
+  ]);
+  expect(daemon.errors).toEqual([]);
+});
+
+const liveActivityTargets = (startToken?: string, activityToken?: string) => ({
+  ...(startToken
+    ? {
+        token: startToken,
+        environment: "sandbox",
+        kind: "start",
+        frequentUpdates: true,
+        slot: 2,
+        devices: ["device"],
+      }
+    : {}),
+  ...(activityToken
+    ? {
+        token: activityToken,
+        environment: "sandbox",
+        kind: "liveactivity",
+        frequentUpdates: true,
+        slot: 2,
+        devices: ["device"],
+      }
+    : {}),
+});
+
+/** A paired device's socket, with the ticket its credential buys. */
+async function pairedClient(
+  daemon: Awaited<ReturnType<typeof activityDaemon>>,
+  device: { device: { id: DeviceId }; token: string },
+) {
+  const ticket = SocketTicket.parse(
+    await accessRequest(daemon.f.server.httpUrl, "/v1/tickets", {
+      method: "POST",
+      token: device.token,
+    }),
+  );
+  const client = await daemon.f.open();
+  client.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: device.device.id,
+    ticket: ticket.ticket,
+  });
+  expect(await client.next()).toMatchObject({ type: "welcome" });
+  return client;
+}
+
+async function registerPhone(
+  client: Awaited<ReturnType<Awaited<ReturnType<typeof activityDaemon>>["f"]["connect"]>>,
+  requestId: string,
+  device: { channel: "websocket"; platform: "phone" } | Record<string, unknown>,
+  liveActivity?: ReturnType<typeof liveActivityOf>,
+) {
+  client.send({
+    type: "notification.register",
+    requestId,
+    device,
+    ...(liveActivity ? { liveActivity } : {}),
+  } as never);
+  expect(await client.next()).toEqual({ type: "notification.register.result", requestId });
+}
+
+it("an older gateway gets no activity handles and alerts keep working", async () => {
+  const daemon = await activityDaemon({ capabilities: false });
+  const client = await daemon.f.connect();
+  expect(await client.next()).toMatchObject({ type: "welcome" });
+  await registerPhone(
+    client,
+    "register",
+    {
+      channel: "push",
+      platform: "phone",
+      token: "ab".repeat(32),
+      environment: "sandbox",
+      ...phoneKeys(),
+    },
+    liveActivityOf(startOf, activityOf),
+  );
+  await sleep(500);
+  // A 404 from capabilities means alerts only: no activity handle is asked for.
+  expect(kindRegistrations(daemon.registrations)).toEqual([]);
+  // The tokens stay stored for a gateway that upgrades, but nothing pushes with them yet.
+  expect(await daemon.notifications.service.liveActivityTargets()).toHaveLength(2);
+  const draining = daemon.raise();
+  await poll(async () => daemon.apns.calls.at(-1), 15_000);
+  await draining;
+  const alert = JSON.parse(String(daemon.apns.calls[0]?.body)) as { aps: { alert?: unknown } };
+  expect(alert.aps.alert).toBeDefined();
+  expect(daemon.errors).toEqual([]);
+});
+
+it("a sync without a token drops it and forgets the gateway handle", async () => {
+  const daemon = await activityDaemon();
+  const client = await daemon.f.connect();
+  expect(await client.next()).toMatchObject({ type: "welcome" });
+  await registerPhone(
+    client,
+    "one",
+    { channel: "websocket", platform: "phone" },
+    liveActivityOf(startOf, activityOf),
+  );
+  await poll(
+    async () => (kindRegistrations(daemon.registrations).length === 2 ? true : undefined),
+    15_000,
+  );
+
+  // The activity ended on the phone: only its update token goes.
+  await registerPhone(
+    client,
+    "two",
+    { channel: "websocket", platform: "phone" },
+    liveActivityOf(startOf),
+  );
+  expect(await daemon.notifications.service.liveActivityTargets()).toEqual([
+    liveActivityTargets(startOf),
+  ]);
+
+  // Its handle was forgotten too: asking for the token again registers it afresh.
+  const before = daemon.registrations.filter((entry) => entry.token === activityOf).length;
+  await registerPhone(
+    client,
+    "three",
+    { channel: "websocket", platform: "phone" },
+    liveActivityOf(startOf, activityOf),
+  );
+  await poll(
+    async () =>
+      daemon.registrations.filter((entry) => entry.token === activityOf).length > before
+        ? true
+        : undefined,
+    15_000,
+  );
+
+  // The object is gone: both tokens go.
+  await registerPhone(client, "four", { channel: "websocket", platform: "phone" });
+  expect(await daemon.notifications.service.liveActivityTargets()).toEqual([]);
+  expect(daemon.errors).toEqual([]);
+});
+
+it("one phone over two linked ids registers each token once", async () => {
+  const daemon = await activityDaemon();
+  const account = DeviceId.parse("account-phone");
+  const pair = async (name: string) => {
+    const paired = daemon.f.store.devices.create(name, ["read"], Date.now());
+    const proof = await pairingLinkProof(paired.token, paired.device.id, account, crypto.subtle);
+    daemon.f.store.devices.link(account, proof, Date.now());
+    return paired;
+  };
+  const direct = await pair("Phone direct");
+  const relay = await pair("Phone relay");
+  const first = await pairedClient(daemon, direct);
+  await registerPhone(
+    first,
+    "direct",
+    { channel: "websocket", platform: "phone" },
+    liveActivityOf(startOf, activityOf),
+  );
+  await poll(
+    async () => (kindRegistrations(daemon.registrations).length === 2 ? true : undefined),
+    15_000,
+  );
+
+  const second = await pairedClient(daemon, relay);
+  await registerPhone(
+    second,
+    "relay",
+    { channel: "websocket", platform: "phone" },
+    liveActivityOf(startOf, activityOf),
+  );
+  await sleep(300);
+  // The same tokens over the install's other id: still one registration per kind.
+  expect(kindRegistrations(daemon.registrations)).toHaveLength(2);
+
+  // Either id leaving clears what both registered.
+  await registerPhone(second, "relay-off", { channel: "websocket", platform: "phone" });
+  expect(await daemon.notifications.service.liveActivityTargets()).toEqual([]);
+  expect(daemon.errors).toEqual([]);
+});
+
+it("turning remote push off clears the tokens without a new phone sync", async () => {
+  const daemon = await activityDaemon();
+  const client = await daemon.f.connect();
+  expect(await client.next()).toMatchObject({ type: "welcome" });
+  await registerPhone(
+    client,
+    "on",
+    { channel: "websocket", platform: "phone" },
+    liveActivityOf(startOf, activityOf),
+  );
+  await poll(
+    async () => (kindRegistrations(daemon.registrations).length === 2 ? true : undefined),
+    15_000,
+  );
+
+  const applied: boolean[] = [];
+  let cleared: Promise<void> | undefined;
+  const stop = await followRemotePushSetting(
+    daemon.settings,
+    (enabled) => {
+      applied.push(enabled);
+      const run = daemon.notifications.service.liveActivitySetting(enabled);
+      if (!enabled) cleared = run;
+      return run;
+    },
+    (error) => daemon.errors.push(error),
+  );
+  cleanups.push(stop);
+  await daemon.settings.set("notifications.remotePush", false, { kind: "global" });
+  await poll(async () => (cleared === undefined ? undefined : true), 5000);
+  await cleared;
+  expect(applied).toEqual([false]);
+  expect(await daemon.notifications.service.liveActivityTargets()).toEqual([]);
+
+  // Back on does not resurrect what the switch erased: only a phone sync does.
+  await daemon.settings.set("notifications.remotePush", true, { kind: "global" });
+  expect(await daemon.notifications.service.liveActivityTargets()).toEqual([]);
+  expect(daemon.errors).toEqual([]);
+});
+
+it("retained tokens are cleared at startup when remote push is off", async () => {
+  const f = notificationFixture(cleanups);
+  const phone = DeviceId.parse("phone");
+  const worker = new NotificationWorker({
+    path: f.path,
+    transport: { send: async () => "accepted" },
+  });
+  await worker.register(phone, {
+    channel: "push",
+    platform: "phone",
+    token: "ab".repeat(32),
+    environment: "sandbox",
+    ...phoneKeys(),
+  });
+  await worker.syncLiveActivity(phone, [], liveActivityOf(startOf, activityOf));
+  await worker.close();
+
+  const settings = new SettingsService({ dataDir: f.home });
+  await settings.set("notifications.remotePush", false, { kind: "global" });
+  const calls: string[] = [];
+  const gateway = {
+    async registerActivity() {
+      calls.push("register");
+      return { status: "disabled" as const };
+    },
+    forgetActivity() {
+      calls.push("forget");
+    },
+  };
+  const notifications = createDaemonNotifications(f.home, f.store, () => {}, {}, 0, {
+    liveActivity: { gateway, target: () => pushTarget(settings), allowed: () => true },
+  });
+  cleanups.push(
+    () => settings.close(),
+    () => notifications.close(),
+  );
+  // The delivery run performs the post-catch-up resume, as it does in production.
+  await notifications.start();
+  await notifications.tick();
+  expect(await notifications.service.liveActivityTargets()).toEqual([]);
+
+  const check = new NotificationWorker({
+    path: f.path,
+    transport: { send: async () => "failed" },
+  });
+  expect(await check.liveActivityTargets()).toEqual([]);
+  await check.close();
+  // Nothing reached the gateway for tokens the switch had already erased.
+  expect(calls).toEqual([]);
+});
+
+it("unregistering or revoking a phone removes its tokens", async () => {
+  const daemon = await activityDaemon();
+  const paired = daemon.f.store.devices.create("Phone", ["read", "operate", "admin"], Date.now());
+  const client = await pairedClient(daemon, paired);
+  await registerPhone(
+    client,
+    "one",
+    { channel: "websocket", platform: "phone" },
+    liveActivityOf(startOf, activityOf),
+  );
+  await poll(
+    async () => (kindRegistrations(daemon.registrations).length === 2 ? true : undefined),
+    15_000,
+  );
+
+  client.send({ type: "notification.unregister", requestId: "off" });
+  expect(await client.next()).toEqual({
+    type: "notification.unregister.result",
+    requestId: "off",
+  });
+  expect(await daemon.notifications.service.liveActivityTargets()).toEqual([]);
+
+  await registerPhone(
+    client,
+    "two",
+    { channel: "websocket", platform: "phone" },
+    liveActivityOf(startOf, activityOf),
+  );
+  expect(await daemon.notifications.service.liveActivityTargets()).toHaveLength(2);
+  const host = await daemon.f.connect();
+  expect(await host.next()).toMatchObject({ type: "welcome" });
+  host.send({
+    type: "fleet.request",
+    requestId: "revoke",
+    operation: { op: "revoke", deviceId: paired.device.id },
+  });
+  await poll(
+    async () =>
+      (await daemon.notifications.service.liveActivityTargets()).length === 0 ? true : undefined,
+    5000,
+  );
+  expect(daemon.errors).toEqual([]);
 });
