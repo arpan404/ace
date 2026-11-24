@@ -101,15 +101,47 @@ function storedNativeId(store: Store, threadId: ThreadId): string {
   return row.id;
 }
 
-/** The assistant's replies, in order, as the transcript stored them. */
-function replies(store: Store, threadId: ThreadId): string[] {
+/** The assistant's replies as the transcript stored them, with the run and native session id. */
+function storedReplies(store: Store, threadId: ThreadId) {
   const snapshot = store.snapshotThread(threadId);
   return snapshot.itemOrder.flatMap((itemId) => {
     const item = snapshot.items[itemId];
-    return item?.type === "message" && item.role === "assistant"
-      ? [item.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("")]
-      : [];
+    if (item?.type !== "message" || item.role !== "assistant") return [];
+    return [
+      {
+        text: item.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join(""),
+        source: item.executionSource,
+        run: item.runId === undefined ? undefined : snapshot.runs[item.runId],
+      },
+    ];
   });
+}
+
+function replies(store: Store, threadId: ThreadId): string[] {
+  return storedReplies(store, threadId).map((reply) => reply.text);
+}
+
+/**
+ * What the engine stored from the boot's own frames, read back through the Store's public thread
+ * reads: the newest reply item, its run settled, and the native session id committed with both.
+ */
+function expectStored(
+  store: Store,
+  threadId: ThreadId,
+  nativeSessionId: string,
+  count: number,
+): void {
+  const stored = storedReplies(store, threadId);
+  expect(stored).toHaveLength(count);
+  const latest = stored.at(-1);
+  if (latest === undefined) throw new Error("The thread stored no reply");
+  expect(latest.text).toBe(fakeAnswer);
+  expect(latest.source?.nativeSessionId).toBe(nativeSessionId);
+  expect(latest.run).toMatchObject({
+    state: "completed",
+    executionSource: { nativeSessionId },
+  });
+  expect(latest.run?.endedAt).toBeTypeOf("number");
 }
 
 test("a Pi thread keeps its native session through two restarts of one home, resuming it both times", async () => {
@@ -142,9 +174,13 @@ test("a Pi thread keeps its native session through two restarts of one home, res
       return pi.openSession({
         ...ctx,
         env: { ...ctx.env, FAKE_PI_HOME: piHome },
+        // Pi frames are not persisted (the Cursor journal only), so record each one once the
+        // commit `ctx.onFrame` returns has resolved: a frame counts only after the engine
+        // ingested it, and a failed or skipped commit records nothing.
         onFrame(frame: Frame) {
-          frames.push(frame);
-          return ctx.onFrame(frame);
+          return Promise.resolve(ctx.onFrame(frame)).then(() => {
+            frames.push(frame);
+          });
         },
       });
     },
@@ -178,7 +214,7 @@ test("a Pi thread keeps its native session through two restarts of one home, res
     if (open === undefined) throw new Error("Boot 0 never answered get_state");
     const sessionFile = z.string().min(1).parse(open["sessionFile"]);
     const sessionId = z.string().min(1).parse(open["sessionId"]);
-    expect(replies(store, id)).toEqual([fakeAnswer]);
+    expectStored(store, id, reference, 1);
 
     // Two restarts: the event database and the engine are reopened, then the thread continues.
     for (const boot of [1, 2]) {
@@ -188,8 +224,10 @@ test("a Pi thread keeps its native session through two restarts of one home, res
       store = new Store(h.path);
       engine = new Engine(store, { registry: h.registry, clock: h.clock });
       await engine.flush();
-      // 1. The stored native session id survived the boot untouched.
+      // 1. The stored native session id survived the boot untouched, and so did every reply the
+      // engine stored with it: the item, its settled run and the run's native session id.
       expect(storedNativeId(store, id)).toBe(reference);
+      expectStored(store, id, reference, boot);
       // 3. A new message produces a reply and the thread settles, so the continuation works.
       const before = replies(store, id).length;
       expect(
@@ -204,7 +242,8 @@ test("a Pi thread keeps its native session through two restarts of one home, res
         expect(replies(store, id)).toHaveLength(before + 1);
         expect(store.getThread(id)?.status).toEqual({ state: "done" });
       });
-      expect(replies(store, id).at(-1)).toBe(fakeAnswer);
+      // The boot's reply, run and native session id, from the reopened store's thread reads.
+      expectStored(store, id, reference, before + 1);
       // 2. The reopened session resumed boot 0's, rather than the fake's fresh start.
       resumed(wireOf(frames), sessionFile, sessionId);
       expect(storedNativeId(store, id)).toBe(reference);
