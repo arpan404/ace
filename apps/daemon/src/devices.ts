@@ -290,6 +290,8 @@ export class Devices {
     const given = Buffer.from(link.proof, "base64url");
     if (given.length !== expected.length || !timingSafeEqual(given, expected)) return false;
     this.linkAccount.run(accountId, link.deviceId);
+    // The hello that proved it is the pairing's use, so the linked-id cap drops it last.
+    this.touch(link.deviceId, at);
     return true;
   }
   /**

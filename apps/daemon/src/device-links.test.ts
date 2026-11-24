@@ -66,3 +66,25 @@ it("the pairing a phone used most recently survives the cap on linked ids", asyn
   expect(forWorker.ids[0]).toBe(lastUsed);
   expect(forWorker.cut).toBe(4);
 });
+
+it("an account hello that proves a pairing counts as that pairing's use", async () => {
+  const s = store();
+  const registering = s.devices.create("Phone", ["read"], 1000);
+  const proof = await pairingLinkProof(
+    registering.token,
+    registering.device.id,
+    account,
+    crypto.subtle,
+  );
+  s.devices.link(account, proof, 1000);
+  for (let n = 0; n < linkedLimit + 2; n++) {
+    const other = s.devices.create(`Other ${n}`, ["read"], 2000 + n);
+    const otherProof = await pairingLinkProof(other.token, other.device.id, account, crypto.subtle);
+    s.devices.link(account, otherProof, 2000 + n);
+  }
+  // Its hello again, after all of them.
+  s.devices.link(account, proof, 9000);
+
+  const forWorker = capLinked(s.devices.linked(account, 9500), linkedLimit);
+  expect(forWorker.ids[0]).toBe(registering.device.id);
+});
