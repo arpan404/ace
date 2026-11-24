@@ -37,4 +37,6 @@ export type {
 export { createApnsTransport } from "./apns.ts";
 export type { ApnsTransport } from "./apns.ts";
 export { PresenceIndex } from "./presence.ts";
+export { LiveActivityKind, LiveActivityTarget, liveActivityLimit } from "./live-activity.ts";
+export type { LiveActivityEnvironment } from "./live-activity.ts";
 export { NotificationWorker } from "./worker.ts";
