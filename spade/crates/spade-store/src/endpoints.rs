@@ -243,6 +243,39 @@ impl Store {
         Ok(true)
     }
 
+    /// Saves `models` on `endpoint` only while it has none saved yet, all in one transaction:
+    /// the list a new or empty account brings never replaces a model the person saved while the
+    /// list was read. Returns whether they were saved; `false` when the endpoint is gone or has a
+    /// model already, and then nothing is written.
+    pub fn put_listed_models(&self, endpoint: &str, models: &[StoredModel]) -> Result<bool> {
+        let mut connection = self.lock()?;
+        let tx = connection.transaction()?;
+        let exists = tx
+            .query_row(
+                "SELECT 1 FROM endpoints WHERE id = ?1",
+                params![endpoint],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if !exists {
+            return Ok(false);
+        }
+        let saved: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM models WHERE endpoint_id = ?1",
+            params![endpoint],
+            |row| row.get(0),
+        )?;
+        if saved > 0 {
+            return Ok(false);
+        }
+        for model in models {
+            put_model_in(&tx, endpoint, model)?;
+        }
+        tx.commit()?;
+        Ok(true)
+    }
+
     /// Forgets a saved model. Returns whether it was saved.
     pub fn delete_model(&self, endpoint: &str, id: &str) -> Result<bool> {
         let changed = self.lock()?.execute(

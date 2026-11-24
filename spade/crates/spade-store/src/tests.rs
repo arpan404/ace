@@ -450,6 +450,51 @@ fn a_sign_in_accounts_facts_are_kept_and_change_and_a_keyed_account_has_none() -
 }
 
 #[test]
+fn a_list_a_sign_in_brings_lands_only_on_an_endpoint_with_no_model_of_its_own() -> Result<()> {
+    let (_dir, path) = temp();
+    let store = Store::open(&path)?;
+    let endpoint = StoredEndpoint {
+        id: "chatgpt".into(),
+        name: "ChatGPT".into(),
+        format: "openai-responses".into(),
+        base_url: "https://chatgpt.example/codex/".into(),
+        headers: Vec::new(),
+        session_header: None,
+        sign_in: None,
+        needs_key: false,
+        key_env: None,
+        preset: None,
+        created_ms: 1,
+        models: Vec::new(),
+    };
+    store.insert_endpoint(&endpoint)?;
+    let listed = |id: &str| StoredModel {
+        id: id.into(),
+        name: None,
+        context: None,
+        capabilities: None,
+        source: "listed".into(),
+    };
+    assert!(store.put_listed_models("chatgpt", &[listed("gpt-6.2-sol")])?);
+    // A model saved since is never replaced by a list read before it, and the batch neither
+    // lands beside it nor half of it.
+    let mine = StoredModel {
+        source: "typed".into(),
+        ..listed("mine")
+    };
+    assert!(store.put_model("chatgpt", &mine)?);
+    assert!(!store.put_listed_models("chatgpt", &[listed("gpt-6.2-astra")])?);
+    assert_eq!(
+        store.endpoints()?[0].models,
+        vec![listed("gpt-6.2-sol"), mine]
+    );
+    // An endpoint that went takes nothing.
+    assert!(store.delete_endpoint("chatgpt", 9)?);
+    assert!(!store.put_listed_models("chatgpt", &[listed("gpt-6.2-astra")])?);
+    Ok(())
+}
+
+#[test]
 fn endpoints_models_and_settings_are_kept_and_never_hold_a_key() -> Result<()> {
     let (_dir, path) = temp();
     let store = Store::open(&path)?;

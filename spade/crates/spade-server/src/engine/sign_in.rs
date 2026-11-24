@@ -354,7 +354,19 @@ impl Engine {
             }
         };
         if added || empty {
-            self.save_listed_models(&id).await;
+            match self.save_listed_models(&id, generation).await {
+                Listed::Done => {}
+                Listed::Unreadable(why) => {
+                    tracing::warn!(
+                        endpoint = %id,
+                        why,
+                        "an account's own model list could not be read; its sign-in stands"
+                    );
+                }
+                Listed::SignedOut => {
+                    return Err("the account was signed out while signing in".to_owned());
+                }
+            }
         }
         Ok(id)
     }
@@ -423,25 +435,85 @@ impl Engine {
         Ok((id, true))
     }
 
-    /// Saves the models a new account lists for itself, so it starts with what it may use. A
-    /// list that can't be read leaves it empty: the person adds models from Settings.
-    async fn save_listed_models(&self, id: &str) {
-        let Ok(listed) = self.list_endpoint_models(id).await else {
-            return;
+    /// Saves the models a new or empty account lists for itself, so it starts with what it may
+    /// use. The list is read without `endpoint_lock`; it lands only while the account is still
+    /// there, still signed in under the credential this sign-in kept, and still without a model
+    /// saved, and then all at once: a model the person saved while the list was in flight is
+    /// never replaced by it. A list that can't be read leaves the account as it was, and the
+    /// sign-in stands unless the account was signed out meanwhile.
+    async fn save_listed_models(&self, id: &str, generation: u64) -> Listed {
+        let listed = self.list_endpoint_models(id).await;
+        let accounts = self.sign_ins.get().map(|flows| flows.accounts().clone());
+        // Rechecked only now the reading is over: a sign-out, a removal or another sign-in while
+        // it was in flight wins over this list.
+        let still = {
+            let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+            let row = self
+                .store
+                .endpoints()
+                .ok()
+                .and_then(|all| all.into_iter().find(|e| e.id == id));
+            match row {
+                None => Still::Gone,
+                Some(row)
+                    if !row.sign_in.as_ref().is_some_and(|s| s.signed_in)
+                        || accounts.is_some_and(|a| !a.is_current(id, generation)) =>
+                {
+                    Still::SignedOut
+                }
+                Some(row) if !row.models.is_empty() => Still::Saved,
+                Some(_) => Still::Empty,
+            }
         };
-        for model in listed.into_iter().take(MOST_SAVED) {
-            let saved = StoredModel {
-                id: model.id,
-                name: model.name,
-                context: model.context,
-                capabilities: model
-                    .capabilities
-                    .map(|c| c.iter().map(|c| c.name().to_owned()).collect()),
-                source: "listed".to_owned(),
-            };
-            let _ = self.store.put_model(id, &saved);
+        let listed = match listed {
+            Ok(listed) => listed,
+            Err(error) => {
+                return match still {
+                    Still::SignedOut => Listed::SignedOut,
+                    // The list, not the sign-in, is what failed: the person can list again.
+                    _ => Listed::Unreadable(error.to_string()),
+                };
+            }
+        };
+        match still {
+            Still::SignedOut => Listed::SignedOut,
+            Still::Gone | Still::Saved => Listed::Done,
+            Still::Empty => {
+                let saved: Vec<StoredModel> = listed
+                    .into_iter()
+                    .take(MOST_SAVED)
+                    .map(|model| StoredModel {
+                        id: model.id,
+                        name: model.name,
+                        context: model.context,
+                        capabilities: model
+                            .capabilities
+                            .map(|c| c.iter().map(|c| c.name().to_owned()).collect()),
+                        source: "listed".to_owned(),
+                    })
+                    .collect();
+                match self.save_once_empty(id, &saved) {
+                    Ok(()) => Listed::Done,
+                    Err(error) => Listed::Unreadable(error),
+                }
+            }
         }
-        let _ = self.sync_endpoints();
+    }
+
+    /// Saves `models` on an account that still has none, under the lock that keeps a save of the
+    /// person's out. `false` when one came first: theirs stays.
+    fn save_once_empty(&self, id: &str, models: &[StoredModel]) -> Result<(), String> {
+        let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+        match self.store.put_listed_models(id, models) {
+            Ok(true) => {
+                self.sync_endpoints().map_err(|e| e.to_string())?;
+                Ok(())
+            }
+            // Taken by a save on another connection, or the account went: either way the
+            // person's list is the one that stays.
+            Ok(false) => Ok(()),
+            Err(error) => Err(error.to_string()),
+        }
     }
 
     /// A new account's id: `chatgpt-<16 characters>`, never one any endpoint has or ever had
@@ -470,6 +542,28 @@ impl Engine {
         }
         Err("no free account id; try again".to_owned())
     }
+}
+
+/// What became of a new or empty account's own model list.
+enum Listed {
+    /// Saved, or nothing to save (the person saved a model meanwhile, or the account went).
+    Done,
+    /// The list could not be read this time: the sign-in stands, and the person can list again.
+    Unreadable(String),
+    /// The account was signed out while the list was read: the sign-in did not hold.
+    SignedOut,
+}
+
+/// Where an account stood once its own model list was read.
+enum Still {
+    /// Gone while the list was read.
+    Gone,
+    /// Signed out, or signed in again under another credential, while the list was read.
+    SignedOut,
+    /// A model saved meanwhile: the list must not touch it.
+    Saved,
+    /// Still there, still signed in, still with no model saved: the list may land.
+    Empty,
 }
 
 /// A new ChatGPT account's name: `ChatGPT`, else `ChatGPT 2` and on, the first not shown already.
