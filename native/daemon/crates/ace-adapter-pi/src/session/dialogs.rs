@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The `Response` and `Dialog` shapes of `native.ts:14`–`:42`, read as lenient
-//! `ace-json` lookups instead of serde structs. Unknown fields are kept in the
-//! frame and ignored here, exactly as the zod schemas' `looseObject` did.
+//! `ace-json` lookups on the raw frame instead of serde structs. Unknown fields
+//! are ignored here and kept in the frame, as the zod `looseObject` schemas did.
+//!
+//! Dialog ids keep JavaScript string identity: they are `JsString`s, so a lone
+//! surrogate is not collapsed into U+FFFD and two distinct dialogs stay two.
+
+use std::borrow::Cow;
+
+use ace_json::{JsString, Kind, RawRef, Value};
 
 use crate::translate::native::is_blocking_dialog_method;
-use ace_json::{JsString, Map, Value};
 
 /// A validated `Response`: `{type: "response", id, command, success, data?, error?}`.
 #[derive(Debug, Clone)]
@@ -21,17 +27,20 @@ pub struct Response {
 impl Response {
     /// `Response.safeParse(value)`. `None` when any required field has the wrong
     /// kind; the caller then leaves the frame for the translator alone.
-    pub fn parse(value: &Value) -> Option<Response> {
-        let map = value.as_object()?;
-        if map.get("type")?.as_str()? != "response" {
+    pub fn parse(raw: RawRef<'_>) -> Option<Response> {
+        if raw.kind() != Kind::Object || field(raw, "type")?.as_ref() != "response" {
             return None;
         }
-        let id = map.get("id")?.as_str()?.to_owned();
-        let command = map.get("command")?.as_str()?.to_owned();
-        let success = map.get("success")?.as_bool()?;
-        let data = map.get("data").map(ace_json::to_string);
-        let error = match map.get("error") {
-            Some(value) => Some(value.as_str()?.to_owned()),
+        let id = field(raw, "id")?.into_owned();
+        let command = field(raw, "command")?.into_owned();
+        let success = raw.get("success")?.as_bool()?;
+        let data = raw.get("data").map(|value| {
+            let mut text = String::new();
+            value.write_to(&mut text);
+            text
+        });
+        let error = match raw.get("error") {
+            Some(value) => Some(value.as_str()?.into_owned()),
             None => None,
         };
         Some(Response {
@@ -47,7 +56,8 @@ impl Response {
 /// A validated `Dialog`: a blocking `extension_ui_request`.
 #[derive(Debug, Clone)]
 pub struct Dialog {
-    pub id: String,
+    /// The id as JavaScript holds it, lone surrogates included.
+    pub id: JsString,
     /// `None` when Pi set no timeout, as `d.timeout === undefined`.
     pub timeout: Option<f64>,
 }
@@ -55,31 +65,33 @@ pub struct Dialog {
 impl Dialog {
     /// `Dialog.safeParse(value)`. `title` defaults to "Pi extension"; the wire
     /// does not store it, but a present `title` must still be a string.
-    pub fn parse(value: &Value) -> Option<Dialog> {
-        let map = value.as_object()?;
-        if map.get("type")?.as_str()? != "extension_ui_request" {
+    pub fn parse(raw: RawRef<'_>) -> Option<Dialog> {
+        if raw.kind() != Kind::Object || field(raw, "type")?.as_ref() != "extension_ui_request" {
             return None;
         }
-        let id = map.get("id")?.as_str()?;
+        let id = raw.get("id")?.as_js_string()?;
         if id.is_empty() {
             return None;
         }
-        let method = map.get("method")?.as_str()?;
-        if !is_blocking_dialog_method(method) {
+        let method = field(raw, "method")?;
+        if !is_blocking_dialog_method(method.as_ref()) {
             return None;
         }
-        if let Some(title) = map.get("title") {
-            title.as_str()?;
+        if let Some(title) = raw.get("title") {
+            title.as_js_string()?;
         }
-        if let Some(message) = map.get("message") {
-            message.as_str()?;
+        if let Some(message) = raw.get("message") {
+            message.as_js_string()?;
         }
-        if let Some(options) = map.get("options") {
-            for option in options.as_array()? {
-                option.as_str()?;
+        if let Some(options) = raw.get("options") {
+            if options.kind() != Kind::Array {
+                return None;
+            }
+            for option in options.items() {
+                option.as_js_string()?;
             }
         }
-        let timeout = match map.get("timeout") {
+        let timeout = match raw.get("timeout") {
             Some(value) => {
                 let ms = value.as_f64()?;
                 if ms < 0.0 {
@@ -89,29 +101,36 @@ impl Dialog {
             }
             None => None,
         };
-        if let Some(prefill) = map.get("prefill") {
-            prefill.as_str()?;
+        if let Some(prefill) = raw.get("prefill") {
+            prefill.as_js_string()?;
         }
-        Some(Dialog {
-            id: id.to_owned(),
-            timeout,
-        })
+        Some(Dialog { id, timeout })
     }
 }
 
-/// `obj(payload.data).type` when it is a string.
-pub fn type_of(value: &Value) -> Option<&str> {
-    value.as_object()?.get("type")?.as_str()
+/// The string field `key`, when it is a JSON string.
+fn field<'a>(raw: RawRef<'a>, key: &str) -> Option<Cow<'a, str>> {
+    raw.get(key)?.as_str()
 }
 
-/// `obj(payload.data).method` when it is a string.
-pub fn method_of(value: &Value) -> Option<&str> {
-    value.as_object()?.get("method")?.as_str()
+/// `obj(payload.data).type === expected`.
+pub fn type_is(raw: RawRef<'_>, expected: &str) -> bool {
+    raw.kind() == Kind::Object && field(raw, "type").is_some_and(|value| value == expected)
+}
+
+/// `obj(payload.data).method === expected`.
+pub fn method_is(raw: RawRef<'_>, expected: &str) -> bool {
+    raw.kind() == Kind::Object && field(raw, "method").is_some_and(|value| value == expected)
+}
+
+/// `isBlockingDialogMethod(obj(payload.data).method)`.
+pub fn blocking_method(raw: RawRef<'_>) -> bool {
+    field(raw, "method").is_some_and(|method| is_blocking_dialog_method(method.as_ref()))
 }
 
 /// `str(obj(payload.data).message)`: the string, else empty (which never parses).
-pub fn message_of(value: &Value) -> Option<&str> {
-    value.as_object()?.get("message")?.as_str()
+pub fn message_of(raw: RawRef<'_>) -> Option<Cow<'_, str>> {
+    field(raw, "message")
 }
 
 /// The rollback acknowledgement carried by an extension `notify`:
@@ -129,11 +148,31 @@ pub fn rollback_ack(message: &str, id: &str) -> Option<bool> {
     map.get("success")?.as_bool()
 }
 
+/// The timer key for a dialog: `dialog:<id>`, with the id JSON-escaped (no
+/// surrounding quotes) so two lone-surrogate ids stay distinct keys.
+pub fn dialog_key(id: &JsString) -> String {
+    let quoted = ace_json::to_string(&Value::String(id.clone()));
+    let inner = quoted
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+        .unwrap_or(&quoted);
+    format!("dialog:{inner}")
+}
+
+/// The dialog id a `dialog:<id>` timer key names.
+pub fn dialog_id(key: &str) -> Option<JsString> {
+    let encoded = key.strip_prefix("dialog:")?;
+    match ace_json::parse(&format!("\"{encoded}\"")) {
+        Ok(Value::String(id)) => Some(id),
+        _ => None,
+    }
+}
+
 /// `JSON.stringify({type: "dialog_expired", id})`, key order included.
-pub fn dialog_expired(id: &str) -> String {
-    let mut map = Map::with_capacity(2);
+pub fn dialog_expired(id: &JsString) -> String {
+    let mut map = ace_json::Map::with_capacity(2);
     map.insert("type", Value::String(JsString::from("dialog_expired")));
-    map.insert("id", Value::String(JsString::from(id)));
+    map.insert("id", Value::String(id.clone()));
     ace_json::to_string(&Value::Object(map))
 }
 

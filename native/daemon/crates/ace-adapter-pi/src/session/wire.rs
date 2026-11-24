@@ -13,7 +13,7 @@
 use std::collections::VecDeque;
 
 use ace_adapter_api::util::{ElisionLimits, JsonElider};
-use ace_json::{JsString, Map, Value};
+use ace_json::{JsString, Kind, Map, RawRef, Value};
 use ace_supervisor::budget::{DroppedLine, DroppingGate, Framed, NoteStep};
 use ace_supervisor::jsonl::JsonLines;
 use ace_supervisor::lines::{FramedLines, Utf8Decoder};
@@ -31,6 +31,11 @@ const MAX_PENDING: usize = 64;
 const MAX_QUEUED_BYTES: usize = 2 * 1024 * 1024;
 /// One command line's bound (`rpc.ts:73`).
 const MAX_FRAME_BYTES: usize = 1024 * 1024;
+/// `maxProviderPayloadBytes` (`payload.ts:5`): the frame text `ProviderPayload` admits.
+const MAX_PAYLOAD_BYTES: usize = 1024 * 1024;
+/// `ProviderPayload`'s structural bound (`payload.ts:31`).
+const MAX_PAYLOAD_NODES: usize = 32_768;
+
 /// `readJsonLines(proc.stdout, 1024 * 1024, ...)` (`rpc.ts:46`).
 const STDOUT_LINE_BYTES: usize = 1024 * 1024;
 /// The session's stdout elision (`session.ts:151`).
@@ -115,8 +120,9 @@ pub struct PiWire {
     pending: IndexMap<String, Pending>,
     seq: u64,
     writes: VecDeque<WriteRecord>,
-    /// The dialog as received, and its timer key when it has a timeout.
-    dialogs: IndexMap<String, (Value, Option<String>)>,
+    /// The dialog as received, and its timer key when it has a timeout. The key
+    /// is the id's exact JavaScript string, so lone surrogates stay distinct.
+    dialogs: IndexMap<JsString, (Value, Option<String>)>,
     waiting_on_human: bool,
     rollback: Option<(String, Option<bool>)>,
     closed: bool,
@@ -356,21 +362,27 @@ impl PiWire {
             return Vec::new();
         }
         let text = self.redact.redact(line);
-        let value = match ace_json::parse(&text) {
-            Ok(value) => value,
-            Err(_) => {
+        // `new ProviderPayload(...)` admits before the frame exists (`payload.ts:14`).
+        let raw = match admit_payload(&text) {
+            Ok(raw) => raw,
+            Err(message) => {
                 return vec![Effect::Fatal {
-                    message: "Invalid Pi frame".to_owned(),
+                    message: message.to_owned(),
                 }];
             }
         };
-        let mut effects = vec![Effect::Frame {
-            dir: FrameDir::Recv,
-            channel: STDIO,
-            text,
-        }];
-        self.settle_response(&value, &mut effects);
-        self.inspect(&value, &mut effects);
+        let mut effects = Vec::new();
+        self.settle_response(raw, &mut effects);
+        self.inspect(raw, &mut effects);
+        // The frame carries the redacted text as received, never a rebuilt tree.
+        effects.insert(
+            0,
+            Effect::Frame {
+                dir: FrameDir::Recv,
+                channel: STDIO,
+                text,
+            },
+        );
         effects
     }
 
@@ -409,15 +421,18 @@ impl PiWire {
                 },
             ];
         }
-        if let Some(id) = key.strip_prefix("dialog:") {
+        if key.starts_with("dialog:") {
+            let Some(id) = dialogs::dialog_id(key) else {
+                return Vec::new();
+            };
             let timed = self
                 .dialogs
-                .get(id)
+                .get(&id)
                 .is_some_and(|(_, timer)| timer.as_deref() == Some(key));
             if !timed {
                 return Vec::new();
             }
-            self.dialogs.shift_remove(id);
+            self.dialogs.shift_remove(&id);
             let mut effects = Vec::with_capacity(2);
             if self.dialogs.is_empty() {
                 self.resume_deadlines(&mut effects);
@@ -425,7 +440,7 @@ impl PiWire {
             effects.push(Effect::Frame {
                 dir: FrameDir::Note,
                 channel: LIFECYCLE,
-                text: dialogs::dialog_expired(id),
+                text: dialogs::dialog_expired(&id),
             });
             return effects;
         }
@@ -446,12 +461,12 @@ impl PiWire {
     }
 
     /// The dialog as received, without consuming it.
-    pub fn peek_dialog(&self, id: &str) -> Option<Value> {
+    pub fn peek_dialog(&self, id: &JsString) -> Option<Value> {
         self.dialogs.get(id).map(|(dialog, _)| dialog.clone())
     }
 
     /// resolve()'s reservation (`session.ts:435`–`:436`).
-    pub fn take_dialog(&mut self, id: &str) -> (bool, Vec<Effect>) {
+    pub fn take_dialog(&mut self, id: &JsString) -> (bool, Vec<Effect>) {
         match self.dialogs.shift_remove(id) {
             Some((_, Some(key))) => (true, vec![Effect::CancelTimer { key }]),
             Some((_, None)) => (true, Vec::new()),
@@ -544,8 +559,8 @@ impl PiWire {
     }
 
     /// `rpc.ts:52`–`:61`: remove the pending entry and settle it.
-    fn settle_response(&mut self, value: &Value, effects: &mut Vec<Effect>) {
-        let Some(response) = Response::parse(value) else {
+    fn settle_response(&mut self, raw: RawRef<'_>, effects: &mut Vec<Effect>) {
+        let Some(response) = Response::parse(raw) else {
             return;
         };
         let Some(pending) = self.pending.shift_remove(&response.id) else {
@@ -572,23 +587,23 @@ impl PiWire {
     }
 
     /// `session.ts:217`–`:259`: rollback acknowledgement, dialogs, a bad dialog.
-    fn inspect(&mut self, value: &Value, effects: &mut Vec<Effect>) {
-        let event_type = dialogs::type_of(value);
-        let method = dialogs::method_of(value);
-        if event_type == Some("extension_ui_request")
-            && method == Some("notify")
+    fn inspect(&mut self, raw: RawRef<'_>, effects: &mut Vec<Effect>) {
+        let extension_ui = dialogs::type_is(raw, "extension_ui_request");
+        let notify = dialogs::method_is(raw, "notify");
+        if extension_ui
+            && notify
             && let (Some((id, success)), Some(message)) =
-                (&mut self.rollback, dialogs::message_of(value))
-            && let Some(ack) = dialogs::rollback_ack(message, id.as_str())
+                (&mut self.rollback, dialogs::message_of(raw))
+            && let Some(ack) = dialogs::rollback_ack(&message, id.as_str())
         {
             *success = Some(ack);
         }
-        if let Some(dialog) = Dialog::parse(value) {
+        if let Some(dialog) = Dialog::parse(raw) {
             if self.dialogs.contains_key(&dialog.id) {
                 return;
             }
             let timer = dialog.timeout.map(|ms| {
-                let key = format!("dialog:{}", dialog.id);
+                let key = dialogs::dialog_key(&dialog.id);
                 effects.push(Effect::ArmTimer {
                     key: key.clone(),
                     ms,
@@ -596,14 +611,11 @@ impl PiWire {
                 key
             });
             self.dialogs
-                .insert(dialog.id.clone(), (value.clone(), timer));
+                .insert(dialog.id.clone(), (raw.to_value(), timer));
             self.pause_deadlines(effects);
             return;
         }
-        if event_type == Some("extension_ui_request")
-            && let Some(method) = method
-            && crate::translate::native::is_blocking_dialog_method(method)
-        {
+        if extension_ui && dialogs::blocking_method(raw) {
             effects.push(Effect::Fatal {
                 message: "Pi RPC closed".to_owned(),
             });
@@ -718,6 +730,40 @@ fn wire_bytes(line: String) -> Vec<u8> {
     bytes
 }
 
+/// `new ProviderPayload(text)`'s admission (`payload.ts:14`–`:40`), in the same
+/// order: the byte bound, then `JSON.parse`, then the structural bound. No typed
+/// decode and no depth limit; the traversal is iterative.
+fn admit_payload(text: &str) -> Result<RawRef<'_>, &'static str> {
+    if text.len() > MAX_PAYLOAD_BYTES {
+        return Err("Provider payload exceeds byte limit");
+    }
+    let raw = ace_json::parse_raw(text).map_err(|_| "Invalid Pi frame")?;
+    if !within_structural_limit(raw) {
+        return Err("Provider payload exceeds structural limit");
+    }
+    Ok(raw)
+}
+
+/// `ProviderPayload`'s node count: every value counts, objects and arrays are
+/// walked iteratively, so a valid frame deeper than any call stack is bounded by
+/// nodes alone.
+fn within_structural_limit(root: RawRef<'_>) -> bool {
+    let mut pending = vec![root];
+    let mut nodes = 0usize;
+    while let Some(value) = pending.pop() {
+        nodes += 1;
+        if nodes > MAX_PAYLOAD_NODES {
+            return false;
+        }
+        match value.kind() {
+            Kind::Array => pending.extend(value.items()),
+            Kind::Object => pending.extend(value.entries().map(|(_, child)| child)),
+            _ => {}
+        }
+    }
+    true
+}
+
 /// Every record a `FramedLines` holds, in order.
 fn lines(framed: &FramedLines) -> impl Iterator<Item = &str> {
     let count = framed.count;
@@ -727,3 +773,6 @@ fn lines(framed: &FramedLines) -> impl Iterator<Item = &str> {
         .take(count)
         .filter(|line| !line.is_empty())
 }
+
+#[cfg(test)]
+mod tests;

@@ -856,8 +856,15 @@ Steps, in order:
    `ace_supervisor::budget::DroppingGate::new(1 MiB)`. Lines split on CR and LF, as `lineReader`
    does. These are today's numbers (rule 10).
 
-- **Tests**: none new; E3-pi.2's files prove it. `cargo test -p ace-adapter-pi` still passes
-  (E1's cases).
+- **Byte feeds and framing.** `PiWire::stdout_bytes` and `stderr_bytes` own both framers (elision
+  then `JsonLines` on LF/CRLF for stdout; `DroppingGate` on CR/LF for stderr) and return the
+  resulting effects; `finish` is the only place the framers end. E3-pi.2's
+  `OutputConsumer::output` hands each chunk to the matching feed and must not frame it again (no
+  elision, `JsonLines` or gate in `io.rs`).
+- **Tests**: the tables in `session/wire/tests.rs` cover the 64 cap and seq, the exact frame and
+  queue byte bounds, one settlement and one charge release across ack/failure/close, dialog and
+  rollback effect order, chunked framing through drain, and payload admission (byte, structural,
+  deep and lone-surrogate cases); E3-pi.2's files prove the wiring.
 - **Must not**: spawn, read the clock, set a timer or touch the filesystem; use `serde_json`;
   change `translate/`; turn any `Uncertain` into a `Refused`.
 - **Reviewer checks**: diff each method against its TypeScript lines; every message is today's
@@ -881,10 +888,10 @@ Steps, in order:
    effects with the rest, so the request settles through the queue and the binding call still
    returns normally.
 3. **`OutputConsumer` for `PiSessionCore`**:
-   - `output(Stdout | Stderr, bytes, delivered)`: run the bytes through that stream's framer,
-     feed each finished line to `stdout_line` or `stderr_line` (one input per line, step 2), then
-     call `gate.answer(delivered)`, which checks and pauses in one step (E3.0c, step 2). When the
-     gate later opens, it resumes the stream.
+   - `output(Stdout | Stderr, bytes, delivered)`: hand the bytes to the wire's `stdout_bytes`
+     (stdout) or `stderr_bytes` (stderr) — the wire already frames them, so do not frame again —
+     then call `gate.answer(delivered)`, which checks and pauses in one step (E3.0c, step 2).
+     When the gate later opens, it resumes the stream.
    - `stdin_written()` → `wire.stdin_written()`; `stdin_error(e)` → `wire.stdin_error(&e.message)`.
    - `exit(_)`: call `gate.exited()`, then publish `ArmTimer { key: "cutoff", ms: 1000 }`.
    - `end(_)`: nothing; an end is not the barrier.
