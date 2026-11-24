@@ -270,6 +270,21 @@ export function killGroupWhile(
   }
   return "sent";
 }
+/** Report a refused tree signal and stop the leader through its own handle, never a reused pid. */
+function treeRefused(
+  pid: number,
+  signal: NodeJS.Signals,
+  leader: { kill(signal: NodeJS.Signals): boolean },
+): (error: unknown) => void {
+  return (error) => {
+    process.emitWarning(`Could not signal process tree ${pid}: ${String(error)}`);
+    try {
+      leader.kill(signal);
+    } catch {
+      /* Already gone. */
+    }
+  };
+}
 /**
  * Signals a spawned process's tree from code where a throw would end the daemon: timers, exit
  * listeners and voided stop() calls. Resolves once the signal was delivered (or refused and the
@@ -278,8 +293,8 @@ export function killGroupWhile(
  * reported, and the leader is still signalled through its own handle, which never reaches a
  * reused pid once it has exited.
  *
- * `group` is the TypeScript leader group, when the TypeScript backend spawned the process;
- * without one the native supervisor's handle behind `leader` is signalled.
+ * `group` is the group read at spawn by the TypeScript backend, and is required there: a POSIX
+ * stop goes through the group, so a caller that cannot name one has no group to signal.
  */
 export function signalTree(
   pid: number,
@@ -287,20 +302,34 @@ export function signalTree(
   windows: boolean,
   killTree: WindowsKillTree,
   leader: { kill(signal: NodeJS.Signals): boolean },
-  group?: SignalableGroup,
+  group: SignalableGroup,
 ): Promise<void> {
   const signal = force ? "SIGKILL" : "SIGTERM";
-  const refused = (error: unknown) => {
-    process.emitWarning(`Could not signal process tree ${pid}: ${String(error)}`);
-    try {
-      leader.kill(signal);
-    } catch {
-      /* Already gone. */
-    }
-  };
+  const refused = treeRefused(pid, signal, leader);
   try {
     if (windows) killTree(pid, force);
-    else if (group) return group.signal(signal).catch(refused);
+    else return group.signal(signal).catch(refused);
+  } catch (error) {
+    refused(error);
+  }
+  return Promise.resolve();
+}
+/**
+ * The native backend's tree stop: the supervisor's handle behind `leader`, which signals the
+ * group by number only while it holds the leader, and never by pid alone. A group it cannot
+ * prove is not signalled.
+ */
+export function signalNativeTree(
+  pid: number,
+  force: boolean,
+  windows: boolean,
+  killTree: WindowsKillTree,
+  leader: { kill(signal: NodeJS.Signals): boolean },
+): Promise<void> {
+  const signal = force ? "SIGKILL" : "SIGTERM";
+  const refused = treeRefused(pid, signal, leader);
+  try {
+    if (windows) killTree(pid, force);
     else killGroup(pid, signal, groupOf(leader));
   } catch (error) {
     refused(error);

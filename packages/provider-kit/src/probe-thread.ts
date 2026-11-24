@@ -5,8 +5,9 @@ import { IdleWorker, type IdleWorkerRuntime } from "./idle-worker.ts";
 import { OutputLimitError } from "./output-budget.ts";
 import { ProbeReply, type ProbeRequest } from "./probe-messages.ts";
 import { z } from "zod";
-import { admitProcess, registerGroup, unregisterGroup } from "./process-owner.ts";
+import { admitProcess, killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
 import { reportedGroup, signalSoon, type LeaderGroup } from "./leader-group.ts";
+import { supervisorBackend } from "./native-switches.ts";
 import { requestOwner, unscoped, type RequestOwner } from "./unscoped.ts";
 import { markedEnv } from "./process-marker.ts";
 
@@ -30,12 +31,16 @@ const runtime: IdleWorkerRuntime = {
 };
 
 /**
- * The worker may already have reaped the probe when this thread acts, so its group is signalled
- * through the identity the worker read at spawn; without one, only the worker stops it.
+ * The worker may already have reaped the probe when this thread acts, so the TypeScript backend's
+ * group is signalled through the identity the worker read at spawn; without one, only the worker
+ * stops it. Under the native supervisor a signal goes only through a handle that holds the probe:
+ * by identity when one was read, never by pid alone on POSIX, where only the worker stops it, and
+ * on Windows the tree stop is taskkill's.
  */
-function stopGroup(group: LeaderGroup | undefined): void {
+function stopGroup(pid: number, group: LeaderGroup | undefined, start?: string): void {
   try {
-    if (group) signalSoon(group, "SIGKILL");
+    if (supervisorBackend() === "native") killGroup(pid, "SIGKILL", undefined, start);
+    else if (group) signalSoon(group, "SIGKILL");
   } catch {
     // A group this daemon can no longer signal is not one it can stop.
   }
@@ -79,7 +84,7 @@ export function createProbeThread(
   const stop = (flight: Flight) => {
     const first = !flight.stopping;
     flight.stopping = true;
-    stopGroup(flight.group);
+    if (flight.pid !== undefined) stopGroup(flight.pid, flight.group);
     try {
       worker.postMessage({ type: "stop", id: flight.id });
     } catch {
@@ -102,7 +107,7 @@ export function createProbeThread(
   };
   const fail = (error: Error) => {
     for (const flight of flights.values()) {
-      stopGroup(flight.group);
+      if (flight.pid !== undefined) stopGroup(flight.pid, flight.group);
       end(flight);
       flight.done.reject(error);
     }
@@ -143,14 +148,17 @@ export function createProbeThread(
     if (message.data.type === "spawned") {
       const { pid, unique, start } = message.data;
       flight.pid = pid;
-      const group = start === undefined ? undefined : reportedGroup({ pid, start, unique });
+      const group =
+        start === undefined || supervisorBackend() === "native"
+          ? undefined
+          : reportedGroup({ pid, start, unique });
       if (group) flight.group = group;
       try {
         registerGroup(
           pid,
           () => stop(flight),
           { name: "cli-probe", ...(unique ? { unique } : {}) },
-          () => stopGroup(group),
+          () => stopGroup(pid, group, start),
         );
       } catch {
         // Unrecorded, it must not outlive this probe.
@@ -158,7 +166,7 @@ export function createProbeThread(
       }
       // Owned by pid now; the admission that covered the gap is no longer needed.
       flight.release();
-      if (flight.stopping) stopGroup(group);
+      if (flight.stopping) stopGroup(pid, group);
       return;
     }
     const { type: _type, id: _id, ...exit } = message.data;

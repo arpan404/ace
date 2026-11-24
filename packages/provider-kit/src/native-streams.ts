@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-/**
- * E0 stub: the native streams shell lands in E2b. It will implement the line,
- * JSON-RPC, SSE and JSONL readers over the addon, chosen by one `if` on
- * `ACE_SUPERVISOR` in each function it replaces.
- */
-
-/** E0 placeholder; the owning item replaces this file with the real shell. */
-export type NativeStub = never;
+/** The native streams shell entry (E2b): framing and I/O here, protocol state in
+ * `ace-supervisor`. Split by responsibility; importers use this module. */
+export {
+  nativeByteLimit,
+  nativeDroppedLineNotes,
+  nativeDroppingOutputGate,
+  nativeLineReader,
+  nativeOutputGate,
+  nativeReadJsonLines,
+} from "./native-framing.ts";
+export { NativeSseParser } from "./native-sse.ts";
+export { NativeRpcIds, NativeRpcWriter, nativeInspect, nativeRpcErrorCode } from "./native-rpc.ts";

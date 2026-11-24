@@ -15,7 +15,7 @@ import { byteLimit } from "./byte-limit.ts";
 import { jsonElision, type ElisionLimits } from "./elision.ts";
 import { reportBunStdinFailures } from "./bun-stdin.ts";
 import { outputGate, OutputLimitError } from "./output-budget.ts";
-import { admitProcess, registerGroup, signalTree } from "./process-owner.ts";
+import { admitProcess, registerGroup, signalNativeTree, signalTree } from "./process-owner.ts";
 import { stopRetainedGroup as stopRetainedGroupByPid } from "./process-owner.ts";
 import { unregisterGroup } from "./process-owner.ts";
 import { killWindowsTree, stopRetainedWindowsTree, type WindowsKillTree } from "./process-owner.ts";
@@ -167,7 +167,9 @@ function spawnOwned(
   const target = windows
     ? toWindowsCommand(options.command, options.args ?? [])
     : { command: options.command, args: [...(options.args ?? [])], verbatim: false };
-  const token = windows ? undefined : newGroupToken();
+  // Only the TypeScript backend's child carries the group token; the native one is held by its
+  // supervisor, which needs no marker in the environment.
+  const token = windows || native ? undefined : newGroupToken();
   const env = markedEnv({ ...base, ...options.env });
   const nodeChild = native
     ? undefined
@@ -200,15 +202,17 @@ function spawnOwned(
   child.once("exit", () => group?.reaped());
   reportBunStdinFailures(child.stdin);
   // Never throws: stops run from timers, exit listeners and voided stop() calls.
-  const terminate = () =>
-    pid === undefined ? Promise.resolve() : signalTree(pid, false, windows, killTree, child, group);
+  const signalGroupTree = (force: boolean) =>
+    pid === undefined
+      ? Promise.resolve()
+      : group
+        ? signalTree(pid, force, windows, killTree, child, group)
+        : signalNativeTree(pid, force, windows, killTree, child);
+  const terminate = () => signalGroupTree(false);
   /** The exit's own group kill, which `exited` waits for: a relayed one is delivered later. */
   let exitKill: Promise<void> | undefined;
   /** Resolves once delivered; never rejects (a refusal is reported, the leader signalled). */
-  const destroyed = () =>
-    pid === undefined
-      ? Promise.resolve()
-      : signalTree(pid, true, windows, killTree, child, group).catch(() => {});
+  const destroyed = () => signalGroupTree(true).catch(() => {});
   const destroy = () => {
     destroyed().catch(() => {});
   };
@@ -327,7 +331,10 @@ function spawnOwned(
                 ? "signal"
                 : "exit",
       };
-      (exitKill ?? Promise.resolve()).then(() => resolve(outcome)).catch(() => resolve(outcome));
+      // The native backend's signal is delivered synchronously, so nothing of it is waited for.
+      if (native) resolve(outcome);
+      else
+        (exitKill ?? Promise.resolve()).then(() => resolve(outcome)).catch(() => resolve(outcome));
     });
   });
   const handle: RawSupervisedProcess = {
@@ -393,17 +400,25 @@ function spawnOwned(
       if (!closed && pid !== undefined && (!stopped || shortens(graceMs))) {
         // A later stop with a shorter grace (a daemon shutdown overtaking a polite close)
         // brings the SIGKILL forward; it never pushes one back.
-        if (!stopped) termDelivered = terminate();
+        if (!stopped) {
+          if (native) void terminate();
+          else termDelivered = terminate();
+        }
         stopped = true;
         killAt ??= performance.now() + graceMs;
-        (termDelivered ?? Promise.resolve())
-          .then(() => {
-            // The leader's exit already ended the group; nothing is left to escalate.
-            if (ended || closed) return;
-            if (timer) clearTimeout(timer);
-            timer = setTimeout(() => destroy(), graceMs);
-          })
-          .catch(() => {});
+        // The native backend's SIGTERM is delivered synchronously: its grace starts now.
+        if (native) {
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(() => destroy(), graceMs);
+        } else
+          (termDelivered ?? Promise.resolve())
+            .then(() => {
+              // The leader's exit already ended the group; nothing is left to escalate.
+              if (ended || closed) return;
+              if (timer) clearTimeout(timer);
+              timer = setTimeout(() => destroy(), graceMs);
+            })
+            .catch(() => {});
       }
       return exited;
     },

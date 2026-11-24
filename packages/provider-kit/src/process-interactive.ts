@@ -55,7 +55,9 @@ export function spawnInteractive(options: {
   const target = windows
     ? toWindowsCommand(options.command, options.args)
     : { command: options.command, args: [...options.args], verbatim: false };
-  const token = windows ? undefined : newGroupToken();
+  // Only the TypeScript backend's child carries the group token; the native one is held by its
+  // supervisor, which needs no marker in the environment.
+  const token = windows || native ? undefined : newGroupToken();
   const env = markedEnv(options.env);
   const nodeChild = native
     ? undefined

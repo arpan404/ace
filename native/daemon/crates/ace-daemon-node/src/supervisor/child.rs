@@ -6,6 +6,7 @@
 
 use super::{bind_error, guarded, input_error, runtime};
 use ace_supervisor::child::{SupervisedChild, spawn_child};
+use ace_supervisor::errors::NodeIoError;
 use ace_supervisor::signal::SignalName;
 use ace_supervisor::spawn::{Delivered, EventSink, OutputStream, RawExit, SpawnSpec, StdioMode};
 use napi::bindgen_prelude::{FnArgs, Uint8Array};
@@ -81,8 +82,8 @@ impl EventSink for TsfnSink {
         self.send("stdin-written", Vec::new());
     }
 
-    fn stdin_error(&self, message: String) {
-        self.send("stdin-error", message.into_bytes());
+    fn stdin_error(&self, error: NodeIoError) {
+        self.send("stdin-error", error.to_json().into_bytes());
     }
 
     fn hold_limit(&self) {

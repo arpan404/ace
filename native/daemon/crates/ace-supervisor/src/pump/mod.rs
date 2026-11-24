@@ -7,6 +7,7 @@
 //! more is held back. It stops when the shell destroys the stream. Stdin
 //! writes reach the pipe in order, EOF last, each acknowledged once written.
 
+use crate::errors::NodeIoError;
 use crate::spawn::{Delivered, EventSink, OutputStream};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -341,7 +342,7 @@ pub async fn pump_stdin<E: EventSink, W: tokio::io::AsyncWrite + Unpin>(
         match written {
             Ok(()) => sink.stdin_written(),
             Err(error) => {
-                sink.stdin_error(error.to_string());
+                sink.stdin_error(NodeIoError::new("write", &error));
                 return;
             }
         }

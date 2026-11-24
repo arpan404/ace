@@ -1,7 +1,9 @@
 import { createInterface } from "node:readline";
 import { PassThrough, type Readable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
-import { outputGate } from "./output-budget.ts";
+import { supervisorBackend } from "./native-switches.ts";
+import { nativeLineReader } from "./native-streams.ts";
+import { outputGate, OutputLimitError } from "./output-budget.ts";
 import { byteLimit } from "./byte-limit.ts";
 import type { OutputFlow } from "./flow-control.ts";
 import { lineSegments } from "./line-segments.ts";
@@ -34,6 +36,14 @@ export function lineReader(
   fail: (error: Error) => void,
   flow?: OutputFlow,
 ) {
+  if (supervisorBackend() === "native")
+    return nativeLineReader(
+      input,
+      maxBytes,
+      fail,
+      flow,
+      (message) => new OutputLimitError(message),
+    );
   const gate = outputGate(byteLimit(maxBytes, "maxLineBytes"), () => true, fail);
   const source = new PassThrough({ highWaterMark: 1 });
   const decoder = new StringDecoder("utf8");

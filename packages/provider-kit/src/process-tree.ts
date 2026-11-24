@@ -124,18 +124,16 @@ export function captureTree(
   io: TreeIo = systemTreeIo,
   limit = captureLimit,
 ): Capture {
-  // The native supervisor captures under the same rules in Rust, for the system tables only.
-  if (supervisorBackend() === "native" && io === systemTreeIo) {
-    return JSON.parse(
-      supervisorAddon().supervisorCaptureTree(JSON.stringify(roots), limit),
-    ) as Capture;
+  if (supervisorBackend() === "native") {
+    // The native supervisor captures under the same rules in Rust. Injected tables keep its
+    // order too: each root is read once, and the walk starts from what that read found.
+    if (io === systemTreeIo)
+      return JSON.parse(
+        supervisorAddon().supervisorCaptureTree(JSON.stringify(roots), limit),
+      ) as Capture;
+    return walkTree(readRoots(roots, io), io, limit);
   }
-  const known: TreeMember[] = [];
-  for (const pid of roots) {
-    const identity = readIdentity(io, pid);
-    if (identity) known.push({ pid, start: identity.start });
-  }
-  return captureFrom(known, io, limit);
+  return captureFrom(readRoots(roots, io), io, limit);
 }
 
 /**
@@ -147,13 +145,44 @@ export function captureFrom(
   io: TreeIo = systemTreeIo,
   limit = captureLimit,
 ): Capture {
+  return walkTree(
+    roots.filter((root) => readIdentity(io, root.pid)?.start === root.start),
+    io,
+    limit,
+    roots,
+  );
+}
+
+/** The pids as the identities they show now: what one root read at spawn would have kept. */
+function readRoots(roots: readonly number[], io: TreeIo): TreeMember[] {
+  // Nothing can be walked where there are no trees: E2a read no identity there.
+  if (!roots.length || !capturesTrees(io.platform)) return [];
+  const known: TreeMember[] = [];
+  for (const pid of roots) {
+    const identity = readIdentity(io, pid);
+    if (identity) known.push({ pid, start: identity.start });
+  }
+  return known;
+}
+
+/**
+ * The walk from roots already read, parents before children. A child is kept only when its own
+ * parent link (read with its start) names the parent being walked, and only while that parent is
+ * still the process the walk reached: a pid reused during the walk is never taken for a member.
+ * `claimed` holds the roots the caller named, kept out of the results even after their pid shows
+ * another process.
+ */
+function walkTree(
+  roots: readonly TreeMember[],
+  io: TreeIo,
+  limit: number,
+  claimed: readonly TreeMember[] = roots,
+): Capture {
   if (!roots.length || !capturesTrees(io.platform)) return { members: [], truncated: false };
   const children = io.lister();
   const members: CapturedMember[] = [];
-  const seen = new Set<number>(roots.map((root) => root.pid));
-  const queue: TreeMember[] = [];
-  for (const root of roots)
-    if (readIdentity(io, root.pid)?.start === root.start) queue.push({ ...root });
+  const seen = new Set<number>(claimed.map((root) => root.pid));
+  const queue: TreeMember[] = roots.map((root) => ({ ...root }));
   for (let parent = queue.shift(); parent !== undefined; parent = queue.shift()) {
     const found: CapturedMember[] = [];
     for (const pid of children(parent.pid)) {
