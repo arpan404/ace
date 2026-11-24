@@ -312,10 +312,10 @@ function FlowState(props: { flow: SpadeSignInFlow; machine: string }) {
                 className={buttonVariants({ variant: "primary", size: "lg" })}
                 onClick={(event) => {
                   event.preventDefault();
-                  // The tab opens inside the click, before the clipboard can outlive the
-                  // browser's user activation; copying the code does not wait on it either way.
-                  openPage(flow.url ?? "");
+                  // Start the clipboard write before opening the tab: WebKit spends the click's
+                  // user activation on open(), and a write begun after it can be refused.
                   if (flow.userCode) void copyCode(flow.userCode);
+                  openPage(flow.url ?? "");
                 }}
               >
                 Copy code and open sign-in page
