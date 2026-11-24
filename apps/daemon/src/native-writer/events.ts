@@ -94,7 +94,6 @@ export interface EventRow {
 }
 
 export function createThread(db: DatabaseSync, row: NewThreadRow): void {
-  recordEvidence();
   nativeCall(() =>
     writer(db).createThread(
       row.id,
@@ -108,11 +107,12 @@ export function createThread(db: DatabaseSync, row: NewThreadRow): void {
       row.imported,
     ),
   );
+  recordEvidence();
 }
 
 export function storeEvent(db: DatabaseSync, row: EventRow): void {
-  recordEvidence();
   nativeCall(() =>
     writer(db).storeEvent(row.seq, row.id, row.threadId, row.at, row.kind, row.payloadJson),
   );
+  recordEvidence();
 }

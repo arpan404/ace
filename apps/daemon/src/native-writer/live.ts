@@ -40,14 +40,15 @@ function recordEvidence(): void {
 /** `compactDeltas` with the switch off; with it on, the Rust compaction. */
 export function compactDeltas(db: DatabaseSync, events: Event[]): Event[] {
   if (!storeWriterOn("live")) return compactDeltasTypeScript(events);
-  recordEvidence();
   const text = nativeCall(() => binding(db).compactDeltas(JSON.stringify(events)));
+  recordEvidence();
   return JSON.parse(text) as Event[];
 }
 
 /** `liveWriteRetryDelay` with the switch off; with it on, the Rust rule. */
 export function retryDelay(db: DatabaseSync, failures: number): number {
   if (!storeWriterOn("live")) return liveWriteRetryDelay(failures);
+  const ms = nativeCall(() => binding(db).liveRetryDelay(failures));
   recordEvidence();
-  return nativeCall(() => binding(db).liveRetryDelay(failures));
+  return ms;
 }

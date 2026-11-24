@@ -71,7 +71,8 @@ impl NativeDatabase {
     }
 
     /// Adjacent `item.delta` events into one row each: the events as JSON text in, the rows as
-    /// JSON text out, in the later event's key order and with lone surrogates intact.
+    /// JSON text out, in the later event's key order and with lone surrogates intact. The parsed
+    /// events are moved into the compaction, never cloned.
     #[napi(catch_unwind)]
     pub fn compact_deltas(&self, env: Env, events: String) -> napi::Result<String> {
         let value = json_bind::parse(&env, &events)?;
@@ -84,9 +85,9 @@ impl NativeDatabase {
             }
         };
         let mut maps = Vec::with_capacity(items.len());
-        for item in items.iter() {
+        for item in items.into_iter() {
             match item {
-                ace_json::Value::Object(map) => maps.push(map.clone()),
+                ace_json::Value::Object(map) => maps.push(map),
                 _ => {
                     return Err(napi::Error::from_reason(
                         "compactDeltas: an event is not an object",
@@ -94,7 +95,7 @@ impl NativeDatabase {
                 }
             }
         }
-        let rows: Vec<ace_json::Value> = compact_deltas(&maps)
+        let rows: Vec<ace_json::Value> = compact_deltas(maps)
             .into_iter()
             .map(ace_json::Value::Object)
             .collect();

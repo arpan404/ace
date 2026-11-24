@@ -517,9 +517,10 @@ function compactCases(): CompactCase[] {
       deltaEvent(1, "thread-1", "x".repeat(2049)),
       deltaEvent(2, "thread-1", "y".repeat(2048)),
     ]),
-    // The pair counts six bytes as two parts and four once joined: 2048 + 2049 is over.
+    // The pair counts six bytes as two parts and four once joined: 2048 + 2049 is over, and
+    // the joined 4095 bytes would fit, so a sum-of-parts check must not merge this.
     compactCase("split-pair-over-4096", [
-      deltaEvent(1, "thread-1", `${high}${"x".repeat(2045)}`),
+      deltaEvent(1, "thread-1", `${"x".repeat(2045)}${high}`),
       deltaEvent(2, "thread-1", `${low}${"x".repeat(2046)}`),
     ]),
     compactCase("other-threads-interleaved", [

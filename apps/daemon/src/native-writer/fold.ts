@@ -53,11 +53,11 @@ export function foldThread(db: DatabaseSync, thread: Thread, event: Event): void
   }
   const input = foldInput(event);
   if (input === undefined) return;
-  recordEvidence();
   const text = nativeCall(() =>
     binding(db).foldThread(JSON.stringify(thread), input.kind, event.seq, event.at, input.payload),
   );
   const next = JSON.parse(text) as Record<string, unknown>;
+  recordEvidence();
   for (const key of Object.keys(thread)) Reflect.deleteProperty(thread, key);
   for (const [key, value] of Object.entries(next))
     Object.defineProperty(thread, key, {

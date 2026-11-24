@@ -4,7 +4,7 @@
 //! agent and field become one row while their appends' UTF-8 bytes fit 4 KiB. The merged row
 //! is the later event's envelope with the append replaced in place by `earlier + later`, so the
 //! appended pair of UTF-16 units joins like JavaScript's `+` and key order is the later
-//! payload's. Pure: inputs are never changed.
+//! payload's. The events are consumed and untouched rows are moved, never cloned.
 
 use ace_json::{JsString, Map, Value};
 
@@ -57,8 +57,9 @@ fn is_delta(payload: &Map) -> bool {
         .is_some_and(|kind| kind == "item.delta")
 }
 
-/// Merge `event` into the previous row when the TypeScript would; says whether it did.
-fn merge(previous: &mut Map, event: &Map) -> bool {
+/// Whether `event` belongs in the row `previous`: the TypeScript's merge conditions, including
+/// the 4 KiB sum counted on the two parts, so a pair split across them costs six bytes.
+fn can_merge(previous: &Map, event: &Map) -> bool {
     let Some(earlier_payload) = payload(previous) else {
         return false;
     };
@@ -79,33 +80,53 @@ fn merge(previous: &mut Map, event: &Map) -> bool {
     else {
         return false;
     };
-    // The 4 KiB check counts the two parts as the TypeScript does: the sum of their own byte
-    // counts, not the count of the joined string, so a pair split across them counts six.
-    if byte_length(earlier).saturating_add(byte_length(later)) > MAX_DELTA_BYTES {
-        return false;
+    byte_length(earlier).saturating_add(byte_length(later)) <= MAX_DELTA_BYTES
+}
+
+/// Merge `event` into the row `previous` in place, or hand `event` back unchanged.
+fn merge(previous: &mut Map, event: Map) -> Result<(), Map> {
+    if !can_merge(previous, &event) {
+        return Err(event);
     }
-    let mut joined = earlier.clone();
-    joined.push_js(later);
+    let mut event = event;
     // The later event's envelope: its keys keep their order, and `append` keeps its own place.
-    let mut merged = event.clone();
-    if let Some(payload) = merged.get_mut("payload").and_then(Value::as_object_mut) {
-        payload.insert("append", Value::String(joined));
-    }
-    *previous = merged;
-    true
+    let Some(later_slot) = event
+        .get_mut("payload")
+        .and_then(Value::as_object_mut)
+        .and_then(|payload| payload.get_mut("append"))
+    else {
+        return Err(event);
+    };
+    let Value::String(later_append) = later_slot else {
+        return Err(event);
+    };
+    // The earlier string is moved out of the row being replaced and extended with the later
+    // one, then put back where the later append was. Nothing is cloned.
+    let Some(Value::String(mut joined)) = previous
+        .get_mut("payload")
+        .and_then(Value::as_object_mut)
+        .and_then(|payload| payload.remove("append"))
+    else {
+        return Err(event);
+    };
+    joined.push_js(later_append);
+    *later_slot = Value::String(joined);
+    *previous = event;
+    Ok(())
 }
 
 /// Adjacent `item.delta` events of one thread, item, agent and field merge into one row while
-/// the UTF-8 bytes of both appends total at most 4096. Inputs are not changed.
-pub fn compact_deltas(events: &[Map]) -> Vec<Map> {
+/// the UTF-8 bytes of both appends total at most 4096. Consumes the events; the returned rows
+/// are the survivors themselves.
+pub fn compact_deltas(events: Vec<Map>) -> Vec<Map> {
     let mut rows: Vec<Map> = Vec::with_capacity(events.len());
     for event in events {
         let merged = match rows.last_mut() {
             Some(previous) => merge(previous, event),
-            None => false,
+            None => Err(event),
         };
-        if !merged {
-            rows.push(event.clone());
+        if let Err(event) = merged {
+            rows.push(event);
         }
     }
     rows

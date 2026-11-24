@@ -35,24 +35,24 @@ fn compact_vectors_match_typescript() {
             .and_then(Value::as_str)
             .expect("compacted is text");
         let events_value = ace_json::parse(events_text).expect("parse events text");
-        let items = match &events_value {
+        // The file's texts are canonical, so a parse and print reproduces them.
+        assert_eq!(
+            ace_json::to_string(&events_value),
+            events_text,
+            "canonical events for {name}"
+        );
+        let items = match events_value {
             Value::Array(items) => items,
             _ => panic!("events text is an array"),
         };
         let mut events: Vec<Map> = Vec::with_capacity(items.len());
-        for item in items.iter() {
+        for item in items.into_iter() {
             let Value::Object(map) = item else {
                 panic!("events text holds objects");
             };
-            events.push(map.clone());
+            events.push(map);
         }
-        let rows = ace_store::writer::live::compact::compact_deltas(&events);
-        let unchanged: Vec<Value> = events.into_iter().map(Value::Object).collect();
-        assert_eq!(
-            ace_json::to_string(&Value::Array(unchanged.into())),
-            events_text,
-            "inputs changed for {name}"
-        );
+        let rows = ace_store::writer::live::compact::compact_deltas(events);
         let rows: Vec<Value> = rows.into_iter().map(Value::Object).collect();
         assert_eq!(
             ace_json::to_string(&Value::Array(rows.into())),
