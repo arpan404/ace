@@ -361,6 +361,7 @@ test.concurrent(
       deferModels: true,
       armDeadlineMs: 100,
       modelRetryMs: 100,
+      modelSettled: async () => {},
     });
     try {
       let connection = await f.connect();
@@ -387,6 +388,141 @@ test.concurrent(
       // Readiness settles, but the automation's model was never registered: the run is admitted
       // and the engine refuses it, which is reported, never a silent loss.
       f.settleModels();
+      await expect
+        .poll(
+          async () =>
+            (
+              await connection.ask({
+                type: "automation.inbox",
+                requestId: "failed",
+                automationId: automation.id,
+                limit: 50,
+              })
+            ).inbox?.runs?.map((run) => [run.status, run.result]),
+          { timeout: 30_000 },
+        )
+        .toEqual([["failed", "model_unavailable"]]);
+      expect(f.prompts).toEqual([]);
+      expect(f.daemon.store.listThreads()).toEqual([]);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test.concurrent(
+  "a due run waits for slow model discovery and then runs once",
+  { timeout: 180_000 },
+  async ({ expect }) => {
+    const discovery = Promise.withResolvers<void>();
+    let asked: string | undefined;
+    const f = await idleDaemon({
+      seedModels: false,
+      modelSettled: (filter) => {
+        asked = `${filter.provider}:${filter.instance ?? ""}`;
+        return discovery.promise;
+      },
+    });
+    try {
+      let connection = await f.connect();
+      const due = Math.ceil((Date.now() + 2000) / 60_000) * 60_000;
+      const automation = {
+        ...f.definition("slow-discovery", due),
+        missedRun: "run_once" as const,
+      };
+      expect(
+        await connection.ask({
+          type: "automation.put",
+          requestId: "save",
+          automation,
+          expectedRevision: null,
+        }),
+      ).toMatchObject({ ok: true });
+      await f.daemon.settings.set("automations.enabled", false, { kind: "global" });
+      await f.stop();
+      await delay(Math.max(0, due - Date.now()) + 150);
+      await f.restart();
+      connection = await f.connect();
+      await f.daemon.settings.set("automations.enabled", true, { kind: "global" });
+      // Discovery for the automation's provider is still running: the occurrence stays due.
+      await delay(500);
+      expect(asked).toBe("codex:");
+      expect(f.prompts).toEqual([]);
+      expect(
+        (await connection.ask({ type: "automation.list", requestId: "held" })).schedules?.find(
+          (schedule) => schedule.id === automation.id,
+        )?.nextRunAt,
+      ).toBe(due);
+      expect(
+        (
+          await connection.ask({
+            type: "automation.inbox",
+            requestId: "held-runs",
+            automationId: automation.id,
+            limit: 50,
+          })
+        ).inbox?.runs,
+      ).toEqual([]);
+      await f.registerModels();
+      discovery.resolve();
+      await expect.poll(() => f.prompts, { timeout: 30_000 }).toEqual([automation.prompt]);
+      await expect
+        .poll(
+          async () =>
+            (
+              await connection.ask({
+                type: "automation.inbox",
+                requestId: "ran",
+                automationId: automation.id,
+                limit: 50,
+              })
+            ).inbox?.runs,
+        )
+        .toMatchObject([{ status: "succeeded" }]);
+      await delay(300);
+      expect(f.prompts).toEqual([automation.prompt]);
+      expect(f.daemon.store.listThreads()).toHaveLength(1);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test.concurrent(
+  "discovery that finishes without the model fails the due run visibly",
+  { timeout: 180_000 },
+  async ({ expect }) => {
+    const discovery = Promise.withResolvers<void>();
+    const f = await idleDaemon({
+      seedModels: false,
+      modelSettled: () => discovery.promise,
+    });
+    try {
+      let connection = await f.connect();
+      const due = Math.ceil((Date.now() + 2000) / 60_000) * 60_000;
+      const automation = {
+        ...f.definition("absent-model", due),
+        missedRun: "run_once" as const,
+      };
+      expect(
+        await connection.ask({
+          type: "automation.put",
+          requestId: "save",
+          automation,
+          expectedRevision: null,
+        }),
+      ).toMatchObject({ ok: true });
+      await f.daemon.settings.set("automations.enabled", false, { kind: "global" });
+      await f.stop();
+      await delay(Math.max(0, due - Date.now()) + 150);
+      await f.restart();
+      connection = await f.connect();
+      await f.daemon.settings.set("automations.enabled", true, { kind: "global" });
+      await delay(500);
+      expect(f.prompts).toEqual([]);
+      // The provider's discovery finished and its list has no such model: the run is admitted,
+      // refused, and the refusal is recorded, never silently dropped.
+      discovery.resolve();
       await expect
         .poll(
           async () =>

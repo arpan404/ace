@@ -15,6 +15,7 @@ export async function idleDaemon(
     deferModels?: boolean;
     armDeadlineMs?: number;
     modelRetryMs?: number;
+    modelSettled?: (filter: import("@ace/protocol").ModelFilter) => Promise<unknown>;
   } = {},
 ) {
   const home = await mkdtemp(join(tmpdir(), "ace-idle-automation-"));
@@ -61,6 +62,7 @@ export async function idleDaemon(
       ...(options.modelRetryMs === undefined
         ? {}
         : { automationModelRetryMs: options.modelRetryMs }),
+      ...(options.modelSettled === undefined ? {} : { modelSettled: options.modelSettled }),
       providerStatus: {
         env: { ...process.env, PATH: "" },
         versions: async () => ({}),

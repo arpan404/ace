@@ -146,6 +146,11 @@ export type DaemonOptions = {
    */
   modelsReady?: Promise<void>;
   /**
+   * Tests answer when a provider's (or instance's) model discovery has finished, instead of
+   * waiting on the real catalog; unset waits on `ModelCatalog.loadMissing`.
+   */
+  modelSettled?: (filter: import("@ace/protocol").ModelFilter) => Promise<unknown>;
+  /**
    * Tests shorten how long the automation scheduler waits for model admission before arming;
    * the app uses 30 s (`automation-lifecycle.ts`).
    */

@@ -312,17 +312,30 @@ export class AutomationStore {
     );
   }
   /**
-   * The readable job due first that is not a schedule, while model lists are loading: schedules
-   * wait for a model, every other trigger doesn't.
+   * The readable job due first that is not in `skip`: jobs whose model discovery is still
+   * running, and GitHub polls already in flight.
    */
-  nextOther(excluded: readonly string[] = [], unreadable?: Unreadable): JobMetadata | undefined {
-    if (excluded.length > 4) throw new Error("Too many excluded polls");
-    return this.firstReadable(
-      this.sql(
-        "SELECT id FROM automation_jobs WHERE due IS NOT NULL AND json_extract(body,'$.trigger.kind')<>'schedule' AND id NOT IN(?,?,?,?) ORDER BY due,id LIMIT 1001",
-      ).iterate(excluded[0] ?? "", excluded[1] ?? "", excluded[2] ?? "", excluded[3] ?? ""),
-      unreadable,
-    );
+  nextSkipping(skip: ReadonlySet<string>, unreadable?: Unreadable): JobMetadata | undefined {
+    const rows = this.sql(
+      "SELECT id FROM automation_jobs WHERE due IS NOT NULL ORDER BY due,id LIMIT 1001",
+    ).iterate();
+    function* remaining() {
+      for (const row of rows) if (!skip.has(String(row.id))) yield row;
+    }
+    return this.firstReadable(remaining(), unreadable);
+  }
+  /** The due schedule first that is not in `skip`, while every GitHub slot is in use. */
+  nextScheduledSkipping(
+    skip: ReadonlySet<string>,
+    unreadable?: Unreadable,
+  ): JobMetadata | undefined {
+    const rows = this.sql(
+      "SELECT id FROM automation_jobs WHERE due IS NOT NULL AND json_extract(body,'$.trigger.kind')='schedule' ORDER BY due,id LIMIT 1001",
+    ).iterate();
+    function* remaining() {
+      for (const row of rows) if (!skip.has(String(row.id))) yield row;
+    }
+    return this.firstReadable(remaining(), unreadable);
   }
   nextScheduled(unreadable?: Unreadable): JobMetadata | undefined {
     return this.firstReadable(

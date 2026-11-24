@@ -203,7 +203,7 @@ it("a GitHub poll keeps its deadline while a due schedule waits for model lists"
       },
     }),
   );
-  h.deps.modelsLoading = () => true;
+  h.deps.modelLoading = () => true;
   h.service.start();
   await h.timer.fire();
   await h.service.settled();

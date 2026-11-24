@@ -72,6 +72,8 @@ export class AutomationService {
   private generation = 0;
   private ticking = false;
   private cancellations: Cancellations;
+  /** Due schedule ids whose model discovery is still running: kept due, never spent. */
+  private held = new Set<string>();
   constructor(store: AutomationStore, deps: Dependencies, gh?: GhClient) {
     this.store = store;
     this.deps = deps;
@@ -529,15 +531,12 @@ export class AutomationService {
     const deadlines = [job?.due, this.executions.nextDeadline()].filter(
       (value): value is number => value !== undefined && value !== null,
     );
+    // A schedule held for discovery is skipped by `nextJob`; recheck it now and then so a missed
+    // settle still fires it, without holding another trigger's deadline.
+    if (!deadlines.length && this.held.size === 0) return;
     const now = this.deps.now();
-    // A due schedule held for model lists is not returned by `nextJob`; recheck it now and then
-    // so a missed readiness wake still fires it, without holding another trigger's deadline.
-    const schedule =
-      this.deps.modelsLoading?.() === true ? this.store.nextScheduled(this.unreadable) : undefined;
-    const held = schedule !== undefined && schedule.due !== null && schedule.due <= now;
-    if (!deadlines.length && !held) return;
     const delay = Math.min(
-      held ? (this.deps.modelRetryMs ?? modelRetryMs) : Infinity,
+      this.held.size ? (this.deps.modelRetryMs ?? modelRetryMs) : Infinity,
       deadlines.length ? Math.min(60_000, Math.max(0, Math.min(...deadlines) - now)) : Infinity,
     );
     this.cancelTimer = this.deps.timer.arm(delay, () => {
@@ -547,23 +546,30 @@ export class AutomationService {
       return operation;
     });
   }
-  /** Model lists settled (or there is no such gate): a due schedule may be spent now. */
-  private readyForModels(): boolean {
-    return this.deps.modelsLoading?.() !== true;
-  }
-  /** Ace's model lists settled: an occurrence kept for them fires now. */
+  /** Discovery settled: a due occurrence kept for it fires now. */
   modelsReady(): void {
+    this.held.clear();
     this.arm();
   }
   private nextJob(): JobMetadata | undefined {
-    // A scheduled run needs its automation's model; everyone else keeps its own deadline.
-    if (this.deps.modelsLoading?.() === true)
-      return this.polling.size >= 4
-        ? undefined
-        : this.store.nextOther([...this.polling], this.unreadable);
-    return this.polling.size >= 4
-      ? this.store.nextScheduled(this.unreadable)
-      : this.store.next([...this.polling], this.unreadable);
+    const skip = new Set([...this.polling, ...this.held]);
+    for (;;) {
+      // At four live GitHub requests only schedules may start; polling excluded the rest.
+      const job =
+        this.polling.size >= 4
+          ? this.store.nextScheduledSkipping(skip, this.unreadable)
+          : this.store.nextSkipping(skip, this.unreadable);
+      if (!job) return undefined;
+      // A scheduled run needs its automation's model. While discovery for it runs, hold the
+      // occurrence: it keeps its place and is never spent on a thread the engine would refuse.
+      if (job.automation.trigger.kind !== "schedule" || !this.deps.modelLoading) return job;
+      if (this.deps.modelLoading(job.automation) !== true) {
+        this.held.delete(job.automation.id);
+        return job;
+      }
+      this.held.add(job.automation.id);
+      skip.add(job.automation.id);
+    }
   }
   private async tick(): Promise<void> {
     this.ticking = true;
@@ -597,12 +603,13 @@ export class AutomationService {
       this.arm();
     }
   }
-  private scheduled(job: JobMetadata): void {
+  /** Runs a due schedule; false when its model discovery is still running (kept due). */
+  private scheduled(job: JobMetadata): boolean {
     const generation = this.generation;
     const recurrence = this.runtime.recurrence(job.automation.id);
     if (!recurrence || job.nominal === null) {
       this.isolateJob(job, generation, new Error("Invalid scheduled job"));
-      return;
+      return true;
     }
     // Long after it was due, the computer slept or ace wasn't running through it: a schedule
     // set to skip missed runs moves on to its next time, as it does when ace starts.
@@ -634,7 +641,7 @@ export class AutomationService {
         this.report(persistError);
       }
       this.report(error);
-      return;
+      return true;
     }
     const nominal = occurrence?.at;
     const due = scheduledDeadline(
@@ -644,15 +651,20 @@ export class AutomationService {
       this.deps.random(),
     );
     if (late) {
+      this.held.delete(job.automation.id);
       this.store.transaction(() => {
         this.store.advance(job.automation.id, nominal, due);
         this.store.savePoll(job.automation.id, occurrence ?? {});
       });
-      return;
+      return true;
     }
-    // The run's thread is created with this automation's model; while ace is still loading its
-    // model lists, keep the occurrence due (never advance it) and wait to be woken.
-    if (!this.readyForModels()) return;
+    // The run's thread is created with this automation's model; while discovery for it runs,
+    // keep the occurrence due (never advance it) and wait to be woken.
+    if (this.deps.modelLoading?.(job.automation) === true) {
+      this.held.add(job.automation.id);
+      return false;
+    }
+    this.held.delete(job.automation.id);
     const admission = this.store.transaction(() => {
       const result = this.admit(
         job.automation,
@@ -669,6 +681,7 @@ export class AutomationService {
     if (admission.created) this.publish(admission.run);
     if (admission.admitted && admission.input && this.live && generation === this.generation)
       this.executions.launch(admission.run, admission.input);
+    return true;
   }
   private async poll(job: JobMetadata): Promise<void> {
     const generation = this.generation;

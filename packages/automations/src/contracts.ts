@@ -77,11 +77,12 @@ export interface Dependencies {
    */
   admission?: Admission;
   /**
-   * Whether ace's model lists are still loading. A scheduled fire needs its automation's model,
-   * so while this is true the occurrence stays due instead of being spent on a thread the
-   * engine would refuse; the service is woken again through `modelsReady()`.
+   * Whether discovery for this automation's provider or instance is still running. A scheduled
+   * fire needs its model, so while this is true the occurrence stays due instead of being spent
+   * on a thread the engine would refuse; the service is woken through `modelsReady()` once
+   * discovery settles.
    */
-  modelsLoading?: () => boolean;
+  modelLoading?: (automation: Automation) => boolean;
   /** How often a scheduler held for model lists rechecks when no wake arrives; 30 s by default. */
   modelRetryMs?: number;
 }

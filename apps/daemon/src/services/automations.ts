@@ -6,7 +6,9 @@ import {
   AutomationResponse,
   AutomationWebhookRequest,
   AutomationWebhookResponse,
+  type Automation,
   type AutomationRequest,
+  type ModelFilter,
 } from "@ace/protocol";
 import type { AutomationWebhookService } from "../automation-webhooks.ts";
 import type { ThreadAutomationRequest } from "../agent-control/thread-automations.ts";
@@ -23,9 +25,37 @@ export async function startAutomations(context: ServiceContext): Promise<void> {
     webhookSecrets: webhookSecrets(config.dataDir),
   });
   resources.own(() => store.close());
-  // Model lists finish loading behind `services.modelsReady`; a scheduled fire needs its
-  // automation's model, so the scheduler keeps those occurrences due until they settle.
-  let modelsSettled = services.modelsReady === undefined;
+  // A scheduled fire needs its automation's model. `services.modelsReady` only says ace finished
+  // registering instances; each provider's first model list is still discovered behind it
+  // (catalog.ts), so a due occurrence waits for that provider's (or instance's) discovery to
+  // finish or fail. Only a model that is still missing after that is a visible failure.
+  let registering = services.modelsReady !== undefined;
+  const discovered = new Set<string>();
+  const discovering = new Set<string>();
+  const waitForDiscovery =
+    context.options.modelSettled ?? services.models?.loadMissing?.bind(services.models);
+  const modelLoading = (automation: Automation): boolean => {
+    if (registering) return true;
+    if (!waitForDiscovery) return false;
+    const key = `${automation.provider}\0${automation.instance ?? ""}`;
+    if (discovered.has(key)) return false;
+    if (!discovering.has(key)) {
+      discovering.add(key);
+      const filter: ModelFilter = {
+        provider: automation.provider,
+        ...(automation.instance === undefined ? {} : { instance: automation.instance }),
+      };
+      void Promise.resolve()
+        .then(() => waitForDiscovery(filter))
+        .catch(() => {})
+        .then(() => {
+          discovered.add(key);
+          discovering.delete(key);
+          service.modelsReady();
+        });
+    }
+    return true;
+  };
   const service = new AutomationService(
     store,
     {
@@ -36,7 +66,7 @@ export async function startAutomations(context: ServiceContext): Promise<void> {
       executor: automationExecutor(context),
       workspace: automationWorkspace(context),
       ...automationAdmission(context),
-      modelsLoading: () => !modelsSettled,
+      modelLoading,
       ...(context.options.automationModelRetryMs === undefined
         ? {}
         : { modelRetryMs: context.options.automationModelRetryMs }),
@@ -46,7 +76,7 @@ export async function startAutomations(context: ServiceContext): Promise<void> {
   );
   if (services.modelsReady) {
     const settled = () => {
-      modelsSettled = true;
+      registering = false;
       service.modelsReady();
     };
     void services.modelsReady.then(settled, settled);
