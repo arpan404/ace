@@ -28,6 +28,19 @@ import Testing
         #expect(extent.edge(top: 2_600, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: 0) == nil)
     }
 
+    @Test func aReaderLeftInTheOlderSpacerByABounceStillPagesOlder() {
+        let extent = TranscriptExtent()
+        extent.update(["a"], movement: .replace)
+        extent.measure("a", height: 1_000)
+        extent.update(["b"], movement: .newer)
+        // The fling ran 600 pt into the older spacer, then bounced back toward newer rows: the
+        // screen's top is still in the spacer, its last movement was toward the live end.
+        #expect(extent.edge(top: 400, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: 1) == .older)
+        #expect(extent.edge(top: 400, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: 0) == .older)
+        // With rows across the screen, the movement decides as before.
+        #expect(extent.edge(top: 2_600, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: 1) == nil)
+    }
+
     @Test func aFastFlingAsksForTheOlderPageAsSoonAsItsTravelWouldReachTheLoadedEdge() {
         let extent = TranscriptExtent()
         extent.update(["a"], movement: .replace)

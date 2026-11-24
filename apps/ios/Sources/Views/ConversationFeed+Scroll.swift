@@ -187,6 +187,10 @@ extension ConversationFeed {
             else if new.y > old.y + 1 { intent.direction = 1 }
             endRead(moving: true)
             pageIfNeeded(proxy)
+        } else if new.height != old.height, extent.needsContent(top: new.top, bottom: new.bottom) {
+            // A page laid out at rest and the screen still shows retained space (a fling that
+            // bounced back before the page covered it): ask for the next one until rows cover it.
+            pageIfNeeded(proxy)
         }
     }
 }
