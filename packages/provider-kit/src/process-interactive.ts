@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
 import { killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
+import { childGroup, signalSoon, type LeaderGroup } from "./leader-group.ts";
+import { newGroupToken, withGroupToken } from "./group-token.ts";
 import { killWindowsTree, type WindowsKillTree } from "./process-owner.ts";
 import { groupOf, toWindowsCommand } from "./process-owner.ts";
 import {
@@ -39,38 +41,51 @@ export function spawnInteractive(options: {
   const windows = (options.platform ?? process.platform) === "win32";
   const native = supervisorBackend() === "native";
   const killTree = options.windowsKillTree ?? (native ? nativeKillWindowsTree : killWindowsTree);
+  let group: LeaderGroup | undefined;
   const terminate = (pid: number) => {
     if (windows) killTree(pid, false);
-    else killGroup(pid, "SIGTERM", groupOf(child));
+    else if (group) signalSoon(group, "SIGTERM");
+    else if (native) killGroup(pid, "SIGTERM", groupOf(child));
   };
   const destroy = (pid: number) => {
     if (windows) killTree(pid, true);
-    else killGroup(pid, "SIGKILL", groupOf(child));
+    else if (group) signalSoon(group, "SIGKILL");
+    else if (native) killGroup(pid, "SIGKILL", groupOf(child));
   };
   const target = windows
     ? toWindowsCommand(options.command, options.args)
     : { command: options.command, args: [...options.args], verbatim: false };
-  const child: SpawnedHandle = native
-    ? nativeSpawnChild({
-        command: target.command,
-        args: target.args,
-        env: launchEnv(markedEnv(options.env)),
-        stdin: "inherit",
-        stdout: options.stdout === "stderr" ? "stderr" : "inherit",
-        stderr: "inherit",
-        verbatim: target.verbatim,
-        // The console stays visible: login owns credential entry and browser handoff.
-        hide: false,
-        contain: windows && options.windowsJobFactory === undefined,
-      })
+  const token = windows ? undefined : newGroupToken();
+  const env = markedEnv(options.env);
+  const nodeChild = native
+    ? undefined
     : spawn(target.command, target.args, {
-        env: markedEnv(options.env),
+        env: token === undefined ? env : withGroupToken(env, token),
         stdio: ["inherit", options.stdout === "stderr" ? 2 : "inherit", "inherit"],
         // The console stays visible: login owns credential entry and browser handoff.
         ...(windows ? { detached: false, windowsHide: false } : { detached: true }),
         windowsVerbatimArguments: target.verbatim,
       });
+  const child: SpawnedHandle =
+    nodeChild ??
+    nativeSpawnChild({
+      command: target.command,
+      args: target.args,
+      env: launchEnv(env),
+      stdin: "inherit",
+      stdout: options.stdout === "stderr" ? "stderr" : "inherit",
+      stderr: "inherit",
+      verbatim: target.verbatim,
+      // The console stays visible: login owns credential entry and browser handoff.
+      hide: false,
+      contain: windows && options.windowsJobFactory === undefined,
+    });
   const pid = child.pid;
+  // The TypeScript backend's group, read at spawn; the native child is its own group handle.
+  if (pid !== undefined && !windows && nodeChild !== undefined)
+    group = childGroup(pid, token, nodeChild);
+  // First of all exit listeners: once the leader is reaped its group number is never signalled.
+  child.once("exit", () => group?.reaped());
   const factory =
     options.windowsJobFactory ?? (native ? () => nativeChildJob(child) : createKillOnCloseJob);
   const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
@@ -134,7 +149,7 @@ export function spawnInteractive(options: {
     registerGroup(
       pid,
       (graceMs) => handle.stop({ graceMs }),
-      undefined,
+      { name: "ace-process" },
       () => {
         if (child instanceof NativeChildProcess) child.dispose();
         destroy(pid);

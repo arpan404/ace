@@ -12,13 +12,86 @@ import {
   type BufferedSnapshot,
 } from "./live-write-buffer.ts";
 
+/** Reports a settlement's failure to the post-commit pass that owns it. */
+export type FailureReport = (error: unknown) => void;
+
 /**
  * How a write learns the fate of its rows. A top-level transaction settles before it returns.
  * One nested in an open transaction settles only when the outermost one commits or rolls back.
  */
 export interface TransactionOutcome {
-  committed(): void;
-  rolledBack(): void;
+  /** The live buffer's rows publish in this pass before its usage notification. */
+  publishes?: boolean;
+  committed(report?: FailureReport): void;
+  rolledBack(report?: FailureReport): void;
+}
+
+/**
+ * One post-commit pass's failures. `onError` may throw; the throw is boxed by identity so a
+ * settlement that sees it again, or a lineage mark inside the pass, reports it only once.
+ */
+export class SettlementPass {
+  private readonly boxes = new WeakSet<object>();
+  private failed = false;
+  private failure: unknown;
+  private readonly onError: (error: unknown) => void;
+  constructor(onError: (error: unknown) => void) {
+    this.onError = onError;
+  }
+  /** Report a failure; a throw from onError is boxed, recorded and rethrown internally. */
+  report(error: unknown): void {
+    try {
+      this.onError(error);
+    } catch (thrown) {
+      const box = { fromOnError: thrown };
+      this.boxes.add(box);
+      throw box;
+    }
+  }
+  /** Whether `error` is a box this pass produced. */
+  threw(error: unknown): boolean {
+    return typeof error === "object" && error !== null && this.boxes.has(error);
+  }
+  /** Run one step, keeping the first error while the rest still run. */
+  step(action: () => void): void {
+    try {
+      action();
+    } catch (error) {
+      if (!this.failed) {
+        this.failed = true;
+        this.failure = error;
+      }
+    }
+  }
+  /** Throw what the first failing step threw, unwrapped, or nothing. */
+  rethrow(): void {
+    if (!this.failed) return;
+    const error: unknown = this.failure;
+    throw this.threw(error) ? (error as { fromOnError: unknown }).fromOnError : error;
+  }
+}
+
+/** Settle nested outcomes, reporting each failure once through `pass` (or `onError` directly). */
+export function settleOutcomes(
+  settlements: { outcome: TransactionOutcome }[],
+  result: "committed" | "rolledBack",
+  onError: (error: unknown) => void,
+  pass?: SettlementPass,
+): void {
+  const report = pass ? (error: unknown) => pass.report(error) : undefined;
+  for (const { outcome } of settlements) {
+    try {
+      outcome[result](report);
+    } catch (error) {
+      try {
+        if (pass?.threw(error)) continue;
+        if (pass) pass.report(error);
+        else onError(error);
+      } catch {
+        /* The transaction has already settled. */
+      }
+    }
+  }
 }
 
 /** Thin store shell around the pinned buffer. Sequence reservation and publication share one owner. */
@@ -51,7 +124,7 @@ export class StoreStream {
     append(event: Event): Event[];
     /** Whether this exact envelope (sequence and id) is already stored. */
     stored(event: Event): boolean;
-    publish(events: Event[]): void;
+    publish(events: Event[], report?: FailureReport): void;
     /** Shared with the server's wire encoder: each published event is serialised once. */
     encodings?: EventEncodings;
     report(error: unknown): void;
@@ -106,15 +179,19 @@ export class StoreStream {
     );
     this.buffer.append(events, id, snapshot);
     try {
+      const first = events[0];
+      // An empty batch (liveness only) changes nothing.
+      if (!first) return;
       // Reserve the actual canonical event count, including split shell output. Pin first:
       // a reservation transaction drains the buffer, and a failed drain must retain the
       // reducer's snapshot and events together without applying the facts a second time.
-      const first = events[0];
-      if (first) this.options.sequences.prepare(events.length, first.seq - 1);
+      this.options.sequences.prepare(events.length, first.seq - 1);
       // A range refill already committed and published this batch through the write barrier.
       if (!this.buffer.has(id)) return;
       const boundary = events.some((event) => event.payload.type !== "item.delta");
-      if (!boundary) this.publishPending();
+      // A batch above the confirmed reservation publishes as stored rows when its flush commits.
+      const last = events.at(-1);
+      if (!boundary && last && this.options.sequences.covers(last.seq)) this.publishPending();
       if (boundary || this.buffer.full()) this.flush();
     } catch (error) {
       // A failed attempt has reported itself and scheduled its retry.
@@ -235,12 +312,13 @@ export class StoreStream {
           if (!recovering || written.has(id) || !eventful.has(id)) snapshot.persist();
       },
       {
-        committed: () => {
+        publishes: true,
+        committed: (report) => {
           settled = true;
           this.sealed = false;
           this.buffer.committed(threads, published.length + stored.length);
           if (!this.buffer.size) this.publishedThrough = 0;
-          this.options.publish(stored);
+          this.options.publish(stored, report);
         },
         rolledBack: () => {
           this.sealed = false;

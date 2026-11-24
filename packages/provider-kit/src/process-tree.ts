@@ -124,20 +124,36 @@ export function captureTree(
   io: TreeIo = systemTreeIo,
   limit = captureLimit,
 ): Capture {
+  // The native supervisor captures under the same rules in Rust, for the system tables only.
   if (supervisorBackend() === "native" && io === systemTreeIo) {
     return JSON.parse(
       supervisorAddon().supervisorCaptureTree(JSON.stringify(roots), limit),
     ) as Capture;
   }
+  const known: TreeMember[] = [];
+  for (const pid of roots) {
+    const identity = readIdentity(io, pid);
+    if (identity) known.push({ pid, start: identity.start });
+  }
+  return captureFrom(known, io, limit);
+}
+
+/**
+ * As `captureTree`, from roots known by evidence: a root whose pid no longer shows the start it
+ * was recorded with is someone else now, and nothing below it is walked.
+ */
+export function captureFrom(
+  roots: readonly TreeMember[],
+  io: TreeIo = systemTreeIo,
+  limit = captureLimit,
+): Capture {
   if (!roots.length || !capturesTrees(io.platform)) return { members: [], truncated: false };
   const children = io.lister();
   const members: CapturedMember[] = [];
-  const seen = new Set<number>(roots);
+  const seen = new Set<number>(roots.map((root) => root.pid));
   const queue: TreeMember[] = [];
-  for (const pid of roots) {
-    const identity = readIdentity(io, pid);
-    if (identity) queue.push({ pid, start: identity.start });
-  }
+  for (const root of roots)
+    if (readIdentity(io, root.pid)?.start === root.start) queue.push({ ...root });
   for (let parent = queue.shift(); parent !== undefined; parent = queue.shift()) {
     const found: CapturedMember[] = [];
     for (const pid of children(parent.pid)) {

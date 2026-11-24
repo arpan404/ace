@@ -85,7 +85,7 @@ export class ReviewIsolate {
       const message = parsed.data;
       if (message.type === "git-group") {
         try {
-          this.groups.update(message.pid, message.active);
+          this.groups.update(message.pid, message.active, message.start);
         } catch (error) {
           this.fail(error instanceof Error ? error : new Error("Review Git tracking failed"));
         }

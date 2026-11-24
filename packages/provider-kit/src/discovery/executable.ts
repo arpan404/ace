@@ -79,8 +79,10 @@ export function windowsFallbackPaths(command: string, env: NodeJS.ProcessEnv): s
 async function findWindowsExecutable(
   command: string,
   env: NodeJS.ProcessEnv,
+  signal?: AbortSignal,
 ): Promise<string | undefined> {
   for (const candidate of windowsCandidates(command, env)) {
+    if (signal?.aborted) return undefined;
     if (await executable(candidate, true)) return candidate;
   }
   const extensions = (windowsEnv(env, "PATHEXT") ?? defaultPathExt.join(";"))
@@ -88,6 +90,7 @@ async function findWindowsExecutable(
     .filter((part) => part !== "");
   for (const fallback of windowsFallbackPaths(command, env)) {
     for (const candidate of withExtensions(fallback, extensions)) {
+      if (signal?.aborted) return undefined;
       if (await executable(candidate, true)) return candidate;
     }
   }
@@ -114,8 +117,9 @@ export async function findExecutable(
   command: string,
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
+  signal?: AbortSignal,
 ): Promise<string | undefined> {
-  if (platform === "win32") return findWindowsExecutable(command, env);
+  if (platform === "win32") return findWindowsExecutable(command, env, signal);
   if (isAbsolute(command) || command.includes("/") || command.includes("\\")) {
     const path = resolve(command);
     return (await executable(path, false)) ? path : undefined;

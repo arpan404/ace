@@ -8,6 +8,7 @@ import { gitAction } from "./git-actions.ts";
 import { followLogs, LogsQuery, type LogsFollow } from "./logs.ts";
 import { cancelDraft, DraftFor, writeDraft } from "./git-drafts.ts";
 import { ThreadReview } from "./thread-review.ts";
+import type { TreeKeep } from "./thread-summary-tree.ts";
 import { ThreadSummary, type SummaryReads } from "./thread-summary.ts";
 import { threadSubject, WorkSession, type WorkSubject } from "./work.ts";
 import { clearStaleLock, workAction } from "./work-actions.ts";
@@ -73,6 +74,8 @@ export interface SheetDeps {
   id?: () => string;
   /** The Summary's timers: its turn reads and the time Now counts. */
   scheduler?: Scheduler;
+  /** Where the Summary keeps settled delegates between visits; read when a Summary opens. */
+  tree?: () => TreeKeep | undefined;
 }
 
 export interface OpenThread {
@@ -263,7 +266,12 @@ export class Sheets {
           thread.epoch,
           this.#sink,
           this.#preview,
-          { now: this.#deps.now ?? (() => 0), scheduler, cleared: this.#cleared },
+          {
+            now: this.#deps.now ?? (() => 0),
+            scheduler,
+            cleared: this.#cleared,
+            tree: this.#deps.tree?.(),
+          },
         );
         return true;
       }

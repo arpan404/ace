@@ -11,6 +11,8 @@ import {
 } from "./process-containment.ts";
 import { groupOf, toWindowsCommand } from "./process-owner.ts";
 import { markedEnv } from "./process-marker.ts";
+import { childGroup, type LeaderGroup } from "./leader-group.ts";
+import { newGroupToken, withGroupToken } from "./group-token.ts";
 import { supervisorBackend } from "./native-switches.ts";
 import {
   launchEnv,
@@ -68,29 +70,48 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
   const target = windows
     ? toWindowsCommand(options.command, options.args)
     : { command: options.command, args: [...options.args], verbatim: false };
-  const child: SpawnedBytes = native
-    ? nativeSpawnChild({
-        command: target.command,
-        args: target.args,
-        cwd: options.cwd,
-        env: launchEnv(markedEnv(options.env)),
-        stdin: "ignore",
-        stdout: "piped",
-        stderr: "piped",
-        verbatim: target.verbatim,
-        hide: true,
-        contain: windows && options.windowsJobFactory === undefined,
-      })
+  const token = windows ? undefined : newGroupToken();
+  const env = markedEnv(options.env);
+  const nodeChild = native
+    ? undefined
     : spawn(target.command, target.args, {
         cwd: options.cwd,
-        env: markedEnv(options.env),
+        env: token === undefined ? env : withGroupToken(env, token),
         ...(windows ? { detached: false, windowsHide: true } : { detached: true }),
         windowsVerbatimArguments: target.verbatim,
         stdio: ["ignore", "pipe", "pipe"],
       });
+  const child: SpawnedBytes =
+    nodeChild ??
+    nativeSpawnChild({
+      command: target.command,
+      args: target.args,
+      cwd: options.cwd,
+      env: launchEnv(env),
+      stdin: "ignore",
+      stdout: "piped",
+      stderr: "piped",
+      verbatim: target.verbatim,
+      hide: true,
+      contain: windows && options.windowsJobFactory === undefined,
+    });
   const pid = child.pid;
+  // The TypeScript backend's group, read at spawn; the native child is its own group handle.
+  const group: LeaderGroup | undefined =
+    pid === undefined || nodeChild === undefined ? undefined : childGroup(pid, token, nodeChild);
+  // First of all exit listeners: once the leader is reaped its group number is never signalled.
+  child.once("exit", () => group?.reaped());
   // Never throws: it runs in the child's exit listener.
-  const destroy = (leader: number) => signalTree(leader, true, windows, killTree, child);
+  /** Resolves once delivered; never rejects (a refusal is reported, the leader signalled). */
+  const destroyed = () =>
+    pid === undefined
+      ? Promise.resolve()
+      : signalTree(pid, true, windows, killTree, child, group).catch(() => {});
+  const destroy = () => {
+    destroyed().catch(() => {});
+  };
+  /** The exit's own group kill, which `exited` waits for: a relayed one is delivered later. */
+  let exitKill: Promise<void> | undefined;
   const factory =
     options.windowsJobFactory ?? (native ? () => nativeChildJob(child) : createKillOnCloseJob);
   const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
@@ -101,7 +122,7 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
   const terminate = () => {
     if (!cleanup)
       cleanup = (async () => {
-        if (pid !== undefined) destroy(pid);
+        await destroyed();
         if (windows) await endWindowsJob(job);
         // No lsof or /proc on Windows; the taskkill tree stop is the only reaper.
         if (options.ownedCwd && !windows) await terminateDirectoryProcesses([options.ownedCwd]);
@@ -138,7 +159,7 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
       }, 100);
     };
     child.once("exit", () => {
-      if (pid !== undefined) destroy(pid);
+      exitKill = destroyed();
       drain();
     });
     const disposeNative = () => {
@@ -147,7 +168,7 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
     child.once("close", (code) => {
       closed = true;
       cancelDrain?.();
-      void (cleanup ?? Promise.resolve())
+      void Promise.all([cleanup, exitKill])
         .then(() => resolve(code), reject)
         .finally(() => {
           disposeNative();
@@ -167,9 +188,9 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
     await exited.catch(() => {});
   };
   if (pid !== undefined)
-    registerGroup(pid, stop, undefined, () => {
+    registerGroup(pid, stop, { name: "ace-process" }, () => {
       if (child instanceof NativeChildProcess) child.dispose();
-      destroy(pid);
+      destroy();
     });
   return { stdout: child.stdout, stderr: child.stderr, exited, stop };
 }
