@@ -217,6 +217,15 @@ impl Store {
         Ok(changed > 0)
     }
 
+    /// Deletes an endpoint row and its saved models, retiring nothing: for undoing a create that
+    /// never became the person's, so a retry takes the same id. Returns whether it existed.
+    pub fn forget_endpoint(&self, id: &str) -> Result<bool> {
+        let changed = self
+            .lock()?
+            .execute("DELETE FROM endpoints WHERE id = ?1", params![id])?;
+        Ok(changed > 0)
+    }
+
     /// Whether `id` was once an endpoint's and was removed: it is never given out again.
     pub fn endpoint_retired(&self, id: &str) -> Result<bool> {
         Ok(self

@@ -163,6 +163,16 @@ async fn a_gateway_token_stays_in_the_keychain_and_rides_every_call() -> Result 
         Some("cf-token-123".to_owned()),
         "the token is in the keychain"
     );
+    let (_, shown) = spade.get("/v1/models").await?;
+    let gateway = shown["endpoints"]
+        .as_array()
+        .and_then(|all| all.iter().find(|e| e["id"] == "gateway"))
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        gateway["gateway_token_set"], true,
+        "the app can show, replace and remove it: {gateway}"
+    );
     // Nowhere else: the endpoint keeps its key's place, not the token.
     let (_, models) = spade.get("/v1/models").await?;
     let shown = models["endpoints"]
@@ -220,6 +230,13 @@ async fn a_gateway_token_stays_in_the_keychain_and_rides_every_call() -> Result 
     let (status, _) = spade.delete("/v1/keys/gateway/gateway").await?;
     assert_eq!(status, 204);
     assert_eq!(spade.keys.gateway_token("gateway")?, None);
+    let (_, shown) = spade.get("/v1/models").await?;
+    let gateway = shown["endpoints"]
+        .as_array()
+        .and_then(|all| all.iter().find(|e| e["id"] == "gateway"))
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(gateway["gateway_token_set"], false);
     let (status, body) = spade
         .put("/v1/keys/openrouter/gateway", json!({ "token": "unused" }))
         .await?;

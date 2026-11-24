@@ -1107,10 +1107,18 @@ impl Spade {
 
     /// Makes the keychain's next read or change of `endpoint`'s key fail, once.
     pub fn fail_keychain_once(&self, endpoint: &str) -> Result {
+        self.fail_account_once(&format!("endpoint:{endpoint}"))
+    }
+
+    /// Makes the next read or write of `endpoint`'s gateway token fail, as a locked keychain
+    /// would.
+    pub fn fail_gateway_keychain_once(&self, endpoint: &str) -> Result {
+        self.fail_account_once(&format!("gateway:{endpoint}"))
+    }
+
+    fn fail_account_once(&self, account: &str) -> Result {
         use keyring_core::api::CredentialStoreApi;
-        let entry = self
-            .mock
-            .build(spade_keys::SERVICE, &format!("endpoint:{endpoint}"), None)?;
+        let entry = self.mock.build(spade_keys::SERVICE, account, None)?;
         let cred: &mock::Cred = entry
             .as_any()
             .downcast_ref()

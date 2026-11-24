@@ -16,6 +16,8 @@ const NEW_BOT_MODEL: &str = "new_bot_model";
 const NAME_CHARS: usize = 60;
 const MOST_HEADERS: usize = 32;
 const MOST_MODELS: usize = 2_000;
+/// The most endpoints one cleanup pass rewrites before the next start takes the rest.
+const MOST_CLEANED: usize = 500;
 
 #[derive(Debug, thiserror::Error)]
 pub enum EndpointError {
@@ -63,6 +65,9 @@ pub struct EndpointInput {
     pub session_header: Option<Option<String>>,
     pub needs_key: Option<bool>,
     pub preset: Option<String>,
+    /// A gateway token to keep in the keychain with a new endpoint (never with its headers): its
+    /// create is all or nothing, the endpoint going again if the keychain refuses.
+    pub gateway_token: Option<String>,
 }
 
 /// A model to save, with any facts the person gave.
@@ -118,7 +123,7 @@ const CREDENTIAL_HEADERS: [&str; 8] = [
     "set-cookie",
 ];
 
-pub(super) fn is_credential_header(name: &str) -> bool {
+pub fn is_credential_header(name: &str) -> bool {
     CREDENTIAL_HEADERS.contains(&name.trim().to_ascii_lowercase().as_str())
 }
 
@@ -235,8 +240,18 @@ impl Engine {
             base_url: stored.base_url.clone(),
             needs_key: stored.needs_key,
             key_env: stored.key_env.clone(),
-            headers: stored.headers.clone(),
-            session_header: stored.session_header.clone(),
+            // A credential header an older build stored plain is never sent: it goes to the
+            // keychain and out as its own header, or not at all (ADR 0119).
+            headers: stored
+                .headers
+                .iter()
+                .filter(|(name, _)| !is_credential_header(name))
+                .cloned()
+                .collect(),
+            session_header: stored
+                .session_header
+                .clone()
+                .filter(|h| !is_credential_header(h)),
             sign_in,
             models: self
                 .models_of(stored)
@@ -346,9 +361,12 @@ impl Engine {
                     .map_err(|e| EndpointError::Keychain(e.to_string()))?;
                 true
             }
-            None => keychain
-                .delete_gateway_token(id)
-                .map_err(|e| EndpointError::Keychain(e.to_string()))?,
+            None => {
+                keychain
+                    .delete_gateway_token(id)
+                    .map_err(|e| EndpointError::Keychain(e.to_string()))?;
+                false
+            }
         };
         let marked = {
             let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
@@ -369,6 +387,57 @@ impl Engine {
             return Err(EndpointError::NotFound);
         }
         self.endpoint_view(id)
+    }
+
+    /// Undoes a create that never became the person's: the row and whatever was written for it go,
+    /// and its id is free for a retry (nothing is retired).
+    fn undo_create(&self, id: &str) {
+        if let Some(keychain) = &self.keychain {
+            let _ = keychain.delete(id);
+            let _ = keychain.delete_gateway_token(id);
+        }
+        let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+        let _ = self.store.forget_endpoint(id);
+        let _ = self.sync_endpoints();
+    }
+
+    /// Removes credential headers an older build stored plain with an endpoint (a
+    /// `cf-aig-authorization` typed under Advanced headers), which are never sent or returned
+    /// either way. Runs after Spade listens, over the person's endpoints (a handful, never
+    /// history), and stops after [`MOST_CLEANED`] rows so a huge set can never hold the endpoint
+    /// lock long (ADR 0170); what is left is as inert as it was and cleaned on the next start.
+    pub(super) fn drop_stored_credential_headers(&self) -> Result<(), StoreError> {
+        let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+        let mut changed = false;
+        let mut cleaned = 0;
+        for mut row in self.store.endpoints()? {
+            if cleaned >= MOST_CLEANED {
+                break;
+            }
+            let headers: Vec<_> = row
+                .headers
+                .iter()
+                .filter(|(name, _)| !is_credential_header(name))
+                .cloned()
+                .collect();
+            let session = row
+                .session_header
+                .clone()
+                .filter(|h| !is_credential_header(h));
+            if headers.len() == row.headers.len() && session == row.session_header {
+                continue;
+            }
+            row.headers = headers;
+            row.session_header = session;
+            if self.store.update_endpoint(&row)? {
+                cleaned += 1;
+                changed = true;
+            }
+        }
+        if changed {
+            self.sync_endpoints()?;
+        }
+        Ok(())
     }
 
     /// Adds an endpoint, from a preset or from scratch. Its id is a slug of its name.
@@ -447,8 +516,20 @@ impl Engine {
             }
             match self.store.insert_endpoint(&stored) {
                 Ok(()) => {
-                    self.sync_endpoints()?;
-                    return self.endpoint_view(&stored.id);
+                    let id = stored.id.clone();
+                    // Keychain I/O never runs under the lock.
+                    drop(_endpoints);
+                    if let Some(token) = input.gateway_token.as_deref() {
+                        if let Err(error) = self.set_gateway_token(&id, Some(token)) {
+                            // All or nothing: no endpoint half made, and its id free for a retry.
+                            self.undo_create(&id);
+
+                            return Err(error);
+                        }
+                    } else {
+                        self.sync_endpoints()?;
+                    }
+                    return self.endpoint_view(&id);
                 }
                 // Taken while the keychain was read: try the next id.
                 Err(StoreError::Exists(_)) => {
@@ -465,9 +546,16 @@ impl Engine {
     pub fn update_endpoint(
         &self,
         id: &str,
-        input: EndpointInput,
+        mut input: EndpointInput,
         standing: Standing,
     ) -> Result<EndpointView, EndpointError> {
+        if input.gateway_token.is_some() {
+            return Err(invalid(format!(
+                "set a gateway token with PUT /v1/keys/{id}/gateway; it is kept in the keychain, \
+                 never with the endpoint"
+            )));
+        }
+        input.gateway_token = None;
         // Decided on a read without the lock (the host check reads the keychain, which can
         // block), then written under it only if the endpoint is still as read; else decided again.
         for _ in 0..5 {
@@ -549,8 +637,8 @@ impl Engine {
             .is_some();
         if gateway {
             return Err(EndpointError::Conflict(format!(
-                "this endpoint has a gateway token for {was}; remove it first \
-                 (DELETE /v1/keys/{id}/gateway) and add the new host's after"
+                "this endpoint has a gateway token for {was}; remove it first under Manage → \
+                 Remove gateway token, and add the new host's after"
             )));
         }
         if !after.headers.is_empty() {

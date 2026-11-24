@@ -855,3 +855,115 @@ async fn a_delete_that_panics_leaves_the_endpoint_free_to_delete_again() -> Resu
     assert_eq!(status, 204, "{body}");
     Ok(())
 }
+
+/// An endpoint as an older build could leave one: `cf-aig-authorization` kept as a plain header
+/// (or session header), the token in it and all.
+fn seed_a_leaky_endpoint(store: &spade_store::Store) -> spade_store::Result<()> {
+    store.insert_endpoint(&spade_store::StoredEndpoint {
+        gateway_token: false,
+        id: "leaky".into(),
+        name: "Leaky".into(),
+        format: "openai-chat".into(),
+        base_url: "http://127.0.0.1:9/".into(),
+        headers: vec![
+            (
+                "cf-aig-authorization".into(),
+                "Bearer cf-old-token-4417".into(),
+            ),
+            ("x-team".into(), "spade".into()),
+        ],
+        session_header: Some("cf-aig-authorization".into()),
+        sign_in: None,
+        needs_key: false,
+        key_env: None,
+        preset: None,
+        created_ms: 1,
+        models: vec![spade_store::StoredModel {
+            id: "m".into(),
+            name: None,
+            context: None,
+            capabilities: None,
+            source: "typed".into(),
+        }],
+    })
+}
+
+#[tokio::test]
+async fn a_credential_header_an_older_build_stored_is_never_returned_or_sent() -> Result {
+    let spade = Spade::start_with(
+        vec![Script::reply("unused")],
+        Vec::new(),
+        support::Options {
+            seed: Some(seed_a_leaky_endpoint),
+            ..support::Options::default()
+        },
+    )
+    .await?;
+    spade.engine.settled().await;
+    // Never returned: the person sees only the headers it really sends.
+    let shown = endpoint(&spade, "leaky").await?;
+    assert_eq!(shown["header_names"], json!(["x-team"]), "{shown}");
+    assert_eq!(shown["session_header"], Value::Null, "{shown}");
+    // Never sent: the model client holds no credential header, nor a session header carrying one.
+    let sent = spade
+        .engine
+        .models()
+        .endpoints()
+        .iter()
+        .find(|e| e.id == "leaky")
+        .cloned()
+        .ok_or("the endpoint is not in the model client")?;
+    assert_eq!(
+        sent.headers,
+        vec![("x-team".to_owned(), "spade".to_owned())]
+    );
+    assert_eq!(sent.session_header, None);
+    // And the row itself is cleaned, so nothing plain-held survives a restart either.
+    let stored = spade_store::Store::open(&spade.dir.path().join("spade.sqlite"))?
+        .endpoints()?
+        .into_iter()
+        .find(|e| e.id == "leaky")
+        .ok_or("the endpoint went")?;
+    assert_eq!(
+        stored.headers,
+        vec![("x-team".to_owned(), "spade".to_owned())]
+    );
+    assert_eq!(stored.session_header, None);
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_endpoint_made_with_a_gateway_token_is_all_or_nothing() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let body = |token: &str| {
+        json!({ "name": "Gateway", "format": "openai-chat",
+                "base_url": "https://gateway.ai.cloudflare.com/v1/acct/gw/compat/",
+                "needs_key": false, "gateway_token": token })
+    };
+    // The keychain refuses the token: no endpoint is left behind and nothing plain is kept.
+    spade.fail_gateway_keychain_once("gateway")?;
+    let (status, refusal) = spade.post("/v1/endpoints", body("cf-1")).await?;
+    assert_eq!(status, 503, "{refusal}");
+    assert_eq!(endpoint(&spade, "gateway").await?, Value::Null);
+    assert_eq!(spade.keys.gateway_token("gateway")?, None);
+    // The retry takes the same id, so trying again never adds a second endpoint.
+    let (status, made) = spade.post("/v1/endpoints", body("cf-2")).await?;
+    assert_eq!(status, 201, "{made}");
+    assert_eq!(made["endpoint"]["id"], "gateway", "{made}");
+    assert_eq!(made["endpoint"]["gateway_token_set"], true);
+    assert_eq!(
+        spade.keys.gateway_token("gateway")?,
+        Some("cf-2".to_owned())
+    );
+    assert_eq!(endpoint(&spade, "gateway-2").await?, Value::Null);
+    // The token goes through the keychain's own route, not an endpoint change.
+    let (status, refused) = spade
+        .patch("/v1/endpoints/gateway", json!({ "gateway_token": "cf-3" }))
+        .await?;
+    assert_eq!(status, 400, "{refused}");
+    assert_eq!(
+        spade.keys.gateway_token("gateway")?,
+        Some("cf-2".to_owned())
+    );
+    Ok(())
+}

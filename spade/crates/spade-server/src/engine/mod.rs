@@ -105,7 +105,10 @@ pub use contracts_outside::{
     Offered as OutsideOffered, OutsideCaller, Refused as OutsideRefused, Via as OutsideVia,
 };
 pub use digests::{DigestError, MOST_LISTED as MOST_DIGESTS};
-pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput, ShownModel, Standing};
+pub use endpoints::{
+    EndpointError, EndpointInput, EndpointView, ModelInput, ShownModel, Standing,
+    is_credential_header,
+};
 pub use episodes::episode_json;
 pub use goals::{GoalError, GoalInput};
 pub use groups::{
@@ -579,6 +582,10 @@ impl Engine {
         self.settle_endpoints(adopt.as_ref())
             .map_err(|e| e.to_string())?;
         *self.adopt.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        // Credential headers an older build kept as plain endpoint config are never sent; the
+        // rows are cleaned while Spade is already listening, a bounded batch at a time.
+        self.drop_stored_credential_headers()
+            .map_err(|e| e.to_string())?;
         self.store
             .fill_missing_models(&self.default_model())
             .map_err(|e| e.to_string())?;

@@ -297,11 +297,16 @@ reply still runs on one of its models. Headers that carry credentials
 header: keys go to the keychain. Listing errors hide the key and every configured header value.
 
 **An authenticated gateway's token** (Cloudflare AI Gateway's `cf-aig-authorization`) is a second
-secret, kept in its own keychain entry beside the endpoint's key (ADR 0119): `PUT
-/v1/keys/{endpoint}/gateway` with `{"token": "..."}` stores it, `DELETE` on the same path forgets it.
-Every call, model list and media call on that endpoint then sends it as `cf-aig-authorization:
-Bearer <token>` beside the endpoint's own key. The endpoint keeps only whether the token is there,
-so it never reaches the database or an API answer.
+secret, kept in its own keychain entry beside the endpoint's key (ADR 0119). `POST /v1/endpoints`
+takes `"gateway_token"` with the rest, atomically: an endpoint whose token the keychain refuses is
+not made at all, so a retry takes the same id instead of adding `-2`. Later, `PUT
+/v1/keys/{endpoint}/gateway` with `{"token": "..."}` replaces it and `DELETE` on the same path
+forgets it (a change through the endpoint routes refuses the field and names that path). Every
+call, model list and media call on that endpoint sends it as `cf-aig-authorization: Bearer
+<token>` beside the endpoint's own key. The endpoint keeps only whether the token is there
+(`gateway_token_set`), so it never reaches the database or an API answer. A credential header an
+older build stored as plain config is never sent or answered, and its row is cleaned in a bounded
+pass after Spade listens (ADR 0170).
 
 **Presets are inherited, not copied.** An endpoint made from a preset remembers it. Only what the
 person chose is stored; the preset's models and their facts (context, capabilities, price) are
@@ -655,8 +660,9 @@ then.
   `{"kind":"generated"}` from an older client (its colour ignored), gets a face Spade picks (see
   Faces).
 - **Endpoint** = `{"id", "name", "format", "base_url", "session_header", "header_names",
-"needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
-"context"|null, "capabilities"|null, "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
+"needs_key", "key_set", "key_source": "keychain"|"environment"|null, "gateway_token_set",
+"models": [{"id", "name", "context"|null, "capabilities"|null, "source":
+"listed"|"typed"|"preset"}]}`. Header values and keys are
   never answered. The id is a slug of the name, unique (`-2`, `-3`, …). `format` is `openai-chat`,
   `openai-responses` or `anthropic`; `needs_key` defaults to true (false for a local server).
   With `preset`, missing fields come from that preset, its key variable and models included.
