@@ -205,16 +205,58 @@ fn a_re_encode_that_starts_mid_stream_waits_for_the_next_keyframe() -> TestResul
     Ok(())
 }
 
-/// A still Simulator picture, re-encoded at the starved bitrate, gets one sharp keyframe
-/// once it has been still ~300 ms: the refreshed keyframe is bigger (a lower quantizer)
-/// than the first bitrate-starved one.
+/// A still Simulator picture gets one sharp keyframe once it has been still ~300 ms:
+/// the refreshed keyframe is bigger (a lower quantizer) than the first coarse one.
+/// Small frames (390x844 target): the mechanism needs no full-size picture to prove.
+/// Every wait on VideoToolbox output is bounded and names what never arrived.
 #[test]
 fn a_still_pictures_refreshed_keyframe_is_sharper_than_its_first_starved_one() -> TestResult {
-    let size = Size {
-        width: 1206,
-        height: 2622,
-    };
+    use std::time::{Duration, Instant};
+    /// Poll `encoder` until it has nothing left, or fail after `budget`.
+    fn drain(
+        encoder: &mut VtEncoder,
+        units: &mut Vec<EncodedUnit>,
+        budget: Duration,
+        what: &str,
+    ) -> TestResult {
+        let end = Instant::now() + budget;
+        loop {
+            match encoder.poll_result()? {
+                Some(unit) => units.push(unit),
+                None => return Ok(()),
+            }
+            if Instant::now() >= end {
+                return Err(format!("{what}: encoder output never drained").into());
+            }
+        }
+    }
+    /// Encode one picture, retrying past backpressure while draining, or fail after `budget`.
+    fn encode(
+        encoder: &mut VtEncoder,
+        surface: &VtSurface,
+        pts_us: u64,
+        key: bool,
+        units: &mut Vec<EncodedUnit>,
+        budget: Duration,
+        what: &str,
+    ) -> TestResult {
+        let end = Instant::now() + budget;
+        loop {
+            match encoder.encode(surface.share().into_picture(pts_us)?, key) {
+                Err(CodecError::Backpressure) => drain(encoder, units, budget, what)?,
+                other => break other?,
+            }
+            if Instant::now() >= end {
+                return Err(format!("{what}: encoder never took the picture").into());
+            }
+        }
+        drain(encoder, units, budget, what)
+    }
     // Still serve-sim stream: the same picture, so every delta after the key is tiny.
+    let size = Size {
+        width: 780,
+        height: 1688,
+    };
     let pool = PixelPool::new(size, VtFormat::Nv12, 4)?;
     let still = picture(size, 0)?;
     let uploaded = pool.upload(&still)?;
@@ -224,32 +266,28 @@ fn a_still_pictures_refreshed_keyframe_is_sharper_than_its_first_starved_one() -
         codec: Codec::H264,
         size,
         fps: 5,
-        rate: RateControl::Bitrate(12_000_000),
+        rate: RateControl::Bitrate(4_000_000),
     })?;
     let mut units = Vec::new();
-    for index in 0..6u32 {
-        loop {
-            match source.encode(
-                surface.share().into_picture(u64::from(index) * 200_000)?,
-                index == 0,
-            ) {
-                Err(CodecError::Backpressure) => {
-                    while let Some(unit) = source.poll_result()? {
-                        units.push(unit);
-                    }
-                    std::thread::yield_now();
-                }
-                other => break other?,
-            }
-        }
-        while let Some(unit) = source.poll_result()? {
-            units.push(unit);
-        }
+    for index in 0..4u32 {
+        encode(
+            &mut source,
+            surface,
+            u64::from(index) * 200_000,
+            index == 0,
+            &mut units,
+            Duration::from_secs(20),
+            "serve-sim source encode",
+        )?;
     }
+    // Explicit: finish what the source holds, then take everything it still has.
     source.flush()?;
-    while let Some(unit) = source.poll_result()? {
-        units.push(unit);
-    }
+    drain(
+        &mut source,
+        &mut units,
+        Duration::from_secs(20),
+        "serve-sim source flush",
+    )?;
     assert!(
         units.iter().any(|u| u.key),
         "serve-sim starts at a keyframe"
@@ -258,10 +296,10 @@ fn a_still_pictures_refreshed_keyframe_is_sharper_than_its_first_starved_one() -
     let wire = EncodeSpec {
         id: 7,
         codec: "avc1.640033".into(),
-        width: 588,
-        height: 1280,
+        width: 390,
+        height: 844,
         fps: 60,
-        bitrate: 4_000_000,
+        bitrate: 2_000_000,
         quantizer: None,
     };
     let mut transcode = Transcode::new(&wire)?;
@@ -287,6 +325,16 @@ fn a_still_pictures_refreshed_keyframe_is_sharper_than_its_first_starved_one() -
         transcode.push(&source, now_ms, &mut frames)?;
         now_ms += 200;
     }
+    // VideoToolbox delivers on its own threads: pump (bounded) until the first keyframe
+    // lands instead of assuming it is already here.
+    let end = Instant::now() + Duration::from_secs(10);
+    while !frames.iter().any(|f| f.flags & 1 != 0) {
+        if Instant::now() >= end {
+            return Err("transcode: the first keyframe never came out".into());
+        }
+        transcode.poll(now_ms, &mut frames)?;
+        std::thread::sleep(Duration::from_millis(5));
+    }
     let first_keys: Vec<usize> = frames
         .iter()
         .filter(|f| f.flags & 1 != 0)
@@ -297,17 +345,19 @@ fn a_still_pictures_refreshed_keyframe_is_sharper_than_its_first_starved_one() -
         "the starved first keyframe came out"
     );
     let first = first_keys[0];
-    // Still for 400 ms more: one sharp refresh, then nothing further. VideoToolbox
-    // encodes on its own threads, so the test pumps wall time until the keyframe lands.
+    // Still 400 ms more: one sharp refresh, then nothing further. VideoToolbox encodes
+    // on its own threads, so pump wall time (bounded) until the keyframe lands.
     for _ in 0..2 {
         transcode.poll(now_ms, &mut frames)?;
         now_ms += 200;
     }
-    let end = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    while frames.iter().filter(|f| f.flags & 1 != 0).count() < 2 && std::time::Instant::now() < end
-    {
+    let end = Instant::now() + Duration::from_secs(10);
+    while frames.iter().filter(|f| f.flags & 1 != 0).count() < 2 {
+        if Instant::now() >= end {
+            return Err("still refresh: the sharp keyframe never came out".into());
+        }
         transcode.poll(now_ms, &mut frames)?;
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::thread::sleep(Duration::from_millis(5));
     }
     let keys: Vec<usize> = frames
         .iter()
@@ -326,7 +376,12 @@ fn a_still_pictures_refreshed_keyframe_is_sharper_than_its_first_starved_one() -
         first
     );
     let before = keys.len();
-    transcode.poll(now_ms + 1_000, &mut frames)?;
+    // Pump briefly so a late duplicate would have landed, then require no second refresh.
+    let quiet = Instant::now() + Duration::from_millis(500);
+    while Instant::now() < quiet {
+        transcode.poll(now_ms + 1_000, &mut frames)?;
+        std::thread::sleep(Duration::from_millis(5));
+    }
     assert_eq!(
         frames.iter().filter(|f| f.flags & 1 != 0).count(),
         before,
