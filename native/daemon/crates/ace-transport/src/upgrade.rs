@@ -29,6 +29,7 @@ use crate::peer::Peer;
 use crate::prefixed::Prefixed;
 
 mod handshake;
+mod number;
 
 #[cfg(test)]
 mod tests;

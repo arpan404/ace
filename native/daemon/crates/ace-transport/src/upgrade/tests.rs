@@ -103,10 +103,13 @@ fn every_refusal_is_exactly_abort_handshakes_bytes() {
     );
 
     const VERSION: &[u8] = b"HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Type: text/html\r\nContent-Length: 47\r\nSec-WebSocket-Version: 13, 8\r\n\r\nMissing or invalid Sec-WebSocket-Version header";
-    assert_eq!(
-        refusal(&with(&candidate(), "Sec-WebSocket-Version", "9")),
-        VERSION
-    );
+    for spelled in ["9", "+0xd", "13abc"] {
+        assert_eq!(
+            refusal(&with(&candidate(), "Sec-WebSocket-Version", spelled)),
+            VERSION,
+            "{spelled:?}"
+        );
+    }
 
     const PROTOCOL: &[u8] = b"HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Type: text/html\r\nContent-Length: 37\r\n\r\nInvalid Sec-WebSocket-Protocol header";
     for offered in ["a b", "a,a", ""] {
@@ -126,6 +129,15 @@ fn an_accepted_handshake_is_exactly_complete_upgrades_bytes() {
         "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {ACCEPT}\r\n\r\n"
     );
     assert_eq!(accepted.bytes(), expected.as_bytes());
+    // `+value` equals 8 or 13: Number() accepts these spellings and no sign.
+    for version in ["0xd", " 13 ", "13.0", "1.3e1"] {
+        let accepted = handshake(&request(
+            "GET",
+            &with(&candidate(), "Sec-WebSocket-Version", version),
+        ))
+        .expect("a valid version");
+        assert_eq!(accepted.bytes(), expected.as_bytes(), "{version:?}");
+    }
 
     let mut offered = candidate();
     offered.push(("Sec-WebSocket-Protocol", "chat, superchat"));
@@ -146,7 +158,7 @@ fn the_version_header_is_read_like_ws_numeric_coercion() {
             "{accepted:?} is 13 or 8"
         );
     }
-    for refused in ["", "9", "13, 8", "13abc", "Infinity", "0x"] {
+    for refused in ["", "9", "13, 8", "13abc", "Infinity", "0x", "+0xd", "-0xd"] {
         assert!(
             !version_13_or_8(refused.as_bytes()),
             "{refused:?} is neither"

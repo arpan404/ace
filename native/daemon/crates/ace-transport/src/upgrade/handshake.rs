@@ -10,6 +10,8 @@ use tungstenite::handshake::derive_accept_key;
 
 use crate::head::RequestHead;
 
+use super::number::js_number;
+
 /// An `abortHandshake` refusal: status, its three headers in `ws`'s order, the
 /// version field only on the version row, then the message as the body.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -227,88 +229,16 @@ fn valid_key(key: &[u8]) -> bool {
 }
 
 /// `ws` reads `+req.headers['sec-websocket-version']` and compares with 13 and
-/// 8, so the value goes through JavaScript's `ToNumber` (`"0xd"` is 13).
+/// 8, so the value goes through JavaScript's `Number()` (`"0xd"` is 13,
+/// `"+0xd"` is not a number).
 pub(super) fn version_13_or_8(value: &[u8]) -> bool {
-    matches!(js_number(&latin1(value)), Some(number) if number == 13.0 || number == 8.0)
+    let number = js_number(&latin1(value));
+    number == 13.0 || number == 8.0
 }
 
 /// A header value as Node decodes it: one character per byte (latin1).
 pub(super) fn latin1(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| char::from(*byte)).collect()
-}
-
-fn js_number(text: &str) -> Option<f64> {
-    let trimmed = text.trim_matches(is_js_space);
-    if trimmed.is_empty() {
-        return Some(0.0);
-    }
-    let (negative, rest) = match trimmed.strip_prefix('-') {
-        Some(rest) => (true, rest),
-        None => (false, trimmed.strip_prefix('+').unwrap_or(trimmed)),
-    };
-    let magnitude = if let Some(digits) = strip_radix(rest, "0x") {
-        radix(digits, 16)?
-    } else if let Some(digits) = strip_radix(rest, "0o") {
-        radix(digits, 8)?
-    } else if let Some(digits) = strip_radix(rest, "0b") {
-        radix(digits, 2)?
-    } else if rest == "Infinity" {
-        f64::INFINITY
-    } else {
-        decimal(rest)?
-    };
-    Some(if negative { -magnitude } else { magnitude })
-}
-
-/// ECMAScript's `WhiteSpace`: the byte-sized members (`\u{a0}` included).
-fn is_js_space(character: char) -> bool {
-    matches!(
-        character,
-        '\t' | '\n' | '\u{0b}' | '\u{0c}' | '\r' | ' ' | '\u{a0}'
-    )
-}
-
-fn strip_radix<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
-    let (head, rest) = text.split_at_checked(prefix.len())?;
-    head.eq_ignore_ascii_case(prefix).then_some(rest)
-}
-
-fn radix(digits: &str, radix: u32) -> Option<f64> {
-    if digits.is_empty() {
-        return None;
-    }
-    let mut value: u64 = 0;
-    for character in digits.chars() {
-        let digit = character.to_digit(radix)?;
-        value = value
-            .checked_mul(u64::from(radix))?
-            .checked_add(u64::from(digit))?;
-    }
-    Some(value as f64)
-}
-
-fn decimal(text: &str) -> Option<f64> {
-    fn digits(text: &str) -> bool {
-        !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())
-    }
-
-    let (mantissa, exponent) = match text.find(['e', 'E']) {
-        Some(at) => (&text[..at], Some(&text[at + 1..])),
-        None => (text, None),
-    };
-    let (whole, fraction) = match mantissa.split_once('.') {
-        Some((whole, fraction)) => (whole, Some(fraction)),
-        None => (mantissa, None),
-    };
-    let mantissa_ok = digits(whole) || fraction.is_some_and(digits);
-    let exponent_ok = match exponent {
-        None => true,
-        Some(exponent) => digits(exponent.strip_prefix(['+', '-']).unwrap_or(exponent)),
-    };
-    if !(mantissa_ok && exponent_ok) {
-        return None;
-    }
-    text.parse::<f64>().ok()
 }
 
 /// `ws`'s `subprotocol.parse`: a comma-separated list of tokens, spaces and
