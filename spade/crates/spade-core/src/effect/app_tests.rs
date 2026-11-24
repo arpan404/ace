@@ -546,7 +546,7 @@ fn a_generic_command_is_classified_from_the_operation_and_payload() {
     use serde_json::json;
     let schema = json!({"type":"object","properties":{"command":{"type":"string"}}});
     for command in [
-        "project-get",
+        "get-project",
         "list-projects",
         "call get-project alpha",
         "call execute-sql {SELECT count(*) FROM events}",
@@ -563,21 +563,34 @@ fn a_generic_command_is_classified_from_the_operation_and_payload() {
         assert!(reading.guessed);
     }
     for command in [
-        "project-update",
+        "project-get",
+        "update-list-projects",
+        "get-project --delete",
+        "get-project update",
+        "get-project send-email",
+        "call execute-sql {SELECT * FROM events -- comment}",
+        "call execute-sql {SELECT * /* comment */ FROM events}",
+        "call execute-sql {WITH changed AS (DELETE FROM events) SELECT * FROM changed}",
         "call execute-sql {SELECT * INTO other FROM events}",
         "call execute-sql {SELECT * FROM events; DELETE FROM events}",
         "call execute-sql {SELECT dblink_exec()}",
         "list-projects && project-delete",
     ] {
         let reading = super::app_call(
-            Mcp::default(),
-            "exec",
+            Mcp {
+                annotated: true,
+                read_only: true,
+                trusted: true,
+                declared: Some(Effect::Read),
+                ..Mcp::default()
+            },
+            "get_project",
             "",
             &schema,
             &json!({"command":command}),
             false,
         );
-        assert_ne!(reading.effect, Some(Effect::Read), "{command}");
+        assert_eq!(reading.effect, None, "{command}");
     }
     let reading = super::app_call(
         Mcp::default(),
@@ -588,4 +601,42 @@ fn a_generic_command_is_classified_from_the_operation_and_payload() {
         false,
     );
     assert_eq!(reading.effect, Some(Effect::SendAsPerson));
+}
+
+#[test]
+fn inferred_hard_stops_override_read_hints_and_broad_declarations_in_full_access() {
+    use serde_json::json;
+    for (name, description, arguments, expected) in [
+        ("send_email", "", json!({}), Effect::SendAsPerson),
+        ("get_card", "Create payment", json!({}), Effect::Pay),
+        ("exec", "", json!({"command":"create payment"}), Effect::Pay),
+        (
+            "exec",
+            "",
+            json!({"command":"call grant-access"}),
+            Effect::ChangeAccess,
+        ),
+    ] {
+        for declared in [None, Some(Effect::Read), Some(Effect::Network)] {
+            let reading = super::app_call(
+                Mcp {
+                    read_only: true,
+                    annotated: true,
+                    trusted: true,
+                    declared,
+                    ..Mcp::default()
+                },
+                name,
+                description,
+                &json!({}),
+                &arguments,
+                false,
+            );
+            assert_eq!(reading.effect, Some(expected));
+            let (mut call, _) = app_call(name, "", silent(), &json!({}), &json!({}), false);
+            call.mode = Mode::FullAccess;
+            call.effect = reading.effect;
+            assert!(person_decides(&route(call)), "{name} {description}");
+        }
+    }
 }

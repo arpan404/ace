@@ -294,14 +294,10 @@ pub struct AppReading {
     pub grantable: bool,
 }
 
-/// What a connected app's tool does, read from what its server and catalogue say ([`mcp`]),
-/// its own name ([`named`]), what its arguments reach ([`shape`]) and whether its definition
-/// changed since Spade pinned it (`changed`). A trusted declaration still wins, and a trusted
-/// server's own read-only interface is a read. Otherwise the name decides only so far: a clear
-/// read with plain arguments and an unchanged definition reads (`guessed`); a payment, a send,
-/// an access change or a delete goes to the person; a read whose arguments reach a destination
-/// or run text, a renamed tool's read, a write and anything Spade can't place stay unresolved,
-/// for the reviewer. An annotation may narrow a read the name makes, never widen one.
+/// Read a connected app's call from its declaration, tool text, and arguments.
+///
+/// Recognized hard stops take priority. A generic command must parse as a read
+/// before any read hint applies. An inferred read still depends on a pinned definition.
 pub fn app_call(
     tool: Mcp,
     name: &str,
@@ -313,34 +309,60 @@ pub fn app_call(
     let said = named(name, description);
     let call_shape = shape(name, schema, arguments);
     let operation = shape::command_effect(arguments);
-    if matches!(
-        tool.declared,
-        Some(Effect::Credential | Effect::Pay | Effect::SendAsPerson | Effect::ChangeAccess)
-    ) {
-        return app_tool(tool, said, call_shape, changed);
+    let inferred = [
+        Some(said),
+        Some(named(description, "")),
+        operation,
+        arguments
+            .get("operation")
+            .or_else(|| arguments.get("action"))
+            .and_then(serde_json::Value::as_str)
+            .map(|value| named(value, "")),
+    ]
+    .into_iter()
+    .flatten()
+    .find_map(hard_stop);
+    if let Some(effect) = tool
+        .declared
+        .filter(|effect| {
+            matches!(
+                effect,
+                Effect::Credential | Effect::Pay | Effect::SendAsPerson | Effect::ChangeAccess
+            )
+        })
+        .or(inferred)
+    {
+        return app_tool(
+            Mcp {
+                declared: Some(effect),
+                ..tool
+            },
+            said,
+            call_shape,
+            changed,
+        );
     }
-    let said = match (said, operation) {
-        (Named::Pay | Named::Send | Named::Access | Named::Destroys, _) => said,
-        (_, Some(named @ (Named::Pay | Named::Send | Named::Access | Named::Destroys))) => {
-            // Keep recognized hard stops even if the generic tool has a broader declaration.
-            return app_tool(
-                Mcp {
-                    declared: None,
-                    ..tool
-                },
-                named,
-                call_shape,
-                changed,
-            );
+    if shape::has_command(schema, arguments) {
+        if operation != Some(Named::Read) || call_shape != Shape::Plain || tool.destructive {
+            let mut reading = app_tool(tool, Named::Unclear, Shape::Code, changed);
+            reading.effect = None;
+            reading.destructive = operation == Some(Named::Destroys);
+            return reading;
         }
-        (Named::Unclear, Some(Named::Read))
-            if call_shape == Shape::Plain && tool.declared.is_none() && !tool.destructive =>
-        {
+        if tool.declared.is_none() || tool.declared == Some(Effect::Read) {
             return app_tool(Mcp::default(), Named::Read, call_shape, changed);
         }
-        _ => said,
-    };
+    }
     app_tool(tool, said, call_shape, changed)
+}
+
+fn hard_stop(named: Named) -> Option<Effect> {
+    match named {
+        Named::Pay => Some(Effect::Pay),
+        Named::Send => Some(Effect::SendAsPerson),
+        Named::Access => Some(Effect::ChangeAccess),
+        _ => None,
+    }
 }
 
 /// Read an app tool from its declaration, inferred operation and argument shape.
@@ -361,6 +383,18 @@ pub fn app_tool(tool: Mcp, said: Named, shape: Shape, changed: bool) -> AppReadi
         overwrites: asks_each_call(tool),
         ..reading(effect, false)
     };
+    if let Some(effect) = tool
+        .declared
+        .filter(|effect| {
+            matches!(
+                effect,
+                Effect::Credential | Effect::Pay | Effect::SendAsPerson | Effect::ChangeAccess
+            )
+        })
+        .or_else(|| hard_stop(said))
+    {
+        return reading(Some(effect), tool.destructive);
+    }
     if tool.declared.is_some() {
         let effect = mcp(tool);
         return AppReading {

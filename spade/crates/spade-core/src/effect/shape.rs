@@ -199,6 +199,17 @@ pub fn command_effect(arguments: &Value) -> Option<super::Named> {
     ) {
         return Some(named);
     }
+    if STATEMENTS.contains(&operation)
+        && let Some(object) = payload.split_ascii_whitespace().next()
+        && object
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_'))
+    {
+        let inferred = super::named(&format!("{operation}-{object}"), "");
+        if matches!(inferred, Named::Pay | Named::Send | Named::Access) {
+            return Some(inferred);
+        }
+    }
     if args.len() != 1 {
         return None;
     }
@@ -211,20 +222,30 @@ pub fn command_effect(arguments: &Value) -> Option<super::Named> {
             .trim();
         return readonly_select(sql).then_some(Named::Read);
     }
-    let suffix_read = operation
-        .rsplit_once(['-', '_'])
-        .is_some_and(|(resource, verb)| {
-            matches!(verb, "get" | "list")
-                && super::named(&format!("{verb}-{resource}"), "") == Named::Read
-        });
-    ((named == Named::Read || suffix_read)
-        && payload.split_ascii_whitespace().all(|part| {
-            !part.starts_with('-')
-                && part
-                    .bytes()
-                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.'))
-        }))
+    let verb = operation.split(['-', '_']).next()?;
+    (matches!(verb, "get" | "list")
+        && named == Named::Read
+        && !command.contains(['\n', '\r'])
+        && (payload.is_empty() || read_identifier(payload)))
     .then_some(Named::Read)
+}
+
+fn read_identifier(payload: &str) -> bool {
+    !payload.starts_with('-')
+        && payload
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.'))
+        && !words(payload)
+            .iter()
+            .any(|word| STATEMENTS.contains(&word.as_str()))
+        && !matches!(
+            super::named(payload, ""),
+            super::Named::Write
+                | super::Named::Pay
+                | super::Named::Send
+                | super::Named::Access
+                | super::Named::Destroys
+        )
 }
 
 fn readonly_select(sql: &str) -> bool {
@@ -252,6 +273,16 @@ fn readonly_select(sql: &str) -> bool {
                 STATEMENTS.contains(&word)
                     || matches!(word, "into" | "for" | "outfile" | "dumpfile")
             })
+}
+
+pub(super) fn has_command(schema: &Value, arguments: &Value) -> bool {
+    let mut names = Vec::new();
+    !keys(schema, &mut names, 0)
+        || !keys(arguments, &mut names, 0)
+        || names
+            .iter()
+            .flat_map(|key| words(key))
+            .any(|word| matches!(word.as_str(), "command" | "cmd"))
 }
 
 /// What a call of the tool `name`, with input `schema`, given `arguments`, can reach.
