@@ -2,14 +2,19 @@
 //! Shared helpers for the engine's behaviour tests.
 mod delivery;
 mod egress;
+mod flow;
 mod grants;
+mod headers;
+mod pacing;
 mod pictures;
 mod relay_streams;
 mod sources;
 mod stills;
+mod views;
 
 use super::*;
-use media_wire::control::{FromMedia, Refusal, Status, ToMedia};
+use crate::engine::delivery::MediaOut;
+use media_wire::control::{EncodeSpec, FromMedia, Refusal, Status, ToMedia};
 use media_wire::frame::MediaFrame;
 use serde_json::{Value, json};
 
@@ -170,4 +175,109 @@ pub(super) fn ticket(
         &[token; 32],
         NOW,
     )
+}
+
+const CONNECTION: &str = "mc_test";
+
+/// An engine with source `s1` (handle 1, producer connection 1) and an open media connection.
+fn watched(target: Value) -> Engine {
+    watched_decoding(target, json!(["avc1.42E033"]))
+}
+
+/// `watched`, with a view that decodes `codecs`, best first.
+fn watched_decoding(target: Value, codecs: Value) -> Engine {
+    watched_view(target, codecs, false)
+}
+
+/// `watched_decoding`, with `local`: whether the view is on this machine, as the daemon tells
+/// ace-media for a viewer on its loopback listener (the desktop app).
+fn watched_view(target: Value, codecs: Value, local: bool) -> Engine {
+    let mut engine = engine();
+    open_tab(&mut engine, "s1", 1, 3);
+    hello(&mut engine, 1, 3);
+    ticket(&mut engine, CONNECTION, owner("phone", pairing(1)), 1, 9);
+    assert!(engine.claim_ticket(&[9; 32], NOW).is_some());
+    engine.effects().for_each(drop);
+    send(
+        &mut engine,
+        json!({ "type": "viewer.open", "viewer": "v1", "connection": CONNECTION,
+                "owner": owner("phone", pairing(1)), "issued": 2, "source": "s1",
+                "target": target, "codecs": codecs,
+                "viewport": { "width": 390, "height": 844, "dpr": 3, "scale": 1 },
+                "local": local, "audio": false }),
+        &[],
+        NOW,
+    );
+    engine
+}
+
+/// The view's client shows everything it has been given: one cumulative ack, numbered far
+/// ahead of the view's own sequence counter.
+fn shown(engine: &mut Engine, now: Now) {
+    engine.media_message(
+        CONNECTION,
+        &json!({ "type": "browser.ack", "threadId": "t1", "sequence": 4_000_000_000_u64,
+                 "video": true })
+        .to_string(),
+        now,
+    );
+}
+
+/// The view's rate and dropped count as `viewer.stats` last reported them.
+fn reported(effects: &[Effect]) -> Option<(f64, u64)> {
+    effects.iter().rev().find_map(|e| match e {
+        Effect::Normal(FromMedia::ViewerStats { rate, dropped, .. }) => {
+            Some((f64::from(*rate), dropped.get()))
+        }
+        _ => None,
+    })
+}
+
+fn binaries(effects: &[Effect]) -> Vec<Vec<u8>> {
+    effects
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Media {
+                out: MediaOut::Binary(bytes),
+                ..
+            } => Some(bytes.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn wants(effects: &[Effect]) -> Vec<Vec<EncodeSpec>> {
+    effects
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Normal(FromMedia::SourceWant { encodes, .. }) => Some(encodes.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn keyframes(effects: &[Effect]) -> usize {
+    effects
+        .iter()
+        .filter(|e| matches!(e, Effect::Normal(FromMedia::SourceKeyframe { .. })))
+        .count()
+}
+
+fn h264(key: bool, n: u8, codec: u8, description: Vec<u8>) -> MediaFrame {
+    let mut unit = frame(1, u32::from(key), 1, Vec::new());
+    unit.encode = 0;
+    unit.width = 1170;
+    unit.height = 2532;
+    unit.display_width = 390;
+    unit.display_height = 844;
+    unit.scale = 3000;
+    unit.codec = codec;
+    unit.codec_string = "avc1.42E033".into();
+    unit.description = description;
+    unit.payload = if codec == 2 {
+        vec![0, 0, 0, 2, if key { 0x65 } else { 0x41 }, n]
+    } else {
+        vec![0, 0, 0, 1, if key { 0x65 } else { 0x41 }, n]
+    };
+    unit
 }
