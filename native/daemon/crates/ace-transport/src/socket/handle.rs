@@ -45,12 +45,13 @@ impl SocketHandle {
     }
 
     /// `ws`'s `send` while the state is `OPEN`. A frame is either queued (and
-    /// then owes exactly one `Sent`) or refused with nothing emitted.
+    /// then owes exactly one `Sent`) or refused with a reason and nothing
+    /// emitted, charged or counted.
     pub fn send(&self, data: Bytes, binary: bool, id: u64) -> SendResult {
         let length = data.len() as u64 + MESSAGE_OVERHEAD;
         // `ws` refuses a text send that is not UTF-8, and queues nothing.
         let Ok(frame) = message(data, binary) else {
-            return SendResult::NotOpen;
+            return SendResult::InvalidUtf8;
         };
         let shared = &self.shared;
         let inner = lock(&shared.inner);
@@ -61,7 +62,7 @@ impl SocketHandle {
             return SendResult::NotOpen;
         };
         if shared.pending.load(Ordering::Relaxed) >= OUTBOUND_MESSAGES {
-            return SendResult::NotOpen;
+            return SendResult::Full;
         }
         // Charged under the lock and before the enqueue, so the writer can never
         // complete a frame whose bytes were not charged yet: a debit therefore

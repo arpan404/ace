@@ -126,7 +126,7 @@ async fn a_send_is_refused_once_the_outbound_queue_is_full() {
     }
     assert_eq!(
         handle.send(tiny, true, 0),
-        SendResult::NotOpen,
+        SendResult::Full,
         "an undrained queue refuses more, as backpressure"
     );
 }
@@ -143,7 +143,7 @@ async fn unread_sent_events_hold_the_outbound_queue_full() {
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert_eq!(
         handle.send(tiny.clone(), true, 0),
-        SendResult::NotOpen,
+        SendResult::Full,
         "unread Sent events keep the queue full"
     );
     assert!(matches!(next(&mut events).await, SocketEvent::Sent { .. }));
@@ -151,6 +151,21 @@ async fn unread_sent_events_hold_the_outbound_queue_full() {
         handle.send(tiny, true, 0),
         SendResult::Queued,
         "taking one Sent frees one place"
+    );
+}
+
+#[tokio::test]
+async fn a_text_send_that_is_not_utf8_is_refused_without_charging() {
+    let (handle, mut events, _client) = pair(1 << 16).await;
+    assert_eq!(
+        handle.send(Bytes::from_static(&[0xff, 0xfe]), false, 7),
+        SendResult::InvalidUtf8,
+        "a text frame must be UTF-8; the shell fails that send's callback"
+    );
+    assert_eq!(handle.buffered_amount(), 0, "a refusal charges nothing");
+    assert!(
+        events.try_recv().is_err(),
+        "a refused send owes no Sent and emits nothing"
     );
 }
 

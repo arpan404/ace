@@ -53,12 +53,20 @@ export type NativeSocketEvent =
   | { kind: "error"; code: "too_big" | "protocol" | "io"; message: string }
   | { kind: "close"; code: number; reason: Buffer };
 
+/**
+ * What a `send` did: `queued` (and then exactly one `sent` is owed), or why
+ * nothing was queued. `not-open` is a close race and takes `ws`'s send-after-close
+ * path; `full` is the outbound queue at its bound, and `invalid-utf8` a text send
+ * that is not UTF-8. The last two fail only that send's callback.
+ */
+export type NativeSendResult = "queued" | "not-open" | "full" | "invalid-utf8";
+
 /** A socket as JavaScript holds it: `ws`'s methods over the Rust socket. */
 export interface NativeSocketHandle {
   /** Delivers this socket's events, in order; they queue in Rust until this call. */
   listen(events: (event: NativeSocketEvent) => void): void;
-  /** `ws`'s send while open: true when the frame was queued, and then owes one `sent`. */
-  send(data: Buffer, binary: boolean, id: number): boolean;
+  /** `ws`'s send while open: what happened to the frame, and which `sent` it owes. */
+  send(data: Buffer, binary: boolean, id: number): NativeSendResult;
   close(code: number | null, reason: string): void;
   terminate(): void;
   pause(): void;
@@ -116,6 +124,18 @@ function transportAddonPath(): string {
   );
 }
 
+/** Whether an exported value is the addon's `NativeLoopback` class, statics included. */
+function isNativeLoopbackClass(value: unknown): value is NativeLoopbackClass {
+  if (typeof value !== "function") return false;
+  // A constructor's own static methods, read as a map once its type is checked.
+  const statics = value as unknown as Record<string, unknown>;
+  return (
+    typeof statics["generateSecret"] === "function" &&
+    typeof statics["start"] === "function" &&
+    typeof statics["underflowCount"] === "function"
+  );
+}
+
 let loaded: TransportAddon | undefined;
 
 /**
@@ -134,9 +154,14 @@ export function transportAddon(): TransportAddon {
     );
   const module = { exports: {} as Record<string, unknown> };
   process.dlopen(module, path);
-  // Trusted: the addon this tree built, exporting the class
-  // `ace-daemon-node/src/transport.rs` declares.
-  loaded = module.exports as unknown as TransportAddon;
+  // The addon this tree built, checked for the class and statics
+  // `ace-daemon-node/src/transport.rs` declares before anything uses them.
+  const loopback = module.exports["NativeLoopback"];
+  if (!isNativeLoopbackClass(loopback))
+    throw new Error(
+      `The transport addon at ${path} exports no NativeLoopback class with generateSecret, start and underflowCount; rebuild it with cargo build --release in native/daemon`,
+    );
+  loaded = { NativeLoopback: loopback };
   return loaded;
 }
 

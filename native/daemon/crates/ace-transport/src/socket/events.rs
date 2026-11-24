@@ -24,13 +24,20 @@ pub enum SocketEvent {
     Close { code: u16, reason: Vec<u8> },
 }
 
-/// `ws`'s `send` outcome: queued for the writer, or refused because the state is
-/// no longer `OPEN` or the outbound queue is over its bound (the caller takes the
-/// post-close path, T1a.6).
+/// `ws`'s `send` outcome: queued for the writer, or refused for a reason the
+/// shell tells apart (T1a.6). A refusal queued nothing and charged nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SendResult {
     Queued,
+    /// The state is no longer `OPEN`, or the outbound channel is gone: `ws`'s
+    /// send-after-close path.
     NotOpen,
+    /// The owner has not taken enough `Sent`s: the outbound queue is at its
+    /// bound. The shell fails that send's callback; nothing is charged.
+    Full,
+    /// A text send whose payload is not UTF-8. The shell fails that send's
+    /// callback with `ws`'s invalid-UTF-8 error; nothing is charged.
+    InvalidUtf8,
 }
 
 /// The socket's events. Dropping it ends the socket and wipes every payload that

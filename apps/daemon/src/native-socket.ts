@@ -1,12 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 import { EventEmitter } from "node:events";
-import type { NativeSocketEvent, NativeSocketHandle } from "@ace/provider-kit/native-transport";
+import type {
+  NativeSendResult,
+  NativeSocketEvent,
+  NativeSocketHandle,
+} from "@ace/provider-kit/native-transport";
 import { warnTransportUnderflow } from "@ace/provider-kit/native-transport";
 import type { MainSocket } from "./main-socket.ts";
 
 /** `ws`'s constants, as `readyState` reports them. */
 const OPEN = 1;
+const CLOSING = 2;
+const CLOSED = 3;
 type ReadyState = 0 | 1 | 2 | 3;
+
+/** `ws`'s error for a text send whose payload is not UTF-8 (its receiver's words). */
+const INVALID_UTF8 = "Invalid WebSocket frame: invalid UTF-8 sequence";
+/** The outbound queue spent its bound: nothing was queued or counted. */
+const SEND_QUEUE_FULL = "WebSocket send buffer is full";
 
 /** `ws`'s word for a ready state, as its send-after-close error spells it. */
 function stateName(state: ReadyState): string {
@@ -19,20 +30,6 @@ function stateName(state: ReadyState): string {
       return "CLOSING";
     case 3:
       return "CLOSED";
-  }
-}
-
-/** The handle's number as `MainSocket`'s union; a state outside it can only read as closed. */
-function stateOf(value: number): ReadyState {
-  switch (value) {
-    case 0:
-      return 0;
-    case 1:
-      return 1;
-    case 2:
-      return 2;
-    default:
-      return 3;
   }
 }
 
@@ -63,6 +60,12 @@ export class NativeSocket extends EventEmitter implements MainSocket {
   #nextId = 0;
   /** Bytes a send after close accounted for; `bufferedAmount` adds them to the socket's own. */
   #afterCloseBytes = 0;
+  /**
+   * `ws`'s ready state as the handler sees it. It moves to CLOSING the moment a close,
+   * a terminate or an error starts one, which the Rust side may already know first, and to
+   * CLOSED only when the close event arrives; a send in between takes ws's after-close path.
+   */
+  #state: ReadyState = OPEN;
 
   constructor(handle: NativeSocketHandle) {
     super();
@@ -73,7 +76,7 @@ export class NativeSocket extends EventEmitter implements MainSocket {
   }
 
   get readyState(): ReadyState {
-    return stateOf(this.#handle.readyState());
+    return this.#state;
   }
 
   get bufferedAmount(): number {
@@ -101,19 +104,39 @@ export class NativeSocket extends EventEmitter implements MainSocket {
     }
     const id = this.#nextId++;
     if (done !== undefined) this.#callbacks.set(id, done);
-    let queued: boolean;
+    let result: NativeSendResult;
     try {
-      queued = this.#handle.send(bytes, binary, id);
+      result = this.#handle.send(bytes, binary, id);
     } catch (error) {
       this.#callbacks.delete(id);
       throw error;
     }
-    // The socket closed between the state check and the enqueue: as ws, nothing was queued, so
-    // the send takes the after-close path.
-    if (!queued) {
-      this.#callbacks.delete(id);
-      this.#sendAfterClose(bytes.byteLength, done);
+    switch (result) {
+      case "queued":
+        return;
+      case "not-open":
+        // The socket closed between the state check and the enqueue: as ws, nothing was
+        // queued, so the send takes the after-close path.
+        this.#callbacks.delete(id);
+        this.#sendAfterClose(bytes.byteLength, done);
+        return;
+      case "full":
+        // The outbound queue is at its bound: this send queued and charged nothing,
+        // so only its callback learns, and `bufferedAmount` stays truthful.
+        this.#callbacks.delete(id);
+        this.#refuse(done, SEND_QUEUE_FULL);
+        return;
+      case "invalid-utf8":
+        this.#callbacks.delete(id);
+        this.#refuse(done, INVALID_UTF8);
+        return;
     }
+  }
+
+  /** A send that queued nothing: its callback fails on the next tick, as ws's does. */
+  #refuse(done: ((error?: Error) => void) | undefined, message: string): void {
+    if (done === undefined) return;
+    process.nextTick(done, new Error(message));
   }
 
   /**
@@ -132,18 +155,29 @@ export class NativeSocket extends EventEmitter implements MainSocket {
 
   close(code?: number, reason?: string): void {
     this.#handle.close(code ?? null, reason ?? "");
+    this.#closing();
   }
 
   terminate(): void {
     this.#handle.terminate();
+    // ws reports CLOSING from the call until the close event, so a handler that reacts to
+    // either sees one state and no send queues behind it.
+    this.#closing();
   }
 
   pause(): void {
+    if (this.#state === CLOSED) return;
     this.#handle.pause();
   }
 
   resume(): void {
+    if (this.#state === CLOSED) return;
     this.#handle.resume();
+  }
+
+  /** OPEN becomes CLOSING; a socket already closing keeps its own state. */
+  #closing(): void {
+    if (this.#state === OPEN) this.#state = CLOSING;
   }
 
   #receive(event: NativeSocketEvent): void {
@@ -161,13 +195,17 @@ export class NativeSocket extends EventEmitter implements MainSocket {
         return;
       }
       case "error":
+        // ws reports a failed connection as CLOSING before its error event; the daemon's
+        // handler then gives the close frame its grace instead of dropping the socket.
+        this.#closing();
         this.emit("error", socketError(event.code, event.message));
         return;
       case "close":
         // Every queued send reports its `sent` before this event, so the handler's close
         // listener never races a callback of its own.
-        warnTransportUnderflow();
+        this.#state = CLOSED;
         this.emit("close", event.code, event.reason);
+        warnTransportUnderflow();
         return;
     }
   }
