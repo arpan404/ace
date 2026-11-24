@@ -1,5 +1,5 @@
-import { opaqueWithdrawalId } from "@ace/marketplace";
-import { signedWithdrawn } from "@ace/marketplace/testing";
+import { opaqueWithdrawalId, verifyWithdrawn, withdrawalReason } from "@ace/marketplace";
+import { keySetOf, signedWithdrawn, testKey } from "@ace/marketplace/testing";
 import { createHash, createPrivateKey, createPublicKey, sign } from "node:crypto";
 import { grantPublicKey, signMarketGrant } from "@ace/account-grant";
 import { readFileSync, readdirSync } from "node:fs";
@@ -45,6 +45,45 @@ test("migration 0004 backfills only public unlisted bots and skills", () => {
     );
     expect(new Set(shared.map((row) => row.share_id)).size).toBe(2);
     expect(sql.prepare("SELECT COUNT(*) AS count FROM entries").get()?.count).toBe(5);
+  } finally {
+    sql.close();
+  }
+});
+
+test("migration 0005 preserves signed versions and pending withdrawals in a populated catalogue", () => {
+  const sql = new DatabaseSync(":memory:");
+  const migrations = new FileUrl("../migrations/catalogue/", import.meta.url);
+  try {
+    for (const file of readdirSync(migrations)
+      .toSorted()
+      .filter((file) => file < "0005"))
+      sql.exec(readFileSync(new FileUrl(file, migrations), "utf8"));
+    sql.exec(`
+      INSERT INTO publisher_copies (id, name, state, verified, created, revision)
+        VALUES ('pub', 'owner', 'active', 0, 1, 1);
+      INSERT INTO entries (type, name, publisher, visibility, share_id)
+        VALUES ('spade-skill', 'archive', 'pub', 'unlisted', '018bcfe5-6800-7000-8000-000000000001');
+      INSERT INTO versions (type, name, version, hash, size, published, listing, listed, manifest, withdrawn)
+        VALUES ('spade-skill', 'archive', '1.0.0', 'old', 5, 1, '{}', 1, 'signed old', 'Revoked'),
+               ('spade-skill', 'archive', '2.0.0', 'new', 8, 2, '{}', 1, 'signed new', NULL);
+      INSERT INTO pending_withdrawals (type, name, version, hash, reason, at)
+        VALUES ('spade-skill', 'archive', '2.0.0', 'new', 'Pending revoke', 3);
+    `);
+    const entries = sql.prepare("SELECT * FROM entries").all();
+    const versions = sql.prepare("SELECT * FROM versions ORDER BY version").all();
+    const pending = sql.prepare("SELECT * FROM pending_withdrawals").all();
+    sql.exec(readFileSync(new FileUrl("0005_opaque_withdrawals.sql", migrations), "utf8"));
+    expect(sql.prepare("SELECT * FROM entries").all()).toEqual(entries);
+    expect(sql.prepare("SELECT * FROM versions ORDER BY version").all()).toEqual(
+      versions.map((row) => ({ ...row, withdrawal_id: null })),
+    );
+    expect(sql.prepare("SELECT * FROM pending_withdrawals").all()).toEqual(pending);
+    sql.exec("UPDATE versions SET withdrawal_id = 'opaque' WHERE version = '1.0.0'");
+    const lookup = "SELECT hash, withdrawn FROM versions WHERE withdrawal_id = 'opaque'";
+    expect(sql.prepare(lookup).get()).toEqual({ hash: "old", withdrawn: "Revoked" });
+    expect(sql.prepare("EXPLAIN QUERY PLAN " + lookup).get()?.detail).toContain(
+      "versions_withdrawal_id",
+    );
   } finally {
     sql.close();
   }
@@ -142,12 +181,26 @@ test.each(["spade-bot", "spade-skill"] as const)(
         lists.sql
           .prepare("INSERT OR REPLACE INTO withdrawn (id, issued, signed) VALUES (1, ?, ?)")
           .run(now, JSON.stringify(signed));
-      writeWithdrawal(signedWithdrawn([{ ...legacy, reason: "Private reason" }]));
-      expect((await fetch("/v1/withdrawn"))?.status).toBe(503);
-      writeWithdrawal(signedWithdrawn([{ hash: opaqueWithdrawalId(legacy), reason: "Withdrawn" }]));
-      const redacted = await fetch("/v1/withdrawn");
-      expect(redacted?.status).toBe(200);
-      expect(await redacted?.text()).not.toContain(name);
+      const key = testKey();
+      const served = async () => {
+        const response = await fetch("/v1/withdrawn");
+        expect(response?.status).toBe(200);
+        return verifyWithdrawn(await response?.json(), keySetOf(key));
+      };
+      writeWithdrawal(
+        signedWithdrawn([{ ...legacy, reason: "Legacy withdrawal" }], { key, issued: now }),
+      );
+      expect(withdrawalReason((await served()).withdrawn, legacy)).toBe("Legacy withdrawal");
+      writeWithdrawal(
+        signedWithdrawn([{ hash: opaqueWithdrawalId(legacy), reason: "Withdrawn" }], {
+          key,
+          issued: now + 1,
+        }),
+      );
+      const redacted = await served();
+      expect(redacted.issued).toBe(now + 1);
+      expect(withdrawalReason(redacted.withdrawn, legacy)).toBe("Withdrawn");
+      expect(JSON.stringify(redacted)).not.toContain(name);
       const page = await fetch(`/i/${id}`);
       expect(await page?.json()).toMatchObject({ entry: { type, name }, versions: [{ hash }] });
       expect((await fetch(`/v1/i/${id}/versions/1.0.0`))?.status).toBe(200);
