@@ -35,16 +35,13 @@ export const gcpRegions: readonly GcpRegionOption[] = [
   { value: "custom", label: "Other region…" },
 ];
 
-export function buildVertexUrl(project: string, region: string, format: SpadeFormat): string {
+export function buildVertexUrl(project: string, region: string): string {
   const cleanProject = project.trim() || "PROJECT_ID";
   const cleanRegion = region.trim() || "global";
   const host =
     cleanRegion === "global"
       ? "aiplatform.googleapis.com"
       : `${cleanRegion}-aiplatform.googleapis.com`;
-  if (format === "anthropic") {
-    return `https://${host}/v1/projects/${cleanProject}/locations/${cleanRegion}/publishers/anthropic/models/`;
-  }
   return `https://${host}/v1/projects/${cleanProject}/locations/${cleanRegion}/endpoints/openapi/`;
 }
 
@@ -66,7 +63,7 @@ const builtinTemplates: readonly SpadeProviderTemplate[] = [
     description: "GCP project & region",
     brandId: "google-vertex",
     format: "openai-chat",
-    baseUrl: buildVertexUrl("", "global", "openai-chat"),
+    baseUrl: buildVertexUrl("", "global"),
     cloud: "vertex",
   },
   {

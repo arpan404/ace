@@ -7,15 +7,12 @@ import {
 } from "./spade-provider-catalog.ts";
 
 describe("spade provider catalog", () => {
-  test("builds Vertex AI global and regional endpoints for both OpenAI-compatible and Anthropic formats", () => {
-    expect(buildVertexUrl("acme-prod", "global", "openai-chat")).toBe(
+  test("builds Vertex AI's OpenAI-compatible endpoint for the global and regional hosts", () => {
+    expect(buildVertexUrl("acme-prod", "global")).toBe(
       "https://aiplatform.googleapis.com/v1/projects/acme-prod/locations/global/endpoints/openapi/",
     );
-    expect(buildVertexUrl("acme-prod", "us-central1", "openai-chat")).toBe(
+    expect(buildVertexUrl("acme-prod", "us-central1")).toBe(
       "https://us-central1-aiplatform.googleapis.com/v1/projects/acme-prod/locations/us-central1/endpoints/openapi/",
-    );
-    expect(buildVertexUrl("acme-prod", "us-east5", "anthropic")).toBe(
-      "https://us-east5-aiplatform.googleapis.com/v1/projects/acme-prod/locations/us-east5/publishers/anthropic/models/",
     );
   });
 
@@ -48,8 +45,5 @@ describe("spade provider catalog", () => {
     const openrouterMatches = merged.filter((item) => item.id === "openrouter");
     expect(openrouterMatches).toHaveLength(1);
     expect(openrouterMatches[0]?.shipped).toBe(true);
-    expect(merged.some((item) => item.id === "google-vertex" && item.cloud === "vertex")).toBe(
-      true,
-    );
   });
 });

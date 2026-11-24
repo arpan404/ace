@@ -58,6 +58,36 @@ test("a local endpoint can be added without a key", async () => {
   );
 });
 
+test("Azure's template waits for a real resource name before it can be added", async () => {
+  const { spade } = await spadeApp("/settings/spade/models", (api) => {
+    withEndpoint(api);
+    main(api, "openrouter/saved/model");
+  });
+  await userEvent.click(await screen.findByRole("button", { name: "Add a provider" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "Add a provider" }));
+  await userEvent.click(dialog.getByRole("combobox", { name: "From" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Azure OpenAI" }));
+  // The generated URL still holds RESOURCE_NAME, so Add provider stays off and says why.
+  const add = dialog.getByRole("button", { name: "Add provider" });
+  expect((add as HTMLButtonElement).disabled).toBe(true);
+  expect(dialog.getByText("Enter your Azure resource name.")).toBeTruthy();
+  await userEvent.type(
+    dialog.getByRole("textbox", { name: "Azure resource name" }),
+    "contoso-ai",
+  );
+  expect((add as HTMLButtonElement).disabled).toBe(false);
+  await userEvent.click(add);
+  await waitFor(() =>
+    expect(spade.sent("POST", "/v1/endpoints")).toEqual([
+      {
+        name: "Azure OpenAI",
+        format: "openai-responses",
+        base_url: "https://contoso-ai.openai.azure.com/openai/v1/",
+      },
+    ]),
+  );
+});
+
 test("on a machine without a keychain, Spade's conversation says which variable to set", async () => {
   await spadeApp("/spade", (api) => {
     api.keychain = false;

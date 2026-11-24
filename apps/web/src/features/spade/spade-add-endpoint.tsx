@@ -53,6 +53,7 @@ function Field(props: {
   label: string;
   htmlFor: string;
   hint?: string | undefined;
+  error?: string | undefined;
   children: ReactNode;
 }) {
   return (
@@ -61,7 +62,13 @@ function Field(props: {
         {props.label}
       </label>
       {props.children}
-      {props.hint && <p className="text-xs text-subtle-foreground">{props.hint}</p>}
+      {props.error ? (
+        <p id={`${props.htmlFor}-error`} className="text-xs text-destructive">
+          {props.error}
+        </p>
+      ) : (
+        props.hint && <p className="text-xs text-subtle-foreground">{props.hint}</p>
+      )}
     </div>
   );
 }
@@ -71,6 +78,22 @@ const formatOptions = spadeFormats.map((value): SelectOption<SpadeFormat> => ({
   value,
   label: spadeFormatNames[value],
 }));
+// Vertex's OpenAI-compatible endpoint speaks Chat Completions only; its Anthropic endpoint
+// answers on a different path (`:streamRawPredict`) than Spade's adapter calls.
+const vertexFormatOptions = formatOptions.filter((option) => option.value === "openai-chat");
+
+const azureResourcePattern = /^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$/i;
+const gcpProjectPattern = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
+const gcpRegionPattern = /^[a-z][a-z0-9-]*[a-z0-9]$/;
+const cloudflareAccountPattern = /^[a-f0-9]{32}$/i;
+const cloudflareGatewayPattern = /^[a-z0-9_-]+$/i;
+
+/** Why an identifier isn't usable yet, or undefined when it is. */
+function identifierProblem(value: string, empty: string, pattern: RegExp, invalid: string) {
+  const clean = value.trim();
+  if (!clean) return empty;
+  return pattern.test(clean) ? undefined : invalid;
+}
 
 /**
  * Add a provider: quick-pick from Spade's presets, cloud providers (Google Vertex AI on GCP,
@@ -127,13 +150,13 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
     const template = templates.find((candidate) => candidate.id === next);
     if (!template) return;
     setName(template.name);
-    setFormat(template.format);
+    setFormat(template.cloud === "vertex" ? "openai-chat" : template.format);
     setNeedsKey(true);
     setSession(template.sessionHeader ?? "");
     if (template.sessionHeader) setShowAdvanced(true);
     if (template.cloud === "vertex") {
       const region = gcpRegion === "custom" ? gcpCustomRegion : gcpRegion;
-      setUrl(buildVertexUrl(gcpProject, region, template.format));
+      setUrl(buildVertexUrl(gcpProject, region));
     } else if (template.cloud === "azure") {
       setUrl(buildAzureUrl(azureResource));
     } else if (template.cloud === "cloudflare") {
@@ -156,7 +179,7 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
     setFormat(next);
     if (activeCloud === "vertex") {
       const region = gcpRegion === "custom" ? gcpCustomRegion : gcpRegion;
-      setUrl(buildVertexUrl(gcpProject, region, next));
+      setUrl(buildVertexUrl(gcpProject, region));
     }
   };
 
@@ -165,7 +188,7 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
     setGcpRegion(regionChoice);
     setGcpCustomRegion(customReg);
     const resolved = regionChoice === "custom" ? customReg : regionChoice;
-    setUrl(buildVertexUrl(project, resolved, format));
+    setUrl(buildVertexUrl(project, resolved));
   };
 
   const updateAzure = (resource: string) => {
@@ -186,7 +209,60 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
       )
     : templates;
 
-  const ready = name.trim() !== "" && /^https?:\/\/\S+$/.test(url.trim());
+  const gcpProjectProblem =
+    activeCloud === "vertex"
+      ? identifierProblem(
+          gcpProject,
+          "Enter your GCP project ID.",
+          gcpProjectPattern,
+          "Use 6–30 lowercase letters, digits and hyphens, starting with a letter.",
+        )
+      : undefined;
+  const gcpCustomRegionProblem =
+    activeCloud === "vertex" && gcpRegion === "custom"
+      ? identifierProblem(
+          gcpCustomRegion,
+          "Enter the region.",
+          gcpRegionPattern,
+          "Use a region id such as europe-west3.",
+        )
+      : undefined;
+  const azureResourceProblem =
+    activeCloud === "azure"
+      ? identifierProblem(
+          azureResource,
+          "Enter your Azure resource name.",
+          azureResourcePattern,
+          "Use letters, digits and hyphens.",
+        )
+      : undefined;
+  const cfAccountProblem =
+    activeCloud === "cloudflare"
+      ? identifierProblem(
+          cfAccount,
+          "Enter your Cloudflare account ID.",
+          cloudflareAccountPattern,
+          "Use the 32-character account ID.",
+        )
+      : undefined;
+  const cfGatewayProblem =
+    activeCloud === "cloudflare"
+      ? identifierProblem(
+          cfGateway,
+          "Enter your gateway name.",
+          cloudflareGatewayPattern,
+          "Use letters, digits, hyphens or underscores.",
+        )
+      : undefined;
+  const identifiersReady = !(
+    gcpProjectProblem ||
+    gcpCustomRegionProblem ||
+    azureResourceProblem ||
+    cfAccountProblem ||
+    cfGatewayProblem
+  );
+  const urlReady = /^https?:\/\/\S+$/.test(url.trim());
+  const ready = name.trim() !== "" && urlReady && identifiersReady;
   const add = async () => {
     setSaving(true);
     setProblem(undefined);
@@ -291,12 +367,14 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
 
           {activeCloud === "vertex" && (
             <div className="grid grid-cols-1 gap-3 rounded-lg border border-border-soft bg-secondary/35 p-3 sm:grid-cols-2">
-              <Field label="GCP project ID" htmlFor={ids.gcpProject}>
+              <Field label="GCP project ID" htmlFor={ids.gcpProject} error={gcpProjectProblem}>
                 <Input
                   id={ids.gcpProject}
                   placeholder="my-gcp-project"
                   spellCheck={false}
                   value={gcpProject}
+                  aria-invalid={gcpProjectProblem ? true : undefined}
+                  aria-describedby={gcpProjectProblem ? `${ids.gcpProject}-error` : undefined}
                   onChange={(event) => updateVertex(event.target.value, gcpRegion, gcpCustomRegion)}
                 />
               </Field>
@@ -312,12 +390,20 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
               </Field>
               {gcpRegion === "custom" && (
                 <div className="sm:col-span-2">
-                  <Field label="Custom region" htmlFor={ids.gcpCustomRegion}>
+                  <Field
+                    label="Custom region"
+                    htmlFor={ids.gcpCustomRegion}
+                    error={gcpCustomRegionProblem}
+                  >
                     <Input
                       id={ids.gcpCustomRegion}
                       placeholder="europe-west3"
                       spellCheck={false}
                       value={gcpCustomRegion}
+                      aria-invalid={gcpCustomRegionProblem ? true : undefined}
+                      aria-describedby={
+                        gcpCustomRegionProblem ? `${ids.gcpCustomRegion}-error` : undefined
+                      }
                       onChange={(event) => updateVertex(gcpProject, "custom", event.target.value)}
                     />
                   </Field>
@@ -327,36 +413,46 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
           )}
 
           {activeCloud === "azure" && (
-            <div className="rounded-lg border border-border-soft bg-secondary/35 p-3">
-              <Field label="Azure resource name" htmlFor={ids.azureResource}>
-                <Input
-                  id={ids.azureResource}
-                  placeholder="my-openai-resource"
-                  spellCheck={false}
-                  value={azureResource}
-                  onChange={(event) => updateAzure(event.target.value)}
-                />
-              </Field>
-            </div>
+            <Field
+              label="Azure resource name"
+              htmlFor={ids.azureResource}
+              error={azureResourceProblem}
+            >
+              <Input
+                id={ids.azureResource}
+                placeholder="my-openai-resource"
+                spellCheck={false}
+                value={azureResource}
+                aria-invalid={azureResourceProblem ? true : undefined}
+                aria-describedby={
+                  azureResourceProblem ? `${ids.azureResource}-error` : undefined
+                }
+                onChange={(event) => updateAzure(event.target.value)}
+              />
+            </Field>
           )}
 
           {activeCloud === "cloudflare" && (
             <div className="grid grid-cols-1 gap-3 rounded-lg border border-border-soft bg-secondary/35 p-3 sm:grid-cols-2">
-              <Field label="Account ID" htmlFor={ids.cfAccount}>
+              <Field label="Account ID" htmlFor={ids.cfAccount} error={cfAccountProblem}>
                 <Input
                   id={ids.cfAccount}
                   placeholder="32-char account id"
                   spellCheck={false}
                   value={cfAccount}
+                  aria-invalid={cfAccountProblem ? true : undefined}
+                  aria-describedby={cfAccountProblem ? `${ids.cfAccount}-error` : undefined}
                   onChange={(event) => updateCloudflare(event.target.value, cfGateway)}
                 />
               </Field>
-              <Field label="Gateway name" htmlFor={ids.cfGateway}>
+              <Field label="Gateway name" htmlFor={ids.cfGateway} error={cfGatewayProblem}>
                 <Input
                   id={ids.cfGateway}
                   placeholder="my-gateway"
                   spellCheck={false}
                   value={cfGateway}
+                  aria-invalid={cfGatewayProblem ? true : undefined}
+                  aria-describedby={cfGatewayProblem ? `${ids.cfGateway}-error` : undefined}
                   onChange={(event) => updateCloudflare(cfAccount, event.target.value)}
                 />
               </Field>
@@ -377,7 +473,7 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
                 id={ids.format}
                 label="Format"
                 value={format}
-                options={formatOptions}
+                options={activeCloud === "vertex" ? vertexFormatOptions : formatOptions}
                 onValueChange={updateFormat}
                 className="w-full"
               />
@@ -389,7 +485,7 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
             htmlFor={ids.url}
             hint={
               activeCloud === "vertex"
-                ? "Auto-built from your GCP project, region, and API format — edit freely if using a proxy."
+                ? "Auto-built from your GCP project and region. Direct Vertex access needs a Google Cloud access token as the key."
                 : undefined
             }
           >
