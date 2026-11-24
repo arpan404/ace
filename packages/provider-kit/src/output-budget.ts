@@ -1,4 +1,6 @@
 import { Transform } from "node:stream";
+import { supervisorBackend } from "./native-switches.ts";
+import { nativeDroppingOutputGate, nativeOutputGate } from "./native-streams.ts";
 import { droppingOutputGate, type DroppedOutputLine } from "./output-line-drop.ts";
 export type { DroppedOutputLine } from "./output-line-drop.ts";
 
@@ -11,6 +13,18 @@ export function outputGate(
   fail: (error: Error) => void,
   dropped?: (line: DroppedOutputLine) => void,
 ): Transform {
+  if (supervisorBackend() === "native") {
+    if (dropped && maxLineBytes !== undefined)
+      return nativeDroppingOutputGate(
+        maxLineBytes,
+        admit,
+        (error) => {
+          fail(new OutputLimitError(error.message));
+        },
+        dropped,
+      );
+    return nativeOutputGate(maxLineBytes, admit, fail, (message) => new OutputLimitError(message));
+  }
   if (dropped && maxLineBytes !== undefined)
     return droppingOutputGate(
       maxLineBytes,

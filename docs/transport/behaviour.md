@@ -99,6 +99,14 @@ allowed`. A request without an Origin (the CLI, native clients) is not refused f
   path when the hop frames the request and cannot represent it otherwise. Direct browser, iOS and
   CLI requests use origin-form and are untouched, and RFC 9112 §3.2.2 makes an empty path
   equivalent to `/`.
+- **Recorded difference (T1a.3's keep-alive upgrades)**: an upgrade that arrives later on a
+  keep-alive connection is answered through hyper, which writes response header names in lower
+  case (`connection`, `content-type`, `content-length`), where `ws` writes `Connection`,
+  `Content-Type` and `Content-Length` on the first-on-a-connection path; HTTP treats field names
+  as equal (RFC 9110 §5.1). A `HEAD` upgrade there keeps `ws`'s `405` status and headers, including
+  `Content-Length: 19`, but carries no body, because hyper forces a response to `HEAD` to zero
+  length (`proto/h1/role.rs:974`–`:980`) and a `HEAD` response has no content (RFC 9110 §9.3.2). A
+  `HEAD` upgrade first on a connection gets `ws`'s exact bytes, body included, through the raw path.
 
 ## 4. Liveness and idle
 

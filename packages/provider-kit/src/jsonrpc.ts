@@ -3,6 +3,8 @@ import { isRpcId as isId, type RpcId } from "./rpc-ids.ts";
 import { byteLimit } from "./byte-limit.ts";
 import { scheduleDeadline, type DeadlineScheduler } from "./rpc-timers.ts";
 import { z } from "zod";
+import { supervisorBackend } from "./native-switches.ts";
+import { nativeInspect, nativeRpcErrorCode } from "./native-streams.ts";
 import type { SupervisedProcess } from "./process.ts";
 
 export class MethodNotFound extends Error {
@@ -48,6 +50,7 @@ const RpcErrorCode = z.object({ code: z.number().int() });
 /** The JSON-RPC error code a rejected request carries, if the peer answered with one. */
 export function rpcErrorCode(error: unknown): number | undefined {
   if (!(error instanceof Error)) return undefined;
+  if (supervisorBackend() === "native") return nativeRpcErrorCode(error.message);
   try {
     const parsed = RpcErrorCode.safeParse(JSON.parse(error.message));
     return parsed.success ? parsed.data.code : undefined;
@@ -56,6 +59,55 @@ export function rpcErrorCode(error: unknown): number | undefined {
   }
 }
 const noop = () => {};
+
+/** What a received line is, with the observer's copy when one asked for it. */
+type Inspected =
+  | { kind: "unparsable"; raw: undefined }
+  | { kind: "malformed"; raw: unknown }
+  | { kind: "request"; raw: unknown; id: RpcId; method: string; params: unknown }
+  | { kind: "notification"; raw: unknown; method: string; params: unknown }
+  | { kind: "response"; raw: unknown; id: RpcId; result: unknown; error: unknown };
+/** One received line's shape; the native one classifies, then this parses once. */
+type RpcInspector = (line: string) => Inspected;
+
+/**
+ * The peer's error as the rejection's message. The raw frame is already with
+ * the observer, so a reply too deep to serialize only fails its own request.
+ */
+function rpcErrorMessage(error: unknown): string {
+  try {
+    return JSON.stringify(error) ?? String(error);
+  } catch {
+    return "JSON-RPC error response could not be serialized";
+  }
+}
+
+/** Today's parse and classification, kept for the switch's off side. */
+function typeScriptInspect(line: string): Inspected {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(line);
+  } catch {
+    return { kind: "unparsable", raw: undefined };
+  }
+  if (!isEnvelope(raw)) return { kind: "malformed", raw };
+  const message = raw;
+  const id = message["id"];
+  const method = message["method"];
+  if (typeof method === "string" && isId(id))
+    return { kind: "request", raw, id, method, params: message["params"] };
+  if (typeof method === "string" && id === undefined)
+    return { kind: "notification", raw, method, params: message["params"] };
+  if (isId(id) && ("result" in message || "error" in message))
+    return {
+      kind: "response",
+      raw,
+      id,
+      result: message["result"],
+      error: message["error"],
+    };
+  return { kind: "malformed", raw };
+}
 
 /** Lenient stdio framing: extension methods and absent jsonrpc tags are accepted. */
 export class JsonRpcPeer {
@@ -67,6 +119,7 @@ export class JsonRpcPeer {
   readonly #maxMessageBytes: number;
   readonly #maxPendingRequests: number;
   readonly #maxIncomingRequests: number;
+  readonly #inspect: RpcInspector;
   #incoming = 0;
   readonly #schedule: DeadlineScheduler;
   #closed: Error | undefined;
@@ -88,6 +141,7 @@ export class JsonRpcPeer {
     byteLimit(options.maxExplicitIds ?? 4096, "maxExplicitIds");
     byteLimit(options.maxQueuedBytes ?? 32 * 1024 * 1024, "maxQueuedBytes");
     this.#owner = rpcOwner(proc.stdin, options);
+    this.#inspect = supervisorBackend() === "native" ? nativeInspect : typeScriptInspect;
     this.#schedule = options.schedule ?? scheduleDeadline;
     this.#process = proc;
     this.#options = options;
@@ -226,54 +280,47 @@ export class JsonRpcPeer {
     );
   }
   #receive = (line: string): void => {
-    let raw: unknown;
-    try {
-      raw = JSON.parse(line);
-    } catch {
+    const inspected = this.#inspect(line);
+    if (inspected.kind === "unparsable") {
       this.#options.onMalformed?.(line);
       return;
     }
     try {
-      this.#options.onFrame?.("recv", raw);
+      this.#options.onFrame?.("recv", inspected.raw);
     } catch (error) {
       const failure = asError(error);
       this.close(failure);
       this.#report(failure);
       return;
     }
-    if (!isEnvelope(raw)) {
+    if (inspected.kind === "malformed") {
       this.#options.onMalformed?.(line);
       return;
     }
-    const message = raw;
-    const id = message["id"];
-    const method = message["method"];
-    if (typeof method === "string" && isId(id)) {
+    if (inspected.kind === "request") {
       if (this.#closed) return;
       if (this.#incoming >= this.#maxIncomingRequests) {
         this.#fail(new Error("JSON-RPC incoming request limit"));
         return;
       }
       this.#incoming++;
-      void this.#answer({ id, method, params: message["params"] })
+      void this.#answer({ id: inspected.id, method: inspected.method, params: inspected.params })
         .finally(() => {
           this.#incoming--;
         })
         .catch((error: unknown) => this.#report(asError(error)));
-    } else if (typeof method === "string" && id === undefined) {
+    } else if (inspected.kind === "notification") {
       try {
-        this.onNotification({ method, params: message["params"] });
+        this.onNotification({ method: inspected.method, params: inspected.params });
       } catch (error) {
         this.#report(asError(error));
       }
-    } else if (isId(id) && ("result" in message || "error" in message)) {
-      this.#settle(
-        id,
-        message["error"] === undefined ? undefined : new Error(JSON.stringify(message["error"])),
-        message["result"],
-      );
     } else {
-      this.#options.onMalformed?.(line);
+      this.#settle(
+        inspected.id,
+        inspected.error === undefined ? undefined : new Error(rpcErrorMessage(inspected.error)),
+        inspected.result,
+      );
     }
   };
   async #answer(request: ServerRequest): Promise<void> {
