@@ -280,6 +280,22 @@ fn long_reply(steps: usize) -> Vec<Event> {
 }
 
 #[test]
+fn a_deferred_question_keeps_one_owner_until_it_is_resolved() {
+    let mut events = long_reply(9);
+    events.push(e(json!({
+        "type": "question_asked", "reply": "r1", "call_id": "q1", "question": "Which build?"
+    })));
+    events.push(e(
+        json!({"type": "question_deferred", "call_id": "q1", "by_bot": true}),
+    ));
+    assert!(!move_due(&events, "r1", MOVE_AFTER_MS));
+    events.push(e(
+        json!({"type": "question_answered", "call_id": "q1", "answers": ["Release"], "late": true}),
+    ));
+    assert!(move_due(&events, "r1", MOVE_AFTER_MS));
+}
+
+#[test]
 fn mains_reply_moves_after_eight_steps_or_two_minutes_at_a_quiet_boundary() {
     assert!(!move_due(&long_reply(7), "r1", 0));
     assert!(move_due(&long_reply(8), "r1", 0));

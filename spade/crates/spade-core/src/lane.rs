@@ -713,8 +713,21 @@ pub fn move_due(events: &[Event], reply: &str, elapsed_ms: i64) -> bool {
         return false;
     }
     // Jobs and wakes move with it (or stay with main, named); only the person holds it here.
-    let waiting = !transcript.awaiting.is_empty() || transcript.asking();
-    !waiting && steps > 0
+    if !transcript.awaiting.is_empty() || transcript.asking() || steps == 0 {
+        return false;
+    }
+    // A question left for later does not pause the turn, but copying it to the lane would
+    // give it a second owner. Wait until the original question is answered or dismissed.
+    let mut cards = crate::question::OpenCards::default();
+    let current = events.iter().rposition(
+        |event| matches!(event, Event::Known(Known::ReplyStarted { reply: r, .. }) if r == reply),
+    );
+    if let Some(start) = current {
+        for event in &events[start..] {
+            cards.read(event);
+        }
+    }
+    !cards.any()
 }
 
 /// Whether main's task was last set in a reply Spade moved to a lane (ADR 0217 §2a): the lane
