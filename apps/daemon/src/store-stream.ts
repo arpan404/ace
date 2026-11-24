@@ -5,13 +5,15 @@ import type { EventEncodings } from "./event-encodings.ts";
 import { isStoreBusy, LiveWriteRetry } from "./store-busy.ts";
 import { isDiskFull } from "./sqlite-failure.ts";
 import { liveWriteRetry } from "./live-write-retry.ts";
-import { compactDeltas, retryDelay } from "./native-writer/live.ts";
+import { compactDeltas, NativeLiveBuffer, retryDelay } from "./native-writer/live.ts";
 import {
   LiveWriteBuffer,
   type BufferScheduler,
   type BufferedSnapshot,
+  type LiveBuffer,
 } from "./live-write-buffer.ts";
 import type { DatabaseSync } from "@ace/provider-kit/sqlite";
+import { storeWriterOn } from "@ace/provider-kit/native-switches";
 
 /** Reports a settlement's failure to the post-commit pass that owns it. */
 export type FailureReport = (error: unknown) => void;
@@ -97,7 +99,7 @@ export function settleOutcomes(
 
 /** Thin store shell around the pinned buffer. Sequence reservation and publication share one owner. */
 export class StoreStream {
-  readonly buffer: LiveWriteBuffer;
+  readonly buffer: LiveBuffer;
   // Buffered envelopes through this sequence have reached subscribers. They are stored under
   // their own sequences, compacted (a merged row takes its span's final sequence). The held
   // suffix was never seen: it is stored uncompacted and exactly the stored rows publish after
@@ -134,12 +136,19 @@ export class StoreStream {
     quarantined(thread: ThreadId, error: Error): void;
   }) {
     this.options = privateOptions;
-    this.buffer = new LiveWriteBuffer({
-      scheduler: privateOptions.scheduler,
-      attempt: () => this.scheduled(),
-      retryDelay: (failures) => retryDelay(this.options.db, failures),
-      ...(privateOptions.encodings ? { encodings: privateOptions.encodings } : {}),
-    });
+    this.buffer = storeWriterOn("live")
+      ? new NativeLiveBuffer({
+          db: privateOptions.db,
+          scheduler: privateOptions.scheduler,
+          attempt: () => this.scheduled(),
+          ...(privateOptions.encodings ? { encodings: privateOptions.encodings } : {}),
+        })
+      : new LiveWriteBuffer({
+          scheduler: privateOptions.scheduler,
+          attempt: () => this.scheduled(),
+          retryDelay: (failures) => retryDelay(this.options.db, failures),
+          ...(privateOptions.encodings ? { encodings: privateOptions.encodings } : {}),
+        });
   }
   private readonly options;
   metrics() {

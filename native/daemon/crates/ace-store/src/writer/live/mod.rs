@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The live buffer's pure parts (docs/store/porting-guide.md, task 5.4a): delta compaction and
-//! the retry rules. The buffer's bookkeeping and its 75 ms and 1 s deadlines stay TypeScript
-//! until 5.4b, and a deadline this crate returns is data for the caller, never a timer.
+//! The live write buffer (docs/store/porting-guide.md, task 5.4): delta compaction and the
+//! retry rules (5.4a), and the buffer's state (5.4b). The crate holds sequences, sizes, thread
+//! keys and deadlines; the shell owns the event objects, the timer and the snapshots, and
+//! schedules a returned deadline on the owning thread. Nothing here owns a timer or a thread.
 
+pub mod buffer;
 pub mod compact;
 pub mod retry;

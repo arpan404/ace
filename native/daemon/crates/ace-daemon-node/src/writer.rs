@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The binding for phase 5 (docs/store/porting-guide.md). One method per task; 5.1 owns
-//! `fold_thread`, 5.2b owns `sequences`, 5.3a owns `event_writer`, and 5.4a owns
-//! `compact_deltas` and `live_retry_delay`. The fold and the live buffer's pure parts do not
-//! touch the connection; the sequences and event-writer handles hold the same
-//! `Arc<Connection>` the database does.
+//! `fold_thread`, 5.2b owns `sequences`, 5.3a owns `event_writer`, 5.4a owns `compact_deltas`
+//! and `live_retry_delay`, and 5.4b owns `live_buffer` (`writer/live.rs`). Only the sequences
+//! and event-writer handles touch the connection they hold; the fold, the compaction and the
+//! buffer never do.
 
 use ace_projection::{FoldEvent, update_thread};
 use ace_store::Connection;
@@ -17,6 +17,8 @@ use std::sync::Arc;
 
 use crate::json_bind;
 use crate::{NativeDatabase, fail};
+
+mod live;
 
 #[napi]
 impl NativeDatabase {
@@ -107,6 +109,13 @@ impl NativeDatabase {
     #[napi(catch_unwind)]
     pub fn live_retry_delay(&self, failures: u32) -> u32 {
         u32::try_from(retry_delay(failures)).unwrap_or(u32::MAX)
+    }
+
+    /// The live buffer's state, empty and unarmed. It owns no timer and touches no SQL, so the
+    /// shell creates it before `migrate` runs.
+    #[napi(catch_unwind)]
+    pub fn live_buffer(&self) -> live::NativeLiveBuffer {
+        live::NativeLiveBuffer::empty()
     }
 }
 
