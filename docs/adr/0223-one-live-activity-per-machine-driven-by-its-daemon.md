@@ -1,7 +1,7 @@
 # 0223: One Live Activity per machine, started, updated and ended by its daemon
 
-Status: Proposed. Date: 2026-11-24. Asked for by the owner on 2026-11-24 (Lock Screen that stays
-current while ace is closed, push-to-start, end by push); decisions 1 and 2 await approval.
+Status: Accepted. Date: 2026-11-24. The owner approved one Live Activity per paired machine,
+driven by its daemon.
 Amends [ADR 0145](0145-live-activity-push-counts-only.md): replaces decisions 2 (slots merged
 on the phone), 3 (daemons never end the activity) and 4 (one handle kind), and refines 5.
 Keeps 0145's decision 1 (counts only, never text) and 6 (one switch). Amends
