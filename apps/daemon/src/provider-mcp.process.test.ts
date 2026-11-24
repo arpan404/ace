@@ -153,7 +153,7 @@ for (const provider of ["claude", "codex", "opencode", "antigravity", "acp", "pi
     if (privateConfigPath) expect(existsSync(privateConfigPath)).toBe(false);
   });
 
-it("rejects configured HTTP MCP when the installed ACP provider only advertises stdio", async () => {
+it("leaves out configured HTTP MCP with a notice when the installed ACP provider only advertises stdio", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ace-acp-mcp-missing-"));
   const binary = join(directory, "acp");
   await writeFile(
@@ -161,25 +161,48 @@ it("rejects configured HTTP MCP when the installed ACP provider only advertises 
     `#!${process.execPath}\nprocess.env.ACE_TEST_PROVIDER="acp"; await import(${JSON.stringify(new URL("./testing/mcp-provider.ts", import.meta.url).href)});\n`,
   );
   await chmod(binary, 0o755);
+  const frames: Frame[] = [];
   try {
-    await expect(
-      createAcpAdapter(genericQuirks, { command: binary, args: ["--no-mcp"] }).openSession({
-        threadId: ThreadId.parse("unsupported"),
-        cwd: directory,
-        signal: new AbortController().signal,
-        mcp: {
-          configuredServers: [
-            { type: "http", name: "user-server", url: "http://127.0.0.1:12345/mcp", headers: [] },
-          ],
-          httpServers: [],
-          stdioServers: [],
-          secrets: [],
-          end() {},
-        },
-        onFrame() {},
-        onExit() {},
-      }),
-    ).rejects.toThrow("does not advertise HTTP MCP");
+    const session = await createAcpAdapter(genericQuirks, {
+      command: binary,
+      args: ["--no-mcp"],
+    }).openSession({
+      threadId: ThreadId.parse("unsupported"),
+      cwd: directory,
+      signal: new AbortController().signal,
+      mcp: {
+        configuredServers: [
+          { type: "http", name: "user-server", url: "http://127.0.0.1:12345/mcp", headers: [] },
+        ],
+        httpServers: [],
+        // The daemon's own bridge: an agent that takes only stdio still reaches ace's tools.
+        stdioServers: [{ name: "ace", command: process.execPath, args: [], env: [] }],
+        secrets: [],
+        end() {},
+      },
+      onFrame(frame) {
+        frames.push(frame);
+      },
+      onExit() {},
+    });
+    try {
+      // The person's server is left out and said so; the session still opens on ace's bridge.
+      expect(session.nativeSessionId).toBe("native");
+      expect(session.acpSupport?.mcp).toBe("stdio");
+      const skipped = frames
+        .map((frame) => JSON.stringify(frame.data))
+        .find((data) => data.includes('"mcp-server-skipped"'));
+      expect(JSON.parse(skipped ?? "{}")).toMatchObject({
+        event: "mcp-server-skipped",
+        name: "user-server",
+        transport: "http",
+      });
+      const sent = JSON.stringify(frames.filter((frame) => frame.dir === "send"));
+      expect(sent).toContain('"name":"ace"');
+      expect(sent).not.toContain("user-server");
+    } finally {
+      await session.close("shutdown");
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
