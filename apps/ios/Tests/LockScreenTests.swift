@@ -2,9 +2,7 @@ import Foundation
 import Testing
 @testable import Ace
 
-/// The lock screen across machines: what the summary counts and shows, when the one Live
-/// Activity starts and ends, and that nothing reads as quiet or done while any machine's state
-/// can't be confirmed.
+/// Combined widget summaries and the independent lifecycle of each machine’s Live Activity.
 @Suite @MainActor struct LockScreenTests {
     private let t0 = Date(timeIntervalSince1970: 1_000_000)
 
@@ -66,14 +64,14 @@ import Testing
         hub.rebuild()
         await hub.settle()
         #expect(port.running && port.ended.isEmpty)
-        #expect(port.updated.last?.rows.first?.icon == "done")
+        #expect(port.updated.last?.phase == "busy")
         // The machine drops before the grace passes: unknown counts as busy, so nothing ends.
         online = false
         clock = t0.addingTimeInterval(10 + AgentsActivityPlan.quietGrace)
         hub.rebuild()
         await hub.settle()
         #expect(port.running && port.ended.isEmpty)
-        #expect(port.updated.last?.current == false)
+        #expect(port.updated.count == 1)
         // Back, still quiet: the grace starts again and only then the activity ends.
         online = true
         clock = clock.addingTimeInterval(1)
@@ -82,7 +80,7 @@ import Testing
         hub.rebuild()
         await hub.settle()
         #expect(port.ended.count == 1)
-        #expect(port.ended.first?.headline == "Nothing needs you")
+        #expect(port.ended.first.flatMap { $0 }?.summary.headline == "1 done")
     }
 
     @Test func workThatStartsWhileTheAppIsAwayWaitsForItToOpenAndTurningItOffEndsIt() async throws {
@@ -208,7 +206,7 @@ import Testing
         #expect(summary.asOf(stale: true))
     }
 
-    @Test func whenNoMachineAnswersTheLastConfirmedCountsStayAsOfTheirTime() async throws {
+    @Test func anOfflineMachineDoesNotRenewTheLastConfirmedActivity() async throws {
         let port = FakeActivity()
         var clock = t0
         var online = true
@@ -220,12 +218,123 @@ import Testing
         clock = t0.addingTimeInterval(30)
         hub.rebuild()
         await hub.settle()
-        let shown = try #require(port.updated.last)
-        #expect(shown.headline == "1 working")
-        #expect(!shown.live && shown.asOf(stale: false))
-        #expect(shown.updatedAt == t0)
+        let shown = try #require(port.started.last)
+        #expect(shown.summary.headline == "1 working")
+        #expect(port.updated.isEmpty)
+        #expect(port.staleDates.last == t0.addingTimeInterval(LockSummary.freshFor))
         #expect(port.ended.isEmpty)
     }
+
+    @Test func gatewayContentStateDecodesWithIntegerTimesAndWithoutPrivateRows() throws {
+        let fixture = try #require(Bundle(for: FixtureBundle.self).url(forResource: "live-activity-content-state", withExtension: "json"))
+        let states = try JSONDecoder().decode([String: MachineActivityAttributes.ContentState].self, from: Data(contentsOf: fixture))
+        let update = try #require(states["update"])
+        #expect(update.seq == 42 && update.at == 1_795_500_001)
+        #expect(update.summary.headline == "1 needs you · 999 working · 2 waiting")
+        #expect(update.rows == nil)
+    }
+
+    @Test func pushedCountsShowLocalDetailsOnlyAtTheirSequenceAndAgeAsOfTheirTime() throws {
+        let local = LockScreenBuilder.summary([.init(hostId: "studio", rows: [try row("a", level: "active", icon: "working")], online: true)],
+                                              requests: [:], now: t0)
+        var state = MachineActivityAttributes.ContentState(local, seq: 42)
+        state.working = 2
+        let snapshot = MachineActivitySnapshot(seq: 42, name: "Studio", rows: local.rows, request: local.request)
+        let matching = MachineActivityPresentation(state: state, snapshot: snapshot)
+        #expect(matching.name == "Studio")
+        #expect(matching.summary.headline == "2 working")
+        #expect(matching.summary.rows.map(\.id) == ["a"])
+        #expect(matching.summary.note(stale: true, fresh: "") == "as of \(t0.formatted(date: .omitted, time: .shortened))")
+
+        state.seq += 1
+        let newer = MachineActivityPresentation(state: state, snapshot: snapshot)
+        #expect(newer.name == nil)
+        #expect(newer.summary.rows.isEmpty)
+        #expect(newer.detailHint == "Open ace for details")
+    }
+
+    @Test func aLocalUpdateCannotReplaceNewerPushedState() {
+        let current = MachineActivityAttributes.ContentState(.empty, seq: 42)
+        #expect(!current.acceptsLocalUpdate(.init(.empty, seq: 41)))
+        #expect(current.acceptsLocalUpdate(.init(.empty, seq: 42)))
+    }
+
+    @Test func twoMachinesKeepTheirOwnRowsAndRotateOnlyTheirOwnUpdateToken() async throws {
+        let port = FakeActivity()
+        port.startToken = Data([0xaa, 0xbb])
+        var snapshots: [Int: MachineActivitySnapshot] = [:]
+        let hub = LockScreenHub(edges: .init(activity: port, writeSnapshot: { _ in }, reloadWidgets: {},
+                                             writeMachineSnapshot: { snapshots[$1] = $0 }),
+                                now: { self.t0 }, sleep: { _ in })
+        hub.name = { $0.capitalized }
+        let studio = try row("studio-task", level: "active", icon: "working")
+        let laptop = try row("laptop-task", level: "needs-you", icon: "approve")
+        hub.read = { ([
+            .init(hostId: "studio", rows: [studio], online: true),
+            .init(hostId: "laptop", rows: [laptop], online: true),
+        ], [:]) }
+        hub.rebuild()
+
+        let studioSlot = try #require(hub.registration(for: "studio")?["slot"] as? Int)
+        let laptopSlot = try #require(hub.registration(for: "laptop")?["slot"] as? Int)
+        #expect(studioSlot != laptopSlot)
+        #expect(snapshots[studioSlot]?.name == "Studio")
+        #expect(snapshots[studioSlot]?.rows.map(\.id) == ["studio-task"])
+        #expect(snapshots[laptopSlot]?.rows.map(\.id) == ["laptop-task"])
+        port.tokens[studioSlot] = Data([0x12, 0x34])
+        port.tokens[laptopSlot] = Data([0xde, 0xad])
+        #expect(hub.registration(for: "studio")?["activityToken"] as? String == "1234")
+        #expect(hub.registration(for: "laptop")?["activityToken"] as? String == "dead")
+        #expect(hub.registration(for: "laptop")?["startToken"] as? String == "aabb")
+
+        port.states.removeValue(forKey: studioSlot)
+        #expect(hub.registration(for: "studio")?["activityToken"] == nil)
+        #expect(hub.registration(for: "studio")?["startToken"] as? String == "aabb")
+        hub.rebuild()
+        #expect(port.slots == [laptopSlot])
+
+        port.systemAllowed = false
+        #expect(hub.registration(for: "laptop") == nil)
+        port.systemAllowed = true
+        hub.allowed = false
+        #expect(hub.registration(for: "laptop") == nil)
+        hub.rebuild()
+        await hub.settle()
+        #expect(port.slots.isEmpty)
+    }
+
+    @Test func reattachingInAnotherOrderKeepsMachineSlotsAcrossLaunches() throws {
+        let suite = "machine-activity-slots-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let first = LockScreenHub(edges: .inert, now: { self.t0 }, sleep: { _ in }, defaults: defaults)
+        let studio = try #require(first.slot(for: "studio"))
+        let laptop = try #require(first.slot(for: "laptop"))
+        let relaunched = LockScreenHub(edges: .inert, now: { self.t0 }, sleep: { _ in }, defaults: defaults)
+        #expect(relaunched.slot(for: "laptop") == laptop)
+        #expect(relaunched.slot(for: "studio") == studio)
+        relaunched.retireSlot(for: "studio")
+        #expect(relaunched.slot(for: "new machine") == studio)
+    }
+
+    @Test func aPushStartedActivityKeepsItsCountsWhenThePhoneOpensWithDifferentRows() async throws {
+        let port = FakeActivity()
+        let hub = LockScreenHub(edges: .init(activity: port, writeSnapshot: { _ in }, reloadWidgets: {}),
+                                now: { self.t0 }, sleep: { _ in })
+        let slot = try #require(hub.slot(for: "studio"))
+        var pushed = MachineActivityState(.empty, seq: 42)
+        pushed.working = 2
+        port.states[slot] = pushed
+        let row = try row("local", level: "active", icon: "working")
+        hub.read = { ([.init(hostId: "studio", rows: [row], online: true)], [:]) }
+        hub.rebuild()
+        await hub.settle()
+        #expect(port.current(slot: slot)?.state == pushed)
+        #expect(port.started.isEmpty)
+    }
+
+    private final class FixtureBundle {}
 
     // MARK: Support
 
@@ -243,11 +352,32 @@ import Testing
 
 @MainActor private final class FakeActivity: AgentsActivityPort {
     var systemAllowed = true
-    var running = false
-    var started: [LockSummary] = []
-    var updated: [LockSummary] = []
-    var ended: [LockSummary] = []
-    func start(_ summary: LockSummary, staleDate: Date) throws { started.append(summary); running = true }
-    func update(_ summary: LockSummary, staleDate: Date) async { updated.append(summary) }
-    func end(_ summary: LockSummary, dismissAt: Date) async { ended.append(summary); running = false }
+    var frequentUpdates = true
+    var startToken: Data?
+    var states: [Int: MachineActivityState] = [:]
+    var tokens: [Int: Data] = [:]
+    var slots: Set<Int> { Set(states.keys) }
+    var running: Bool { !states.isEmpty }
+    var started: [MachineActivityState] = []
+    var updated: [MachineActivityState] = []
+    var ended: [MachineActivityState?] = []
+    var staleDates: [Date] = []
+    func current(slot: Int) -> (id: String, state: MachineActivityState, token: Data?)? {
+        states[slot].map { ("activity-\(slot)", $0, tokens[slot]) }
+    }
+    func observe(_ changed: @escaping @MainActor () -> Void) {}
+    func start(slot: Int, _ state: MachineActivityState, staleDate: Date) throws {
+        started.append(state)
+        states[slot] = state
+        staleDates.append(staleDate)
+    }
+    func update(slot: Int, id: String, _ state: MachineActivityState, staleDate: Date) async {
+        updated.append(state)
+        states[slot] = state
+        staleDates.append(staleDate)
+    }
+    func end(slot: Int, id: String, _ state: MachineActivityState?, dismissAt: Date?) async {
+        ended.append(state)
+        states[slot] = nil
+    }
 }

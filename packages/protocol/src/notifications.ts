@@ -161,6 +161,7 @@ export const NotificationRegister = z.object({
   /** This phone's Live Activity tokens for the machine it is registering with (ADR 0223). */
   liveActivity: LiveActivitySync.optional(),
 });
+export type NotificationRegister = z.infer<typeof NotificationRegister>;
 export const NotificationRegisterResult = z.object({
   type: z.literal("notification.register.result"),
   requestId: boundedId,

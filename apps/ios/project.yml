@@ -80,6 +80,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSSupportsLiveActivities: true
+        NSSupportsLiveActivitiesFrequentUpdates: true
         UILaunchScreen:
           UIColorName: LaunchBackground
         CADisableMinimumFrameDurationOnPhone: true
@@ -220,6 +221,8 @@ targets:
     platform: iOS
     sources:
       - path: Tests
+      - path: ../../fixtures/live-activity-content-state.json
+        buildPhase: resources
       - path: .build/bridge-tests.js
         buildPhase: resources
       # The Noise XX vectors the TypeScript implementation passes, for the native one.

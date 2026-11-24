@@ -102,13 +102,30 @@ struct SummaryGlyph: View {
 struct LockActivityView: View {
     let summary: LockSummary
     let stale: Bool
+    var machineName: String? = nil
+    var detailHint: String? = nil
+    var fallbackURL: URL? = nil
+
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
-            LockHeadline(summary: summary, stale: stale)
+            if let machineName { LockActivityCaption(text: machineName) }
+            LockHeadline(summary: summary, stale: stale, trailing: machineName == nil ? "ace" : "")
             LockRowsList(summary: summary.limited(3), stale: stale)
+            if let detailHint { LockActivityCaption(text: detailHint) }
         }
         .padding(AceTheme.Spacing.lg)
-        .widgetURL(summary.rows.first.flatMap { URL(string: $0.link) })
+        .widgetURL(summary.rows.first.flatMap { URL(string: $0.link) } ?? fallbackURL)
+    }
+}
+
+struct LockActivityCaption: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(LockType.meta)
+            .foregroundStyle(AceTheme.Colours.mutedForeground)
+            .lineLimit(1)
     }
 }
 

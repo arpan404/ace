@@ -76,7 +76,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
     @ObservationIgnored var transientHolds = 0
     /// A tapped thread waiting for the UI connection of a cold launch.
     @ObservationIgnored var pendingLink: (threadId: String, hostId: String?)?
-    /// The one Live Activity and the widgets' snapshot, across every attached machine.
+    /// Per-machine Live Activities and the widgets’ combined snapshot.
     @ObservationIgnored let lockScreen: LockScreenHub
     /// Approvals the daemon alerted about, by host and thread, for the Live Activity's
     /// Allow/Deny; and which alert raised each, so a retraction drops it.
@@ -117,9 +117,17 @@ struct SystemAuthorizer: NotificationAuthorizer {
         liveActivity = defaults.object(forKey: Keys.liveActivity) as? Bool ?? true
         bridgePosted = defaults.dictionary(forKey: Keys.bridgePosted) as? [String: [String]] ?? [:]
         pushHosts = defaults.dictionary(forKey: Keys.pushHosts) as? [String: String] ?? [:]
-        self.lockScreen = LockScreenHub(edges: lockScreenEdges ?? .inert, now: { Date(timeIntervalSince1970: now() / 1000) }, sleep: sleep)
+        self.lockScreen = LockScreenHub(edges: lockScreenEdges ?? .inert, now: { Date(timeIntervalSince1970: now() / 1000) }, sleep: sleep, defaults: defaults)
         self.lockScreen.allowed = liveActivity
         self.lockScreen.read = { [weak self] in self?.lockScreenInput() ?? ([], [:]) }
+        self.lockScreen.name = { [weak self] in self?.machineName($0) }
+        self.lockScreen.onActivityChange = { [weak self] in
+            guard let self else { return }
+            self.sync()
+            if !self.foreground, self.machines.isEmpty, self.backgroundWork == nil {
+                Task { [weak self] in _ = await self?.backgroundCatchUp() }
+            }
+        }
         desk.pushHost = { [weak self] host in self?.pushHosts[host] }
         LockScreenActions.handler = { [weak self] request, allow in await self?.answer(request, allow: allow) }
     }
@@ -145,7 +153,8 @@ struct SystemAuthorizer: NotificationAuthorizer {
         let hostId = machine.hostId
         model.notificationSink = { [weak self] patch in self?.receive(patch, from: hostId) }
         model.liveActivity.onChange = { [weak self] in self?.lockScreen.changed() }
-        model.liveActivity.onShow = { [weak self] in try self?.lockScreen.show() }
+        lockScreen.slot(for: hostId)
+        model.liveActivity.onShow = { [weak self] in try self?.lockScreen.show(hostId: hostId) }
         // Opening a thread here is reading it: its notification goes.
         model.onOpenThread = { [weak self] threadId in self?.desk.clear(threadId: threadId, hostId: hostId) }
         model.outside.onAccessState = { [weak self] access in self?.accessState(access, hostId: hostId) }
@@ -163,7 +172,10 @@ struct SystemAuthorizer: NotificationAuthorizer {
         model.notificationSink = nil
         feeds.removeValue(forKey: machines[index].hostId)?.forEach { $0.finish(false) }
         machines[index].notifier.invalidate()
-        if removingMachine { withdrawBridgeAlerts(machines[index].hostId) }
+        if removingMachine {
+            withdrawBridgeAlerts(machines[index].hostId)
+            lockScreen.forgetActivity(for: machines[index].hostId)
+        }
         machines.remove(at: index)
         model.liveActivity.onChange = nil
         model.liveActivity.onShow = nil
@@ -181,6 +193,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
         approvals = approvals.filter { $0.value.hostId != hostId }
         approvalAlerts = approvalAlerts.filter { approvals[$0.value] != nil }
         if pendingLink?.hostId == hostId { pendingLink = nil }
+        lockScreen.forgetActivity(for: hostId)
         lockScreen.forgetHeld()
         lockScreen.rebuild()
     }
@@ -284,6 +297,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
         action["phone"] = phone.json
         // Only to a machine allowed to alert this phone; one turned off here learns no token.
         if let push, delivering(hostId) { action["push"] = push.json }
+        if delivering(hostId) { action["liveActivity"] = lockScreen.registration(for: hostId) }
         model.notificationAction(action)
     }
     func scene(active: Bool) {
@@ -354,6 +368,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
         defaults.set(on, forKey: Keys.liveActivity)
         lockScreen.allowed = on
         lockScreen.rebuild()
+        sync()
     }
     func snoozes(for hostId: String) -> [String: Double] { snoozesByMachine[hostId] ?? [:] }
     func snooze(_ threadId: String, until: Double?, hostId: String? = nil) {
