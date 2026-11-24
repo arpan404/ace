@@ -99,6 +99,17 @@ export async function claimPublisher(
   return existing ? { taken: "account", publisher: existing } : { taken: "name" };
 }
 
+export async function isUnlisted(
+  db: D1Database,
+  key: { type: string; name: string },
+): Promise<boolean> {
+  const row = await db
+    .prepare("SELECT visibility FROM entries WHERE type = ?1 AND name = ?2")
+    .bind(key.type, key.name)
+    .first<{ visibility: string }>();
+  return row?.visibility === "unlisted";
+}
+
 /**
  * Stores a checked and scanned version, unlisted, creating its entry for `publisher` if it is
  * new: `pending` for the signer, `held` for a maintainer or `blocked` by the scan (ADR 0174 §9).
@@ -123,6 +134,7 @@ export async function storePending(
     blockReason?: string | undefined;
     scanned?: number | undefined;
     changelog?: string | undefined;
+    visibility?: "listed" | "unlisted" | undefined;
   },
 ): Promise<{ owner: string | undefined; hash: string | undefined; written: boolean }> {
   const values = [
@@ -139,20 +151,22 @@ export async function storePending(
     input.blockReason ?? null,
     input.scanned ?? null,
     input.changelog ?? "",
+    input.visibility ?? null,
   ];
   const [, version] = await db.batch([
     db
       .prepare(
-        `INSERT INTO entries (type, name, publisher, title)
-          VALUES (?1, ?2, ?3, ?2) ON CONFLICT DO NOTHING`,
+        `INSERT INTO entries (type, name, publisher, title, visibility)
+          VALUES (?1, ?2, ?3, ?2, ?4) ON CONFLICT DO NOTHING`,
       )
-      .bind(input.type, input.name, input.publisher),
+      .bind(input.type, input.name, input.publisher, input.visibility ?? "listed"),
     db
       .prepare(
         `INSERT INTO versions (type, name, version, hash, size, published, listing, state,
             verdict, block_reason, scanned, changelog)
           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?9, ?10, ?11, ?12, ?13
-          WHERE EXISTS (SELECT 1 FROM entries WHERE type = ?1 AND name = ?2 AND publisher = ?8)
+          WHERE EXISTS (SELECT 1 FROM entries WHERE type = ?1 AND name = ?2 AND publisher = ?8
+            AND (?14 IS NULL OR visibility = ?14))
           ON CONFLICT (type, name, version) DO UPDATE SET hash = excluded.hash,
             size = excluded.size, published = excluded.published, listing = excluded.listing,
             state = excluded.state, verdict = excluded.verdict,

@@ -1,14 +1,16 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { sampleSkill } from "@ace/marketplace/testing";
-import { asSigner, startMarket, type Market, catalogueOf } from "./testing/harness.ts";
+import { samplePackage, sampleSkill } from "@ace/marketplace/testing";
+import { approveHeld, asSigner, startMarket, type Market, catalogueOf } from "./testing/harness.ts";
 import {
   asAccount,
+  createDraft,
   draftAndPublish,
   establishedPublisher,
   indexNames,
   jsonOf,
   liveVersion,
   searchNames,
+  sign,
   testPng,
 } from "./testing/publisher-harness.ts";
 
@@ -210,6 +212,30 @@ describe("visibility, archive and pins", () => {
     expect((await market.fetch(`/v1/objects/${versions.versions[0]?.hash}`)).status).toBe(200);
     await me("PUT", `${entryPath("quiet-skill")}/visibility`, { visibility: "listed" });
     expect(await indexNames(market)).toContain("spade-skill/quiet-skill");
+  });
+
+  it("keeps a reviewed template unlisted through publication and signing", async () => {
+    const name = `template-${"a".repeat(32)}`;
+    const upload = { type: "spade-bot" as const, name, files: samplePackage() };
+    const created = await createDraft(market, "acct_maker", upload);
+    expect(created.status).toBe(201);
+    const { id, hash } = await jsonOf<{ id: string; hash: string }>(created);
+    const path = `/v1/me/drafts/${id}/publish`;
+    expect((await me("POST", path)).status).toBe(409);
+    expect(
+      (await me("POST", `${path}?reviewed=${"b".repeat(64)}&visibility=unlisted`)).status,
+    ).toBe(409);
+    expect((await me("POST", `${path}?reviewed=${hash}&visibility=unlisted`)).status).toBe(201);
+    await approveHeld(market, upload.type, name, "1.0.0");
+    await sign(market, upload, { id: maker.id, name: maker.handle });
+    expect(await indexNames(market)).not.toContain(`spade-bot/${name}`);
+    expect(await searchNames(market, "Flight")).not.toContain(`spade-bot/${name}`);
+    const shown = await jsonOf<{ unlisted: boolean; versions: { hash: string }[] }>(
+      await market.fetch(`/v1/entries/spade-bot/${name}`),
+    );
+    expect(shown.unlisted).toBe(true);
+    expect(shown.versions[0]?.hash).toBe(hash);
+    expect((await market.fetch(`/v1/objects/${hash}`)).status).toBe(200);
   });
 
   it("an archived entry leaves the index and the profile", async () => {

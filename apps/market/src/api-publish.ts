@@ -7,9 +7,11 @@ import {
   MarketEntryName,
   MarketEntryType,
   MarketHandle,
+  MarketHash,
   MarketVersion,
   WithdrawRequest,
   type MarketScanReport,
+  type MarketVisibility,
 } from "@ace/protocol/marketplace";
 import { authenticate, notYours, type Authed, type AuthedPublisher } from "./auth.ts";
 import { draftKey, draftReportKey, objectKey, versionReportKey, type Context } from "./context.ts";
@@ -50,6 +52,7 @@ import {
   addWithdrawal,
   claimPublisher,
   hasVersions,
+  isUnlisted,
   ownerOf,
   storePending,
   storedVersion,
@@ -112,6 +115,7 @@ async function storeScanned(
   scan: MarketScanReport,
   reserve: () => Promise<Response | undefined>,
   changelog?: string,
+  visibility?: MarketVisibility,
 ): Promise<Response> {
   const firstVersion = !(await hasVersions(context.dbs, publisher.id));
   const fate = disposition(scan, {
@@ -132,6 +136,7 @@ async function storeScanned(
     size: checked.size,
     published: context.now,
     listing: checked.listing,
+    visibility,
     state: fate === "hold" ? "held" : "pending",
     verdict: scan.verdict,
     scanned: scan.scanner,
@@ -565,11 +570,28 @@ export async function draftRoute(
     case "me-draft-delete":
       if (!(await deleteDraft(db, context.env.OBJECTS, draft.id))) return claimed();
       return json({ status: "done" });
-    case "me-draft-publish":
-      return publishDraft(context, publisher, draft);
+    case "me-draft-publish": {
+      const reviewed = MarketHash.safeParse(url.searchParams.get("reviewed")).data;
+      if (isShareTemplate(draft) && reviewed !== draft.hash)
+        return failure(409, "conflict", "Publish this template from its review card.");
+      if (url.searchParams.has("visibility") && url.searchParams.get("visibility") !== "unlisted")
+        return failure(400, "invalid", "Visibility must be unlisted when supplied.");
+      return publishDraft(
+        context,
+        publisher,
+        draft,
+        url.searchParams.has("visibility") ? "unlisted" : undefined,
+        reviewed,
+      );
+    }
     default:
       return undefined;
   }
+}
+
+/** Share cards use a generated name and always publish their first version. */
+function isShareTemplate(draft: DraftTable): boolean {
+  return draft.type === "spade-bot" && /^template-[0-9a-f]{32}$/.test(draft.name);
 }
 
 /**
@@ -585,6 +607,8 @@ async function publishDraft(
   context: Context,
   publisher: AuthedPublisher,
   read: DraftTable,
+  visibility?: MarketVisibility,
+  reviewed?: string,
 ): Promise<Response> {
   const publishers = context.dbs.publishers;
   const who = { handle: publisher.name, official: publisher.official };
@@ -592,7 +616,12 @@ async function publishDraft(
     return failure(409, "conflict", "The scan is still reading this draft; try again shortly.");
   const draft = await readDraft(publishers, read.id);
   if (!draft || draft.publisher !== publisher.id) return noDraft();
-  if (draft.scan_state !== "done") return changed();
+  if (
+    draft.scan_state !== "done" ||
+    (reviewed !== undefined && reviewed !== draft.hash) ||
+    (isShareTemplate(draft) && draft.version !== "1.0.0")
+  )
+    return changed();
   const db = context.dbs.catalogue(draft.type);
   if (!db) return notOffered();
   const problems = JSON.parse(draft.problems) as { message: string }[];
@@ -604,6 +633,8 @@ async function publishDraft(
   const key = { type: draft.type, name: draft.name, version: draft.version };
   const owner = await ownerOf(db, key.type, key.name);
   if (owner !== undefined && owner !== publisher.id) return notYours();
+  if (visibility === "unlisted" && owner !== undefined && !(await isUnlisted(db, key)))
+    return failure(409, "conflict", "That name already belongs to a listed entry.");
   const existing = await storedVersion(db, key);
   if (existing && existing.state !== "blocked") {
     if (existing.hash !== draft.hash) return reused();
@@ -627,6 +658,7 @@ async function publishDraft(
     scan,
     claim,
     draft.changelog,
+    visibility,
   );
   if (answer.status === 201)
     await deletePublishedDraft(publishers, context.env.OBJECTS, draft.id, draft.hash);
