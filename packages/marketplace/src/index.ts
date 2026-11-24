@@ -120,7 +120,6 @@ export {
   verifyWithdrawn,
   withdrawalKey,
   opaqueWithdrawalId,
-  verifiesSpadeReview,
   withdrawalReason,
   type MarketSigningKey,
   type WithdrawalTarget,
@@ -140,3 +139,9 @@ export {
   type Imported,
   type SkillMd,
 } from "./skill-md.ts";
+export {
+  readReviewChallenge,
+  reviewChallenge,
+  verifiesSpadeReview,
+  type ReviewTarget,
+} from "./review-challenge.ts";
