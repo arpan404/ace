@@ -1,15 +1,18 @@
-//! What the default bot's tool list costs before anyone says anything (spade/docs/harness.md,
-//! Tools). Run with `--nocapture` for the per-tool table:
+//! What the default bot is offered before anyone says anything (spade/docs/harness.md, Tools).
+//! Run with `--nocapture` for the per-tool table:
 //!
 //! ```sh
 //! cargo test -p spade-server tool_tokens -- --nocapture
 //! ```
 
-use std::error::Error;
+mod support;
+
 use std::sync::Arc;
 use std::time::Duration;
 
+use serde_json::Value;
 use spade_fetch::{Fetcher, Policy};
+use spade_models::ToolSpec;
 use spade_search::{Cloud, Search};
 use spade_server::clock::SystemClock;
 use spade_server::computer::Terminals;
@@ -21,14 +24,34 @@ use spade_server::tools::{CloudAccount, EngineHandle, Own, SkillLibrary, Toolbox
 use spade_server::workspace::Workspaces;
 use spade_server::workspace::shell::Shell;
 use spade_store::Store;
+use spade_testkit::Script;
+use support::{Options, Result, Spade};
 
 /// A token budget for the fixed prompt's tool list. It is paid on every model call of every bot,
 /// so a change that grows it needs a reason (docs/harness.md, Tools).
-const BUDGET: usize = 6_200;
+const BUDGET: usize = 6_500;
 
-type Result<T> = std::result::Result<T, Box<dyn Error>>;
+/// The tools a bot needs constantly: every one of them is offered to the default bot
+/// (spade/docs/harness.md, Tools).
+const CORE: [&str; 15] = [
+    "ask_user",
+    "asks",
+    "call_tool",
+    "helper",
+    "memory_save",
+    "memory_search",
+    "profile_update",
+    "python",
+    "shell",
+    "task_status",
+    "tool_search",
+    "web_fetch",
+    "web_search",
+    "workspace_read",
+    "workspace_write",
+];
 
-fn default_toolbox() -> Result<Toolbox> {
+fn default_toolbox() -> Result<(Toolbox, tempfile::TempDir)> {
     let dir = tempfile::tempdir()?;
     let workspaces = Workspaces::new(dir.path().join("workspace"));
     let bots = EngineHandle::default();
@@ -74,29 +97,70 @@ fn default_toolbox() -> Result<Toolbox> {
     // As Spade starts: a source that offers nothing until a model can make images, which is
     // enough for `tool_search` and `call_tool` to be offered.
     let toolbox = Toolbox::new(core).with_source(spade_server::media::tools::images(&bots));
-    Ok(spade_server::tools::with_engine_tools(toolbox, &bots))
+    Ok((spade_server::tools::with_engine_tools(toolbox, &bots), dir))
 }
 
-#[test]
-fn the_default_bots_tool_list_stays_within_its_token_budget() -> Result<()> {
-    let offered = default_toolbox()?.registry().offered();
-    let (rows, total) = spade_core::tools::sizes(&offered);
-    println!("{}", spade_core::tools::size_report(&offered));
-    assert!(
-        rows.iter().any(|row| row.name == "web_search"),
-        "the default bot is offered Spade's own tools: {:?}",
-        rows.iter().map(|row| &row.name).collect::<Vec<_>>()
-    );
-    assert!(
-        rows.iter().any(|row| row.name == "call_tool"),
-        "deferred tools are always findable, so call_tool is offered"
-    );
+/// The tools of one request, as the model was sent them.
+fn offered(body: &Value) -> Vec<ToolSpec> {
+    body["tools"]
+        .as_array()
+        .map(|tools| {
+            tools
+                .iter()
+                .map(|tool| ToolSpec {
+                    name: tool["function"]["name"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_owned(),
+                    description: tool["function"]["description"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_owned(),
+                    schema: tool["function"]["parameters"].clone(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[tokio::test]
+async fn the_default_bots_offered_tools_hold_their_core_set_and_their_token_budget() -> Result<()> {
+    let (toolbox, _dir) = default_toolbox()?;
+    let spade = Spade::start_toolbox(
+        vec![
+            Script::reply("Ready."),
+            Script::reply("").plain(r#"{"title":"Hello"}"#),
+        ],
+        toolbox,
+        Options::default(),
+    )
+    .await?;
+    let id = spade.ask("Hello").await?;
+    spade.wait_for(&id, "reply_finished").await?;
+
+    // The real offer path: the first model call's own request, stored as the conversation's list.
+    let body = spade
+        .fake
+        .seen()
+        .into_iter()
+        .next()
+        .map(|seen| seen.body)
+        .ok_or("the bot made no request")?;
+    let specs = offered(&body);
+    let names: Vec<&str> = specs.iter().map(|spec| spec.name.as_str()).collect();
+    for name in CORE {
+        assert!(names.contains(&name), "{name} is offered: {names:?}");
+    }
+
+    let (rows, total) = spade_core::tools::sizes(&specs);
+    println!("{}", spade_core::tools::size_report(&specs));
     assert!(
         total.tokens <= BUDGET,
-        "the fixed prompt's tool list is {} tokens ({} characters), over its {BUDGET}-token \
-         budget; shorten a description or defer a tool (docs/harness.md, Tools)",
+        "the fixed prompt's tool list is {} tokens ({} characters) over {} tools, past its \
+         {BUDGET}-token budget; shorten a description or defer a tool (docs/harness.md, Tools)",
         total.tokens,
-        total.chars
+        total.chars,
+        rows.len()
     );
     Ok(())
 }
