@@ -107,6 +107,13 @@ function call<T>(run: () => T): T {
   }
 }
 
+/**
+ * Every shell call into the addon goes through this, so SQLite failures throw
+ * as node:sqlite throws them (rule 11). Writer failures that are not SQLite's
+ * throw a plain `Error` with the TypeScript's message and pass through here.
+ */
+export const nativeCall = call;
+
 type Param = null | number | bigint | string | Uint8Array;
 function bindable(value: unknown, index: number): Param {
   if (

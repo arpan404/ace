@@ -115,6 +115,14 @@ export function isolatedTestEnvironment(
     ...(ambient.ACE_STORE !== undefined ? { ACE_STORE: ambient.ACE_STORE } : {}),
     ...(ambient.ACE_STORE_ADDON !== undefined ? { ACE_STORE_ADDON: ambient.ACE_STORE_ADDON } : {}),
     ...(ambient.ACE_STORE_READS !== undefined ? { ACE_STORE_READS: ambient.ACE_STORE_READS } : {}),
+    // The writer switch's fold part (5.1) and its evidence file: the fold shell reads them in
+    // workers, where every other ACE_* value stays scrubbed.
+    ...(ambient.ACE_STORE_WRITER !== undefined
+      ? { ACE_STORE_WRITER: ambient.ACE_STORE_WRITER }
+      : {}),
+    ...(ambient.ACE_STORE_WRITER_EVIDENCE !== undefined
+      ? { ACE_STORE_WRITER_EVIDENCE: ambient.ACE_STORE_WRITER_EVIDENCE }
+      : {}),
     // The engine and adapter switches (ADR 0223) and the cross-mode gate's log: shells and
     // boot hooks read them in workers, where every other ACE_* value stays scrubbed.
     ...(ambient.ACE_TRANSLATORS !== undefined ? { ACE_TRANSLATORS: ambient.ACE_TRANSLATORS } : {}),
