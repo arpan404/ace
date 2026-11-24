@@ -22,8 +22,17 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.backgroundRefreshStatusDidChangeNotification)) { _ in
             keeper?.refreshSetting(UIApplication.shared.backgroundRefreshStatus == .available)
         }
+        // UIKit's notifications, not `scenePhase`, for the background hold: see `BackgroundHold`.
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+            keeper?.resignActive()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            keeper?.enteredBackground()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            keeper?.becameActive()
+        }
         .onChange(of: phase) { _, phase in
-            keeper?.scene(phase == .active ? .active : phase == .background ? .background : .inactive)
             LaunchTrace.mark("scene", "\(phase)")
             if phase == .background { lock.didEnterBackground(); machines.inbox.recordSeen() }
             if phase == .active {

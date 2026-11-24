@@ -4,16 +4,14 @@ import UIKit
 /// Runs `BackgroundHold`'s effects against iOS's background task API and the machines.
 @MainActor final class BackgroundKeeper {
     private var hold: BackgroundHold
-    private let now: () -> Date
     private let begin: (@escaping @MainActor () -> Void) -> Int
     private let end: (Int) -> Void
     private let wake: () -> Void
     private var task: Int?
 
-    init(enabled: Bool, now: @escaping () -> Date, begin: @escaping (@escaping @MainActor () -> Void) -> Int,
+    init(enabled: Bool, begin: @escaping (@escaping @MainActor () -> Void) -> Int,
          end: @escaping (Int) -> Void, wake: @escaping () -> Void) {
         hold = BackgroundHold(enabled: enabled)
-        self.now = now
         self.begin = begin
         self.end = end
         self.wake = wake
@@ -22,7 +20,7 @@ import UIKit
     /// The app's own: UIKit's task assertion and the system's Background App Refresh setting.
     static func system(wake: @escaping () -> Void) -> BackgroundKeeper {
         BackgroundKeeper(
-            enabled: UIApplication.shared.backgroundRefreshStatus == .available, now: Date.init,
+            enabled: UIApplication.shared.backgroundRefreshStatus == .available,
             begin: { expired in
                 UIApplication.shared.beginBackgroundTask(withName: "Keep machines connected") {
                     MainActor.assumeIsolated { expired() }
@@ -32,7 +30,9 @@ import UIKit
             wake: wake)
     }
 
-    func scene(_ phase: BackgroundHold.Phase) { run(hold.phase(phase, now: now())) }
+    func resignActive() { run(hold.resignActive()) }
+    func enteredBackground() { run(hold.enteredBackground()) }
+    func becameActive() { run(hold.becameActive()) }
     func refreshSetting(_ on: Bool) { run(hold.setEnabled(on)) }
 
     private func run(_ effects: [BackgroundHold.Effect]) {
