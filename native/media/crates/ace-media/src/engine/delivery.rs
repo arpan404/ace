@@ -12,7 +12,7 @@
 //! - **Video's share.** A view takes at most 70 % of its link estimate, and half that while
 //!   `session.link` shows its main session's round trip inflating (smoothed above 1.5 × its
 //!   10 s minimum), so live video never starves the session that owns it (ADR 0149).
-use super::pieces::{build, captured_ms};
+use super::pieces::{SourceLabels, build, captured_ms};
 use super::{Effect, normal};
 use media_core::fanout::{Event, Piece, Viewer as Fanout, Window};
 use media_core::link_rate::{Limits, LinkRate};
@@ -679,7 +679,10 @@ impl Delivery {
                     view.sequence,
                     self.stamp,
                     frame,
-                    page,
+                    SourceLabels {
+                        page,
+                        recorded_codec: None,
+                    },
                 ) else {
                     continue;
                 };
@@ -757,6 +760,12 @@ impl Delivery {
                     frame.display_height,
                 )
             });
+            // The codec recorded for the unit's encode: a producer's delta may name none.
+            let recorded_codec = self
+                .sources
+                .get(source)
+                .and_then(|facts| facts.seen.get(&frame.encode))
+                .map(|seen| seen.codec.as_str());
             let Some(view) = self.views.get_mut(key) else {
                 return;
             };
@@ -773,7 +782,10 @@ impl Delivery {
                 sequence,
                 self.stamp,
                 frame,
-                page,
+                SourceLabels {
+                    page,
+                    recorded_codec,
+                },
             ) else {
                 return;
             };
