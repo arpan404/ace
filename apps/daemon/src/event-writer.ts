@@ -133,8 +133,14 @@ export class EventWriter {
       if (event.payload.type === "thread.created") {
         thread = event.payload.thread;
         if (storeWriterOn("events")) {
-          // The invalid-creation check stays here; the native writer does the workspace
-          // check and both inserts, as one transaction with the rest of the write.
+          // The same check order as the TypeScript path: an unregistered workspace wins
+          // over an invalid or duplicate creation. The native writer checks it again.
+          if (
+            this.source
+              .statement("SELECT 1 FROM workspace_unregistered WHERE workspace_id=?")
+              .get(thread.workspaceId)
+          )
+            throw new Error("workspace_unregistered");
           if (thread.id !== threadId || checkout) throw new Error("Invalid thread creation");
           createThread(this.source.db, {
             id: thread.id,

@@ -172,12 +172,15 @@ impl EventWriter {
     }
 }
 
-/// Bind and step a read once; the next `bind` resets it.
+/// Bind and step a read once, then reset it: a cached statement that stayed at
+/// `SQLITE_ROW` would hold a read cursor across the caller's rollback.
 fn stmt_step(
     statement: &Statement,
     params: Vec<Value>,
 ) -> Result<Option<Vec<Value>>, crate::Error> {
     let bound: Vec<Option<Value>> = params.into_iter().map(Some).collect();
     statement.bind(&bound)?;
-    statement.step()
+    let row = statement.step()?;
+    statement.reset()?;
+    Ok(row)
 }
