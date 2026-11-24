@@ -10,8 +10,15 @@ and its shell `apps/daemon/src/native-writer/transaction.ts`).
 E5.1 builds the machinery every later E5 item runs on: the switch, the local executor and its
 pump, the after-commit wake queue on the store's transaction stack, the ports, the adapter
 registry, the intent workers, the limits, and the `Engine` facade with every public method
-declared at its final timing. It ports no thread behaviour. E5.2 to E5.10 fill in modules behind
+declared at its final timing, and the test seam (step 12) through which every E5 item shows a
+native result as it lands. It ports no thread behaviour. E5.2 to E5.10 fill in modules behind
 seams this brief fixes, so they never edit E5.1's files except where a step says so.
+
+Revised 2026-11-24 after review (gpt-6.2-sol): the claim is a CAS loop (step 2), Rust-opened
+transactions share the shell's context from their begin (step 8), wakes are released after the
+shell's settlement and publication (step 3), the pump bounds controls (step 2), shutdown and
+self-waits are defined (step 4), the registry stays backend-neutral (step 7), and the owner's six
+decisions are recorded at the end.
 
 ## Decisions this brief makes
 
@@ -30,13 +37,22 @@ seams this brief fixes, so they never edit E5.1's files except where a step says
    and the facade's binding methods as `#[napi] impl NativeEngine` blocks that each item adds in
    its own binding file (step 9). So E5.2, E5.3 and E5.4 each touch only their own files.
 3. **Switch off is byte-identical.** The TypeScript engine is not edited except for the one `if`
-   at the top of its constructor (step 10). The store's shell gains one field it ignores while the
-   engine is off (step 3). Nothing else on the off path changes.
+   at the top of its constructor (step 10) and a change listener on the registry that nothing
+   subscribes to while the engine is off (step 7). The store's shell splits `transaction` into
+   its open and close halves (step 8) and calls an empty wake release (step 3); the off path runs
+   the same statements in the same order.
 4. **One transaction stack per connection, shared.** Today `transactionStack()`
    (`ace-daemon-node/src/writer.rs:137`) builds a new stack on every call. E5.1 makes it return a
    handle to the one stack the connection owns, which the native engine shares (step 3).
 5. **The pump never calls `setImmediate` from Rust.** `pump()` returns whether to re-arm, and the
    JS shell schedules the continuation (step 6).
+6. **One transaction context, whoever opens.** A transaction Rust opens goes through the same
+   shell context as one JavaScript opens, from before its body runs to after its last step
+   (step 8). There is no post-hoc hand-over of a finished transaction.
+7. **Binders always work.** Every member that stores a JS callback (`bind*`, `onLimitPolicy`) is
+   implemented in E5.1 as a stored port, because production binds at boot
+   (`services/engine.ts:575` binds the ownership fence). Only the code that _uses_ the callback
+   waits for its item.
 
 ## The switch
 
@@ -80,8 +96,9 @@ seams this brief fixes, so they never edit E5.1's files except where a step says
   `${process.pid} engine\n` to `ACE_ENGINE_EVIDENCE` when that is set, as
   `recordEvidence` does for the store (`native-writer/transaction.ts:172`–`:179`). Every
   switch-on proof run sets a fresh evidence file and fails if it is empty afterwards, so a file
-  that never built a native engine cannot pass as proof. Add `ACE_ENGINE_EVIDENCE` and
-  `ACE_ENGINE_ADDON` beside `ACE_SESSIONS_ADDON` in `scripts/test-home-policy.ts:121`.
+  that never built a native engine cannot pass as proof. Add `ACE_ENGINE_EVIDENCE` beside
+  `ACE_SESSIONS_ADDON` in `scripts/test-home-policy.ts:121`. There is no `ACE_ENGINE_ADDON`: the
+  engine lives in the one addon, found the way every native shell finds it.
 - **Test**: one `test.each` table over `engineSwitchRefusal` in
   `packages/provider-kit/src/native-switches.test.ts`. Rows: each refusal alone; store and writer
   both missing (expects the store message, pinning the order); `cross: "ACE_ENGINE"` with
@@ -120,60 +137,107 @@ pub trait Budget {
 }
 
 /// Send + Sync: the schedule functions and producers on tokio hold it.
-pub struct Shared { claim: AtomicU8, control: ConcurrentQueue<Runnable>, work: ConcurrentQueue<Runnable>, notifier: Box<dyn Notifier> }
+pub struct Shared { claim: AtomicU8, closed: AtomicBool, control: ConcurrentQueue<Runnable>, work: ConcurrentQueue<Runnable>, notifier: Box<dyn Notifier> }
 
 /// !Send: lives on the JS thread with the engine state.
-pub struct Executor { shared: Arc<Shared>, running: Cell<bool> }
+pub struct Executor { shared: Arc<Shared>, running: Cell<bool>, current: Cell<Option<TaskId>> }
 
 impl Executor {
     pub fn new(notifier: Box<dyn Notifier>) -> Executor;
     /// spawn_local with a schedule function that pushes onto `lane`'s queue, then `wake()`s.
     /// Built with `async_task::Builder::new().propagate_panic(true)`, so a panicking task
-    /// completes its `Task` with the panic instead of unwinding through the pump.
+    /// completes its `Task` with the panic instead of unwinding through the pump. The builder's
+    /// metadata carries the task's `TaskId`, which the pump puts in `current` while it polls.
     pub fn spawn<T: 'static>(&self, lane: Lane, future: impl Future<Output = T> + 'static) -> Task<T>;
     /// A Send handle for producers on any thread (a session event, an I/O completion).
     pub fn waker(&self) -> ExecutorWake; // ExecutorWake::wake(&self) does the producer move
+    /// The task being polled now, if any (for barriers that must not wait on their caller).
+    pub fn current(&self) -> Option<TaskId>;
     /// One turn. Returns Rearm when the continuation must be scheduled with setImmediate.
     pub fn pump(&self, budget: &mut dyn Budget, transaction_open: &dyn Fn() -> bool) -> Pump;
+    /// Terminal: no producer pushes or posts again; queued runnables are dropped (their tasks
+    /// cancel). Called by close() before the threadsafe function is released.
+    pub fn shut(&self);
 }
 pub enum Pump { Rearm, Done, Stale, Busy }
 ```
 
-The claim is the one-claim state machine of ADR 0223 §4, as `executor.rs`'s E0 doc comment
-already states. Exactly:
+The claim is the one-claim state machine of ADR 0223 §4 (`:240`–`:252`), as `executor.rs`'s E0
+doc comment states. Every move is a `compare_exchange` that, on failure, **retries against the
+state it observed**; no rule is two fixed CAS attempts. Exactly:
 
 - **Producer** (`wake`, called by every schedule function, timer firing, session event and
-  after-commit release, on any thread), after its item is pushed: CAS `Idle → Scheduled`; on
-  success call `notifier.notify()`. Else CAS `Running → RunningDirty`, posting nothing. From
-  `Scheduled` or `RunningDirty`, nothing. `Notified::Closing` (`napi_closing`): write one line to
-  stderr (`engine pump not posted: environment closing`) and leave the claim `Scheduled`, so
-  nothing posts again. The lost items are unacknowledged frames, which restart recovery treats as
-  a crash's (behaviour.md §13).
-- **Pump entry**: if `running` is set (a nested request: the pump was reached from inside a port
-  it called), return `Stale` and change nothing; the running turn will see the work. CAS
-  `Scheduled → Running`; on failure return `Stale` (a stale notification). If
-  `transaction_open()` (the shared stack's `is_open`), store `Scheduled` and return `Busy`; the
-  shell re-arms with `setImmediate`. The event loop already guarantees this never happens, since
-  `Store.atomic` is synchronous; the check confirms it.
-- **The turn**: set `running`, `budget.start()`. Loop: pop the control queue first, else the work
-  queue; run the runnable inside `catch_unwind` (a panic that escapes `propagate_panic` is
+  after-commit release, on any thread), after its item is pushed (`SeqCst` push and claim
+  operations throughout, so the push is visible to whoever wins the claim):
+
+  ```rust
+  let mut seen = claim.load(SeqCst);
+  loop {
+      let next = match seen { Idle => Scheduled, Running => RunningDirty, Scheduled | RunningDirty => return };
+      match claim.compare_exchange(seen, next, SeqCst, SeqCst) {
+          Ok(_) => { if next == Scheduled { post() } return }
+          Err(now) => seen = now, // e.g. saw Running, the pump moved to Idle: retry, and post
+      }
+  }
+  ```
+
+  The case this loop exists for: the producer pushes, sees `Running`, and before its CAS the pump
+  (which found the queues empty before the push) moves `Running → Idle`. The CAS fails with `Idle`
+  observed, the loop retries `Idle → Scheduled`, and posts. Two fixed attempts would lose that
+  item's notification. With `closed` set, `wake` returns before the loop (step 4).
+  `post()` is `notifier.notify()`. On `Notified::Closing` (`napi_closing`, ADR 0223 `:263`): write
+  one line to stderr (`engine pump not posted: environment closing`) and leave the claim
+  `Scheduled`, so nothing posts again.
+
+- **Pump entry**: if `running` is set (the pump was reached from inside a port it called), return
+  `Stale` and change nothing; the running turn sees the work. CAS `Scheduled → Running`; on
+  failure return `Stale` (a stale notification). If `transaction_open()` (the shared stack's
+  `is_open`), store `Scheduled` and return `Busy`; the shell re-arms. The event loop already
+  guarantees this never happens, since `Store.atomic` is synchronous; the check confirms it.
+- **The turn**: set `running`, `budget.start()`. Pick the next runnable by the **fairness rule**:
+  the control queue first, except that after 8 consecutive control runnables, if the work queue is
+  non-empty, one work runnable runs before the next control. So controls keep priority (a Stop's
+  interrupt is never behind bulk work) and a burst of controls cannot starve work. Poll it with
+  `current` set to its task and inside `catch_unwind` (a panic that escapes `propagate_panic` is
   reported once and the runnable is dropped); count it; stop starting runnables when
-  `budget.spent(count)`. A runnable is never cut mid-step.
-- **The turn's end**: if the claim is `RunningDirty`, reset it to `Running` and keep draining
-  while budget remains. With budget spent and work left, store `Scheduled` and return `Rearm`.
-  With no work left, CAS `Running → Idle`; if that fails (a producer dirtied it), drain once more.
-  Clear `running` on every exit path, including a caught panic (use a guard).
+  `budget.spent(count)`. Both lanes count toward the 64 / 4 ms budget.
+- **One poll may exceed 4 ms.** `setImmediate` yields to I/O between turns, but the budget is
+  checked between polls, never inside one, so a turn can overrun by one poll. What bounds a poll
+  is design (ADR 0223 §4 "Responsiveness", `:255`: a step commits at most once, no history-sized
+  work, frame batches ≤ 256 frames or 256 KiB), not the budget. The binding keeps the longest poll
+  of each turn and a count of polls over 16 ms; the bench reports both (Benches). No tighter
+  bound is promised.
+- **The turn's end**, also a loop over the observed state:
+  - work left and budget remaining: keep draining;
+  - budget spent (whether the claim reads `Running` or `RunningDirty`): `swap(Scheduled)` and
+    return `Rearm`. A producer that dirtied the claim posted nothing, and the continuation covers
+    its item; a producer that now sees `Scheduled` does nothing;
+  - no work left: CAS `Running → Idle`. If it fails with `RunningDirty` observed, store `Running`
+    and drain again (budget permitting, else the budget-spent rule). On success return `Done`.
 
-So at most one notification (a threadsafe call or a `setImmediate`) is ever pending, and an item
-pushed at any point is drained by the running turn or finds `Idle` and posts.
+  Clear `running` and `current` on every exit path, including a caught panic (a guard).
 
-Tests, in a `#[cfg(test)] mod tests` beside it (new behaviour, nothing in TypeScript covers a
-claim; the commit says so): a table over (claim state, event) → (next state, notified?) for the
-producer, entry and end rules; a counting `Notifier` proving that 10,000 wakes from 4 threads
-during one turn post exactly one notification after it; budget exhaustion returns `Rearm` with
-the control queue drained before the work queue; a nested `pump` from inside a runnable returns
-`Stale`; a panicking task leaves the pump usable and its `Task` reports the panic. No sleep-based
-timing anywhere.
+So at most one notification (a threadsafe call or a `setImmediate`) is ever pending, and every
+pushed item is drained by the running turn or posted by its producer.
+
+Tests, in a `#[cfg(test)] mod tests` beside it (new behaviour; nothing in TypeScript covers a
+claim, and the commit says so). The claim's moves are pure functions over an `AtomicU8`, so the
+interleavings are written as explicit sequences on one thread, with no sleeps:
+
+- "a wake that sees Running while the pump goes idle still posts": pump finds the queues empty →
+  producer pushes and loads `Running` → pump CASes `Running → Idle` → the producer's CAS fails
+  with `Idle`, retries, posts exactly once; the next entry runs the item.
+- "a wake during the last runnable of a spent budget runs next turn": the producer dirties the
+  claim during the 64th poll → `Rearm`, the claim reads `Scheduled`, no notification was posted,
+  and the re-armed entry runs the item.
+- "an empty end that finds the claim dirtied drains again" and "a stale entry changes nothing".
+- A table over (state, event) → (next state, posted?) for producer, entry and end.
+- A counting `Notifier`: 10,000 wakes from 4 threads during one turn post at most one
+  notification, and every item runs.
+- Fairness: 100 queued controls and 1 work runnable: the work runnable runs within the first 9
+  polls; with no work queued, controls run back to back.
+- A nested `pump` from inside a runnable returns `Stale`; a panicking task leaves the pump usable
+  and its `Task` reports the panic; after `shut`, `wake` posts nothing.
 
 ### 3. The after-commit wake queue (`ace-store` transaction stack, shared)
 
@@ -206,9 +270,16 @@ the receipt (`engine/handler.ts:544`–`:545`, and `index.ts:307`, `:924`).
   handle owns one `Rc<RefCell<StackState>>` (stack, open frames, next frame id, and an optional
   `Weak<dyn AfterCommitSink>`), created on first use. `transaction_stack()` returns a
   `NativeTransactionStack` over that same `Rc`; with the engine off there is only one caller, so
-  behaviour is unchanged. After every `succeed` and `fail`, whoever called it (the JS shell's
-  binding method or the engine's own `atomic`) passes `released` and `dropped` to the sink if one
-  is registered, then returns. No borrow of `StackState` is held while the sink runs.
+  behaviour is unchanged. `succeed` and `fail` hand `dropped` to the sink at once (dropping starts
+  nothing) and keep `released` in `StackState` as the pending release of that top-level frame.
+- **Release comes after settlement and publication.** The shell's committed path
+  (`publishSteps`, `native-writer/transaction.ts:257`) runs the outer outcome, every `Publish` and
+  `Settle` step and the usage listeners, then, in a `finally` placed **before**
+  `pass.rethrow()`, calls the new binding method `stack.releaseWakes()`, which takes the pending
+  list and hands it to the sink. So a woken task always sees the committed rows and the published
+  events, and a listener or settlement that throws never strands a wake. A rollback has no pending
+  release. With the engine off the list is always empty and the call does nothing. No borrow of
+  `StackState` is held while the sink runs.
 - **The sink (`ace-engine/src/executor.rs`, `AfterCommit`)**: a `HashMap<u64, Vec<Deferred>>` of
   what each token stands for (`Deferred::Wake(ThreadId, Lane)` or `Deferred::Spawn(…)`, the boxed
   future not yet spawned). `release` spawns or wakes each in token order (producer moves only);
@@ -278,14 +349,45 @@ The skeleton's own flow, with where each unported step fails:
   themselves before recovery lands. Commands before `Ready` get `engine_starting`; while closing,
   `daemon_shutting_down` (`index.ts:457`–`:460`).
 - **`flush()`**: resolves when the ready promise has settled, every worker set is idle, both
-  ready queues are empty and no task is running, re-checked after each wait as `index.ts:1406`–`:1426`
-  loops. Each module adds its own quiescence check through one `fn quiescent(&State) -> bool` per
-  module that E5.1 declares and calls (stubs return `true`, because an unported module holds no
-  work).
-- **`close()`**: once (`closePromise ??=`): `Closing`, cancel the sweep, then the module close
-  steps in `index.ts:1428`–`:1466`'s order, each a declared function (E5.2, E5.6, E5.8 fill them),
-  then a final flush, then release the threadsafe function last (step 6). Every timer the engine
-  armed is cancelled before release.
+  ready queues are empty and no task is running, re-checked after each wait as
+  `index.ts:1406`–`:1426` loops. Each module adds its own quiescence check through one
+  `fn quiescent(&State, exclude: Option<TaskId>) -> bool` per module that E5.1 declares and calls
+  (stubs return `true`: an unported module holds no work). **A flush excludes its own waiter**:
+  called through a port from inside a task (`executor.current()` is `Some`), it waits for
+  everything except that task and the worker run it belongs to, so a task that flushes never
+  waits on itself. `flushDepth` (`:1407`) is kept as today.
+- **Promise identity.** `ready()` returns the same promise object every time, created once in the
+  constructor (`index.ts:1088`–`:1090`); `close()` caches its first promise (`closePromise ??=`,
+  `:1429`) and returns that object on every later call. The facade holds both JS promises; Rust
+  settles them and never creates a second.
+- **Failed readiness.** If preparation or recovery fails, the ready promise rejects with that
+  error, as today, and commands keep getting `engine_starting`. `close()` awaits the ready promise
+  as `:1436` does, so it rejects with the same error, but the terminal cleanup below still runs
+  (it is in a `finally`), so a failed start never leaks the threadsafe function or a timer.
+- **`close()`**, once: `Closing`; cancel the sweep; the module close steps in
+  `index.ts:1428`–`:1466`'s order, each a declared function (E5.2, E5.6, E5.8 fill them); a final
+  flush. Then the **terminal cleanup**, in a `finally`, in this order:
+  1. stop producers: every native session queue is already drained by the module steps (ADR 0223
+     §7 rule 5); cancel every timer the engine armed; unsubscribe from the registry (step 7);
+  2. one last pump turn on the JS thread, to run what the steps above released;
+  3. detach the after-commit sink (a wake released after this is dropped), then
+     `executor.shut()`: `closed` is set, later wakes return before the claim loop, queued
+     runnables are dropped and their tasks cancel;
+  4. every facade promise still pending rejects with `Error("Engine closed")`, so a cancelled
+     task's promise never hangs; a task's own rejection always reaches its promise as the mapped
+     error;
+  5. release the threadsafe function, and with it the process reference (step 6).
+
+  A `close()` called from inside a task (through a port) proceeds, and its wait excludes the
+  calling task, which sees `Closing` at its next await and ends.
+
+- **A forced exit** (`process.exit`, a signal, a crash) runs none of this. What is lost is what was
+  never committed: frames read but not in a committed batch, live deltas the store had not
+  flushed, wakes deferred by a transaction that never committed, and tasks mid-step. Everything
+  committed survives (receipts, intents, queue rows, folded state), and the next boot's restart
+  recovery (behaviour.md §13, E5.8) treats the lost part exactly as it treats a crash of the
+  TypeScript engine today: interrupted turns are recovered or ended, unacknowledged frames are
+  gone.
 
 ### 5. Ports (`ace-engine/src/ports.rs`, binding `engine/ports.rs`, shell `native-engine/ports.ts`)
 
@@ -327,7 +429,10 @@ calling task handles at exactly the point the TypeScript would have caught it.
 key onto the engine's timer queue and calls `wake()`; the waiting task runs in the next pump, never
 inside the firing. Firing order is the JS clock's, so `ManualClock.advance` orders exactly as
 today. What changes is that code awaiting the timer resumes in the next macrotask, not inside
-`advance()` (open question 2).
+`advance()` (owner decision 2). The seam proves the observable order: two timers armed with a
+`ManualClock` and one `advance()` that fires both resume their tasks in firing order in the next
+pump; state read synchronously right after `advance()` is unchanged, and after `await flush()` it
+shows both.
 
 ### 6. The pump's driver (binding `engine/mod.rs`, shell `native-engine/engine.ts`)
 
@@ -347,58 +452,95 @@ today. What changes is that code awaiting the timer resumes in the next macrotas
   `pump()` maps `Rearm` and `Busy` to `"rearm"`, `Done` and `Stale` to `"done"`. Both entries are
   Bun macrotasks; neither is ever a binding call made from inside another binding call.
 
-- **Keeping the process alive.** The threadsafe function is `unref`'d while the engine has no
-  pending facade promise and no open native session queue, and `ref`'d while it has any, so an
-  engine with outstanding work keeps the process up exactly as long as that work exists, and an
-  idle engine never does. Today's timers are `unref`'d (`actor.ts:39`), and this matches it
-  (open question 3).
-- **Release.** `close()` releases the function last (step 4). After release, `wake()` sees
-  `Closing` and leaves the claim `Scheduled`.
+- **Keeping the process alive.** The binding counts holders: pending facade promises and open
+  native session queues. At 0 → 1 it `ref`s the threadsafe function, at 1 → 0 it `unref`s it, both
+  on the JS thread. So an engine with outstanding work keeps the process up exactly as long as
+  that work exists, and an idle engine never does, like today's `unref`'d timers (`actor.ts:39`).
+  The terminal cleanup (step 4) zeroes the count before release.
+- **Release.** `close()` releases the function last (step 4). After release, `wake()` returns at
+  `closed`, so it neither posts nor meets `Closing`.
+- **Proof**: `native-engine/liveness.process.test.ts`, one file, three cases, each a child Bun
+  process with the switch on (a real process exit is the edge; no unit test can see it): "a
+  closed native engine lets its process exit", "a pending engine promise keeps its process alive
+  until it settles, then lets it exit", "an idle native engine never keeps its process alive" (the
+  child builds an engine, never closes it, and must exit on its own). Each child must exit within
+  5 s; the file is within the 30 s process budget.
 
 ### 7. The registry (`ace-engine/src/registry.rs`, shell over `engine/registry.ts`)
 
-`AdapterRegistry` stays the class tests construct (`new AdapterRegistry()`, then `register`, then
-pass it as `options.registry`), and registrations keep arriving after the engine is built
-(enable-time discovery). With the switch on, the exported `AdapterRegistry` (`registry.ts:10`)
-is a native-backed class with the same methods (rule 2: the exported name is the native one),
-chosen once per instance by `engineBackend()`:
+`AdapterRegistry` stays the TypeScript class tests construct and pass as `options.registry`, and
+its JS API stays **backend-neutral**: the same object outlives engines. A restart reuses it across
+boots (`recovery-test-support.ts:61`–`:66`, `:68`–`:79`), and under `ACE_NATIVE_CROSS=ACE_ENGINE`
+consecutive boots alternate backends, so one registry must serve a TypeScript engine, then a
+native one, then a TypeScript one. So the class never changes backend, and each native `Engine`
+binds its own **native view** of it:
 
-- Rust `Registry<A>` holds entries by provider and by `provider:backend`, each with the adapter
-  handle `A`, its capabilities and discovery as `ace_json::Value`. The rules port as they are:
-  Cursor refuses the ACP backend and defaults to `cursor-sdk` (`:13`–`:16`); `refreshDiscovery`
-  applies only for the same path and version (`:30`–`:40`); `get` pins Cursor to `cursor-sdk`
-  and throws the same "provider isn't ready" message (`:41`–`:52`); `has` with an identity asks
-  the adapter (`:85`–`:88`); `bindSessions` and `close` visit each distinct adapter once
-  (`:57`–`:84`).
-- `A` in the binding is a napi reference to the JS `ProviderAdapter`; `capabilities(cli)` is
-  called once at `register`, as today, so a later lookup costs no crossing. `bindSessions` calls
-  the JS `bind` per entry and stores the result; `close` awaits each JS `close` and rejects with
-  `AggregateError("Adapter shutdown failed")` as `:77`–`:84` does, built in the shell.
-- The three `registry.test.ts` cases move to `registry.rs`'s test module (rule 4), over a Rust
-  test adapter. The TypeScript file stays until its module is deleted.
-- `adapters.ts` (`discoverAdapters`, `settleAll`) **stays TypeScript**: it imports the JS adapter
-  packages and calls `registry.register`; nothing in it is engine behaviour, and no Rust caller
-  needs it. Its three (b) cases stay with it (open question 4).
+- `registry.ts` gains one method, `observe(listener): () => void`, called after every `register`,
+  `refreshDiscovery` and `bindSessions` with the changed entries (provider, backend, adapter
+  object, capabilities, discovery). With no listener it does nothing, so the off path is
+  unchanged. Registration rules (Cursor refuses ACP and defaults to `cursor-sdk`, `:13`–`:16`; the
+  refresh's path-and-version match, `:30`–`:40`), `bindSessions` and `close` stay in TypeScript,
+  the one owner of the JS adapter objects.
+- `ace-engine/src/registry.rs` is the view: entries by provider and by `provider:backend`, each
+  with an adapter handle `A` (a napi reference to the current bound adapter), capabilities and
+  discovery as `ace_json::Value`, and the lookup rules the engine needs: `get` pins Cursor to
+  `cursor-sdk` and fails with the same "provider isn't ready" message (`:41`–`:52`); `has` with an
+  identity asks the adapter (`:85`–`:88`). The native engine copies the entries at construction,
+  subscribes with `observe`, and unsubscribes in its terminal cleanup. It never calls
+  `registry.close()`; the registry's owner does, as today.
+- `registry.test.ts` stays as it is and passes on and off (the class is unchanged). Its cases
+  guard TypeScript code that stays, so none move; the view's lookup rules get their (b) cases
+  when E5.6 opens sessions through it.
+- `adapters.ts` stays TypeScript (owner decision 4), and its three (b) cases with it.
 
 ### 8. The store seam (`ace-engine/src/lib.rs` `EngineStore`, shell `native-writer/transaction.ts`)
 
-The engine writes through the shared stack (ADR 0223 §5). E5.1 fixes the two ways its writes meet
-the TypeScript shell's state, so E5.2 to E5.4 don't each invent one:
+The engine writes through the shared stack (ADR 0223 §5, `:300`), and every transaction,
+whoever opens it, lives in **one shell context** (`NativeTransactions.contexts`,
+`native-writer/transaction.ts:88`) from before its body to after its last step. Without that, a
+Rust-opened transaction would run its body with no JS context: a re-entrant `Store.atomic` from a
+port would see no context (`:123`), start a "top-level" JS frame while Rust's frame is open on the
+stack, and the shell could lose event positions or settlement callbacks.
 
-- **Inside a JS-opened transaction** (a sync entry under a receipt): events the engine appends
-  must join the shell's open context. `EngineStore` calls a shell port
-  `appendEvents(json)`, which parses and calls `NativeTransactions.append`
-  (`native-writer/transaction.ts:104`–`:109`), so the shell's positions and `noteEvents` stay
-  the only ones.
-- **A transaction Rust opens at top level** (a pump step): `EngineStore::atomic(run)` begins and
-  finishes on the shared stack, then hands the `Finish` JSON and the events it appended to a new
-  shell method `NativeTransactions.finishForeign(finishJson, eventsJson)`, which runs exactly the
-  committed or rolled-back host path of `finishTop` (`:186`–`:217`): thread cache, counters,
-  read-cache eviction, WAL wake, publication to `store.subscribe`, usage listeners. It is one
-  method on the shell, called only by the engine, and its first line refuses if a JS context is
-  open. E5.1 builds and tests it on a step that appends no events; E5.3 is its first real user.
+- **The shell splits `transaction` into halves** (`:118`–`:162`), with no change in what runs or
+  in what order:
+
+  ```ts
+  /** Flush, history check, context push (if top), register the outcome, stack.begin, evidence, beginThreads. */
+  open(outcome?: TransactionOutcome): OpenFrame;
+  /** finishCall, then finishNested or finishTop (one ordered pass over Finish.steps), doom bookkeeping, throw. */
+  close(frame: OpenFrame, result: { threw: false } | { threw: true; error: unknown }): void;
+  transaction<T>(run: () => T, outcome?: TransactionOutcome): T; // open; run; close, as today
+  ```
+
+- **Rust opens through the shell.** `EngineStore::atomic(run)` calls the shell port `open()`, so
+  the context exists and the shell begins the stack frame, top-level or nested exactly as a JS
+  caller would get it; then runs `run` synchronously; then calls the shell port `close(frame,
+  result)`. A port the body calls that runs `Store.atomic` nests as a savepoint in the same
+  context; a Rust `atomic` inside a JS-opened transaction gets a nested frame in the JS context.
+  One stack and one context list, so positions cannot diverge.
+- **Events enter once per batch.** Each batch of events the engine writes is passed to the shell's
+  `append` (`:104`–`:109`) exactly once, through the shell port `appendEvents(json)`, right after
+  the write; the shell's event list and `noteEvents` remain the only positions.
+- **One ordered pass.** `close` applies `Finish` as the shell does today: for a nested frame,
+  rollback truncation to `eventsLen` and the savepoint's `Settle` steps (`finishNested`); for the
+  top, the thread-cache lifecycle (`commitThreads`/`endThreads`, or `topRolledBack`), the context
+  pop before publication (`:195`), then `publishSteps` in `Finish.steps` order with outer-outcome
+  suppression (`commit_steps`, `ace-store/src/writer/transaction.rs:364`–`:368`), the usage
+  listeners, the wake release (step 3), and `pass.rethrow()`. Nothing is applied twice, and
+  nothing outside this pass.
+- **No transaction is held across `Pending`.** `run` is a synchronous `FnOnce(&Tx) -> R`; `Tx`
+  borrows the connection for the call and is neither `'static` nor storable, so no future can
+  hold it across an await. A task that needs a transaction opens and closes it inside one poll.
 - A Rust transaction never resolves a frame's acknowledgement on a savepoint's release
   (ADR 0223 §4); `EngineStore` exposes `is_outermost()` and E5.2 asserts it.
+- **Tests** (through the seam, step 12; new behaviour, since only Rust opens transactions this
+  way): "a JavaScript transaction inside a Rust one publishes both batches once, in position, and
+  settles its outcome once"; "a Rust write inside a JavaScript transaction rolls back with it, and
+  its deferred wake never runs"; "a subscriber that writes during publication opens a fresh
+  top-level transaction, and both wakes run after their own publications"; "a throwing subscriber
+  still releases the transaction's wakes". The probe writes the events, so these run before any
+  module is ported.
 
 ### 9. The facade (`apps/daemon/src/native-engine/`, binding `ace-daemon-node/src/engine/`)
 
@@ -408,9 +550,11 @@ the TypeScript shell's state, so E5.2 to E5.4 don't each invent one:
 calls the binding, decodes the result and maps errors. `engine.ts` stays under 400 lines that way.
 The binding struct `#[napi] pub struct NativeEngine` is in `engine/mod.rs`; each item adds its
 methods in its own `#[napi] impl NativeEngine` block in `engine/<module>.rs`. The shell's
-interface to the addon marks each method optional, and a missing one throws
-`NativeEngineIncomplete("<method> lands in E5.<n>")`, so the facade is complete from E5.1 on and
-an item lands by adding its binding block.
+interface to the addon marks each method optional. A missing one fails with
+`NativeEngineIncomplete("<method> lands in E5.<n>")` in the member's own timing: a sync member
+throws it; an **async member returns a rejected promise and never throws synchronously** (callers
+chain `.catch` or `await`, and a synchronous throw would escape them). So the facade is complete
+from E5.1 on and an item lands by adding its binding block.
 
 Kinds (behaviour.md §1): **R** synchronous read, a sync napi call returning finished JSON;
 **M** synchronous mutation, committing before it returns (inside the caller's transaction if one
@@ -419,52 +563,57 @@ synchronous inside the receipt transaction; **B** binder, stores a JS callback a
 Errors cross as the engine-api classes (`InputRejected`, `SteerTargetLost`, `AccessError`,
 `SessionOpenError`) by a fixed `code` (ADR 0223 §7 rule 2).
 
-| Member (`index.ts` line)                                                                                                                                                              | Kind                           | Rust filled by                                          |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | ------------------------------------------------------- |
-| `constructor` (`:159`)                                                                                                                                                                | M                              | E5.1                                                    |
-| `handler`, `internalHandler` (`:83`, `:85`, built `:454`–`:476`)                                                                                                                      | H                              | E5.4                                                    |
-| `guests` (`:92`), `hosts` (`:94`): facade objects over `guest-threads.ts`, `host-threads.ts`                                                                                          | R/M                            | E5.7                                                    |
-| `retrySettled` (`:491`)                                                                                                                                                               | A                              | E5.10                                                   |
-| `bindOwnershipFence` (`:500`); `ownershipRefusal` (`:504`); `liveMove` object (`:507`)                                                                                                | B; R; R/M                      | E5.9                                                    |
-| `bindCommandPolicy` (`:519`), `bindHostInteractions` (`:819`), `bindExternalTaskStop` (`:834`), `bindDeletionPolicy` (`:1028`)                                                        | B                              | E5.4 (policy, host), E5.7 (task stop), E5.10 (deletion) |
-| `ensureProvider` (`:565`)                                                                                                                                                             | A                              | E5.1                                                    |
-| `providerAvailability` (`:568`), `capabilities` (`:573`, a fresh copy each call)                                                                                                      | R                              | E5.1                                                    |
-| `supportsSteering` (`:577`), `messageFacts` (`:581`)                                                                                                                                  | R                              | E5.5                                                    |
-| `prioritizeSubagentResult` (`:591`)                                                                                                                                                   | M                              | E5.4                                                    |
-| `spawn` (`:599`), `admitCreation` (`:1095`), `creationPending` (`:1092`)                                                                                                              | M; M; R                        | E5.4                                                    |
-| `access` (`:647`), `targetInstance` (`:664`), `childAccess` (`:676`), `offeredModes` (`:690`), `childPermissionRefusal` (`:704`)                                                      | R                              | E5.7                                                    |
-| `attachChild` (`:717`), `updateChild` (`:720`), `machineChild` (`:725`), `transferHold` (`:732`), `externalHold` (`:745`), `delegationStarted` (`:785`), `delegationSettled` (`:788`) | M                              | E5.10                                                   |
-| `machineHandoff` (`:774`); `adoptMachineHandoff` (`:782`)                                                                                                                             | R; M                           | E5.9                                                    |
-| `workload` (`:792`), `providerProcesses` (`:805`)                                                                                                                                     | R                              | E5.2 (backlog), E5.6 (processes)                        |
-| `backgroundPorts` (`:826`): an object over three sync calls                                                                                                                           | R/M                            | E5.6                                                    |
-| `rootAgent` (`:853`, may apply a tick), `activeRun` (`:862`), `turnOrigin`, `delegationsInFlight` (`:866`–`:867`), `aceCaller` (`:869`), `withinAgent` (`:874`)                       | R (rootAgent M)                | E5.2, E5.5                                              |
-| `openHostApproval` (`:878`), `hostError` (`:889`), `hostNotice` (`:893`), `resolveHostApproval` (`:896`), `closeHostGate` (`:910`)                                                    | M                              | E5.7                                                    |
-| `discardRecovery` (`:914`), `cancelRecovery` (`:918`), `captureContinuation` (`:927`)                                                                                                 | M                              | E5.8                                                    |
-| `cancelDelegatedInputs` (`:921`)                                                                                                                                                      | M (its wakes deferred, step 3) | E5.4                                                    |
-| `changeWorkspace` (`:930`)                                                                                                                                                            | A                              | E5.9                                                    |
-| `reconcileThread` (`:965`), `reconcileOwn` (`:970`)                                                                                                                                   | A                              | E5.10                                                   |
-| `hasSession` (`:975`), `hasState` (`:983`)                                                                                                                                            | R                              | E5.6; E5.3                                              |
-| `cleanupThreads` (`:986`), `liveWork` (`:989`), `runsProviderWork` (`:993`), `hasUnfinishedWork` (`:1016`)                                                                            | R                              | E5.10                                                   |
-| `stopForDeletion` (`:997`), `cleanupSession` (`:1020`), `stopForCancellation` (`:1024`)                                                                                               | A                              | E5.10                                                   |
-| `forgetPurged` (`:1004`), `prepareDeletion` (`:1031`)                                                                                                                                 | M                              | E5.10                                                   |
-| `setSilenceMs` (`:1034`), `clearWorkspaceSilenceMs` (`:1046`)                                                                                                                         | M                              | E5.6                                                    |
-| `liveThreadIds` (`:1049`)                                                                                                                                                             | R                              | E5.2                                                    |
-| `continueImported` (`:1052`)                                                                                                                                                          | A                              | E5.8                                                    |
-| `sessionMetadata` (`:1072`)                                                                                                                                                           | R                              | E5.6                                                    |
-| `commandFailure` (`:1076`), `commandExecution` (`:1079`), `queuePage` (`:1082`), `queue` (`:1146`), `inputFate` (`:1135`)                                                             | R                              | E5.4                                                    |
-| `retainsAttachment` (`:1085`), `readRawBlob` (`:1402`, bytes, not JSON)                                                                                                               | R                              | E5.3                                                    |
-| `ready` (`:1088`), `flush` (`:1406`), `close` (`:1428`)                                                                                                                               | A                              | E5.1                                                    |
-| `prepareCommand` (`:1111`)                                                                                                                                                            | A                              | E5.4                                                    |
-| `admissionReopened` (`:1150`), `accountRecovered` (`:1213`)                                                                                                                           | M                              | E5.4; E5.8                                              |
-| `resuming` (`:1155`), `endedOnLimit` (`:1162`), `treeActive` (`:1176`), `limitContinues` (`:1183`), `heldInterrupted` (`:1196`), `limitsMatter` (`:1204`)                             | R                              | E5.8                                                    |
-| `onLimitPolicy` (`:1193`)                                                                                                                                                             | B (returns an unsubscribe)     | E5.8                                                    |
+| Member (`index.ts` line)                                                                                                                                                              | Kind                           | Rust filled by                           |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | ---------------------------------------- |
+| `constructor` (`:159`)                                                                                                                                                                | M                              | E5.1                                     |
+| `handler`, `internalHandler` (`:83`, `:85`, built `:454`–`:476`)                                                                                                                      | H                              | E5.4                                     |
+| `guests` (`:92`), `hosts` (`:94`): facade objects over `guest-threads.ts`, `host-threads.ts`                                                                                          | R/M                            | E5.7                                     |
+| `retrySettled` (`:491`)                                                                                                                                                               | A                              | E5.10                                    |
+| `bindOwnershipFence` (`:500`)                                                                                                                                                         | B                              | E5.1 (stored); E5.9 uses it              |
+| `ownershipRefusal` (`:504`); `liveMove` object (`:507`)                                                                                                                               | R; R/M                         | E5.9                                     |
+| `bindCommandPolicy` (`:519`), `bindHostInteractions` (`:819`), `bindExternalTaskStop` (`:834`), `bindDeletionPolicy` (`:1028`)                                                        | B                              | E5.1 (stored); used by E5.4, E5.7, E5.10 |
+| `ensureProvider` (`:565`)                                                                                                                                                             | A                              | E5.1                                     |
+| `providerAvailability` (`:568`), `capabilities` (`:573`, a fresh copy each call)                                                                                                      | R                              | E5.1                                     |
+| `supportsSteering` (`:577`), `messageFacts` (`:581`)                                                                                                                                  | R                              | E5.5                                     |
+| `prioritizeSubagentResult` (`:591`)                                                                                                                                                   | M                              | E5.4                                     |
+| `spawn` (`:599`), `admitCreation` (`:1095`), `creationPending` (`:1092`)                                                                                                              | M; M; R                        | E5.4                                     |
+| `access` (`:647`), `targetInstance` (`:664`), `childAccess` (`:676`), `offeredModes` (`:690`), `childPermissionRefusal` (`:704`)                                                      | R                              | E5.7                                     |
+| `attachChild` (`:717`), `updateChild` (`:720`), `machineChild` (`:725`), `transferHold` (`:732`), `externalHold` (`:745`), `delegationStarted` (`:785`), `delegationSettled` (`:788`) | M                              | E5.10                                    |
+| `machineHandoff` (`:774`); `adoptMachineHandoff` (`:782`)                                                                                                                             | R; M                           | E5.9                                     |
+| `workload` (`:792`), `providerProcesses` (`:805`)                                                                                                                                     | R                              | E5.2 (backlog), E5.6 (processes)         |
+| `backgroundPorts` (`:826`): an object over three sync calls                                                                                                                           | R/M                            | E5.6                                     |
+| `rootAgent` (`:853`, may apply a tick), `activeRun` (`:862`), `turnOrigin`, `delegationsInFlight` (`:866`–`:867`), `aceCaller` (`:869`), `withinAgent` (`:874`)                       | R (rootAgent M)                | E5.2, E5.5                               |
+| `openHostApproval` (`:878`), `hostError` (`:889`), `hostNotice` (`:893`), `resolveHostApproval` (`:896`), `closeHostGate` (`:910`)                                                    | M                              | E5.7                                     |
+| `discardRecovery` (`:914`), `cancelRecovery` (`:918`), `captureContinuation` (`:927`)                                                                                                 | M                              | E5.8                                     |
+| `cancelDelegatedInputs` (`:921`)                                                                                                                                                      | M (its wakes deferred, step 3) | E5.4                                     |
+| `changeWorkspace` (`:930`)                                                                                                                                                            | A                              | E5.9                                     |
+| `reconcileThread` (`:965`), `reconcileOwn` (`:970`)                                                                                                                                   | A                              | E5.10                                    |
+| `hasSession` (`:975`), `hasState` (`:983`)                                                                                                                                            | R                              | E5.6; E5.3                               |
+| `cleanupThreads` (`:986`), `liveWork` (`:989`), `runsProviderWork` (`:993`), `hasUnfinishedWork` (`:1016`)                                                                            | R                              | E5.10                                    |
+| `stopForDeletion` (`:997`), `cleanupSession` (`:1020`), `stopForCancellation` (`:1024`)                                                                                               | A                              | E5.10                                    |
+| `forgetPurged` (`:1004`), `prepareDeletion` (`:1031`)                                                                                                                                 | M                              | E5.10                                    |
+| `setSilenceMs` (`:1034`), `clearWorkspaceSilenceMs` (`:1046`)                                                                                                                         | M                              | E5.6                                     |
+| `liveThreadIds` (`:1049`)                                                                                                                                                             | R                              | E5.2                                     |
+| `continueImported` (`:1052`)                                                                                                                                                          | A                              | E5.8                                     |
+| `sessionMetadata` (`:1072`)                                                                                                                                                           | R                              | E5.6                                     |
+| `commandFailure` (`:1076`), `commandExecution` (`:1079`), `queuePage` (`:1082`), `queue` (`:1146`), `inputFate` (`:1135`)                                                             | R                              | E5.4                                     |
+| `retainsAttachment` (`:1085`), `readRawBlob` (`:1402`, bytes, not JSON)                                                                                                               | R                              | E5.3                                     |
+| `ready` (`:1088`), `flush` (`:1406`), `close` (`:1428`)                                                                                                                               | A                              | E5.1                                     |
+| `prepareCommand` (`:1111`)                                                                                                                                                            | A                              | E5.4                                     |
+| `admissionReopened` (`:1150`), `accountRecovered` (`:1213`)                                                                                                                           | M                              | E5.4; E5.8                               |
+| `resuming` (`:1155`), `endedOnLimit` (`:1162`), `treeActive` (`:1176`), `limitContinues` (`:1183`), `heldInterrupted` (`:1196`), `limitsMatter` (`:1204`)                             | R                              | E5.8                                     |
+| `onLimitPolicy` (`:1193`)                                                                                                                                                             | B (returns an unsubscribe)     | E5.1 (stored); E5.8 fires it             |
 
 The builder checks this list against `index.ts` before writing: any public member it finds that is
 not here joins the table with its kind, in the same commit. The handler keeps today's shape in the
 shell: `store.atomic(() => fenceCommand ?? hostInteraction?.(command) ?? policy(command, accept))`
 where every engine step is a sync binding call, so the JS policies run in JS inside the same
-transaction and the binding never calls a policy from inside its own borrow; `sessions.commanded`
-(`:474`) runs after the receipt, as a binding call.
+transaction and the binding never calls a policy from inside its own borrow. Around it the shell
+keeps today's call sites exactly: `handler.handle` normalizes with `personCommand(command)` and
+calls `internalHandler.handle` (`:478`–`:481`); `internalHandler.handle` refuses while closing or
+starting (`:457`–`:460`), and calls `commanded` (`:474`) **only when `result.ok`**, after the
+receipt's transaction has returned, as a binding call. Neither the normalization nor the success
+guard moves into Rust.
 
 ### 10. The one `if` (`engine/index.ts`)
 
@@ -495,6 +644,65 @@ is reached only through `with_state`; the spawn itself happens outside the closu
 function pointer the owning item supplies (E5.4 sends, E5.5 steering, E5.10 controls); until then
 `run` returns `NotPorted`, reported once per wake. `workers.ts` has no test file; no cases move.
 
+### 12. The test seam (`apps/daemon/src/native-engine/testing.ts`, binding feature `engine-probe`)
+
+A test-only way to build the **whole native engine** on a real `Store`, with seeded fixtures and
+scripted ports, so each E5 item shows its behaviour natively as it lands, before its class (a)
+files can pass end to end (owner decision 1).
+
+```ts
+export interface EngineSeam {
+  store: Store; // a real Store on a temp home: ACE_STORE=native with the transactions writer
+  engine: Engine; // the native facade, built exactly as `new Engine` builds it
+  clock: ManualClock;
+  ports: PortLog; // every port call, in order, with its arguments
+  probe: EngineProbe; // test-only binding methods, below
+  close(): Promise<void>; // engine, then store, then the temp home
+}
+export function engineSeam(input?: {
+  seed?: (store: Store) => void | Promise<void>; // fixtures, written before the engine opens
+  options?: Partial<EngineOptions>; // scripted ports: @ace/adapter-testkit adapters, onError, …
+}): Promise<EngineSeam>;
+```
+
+- **Fixtures** are rows the TypeScript engine writes, seeded through the store's APIs and the
+  existing builders (`engine/test-support.ts`, `recovery-test-support.ts`), never hand-written
+  JSON. A seed may run a TypeScript `Engine` on the home and close it before the native one opens,
+  which is how an item shows that a home TypeScript wrote is read natively.
+- **The probe** (`EngineProbe`, compiled only with the cargo feature `engine-probe`, which release
+  packaging never sets) exposes executor and store hooks with no thread behaviour:
+  `spawn(lane, script)` runs a scripted task (await a timer, call a port, write events in a
+  transaction, defer a wake, flush from inside); `defer(threadId)`; `claim()`; `turns()` (polls per
+  turn, longest poll); `woken()` (wakes released, in order); and, until E5.3 lands,
+  `emptyCandidates()`, which answers the recovery-candidate scan with no rows so `ready()` can
+  resolve. That is the probe's one stub, and E5.3 deletes it. Without the feature, `engineSeam`
+  throws `the engine probe is not built: cargo build --release -p ace-daemon-node --features
+  engine-probe`; it never skips.
+- Seam tests live in `native-engine/skeleton.test.ts` (E5.1's) and one `native-engine/<item>.test.ts`
+  per later item, wrapped in `describe.runIf(engineBackend() === "native")` (the pattern of
+  `native-loopback.process.test.ts:301`), so the default tiers are unchanged and the switch-on
+  proof runs them, with the evidence file showing they did. Each seam test covers behaviour no (a)
+  file can yet show natively, names in a comment the (a) test that will show it, and is deleted in
+  the commit where that (a) file first passes with the switch on. Tests move, they don't
+  multiply: the seam is scaffolding, not a second suite.
+
+**What each item unblocks.** "Seam" is that item's seam file; the (a) files are the guide's rows,
+each run alone with the switch on. Each item checks its row against the files and amends this
+table in its PR.
+
+| Item  | Native proof it unblocks                                                                                                                                                                                                                                        | Still blocked, and by                                                                                                                                           |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| E5.1  | Seam: the claim (lost wake, budget boundary), pump and fairness on real Bun macrotasks; after-commit release and drop; both nesting directions, subscriber re-entry, a throwing subscriber (step 8); timer order (step 5); promise identity; `liveness.process` | The smoke on a home without the probe (`ready()` needs `repository::recovery_candidates`, E5.3); every (a) file                                                 |
+| E5.2  | Seam: a scripted session attached to an actor by the probe; batch acknowledgement on the outermost commit, live-buffer acceptance, outputFlow pause at 256 and resume at 64                                                                                     | `signal-batching`, `sdk-burst`, `streaming-behaviour` open real sessions (E5.6)                                                                                 |
+| E5.3  | The smoke: construct, `ready()`, `flush()`, `close()` on fresh and seeded homes, one evidence line, the probe's stub deleted; storage-row files that open no session; a TypeScript-written home read natively                                                   | `startup-quarantine` (E5.8); storage files that open sessions (E5.6)                                                                                            |
+| E5.4  | Commands-row files that never open a session; `queue`, `queuePage`, `inputFate`, `commandFailure` after real receipts                                                                                                                                           | Every file that sends (E5.5, E5.6)                                                                                                                              |
+| E5.5  | Seam: delivery and steering against a probe-attached session                                                                                                                                                                                                    | End-to-end sends (E5.6)                                                                                                                                         |
+| E5.6  | `engine.process` `:23`, `:186`, `:207`, `:282`, `:302`; `main-integration.process` `:33`, `:63`, `:143`, `:169`, `:211`, `:241`; E5.2's three files; the sessions row                                                                                           | `engine.process` `:97` (verify: snapshot rollback, E5.3 or E5.6), `:139` (E5.7), `:227` (E5.8), `:248` (E5.10); `main-integration.process` `:85`, `:275` (E5.8) |
+| E5.7  | `engine.process` `:139`; the access row                                                                                                                                                                                                                         | as above                                                                                                                                                        |
+| E5.8  | `engine.process` `:227`; `main-integration.process` all green (`:85`, `:275`); the restart row; the first E5 cross-mode run; `head-of-line.ts` with the switch on                                                                                               | `engine.process` `:248` (E5.10)                                                                                                                                 |
+| E5.9  | The transitions row                                                                                                                                                                                                                                             | none of its own                                                                                                                                                 |
+| E5.10 | `engine.process` all green (`:248` stops a background task with `background_task.stop`, `:276`, which the controls worker runs); the stop row; the 56 files outside `engine/`                                                                                   | none                                                                                                                                                            |
+
 ## Re-entrancy rules (every `#[napi]` method and every port)
 
 1. Every `#[napi]` method on `NativeEngine` takes `&self` and holds only `Rc<Core>`; none takes
@@ -518,41 +726,59 @@ function pointer the owning item supplies (E5.4 sends, E5.5 steering, E5.10 cont
    `propagate_panic` and ends that task; E5.2 decides what it poisons (`actor.ts:271`).
 7. Nothing on the JS thread waits synchronously for a tokio task, a lock held by tokio, or a
    promise.
+8. No transaction is held across `Pending` (step 8): a transaction opens and closes inside one
+   poll.
+9. **No port may await an engine barrier that depends on the task calling it.** A port called from
+   task T must not await anything that waits for T. The barriers enforce it rather than trusting
+   ports: `flush` and `close` exclude their caller (step 4), and `drain(id)` called from the worker
+   task of `id` resolves at once. A cycle through two tasks (T awaits U's barrier while U awaits
+   T's) is a design bug the reviewer looks for; the TypeScript has none (`workers.ts` has no
+   cross-thread drain).
 
 ## Proof
 
 Correction to the guide's E5 table: `engine.process` and `main-integration.process` cannot be the
-first green "with E5.2 to E5.4". Every test in `engine.process.test.ts` opens a session and sends
-(`:23` translates provider frames, `:207` closes an idle session, `:227` is startup recovery,
-`:139` resolves an interaction) and every test in `main-integration.process.test.ts` delivers to a
-scripted session or restarts (`:85` restart continues natively). They need delivery (E5.5),
-sessions (E5.6), approvals (E5.7) and restart (E5.8). They are the first green **at E5.8**; until
-then they fail with `NativeEngineIncomplete`, which is the expected result and names the item.
+first green "with E5.2 to E5.4". Their tests open sessions, deliver, resolve interactions, restart
+and stop background tasks. `main-integration.process` is first all green at **E5.8** (`:85`
+restarts); `engine.process` at **E5.10**, because `:248`–`:280` stops a background task
+(`background_task.stop`, `:276`), a control the controls worker runs. Until then each fails with
+`NativeEngineIncomplete` naming the item, which is the expected result. Step 12's table is the
+order in between.
 
-What E5.1 alone proves:
+What E5.1 alone proves, natively:
 
+- **Through the seam** (`native-engine/skeleton.test.ts`, switch on, addon built with
+  `engine-probe`): the executor, the pump and the wake semantics on real Bun macrotasks and a real
+  Store. That covers the lost-wake interleaving and the budget-boundary case end to end (one
+  notification, every item run), control fairness, a nested pump, timer order, the after-commit
+  release after publication and the drop on rollback, both nesting directions, subscriber
+  re-entry and a throwing subscriber, a flush from inside a task that does not wait on itself, a
+  missing async binding rejecting without a synchronous throw, `ready()` and `close()` returning
+  the same promise object on every call, a failed `ready()` still releasing everything in
+  `close()`, and the terminal cleanup rejecting a pending promise with "Engine closed".
+- **`native-engine/liveness.process.test.ts`**: the three process-exit cases (step 6).
+- **Rust**: `cargo test -p ace-engine` (claim, pump, fairness, workers, limits) and
+  `cargo test -p ace-store` (the after-commit exactly-once table).
 - **Switch off, byte-identical**: each file alone, unchanged and passing:
   `engine/engine.process.test.ts`, `engine/main-integration.process.test.ts`,
-  `engine/registry.test.ts`, `engine/adapters.test.ts`,
-  `packages/provider-kit/src/native-switches.test.ts`, and the store's Task 5.5 proof list with
-  `ACE_STORE=native ACE_STORE_WRITER=fold,sequences,events,columns,live,transactions` (the shared
-  stack and the two new `Finish` lists must change nothing there).
-- **Rust**: `cargo test -p ace-engine` (executor, workers, limits, registry cases moved) and
-  `cargo test -p ace-store` (the after-commit exactly-once table).
-- **Switch on, what exists**: `engine/registry.test.ts` with the switch on runs the native
-  `AdapterRegistry` (it builds no engine, so no evidence line is expected from it); the refusal
-  table; and a reviewer's `bun -e` check, written into the PR, that builds an `Engine` on a fresh
-  temp home with every prerequisite set, then `ready()`, `capabilities`, `providerAvailability`,
-  `flush()` and `close()` succeed and the evidence file has exactly one line. From E5.2 on, every
-  switch-on run of a file that builds an `Engine` must leave a non-empty evidence file.
-- **What E5.2 to E5.4 add**: with them, the commands row files that open no session (E5.4's list)
-  and the storage row (E5.3) go green with the switch on; each item names its files.
+  `engine/registry.test.ts`, `engine/adapters.test.ts`, `engine/restart-resume.process.test.ts`
+  (it reuses a registry across engines), `packages/provider-kit/src/native-switches.test.ts`, and
+  the store's Task 5.5 proof list with
+  `ACE_STORE=native ACE_STORE_WRITER=fold,sequences,events,columns,live,transactions` (the shell's
+  split into halves, the shared stack and the wake release must change nothing there).
+- **Not yet**: the construct/ready/flush/close smoke without the probe needs E5.3, and no (a) file
+  passes with the switch on.
 
 ```sh
+(cd native/daemon && PATH=$HOME/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin:$PATH \
+  CARGO_BUILD_JOBS=4 cargo build --release -p ace-daemon-node --features engine-probe)
+for f in apps/daemon/src/native-engine/skeleton.test.ts apps/daemon/src/native-engine/liveness.process.test.ts; do
+  e=$(mktemp)
+  test -f "$f" && ACE_STORE=native ACE_STORE_WRITER=fold,sequences,events,columns,live,transactions \
+    ACE_ENGINE=native ACE_ENGINE_EVIDENCE="$e" bun --bun x vitest run "$f" --maxWorkers=4 && test -s "$e"
+done
 f=apps/daemon/src/engine/registry.test.ts
 test -f "$f" && bun --bun x vitest run "$f" --maxWorkers=4
-test -f "$f" && ACE_STORE=native ACE_STORE_WRITER=fold,sequences,events,columns,live,transactions \
-  ACE_ENGINE=native bun --bun x vitest run "$f" --maxWorkers=4
 ```
 
 ## Benches and the cross-mode run
@@ -565,7 +791,8 @@ test -f "$f" && ACE_STORE=native ACE_STORE_WRITER=fold,sequences,events,columns,
   this baseline, and default-on needs no regression in any of the six figures (ADR 0223 §8).
 - The pump's own cost: report one figure from the executor tests' counting run (runnables per
   millisecond through `pump` with a no-op future), so a later regression in the executor shows.
-  No new bench file.
+  From E5.8, the switch-on head-of-line run also reports the longest single poll and the count of
+  polls over 16 ms (the binding's counters), beside `stopAck`. No new bench file.
 - The E5 cross-mode list (ADR 0223 §8) needs restart, so its first run is E5.8's. E5.1 checks
   only that `ACE_NATIVE_CROSS=ACE_ENGINE` with the prerequisites passes the refusal and that two
   boots of one home get opposite `engineBackend()` answers (the existing switch tests).
@@ -579,11 +806,14 @@ test -f "$f" && ACE_STORE=native ACE_STORE_WRITER=fold,sequences,events,columns,
   `writer.rs`/`writer/transaction.rs` for the shared stack. `js_session.rs` in E5.1 holds only the
   `JsSession` type and its error mapping (`instanceof SteerTargetLost` first, then `InputRejected`,
   ADR 0223 §7 rule 2); E5.6 opens sessions through it.
-- `apps/daemon/src/native-engine/{engine,ports}.ts` and the facade functions in
-  `native-engine/<module>.ts`; the one `if` in `engine/index.ts`; the native `AdapterRegistry`
-  choice in `engine/registry.ts`; `finishForeign` and `appendEvents` in
-  `native-writer/transaction.ts`; `engineSwitchRefusal` and its table in `native-switches.ts`
-  and its test; `scripts/test-home-policy.ts`.
+- `apps/daemon/src/native-engine/{engine,ports,testing}.ts`, `skeleton.test.ts`,
+  `liveness.process.test.ts`, and the facade functions in `native-engine/<module>.ts`; the one
+  `if` in `engine/index.ts`; `observe` in `engine/registry.ts`; the `open`/`close` split,
+  `appendEvents` and the `releaseWakes` call in `native-writer/transaction.ts`;
+  `engineSwitchRefusal` and its table in `native-switches.ts` and its test;
+  `scripts/test-home-policy.ts`.
+- `ace-daemon-node`'s `engine-probe` feature and its probe module (`engine/probe.rs`), compiled
+  out of release builds.
 - Every file under 400 lines; none over 1,500 (`bun run check:size`). Split `executor.rs` into
   `executor/{claim,pump,after_commit}.rs` if it grows past 400.
 - `ace-engine/Cargo.toml`: drop `serde_json` (rule 8: JSON goes through `ace-json`) and add
@@ -595,46 +825,47 @@ test -f "$f" && ACE_STORE=native ACE_STORE_WRITER=fold,sequences,events,columns,
 - Call a TypeScript engine module from Rust, or keep a TypeScript `Engine` alive beside a native
   one.
 - Run a runnable outside `pump`, or start a task from a sync entry except through `defer`.
+- Hold a transaction or a `with_state` borrow across an await.
+- Give the probe any thread behaviour, or ship the `engine-probe` feature.
 - Change the store's stored formats, `engineSchemaVersion` 9, or `finish_json`'s output.
 - Run the full suite, `bun run check`, `test:process` or any tier; one file at a time (rule 3).
 
 ## Reviewer checks
 
-- The claim table matches ADR 0223 §4 move for move; `notify` is called only after a successful
-  `Idle → Scheduled`; `Closing` leaves `Scheduled`.
-- The control queue drains before the work queue every turn; the budget is 64 runnables or 4 ms.
+- The claim table matches ADR 0223 §4 move for move; every move retries against the observed
+  state; `notify` is called only after a successful `Idle → Scheduled`; `Closing` leaves
+  `Scheduled`. Replacing the producer's loop with two fixed CAS attempts makes the lost-wake test
+  fail.
+- Controls run first but yield one work runnable after 8 in a row; the budget is 64 runnables or
+  4 ms across both lanes.
+- A Rust-opened transaction pushes its shell context before its body; the wake release runs after
+  publication and before `pass.rethrow()`.
+- A missing async binding returns a rejected promise; `ready()` and `close()` return identical
+  promise objects on repeated calls.
+- The registry class is unchanged in behaviour; each native view subscribes and unsubscribes.
 - `with_state`'s closure type admits no port, executor or store; no `&mut self` on `NativeEngine`.
 - A token is released or dropped exactly once; a rolled-back receipt's wake never runs (make one
   table row fail by moving `dropped` to `released`).
 - With the switch off, `git diff origin/ace/daemon-rust-rewrite -- apps/daemon/src/engine` shows
-  only the one `if` and the registry choice.
+  only the one `if` and `observe`.
 
-## Open questions for the owner
+## Owner decisions (2026-11-24)
 
-1. **Unported paths fail at the call, not at boot.** With `ACE_ENGINE=native` before E5.10, the
-   daemon starts and a call into an unported module throws `NativeEngineIncomplete`. The other
-   choice is refusing to start until every item has landed, which would stop E5.2 to E5.4 from
-   proving anything with the switch on. _Recommended: fail at the call; the switch stays
-   undocumented and default-off until E5.10, so no person meets a half engine._
-2. **Code awaiting a timer resumes in the next macrotask.** A `ManualClock.advance()` (or
-   `systemClock` timer) fires in today's order, but the native task resumes in the next pump, not
-   inside `advance()`. A test that reads state synchronously after `advance()` without awaiting
-   would see the difference. _Recommended: accept, as ADR 0223 §4 already does ("a timer firing
-   is a producer like any other"); a file that breaks on it is reported, not edited._
-3. **Process liveness.** The threadsafe function is `ref`'d only while a facade promise is pending
-   or a native session queue is open. ADR 0223 §7 rule 5 says it stays referenced until every
-   session queue is closed, which this keeps; it adds pending promises so a test awaiting
-   `engine.flush()` with only native work outstanding doesn't exit early. _Recommended: accept._
-4. **`adapters.ts` stays TypeScript.** The guide lists its (b) cases to move, but the module
-   only constructs JS adapters and registers them; no Rust code replaces it. _Recommended: it stays
-   until adapters themselves are native, and the guide's E5.1 row drops `adapters` from the cases
-   to move._
-5. **Editing the store's transaction stack.** The after-commit list goes into `ace-store`'s
-   `TransactionStack` (store Task 5.5's file), not into a parallel structure in the engine, so one
-   stack decides commit and rollback for both settlements and wakes. _Recommended: accept, with a
-   store reviewer on that commit._
-6. **`finishForeign`: Rust-opened transactions publish through the JS shell.** Until the store's
-   publication moves to Rust, a top-level transaction the engine opens hands its `Finish` and
-   events to the shell to publish, costing one JSON crossing per step commit. _Recommended:
-   accept and measure it in E5.3 with `bench/sqlite-store.ts --split`; it disappears when
-   publication is native._
+1. **Unported paths fail at the call, not at boot**, with `NativeEngineIncomplete` naming the
+   item; the switch stays undocumented and default-off until E5.10. Every item also gets an
+   observable native proof as it lands, through the whole-engine test seam of step 12 (a real
+   Store, seeded fixtures, scripted ports), with the unblocked and still-blocked suites listed per
+   item there. E5.1's own native proof is the executor, pump and wake semantics through that seam;
+   the construct/ready/close smoke without the probe needs E5.3.
+2. **Code awaiting a timer resumes in the next macrotask**, accepted as ADR 0223 §4 has it; the
+   observable ordering is tested through the seam (step 5).
+3. **Dynamic threadsafe-function refs**, accepted, with the terminal cleanup of step 4 and the
+   child-process liveness file of step 6.
+4. **`adapters.ts` stays TypeScript**, and its (b) cases with it; the guide's E5.1 row drops
+   `adapters` from the cases to move.
+5. **The wake list shares the store's transaction stack** (store Task 5.5's file, with a store
+   reviewer on that commit), and wakes are released after the shell's settlement and publication,
+   even when a listener throws (step 3).
+6. **No post-hoc `finishForeign`.** Rust-opened transactions share the shell's context lifecycle
+   from before their body (step 8). The cost, a few JSON crossings per step commit, is measured in
+   E5.3 with `bench/sqlite-store.ts --split`.
