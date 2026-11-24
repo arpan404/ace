@@ -39,13 +39,18 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
 
-/** The four headers the hop reserves; a valid request carries exactly one value of each. */
-function hopHeaders(secret = HOP_SECRET, peer = { address: "127.0.0.1", port: 4, local: 5 }) {
+/** The six headers the hop reserves; a valid request carries one value of the first four. */
+function hopHeaders(
+  secret = HOP_SECRET,
+  peer = { address: "127.0.0.1", port: 4, local: 5 },
+  servername?: string,
+) {
   return {
     "x-ace-hop-secret": secret,
     "x-ace-hop-peer-address": peer.address,
     "x-ace-hop-peer-port": String(peer.port),
     "x-ace-hop-local-port": String(peer.local),
+    ...(servername === undefined ? {} : { "x-ace-hop-servername": servername }),
   };
 }
 
@@ -76,12 +81,35 @@ function statusOf(
   });
 }
 
+/** One request written as raw bytes, its status read from the first line: header names can repeat in case. */
+function rawStatus(port: number, request: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, "127.0.0.1");
+    let answer = "";
+    socket.setEncoding("latin1");
+    socket.once("connect", () => socket.write(request));
+    socket.on("data", (chunk: string) => {
+      answer += chunk;
+    });
+    socket.once("end", () => resolve(Number(answer.split(" ")[1])));
+    socket.once("error", reject);
+  });
+}
+
 /** A `node:http` server around the guard, with a handler that records what it was given. */
 async function guarded() {
-  const reached: { peer: ReturnType<typeof peerOf>; headers: Record<string, unknown> }[] = [];
+  const reached: {
+    peer: ReturnType<typeof peerOf>;
+    headers: Record<string, unknown>;
+    rawHeaders: string[];
+  }[] = [];
   const server = createHttpServer(
     proxyGuard(HOP_SECRET, (request, response) => {
-      reached.push({ peer: peerOf(request), headers: { ...request.headers } });
+      reached.push({
+        peer: peerOf(request),
+        headers: { ...request.headers },
+        rawHeaders: [...request.rawHeaders],
+      });
       response.writeHead(200, { "Content-Length": "0" }).end();
     }),
   );
@@ -175,12 +203,57 @@ it("the proxy guard refuses everything that did not come through the hop, and on
   expect(await statusOf(port, { ...hopHeaders(), "x-ace-hop-peer-address": "not-an-ip" })).toBe(
     403,
   );
+  // A trust marker on a request never came from the hop: Rust removes every client copy.
+  expect(await statusOf(port, { ...hopHeaders(), "x-ace-hop-trust": "1" })).toBe(403);
+  expect(await statusOf(port, { ...hopHeaders(), "X-Ace-Hop-Trust": "1" })).toBe(403);
+  // Two server names, differing only in case, are two values: refused. Written raw, because a
+  // Node client normalises a header name and would send one.
+  expect(
+    await rawStatus(
+      port,
+      [
+        "GET /guarded HTTP/1.1",
+        "Host: 127.0.0.1",
+        `x-ace-hop-secret: ${HOP_SECRET}`,
+        "x-ace-hop-peer-address: 127.0.0.1",
+        "x-ace-hop-peer-port: 4",
+        "x-ace-hop-local-port: 5",
+        "x-ace-hop-servername: studio.tail1234.ts.net",
+        "X-Ace-Hop-Servername: studio.tail1234.ts.net",
+        "Connection: close",
+        "",
+        "",
+      ].join("\r\n"),
+    ),
+  ).toBe(403);
+  // A name rustls could not have handed over is refused.
+  expect(await statusOf(port, { ...hopHeaders(), "x-ace-hop-servername": "Not A Name" })).toBe(403);
+  expect(await statusOf(port, { ...hopHeaders(), "x-ace-hop-servername": "" })).toBe(403);
+  expect(await statusOf(port, { ...hopHeaders(), "x-ace-hop-servername": "x".repeat(254) })).toBe(
+    403,
+  );
   expect(reached).toEqual([]);
-  // A valid hop reaches the chain, without the four headers, with the peer it recorded.
+  // A valid hop reaches the chain, without the six headers, with the peer it recorded.
   expect(await statusOf(port, hopHeaders())).toBe(200);
-  expect(reached).toHaveLength(1);
-  expect(reached[0]?.peer).toEqual({ address: "127.0.0.1", remotePort: 4, localPort: 5 });
-  for (const name of Object.keys(hopHeaders())) expect(reached[0]?.headers[name]).toBeUndefined();
+  expect(await statusOf(port, hopHeaders(HOP_SECRET, undefined, "studio.tail1234.ts.net"))).toBe(
+    200,
+  );
+  expect(reached).toHaveLength(2);
+  expect(reached[0]?.peer).toEqual({
+    address: "127.0.0.1",
+    remotePort: 4,
+    localPort: 5,
+    servername: null,
+    viaHop: true,
+  });
+  expect(reached[1]?.peer.servername).toBe("studio.tail1234.ts.net");
+  for (const record of reached) {
+    for (const name of Object.keys(hopHeaders())) expect(record.headers[name]).toBeUndefined();
+    expect(record.rawHeaders.map((value) => value.toLowerCase())).not.toContain(
+      "x-ace-hop-servername",
+    );
+    expect(record.rawHeaders.map((value) => value.toLowerCase())).not.toContain("x-ace-hop-trust");
+  }
 });
 
 // The guard refuses a peer that did not arrive over loopback; the case needs an interface the
