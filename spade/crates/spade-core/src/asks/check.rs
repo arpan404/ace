@@ -26,15 +26,15 @@ pub fn due(ledger: &Ledger, reply: &str) -> Option<Checked> {
         .collect();
     let more = open.len().saturating_sub(listed.len());
     let mut note = format!(
-        "<asks_check from=\"spade\">\nBefore this reply ends, these asks are still open:\n{}",
+        "<asks_check from=\"spade\">\nStill open:\n{}",
         listed.join("\n")
     );
     if more > 0 {
-        note.push_str(&format!("\n…and {more} more."));
+        note.push_str(&format!("\n+{more} more."));
     }
     note.push_str(
-        "\nFinish them now, or mark each with the asks tool (done, dropped, changed, waiting or \
-         chat) and a short reason. If you only mark them, your reply ends with that.\n</asks_check>",
+        "\nFinish them or update each with asks (done, dropped, changed, waiting or chat) and a \
+         reason. Calling only asks ends the reply.\n</asks_check>",
     );
     Some(Checked {
         reply: reply.to_owned(),
