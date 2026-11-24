@@ -17,7 +17,7 @@ import {
   type OutsideScope,
 } from "@ace/protocol";
 import type { ServiceContext } from "../services/types.ts";
-import { peerOf } from "../http-peer.ts";
+import { peerAddress, peerOf } from "../http-peer.ts";
 import { daemonComputerToolkit } from "../computer-tools.ts";
 import { computerName } from "../computer-name.ts";
 import type { RelayHttpHandler } from "../relay-http.ts";
@@ -293,7 +293,7 @@ export async function externalMcp(context: ServiceContext) {
       if (!base) return false;
       tailnet = base;
       // The tailnet peer, for per-caller limits. Always set here, so a client's copy never counts.
-      request.headers[peerHeader] = peerOf(request).address;
+      request.headers[peerHeader] = peerAddress(request);
       void onTailscale(request, response).catch((error: unknown) =>
         context.log.log("warn", `Serving a Tailscale MCP request failed: ${String(error)}`),
       );

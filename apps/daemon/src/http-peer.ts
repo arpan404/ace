@@ -36,6 +36,16 @@ export function peerOf(request: IncomingMessage): HttpPeer {
   };
 }
 
+/**
+ * The address OAuth's per-caller limits key on: the hop's established peer, else the socket's
+ * address as it always was, or "" when the socket has none (which the caller reads as no peer,
+ * keeping the limit per way in rather than in a separate "unknown" bucket).
+ */
+export function peerAddress(request: IncomingMessage): string {
+  const peer = peers.get(request);
+  return peer ? peer.address : (request.socket.remoteAddress ?? "");
+}
+
 /** Records the peer the transport established for `request`. */
 export function setPeer(request: IncomingMessage, peer: HttpPeer): void {
   peers.set(request, peer);

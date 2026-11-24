@@ -304,8 +304,11 @@ async fn serve_hyper(
             // the connection has authenticated, the listener's longer trusted
             // window applies; until then only the untrusted one does.
             _ = activity.wait_idle(|| idle_limit(&state, &limits)), if !closing => {
-                closing = true;
-                connection.as_mut().graceful_shutdown();
+                // Node destroys the socket when its idle timer fires
+                // (`sni-listener.ts:120`): no `close_notify`, no half-close.
+                // Dropping the connection does the same; `graceful_shutdown`
+                // would flush and shut the TLS layer down instead.
+                return;
             }
         }
     }

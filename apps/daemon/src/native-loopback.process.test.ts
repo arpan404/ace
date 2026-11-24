@@ -247,12 +247,18 @@ it("the proxy guard refuses everything that did not come through the hop, and on
     viaHop: true,
   });
   expect(reached[1]?.peer.servername).toBe("studio.tail1234.ts.net");
+  const hopNames = [
+    "x-ace-hop-secret",
+    "x-ace-hop-peer-address",
+    "x-ace-hop-peer-port",
+    "x-ace-hop-local-port",
+    "x-ace-hop-servername",
+    "x-ace-hop-trust",
+  ];
   for (const record of reached) {
-    for (const name of Object.keys(hopHeaders())) expect(record.headers[name]).toBeUndefined();
-    expect(record.rawHeaders.map((value) => value.toLowerCase())).not.toContain(
-      "x-ace-hop-servername",
-    );
-    expect(record.rawHeaders.map((value) => value.toLowerCase())).not.toContain("x-ace-hop-trust");
+    for (const name of hopNames) expect(record.headers[name]).toBeUndefined();
+    const raw = record.rawHeaders.map((value) => value.toLowerCase());
+    for (const name of hopNames) expect(raw).not.toContain(name);
   }
 });
 
@@ -638,3 +644,16 @@ it("an upgrade after an ordinary request on a keep-alive connection opens a sock
   socket.write(upgradeRequest("/"));
   await waitFor("101 Switching Protocols");
 });
+
+// A folded header is not HTTP/1.1's; the native ingress refuses it with 400 before any handler.
+it.runIf(transportParts().has("loopback"))(
+  "a folded header is refused at the native ingress",
+  async () => {
+    const f = await fixture();
+    cleanups.push(() => f.close());
+    const port = Number(new URL(f.server.httpUrl).port);
+    expect(
+      await rawStatus(port, "GET /health HTTP/1.1\r\nHost: ace\r\nX-Folded: one\r\n two\r\n\r\n"),
+    ).toBe(400);
+  },
+);
