@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The binding for phase 5 (docs/store/porting-guide.md). One method per task; 5.1 owns
-//! `fold_thread`, 5.2b owns `sequences`, 5.3a owns `event_writer`, and 5.4a owns
-//! `compact_deltas` and `live_retry_delay`. The fold and the live buffer's pure parts do not
-//! touch the connection; the sequences and event-writer handles hold the same
-//! `Arc<Connection>` the database does.
+//! `fold_thread`, 5.2b owns `sequences`, 5.3a owns `event_writer`, 5.3b-2 owns
+//! `thread_column_writer`, and 5.4a owns `compact_deltas` and `live_retry_delay`. The fold and
+//! the live buffer's pure parts do not touch the connection; the sequences and writer handles
+//! hold the same `Arc<Connection>` the database does.
 
-use ace_projection::{FoldEvent, update_thread};
+use ace_projection::{Column, FoldEvent, update_thread};
 use ace_store::Connection;
 use ace_store::writer::events::{EventRow, EventWriter, NewThreadRow, WriteError};
 use ace_store::writer::live::compact::compact_deltas;
 use ace_store::writer::live::retry::retry_delay;
 use ace_store::writer::sequences::{SequenceError, Sequences};
+use ace_store::writer::thread_columns::{ThreadColumnWriter, Written, written_json};
 use napi::{Env, Status};
 use napi_derive::napi;
 use std::sync::Arc;
@@ -70,6 +71,16 @@ impl NativeDatabase {
         })
     }
 
+    /// The thread column writer, with its fixed reads prepared on this connection.
+    #[napi(catch_unwind)]
+    pub fn thread_column_writer(&self) -> napi::Result<NativeThreadColumnWriter> {
+        let writer = ThreadColumnWriter::new(self.connection()).map_err(fail)?;
+        Ok(NativeThreadColumnWriter {
+            connection: Arc::clone(self.connection()),
+            writer,
+        })
+    }
+
     /// Adjacent `item.delta` events into one row each: the events as JSON text in, the rows as
     /// JSON text out, in the later event's key order and with lone surrogates intact. The parsed
     /// events are moved into the compaction, never cloned.
@@ -114,7 +125,19 @@ impl NativeDatabase {
 fn write_error(error: WriteError) -> napi::Error {
     match error {
         WriteError::Sqlite(error) => fail(error),
-        WriteError::WorkspaceUnregistered => napi::Error::from_reason(error.to_string()),
+        WriteError::WorkspaceUnregistered | WriteError::Column(_) => {
+            napi::Error::from_reason(error.to_string())
+        }
+    }
+}
+
+/// Parse a JSON text that must be an object.
+fn object(env: &Env, text: &str, name: &str) -> napi::Result<ace_json::Map> {
+    match json_bind::parse(env, text)? {
+        ace_json::Value::Object(map) => Ok(map),
+        _ => Err(napi::Error::from_reason(format!(
+            "writeThread: {name} is not an object"
+        ))),
     }
 }
 
@@ -260,5 +283,48 @@ impl NativeEventWriter {
         self.writer
             .store_event(self.connection.as_ref(), &row)
             .map_err(write_error)
+    }
+}
+
+/// The thread column writes behind `ACE_STORE_WRITER=columns` (task 5.3b-2).
+#[napi]
+pub struct NativeThreadColumnWriter {
+    connection: Arc<Connection>,
+    writer: ThreadColumnWriter,
+}
+
+#[napi]
+impl NativeThreadColumnWriter {
+    /// `writeThread` through the revision read: null when no column changed, else the written
+    /// row, its parts, the pre-write confirmation and the revision.
+    #[napi(catch_unwind)]
+    pub fn write(
+        &mut self,
+        env: Env,
+        previous: Option<String>,
+        next: String,
+        wanted: Vec<String>,
+    ) -> napi::Result<Option<String>> {
+        let previous = match previous {
+            Some(text) => Some(object(&env, &text, "previous")?),
+            None => None,
+        };
+        let next = object(&env, &next, "next")?;
+        let mut columns = Vec::with_capacity(wanted.len());
+        for name in &wanted {
+            match Column::from_name(name) {
+                Some(column) => columns.push(column),
+                None => {
+                    return Err(napi::Error::from_reason(format!(
+                        "writeThread: unknown column {name}"
+                    )));
+                }
+            }
+        }
+        let written: Option<Written> = self
+            .writer
+            .write(self.connection.as_ref(), previous.as_ref(), &next, &columns)
+            .map_err(write_error)?;
+        Ok(written.map(|written| written_json(&written)))
     }
 }

@@ -6,3 +6,4 @@
 pub mod events;
 pub mod live;
 pub mod sequences;
+pub mod thread_columns;

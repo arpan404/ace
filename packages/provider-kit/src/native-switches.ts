@@ -107,18 +107,19 @@ if (crossSwitch !== undefined && !crossLog)
 const store = process.env.ACE_STORE === "native";
 
 /**
- * `ACE_STORE_WRITER`, a comma list of `fold`, `sequences`, `events`, `live`,
- * `transactions` (porting guide rule 9). Off by default. It needs
+ * `ACE_STORE_WRITER`, a comma list of `fold`, `sequences`, `events`, `columns`,
+ * `live`, `transactions` (porting guide rule 9). Off by default. It needs
  * `ACE_STORE=native` and refuses to start without it, and each part refuses
  * to start without the parts before it in that list.
  */
-export type StoreWriterPart = "fold" | "sequences" | "events" | "live" | "transactions";
+export type StoreWriterPart = "fold" | "sequences" | "events" | "columns" | "live" | "transactions";
 
 /** The writer parts in canonical log order. */
 const writerPartsOrder: readonly StoreWriterPart[] = [
   "fold",
   "sequences",
   "events",
+  "columns",
   "live",
   "transactions",
 ];

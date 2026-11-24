@@ -16,6 +16,9 @@ workspace = true
 # ace-json: the live buffer's compaction merges JavaScript strings and counts their bytes,
 # lone surrogates included, so the events cross as ace-json values, never Rust strings.
 ace-json = { path = "../ace-json" }
+# ace-projection: the thread column encoders (5.3b-1) the column writer binds, so the stored
+# values are byte-for-byte the ones the shape table and the vectors pin.
+ace-projection = { path = "../ace-projection" }
 # The SQLite rusqlite bundles, wrapped directly: a statement must outlive a single call
 # (a JavaScript iterator steps it across calls), which rusqlite's borrowed statements
 # cannot express. `src/sqlite.rs` is the only unsafe code.

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { ThreadId } from "@ace/protocol";
 import { afterEach, expect, it } from "vitest";
+import { ZodError } from "zod";
 import { createDevThread } from "./commands.ts";
 import { Store } from "./store.ts";
 import { threadRowsPerBatch } from "./stored-trust-pass.ts";
@@ -245,6 +246,36 @@ it("a confirmed row is read as stored", () => {
     db.prepare(forgeStamp).run(id);
   });
   expect(strayOf(open(), id)).toBe(1);
+});
+
+it("a thread write Zod rejects leaves the row, its revision and its trust stamp as they were", () => {
+  const { open, raw, peek } = setup();
+  const id = thread(open());
+  raw((db) => {
+    // `autoSettle` accepts only false; a confirmed row keeps the stored value as it is.
+    db.prepare(
+      "UPDATE threads SET client = json_set(COALESCE(client, '{}'), '$.autoSettle', json('true')) WHERE id = ?",
+    ).run(id);
+    db.prepare(forgeStamp).run(id);
+  });
+  const store = open();
+  const stored = () => ({
+    client: peek((db) => db.prepare("SELECT client FROM threads WHERE id = ?").get(id)?.client),
+    revision: peek(
+      (db) =>
+        db.prepare("SELECT revision FROM sidebar_thread_revisions WHERE thread_id = ?").get(id)
+          ?.revision,
+    ),
+    stamp: peek((db) =>
+      db.prepare("SELECT revision, canonical FROM thread_row_trust WHERE thread_id = ?").get(id),
+    ),
+    events: peek((db) => db.prepare("SELECT COUNT(*) AS n FROM events").get()?.n),
+  });
+  const before = stored();
+  expect(() =>
+    store.appendEvents(id, [{ type: "thread.client.updated", changes: { pinned: true } }], 2),
+  ).toThrow(ZodError);
+  expect(stored()).toEqual(before);
 });
 
 it("a different build's stamps are dropped, so its confirmed rows are validated again", () => {
