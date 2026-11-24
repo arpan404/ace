@@ -40,3 +40,17 @@ export { PresenceIndex } from "./presence.ts";
 export { LiveActivityKind, LiveActivityTarget, liveActivityLimit } from "./live-activity.ts";
 export type { LiveActivityEnvironment } from "./live-activity.ts";
 export { NotificationWorker } from "./worker.ts";
+export {
+  activityBusy,
+  activityDecision,
+  activityOrder,
+  classifyActivityThread,
+  sameActivityCounts,
+  secondOf,
+} from "./live-activity-schedule.ts";
+export type {
+  ActivityCounts,
+  ActivityOrder,
+  ActivityRow,
+  ActivitySchedule,
+} from "./live-activity-schedule.ts";
