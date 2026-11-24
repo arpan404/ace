@@ -147,10 +147,11 @@ extension ConversationFeed {
         if new.height != old.height { PerfCounters.bump("content.height") }
         let opened = intent.opened
         if intent.opened, new.height != old.height {
-            // What opened grows under the row the person tapped, which stays put: this one
-            // change isn't followed to the end. Following itself is the reader's scroll to
-            // change, not a fold's.
+            // What opened grows under the row the person tapped, which stays put; the feed
+            // follows the end again only if the end is still in view, so a streamed message
+            // never carries away what the reader just opened.
             intent.opened = false
+            if reading.thread == nil { setFollowing(new.bottom <= AceDesign.Space.group) }
         }
         // Following, an end that grew past the bottom (a streaming answer) is followed from
         // here: the lazy tail row that also scrolls on each change isn't built once the end
