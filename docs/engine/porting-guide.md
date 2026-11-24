@@ -1386,6 +1386,10 @@ first all-green run of `main-integration.process` is at E5.8 and of `engine.proc
 not with E5.2 to E5.4 (they open sessions, deliver, restart and stop background tasks);
 `adapters.ts` stays TypeScript. Its step 12 is the test seam and the per-item proof order.
 
+E5.3's builder brief is [e5-3-brief.md](e5-3-brief.md): engine rows on the store's connection,
+event rows through the store's writer, migrations staying TypeScript, the lazy record section in
+`ace-core`, and the sliced startup scan.
+
 E5.4's builder brief is [e5-4-brief.md](e5-4-brief.md). It splits E5.4 into six rounds (E5.4a to
 E5.4f) and corrects this table's E5.4 row with the owner's decisions of 2026-11-24:
 `person-command` stays TypeScript (the facade's normalization); `readMessageFacts` moves to E5.5;
