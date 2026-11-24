@@ -3,7 +3,7 @@
 //! only add a question for the person, never take one away.
 
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use spade_models::Prompt;
 
@@ -58,6 +58,53 @@ pub struct Case<'a> {
     pub tool: &'a str,
     pub description: &'a str,
     pub arguments: &'a Value,
+}
+
+/// Hash structured inputs without changing string contents or array order.
+pub fn memo_key(arguments: &Value, context: impl Serialize) -> Option<String> {
+    let mut arguments = arguments.clone();
+    arguments.sort_all_objects();
+    let bytes = serde_json::to_vec(&(context, arguments)).ok()?;
+    Some(crate::org::audit::digest(&bytes))
+}
+
+/// The optional reviewer sees a shorter argument excerpt than auto-review.
+pub fn second_review_memo_key(arguments: &Value, context: impl Serialize) -> Option<String> {
+    if arguments.to_string().chars().count() > ARGUMENT_CHARS {
+        return None;
+    }
+    memo_key(arguments, context)
+}
+
+/// Reuse only a fresh model allow within a bounded part of this reply.
+pub fn memo_allowed(events: &[Event], reply: &str, key: &str) -> bool {
+    // Sibling calls are judged independently. On restart, verdicts for siblings may already
+    // be stored after the step that proposed them.
+    let mut prior_step = false;
+    for event in events.iter().rev().take(256) {
+        match event {
+            Event::Known(Known::StepFinished { .. }) => prior_step = true,
+            Event::Known(Known::CallReviewed {
+                reply: reviewed,
+                memo: Some(memo),
+                verdict,
+                model,
+                ..
+            }) if prior_step && reviewed == reply && memo == key => {
+                return *verdict == Verdict::Allow && !model.is_empty();
+            }
+            Event::Known(
+                Known::ReplyStarted { .. }
+                | Known::Arrived { .. }
+                | Known::UserMessage { .. }
+                | Known::QuestionAnswered { .. }
+                | Known::ApprovalAnswered { .. }
+                | Known::AgentConfigured { .. },
+            ) => break,
+            _ => {}
+        }
+    }
+    false
 }
 
 /// The person's latest messages to the bot (not other bots' or routines'), oldest first.
@@ -259,6 +306,67 @@ mod tests {
     use crate::event::{Authorized, FromAgent, Known};
 
     #[test]
+    fn review_memo_requires_a_matching_model_allow_after_replay()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use serde_json::json;
+        let args: Value = serde_json::from_str(r#"{"z":{"b":2,"a":1},"a":[1,2]}"#)?;
+        let key = memo_key(&args, ("tool", false)).ok_or("memo key")?;
+        assert_eq!(
+            memo_key(&json!({"a":[1,2], "z":{"a":1,"b":2}}), ("tool", false)),
+            Some(key.clone())
+        );
+        for different in [
+            memo_key(&args, ("tool", true)),
+            memo_key(&args, ("other", false)),
+            memo_key(&json!({"a":[2,1], "z":{"a":1,"b":2}}), ("tool", false)),
+        ] {
+            assert_ne!(different, Some(key.clone()));
+        }
+        let reviewed = |verdict, model: &str| {
+            Event::from_json(json!({
+                "type": "call_reviewed", "reply": "r", "call_id": "c", "name": "tool",
+                "verdict": verdict, "reason": "", "model": model, "memo": key,
+            }))
+        };
+        let allow = reviewed(Verdict::Allow, "endpoint/model");
+        let next = Event::Known(Known::StepFinished {
+            reply: "r".into(),
+            text: String::new(),
+            calls: Vec::new(),
+            thoughts: Vec::new(),
+            usage: Default::default(),
+            cost_micros: 0,
+            seen: None,
+        });
+        assert!(memo_allowed(&[allow.clone(), next.clone()], "r", &key));
+        assert!(!memo_allowed(&[next.clone(), allow.clone()], "r", &key));
+        assert!(!memo_allowed(&[allow.clone(), next.clone()], "other", &key));
+        for verdict in [Verdict::Refuse, Verdict::Escalate] {
+            let denied = reviewed(verdict, "endpoint/model");
+            assert!(!memo_allowed(&[denied.clone(), next.clone()], "r", &key));
+            assert!(!memo_allowed(
+                &[allow.clone(), denied, next.clone()],
+                "r",
+                &key
+            ));
+        }
+        assert!(!memo_allowed(
+            &[reviewed(Verdict::Allow, ""), next.clone()],
+            "r",
+            &key
+        ));
+        let mut events = vec![allow];
+        events.extend((0..256).map(|_| Event::from_json(json!({"type": "future_event"}))));
+        events.push(next.clone());
+        assert!(!memo_allowed(&events, "r", &key));
+        events.truncate(1);
+        events.push(Event::user_message("Stop doing that"));
+        events.push(next);
+        assert!(!memo_allowed(&events, "r", &key));
+        Ok(())
+    }
+
+    #[test]
     fn only_writes_the_gate_would_run_are_reviewed() {
         assert!(reviewed(Risk::Write, Decision::Run));
         assert!(!reviewed(Risk::Write, Decision::Ask));
@@ -453,6 +561,7 @@ mod tests {
         );
         let reviewed = |acts_in: Option<Place>| {
             vec![Event::Known(Known::CallReviewed {
+                memo: None,
                 reply: "r".into(),
                 call_id: "c1".into(),
                 name: "browser_act".into(),
@@ -493,6 +602,7 @@ mod tests {
     fn a_stored_verdict_holds_only_for_its_launch_or_a_narrower_one() {
         let reviewed = |launch: Option<Authorized>| {
             vec![Event::Known(Known::CallReviewed {
+                memo: None,
                 reply: "r".into(),
                 call_id: "c1".into(),
                 name: "shell".into(),

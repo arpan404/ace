@@ -410,6 +410,47 @@ async fn publishing_is_still_the_reviewers_to_judge_and_runs_when_approved() -> 
     Ok(())
 }
 
+#[tokio::test]
+async fn repeat_publish_reuses_a_review_only_for_matching_arguments_and_trust() -> Result {
+    let publish = FakeTool::new("publish_page", Risk::Write, "Published")
+        .app("Site: Publishes a page")
+        .declares(Effect::Publish);
+    let published = calls_of(&publish);
+    let page = FakeTool::new("read_page", Risk::Read, "Read this").untrusted();
+    let spade = reviewed_by_fake(
+        vec![
+            Script::reply("").call("c1", "publish_page", json!({ "page": "notes" })),
+            Script::reply("").plain(APPROVE),
+            Script::reply("").call("c2", "publish_page", json!({ "page": "notes" })),
+            Script::reply("").call("c3", "publish_page", json!({ "page": "index" })),
+            Script::reply("").plain(APPROVE),
+            Script::reply("").call("p1", "read_page", json!({})),
+            Script::reply("").call("c4", "publish_page", json!({ "page": "notes" })),
+            Script::reply("").plain(APPROVE),
+            Script::reply("Published."),
+            Script::reply("").plain(TITLE),
+        ],
+        vec![Arc::new(publish), Arc::new(page)],
+    )
+    .await?;
+    let (_, conversation) = bot(&spade).await?;
+    spade
+        .say(&conversation, "Publish the notes and index")
+        .await?;
+    let events = settled(&spade, &conversation).await?;
+    assert_eq!(count(&events, "approval_requested"), 0);
+    assert_eq!(ran(&published), 4);
+    for (call, reused) in [("c1", false), ("c2", true), ("c3", false), ("c4", false)] {
+        let review = events
+            .iter()
+            .find(|event| event["type"] == "call_reviewed" && event["call_id"] == call)
+            .ok_or("missing review")?;
+        assert_eq!(review["model"] == "", reused, "{review}");
+        assert_eq!(review["verdict"], "allow");
+    }
+    Ok(())
+}
+
 /// The call went to the person on a rule, with `reason`: the stored verdict is the rules' own
 /// (no reviewer model) and the bubble says why.
 fn asked_by_rule(events: &[Value], reason: &str) -> Result {

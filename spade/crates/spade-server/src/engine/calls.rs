@@ -538,6 +538,20 @@ pub(super) async fn handle_calls(
                         overwrites: app_call.as_ref().is_some_and(|app| app.reading.overwrites),
                         app_plain: app_call.as_ref().is_some_and(|app| app.reading.plain),
                     };
+                    let memo_identity = || {
+                        snapshot
+                            .as_ref()
+                            .filter(|_| effect::may_memo_review(&gate))
+                            .and_then(|tool| {
+                                serde_json::to_string(&(
+                                    tool.identity(),
+                                    declared,
+                                    remote,
+                                    app_call.as_ref().map(|app| (&app.app, app.generation)),
+                                ))
+                                .ok()
+                            })
+                    };
                     // The ceiling first, before any route of Spade's own: nothing a packaged bot
                     // does, a bot it makes for the person included, gets past what its package
                     // declared.
@@ -733,6 +747,7 @@ pub(super) async fn handle_calls(
                                         shown: &classed.shown,
                                         bound: read_bound.stored().or_else(|| app_bound.clone()),
                                         concern: concern.as_deref(),
+                                        memo_identity: memo_identity(),
                                         app: app_name.as_deref(),
                                         acts_in: acts_in.as_ref(),
                                         launch: limit,
@@ -794,6 +809,7 @@ pub(super) async fn handle_calls(
                             &def,
                             limit,
                             app_bound.clone(),
+                            memo_identity(),
                             stop,
                         )
                         .await

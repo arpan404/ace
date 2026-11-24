@@ -623,6 +623,22 @@ pub fn route(call: Call<'_>) -> Route {
     }
 }
 
+/// Memoize only host calls whose review does not depend on executable files, a drive
+/// location, or a rule requiring a fresh judgment.
+pub fn may_memo_review(call: &Call<'_>) -> bool {
+    call.place == Place::Host
+        && call.fits
+        && matches!(call.risk, Risk::Read | Risk::Write)
+        && !call.destructive
+        && !call.overwrites
+        && !call.standing
+        && matches!(
+            call.effect,
+            Some(Effect::Read | Effect::Network | Effect::Publish) | None
+        )
+        && call.tool != GIT_PUSH
+}
+
 /// [`route`] after the hard stops of secrets and the organization.
 fn decide(call: Call<'_>, allowed: bool) -> Route {
     // A packaged bot's ceiling, right after: an effect its package didn't declare, or one the

@@ -46,13 +46,13 @@ pub(super) async fn call(
     launch: spade_core::event::Authorized,
     // What the verdict holds for: a connected app's tool's definition (ADR 0202, amendment 5).
     bound: Option<String>,
+    memo_identity: Option<String>,
     stop: &mut watch::Receiver<bool>,
 ) -> Reviewed {
     if let Some((verdict, reason)) = review::stored(events, &call.id, launch) {
         return of(verdict, reason);
     }
     let model = engine.review_model(id);
-    engine.set_status(id, Some(CHECKING.to_owned()));
     let agent = engine.store.agent_for_conversation(id).ok().flatten();
     let (bot, task) = agent
         .as_ref()
@@ -66,9 +66,49 @@ pub(super) async fn call(
         description: &def.spec.description,
         arguments,
     };
-    let prompt = review::prompt(&case)
-        .session(id)
-        .effort(engine.role_effort(id, spade_core::routing::Role::Review));
+    let effort = engine.role_effort(id, spade_core::routing::Role::Review);
+    let memo = memo_identity.and_then(|identity| {
+        review::second_review_memo_key(
+            arguments,
+            (
+                "second/v1",
+                identity,
+                name,
+                launch,
+                &bound,
+                &model,
+                effort,
+                case.bot,
+                case.task,
+                &case.person,
+                &case.untrusted,
+                case.description,
+            ),
+        )
+    });
+    if let Some(key) = memo.as_deref()
+        && review::memo_allowed(events, reply, key)
+    {
+        return match super::autonomy::record_rule(
+            engine,
+            id,
+            reply,
+            call,
+            name,
+            Verdict::Allow,
+            "Reused a model review from this reply.",
+            bound,
+            launch,
+        ) {
+            Ok(true) => Reviewed::Allow,
+            Ok(false) => Reviewed::Stopped,
+            Err(_) => {
+                Reviewed::Escalate("Spade couldn't store the review, so you decide.".to_owned())
+            }
+        };
+    }
+    engine.set_status(id, Some(CHECKING.to_owned()));
+    let prompt = review::prompt(&case).session(id).effort(effort);
     let (verdict, reason, cost) =
         match super::judge::judge::<Judgment>(engine, id, &model, &prompt, REVIEW_TIMEOUT, stop)
             .await
@@ -98,6 +138,7 @@ pub(super) async fn call(
     // still checking (a stale "Checking a step" showed after an approval).
     engine.set_status(id, Some(super::roster::THINKING.to_owned()));
     let reviewed = Event::Known(Known::CallReviewed {
+        memo,
         reply: reply.to_owned(),
         call_id: call.id.clone(),
         name: name.to_owned(),

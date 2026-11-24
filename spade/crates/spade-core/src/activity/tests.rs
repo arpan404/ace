@@ -122,6 +122,7 @@ fn day() -> Vec<Event> {
             1_500,
         ),
         k(Known::CallReviewed {
+            memo: None,
             reply: "r1".into(),
             call_id: "c1".into(),
             name: "shell".into(),

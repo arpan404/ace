@@ -85,6 +85,7 @@ pub(super) fn record_rule(
     launch: spade_core::event::Authorized,
 ) -> Result<bool, spade_store::StoreError> {
     let event = Event::Known(Known::CallReviewed {
+        memo: None,
         reply: reply.to_owned(),
         call_id: call.id.clone(),
         name: name.to_owned(),
@@ -113,6 +114,8 @@ pub(super) struct Under<'a> {
     pub bound: Option<String>,
     /// Why the rules singled the call out, told to the reviewer.
     pub concern: Option<&'a str>,
+    /// The reviewed tool and connection identity, when its verdict can be reused.
+    pub memo_identity: Option<String>,
     /// For a connected app's tool, its app's name, from the same snapshot as `def`.
     pub app: Option<&'a str>,
     /// For a driving step, where it acts as the gate just found: the verdict is stored with it
@@ -144,7 +147,6 @@ pub(super) async fn review(
         return of(verdict, reason);
     }
     let model = engine.review_model(id);
-    engine.set_status(id, Some(REVIEWING.to_owned()));
     let agent = engine.store.agent_for_conversation(id).ok().flatten();
     let (bot, task, agent_id) = agent.as_ref().map_or(("the bot", "", ""), |a| {
         (a.name.as_str(), a.task.as_str(), a.id.as_str())
@@ -157,12 +159,12 @@ pub(super) async fn review(
     // A connected app's tool: the app it acts in, for the reviewer (ADR 0202, amendment 5), as
     // the gate's one snapshot of it says.
     let app = under.app;
-    let case = Case {
+    let mut case = Case {
         bot,
         task,
         person: engine.person_words(id, events),
-        steps: review::recent_steps(events, &under.call.id),
-        untrusted: untrusted.clone(),
+        steps: Vec::new(),
+        untrusted,
         folder: &folder,
         tool: under.name,
         app,
@@ -171,9 +173,52 @@ pub(super) async fn review(
         shown: under.shown,
         concern: under.concern,
     };
-    let prompt = autonomy::prompt(&case)
-        .session(id)
-        .effort(engine.role_effort(id, spade_core::routing::Role::Review));
+    let effort = engine.role_effort(id, spade_core::routing::Role::Review);
+    let memo = under.memo_identity.and_then(|identity| {
+        review::memo_key(
+            under.arguments,
+            (
+                "auto/v1",
+                identity,
+                under.name,
+                under.launch,
+                &under.bound,
+                &model,
+                effort,
+                case.bot,
+                case.task,
+                &case.person,
+                &case.untrusted,
+                case.description,
+                app,
+                case.concern,
+            ),
+        )
+    });
+    if let Some(key) = memo.as_deref()
+        && review::memo_allowed(events, reply, key)
+    {
+        return match record_rule(
+            engine,
+            id,
+            reply,
+            under.call,
+            under.name,
+            Verdict::Allow,
+            "Reused a model review from this reply.",
+            under.bound,
+            under.launch,
+        ) {
+            Ok(true) => Reviewed::Run,
+            Ok(false) => Reviewed::Stopped,
+            Err(_) => {
+                Reviewed::Escalate("Spade couldn't store the review, so you decide.".to_owned())
+            }
+        };
+    }
+    case.steps = review::recent_steps(events, &under.call.id);
+    engine.set_status(id, Some(REVIEWING.to_owned()));
+    let prompt = autonomy::prompt(&case).session(id).effort(effort);
     let (outcome, cost) = match super::judge::judge::<Judgment>(
         engine,
         id,
@@ -197,6 +242,7 @@ pub(super) async fn review(
         Outcome::Escalate(reason) => (Verdict::Escalate, reason.clone()),
     };
     let reviewed = Event::Known(Known::CallReviewed {
+        memo,
         reply: reply.to_owned(),
         call_id: under.call.id.clone(),
         name: under.name.to_owned(),

@@ -377,6 +377,7 @@ impl Engine {
         screened: Screened,
     ) -> Result<Screened, spade_store::StoreError> {
         let event = Event::Known(spade_core::event::Known::CallReviewed {
+            memo: None,
             reply: reply.to_owned(),
             call_id: s.call.id.clone(),
             name: s.name.to_owned(),
