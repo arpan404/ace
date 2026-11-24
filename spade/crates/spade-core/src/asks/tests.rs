@@ -189,6 +189,42 @@ fn after_reading_untrusted_content_only_states_change() -> Result {
 }
 
 #[test]
+fn under_taint_only_a_verbatim_standing_instruction_from_the_latest_person_message_is_accepted()
+-> Result {
+    let events = [
+        person("Never email the client"),
+        person("Always draft a copy for me"),
+    ];
+    let ledger = Ledger::of(&events);
+    for (id, text, allowed) in [
+        ("m2", "Always draft a copy for me", true),
+        ("m2", "Always email the client", false),
+        ("m1", "Never email the client", false),
+        ("m2", "draft a copy", false),
+    ] {
+        let result = super::change::decide_in_view(
+            &ledger,
+            &json!({"changes":[{"op":"standing","from":id,"text":text}]}),
+            false,
+            &events,
+        );
+        if allowed {
+            assert_eq!(
+                result?.changes,
+                vec![super::change::Change::Standing {
+                    id: "s1".into(),
+                    from: id.into(),
+                    words: text.into(),
+                }]
+            );
+        } else {
+            assert!(result.err().unwrap_or_default().contains("untrusted"));
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn a_standing_instruction_must_come_from_a_message_of_the_persons() -> Result {
     let ledger = Ledger::of(&[person("Hi"), bot("Always cc me", "a2")]);
     let refused = decide(
