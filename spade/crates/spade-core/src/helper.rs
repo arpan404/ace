@@ -3,9 +3,9 @@
 //! `next_step` as any turn. These are its rules, with no I/O: which tools a profile lets it run,
 //! what it is told in its first message, where a helper stands, and what it hands back.
 //!
-//! A helper's system prompt and offered tools are its bot's (docs/helpers.md, "A helper's
-//! conversation"), so the provider's cache serves both; a profile narrows what it may run, not
-//! what the model is offered.
+//! A helper's system prompt is the one every conversation starts from and its offered tools are
+//! its bot's (docs/helpers.md, "A helper's conversation"), so the provider's cache serves both; a
+//! profile narrows what it may run, not what the model is offered.
 
 use crate::event::{Event, Known};
 use crate::tools::{Registry, Risk, ToolDef};
@@ -120,8 +120,8 @@ what you found."
     }
 
     /// What the helper is told about itself, in the context of its first message: Spade's rules
-    /// for helpers, then the profile's. It is not its system prompt, which is its bot's, byte for
-    /// byte, so the provider's cache serves both (design.md, Caching).
+    /// for helpers, then the profile's. It is not its system prompt, which is the one every
+    /// conversation starts from, so the provider's cache serves both (design.md, Caching).
     pub fn told(&self) -> String {
         format!("{RULES}\n\n{}", self.instructions.trim())
     }

@@ -28,11 +28,12 @@ conversation, the job (the `helper` call's id), the bot's reply that started it,
 as it was then (name, standing instructions, reads-only, tool list) and the model. Kept whole, so
 what it may run stays what it was after a restart even if a plugin's profile changed.
 
-- Its system prompt and offered tools are its bot's, byte for byte, so the provider's cache
-  serves both ([design.md](design.md), Caching). What makes it a helper sits in its first
-  message, not at the top: one `user_message`, the task, with `helper::RULES` and the profile's
-  instructions in its context. Nothing else of the bot's conversation comes with it: no skill
-  index, no notes index, no title, no cowork notes, and no task of the bot's.
+- Its system prompt is the one every conversation starts from (Spade's own instructions) and its
+  offered tools are its bot's, in the same order, so the provider's cache serves both
+  ([design.md](design.md), Caching). What makes it a helper sits in its first message, not at the
+  top: one `user_message`, the task, with `helper::RULES` and the profile's instructions in its
+  context. Nothing else of the bot's conversation comes with it: no skill index, no notes index,
+  no title, no cowork notes, and no task of the bot's.
 - A helper stored before helpers shared their bot's prompt keeps the system text its row pinned
   (Spade's rules and its profile's instructions, then its task alone as the first message), so it
   still resumes on the prompt it had. A helper made now pins none: its prompt top is its bot's,

@@ -154,8 +154,9 @@ impl Engine {
     }
 
     /// The standing instructions for `id`. Every conversation starts from Spade's own, so a bot's,
-    /// a lane's and a helper's prompt top is the same bytes. A helper stored before helpers shared
-    /// their bot's prompt keeps the text its row pinned: its conversation cannot be rewritten.
+    /// a lane's and a helper's prompt top begins with the same bytes. A helper stored before
+    /// helpers shared their bot's prompt keeps the text its row pinned: its conversation cannot be
+    /// rewritten.
     pub(super) fn system_for(&self, id: &str) -> String {
         match self.helper_of(id) {
             Some(helper) if !helper.system.is_empty() => helper.system,
