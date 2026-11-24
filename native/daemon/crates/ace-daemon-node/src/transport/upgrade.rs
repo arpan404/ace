@@ -7,6 +7,7 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
 
 use ace_transport::{
@@ -44,10 +45,12 @@ pub struct AdmitAnswerJs {
 
 /// `admit`: one decision, as a promise. Node's error-first callback shape is off
 /// (`CalleeHandled = false`): the shell's callbacks take their values plainly.
+/// Every threadsafe function here is weak, so a live listener, upgrade or socket
+/// never keeps the process alive.
 pub type AdmitFn =
-    ThreadsafeFunction<AdmitRequestJs, Promise<AdmitAnswerJs>, AdmitRequestJs, Status, false>;
+    ThreadsafeFunction<AdmitRequestJs, Promise<AdmitAnswerJs>, AdmitRequestJs, Status, false, true>;
 /// `release`: TypeScript drops one reservation.
-pub type ReleaseFn = ThreadsafeFunction<f64, (), f64, Status, false>;
+pub type ReleaseFn = ThreadsafeFunction<f64, (), f64, Status, false, true>;
 /// `opened`: TypeScript registers one socket.
 pub type OpenedFn = ThreadsafeFunction<
     FnArgs<(NativeSocketHandle, f64, Option<String>)>,
@@ -55,6 +58,7 @@ pub type OpenedFn = ThreadsafeFunction<
     FnArgs<(NativeSocketHandle, f64, Option<String>)>,
     Status,
     false,
+    true,
 >;
 
 /// What TypeScript decided, once its word and reservation are checked.
@@ -84,11 +88,18 @@ impl Decided {
     }
 }
 
-/// The connection's wait on its upgrade's decision. Dropping it never releases a
-/// reservation: a pending upgrade is abandoned, which is no answer at all.
+/// No reservation yet: the decision task stores one before it answers, and the
+/// connection's drop turns it into the one release.
+const NONE: u64 = u64::MAX;
+
+/// The connection's wait on its upgrade's decision. It owns whatever the
+/// decision holds: a pending upgrade is abandoned, and an accepted reservation
+/// is released — whether the sender never answered, the send went unread, or
+/// the connection was dropped between the two.
 struct Pending {
     shared: Arc<Shared>,
     id: u64,
+    reservation: Arc<AtomicU64>,
     outcome: oneshot::Receiver<AdmissionOutcome>,
 }
 
@@ -96,11 +107,17 @@ impl Future for Pending {
     type Output = AdmissionOutcome;
 
     fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
-        match Pin::new(&mut self.get_mut().outcome).poll(context) {
+        let this = self.get_mut();
+        match Pin::new(&mut this.outcome).poll(context) {
             // The decision task died without answering: nothing decided this
             // upgrade, so admission refuses it rather than opening anything.
             Poll::Ready(Err(_)) => Poll::Ready(AdmissionOutcome::TimedOut),
-            Poll::Ready(Ok(outcome)) => Poll::Ready(outcome),
+            Poll::Ready(Ok(outcome)) => {
+                // The connection has the reservation now; releasing it here
+                // would take it from the task that writes the `101`.
+                this.reservation.store(NONE, Ordering::Release);
+                Poll::Ready(outcome)
+            }
             Poll::Pending => Poll::Pending,
         }
     }
@@ -108,7 +125,12 @@ impl Future for Pending {
 
 impl Drop for Pending {
     fn drop(&mut self) {
-        self.shared.admission.abandoned(self.id);
+        let reservation = self.reservation.load(Ordering::Acquire);
+        if reservation == NONE {
+            self.shared.admission.abandoned(self.id);
+        } else if self.shared.admission.released(reservation) {
+            self.shared.release_js(reservation);
+        }
     }
 }
 
@@ -122,15 +144,25 @@ impl UpgradeAdmission for Admitting {
     ) -> Pin<Box<dyn Future<Output = AdmissionOutcome> + Send>> {
         let shared = Arc::clone(&self.0);
         let id = shared.admission.begin();
+        let reservation = Arc::new(AtomicU64::new(NONE));
         let (outcome, answer) = oneshot::channel();
-        shared
-            .runtime
-            .spawn(resolve(Arc::clone(&shared), id, request, outcome));
+        shared.runtime.spawn(resolve(
+            Arc::clone(&shared),
+            id,
+            request,
+            Arc::clone(&reservation),
+            outcome,
+        ));
         Box::pin(Pending {
             shared,
             id,
+            reservation,
             outcome: answer,
         })
+    }
+
+    fn writing(&self, reservation: u64) -> bool {
+        self.0.admission.writing(reservation)
     }
 
     fn release(&self, reservation: u64) {
@@ -146,6 +178,7 @@ async fn resolve(
     shared: Arc<Shared>,
     id: u64,
     request: UpgradeRequest,
+    reservation: Arc<AtomicU64>,
     outcome: oneshot::Sender<AdmissionOutcome>,
 ) {
     let asked = AdmitRequestJs {
@@ -191,20 +224,23 @@ async fn resolve(
     };
     match answer {
         Ok(answer) => match Decided::of(&answer) {
-            Decided::Accepted(reservation) => {
-                if shared.admission.hand_over(id, reservation) {
+            Decided::Accepted(held) => {
+                if shared.admission.accepted(id, held) {
+                    // The connection owns the reservation's release from here:
+                    // its own drop releases it if it never reads the answer.
+                    reservation.store(held, Ordering::Release);
                     let decision =
-                        AdmissionOutcome::Decided(AdmissionDecision::Accept { reservation });
+                        AdmissionOutcome::Decided(AdmissionDecision::Accept { reservation: held });
                     if outcome.send(decision).is_err() {
-                        // The connection went away before it read the decision:
-                        // its reservation is released, once.
-                        if shared.admission.released(reservation) {
-                            shared.release_js(reservation);
+                        // The connection was dropped before it read the answer
+                        // (its guard may have released already).
+                        if shared.admission.released(held) {
+                            shared.release_js(held);
                         }
                     }
                 } else if shared.admission.released_late(id) {
                     // Abandoned while the promise was settling.
-                    shared.release_js(reservation);
+                    shared.release_js(held);
                 }
             }
             Decided::Refused(decision) => {

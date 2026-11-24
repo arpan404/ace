@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use ace_transport::socket::{MESSAGE_OVERHEAD, SocketEvent, SocketEvents, SocketHandle};
 use napi::Status;
-use napi::bindgen_prelude::Uint8Array;
+use napi::bindgen_prelude::{Buffer, Either, Uint8Array};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 use zeroize::Zeroize;
@@ -20,14 +20,15 @@ use zeroize::Zeroize;
 use super::{Shared, locked, runtime};
 
 /// One event, as the shell sees it: `kind` names the variant and only that
-/// variant's fields are set. (`code` is the close code; an `error` event's code
-/// travels as `errorCode`, because a napi object gives a field one type.)
+/// variant's fields are set. Payloads and reasons are Node `Buffer`s, and `code`
+/// is Node's own field: the close code as a number, an `error`'s code as its
+/// word (`too_big`, `protocol`, `io`).
 #[napi(object)]
 pub struct SocketEventJs {
     /// `message`, `sent`, `error` or `close`.
     pub kind: String,
     /// A message's payload, copied out of the socket's vector.
-    pub data: Option<Uint8Array>,
+    pub data: Option<Buffer>,
     /// A message's frame kind: text or binary.
     pub binary: Option<bool>,
     /// A message's delivery charge (its length plus 256), which the shell may
@@ -37,14 +38,12 @@ pub struct SocketEventJs {
     pub id: Option<f64>,
     /// A `sent`'s failure, in `ws`'s words, or null when the frame went out.
     pub error: Option<String>,
-    /// A `close`'s code.
-    pub code: Option<f64>,
-    /// An `error`'s code: `too_big`, `protocol` or `io`.
-    pub error_code: Option<String>,
+    /// A `close`'s code (a number), or an `error`'s (a word).
+    pub code: Option<Either<String, f64>>,
     /// An `error`'s message.
     pub message: Option<String>,
     /// A `close`'s reason, as the peer sent it.
-    pub reason: Option<Uint8Array>,
+    pub reason: Option<Buffer>,
 }
 
 impl SocketEventJs {
@@ -57,7 +56,6 @@ impl SocketEventJs {
             id: None,
             error: None,
             code: None,
-            error_code: None,
             message: None,
             reason: None,
         }
@@ -65,8 +63,9 @@ impl SocketEventJs {
 }
 
 /// A socket's listener: called once per event, in order, with the event alone
-/// (`CalleeHandled = false`: no error-first argument).
-pub type Listener = ThreadsafeFunction<SocketEventJs, (), SocketEventJs, Status, false>;
+/// (`CalleeHandled = false`: no error-first argument). Its threadsafe function is
+/// weak, so an open socket never keeps the process alive.
+pub type Listener = ThreadsafeFunction<SocketEventJs, (), SocketEventJs, Status, false, true>;
 
 /// One socket's Rust state: the socket itself, the events nobody is listening
 /// to yet, the listener's accounting, and the id its `close` reports.
@@ -115,9 +114,8 @@ impl NativeSocketHandle {
         self.inner.registered.store(true, Ordering::Release);
         let shared = Arc::clone(&self.inner.shared);
         let id = self.inner.id;
-        runtime()?.spawn(pump(self.inner.handle.clone(), queue, events, move || {
-            shared.live.done(id)
-        }));
+        let closed: Arc<dyn Fn() + Send + Sync> = Arc::new(move || shared.live.done(id));
+        runtime()?.spawn(pump(self.inner.handle.clone(), queue, events, closed));
         Ok(())
     }
 
@@ -185,18 +183,22 @@ impl Drop for NativeSocketHandle {
 }
 
 /// Delivers every event the socket produces until it reports `Close` (or its
-/// queue ends), then calls `closed`, which is what the listener's close waits
-/// for. The message's charge is released after its JavaScript callback returned.
+/// queue ends). `closed` runs after JavaScript has the close event, in the
+/// callback's completion — or at once when the close could not be queued — and
+/// that is what the listener's close waits for. The message's charge is released
+/// after its JavaScript callback returned.
 async fn pump(
     handle: SocketHandle,
     mut events: SocketEvents,
     listener: Listener,
-    closed: impl FnOnce(),
+    closed: Arc<dyn Fn() + Send + Sync>,
 ) {
+    let mut queued_close = false;
     while let Some(event) = events.recv().await {
         let last = matches!(event, SocketEvent::Close { .. });
         let (event, charge) = translate(event);
         let delivered = handle.clone();
+        let done = Arc::clone(&closed);
         let status = listener.call_with_return_value(
             event,
             ThreadsafeFunctionCallMode::NonBlocking,
@@ -207,17 +209,28 @@ async fn pump(
                 if let Some(charge) = charge {
                     delivered.delivered(charge);
                 }
+                if last {
+                    done();
+                }
                 value?;
                 Ok(())
             },
         );
         // The socket ended, or the shell can no longer be called: either way,
         // nothing more can be delivered.
-        if last || status == napi::Status::Closing {
+        if status == napi::Status::Closing {
+            break;
+        }
+        if last {
+            queued_close = true;
             break;
         }
     }
-    closed();
+    // A close JavaScript never received still ends the socket here, so the
+    // listener's close cannot wait on an event that will never arrive.
+    if !queued_close {
+        closed();
+    }
 }
 
 /// One event as JavaScript receives it, and the charge its message holds until
@@ -231,7 +244,7 @@ fn translate(event: SocketEvent) -> (SocketEventJs, Option<u64>) {
             let copy = data.clone();
             data.zeroize();
             let event = SocketEventJs {
-                data: Some(Uint8Array::new(copy)),
+                data: Some(Buffer::from(copy)),
                 binary: Some(binary),
                 charge: Some(charge as f64),
                 ..SocketEventJs::of("message")
@@ -248,7 +261,7 @@ fn translate(event: SocketEvent) -> (SocketEventJs, Option<u64>) {
         ),
         SocketEvent::Error { code, message } => (
             SocketEventJs {
-                error_code: Some(code.to_owned()),
+                code: Some(Either::A(code.to_owned())),
                 message: Some(message),
                 ..SocketEventJs::of("error")
             },
@@ -256,8 +269,8 @@ fn translate(event: SocketEvent) -> (SocketEventJs, Option<u64>) {
         ),
         SocketEvent::Close { code, reason } => (
             SocketEventJs {
-                code: Some(f64::from(code)),
-                reason: Some(Uint8Array::new(reason)),
+                code: Some(Either::B(f64::from(code))),
+                reason: Some(Buffer::from(reason)),
                 ..SocketEventJs::of("close")
             },
             None,

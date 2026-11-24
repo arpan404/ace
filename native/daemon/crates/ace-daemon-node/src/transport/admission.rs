@@ -6,17 +6,19 @@
 //! tested alone.
 //!
 //! ```text
-//! Pending ──accept──▶ Writing ──101 flushed──▶ Opened
-//!    │                   ├──released (failed checks, closing 503, failed 101)──▶ Released
-//!    │                   └──the connection ends: the transport releases it──▶ Released
+//! Pending ──accept──▶ Accepted ──checks pass──▶ Writing ──101 flushed──▶ Opened
+//!    │                    │                        └──101 failed──▶ Released
+//!    │                    └──failed checks, closing 503, client gone──▶ Released
 //!    ├──refuse──▶ (gone: nothing is held)
 //!    ├──admitTimeoutMs──▶ TimedOut ──a late accept──▶ Released
 //!    └──gone, or the close deadline──▶ Abandoned ──a late accept──▶ Released
 //! ```
 //!
-//! Only `Pending` can be abandoned or timed out: once a reservation is `Writing`
-//! the connection owns it, so no deadline, disconnect or close can take it away,
-//! and only the connection's own release or `opened` moves it.
+//! Only `Pending` can be abandoned or timed out, and only `Accepted` (the
+//! reservation held while `ws`'s checks run) and `Writing` (the `101` is being
+//! written, and the connection is past every deadline) can be released. Once a
+//! reservation is `Writing`, only the connection's own release or `opened`
+//! moves it.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
@@ -27,8 +29,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 pub enum Phase {
     /// Admitted, waiting for TypeScript's decision.
     Pending,
-    /// Decided accept: the reservation is TypeScript's, and the connection owns
-    /// the next step (the `ws` checks, the `101`, then `opened` or a release).
+    /// Decided accept: the reservation is TypeScript's while the connection runs
+    /// `ws`'s checks. A connection dropped here releases it.
+    Accepted,
+    /// Every check passed and the `101` is being written: no deadline may take
+    /// the reservation away any more.
     Writing,
     /// The `101` was flushed and the socket handed to JavaScript.
     Opened,
@@ -44,11 +49,12 @@ impl Phase {
     fn code(self) -> u8 {
         match self {
             Phase::Pending => 0,
-            Phase::Writing => 1,
-            Phase::Opened => 2,
-            Phase::Abandoned => 3,
-            Phase::TimedOut => 4,
-            Phase::Released => 5,
+            Phase::Accepted => 1,
+            Phase::Writing => 2,
+            Phase::Opened => 3,
+            Phase::Abandoned => 4,
+            Phase::TimedOut => 5,
+            Phase::Released => 6,
         }
     }
 }
@@ -69,10 +75,11 @@ impl Entry {
     fn phase(&self) -> Phase {
         match self.phase.load(Ordering::Acquire) {
             0 => Phase::Pending,
-            1 => Phase::Writing,
-            2 => Phase::Opened,
-            3 => Phase::Abandoned,
-            4 => Phase::TimedOut,
+            1 => Phase::Accepted,
+            2 => Phase::Writing,
+            3 => Phase::Opened,
+            4 => Phase::Abandoned,
+            5 => Phase::TimedOut,
             _ => Phase::Released,
         }
     }
@@ -143,14 +150,14 @@ impl Admission {
         self.take(id, Phase::Pending, Phase::Abandoned)
     }
 
-    /// The decision was accept: the reservation is recorded and the connection
-    /// owns the upgrade from here. `false` once it was abandoned or timed out.
-    pub fn hand_over(&self, id: u64, reservation: u64) -> bool {
+    /// The decision was accept: the reservation is recorded while the
+    /// connection runs `ws`'s checks. `false` once it was abandoned or timed out.
+    pub fn accepted(&self, id: u64, reservation: u64) -> bool {
         let mut rows = self.rows();
         let Some(entry) = rows.by_id.get(&id).cloned() else {
             return false;
         };
-        if !entry.take(Phase::Pending, Phase::Writing) {
+        if !entry.take(Phase::Pending, Phase::Accepted) {
             return false;
         }
         // Held reservations are looked up by their reservation from here on.
@@ -159,18 +166,35 @@ impl Admission {
         true
     }
 
+    /// Every `ws` check passed and the `101` is about to be written: from here
+    /// no deadline, disconnect or close may move the reservation. False when it
+    /// was already released, and nothing may be written then.
+    pub fn writing(&self, reservation: u64) -> bool {
+        let Some(entry) = self.rows().held.get(&reservation).cloned() else {
+            return false;
+        };
+        entry.take(Phase::Accepted, Phase::Writing)
+    }
+
     /// The connection released its reservation: a failed `ws` check, the closing
-    /// `503`, a failed `101`, or hyper's upgrade failing. `true` exactly once.
+    /// `503`, a failed `101`, hyper's upgrade failing, or the connection being
+    /// dropped after the accept. `true` exactly once.
     pub fn released(&self, reservation: u64) -> bool {
         let mut rows = self.rows();
         let Some(entry) = rows.held.get(&reservation).cloned() else {
             return false;
         };
-        if !entry.take(Phase::Writing, Phase::Released) {
-            return false;
+        // The connection may move to `Writing` in the same instant.
+        loop {
+            let phase = entry.phase();
+            if !matches!(phase, Phase::Accepted | Phase::Writing) {
+                return false;
+            }
+            if entry.take(phase, Phase::Released) {
+                rows.held.remove(&reservation);
+                return true;
+            }
         }
-        rows.held.remove(&reservation);
-        true
     }
 
     /// The `101` was flushed and the socket is registered. `true` exactly once:
@@ -208,166 +232,4 @@ impl Admission {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-    use std::thread;
-
-    use super::Admission;
-
-    #[test]
-    fn a_decision_racing_the_deadline_leaves_exactly_one_owner() {
-        for _ in 0..64 {
-            let admission = Arc::new(Admission::new());
-            let id = admission.begin();
-            let deciding = Arc::clone(&admission);
-            let timing_out = Arc::clone(&admission);
-            let (handed, timed_out) = thread::scope(|scope| {
-                let handed = scope.spawn(move || deciding.hand_over(id, 4));
-                let timed_out = scope.spawn(move || timing_out.timed_out(id));
-                (handed.join().unwrap(), timed_out.join().unwrap())
-            });
-            assert_ne!(handed, timed_out, "exactly one transition wins the race");
-            if handed {
-                assert!(
-                    !admission.released_late(id),
-                    "a held upgrade is no late one"
-                );
-                assert!(admission.released(4), "the holder releases its reservation");
-                assert!(!admission.released(4), "once");
-            } else {
-                assert!(!admission.released(4), "nothing was held");
-                assert!(
-                    admission.released_late(id),
-                    "the late acceptance is released"
-                );
-                assert!(!admission.released_late(id), "once");
-            }
-        }
-    }
-
-    #[test]
-    fn only_one_of_many_threads_releases_a_held_reservation() {
-        let admission = Arc::new(Admission::new());
-        let id = admission.begin();
-        assert!(admission.hand_over(id, 21));
-        let releases = thread::scope(|scope| {
-            let threads: Vec<_> = (0..8)
-                .map(|_| {
-                    let admission = Arc::clone(&admission);
-                    scope.spawn(move || admission.released(21))
-                })
-                .collect();
-            threads
-                .into_iter()
-                .map(|thread| thread.join().unwrap())
-                .filter(|released| *released)
-                .count()
-        });
-        assert_eq!(releases, 1, "release happens exactly once across threads");
-        assert!(!admission.opened(21), "and the reservation never opens");
-    }
-
-    #[test]
-    fn a_timeout_takes_an_upgrade_nobody_holds_and_nothing_else_can() {
-        let admission = Admission::new();
-        let id = admission.begin();
-        assert!(admission.timed_out(id), "the deadline answers 503 once");
-        assert!(
-            !admission.timed_out(id),
-            "a second deadline changes nothing"
-        );
-        assert!(
-            !admission.hand_over(id, 7),
-            "an acceptance after the deadline never becomes a held reservation"
-        );
-        assert!(
-            !admission.abandoned(id),
-            "a timed-out upgrade is no longer pending"
-        );
-        assert!(
-            admission.released_late(id),
-            "the late acceptance is released"
-        );
-        assert!(
-            !admission.released_late(id),
-            "and released exactly once, however often it is reported"
-        );
-    }
-
-    #[test]
-    fn a_held_reservation_is_released_exactly_once() {
-        let admission = Admission::new();
-        let id = admission.begin();
-        assert!(admission.hand_over(id, 11));
-        assert!(
-            admission.released(11),
-            "the connection's release is the one"
-        );
-        assert!(!admission.released(11), "and a repeat releases nothing");
-        assert!(!admission.opened(11), "a released reservation never opens");
-        assert!(
-            !admission.hand_over(id, 12),
-            "the upgrade was handed over already"
-        );
-    }
-
-    #[test]
-    fn an_opened_socket_is_never_released_afterwards() {
-        let admission = Admission::new();
-        let id = admission.begin();
-        assert!(admission.hand_over(id, 3));
-        assert!(admission.opened(3), "the flushed 101 registers one socket");
-        assert!(!admission.opened(3), "and a repeated opened registers none");
-        assert!(
-            !admission.released(3),
-            "a released reservation would double-release an open socket"
-        );
-    }
-
-    #[test]
-    fn a_deadline_cannot_abandon_or_time_out_a_held_reservation() {
-        let admission = Admission::new();
-        let id = admission.begin();
-        assert!(admission.hand_over(id, 5));
-        assert!(
-            !admission.abandoned(id),
-            "writing is past the close deadline"
-        );
-        assert!(!admission.timed_out(id), "and past admission's deadline");
-        assert!(admission.opened(5), "only the connection moves it on");
-    }
-
-    #[test]
-    fn a_connection_lost_while_pending_releases_a_late_acceptance_once() {
-        let admission = Admission::new();
-        let id = admission.begin();
-        assert!(admission.abandoned(id), "the connection went away");
-        assert!(
-            !admission.hand_over(id, 9),
-            "the acceptance arrives after nobody is listening"
-        );
-        assert!(
-            admission.released_late(id),
-            "so its reservation is released"
-        );
-        assert!(!admission.released_late(id));
-        assert!(!admission.opened(9), "and nothing is ever opened");
-    }
-
-    #[test]
-    fn a_refusal_holds_no_reservation_and_no_reservation_of_its_own_can_move() {
-        let admission = Admission::new();
-        let id = admission.begin();
-        admission.settled(id);
-        assert!(
-            !admission.released(1),
-            "a refused upgrade's reservation was never TypeScript's"
-        );
-        assert!(!admission.opened(1));
-        assert!(!admission.released_late(id), "nothing is held to release");
-        assert!(
-            !admission.hand_over(id, 1),
-            "a settled upgrade stays settled"
-        );
-    }
-}
+mod tests;

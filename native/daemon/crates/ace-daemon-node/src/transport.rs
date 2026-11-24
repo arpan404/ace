@@ -103,6 +103,22 @@ impl Shared {
     }
 }
 
+/// The close all `close` calls share: the first one stops the listener and waits
+/// for every socket, and the promise of each call settles on the same signal.
+struct CloseGate {
+    started: Mutex<bool>,
+    done: watch::Sender<bool>,
+}
+
+impl CloseGate {
+    fn new() -> Self {
+        Self {
+            started: Mutex::new(false),
+            done: watch::channel(false).0,
+        }
+    }
+}
+
 /// The sockets that reached `opened` and have not reported `close`.
 pub(crate) struct Live {
     next: AtomicU64,
@@ -155,6 +171,7 @@ pub(crate) fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 pub struct NativeLoopback {
     inner: Arc<Shared>,
     listener: Mutex<Option<LoopbackListener>>,
+    closing: CloseGate,
     port: u16,
 }
 
@@ -212,6 +229,7 @@ impl NativeLoopback {
                     let loopback = NativeLoopback {
                         inner: shared,
                         listener: Mutex::new(Some(listener)),
+                        closing: CloseGate::new(),
                         port,
                     };
                     deferred.resolve(move |_env| Ok(loopback));
@@ -229,24 +247,44 @@ impl NativeLoopback {
     }
 
     /// Stops accepting, abandons what is still deciding at the deadline, and
-    /// resolves once every socket that opened has reported `close`.
+    /// resolves once every socket that opened has reported `close` to
+    /// JavaScript. A second call waits on the same close, listener drain and
+    /// late registrations included.
     #[napi(catch_unwind)]
     pub fn close(&self, env: Env, deadline_ms: f64) -> napi::Result<Object<'static>> {
+        // Only the first call owns the listener join; every call settles on the
+        // one completion below.
+        let first = {
+            let mut started = locked(&self.closing.started);
+            let first = !*started;
+            *started = true;
+            first
+        };
+        let listener = if first {
+            locked(&self.listener).take()
+        } else {
+            None
+        };
         let shared = Arc::clone(&self.inner);
-        let listener = locked(&self.listener).take();
         let deadline = Duration::from_millis(deadline(deadline_ms));
+        let gate = self.closing.done.clone();
         let runtime = runtime()?;
         let (deferred, promise) = env.create_deferred()?;
         let raw = promise.raw();
         runtime.spawn(async move {
-            if let Some(listener) = listener {
-                listener.close(deadline).await;
+            if first {
+                if let Some(listener) = listener {
+                    listener.close(deadline).await;
+                }
+                // Every upgrade still deciding was dropped by the listener above,
+                // so its promise is no longer watched: TypeScript drops what it
+                // holds at close anyway.
+                let _ = shared.stop.send_replace(true);
+                shared.live.quiet().await;
+                let _ = gate.send_replace(true);
             }
-            // Every upgrade still deciding was dropped by the listener above, so
-            // its promise is no longer watched: TypeScript drops what it holds at
-            // close anyway.
-            let _ = shared.stop.send(true);
-            shared.live.quiet().await;
+            let mut done = gate.subscribe();
+            let _ = done.wait_for(|closed| *closed).await;
             deferred.resolve(|_env| Ok(()));
         });
         Ok(Object::from_raw(env.raw(), raw))
