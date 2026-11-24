@@ -20,6 +20,7 @@ export const reauthSentence = "Confirm your identity to continue.";
  */
 export function needsPerson(operation: MarketOperation): boolean {
   if (
+    operation.op === "previewTemplate" ||
     operation.op === "publishTemplate" ||
     operation.op === "shareSkill" ||
     isPersonOnlyOperation(operation.op)

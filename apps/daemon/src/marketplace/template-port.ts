@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { ShareTemplateDraft } from "@ace/protocol/marketplace";
+import { ShareReviewItem, ShareTemplateDraft, SpadeReviewProof } from "@ace/protocol/marketplace";
 import { spadeRequest, type SpadeConnection } from "../spade/forward.ts";
 import { personHeader, personStamp } from "../spade/person-stamp.ts";
 import type { TemplatePort } from "./publish-template.ts";
@@ -11,7 +11,14 @@ export function templatePort(input: {
 }): TemplatePort {
   async function stamped(
     id: string,
-    operation: "authorize" | "begin" | "published" | "skill-privacy",
+    operation:
+      | "preview"
+      | "authorize"
+      | "begin"
+      | "published"
+      | "skill-privacy"
+      | "attest"
+      | "skill-attest",
     data: unknown,
   ) {
     const connection = input.connection();
@@ -27,7 +34,9 @@ export function templatePort(input: {
         path:
           operation === "skill-privacy"
             ? "/v1/share-skills/privacy"
-            : `/v1/share-templates/${encodeURIComponent(id)}/${operation}`,
+            : operation === "skill-attest"
+              ? "/v1/share-skills/attest"
+              : `/v1/share-templates/${encodeURIComponent(id)}/${operation}`,
         body,
         contentType: "application/json",
         headers: {
@@ -44,7 +53,23 @@ export function templatePort(input: {
     }
     return response;
   }
+  const proofOf = (response: unknown) =>
+    SpadeReviewProof.parse(
+      response && typeof response === "object" ? Reflect.get(response, "proof") : undefined,
+    );
   return {
+    async attestTemplate(id, review, target, recipe) {
+      return proofOf(await stamped(id, "attest", { review, target, recipe }));
+    },
+    async attestSkill(target, files, acknowledged) {
+      return proofOf(await stamped("skill", "skill-attest", { target, files, acknowledged }));
+    },
+    async preview(id, review) {
+      const response = await stamped(id, "preview", review);
+      const items =
+        response && typeof response === "object" ? Reflect.get(response, "items") : undefined;
+      return ShareReviewItem.array().max(5000).parse(items);
+    },
     async authorize(id, review) {
       return ShareTemplateDraft.parse(await stamped(id, "authorize", review));
     },

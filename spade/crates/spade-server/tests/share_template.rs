@@ -39,8 +39,14 @@ async fn signed(
                 r#"import { templatePort } from "./apps/daemon/src/marketplace/template-port.ts";
                 import { publishTemplate } from "./apps/daemon/src/marketplace/publish-template.ts";
                 import { MarketHttp } from "./apps/daemon/src/marketplace/http.ts";
-                import { contentHash, hashFiles, readArchive, typeLimits } from "./packages/marketplace/src/index.ts";
+                import { contentHash, hashFiles, readArchive, sha256Hex, typeLimits, verifiesSpadeReview } from "./packages/marketplace/src/index.ts";
                 import { readFileSync } from "node:fs";
+                import { createPrivateKey, createPublicKey } from "node:crypto";
+                const keyForTest = createPrivateKey({
+                    key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.alloc(32, 3)]),
+                    format: "der", type: "pkcs8",
+                });
+                const publicKey = createPublicKey(keyForTest).export({format:"der",type:"spki"}).subarray(-32).toString("hex");
                 const [base, token, key, id, operation, data] = process.argv.slice(1);
                 const body = JSON.parse(data);
                 let captured;
@@ -116,6 +122,24 @@ async fn signed(
                         }
                     }
                     if (operation === "skill-privacy") await port.scanSkill(body);
+                    if (operation === "attest") {
+                        const draft = await port.authorize(id, body.review);
+                        const proof = await port.attestTemplate(id, body.review, body.target, JSON.stringify(draft.recipe));
+                        captured[1].verified = verifiesSpadeReview({type:"spade-bot", ...body.target}, proof, [publicKey]);
+                    }
+                    if (operation === "skill-attest") {
+                        const encoder = new TextEncoder();
+                        const files = body.files;
+                        const hashed = hashFiles(files.map(file => ({ ...file, content: encoder.encode(file.text) })));
+                        const target = { ...body.target, hash: contentHash(hashed) };
+                        const acknowledged = hashed.map(file => sha256Hex(encoder.encode(JSON.stringify(
+                            [file.path, file.executable, file.sha256],
+                        ))));
+                        if (body.drop) acknowledged.pop();
+                        const proof = await port.attestSkill(target, files, acknowledged);
+                        captured[1].verified = verifiesSpadeReview({type:"spade-skill", ...target}, proof, [publicKey]);
+                    }
+                    if (operation === "preview") await port.preview(id, body);
                     if (operation === "authorize") {
                         const draft = await port.authorize(id, body);
                         captured[1] = draft;
@@ -267,10 +291,10 @@ async fn template_draft_refuses_personal_data_and_bearer_cannot_publish() -> Res
     );
 
     let path = format!("/v1/share-templates/{id}/authorize");
-    let review = json!({
+    let mut review = json!({
         "revision": details["revision"],
         "visibility": "unlisted",
-        "reviewed": true,
+        "acknowledged": [],
         "name": "Render benchmarks",
         "description": "Measure rendering performance.",
         "task": "Compare median run times.",
@@ -312,6 +336,22 @@ async fn template_draft_refuses_personal_data_and_bearer_cannot_publish() -> Res
         json!("Discuss the octagon prototype budget with festival coordinators.");
     let (status, _, _) = signed(&spade, id, "authorize", &main_overlap).await?;
     assert_eq!(status, 422);
+    let (status, _, _) = signed(&spade, id, "authorize", &review).await?;
+    assert_eq!(status, 422, "missing acknowledgements must fail");
+    let (status, preview, _) = signed(&spade, id, "preview", &review).await?;
+    assert_eq!(status, 200);
+    review["acknowledged"] = json!(
+        preview["items"]
+            .as_array()
+            .ok_or("missing review items")?
+            .iter()
+            .map(|item| item["digest"].clone())
+            .collect::<Vec<_>>()
+    );
+    let mut stale = review.clone();
+    stale["task"] = json!("Measure performance again.");
+    let (status, _, _) = signed(&spade, id, "authorize", &stale).await?;
+    assert_eq!(status, 422, "changed text needs a fresh acknowledgement");
     let (status, authorized, stamp) = signed(&spade, id, "authorize", &review).await?;
     assert_eq!(status, 200, "{authorized}");
     assert_eq!(authorized["recipe"]["task"], "Compare median run times.");
@@ -381,6 +421,35 @@ async fn template_draft_refuses_personal_data_and_bearer_cannot_publish() -> Res
         "revision": review["revision"], "visibility": "unlisted",
         "hash": hash, "publisher": "pub_example",
     });
+    spade.keys.set_store_review_seed(&"03".repeat(32))?;
+    let target = json!({
+        "draft": "drf_reviewed", "publisher": "pub_example", "name": id.replace('_', "-"),
+        "version": "1.0.0", "visibility": "unlisted", "hash": hash,
+    });
+    let (status, signed_review, _) = signed(
+        &spade,
+        id,
+        "attest",
+        &json!({"target": target, "review": review}),
+    )
+    .await?;
+    assert_eq!(status, 200, "{signed_review}");
+    assert_eq!(signed_review["proof"].as_str().map(str::len), Some(193));
+    assert_eq!(signed_review["verified"], true);
+    let skill = json!({
+        "target": {"draft":"drf_skill","publisher":"pub_example","name":"measure",
+            "version":"1.2.0","visibility":"unlisted"},
+        "files":[{"path":"SKILL.md","executable":false,"text":"Measure startup separately."},
+            {"path":"checks.md","executable":false,"text":"Compare the medians."}]
+    });
+    let (status, signed_skill, _) = signed(&spade, "skill", "skill-attest", &skill).await?;
+    assert_eq!(status, 200, "{signed_skill}");
+    assert_eq!(signed_skill["verified"], true);
+    let mut missing = skill;
+    missing["drop"] = json!(true);
+    let (status, _, _) = signed(&spade, "skill", "skill-attest", &missing).await?;
+    assert_eq!(status, 422);
+
     let mut other_review = review.clone();
     let (_, other) = spade
         .get(&format!("/v1/share-templates/{other_id}"))

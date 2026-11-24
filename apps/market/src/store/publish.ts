@@ -137,6 +137,7 @@ export async function storePending(
     changelog?: string | undefined;
     visibility?: "listed" | "unlisted" | undefined;
     shareId?: string | undefined;
+    expectedGeneration?: number | undefined;
   },
 ): Promise<{
   owner: string | undefined;
@@ -160,6 +161,7 @@ export async function storePending(
     input.scanned ?? null,
     input.changelog ?? "",
     input.visibility ?? null,
+    input.expectedGeneration ?? null,
   ];
   const [, version] = await db.batch([
     db
@@ -180,6 +182,7 @@ export async function storePending(
             verdict, block_reason, scanned, changelog)
           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?9, ?10, ?11, ?12, ?13
           WHERE EXISTS (SELECT 1 FROM entries WHERE type = ?1 AND name = ?2 AND publisher = ?8
+            AND (?15 IS NULL OR generation = ?15)
             AND (?14 IS NULL OR visibility = ?14)
             AND (type != 'spade-skill' OR visibility != 'unlisted' OR audience != 'public'
               OR ?14 IS 'unlisted'))

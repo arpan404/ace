@@ -43,6 +43,7 @@ import {
 } from "./marketplace-publish-pick.ts";
 import { RegistryAdmin } from "./marketplace-registry.ts";
 import {
+  ShareReviewItem,
   ShareTemplateId,
   ShareTemplateReview,
   TemplateGrantTarget,
@@ -248,6 +249,11 @@ export type MarketPublisherPage = z.infer<typeof MarketPublisherPage>;
 export const marketPublishOperations = [
   z.strictObject({ op: z.literal("discover") }),
   z.strictObject({
+    op: z.literal("previewTemplate"),
+    id: ShareTemplateId,
+    review: ShareTemplateReview,
+  }),
+  z.strictObject({
     op: z.literal("publishTemplate"),
     id: ShareTemplateId,
     review: ShareTemplateReview,
@@ -259,12 +265,15 @@ export const marketPublishOperations = [
   z.strictObject({
     op: z.literal("report"),
     ...entry,
+    shareId: z.uuidv7().optional(),
     version: MarketVersion.optional(),
     reason: MarketReportReason,
     note: z.string().max(1000).default(""),
   }),
   z.strictObject({
     op: z.literal("shareSkill"),
+    version: MarketVersion.optional(),
+    acknowledged: z.array(MarketHash).max(1000).optional(),
     source: z.strictObject({
       kind: z.enum(["ace-skill", "spade-skill"]),
       id: z.string().min(1).max(128),
@@ -276,6 +285,7 @@ export const marketPublishOperations = [
 ] as const;
 
 export const marketPublishResults = [
+  z.strictObject({ op: z.literal("templateReview"), items: z.array(ShareReviewItem).max(5000) }),
   z.strictObject({ op: z.literal("templateGrant"), target: TemplateGrantTarget }),
   z.strictObject({
     op: z.literal("skillShareReview"),
@@ -285,6 +295,7 @@ export const marketPublishResults = [
       .array(
         z.strictObject({
           path: z.string(),
+          digest: MarketHash,
           text: z.string(),
           executable: z.boolean(),
         }),

@@ -3,6 +3,7 @@ import {
   ShareTemplateDetails,
   ShareTemplateReview,
   type MarketVisibility,
+  type MarketResult,
 } from "@ace/protocol/marketplace";
 import {
   parseSpadeAvatar,
@@ -42,6 +43,9 @@ export function SpadeTemplateCard(props: {
           ),
         )
       }
+      preview={async (review) =>
+        (await market(client, { op: "previewTemplate", id, review }, "templateReview")).items
+      }
       publish={async (review) => {
         await market(
           client,
@@ -79,6 +83,9 @@ export function TemplateCard(props: {
   avatar: SpadeAvatar;
   style?: SpadeAgentStyle | undefined;
   read(signal: AbortSignal): Promise<ShareTemplateDetails>;
+  preview(
+    review: ShareTemplateReview,
+  ): Promise<Extract<MarketResult, { op: "templateReview" }>["items"]>;
   publish(review: ShareTemplateReview): Promise<void>;
   live(signal: AbortSignal, shareId?: string): Promise<boolean>;
 }) {
@@ -200,6 +207,7 @@ export function TemplateCard(props: {
           destination={destination}
           setDestination={setDestination}
           close={() => setOpen(false)}
+          preview={props.preview}
           publish={async (review) => {
             await props.publish(ShareTemplateReview.parse(review));
             await details.refetch();

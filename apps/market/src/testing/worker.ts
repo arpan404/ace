@@ -105,7 +105,11 @@ export type FakeOrgStanding = Awaited<ReturnType<typeof fakeOrgStanding>>;
  * `grantKeys` (an account backend's), and asks `standing` whether an org grant is still current.
  */
 export async function launchMarketWorker(
-  options: { grantKeys?: readonly GrantKey[]; standing?: { url: string } } = {},
+  options: {
+    grantKeys?: readonly GrantKey[];
+    standing?: { url: string };
+    reviewKeys?: string;
+  } = {},
 ) {
   const harness = createTestHarness({
     workers: [
@@ -117,6 +121,7 @@ export async function launchMarketWorker(
           }),
           MARKET_PUBLIC_KEYS: JSON.stringify(keySetOf(marketKey)),
           MARKET_SIGNER_TOKEN: signerToken,
+          ...(options.reviewKeys && { SPADE_REVIEW_PUBLIC_KEYS: options.reviewKeys }),
           ...(options.standing
             ? { ACE_ORG_STANDING_URL: options.standing.url, ACE_ORG_STANDING_TOKEN: standingToken }
             : {}),

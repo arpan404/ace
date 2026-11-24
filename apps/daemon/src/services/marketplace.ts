@@ -198,7 +198,9 @@ function serviceAlone(
   return (
     marketplace?.request(
       operation,
-      operation.op === "publishTemplate" || operation.op === "shareSkill"
+      operation.op === "previewTemplate" ||
+        operation.op === "publishTemplate" ||
+        operation.op === "shareSkill"
         ? { grant, personGrant, names, withoutPerson }
         : operation.op === "publish"
           ? { grant, personGrant }

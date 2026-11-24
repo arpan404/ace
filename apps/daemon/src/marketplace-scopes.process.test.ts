@@ -244,7 +244,7 @@ test("a phone paired again with a standing key installs a plugin, and one paired
       id: `template_${"a".repeat(32)}`,
       review: {
         revision: "a".repeat(64),
-        reviewed: true,
+        acknowledged: [],
         visibility: "listed",
         name: "Benchmarks",
         description: "Measure rendering speed.",

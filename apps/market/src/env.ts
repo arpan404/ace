@@ -38,6 +38,8 @@ export interface Env {
   MARKET_PUBLIC_KEYS?: string;
   /** The signer's bearer token (a secret). Unset, the signer routes refuse every request. */
   MARKET_SIGNER_TOKEN?: string;
+  /** Operator-enrolled Ed25519 review public keys, indexed by Store publisher ID. */
+  SPADE_REVIEW_PUBLIC_KEYS?: string;
   /** The account backend's grant keys as a JSON `GrantKeySet`; set in tests. */
   ACE_GRANT_KEYS?: string;
   /** Where the grant keys are read when ACE_GRANT_KEYS is unset. */

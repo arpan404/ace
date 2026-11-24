@@ -108,7 +108,9 @@ export class MarketAgent {
       : [];
     return this.deps.marketplace.request(
       operation,
-      operation.op === "publishTemplate" || operation.op === "shareSkill"
+      operation.op === "previewTemplate" ||
+        operation.op === "publishTemplate" ||
+        operation.op === "shareSkill"
         ? { grant, names, personGrant, withoutPerson: by !== "person" }
         : operation.op === "publish"
           ? { grant, names, personGrant }
@@ -122,7 +124,11 @@ export class MarketAgent {
   }
 
   forAgent(threadId: string, operation: MarketOperation): Promise<MarketResult> {
-    if (operation.op === "publishTemplate" || operation.op === "shareSkill")
+    if (
+      operation.op === "previewTemplate" ||
+      operation.op === "publishTemplate" ||
+      operation.op === "shareSkill"
+    )
       return Promise.resolve(marketError("forbidden", "Only the person can share a bot or skill."));
 
     return agentMarketRequest(

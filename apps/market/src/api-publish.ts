@@ -1,11 +1,14 @@
 import { shareId, shareable } from "./share-id.ts";
+import { z } from "zod";
+import { compareVersions } from "./rules.ts";
 import { isShareTemplate } from "./route-keys.ts";
-import { maxArchiveBytes, writeArchive } from "@ace/marketplace";
+import { maxArchiveBytes, verifiesSpadeReview, writeArchive } from "@ace/marketplace";
 import type { CheckedEntry } from "@ace/marketplace/checks";
 import { handleProblem, skeleton } from "@ace/marketplace/profile";
 import { disposition } from "@ace/marketplace/scan";
 import {
   MarketDraftPatch,
+  SpadeReviewProof,
   MarketEntryName,
   MarketEntryType,
   MarketHandle,
@@ -125,6 +128,7 @@ async function storeScanned(
   reserve: () => Promise<Response | undefined>,
   changelog?: string,
   visibility?: MarketVisibility,
+  expectedGeneration?: number,
 ): Promise<Response> {
   const firstVersion = !(await hasVersions(context.dbs, publisher.id));
   const fate = disposition(scan, {
@@ -146,6 +150,7 @@ async function storeScanned(
     published: context.now,
     listing: checked.listing,
     visibility,
+    expectedGeneration,
     shareId:
       visibility === "unlisted" && shareable(key.type)
         ? shareId(context.now, crypto.getRandomValues(new Uint8Array(10)))
@@ -611,14 +616,49 @@ export async function draftRoute(
           url.searchParams.get("publisher") !== publisher.id ||
           url.searchParams.get("template") !== draft.name ||
           url.searchParams.get("version") !== draft.version ||
-          draft.version !== "1.0.0"
+          (isShareTemplate(draft) && draft.version !== "1.0.0")
         )
           return changed();
+        const proof = SpadeReviewProof.safeParse(url.searchParams.get("reviewProof")).data;
+        const pinned = reviewKeys(context.env.SPADE_REVIEW_PUBLIC_KEYS, publisher.id);
+        if (
+          !proof ||
+          !verifiesSpadeReview(
+            {
+              type: draft.type,
+              draft: draft.id,
+              publisher: publisher.id,
+              name: draft.name,
+              version: draft.version,
+              hash: draft.hash,
+              visibility,
+            },
+            proof,
+            pinned,
+          )
+        )
+          return failure(
+            403,
+            "forbidden",
+            "The reviewed package needs a trusted Spade attestation.",
+          );
       }
       return publishDraft(context, publisher, draft, visibility, reviewed);
     }
     default:
       return undefined;
+  }
+}
+
+function reviewKeys(config: string | undefined, publisher: string): string[] {
+  if (!config) return [];
+  try {
+    const keys = z
+      .record(z.string(), z.array(z.string().regex(/^[0-9a-f]{64}$/)).max(16))
+      .parse(JSON.parse(config));
+    return Object.hasOwn(keys, publisher) ? (keys[publisher] ?? []) : [];
+  } catch {
+    return [];
   }
 }
 
@@ -687,6 +727,26 @@ async function publishDraft(
       200,
     );
   }
+  let expectedGeneration: number | undefined;
+  if (draft.type === "spade-skill" && visibility === "unlisted") {
+    const { results } = await db
+      .prepare(
+        `SELECT e.generation, v.version FROM entries e LEFT JOIN versions v
+        ON v.type = e.type AND v.name = e.name AND v.state != 'blocked'
+        WHERE e.type = ?1 AND e.name = ?2`,
+      )
+      .bind(key.type, key.name)
+      .all<{ generation: number; version: string | null }>();
+    if (
+      results.some(({ version }) => version !== null && compareVersions(key.version, version) <= 0)
+    )
+      return failure(
+        409,
+        "conflict",
+        "Choose a version newer than every published version of this skill.",
+      );
+    expectedGeneration = results[0]?.generation ?? 0;
+  }
   const checked = await draftChecked(context, draft);
   if (!checked) return failure(409, "conflict", "The draft's archive is missing; upload it again.");
   if (checked.hash !== draft.hash) return changed();
@@ -704,6 +764,7 @@ async function publishDraft(
     claim,
     draft.changelog,
     visibility,
+    expectedGeneration,
   );
   if (answer.status === 201)
     await deletePublishedDraft(publishers, context.env.OBJECTS, draft.id, draft.hash);

@@ -6,6 +6,7 @@ import {
   marketCallBody,
   marketIntent,
   personMarketCall,
+  reviewAcknowledgementDigest,
   templateMarketCall,
 } from "@ace/client/market-intent";
 import type {
@@ -112,13 +113,26 @@ export async function market<T extends MarketResult["op"]>(
   ) {
     const { target } = result;
     if (
-      (operation.op === "publishTemplate"
+      operation.op === "publishTemplate"
         ? target.name !== operation.id.replaceAll("_", "-") ||
-          target.visibility !== operation.review.visibility
-        : target.hash !== operation.reviewed || target.visibility !== "unlisted") ||
-      target.version !== "1.0.0"
+          target.visibility !== operation.review.visibility ||
+          target.version !== "1.0.0"
+        : target.hash !== operation.reviewed ||
+          target.visibility !== "unlisted" ||
+          target.version !== (operation.version ?? "1.0.0")
     )
       throw new MarketFailure("conflict");
+    const acknowledged =
+      operation.op === "publishTemplate" ? operation.review.acknowledged : operation.acknowledged;
+    if (
+      !acknowledged?.length ||
+      target.proof?.split(".")[0] !== reviewAcknowledgementDigest(acknowledged)
+    )
+      throw new MarketFailure(
+        "conflict",
+        undefined,
+        "The Store proof differs from the reviewed checklist.",
+      );
     const call = templateMarketCall(target);
     const intent = await marketIntent({ ...call, body: undefined });
     const grant = await personGrant?.(intent);

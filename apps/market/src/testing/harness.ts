@@ -28,9 +28,12 @@ import {
 
 export { grantKey, marketGrant, marketKey, signerToken } from "./worker.ts";
 
-export async function startMarket() {
+export async function startMarket(reviewKeys?: string) {
   const standing = await fakeOrgStanding();
-  const { harness, url } = await launchMarketWorker({ standing });
+  const { harness, url } = await launchMarketWorker({
+    standing,
+    ...(reviewKeys && { reviewKeys }),
+  });
   const worker = harness.getWorker();
   const fetch = (path: string, init?: Parameters<typeof worker.fetch>[1]) =>
     worker.fetch(marketAddress(path), init);

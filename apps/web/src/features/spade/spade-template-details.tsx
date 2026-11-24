@@ -1,4 +1,5 @@
 import type {
+  MarketResult,
   MarketVisibility,
   ShareTemplateDetails,
   ShareTemplateDraft,
@@ -15,7 +16,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet.tsx";
 
-import { reviewItems, type TemplateEdits } from "./spade-template-review.ts";
+import type { TemplateEdits } from "./spade-template-review.ts";
 
 function editsOf(details: ShareTemplateDetails): TemplateEdits {
   const { recipe } = details.draft;
@@ -49,6 +50,9 @@ type SheetProps = {
   destination: MarketVisibility;
   setDestination(value: MarketVisibility): void;
   close(): void;
+  preview(
+    review: ShareTemplateReview,
+  ): Promise<Extract<MarketResult, { op: "templateReview" }>["items"]>;
   publish(review: ShareTemplateReview): Promise<void>;
 };
 
@@ -80,14 +84,14 @@ export function TemplateDetailsSheet(props: SheetProps) {
 function ReviewFields(props: SheetProps & { details: ShareTemplateDetails }) {
   const [edits, setEdits] = useState(() => editsOf(props.details));
   const [reviewed, setReviewed] = useState<ReadonlySet<string>>(new Set());
-  const items = reviewItems(props.details.draft, edits);
-  const allReviewed = items.every(({ key }) => reviewed.has(key));
+  const [items, setItems] = useState<Awaited<ReturnType<SheetProps["preview"]>>>([]);
+  const allReviewed = items.length > 0 && items.every(({ digest }) => reviewed.has(digest));
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
   const readOnly = pending || props.details.visibility !== null;
   const replaceEdits = (next: TemplateEdits) => {
-    const remaining = new Set(reviewItems(props.details.draft, next).map((item) => item.key));
-    setReviewed((current) => new Set([...current].filter((item) => remaining.has(item))));
+    setItems([]);
+    setReviewed(new Set());
     setEdits(next);
   };
   const set = <K extends keyof TemplateEdits>(key: K, value: TemplateEdits[K]) =>
@@ -105,12 +109,24 @@ function ReviewFields(props: SheetProps & { details: ShareTemplateDetails }) {
       | "event_routines",
     index: number,
   ) => replaceEdits({ ...edits, [key]: edits[key].filter((_, i) => i !== index) });
+  const preview = async () => {
+    setPending(true);
+    setError(undefined);
+    try {
+      setItems(await props.preview({ ...edits, acknowledged: [], visibility: props.destination }));
+      setReviewed(new Set());
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Couldn't prepare the final package.");
+    } finally {
+      setPending(false);
+    }
+  };
   const submit = async () => {
     if (pending || !allReviewed) return;
     setPending(true);
     setError(undefined);
     try {
-      await props.publish({ ...edits, reviewed: true, visibility: props.destination });
+      await props.publish({ ...edits, acknowledged: [...reviewed], visibility: props.destination });
       props.close();
     } catch (error) {
       setError(error instanceof Error ? error.message : "Couldn't publish the template.");
@@ -269,8 +285,11 @@ function ReviewFields(props: SheetProps & { details: ShareTemplateDetails }) {
         {props.details.visibility === null && (
           <section aria-label="Required review" className="space-y-2">
             <h3 className="font-medium">Review each item</h3>
-            {items.map(({ key, label, text }) => (
-              <details key={label}>
+            <Button size="sm" disabled={pending} onClick={() => void preview()}>
+              Review final package
+            </Button>
+            {items.map(({ digest, label, text }) => (
+              <details key={digest}>
                 <summary>{label}</summary>
                 <pre className="text-xs wrap-anywhere whitespace-pre-wrap">{text}</pre>
                 <label className="flex items-center gap-2">
@@ -278,12 +297,12 @@ function ReviewFields(props: SheetProps & { details: ShareTemplateDetails }) {
                     type="checkbox"
                     aria-label={`Reviewed ${label}`}
                     disabled={pending}
-                    checked={reviewed.has(key)}
+                    checked={reviewed.has(digest)}
                     onChange={({ currentTarget: { checked } }) => {
                       setReviewed((previous) => {
                         const next = new Set(previous);
-                        if (checked) next.add(key);
-                        else next.delete(key);
+                        if (checked) next.add(digest);
+                        else next.delete(digest);
                         return next;
                       });
                     }}

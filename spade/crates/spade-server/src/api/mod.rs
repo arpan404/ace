@@ -32,6 +32,7 @@ mod routing;
 mod running;
 mod search_usage;
 mod security;
+mod share_review_proof;
 mod share_templates;
 mod sign_in;
 mod skills;
@@ -94,10 +95,19 @@ pub fn router(state: AppState) -> Router {
     let v1 = Router::new()
         .route("/conversations", get(list).post(no_new_chats))
         .route("/share-skills/privacy", post(share_templates::scan_skill))
+        .route("/share-skills/attest", post(share_templates::attest_skill))
+        .route(
+            "/share-templates/{id}/attest",
+            post(share_templates::attest_template),
+        )
         .route("/share-templates/{id}", get(share_templates::read))
         .route(
             "/share-templates/{id}/authorize",
             post(share_templates::authorize),
+        )
+        .route(
+            "/share-templates/{id}/preview",
+            post(share_templates::preview),
         )
         .route("/share-templates/{id}/begin", post(share_templates::begin))
         .route(

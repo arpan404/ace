@@ -113,6 +113,12 @@ export function marketActionOrg(action: MarketPublishAction): string | undefined
     : undefined;
 }
 
+/** Matches the checklist committed in Spade's review signature. */
+export function reviewAcknowledgementDigest(items: readonly string[]): string {
+  const digest = sha256(new TextEncoder().encode(JSON.stringify(items.toSorted())));
+  return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 /** The one Store write a template confirmation authorizes. */
 export function templateMarketCall(target: TemplateGrantTarget): PersonMarketCall {
   const query = new URLSearchParams({
@@ -122,5 +128,6 @@ export function templateMarketCall(target: TemplateGrantTarget): PersonMarketCal
     reviewed: target.hash,
     visibility: target.visibility,
   });
+  if (target.proof) query.set("reviewProof", target.proof);
   return { method: "POST", path: `/v1/me/drafts/${segment(target.draft)}/publish?${query}` };
 }

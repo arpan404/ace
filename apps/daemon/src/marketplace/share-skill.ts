@@ -1,4 +1,4 @@
-import { credentialFile, writeArchive } from "@ace/marketplace";
+import { credentialFile, sha256Hex, writeArchive } from "@ace/marketplace";
 import { checkFiles } from "@ace/marketplace/checks";
 import { hiddenFileFindings } from "@ace/marketplace/scan";
 import { templateMarketCall } from "@ace/client/market-intent";
@@ -18,13 +18,14 @@ export async function shareSkill(
   operation: Operation,
   pick: PickPorts,
   privacy: NonNullable<TemplatePort["scanSkill"]>,
+  attest: NonNullable<TemplatePort["attestSkill"]>,
   market: Parameters<typeof publishAction>[0],
   names: readonly string[],
 ): Promise<MarketResult> {
   if (!market.http || !names[0]?.trim() || !names[1]?.includes("@"))
     return error("signed_out", "Sign in to ace to check the skill against your identity.");
   const type = "spade-skill";
-  const version = "1.0.0";
+  const version = operation.version ?? "1.0.0";
   const visibility = "unlisted";
   const picked = await readPicked(pick, type, operation.source);
   if (picked?.kind !== "files" || !picked.picked)
@@ -36,7 +37,7 @@ export async function shareSkill(
   if (checked.problems.length)
     return error("invalid", checked.problems[0]?.message ?? "The skill cannot be packaged.");
   const files = [];
-  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
   for (const file of checked.files) {
     let text: string;
     try {
@@ -51,11 +52,24 @@ export async function shareSkill(
       hiddenFileFindings(file.path, text).some(({ level }) => level === "block")
     )
       return error("invalid", "The skill contains private or hidden text.");
-    files.push({ path: file.path, text, executable: file.executable });
+    const digest = sha256Hex(
+      new TextEncoder().encode(
+        JSON.stringify([file.path, file.executable, sha256Hex(file.content)]),
+      ),
+    );
+    files.push({ path: file.path, text, executable: file.executable, digest });
   }
   const { hash } = checked;
   if (operation.reviewed !== undefined && operation.reviewed !== hash)
     return error("conflict", "The skill changed. Review its files again.");
+  const acknowledgements = new Set(operation.acknowledged);
+  if (
+    operation.reviewed &&
+    (acknowledgements.size !== files.length ||
+      operation.acknowledged?.length !== files.length ||
+      files.some(({ digest }) => !acknowledgements.has(digest)))
+  )
+    return error("invalid", "Review every file in the skill before sharing.");
   const texts = files.flatMap(({ path, text }) => [path, text]);
   await privacy(texts);
   if (!operation.reviewed) return { op: "skillShareReview", name, hash, files };
@@ -80,9 +94,9 @@ export async function shareSkill(
       )
     )
       return { op: "skillShared", id: summary.shareId };
-    return error("conflict", "This skill name already has a different publication.");
-  }
-  if (existing.op !== "error" || existing.code !== "not_found") return existing;
+    if (summary.visibility !== visibility)
+      return error("conflict", "This skill already has a listed publication.");
+  } else if (existing.op !== "error" || existing.code !== "not_found") return existing;
   const draft = mine.answer.me.drafts.find(
     (row) => row.type === type && row.name === name && row.version === version && row.hash === hash,
   );
@@ -105,9 +119,14 @@ export async function shareSkill(
     publisher,
     visibility,
   } as const;
-  if (!market.personGrant) return { op: "templateGrant", target };
-  await privacy(texts);
-  const call = templateMarketCall(target);
+  const proof = await attest(
+    target,
+    files.map(({ digest: _digest, ...file }) => file),
+    [...acknowledgements],
+  );
+  const publication = { ...target, proof };
+  if (!market.personGrant) return { op: "templateGrant", target: publication };
+  const call = templateMarketCall(publication);
   const reply = await market.http.send(call.method, call.path, {
     headers: { authorization: `Bearer ${market.personGrant}` },
   });

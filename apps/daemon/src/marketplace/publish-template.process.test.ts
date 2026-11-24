@@ -99,6 +99,8 @@ beforeEach(async () => {
         },
       }),
       scanSkill: async () => {},
+      attestSkill: async () => `${"1".repeat(64)}.${"2".repeat(128)}`,
+      attestTemplate: async () => `${"1".repeat(64)}.${"2".repeat(128)}`,
       begin: async (_id, _review, draft) => {
         candidate = draft;
       },
@@ -245,7 +247,7 @@ const operation = (visibility: "listed" | "unlisted"): MarketOperation => ({
   id,
   review: {
     revision: "a".repeat(64),
-    reviewed: true,
+    acknowledged: [],
     visibility,
     name: "Render benchmarks",
     description: "Measure rendering speed.",
@@ -431,7 +433,17 @@ test("an unlisted skill needs the reviewed bytes and a person grant and installs
     files: [{ path: "SKILL.md", text: expect.stringContaining(skillFile) }],
   });
   if (review.op !== "skillShareReview") throw new Error("Expected a skill review.");
-  const confirmed = { ...preview, reviewed: review.hash };
+  expect(
+    await harness.service.request({ ...preview, reviewed: review.hash }, standing),
+  ).toMatchObject({
+    op: "error",
+    code: "invalid",
+  });
+  const confirmed = {
+    ...preview,
+    reviewed: review.hash,
+    acknowledged: review.files.map(({ digest }) => digest),
+  };
   const original = skillFile;
   skillFile = "The procedure has changed.";
   expect(await harness.service.request(confirmed, standing)).toMatchObject({

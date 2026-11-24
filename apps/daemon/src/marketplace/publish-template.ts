@@ -21,6 +21,21 @@ export type TemplateBinding = Pick<TemplateGrantTarget, "hash" | "visibility" | 
 };
 
 export interface TemplatePort {
+  attestTemplate?(
+    id: string,
+    review: ShareTemplateReview,
+    target: TemplateGrantTarget,
+    recipe: string,
+  ): Promise<string>;
+  attestSkill?(
+    target: TemplateGrantTarget,
+    files: readonly { path: string; text: string; executable: boolean }[],
+    acknowledged: readonly string[],
+  ): Promise<string>;
+  preview?(
+    id: string,
+    review: ShareTemplateReview,
+  ): Promise<Extract<MarketResult, { op: "templateReview" }>["items"]>;
   authorize(id: string, review: ShareTemplateReview): Promise<ShareTemplateDraft>;
   begin(
     id: string,
@@ -185,10 +200,14 @@ export async function publishTemplate(
     publisher,
     visibility: review.visibility,
   } as const;
-  if (!market.personGrant) return { op: "templateGrant", target };
+  if (!port.attestTemplate)
+    return marketError("unavailable", "Spade cannot attest to this review.");
+  const proof = await port.attestTemplate(id, review, target, JSON.stringify(draft.recipe));
+  const publication = { ...target, proof };
+  if (!market.personGrant) return { op: "templateGrant", target: publication };
   // Check the source bot and its current private data again at handoff, including after a restart.
   await port.begin(id, review, draft, binding);
-  const call = templateMarketCall(target);
+  const call = templateMarketCall(publication);
   const response = await market.http.send(call.method, call.path, {
     headers: { authorization: `Bearer ${market.personGrant}` },
   });

@@ -1,3 +1,6 @@
+import { opaqueWithdrawalId } from "@ace/marketplace";
+import { signedWithdrawn } from "@ace/marketplace/testing";
+import { createHash, createPrivateKey, createPublicKey, sign } from "node:crypto";
 import { grantPublicKey, signMarketGrant } from "@ace/account-grant";
 import { readFileSync, readdirSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
@@ -5,12 +8,49 @@ import { URL as FileUrl } from "node:url";
 import { expect, test } from "vitest";
 import { meRoute } from "./api-me.ts";
 import { configuredKeys } from "./grant-keys.ts";
+import { discoverRoute } from "./api-discover.ts";
 import { readRoute } from "./api-read.ts";
 import type { Context } from "./context.ts";
 import { matchRoute } from "./routes.ts";
 import { shareId } from "./share-id.ts";
 
-function database(name: "catalogue" | "counts" | "publishers") {
+test("migration 0004 backfills only public unlisted bots and skills", () => {
+  const sql = new DatabaseSync(":memory:");
+  const migrations = new FileUrl("../migrations/catalogue/", import.meta.url);
+  try {
+    const files = readdirSync(migrations).toSorted();
+    for (const file of files.filter((file) => file < "0004"))
+      sql.exec(readFileSync(new FileUrl(file, migrations), "utf8"));
+    sql.exec(`
+      INSERT INTO publisher_copies (id, name, state, verified, created, revision)
+        VALUES ('pub', 'owner', 'active', 0, 1, 1);
+      INSERT INTO entries (type, name, publisher, visibility, audience) VALUES
+        ('spade-bot', 'bot', 'pub', 'unlisted', 'public'),
+        ('spade-skill', 'skill', 'pub', 'unlisted', 'public'),
+        ('spade-skill', 'public', 'pub', 'listed', 'public'),
+        ('spade-skill', 'org', 'pub', 'unlisted', 'org:test'),
+        ('suit', 'suit', 'pub', 'unlisted', 'public');
+    `);
+    sql.exec(readFileSync(new FileUrl("0004_share_ids.sql", migrations), "utf8"));
+    const shared = sql
+      .prepare("SELECT name, share_id FROM entries WHERE share_id IS NOT NULL ORDER BY name")
+      .all();
+    expect(shared).toEqual(
+      ["bot", "skill"].map((name) => ({
+        name,
+        share_id: expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+        ),
+      })),
+    );
+    expect(new Set(shared.map((row) => row.share_id)).size).toBe(2);
+    expect(sql.prepare("SELECT COUNT(*) AS count FROM entries").get()?.count).toBe(5);
+  } finally {
+    sql.close();
+  }
+});
+
+function database(name: "catalogue" | "counts" | "publishers" | "moderation" | "lists") {
   const sql = new DatabaseSync(":memory:");
   const migrations = new FileUrl(`../migrations/${name}/`, import.meta.url);
   for (const file of readdirSync(migrations).toSorted())
@@ -24,6 +64,7 @@ function database(name: "catalogue" | "counts" | "publishers") {
         return {
           first: async () => (values.length ? statement.get(args) : statement.get()) ?? null,
           all: async () => ({ results: values.length ? statement.all(args) : statement.all() }),
+          run: async () => ({ meta: statement.run(args) }),
           bind: (...values: SQLInputValue[]) => prepared(values),
         };
       };
@@ -38,6 +79,8 @@ test.each(["spade-bot", "spade-skill"] as const)(
   async (type) => {
     const catalogue = database("catalogue");
     const counts = database("counts");
+    const moderation = database("moderation");
+    const lists = database("lists");
     const publishers = database("publishers");
     try {
       const now = 1_700_000_000_000;
@@ -59,10 +102,13 @@ test.each(["spade-bot", "spade-skill"] as const)(
         .run(type, name, hash, JSON.stringify({ payload: "signed", signature: "signature" }));
       const context = {
         now,
+        newId: () => "rpt_private",
         dbs: {
           catalogue: (requested: string) => (requested === type ? catalogue.db : undefined),
           catalogues: [{ type, db: catalogue.db }],
           counts: counts.db,
+          moderation: moderation.db,
+          lists: lists.db,
           publishers: publishers.db,
         },
       } as unknown as Context;
@@ -76,6 +122,32 @@ test.each(["spade-bot", "spade-skill"] as const)(
       expect((await fetch(`/v1/entries/${type}/${name}/1.0.0`))?.status).toBe(404);
       expect((await fetch(`/v1/objects/${hash}`))?.status).toBe(404);
       expect((await fetch(`/i/${name}`))?.status).toBe(404);
+      const report = (key: object) => {
+        const url = new URL("https://market.example/v1/reports");
+        return discoverRoute(
+          new Request(url, {
+            method: "POST",
+            body: JSON.stringify({ ...key, reason: "spam" }),
+          }),
+          url,
+          { kind: "report" },
+          context,
+        );
+      };
+      expect((await report({ type, name }))?.status).toBe(404);
+      expect((await report({ shareId: id }))?.status).toBe(202);
+
+      const legacy = { type, name, hash, version: "1.0.0" };
+      const writeWithdrawal = (signed: unknown) =>
+        lists.sql
+          .prepare("INSERT OR REPLACE INTO withdrawn (id, issued, signed) VALUES (1, ?, ?)")
+          .run(now, JSON.stringify(signed));
+      writeWithdrawal(signedWithdrawn([{ ...legacy, reason: "Private reason" }]));
+      expect((await fetch("/v1/withdrawn"))?.status).toBe(503);
+      writeWithdrawal(signedWithdrawn([{ hash: opaqueWithdrawalId(legacy), reason: "Withdrawn" }]));
+      const redacted = await fetch("/v1/withdrawn");
+      expect(redacted?.status).toBe(200);
+      expect(await redacted?.text()).not.toContain(name);
       const page = await fetch(`/i/${id}`);
       expect(await page?.json()).toMatchObject({ entry: { type, name }, versions: [{ hash }] });
       expect((await fetch(`/v1/i/${id}/versions/1.0.0`))?.status).toBe(200);
@@ -88,6 +160,8 @@ test.each(["spade-bot", "spade-skill"] as const)(
     } finally {
       catalogue.sql.close();
       counts.sql.close();
+      moderation.sql.close();
+      lists.sql.close();
       publishers.sql.close();
     }
   },
@@ -107,6 +181,7 @@ test.each([
       const publisher = "pub_tester";
       const hash = "a".repeat(64);
       const draft = "drf_abcdefgh";
+      const version = type === "spade-skill" ? "1.2.0" : "1.0.0";
       const key = { id: "test", privateKey: new Uint8Array(32).fill(3) };
       const grant = signMarketGrant(
         {
@@ -126,12 +201,19 @@ test.each([
         .run(publisher, account, now);
       publishers.sql
         .prepare(
-          "INSERT INTO drafts (id, publisher, type, name, version, hash, size, files, title, scan_state, verdict, created, updated) VALUES (?, ?, ?, ?, '1.0.0', ?, 5, 1, 'Private archive', 'done', 'pass', ?, ?)",
+          "INSERT INTO drafts (id, publisher, type, name, version, hash, size, files, title, scan_state, verdict, created, updated) VALUES (?, ?, ?, ?, ?, ?, 5, 1, 'Private archive', 'done', 'pass', ?, ?)",
         )
-        .run(draft, publisher, type, name, hash, now, now);
+        .run(draft, publisher, type, name, version, hash, now, now);
       const context = {
         now,
-        env: {},
+        env: {
+          OBJECTS: {
+            get: async (key: string) =>
+              key.startsWith("reports/drafts/")
+                ? { json: async () => ({ hash, verdict: "pass" }) }
+                : null,
+          },
+        },
         grantKeys: configuredKeys(JSON.stringify({ keys: [grantPublicKey(key)] })),
         dbs: {
           publishers: publishers.db,
@@ -144,7 +226,7 @@ test.each([
         visibility: "unlisted",
         publisher,
         template: name,
-        version: "1.0.0",
+        version,
         reviewed: hash,
       }).toString();
       const matched = matchRoute("POST", url.pathname);
@@ -157,6 +239,87 @@ test.each([
       );
       expect(response?.status).toBe(401);
       expect(await response?.json()).toMatchObject({ error: "person_grant" });
+      const seed = Buffer.alloc(32, 3);
+      const privateKey = createPrivateKey({
+        key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), seed]),
+        format: "der",
+        type: "pkcs8",
+      });
+      const publicKey = createPublicKey(privateKey)
+        .export({ format: "der", type: "spki" })
+        .subarray(-32)
+        .toString("hex");
+      context.env.SPADE_REVIEW_PUBLIC_KEYS = JSON.stringify({ [publisher]: [publicKey] });
+      const asPerson = (url: URL, issued = now) => {
+        const action = `POST ${url.pathname}${url.search} ${createHash("sha256").digest("base64url")}`;
+        const grant = signMarketGrant(
+          {
+            kind: "device",
+            account,
+            subject: "app",
+            iss: "cloud.acehq.dev",
+            emailVerified: true,
+            authAt: now,
+            iat: issued,
+            exp: issued + 60_000,
+            action,
+          },
+          key,
+        );
+        return meRoute(
+          new Request(url, { method: "POST", headers: { authorization: `Bearer ${grant}` } }),
+          url,
+          matched.route,
+          context,
+        );
+      };
+      expect((await asPerson(url))?.status).toBe(403);
+      const items = "b".repeat(64);
+      const attest = (bound: string) => {
+        const statement = JSON.stringify([
+          "ace-spade-market-review/1",
+          type,
+          publisher,
+          name,
+          version,
+          hash,
+          "unlisted",
+          bound,
+          items,
+        ]);
+        return `${items}.${sign(null, Buffer.from(statement), privateKey).toString("hex")}`;
+      };
+      url.searchParams.set("reviewProof", attest("drf_different"));
+      expect((await asPerson(url))?.status).toBe(403);
+      url.searchParams.set("reviewProof", attest(draft));
+      const acceptedProof = await asPerson(url);
+      expect(acceptedProof?.status).toBe(409);
+      expect(await acceptedProof?.json()).toMatchObject({
+        message: expect.stringContaining("archive is missing"),
+      });
+      expect((await asPerson(url))?.status).toBe(401);
+      if (type === "spade-skill") {
+        catalogue.sql
+          .prepare(
+            "INSERT INTO publisher_copies (id, name, state, verified, created, revision) VALUES (?, 'tester', 'active', 0, 1, 1)",
+          )
+          .run(publisher);
+        catalogue.sql
+          .prepare(
+            "INSERT INTO entries (type, name, publisher, visibility) VALUES (?, ?, ?, 'unlisted')",
+          )
+          .run(type, name, publisher);
+        catalogue.sql
+          .prepare(
+            "INSERT INTO versions (type, name, version, hash, size, published, listing) VALUES (?, ?, '2.0.0', ?, 5, 1, '{}')",
+          )
+          .run(type, name, hash);
+        const stale = await asPerson(url, now - 1);
+        expect(stale?.status).toBe(409);
+        expect(await stale?.json()).toMatchObject({
+          message: expect.stringContaining("Choose a version newer"),
+        });
+      }
     } finally {
       publishers.sql.close();
       catalogue.sql.close();

@@ -508,18 +508,28 @@ export class MarketplaceService {
         if (ports.withoutPerson !== false)
           return error("forbidden", "Only the person can share a skill.");
         const privacy = this.#options.templates?.scanSkill;
+        const attest = this.#options.templates?.attestSkill;
         const pick = this.#pick(ports.names);
-        if (!privacy || !pick)
+        if (!privacy || !attest || !pick)
           return error("unavailable", "Spade isn't ready to check this skill.");
         return this.#serial(() =>
           shareSkill(
             operation,
             pick,
             privacy,
+            attest,
             { http: this.#http(), grant: ports.grant, personGrant: ports.personGrant },
             ports.names ?? [],
           ),
         );
+      }
+      case "previewTemplate": {
+        if (ports.withoutPerson !== false)
+          return error("forbidden", "Only the person can review a template.");
+        const preview = this.#options.templates?.preview;
+        if (!preview || !ports.names?.[0]?.trim() || !ports.names[1]?.includes("@"))
+          return error("signed_out", "Sign in to ace and reconnect to review the template.");
+        return { op: "templateReview", items: await preview(operation.id, operation.review) };
       }
       case "publishTemplate": {
         if (ports.withoutPerson !== false)

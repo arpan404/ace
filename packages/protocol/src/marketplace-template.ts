@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MarketEntryName, MarketHash } from "./marketplace-base.ts";
+import { MarketEntryName, MarketHash, MarketVersion } from "./marketplace-base.ts";
 import {
   PackageHeartbeat,
   PackageKnowledgePage,
@@ -30,18 +30,27 @@ const File = z.object({
 const References = z.array(z.string().max(120)).max(32);
 const Knowledge = z.array(PackageKnowledgePage).max(32);
 
+export const SpadeReviewProof = z.string().regex(/^[0-9a-f]{64}\.[0-9a-f]{128}$/);
+
 export const TemplateGrantTarget = z.strictObject({
+  proof: SpadeReviewProof.optional(),
   draft: MarketDraftId,
   publisher: z.string().min(1).max(64),
   name: MarketEntryName,
   hash: MarketHash,
-  version: z.literal("1.0.0"),
+  version: MarketVersion,
   visibility: MarketVisibility,
 });
 export type TemplateGrantTarget = z.infer<typeof TemplateGrantTarget>;
 
+export const ShareReviewItem = z.strictObject({
+  digest: MarketHash,
+  label: z.string(),
+  text: z.string(),
+});
+
 export const ShareTemplateReview = z.strictObject({
-  reviewed: z.literal(true),
+  acknowledged: z.array(MarketHash).max(5000),
   revision: MarketHash,
   visibility: MarketVisibility,
   knowledge: Knowledge.optional(),

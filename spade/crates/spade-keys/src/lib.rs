@@ -124,6 +124,16 @@ impl KeyStore {
         self.remove(&format!("{ACE_GRANT}:{slot}"))
     }
 
+    /// The operator-provisioned Ed25519 seed used only to attest Store reviews (ADR 0228).
+    pub fn store_review_seed(&self) -> Result<Option<String>, KeyError> {
+        self.read("ace:store-review")
+    }
+
+    /// Installs a review signing seed in Spade's keychain namespace.
+    pub fn set_store_review_seed(&self, seed: &str) -> Result<(), KeyError> {
+        self.write("ace:store-review", checked(seed)?)
+    }
+
     /// A connector's secret of `kind` (`access`, `refresh`, `client_secret`), if stored
     /// (ADR 0131). Account `connector:<id>:<kind>`.
     pub fn connector_secret(&self, id: &str, kind: &str) -> Result<Option<String>, KeyError> {

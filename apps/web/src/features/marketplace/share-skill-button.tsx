@@ -30,6 +30,7 @@ export function ShareSkillButton({
   title?: string | undefined;
 }) {
   const grant = usePersonGrant();
+  const [version, setVersion] = useState("1.0.0");
   const [open, setOpen] = useState(false);
   const [review, setReview] = useState<Review>();
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
@@ -60,7 +61,13 @@ export function ShareSkillButton({
     try {
       const { id } = await market(
         client,
-        { op: "shareSkill", source, reviewed: review.hash },
+        {
+          op: "shareSkill",
+          source,
+          version,
+          reviewed: review.hash,
+          acknowledged: review.files.map((file) => file.digest),
+        },
         "skillShared",
         undefined,
         grant,
@@ -91,6 +98,17 @@ export function ShareSkillButton({
             </SheetDescription>
           </SheetHeader>
           <div className="flex flex-col gap-4 overflow-auto px-4 pb-4">
+            {review && !link && (
+              <label className="flex flex-col gap-2">
+                Version
+                <input
+                  className="rounded-md border border-border px-2 py-1"
+                  value={version}
+                  disabled={pending}
+                  onChange={(event) => setVersion(event.currentTarget.value)}
+                />
+              </label>
+            )}
             {problem && <p role="alert">{problem}</p>}
             {pending && !review && <p role="status">Checking skill…</p>}
             {link ? (

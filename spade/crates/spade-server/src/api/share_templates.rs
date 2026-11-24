@@ -8,14 +8,14 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use spade_core::package::playbooks::Page;
 
-use super::{AppState, problem};
+use super::{AppState, problem, share_review_proof as proof};
 use crate::teams::share_template::{self, Draft, Schedule};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Review {
     revision: String,
-    reviewed: bool,
+    acknowledged: Vec<String>,
     name: String,
     description: String,
     task: String,
@@ -157,6 +157,188 @@ pub(super) async fn scan_skill(
     }
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SkillAttestation {
+    target: proof::Target,
+    files: Vec<proof::File>,
+    acknowledged: Vec<String>,
+}
+
+pub(super) async fn attest_skill(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    bytes: Bytes,
+) -> Response {
+    if !stamped(&state, "skill", "skill-attest", &headers, &bytes) {
+        return problem(StatusCode::FORBIDDEN, crate::security::attest::CONFIRM);
+    }
+    let Ok(SkillAttestation {
+        target,
+        mut files,
+        mut acknowledged,
+    }) = serde_json::from_slice::<SkillAttestation>(&bytes)
+    else {
+        return problem(StatusCode::BAD_REQUEST, "That isn't a skill review.");
+    };
+    let mut expected: Vec<_> = files.iter().map(proof::file_digest).collect();
+    expected.sort_unstable();
+    acknowledged.sort_unstable();
+    if target.visibility != "unlisted"
+        || expected != acknowledged
+        || !proof::matches_hash(&mut files, &target.hash)
+    {
+        return problem(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Review the exact skill files before publishing.",
+        );
+    }
+    let Ok(words) = share_template::private_words(
+        &state.engine,
+        None,
+        state.connectors.as_deref(),
+        &share_template::system_words(),
+    ) else {
+        return problem(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Spade couldn't check the skill's privacy.",
+        );
+    };
+    let text: Vec<_> = files
+        .iter()
+        .flat_map(|file| [&file.path, &file.text])
+        .collect();
+    if spade_core::template_privacy::contains_private_text(&json!(text), &words) {
+        return problem(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "The skill contains private text.",
+        );
+    }
+    let Some(key) = proof::load_key(&state).await else {
+        return missing_review_key();
+    };
+    attestation(&key, "spade-skill", &target, acknowledged)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TemplateAttestation {
+    target: proof::Target,
+    review: Review,
+    recipe: String,
+}
+
+pub(super) async fn attest_template(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    bytes: Bytes,
+) -> Response {
+    if !stamped(&state, &id, "attest", &headers, &bytes) {
+        return problem(StatusCode::FORBIDDEN, crate::security::attest::CONFIRM);
+    }
+    let Ok(TemplateAttestation {
+        target,
+        review,
+        recipe,
+    }) = serde_json::from_slice::<TemplateAttestation>(&bytes)
+    else {
+        return problem(StatusCode::BAD_REQUEST, "That isn't a template review.");
+    };
+    if target.name != id.replace('_', "-")
+        || target.version != "1.0.0"
+        || target.visibility != review.visibility
+    {
+        return problem(
+            StatusCode::CONFLICT,
+            "The publication differs from the review.",
+        );
+    }
+    let Some(key) = proof::load_key(&state).await else {
+        return missing_review_key();
+    };
+    state.engine.share_template_write(|| {
+        let mut draft = match load(&state, &id) {
+            Ok(draft) => draft,
+            Err(response) => return *response,
+        };
+        let Ok(Some(saved)) = attempt(&state, &draft.bot, &id) else {
+            return problem(
+                StatusCode::CONFLICT,
+                "The publication attempt is unavailable.",
+            );
+        };
+        if saved.binding.hash != target.hash
+            || saved.binding.publisher != target.publisher
+            || saved.binding.revision != review.revision
+            || saved.binding.visibility != target.visibility
+        {
+            return problem(
+                StatusCode::CONFLICT,
+                "The publication differs from the review.",
+            );
+        }
+        let acknowledged = review.acknowledged.clone();
+        if let Err(response) = validate_review(&state, &id, &mut draft, review, true) {
+            return *response;
+        }
+        if serde_json::from_str::<Value>(&recipe).ok().as_ref() != Some(&draft.recipe) {
+            return problem(
+                StatusCode::CONFLICT,
+                "The packaged recipe differs from the review.",
+            );
+        }
+        let mut files = vec![proof::File {
+            path: "bot.json".to_owned(),
+            text: recipe,
+            executable: false,
+        }];
+        for skill in draft.skills {
+            files.push(proof::File {
+                path: format!("{}/SKILL.md", skill.reference),
+                text: skill.text,
+                executable: false,
+            });
+            files.extend(skill.files.into_iter().map(|file| proof::File {
+                path: format!("{}/{}", skill.reference, file.path),
+                text: file.text,
+                executable: file.executable,
+            }));
+        }
+        files.extend(draft.surface_files.into_iter().map(|file| proof::File {
+            path: file.path,
+            text: file.text,
+            executable: file.executable,
+        }));
+        if !proof::matches_hash(&mut files, &target.hash) {
+            return problem(StatusCode::CONFLICT, "The archive differs from the review.");
+        }
+        attestation(&key, "spade-bot", &target, acknowledged)
+    })
+}
+
+fn missing_review_key() -> Response {
+    problem(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "This Spade has no Store review signing key.",
+    )
+}
+
+fn attestation(
+    key: &ring::signature::Ed25519KeyPair,
+    kind: &str,
+    target: &proof::Target,
+    acknowledged: Vec<String>,
+) -> Response {
+    match proof::sign(key, kind, target, acknowledged) {
+        Some(proof) => Json(json!({"proof": proof})).into_response(),
+        None => problem(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Spade couldn't sign the review.",
+        ),
+    }
+}
+
 pub(super) async fn read(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     state
         .engine
@@ -206,10 +388,114 @@ pub(super) async fn authorize(
         Ok(draft) => draft,
         Err(response) => return *response,
     };
-    if let Err(response) = validate_review(&state, &id, &mut draft, review) {
+    if let Err(response) = validate_review(&state, &id, &mut draft, review, true) {
         return *response;
     }
     Json(draft).into_response()
+}
+
+pub(super) async fn preview(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    bytes: Bytes,
+) -> Response {
+    if !stamped(&state, &id, "preview", &headers, &bytes) {
+        return problem(StatusCode::FORBIDDEN, crate::security::attest::CONFIRM);
+    }
+    let Ok(review) = serde_json::from_slice::<Review>(&bytes) else {
+        return problem(StatusCode::BAD_REQUEST, "That isn't a template review.");
+    };
+    let mut draft = match load(&state, &id) {
+        Ok(draft) => draft,
+        Err(response) => return *response,
+    };
+    if let Err(response) = validate_review(&state, &id, &mut draft, review, false) {
+        return *response;
+    }
+    Json(json!({"items": review_items(&draft)})).into_response()
+}
+
+#[derive(Serialize)]
+struct ReviewItem {
+    label: String,
+    text: String,
+    digest: String,
+}
+
+fn review_items(draft: &Draft) -> Vec<ReviewItem> {
+    fn add(items: &mut Vec<ReviewItem>, path: String, value: &str, kind: &str) {
+        let bytes = serde_json::to_vec(&[kind, &path, value]).unwrap_or_default();
+        items.push(ReviewItem {
+            label: path,
+            text: value.to_owned(),
+            digest: crate::code::hex(&Sha256::digest(bytes)),
+        });
+    }
+    fn fields(items: &mut Vec<ReviewItem>, path: &str, value: &Value) {
+        match value {
+            Value::Object(values) if !values.is_empty() => {
+                let keys: Vec<_> = values.keys().collect();
+                add(
+                    items,
+                    path.to_owned(),
+                    &json!(keys).to_string(),
+                    "object keys",
+                );
+                for (key, value) in values {
+                    let key = key.replace('~', "~0").replace('/', "~1");
+                    fields(items, &format!("{path}/{key}"), value);
+                }
+            }
+            Value::Array(values) if !values.is_empty() => {
+                add(
+                    items,
+                    path.to_owned(),
+                    &format!("{} items", values.len()),
+                    "array length",
+                );
+                for (index, value) in values.iter().enumerate() {
+                    fields(items, &format!("{path}/{index}"), value);
+                }
+            }
+            _ => add(items, path.to_owned(), &value.to_string(), "json"),
+        }
+    }
+    let mut items = Vec::new();
+    fields(&mut items, "bot.json", &draft.recipe);
+    for skill in &draft.skills {
+        add(
+            &mut items,
+            format!("{}/SKILL.md", skill.reference),
+            &skill.text,
+            "file",
+        );
+        for file in &skill.files {
+            add(
+                &mut items,
+                format!("{}/{}", skill.reference, file.path),
+                &file.text,
+                if file.executable {
+                    "executable"
+                } else {
+                    "file"
+                },
+            );
+        }
+    }
+    for file in &draft.surface_files {
+        add(
+            &mut items,
+            file.path.clone(),
+            &file.text,
+            if file.executable {
+                "executable"
+            } else {
+                "file"
+            },
+        );
+    }
+    items
 }
 
 fn validate_review(
@@ -217,6 +503,7 @@ fn validate_review(
     id: &str,
     draft: &mut Draft,
     review: Review,
+    require_acknowledgements: bool,
 ) -> Result<(), Box<Response>> {
     let refused = |status, message| Box::new(problem(status, message));
     if review.revision != revision(draft) {
@@ -225,7 +512,7 @@ fn validate_review(
             "The template changed. Open its details again.",
         ));
     }
-    if !review.reviewed || !matches!(review.visibility.as_str(), "listed" | "unlisted") {
+    if !matches!(review.visibility.as_str(), "listed" | "unlisted") {
         return Err(refused(
             StatusCode::BAD_REQUEST,
             "Review every item and choose where to share the template.",
@@ -246,8 +533,24 @@ fn validate_review(
             ));
         }
     }
+    let mut seen = review.acknowledged.clone();
     apply_review(state, draft, review)
-        .map_err(|message| Box::new(problem(StatusCode::UNPROCESSABLE_ENTITY, &message)))
+        .map_err(|message| Box::new(problem(StatusCode::UNPROCESSABLE_ENTITY, &message)))?;
+    if require_acknowledgements {
+        let mut expected: Vec<_> = review_items(draft)
+            .into_iter()
+            .map(|item| item.digest)
+            .collect();
+        seen.sort_unstable();
+        expected.sort_unstable();
+        if seen != expected {
+            return Err(refused(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "Review every item in the final package.",
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -293,7 +596,7 @@ pub(super) async fn begin(
             Ok(draft) => draft,
             Err(response) => return *response,
         };
-        if let Err(response) = validate_review(&state, &id, &mut draft, review) {
+        if let Err(response) = validate_review(&state, &id, &mut draft, review, true) {
             return *response;
         }
         if draft != scanned {

@@ -253,6 +253,18 @@ export class FakeMarketplaceWire {
         return { op: "error", code: "not_found", message: "This share link is unavailable." };
       case "shareSkill":
         return { op: "error", code: "not_found", message: "This skill is not in the library." };
+      case "previewTemplate":
+        return {
+          op: "templateReview",
+          items: [
+            { label: "bot.json/task", digest: "a".repeat(64), text: operation.review.task },
+            {
+              label: "skills/measure-renderer/checks.md",
+              digest: "b".repeat(64),
+              text: "Compare GPU timings.",
+            },
+          ],
+        };
       case "publishTemplate":
         this.templatePublications.push(operation);
         return {

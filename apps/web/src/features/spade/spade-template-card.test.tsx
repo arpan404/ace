@@ -1,6 +1,8 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
+import type { ClientApi } from "@ace/client";
+import { market } from "@/features/marketplace/index.ts";
 import { spadeApp, withEndpoint } from "@/test/spade.ts";
 
 test.each([
@@ -90,6 +92,8 @@ test.each([
     const confirmation = review.getByRole<HTMLButtonElement>("button", { name: confirm });
     expect(confirmation.disabled).toBe(true);
     const checklist = within(review.getByRole("region", { name: "Required review" }));
+    await userEvent.click(checklist.getByRole("button", { name: "Review final package" }));
+    await checklist.findByText("bot.json/task");
     const rows = checklist.getAllByText(/.+/, { selector: "summary" });
     for (const row of rows) {
       await userEvent.click(row);
@@ -108,7 +112,14 @@ test.each([
     expect(confirmation.disabled).toBe(true);
     await userEvent.type(review.getByRole("textbox", { name: "Task" }), " Review variance.");
     expect(confirmation.disabled).toBe(true);
-    await userEvent.click(checklist.getByRole("checkbox", { name: "Reviewed Task" }));
+    await userEvent.click(checklist.getByRole("button", { name: "Review final package" }));
+    const taskReview = await checklist.findByText("bot.json/task");
+    await userEvent.click(taskReview);
+    await userEvent.click(checklist.getByRole("checkbox", { name: "Reviewed bot.json/task" }));
+    await userEvent.click(checklist.getByText("skills/measure-renderer/checks.md"));
+    await userEvent.click(
+      checklist.getByRole("checkbox", { name: "Reviewed skills/measure-renderer/checks.md" }),
+    );
     await userEvent.click(confirmation);
     await waitFor(() =>
       expect(app.daemon.marketplace.templatePublications).toEqual([
@@ -119,7 +130,7 @@ test.each([
             revision: "a".repeat(64),
             visibility,
             task: "Compare medians. Review variance.",
-            reviewed: true,
+            acknowledged: ["a".repeat(64), "b".repeat(64)],
             notes: [],
             knowledge: [expect.objectContaining({ title: "Profile in stages" })],
           }),
@@ -131,3 +142,39 @@ test.each([
     );
   },
 );
+
+test("a different checklist cannot mint a Store person grant", async () => {
+  const client = {
+    request: async () => ({
+      result: {
+        op: "templateGrant",
+        target: {
+          proof: `${"b".repeat(64)}.${"c".repeat(128)}`,
+          draft: "drf_abcdefgh",
+          publisher: "pub_tester",
+          name: "measure",
+          version: "1.2.0",
+          visibility: "unlisted",
+          hash: "a".repeat(64),
+        },
+      },
+    }),
+  } as unknown as ClientApi;
+  const mint = vi.fn();
+  await expect(
+    market(
+      client,
+      {
+        op: "shareSkill",
+        source: { kind: "spade-skill", id: "measure" },
+        version: "1.2.0",
+        reviewed: "a".repeat(64),
+        acknowledged: ["d".repeat(64)],
+      },
+      "skillShared",
+      undefined,
+      mint,
+    ),
+  ).rejects.toThrow("proof differs from the reviewed checklist");
+  expect(mint).not.toHaveBeenCalled();
+});
