@@ -18,6 +18,10 @@ pub struct FrameWriter<W> {
     io: W,
     pending: Vec<u8>,
     written: usize,
+    /// A frame was accepted by `start_send` and has not fully flushed. The
+    /// socket reads this after a cancelled write to tell a close that started
+    /// from one that never did.
+    accepted: bool,
 }
 
 impl<W> FrameWriter<W> {
@@ -26,7 +30,13 @@ impl<W> FrameWriter<W> {
             io,
             pending: Vec::with_capacity(1024),
             written: 0,
+            accepted: false,
         }
+    }
+
+    /// Whether the sink has accepted a frame's bytes since the last full flush.
+    pub fn accepted(&self) -> bool {
+        self.accepted
     }
 }
 
@@ -91,6 +101,7 @@ impl<W: AsyncWrite + Unpin> Sink<Outbound> for FrameWriter<W> {
         );
         this.pending.extend_from_slice(&item.payload);
         this.written = 0;
+        this.accepted = true;
         Ok(())
     }
 
@@ -102,7 +113,13 @@ impl<W: AsyncWrite + Unpin> Sink<Outbound> for FrameWriter<W> {
             Poll::Ready(Ok(())) => {
                 this.pending.clear();
                 this.written = 0;
-                Pin::new(&mut this.io).poll_flush(cx)
+                match Pin::new(&mut this.io).poll_flush(cx) {
+                    Poll::Ready(Ok(())) => {
+                        this.accepted = false;
+                        Poll::Ready(Ok(()))
+                    }
+                    other => other,
+                }
             }
         }
     }

@@ -13,8 +13,8 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::protocol::Role;
 
 use super::{
-    DELIVERY_MESSAGES, MAX_MESSAGE_BYTES, MESSAGE_OVERHEAD, OPEN, OUTBOUND_MESSAGES, SendResult,
-    SocketEvent, SocketEvents, SocketHandle, open,
+    CONTROL_BYTES, DELIVERY_MESSAGES, MAX_MESSAGE_BYTES, MESSAGE_OVERHEAD, OPEN, OUTBOUND_MESSAGES,
+    SendResult, SocketEvent, SocketEvents, SocketHandle, open,
 };
 use crate::frame::assemble::MAX_FRAGMENTS;
 
@@ -32,7 +32,12 @@ async fn pair(buffer: usize) -> (SocketHandle, SocketEvents, Client) {
 
 /// The next event, failing the test rather than hanging.
 async fn next(events: &mut SocketEvents) -> SocketEvent {
-    tokio::time::timeout(Duration::from_secs(2), events.recv())
+    next_within(events, Duration::from_secs(2)).await
+}
+
+/// The next event, after at most `wait`.
+async fn next_within(events: &mut SocketEvents, wait: Duration) -> SocketEvent {
+    tokio::time::timeout(wait, events.recv())
         .await
         .expect("an event arrives")
         .expect("the last event closes the queue")
@@ -340,69 +345,134 @@ async fn more_than_16384_fragments_closes_with_1008() {
     );
 }
 
+/// The next unmasked server frame: opcode and payload.
+async fn server_frame<R: tokio::io::AsyncRead + Unpin>(read: &mut R) -> (u8, Vec<u8>) {
+    let mut head = [0u8; 2];
+    read.read_exact(&mut head)
+        .await
+        .expect("a frame header is read");
+    let opcode = head[0] & 0x0f;
+    let length = match head[1] & 0x7f {
+        126 => {
+            let mut bytes = [0u8; 2];
+            read.read_exact(&mut bytes)
+                .await
+                .expect("the 16-bit length is read");
+            usize::from(u16::from_be_bytes(bytes))
+        }
+        127 => {
+            let mut bytes = [0u8; 8];
+            read.read_exact(&mut bytes)
+                .await
+                .expect("the 64-bit length is read");
+            u64::from_be_bytes(bytes) as usize
+        }
+        length => usize::from(length),
+    };
+    let mut payload = vec![0u8; length];
+    read.read_exact(&mut payload)
+        .await
+        .expect("the payload is read");
+    (opcode, payload)
+}
+
 #[tokio::test]
-async fn a_ping_flood_under_a_slow_writer_keeps_every_pong() {
-    // The reader stops at the control bound instead of dropping replies, and a
-    // pong is charged its payload bytes only (one per ping), never ws's 256-byte
-    // message overhead or the outbox's 4 MiB resync threshold.
-    let (server, client) = tokio::io::duplex(1);
-    let (handle, _events) = open(Box::new(server));
-    let total = (OUTBOUND_MESSAGES + 100) as usize;
+async fn a_ping_flood_keeps_reading_data_and_close_and_loses_no_pong() {
+    // More queued pongs than the old 16,384 cap, with a 4 KiB writer: the reader
+    // must keep reading the data frame and the close behind the flood.
+    let (server, client) = tokio::io::duplex(4 * 1024);
+    let (handle, mut events) = open(Box::new(server));
+    let total = 20_000usize;
     let ping = masked_frame(0x9, b"p");
-    let mut pings = Vec::with_capacity(total * ping.len());
+    let mut bytes = Vec::with_capacity(total * ping.len() + 8);
     for _ in 0..total {
-        pings.extend_from_slice(&ping);
+        bytes.extend_from_slice(&ping);
     }
+    bytes.extend_from_slice(&masked_frame(0x2, b"data"));
 
     let (mut read, mut write) = tokio::io::split(client);
-    let writer = tokio::spawn(async move {
-        write
-            .write_all(&pings)
-            .await
-            .expect("the pings are written");
-    });
+    tokio::time::timeout(Duration::from_secs(5), write.write_all(&bytes))
+        .await
+        .expect("the flood is read, not stalled at a pong cap")
+        .expect("the pings and data are written");
 
-    for _ in 0..500 {
-        if handle.buffered_amount() == OUTBOUND_MESSAGES {
-            break;
+    // The reader read past the backlog and delivered the data frame.
+    match next(&mut events).await {
+        SocketEvent::Message { data, binary } => {
+            assert_eq!(data, b"data");
+            assert!(binary);
         }
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        other => panic!("expected the data frame, got {other:?}"),
     }
-    assert_eq!(
-        handle.buffered_amount(),
-        OUTBOUND_MESSAGES,
-        "one byte per queued pong: no per-message overhead"
-    );
     assert!(
-        handle.buffered_amount() < 4 * 1024 * 1024,
-        "the outbox's hard limit is never reached by pongs"
+        handle.buffered_amount() > 0,
+        "the writer still has a pong backlog to drain"
     );
 
     let mut received = 0usize;
     while received < total {
-        let mut header = [0u8; 2];
-        tokio::time::timeout(Duration::from_secs(10), read.read_exact(&mut header))
-            .await
-            .expect("a pong arrives")
-            .expect("the pong header is read");
-        assert_eq!(header, [0x8a, 0x01]);
-        let mut payload = [0u8; 1];
-        read.read_exact(&mut payload)
-            .await
-            .expect("the pong payload is read");
-        assert_eq!(payload, *b"p");
+        let (opcode, payload) = server_frame(&mut read).await;
+        assert_eq!((opcode, payload.as_slice()), (0xa, b"p".as_slice()));
         received += 1;
     }
 
-    writer.await.expect("the writer finishes");
-    assert_eq!(received, total, "every ping was answered");
-    for _ in 0..100 {
-        if handle.buffered_amount() == 0 {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
+    // The close behind the flood is still read and answered.
+    write
+        .write_all(&masked_frame(0x8, &[0x03, 0xe8]))
+        .await
+        .expect("the peer closes");
+    match next(&mut events).await {
+        SocketEvent::Close { code, .. } => assert_eq!(code, 1000),
+        other => panic!("expected Close, got {other:?}"),
     }
-    assert_eq!(handle.buffered_amount(), 0, "the last pong settles");
+    let (opcode, payload) = server_frame(&mut read).await;
+    assert_eq!((opcode, payload.as_slice()), (0x8, [0x03, 0xe8].as_slice()));
+}
+
+#[tokio::test]
+async fn a_pong_backlog_past_the_memory_ceiling_closes_with_1008() {
+    // ws has no bound here; ours is a memory ceiling, four times the outbox's
+    // resync threshold, and passing it is a policy close.
+    let (server, client) = tokio::io::duplex(64 * 1024);
+    let (_handle, mut events) = open(Box::new(server));
+    let payload = vec![0x5a; 125];
+    let ping = masked_frame(0x9, &payload);
+    // Past the ceiling plus the writer's 64 KiB pipe, which settles that many.
+    let total = usize::try_from(CONTROL_BYTES / 125).expect("the ceiling fits") + 2_000;
+    let mut bytes = Vec::with_capacity(total * ping.len());
+    for _ in 0..total {
+        bytes.extend_from_slice(&ping);
+    }
+
+    let (mut read, mut write) = tokio::io::split(client);
+    let writer = tokio::spawn(async move {
+        // The server closes mid-flood; the rest cannot be written.
+        let _ = write.write_all(&bytes).await;
+    });
+
+    // Nothing drains the writer, so the queue reaches the ceiling. Its error is
+    // emitted before the close frame, while that frame still waits for the pipe.
+    match next_within(&mut events, Duration::from_secs(20)).await {
+        SocketEvent::Error { code, .. } => assert_eq!(code, "protocol"),
+        other => panic!("expected the too-many-pongs error, got {other:?}"),
+    }
+
+    let mut close = None;
+    while close.is_none() {
+        let (opcode, payload) = server_frame(&mut read).await;
+        if opcode == 0x8 {
+            close = Some(payload);
+        } else {
+            assert_eq!(opcode, 0xa, "an unmasked pong comes first");
+        }
+    }
+    assert_eq!(close.expect("a close frame"), [0x03, 0xf0], "1008");
+    let _ = writer.await;
+
+    match next(&mut events).await {
+        SocketEvent::Close { code, .. } => assert_eq!(code, 1006),
+        other => panic!("expected Close 1006, got {other:?}"),
+    }
 }
 
 #[tokio::test]

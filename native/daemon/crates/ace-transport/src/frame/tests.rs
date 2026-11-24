@@ -10,7 +10,7 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use bytes::Bytes;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{FutureExt, SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 
 use super::assemble::{Assembler, Message, MessageBody, Plain, conclude};
@@ -648,4 +648,82 @@ async fn more_than_16384_fragments_is_refused_with_1008() {
         Err(super::CloseCode::TooManyFragments)
     );
     assert_eq!(super::CloseCode::TooManyFragments.wire(), 1008);
+}
+
+/// An `AsyncWrite` that takes a fixed number of bytes and then stalls forever.
+struct Stalling {
+    budget: usize,
+}
+
+impl Stalling {
+    fn new(budget: usize) -> Self {
+        Self { budget }
+    }
+}
+
+impl AsyncWrite for Stalling {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let this = self.get_mut();
+        if this.budget == 0 {
+            return Poll::Pending;
+        }
+        let written = buf.len().min(this.budget);
+        this.budget -= written;
+        Poll::Ready(Ok(written))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
+#[tokio::test]
+async fn a_frame_is_accepted_only_from_start_send_until_a_full_flush() {
+    let mut writer = FrameWriter::new(Stalling::new(1));
+    assert!(!writer.accepted(), "nothing has been handed to the sink");
+    let close = || Outbound {
+        opcode: Opcode::Close,
+        rsv1: false,
+        payload: Bytes::from_static(b"\x03\xe8"),
+    };
+
+    let send = writer.send(close());
+    assert!(
+        send.now_or_never().is_none(),
+        "a one-byte writer stalls mid-frame"
+    );
+    assert!(
+        writer.accepted(),
+        "start_send accepted the close before the cancellation"
+    );
+
+    let (io, counts) = Counting::new(usize::MAX);
+    let mut flushing = FrameWriter::new(io);
+    flushing.send(close()).await.expect("a full frame writes");
+    assert!(!flushing.accepted(), "a full flush clears the signal");
+    drop(counts);
+}
+
+#[tokio::test]
+async fn an_unstarted_frame_is_not_accepted_and_still_writes() {
+    let (io, counts) = Counting::new(usize::MAX);
+    let mut writer = FrameWriter::new(io);
+    assert!(!writer.accepted());
+    writer
+        .send(Outbound {
+            opcode: Opcode::Close,
+            rsv1: false,
+            payload: Bytes::from_static(b"\x03\xe8"),
+        })
+        .await
+        .expect("a fresh sink writes the close");
+    assert_eq!(counts.lock().expect("no poison").writes, 1);
 }

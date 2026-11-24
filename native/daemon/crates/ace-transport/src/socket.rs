@@ -46,6 +46,11 @@ pub const DELIVERY_MESSAGES: u64 = 64;
 pub const OUTBOUND_MESSAGES: u64 = 16_384;
 /// `ws`'s `closeTimeout`: an unanswered local close is destroyed and reported `1006`.
 pub const CLOSE_TIMEOUT: Duration = Duration::from_secs(30);
+/// Queued pong payload bytes may not pass this. `ws` has no bound; 16 MiB is four
+/// times the outbox's 4 MiB resync threshold, so the slow-link policy always acts
+/// first and this only stops a peer that outruns every policy from growing memory
+/// without end. Past it the socket closes with 1008 (recorded in the porting guide).
+pub const CONTROL_BYTES: u64 = 16 * 1024 * 1024;
 
 /// `ws`'s ready states, as `readyState` reports them.
 pub const OPEN: u8 = 1;
@@ -88,8 +93,8 @@ struct Shared {
     buffered: AtomicU64,
     /// Sends whose `Sent` the owner has not taken, which bounds the queue.
     pending: AtomicU64,
-    /// Auto-pongs queued but not flushed, bounded like sends and charged like them.
-    controls: AtomicU64,
+    /// Queued pong payload bytes, for [`CONTROL_BYTES`] only.
+    control_bytes: AtomicU64,
     paused: AtomicBool,
     /// Charged bytes and messages waiting for JavaScript, so for the reader.
     waiting_bytes: AtomicU64,
@@ -112,9 +117,6 @@ impl Shared {
         !self.paused.load(Ordering::Relaxed)
             && self.waiting_bytes.load(Ordering::Relaxed) <= DELIVERY_BYTES
             && self.waiting_messages.load(Ordering::Relaxed) < DELIVERY_MESSAGES
-            // Control replies are bounded by the send budget: at its edge the
-            // reader waits for the writer rather than dropping a pong.
-            && self.controls.load(Ordering::Relaxed) < OUTBOUND_MESSAGES
     }
 
     fn wake(&self) {
@@ -124,15 +126,19 @@ impl Shared {
     /// Queues one control frame the reader owes (a pong), with no `Sent`: control
     /// frames answer the peer, they are not one of the owner's sends. Its charge
     /// is exactly the payload bytes, which is what `ws` counts for a pong (no
-    /// per-message overhead); `readable` stops the reader at the send budget,
-    /// so the reply is never dropped.
-    fn control(&self, opcode: Opcode, payload: Vec<u8>) {
+    /// per-message overhead), and reading never stops for it. False when the
+    /// queued pong bytes would pass [`CONTROL_BYTES`]: the caller closes with 1008.
+    fn control(&self, opcode: Opcode, payload: Vec<u8>) -> bool {
         let charge = payload.len() as u64;
         let inner = lock(&self.inner);
         let Some(outbound) = inner.outbound.as_ref() else {
-            return;
+            return true;
         };
-        self.controls.fetch_add(1, Ordering::Relaxed);
+        let queued = self.control_bytes.fetch_add(charge, Ordering::Relaxed) + charge;
+        if queued > CONTROL_BYTES {
+            self.control_bytes.fetch_sub(charge, Ordering::Relaxed);
+            return false;
+        }
         self.buffered.fetch_add(charge, Ordering::Relaxed);
         let frame = Frame {
             opcode,
@@ -148,9 +154,10 @@ impl Shared {
             })
             .is_err()
         {
-            debit(&self.controls, 1);
+            debit(&self.control_bytes, charge);
             debit(&self.buffered, charge);
         }
+        true
     }
 
     fn state(&self) -> u8 {
@@ -183,10 +190,7 @@ impl Shared {
     fn release(&self, charge: u64, control: bool) {
         debit(&self.buffered, charge);
         if control {
-            debit(&self.controls, 1);
-            // The reader may be waiting at the control bound; a freed slot lets
-            // it read the next ping.
-            self.wake();
+            debit(&self.control_bytes, charge);
         }
     }
 
@@ -265,7 +269,7 @@ pub fn open(stream: Box<dyn UpgradeIo>) -> (SocketHandle, SocketEvents) {
         }),
         buffered: AtomicU64::new(0),
         pending: AtomicU64::new(0),
-        controls: AtomicU64::new(0),
+        control_bytes: AtomicU64::new(0),
         paused: AtomicBool::new(false),
         waiting_bytes: AtomicU64::new(0),
         waiting_messages: AtomicU64::new(0),

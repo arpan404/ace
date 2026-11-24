@@ -74,6 +74,17 @@ impl Ending {
         }
     }
 
+    /// The queued pong payload passed the memory ceiling. `ws` has no limit;
+    /// this is the recorded difference, closed with 1008 as a policy refusal.
+    fn control_backlog() -> Self {
+        Ending {
+            code: 1006,
+            reason: Vec::new(),
+            error: Some(("protocol", "Too many queued pong bytes".to_owned())),
+            wire: Wire::Close(1008),
+        }
+    }
+
     /// The peer's close frame: reported with its code and reason (`ws`'s 1005
     /// when the frame named no code). What is written is decided in `finish`,
     /// because `ws` keeps the local close it already queued and ends without a
@@ -138,8 +149,11 @@ async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver
 fn frame_in(shared: &Shared, source: &mut Source, frame: Frame) -> Result<Option<Message>, Ending> {
     match frame.opcode {
         Opcode::Ping => {
-            shared.control(Opcode::Pong, frame.payload);
-            Ok(None)
+            if shared.control(Opcode::Pong, frame.payload) {
+                Ok(None)
+            } else {
+                Err(Ending::control_backlog())
+            }
         }
         // `ws`'s `autoPong` answers pings; a pong is never surfaced.
         Opcode::Pong => Ok(None),
@@ -209,7 +223,7 @@ async fn write(mut sink: Sink, shared: Arc<Shared>, mut queued: mpsc::UnboundedR
                 // The interrupted frame may be the local close itself. It counts
                 // as sent: `finish` flushes what is in flight, and a second close
                 // must never follow it.
-                if close {
+                if close && sink.accepted() {
                     shared.close_flushed();
                 }
                 return finish(sink, &shared, &mut queued, ending, owed).await;
