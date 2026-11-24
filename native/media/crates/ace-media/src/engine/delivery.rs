@@ -597,12 +597,20 @@ impl Delivery {
         self.stamp = captured_ms(frame, wall_ms);
         if frame.kind == 1 {
             let facts = self.sources.entry(source.to_owned()).or_default();
+            // A delta may arrive without naming its codec: an empty string never overwrites the
+            // codec its encode was last seen with, so its pictures can still name one.
+            let mut codec = frame.codec_string.clone();
+            if codec.is_empty() {
+                if let Some(seen) = facts.seen.get(&frame.encode) {
+                    codec = seen.codec.clone();
+                }
+            }
             facts.seen.insert(
                 frame.encode,
                 Seen {
                     width: frame.width,
                     height: frame.height,
-                    codec: frame.codec_string.clone(),
+                    codec,
                     at_ms: now_ms,
                 },
             );
@@ -644,6 +652,7 @@ impl Delivery {
                     view.sequence,
                     self.stamp,
                     frame,
+                    None,
                 ) else {
                     continue;
                 };
@@ -713,13 +722,26 @@ impl Delivery {
         out: &mut Vec<Effect>,
     ) {
         {
+            // The codec recorded for the unit's encode: a producer's delta may name none.
+            let recorded_codec = self
+                .sources
+                .get(source)
+                .and_then(|facts| facts.seen.get(&frame.encode))
+                .map(|seen| seen.codec.as_str());
             let Some(view) = self.views.get_mut(key) else {
                 return;
             };
             view.sequence += 1;
             let sequence = view.sequence;
-            let Some(built) = build(&view.target, source, message, sequence, self.stamp, frame)
-            else {
+            let Some(built) = build(
+                &view.target,
+                source,
+                message,
+                sequence,
+                self.stamp,
+                frame,
+                recorded_codec,
+            ) else {
                 return;
             };
             let mut events = Vec::new();

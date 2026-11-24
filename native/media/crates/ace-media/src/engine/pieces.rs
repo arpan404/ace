@@ -106,6 +106,16 @@ fn annex_b(frame: &MediaFrame, key: bool) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// The codec a picture header names: the unit's own, or the one recorded for its encode when
+/// the producer left it out (a re-encoded delta). None: nothing names the encode's codec yet,
+/// so no header can be sent that a client would decode.
+fn named<'a>(frame: &'a MediaFrame, recorded_codec: Option<&'a str>) -> Option<&'a str> {
+    if !frame.codec_string.is_empty() {
+        return Some(&frame.codec_string);
+    }
+    recorded_codec.filter(|codec| !codec.is_empty())
+}
+
 /// One unit's pieces for a view, or `None` for a unit it can't show (a picture codec the
 /// header can't name, a malformed record).
 pub fn build(
@@ -115,11 +125,13 @@ pub fn build(
     sequence: u64,
     timestamp_ms: f64,
     frame: &MediaFrame,
+    recorded_codec: Option<&str>,
 ) -> Option<Built> {
     let key = frame.flags & FLAG_KEY != 0;
     let mut meta = vec![0u8; 512 + frame.description.len()];
     match (target, frame.kind) {
         (ViewerTarget::Browser { thread_id, tab_id }, FRAME_VIDEO) => {
+            let codec = named(frame, recorded_codec)?;
             let header = Video {
                 sequence: sequence as f64,
                 timestamp: timestamp_ms,
@@ -128,7 +140,7 @@ pub fn build(
                 coded_width: frame.width,
                 coded_height: frame.height,
                 key,
-                codec: &frame.codec_string,
+                codec,
                 description: if key { &frame.description } else { &[] },
                 thread_id: thread_id.get(),
                 tab_id: tab_id.as_ref().map(|t| t.get()),
@@ -169,6 +181,7 @@ pub fn build(
                 ViewerTarget::Screen { .. } => KIND_SCREEN_FRAME,
                 _ => KIND_DEVICE_FRAME,
             };
+            let codec = named(frame, recorded_codec)?;
             let payload = annex_b(frame, key)?;
             let stream = stream_id(source);
             let header = Picture {
@@ -180,7 +193,7 @@ pub fn build(
                 rotation: u16::from(frame.rotation % 4) * 90,
                 key,
                 still: false,
-                codec: &frame.codec_string,
+                codec,
                 source_id: id.get(),
                 stream_id: &stream,
             };

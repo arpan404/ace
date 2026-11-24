@@ -123,6 +123,70 @@ fn a_device_view_gets_annex_b_pictures_with_parameter_sets_on_keyframes() {
     assert_eq!(payload, expected);
 }
 
+/// The encode the first unit plans for the view, as the effects ask the producer for it.
+fn planned_encode(effects: &[Effect]) -> u32 {
+    let Some(plan) = wants(effects).pop() else {
+        panic!("the first unit's size plans the view");
+    };
+    let Some(encode) = plan.first() else {
+        panic!("the view decodes a codec the producer encodes");
+    };
+    encode.id
+}
+
+#[test]
+fn a_device_delta_that_names_no_codec_is_delivered_with_its_encodes_codec() {
+    let mut engine = watched(json!({ "kind": "device", "deviceId": "android:emulator-5554" }));
+    let planned = planned_encode(&ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW));
+    let mut key = h264(true, 1, 1, Vec::new());
+    key.encode = planned;
+    ingest(&mut engine, 1, key, at(1_100));
+    // A producer's re-encoded delta can arrive without naming its codec.
+    let mut delta = h264(false, 2, 1, Vec::new());
+    delta.encode = planned;
+    delta.codec_string = String::new();
+    let pieces = binaries(&ingest(&mut engine, 1, delta, at(1_200)));
+    let mut assembler = Assembler::new();
+    let envelope = pieces.iter().find_map(|p| {
+        assembler
+            .push(p)
+            .ok()
+            .flatten()
+            .map(|e| (e.kind, e.meta.to_vec(), e.payload.to_vec()))
+    });
+    let Some((kind, meta, payload)) = envelope else {
+        panic!("no picture reached the device view");
+    };
+    assert_eq!(kind, 4);
+    let Ok(picture) = decode_picture(4, &meta, &payload) else {
+        panic!("a header the client can't read");
+    };
+    assert_eq!(picture.codec, "avc1.42E033");
+    assert!(!picture.key);
+}
+
+#[test]
+fn a_delta_that_names_no_codec_before_its_encode_did_is_not_sent_as_a_picture() {
+    let mut engine = watched(json!({ "kind": "device", "deviceId": "android:emulator-5554" }));
+    let planned = planned_encode(&ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW));
+    // Nothing named this encode's codec yet: not even its keyframe.
+    let mut key = h264(true, 1, 1, Vec::new());
+    key.encode = planned;
+    key.codec_string = String::new();
+    assert!(binaries(&ingest(&mut engine, 1, key, at(1_100))).is_empty());
+    let mut delta = h264(false, 2, 1, Vec::new());
+    delta.encode = planned;
+    delta.codec_string = String::new();
+    assert!(
+        binaries(&ingest(&mut engine, 1, delta, at(1_200))).is_empty(),
+        "no header the client would reject for a codec it doesn't know"
+    );
+    // The keyframe that names the codec still starts the view.
+    let mut named = h264(true, 3, 1, Vec::new());
+    named.encode = planned;
+    assert_eq!(binaries(&ingest(&mut engine, 1, named, at(1_300))).len(), 1);
+}
+
 #[test]
 fn a_paused_view_gets_no_bytes_and_starts_again_at_a_keyframe() {
     let mut engine = watched(json!({ "kind": "screen", "sessionId": "screen-1" }));
