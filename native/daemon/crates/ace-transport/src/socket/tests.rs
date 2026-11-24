@@ -341,36 +341,68 @@ async fn more_than_16384_fragments_closes_with_1008() {
 }
 
 #[tokio::test]
-async fn peer_pings_cannot_grow_the_control_queue_past_the_send_budget() {
-    // A one-byte duplex keeps the writer mid-pong forever: every queued reply is
-    // still charged, so the queue stops at the same 16,384-send budget.
-    let (server, mut client) = tokio::io::duplex(1);
+async fn a_ping_flood_under_a_slow_writer_keeps_every_pong() {
+    // The reader stops at the control bound instead of dropping replies, and a
+    // pong is charged its payload bytes only (one per ping), never ws's 256-byte
+    // message overhead or the outbox's 4 MiB resync threshold.
+    let (server, client) = tokio::io::duplex(1);
     let (handle, _events) = open(Box::new(server));
+    let total = (OUTBOUND_MESSAGES + 100) as usize;
     let ping = masked_frame(0x9, b"p");
-    let mut pings = Vec::new();
-    for _ in 0..OUTBOUND_MESSAGES + 100 {
+    let mut pings = Vec::with_capacity(total * ping.len());
+    for _ in 0..total {
         pings.extend_from_slice(&ping);
     }
-    client
-        .write_all(&pings)
-        .await
-        .expect("the pings are written");
-    tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let cap = OUTBOUND_MESSAGES * (1 + MESSAGE_OVERHEAD);
+    let (mut read, mut write) = tokio::io::split(client);
+    let writer = tokio::spawn(async move {
+        write
+            .write_all(&pings)
+            .await
+            .expect("the pings are written");
+    });
+
+    for _ in 0..500 {
+        if handle.buffered_amount() == OUTBOUND_MESSAGES {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
     assert_eq!(
         handle.buffered_amount(),
-        cap,
-        "each queued pong is charged, up to the send budget"
+        OUTBOUND_MESSAGES,
+        "one byte per queued pong: no per-message overhead"
+    );
+    assert!(
+        handle.buffered_amount() < 4 * 1024 * 1024,
+        "the outbox's hard limit is never reached by pongs"
     );
 
-    client.write_all(&ping).await.expect("one more ping");
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    assert_eq!(
-        handle.buffered_amount(),
-        cap,
-        "a pong past the bound is dropped, not queued"
-    );
+    let mut received = 0usize;
+    while received < total {
+        let mut header = [0u8; 2];
+        tokio::time::timeout(Duration::from_secs(10), read.read_exact(&mut header))
+            .await
+            .expect("a pong arrives")
+            .expect("the pong header is read");
+        assert_eq!(header, [0x8a, 0x01]);
+        let mut payload = [0u8; 1];
+        read.read_exact(&mut payload)
+            .await
+            .expect("the pong payload is read");
+        assert_eq!(payload, *b"p");
+        received += 1;
+    }
+
+    writer.await.expect("the writer finishes");
+    assert_eq!(received, total, "every ping was answered");
+    for _ in 0..100 {
+        if handle.buffered_amount() == 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(handle.buffered_amount(), 0, "the last pong settles");
 }
 
 #[tokio::test]

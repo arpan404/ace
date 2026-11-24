@@ -112,6 +112,9 @@ impl Shared {
         !self.paused.load(Ordering::Relaxed)
             && self.waiting_bytes.load(Ordering::Relaxed) <= DELIVERY_BYTES
             && self.waiting_messages.load(Ordering::Relaxed) < DELIVERY_MESSAGES
+            // Control replies are bounded by the send budget: at its edge the
+            // reader waits for the writer rather than dropping a pong.
+            && self.controls.load(Ordering::Relaxed) < OUTBOUND_MESSAGES
     }
 
     fn wake(&self) {
@@ -119,20 +122,16 @@ impl Shared {
     }
 
     /// Queues one control frame the reader owes (a pong), with no `Sent`: control
-    /// frames answer the peer, they are not one of the owner's sends. It is charged
-    /// and bounded like a send, so peer pings cannot grow the queue past the same
-    /// budget; `ws` buffers them through the socket, which has the same effect but
-    /// no explicit count. Past the bound the reply is dropped, as a ping whose
-    /// answer the socket cannot carry.
+    /// frames answer the peer, they are not one of the owner's sends. Its charge
+    /// is exactly the payload bytes, which is what `ws` counts for a pong (no
+    /// per-message overhead); `readable` stops the reader at the send budget,
+    /// so the reply is never dropped.
     fn control(&self, opcode: Opcode, payload: Vec<u8>) {
-        let charge = payload.len() as u64 + MESSAGE_OVERHEAD;
+        let charge = payload.len() as u64;
         let inner = lock(&self.inner);
         let Some(outbound) = inner.outbound.as_ref() else {
             return;
         };
-        if self.controls.load(Ordering::Relaxed) >= OUTBOUND_MESSAGES {
-            return;
-        }
         self.controls.fetch_add(1, Ordering::Relaxed);
         self.buffered.fetch_add(charge, Ordering::Relaxed);
         let frame = Frame {
@@ -185,6 +184,9 @@ impl Shared {
         debit(&self.buffered, charge);
         if control {
             debit(&self.controls, 1);
+            // The reader may be waiting at the control bound; a freed slot lets
+            // it read the next ping.
+            self.wake();
         }
     }
 

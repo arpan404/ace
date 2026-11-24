@@ -206,6 +206,12 @@ async fn write(mut sink: Sink, shared: Arc<Shared>, mut queued: mpsc::UnboundedR
             // is sealed.
             Err(ending) => {
                 shared.release(item.charge, item.control);
+                // The interrupted frame may be the local close itself. It counts
+                // as sent: `finish` flushes what is in flight, and a second close
+                // must never follow it.
+                if close {
+                    shared.close_flushed();
+                }
                 return finish(sink, &shared, &mut queued, ending, owed).await;
             }
         }
@@ -278,9 +284,7 @@ async fn finish(
                     Some(reply)
                 }
             };
-            if let Some(payload) = payload {
-                close_frame(&mut sink, shared, payload).await;
-            }
+            close_frame(&mut sink, shared, payload.unwrap_or_default()).await;
         }
         // `ws`'s answer to a protocol or size violation, before it drops.
         Wire::Close(code) => {
@@ -312,10 +316,12 @@ async fn finish(
 /// interleaved; if it cannot be finished the stream is dropped without a close,
 /// as `ws` drops a socket it cannot drain.
 async fn close_frame(sink: &mut Sink, shared: &Shared, payload: Vec<u8>) {
-    if lock(&shared.inner).close_sent {
+    // Finish whatever is in flight first, whether or not a close still needs to
+    // go out: a close already being written is completed, never followed.
+    if !matches!(terminal(shared, sink.flush()).await, Some(Ok(()))) {
         return;
     }
-    if !matches!(terminal(shared, sink.flush()).await, Some(Ok(()))) {
+    if lock(&shared.inner).close_sent {
         return;
     }
     let frame = Outbound {

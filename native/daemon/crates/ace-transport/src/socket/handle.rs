@@ -106,9 +106,16 @@ impl SocketHandle {
     /// `ws`'s `close`: idempotent, and a socket already closing keeps its code.
     /// Its deadline starts here, as `ws`'s close timer does, whatever is queued.
     pub fn close(&self, code: Option<u16>, reason: String) -> Result<(), CloseError> {
+        let mut payload = Vec::with_capacity(2 + reason.len());
+        let mut inner = lock(&self.shared.inner);
+        // `ws` returns for a socket that is no longer open before its sender
+        // validates the code or reason (websocket.js:315-331), so a late invalid
+        // close is a no-op rather than a throw.
+        if inner.state != OPEN {
+            return Ok(());
+        }
         // A close with no code writes no payload at all, reason included, as `ws`
         // does when `close()` is called with no arguments.
-        let mut payload = Vec::with_capacity(2 + reason.len());
         if let Some(code) = code {
             if !valid_status(code) {
                 return Err(CloseError::InvalidCode);
@@ -119,28 +126,22 @@ impl SocketHandle {
             payload.extend_from_slice(&code.to_be_bytes());
             payload.extend_from_slice(reason.as_bytes());
         }
-        let close = payload.clone();
-        let frame = Frame {
-            opcode: Opcode::Close,
-            rsv1: false,
-            payload: Bytes::from(payload),
-        };
-        {
-            let mut inner = lock(&self.shared.inner);
-            if inner.state != OPEN {
-                return Ok(());
-            }
-            inner.state = CLOSING;
-            inner.close = Some(close);
-            if let Some(outbound) = inner.outbound.as_ref() {
-                let _ = outbound.send(Queued {
-                    frame,
-                    own: None,
-                    charge: 0,
-                    control: false,
-                });
-            }
+        inner.state = CLOSING;
+        inner.close = Some(payload.clone());
+        if let Some(outbound) = inner.outbound.as_ref() {
+            let frame = Frame {
+                opcode: Opcode::Close,
+                rsv1: false,
+                payload: Bytes::from(payload),
+            };
+            let _ = outbound.send(Queued {
+                frame,
+                own: None,
+                charge: 0,
+                control: false,
+            });
         }
+        drop(inner);
         let expired = self.shared.expired.clone();
         let over = self.shared.over.clone();
         let runtime = self.shared.runtime.clone();

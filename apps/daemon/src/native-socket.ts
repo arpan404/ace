@@ -169,6 +169,9 @@ export class NativeSocket extends EventEmitter implements MainSocket {
   }
 
   close(code?: number, reason?: string): void {
+    // `ws` returns for a socket that is already closing or closed before it
+    // validates (websocket.js:315-331), so a late invalid close is a no-op.
+    if (this.#state !== OPEN) return;
     // `ws`'s checks before anything reaches the sender (sender.js:184-199): an
     // invalid code throws a TypeError and a reason over 123 bytes a RangeError.
     if (code !== undefined && !isValidStatusCode(code))
