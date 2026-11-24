@@ -105,13 +105,7 @@ import Testing
         #expect(geometry.firstIndex(reaching: 2000) == nil)
     }
 
-    // A fling up the history: the tail, two loaded rows, then the far spacer standing for the
-    // older rows not loaded yet (801 to 5801), and the end's blank edge.
-    private func flingingThroughHistory() -> TranscriptStackGeometry {
-        measured([("tail", 1), ("c", 300), ("b", 500), ("spacer.before", 5000), ("room.edge", 8)])
-    }
-
-    private let blanks: Set<String> = ["spacer.before", "room.edge"]
+    private let blanks: Set<String> = ["spacer.after", "room.edge"]
 
     private func anchor(_ geometry: TranscriptStackGeometry, from minY: CGFloat, to maxY: CGFloat,
                         keeping ids: [String], followsEnd: Bool = false) -> String? {
@@ -119,58 +113,38 @@ import Testing
                               isRow: { $0.count == 1 }, isBlank: { blanks.contains($0) })
     }
 
-    @Test func aPageLandingWhileTheReaderFlingsThroughTheFarSpacerLandsAtOnceAndMovesNothingOnScreen() {
-        var geometry = flingingThroughHistory()
-        // Three older rows join where the spacer began, and it shrinks by their height.
-        let ids = ["tail", "c", "b", "z", "y", "x", "spacer.before", "room.edge"]
-        let viewport: (CGFloat, CGFloat) = (2000, 2800)
-        let held = anchor(geometry, from: viewport.0, to: viewport.1, keeping: ids)
-        let move = geometry.replace(ids, declared: ["spacer.before": 2300, "room.edge": 8], estimate: { _ in 900 },
-                                    keeping: held)
+    @Test func anOlderPageLandingDuringAFlingExtendsTheEdgeWithoutShiftingVisibleRows() {
+        var geometry = measured([("tail", 1), ("c", 900), ("b", 500), ("room.edge", 8)])
+        let ids = ["tail", "c", "b", "z", "room.edge"]
+        let held = anchor(geometry, from: 609, to: 1409, keeping: ids)
+        let move = geometry.replace(ids, declared: ["room.edge": 8], estimate: { _ in 600 }, keeping: held)
 
-        // Only blank space was on screen: nothing to keep, so the page lands without an offset write.
-        #expect(held == nil)
+        #expect(held == "c")
         #expect(move == 0)
-        // The rows on screen come from the page where the spacer was.
-        #expect(geometry.indices(from: viewport.0, to: viewport.1).map { geometry.ids[$0] } == ["y", "x"])
-        #expect(geometry.contentHeight == 5809)
-    }
-
-    @Test func aPageLandingAsTheLoadedEdgeReachesTheScreenLeavesItsRowsWhereTheyWere() {
-        var geometry = flingingThroughHistory()
-        let ids = ["tail", "c", "b", "z", "spacer.before", "room.edge"]
-        let held = anchor(geometry, from: 600, to: 1400, keeping: ids)
-        let move = geometry.replace(ids, declared: ["spacer.before": 4400, "room.edge": 8], estimate: { _ in 600 },
-                                    keeping: held)
-
-        #expect(held == "b")
-        #expect(move == 0)
-        #expect(geometry.top(of: "b") == 301)
-        // The spacer takes its new height in the same change: nothing remeasures on screen after.
-        #expect(geometry.measure("spacer.before", height: 4400) == nil)
+        #expect(geometry.top(of: "c") == 1)
+        #expect(geometry.top(of: "b") == 901)
+        #expect(geometry.contentHeight == 2009)
     }
 
     @Test func aReaderAwayFromTheEndIsAnchoredOnTheFirstRowOnScreenThenOnWhatIsDrawn() {
-        let geometry = measured([("tail", 1), ("pending", 80), ("b", 500), ("spacer.before", 900)])
+        let geometry = measured([("tail", 1), ("pending", 80), ("spacer.after", 900), ("b", 500)])
 
-        #expect(anchor(geometry, from: 0, to: 700, keeping: geometry.ids) == "b")
+        #expect(anchor(geometry, from: 0, to: 1100, keeping: geometry.ids) == "b")
         #expect(anchor(geometry, from: 0, to: 60, keeping: geometry.ids) == "tail")
         // Following the end, its first entry on screen holds, blank or not.
-        #expect(anchor(geometry, from: 500, to: 1400, keeping: geometry.ids, followsEnd: true) == "b")
-        #expect(anchor(geometry, from: 700, to: 1400, keeping: geometry.ids, followsEnd: true) == "spacer.before")
+        #expect(anchor(geometry, from: 1000, to: 1500, keeping: geometry.ids, followsEnd: true) == "b")
+        #expect(anchor(geometry, from: 700, to: 1400, keeping: geometry.ids, followsEnd: true) == "spacer.after")
     }
 
     @Test func aSpacerResizedInPlaceKeepsTheReadersRowStill() {
-        // A Dynamic Type change re-estimates the far spacer while the same entries stay laid out.
-        var geometry = flingingThroughHistory()
-        let held = anchor(geometry, from: 600, to: 1400, keeping: geometry.ids)
-        let move = geometry.resize(declared: ["spacer.before": 6200, "room.edge": 8], keeping: held)
+        var geometry = measured([("tail", 1), ("spacer.after", 5000), ("b", 500)])
+        let held = anchor(geometry, from: 4800, to: 5600, keeping: geometry.ids)
+        let move = geometry.resize(declared: ["spacer.after": 6200], keeping: held)
 
-        #expect(move == 0)
-        #expect(geometry.top(of: "b") == 301)
-        #expect(geometry.contentHeight == 7009)
+        #expect(move == 1200)
+        #expect(geometry.top(of: "b") == 6201)
         // Heights already laid out change nothing.
-        #expect(geometry.resize(declared: ["spacer.before": 6200, "room.edge": 8], keeping: held) == nil)
+        #expect(geometry.resize(declared: ["spacer.after": 6200], keeping: held) == nil)
     }
 
     @Test func aRoomResizedInPlaceBeforeTheReaderMovesTheOffsetByItsChange() {

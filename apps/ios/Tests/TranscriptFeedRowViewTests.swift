@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 @testable import Ace
 
@@ -21,6 +22,29 @@ import Testing
     }
     private func client() -> ClientModel {
         ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { _, _, _, _ in fatalError("never connected") })
+    }
+
+    @Test func aFlingToTheOlderLimitStillHasLoadedHistoryInView() throws {
+        let thread = ThreadModel(id: "a")
+        thread.loaded = true
+        thread.screen.hasOlder = true
+        thread.screen.blocks["kept"] = try block("kept")
+        thread.screen.blockOrder = ["kept"]
+        let feed = ConversationFeed(model: client(), thread: thread, acceptedSend: 0, links: links(),
+                                    keyboard: KeyboardRide(), behind: .constant(false))
+        feed.extent.update(["block:evicted", "block:kept"], movement: .replace)
+        feed.extent.measure("block:evicted", height: 5_000)
+        feed.extent.update(["block:kept"], movement: .newer)
+
+        let entries = feed.entries(TranscriptSurface())
+        var geometry = TranscriptStackGeometry()
+        geometry.replace(entries.map(\.id), declared: Dictionary(uniqueKeysWithValues: entries.compactMap { entry in
+            entry.height.map { (entry.id, $0) }
+        }), estimate: { _ in 400 })
+        let viewport: CGFloat = 800
+        let limit = max(0, geometry.contentHeight - viewport)
+        let visible = geometry.indices(from: limit, to: limit + viewport)
+        #expect(visible.contains { entries[$0].isRow })
     }
 
     @Test func aRowBuiltAgainFromTheSameDataWithNewClosuresIsTheSameRow() throws {

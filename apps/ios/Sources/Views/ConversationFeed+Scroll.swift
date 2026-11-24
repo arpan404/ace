@@ -88,7 +88,9 @@ extension ConversationFeed {
         case .decelerating:
             intent.active = true
             intent.fling = velocity.map { TranscriptFlingReach(offset: Double(geometry.offset), velocity: $0) }
+            if let velocity, velocity != 0 { intent.direction = velocity > 0 ? -1 : 1 }
             keep(.phase(.gesture), proxy: proxy)
+            pageIfNeeded(proxy)
         case .idle:
             // Only the person's own scroll decides whether the feed follows the end; the
             // feed's animated scrolls (the keyboard, the composer) settle while text streams.
@@ -107,7 +109,6 @@ extension ConversationFeed {
                 let atEnd = intent.metrics.bottom <= AceDesign.Space.group
                 let live = reading.thread == nil || reading.joined
                 setFollowing(atEnd && live)
-                endRead(moving: false)
             } else if TranscriptEndButton.leftByOtherScroll(following: pinned, fromEnd: Double(intent.metrics.bottom),
                                                             viewport: Double(intent.metrics.viewport),
                                                             settling: settle.isRunning || keyboardMoving) {
@@ -126,7 +127,9 @@ extension ConversationFeed {
             keep(.phase(.idle), proxy: proxy)
             updateBehind()
             pageIfNeeded(proxy)
+            if touched { endRead(moving: false) }
         case .animating:
+            intent.direction = 0
             keep(.phase(.animating), proxy: proxy)
             // A scroll that never reports its end still lets an owed correction run.
             Task { @MainActor in
@@ -181,15 +184,14 @@ extension ConversationFeed {
                     intent.rearmAfterAppend = false
                     intent.consumed = false
                 }
-                intent.direction = -1
+                if intent.fling == nil { intent.direction = -1 }
                 if following { setFollowing(false) }
             }
-            else if new.y > old.y + 1 { intent.direction = 1 }
-            endRead(moving: true)
+            else if new.y > old.y + 1, intent.fling == nil { intent.direction = 1 }
             pageIfNeeded(proxy)
-        } else if new.height != old.height, extent.needsContent(top: new.top, bottom: new.bottom) {
-            // A page laid out at rest and the screen still shows retained space (a fling that
-            // bounced back before the page covered it): ask for the next one until rows cover it.
+            endRead(moving: true)
+        } else if new.height != old.height, extent.needsNewerContent(bottom: new.bottom) {
+            // A newer page laid out at rest can leave more retained space in the viewport.
             pageIfNeeded(proxy)
         }
     }

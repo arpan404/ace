@@ -253,7 +253,7 @@ struct TranscriptCollection: UIViewRepresentable {
         /// The entry on screen still laid out after the change: the reader's
         /// (`TranscriptStackGeometry.readerAnchor`). Away from the end, the first row on screen: a
         /// reader just short of the end, with the composer's room still in view, keeps their rows
-        /// still as a new row lands under them, and one flinging through the far spacer has none.
+        /// still as a new row lands under them.
         private func anchorEntry(keeping ids: Set<String>, in next: [String: TranscriptEntry]) -> String? {
             guard let view, let layout else { return nil }
             let entries = entries
