@@ -511,6 +511,16 @@ export class BrowserSession {
         // takes the capture once the backend reports it (`changed`).
         if (target !== undefined && this.tabs.leaving(target)) return;
         if (token !== this.captureToken || this.closed || this.paused) return;
+        // A headless page that won't capture is not a lost browser: its document still runs,
+        // so the video retries on its own instead of pausing every tab. Only the desktop's
+        // views are gone when their capture fails.
+        if (this.options.backendKind !== "embedded") {
+          if (this.live.watched() && target !== undefined && this.tabs.viewedId() === target) {
+            this.watchWakes++;
+            this.watchedWakeFailed(error);
+          }
+          return;
+        }
         const reason = error instanceof Error ? error.message : failure;
         this.suspend(reason);
         this.options.suspended?.(reason);
