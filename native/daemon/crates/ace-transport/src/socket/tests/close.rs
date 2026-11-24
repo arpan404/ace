@@ -13,15 +13,34 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
 use super::{masked_text, next, pair, read};
 use crate::socket::{
-    CLOSE_TIMEOUT, CLOSED, CLOSING, MAX_MESSAGE_BYTES, SendResult, SocketEvent, open,
+    CLOSE_TIMEOUT, CLOSED, CLOSING, CloseError, MAX_MESSAGE_BYTES, OPEN, SendResult, SocketEvent,
+    open,
 };
+
+/// One masked client frame, as a client sends it.
+fn masked(opcode: u8, payload: &[u8]) -> Vec<u8> {
+    let mask = [0x11u8, 0x22, 0x33, 0x44];
+    let mut frame = vec![0x80 | opcode, 0x80 | payload.len() as u8];
+    frame.extend_from_slice(&mask);
+    frame.extend(
+        payload
+            .iter()
+            .enumerate()
+            .map(|(index, byte)| byte ^ mask[index % 4]),
+    );
+    frame
+}
 
 #[tokio::test]
 async fn a_close_is_idempotent_and_a_send_after_it_is_refused() {
     let (handle, mut events, mut client) = pair(1 << 16).await;
-    handle.close(Some(4008), "Idle timeout".to_owned());
+    handle
+        .close(Some(4008), "Idle timeout".to_owned())
+        .expect("a valid close");
     assert_eq!(handle.ready_state(), CLOSING);
-    handle.close(Some(1000), "a second close keeps the first code".to_owned());
+    handle
+        .close(Some(1000), "a second close keeps the first code".to_owned())
+        .expect("a later close is ignored, not refused");
 
     match read(&mut client).await {
         Message::Close(Some(frame)) => {
@@ -59,7 +78,9 @@ async fn a_local_close_the_peer_never_answers_ends_with_1006() {
     // close timeout can end the socket, and the test advances the clock to it.
     let (server, _client) = tokio::io::duplex(1 << 16);
     let (handle, mut events) = open(Box::new(server));
-    handle.close(Some(1001), "bye".to_owned());
+    handle
+        .close(Some(1001), "bye".to_owned())
+        .expect("a valid close");
     tokio::time::advance(CLOSE_TIMEOUT).await;
 
     match next(&mut events).await {
@@ -78,7 +99,9 @@ async fn a_queued_write_does_not_postpone_the_close_deadline() {
         handle.send(Bytes::from(vec![0u8; 4096]), true, 1),
         SendResult::Queued
     );
-    handle.close(Some(1001), "bye".to_owned());
+    handle
+        .close(Some(1001), "bye".to_owned())
+        .expect("a valid close");
     tokio::time::advance(CLOSE_TIMEOUT).await;
 
     match next(&mut events).await {
@@ -100,9 +123,13 @@ async fn close_from_a_thread_without_a_runtime_ends_the_socket() {
     // socket hands `close` its own handle, so the timer still starts.
     let (handle, mut events, _client) = pair(1 << 16).await;
     let closer = handle.clone();
-    std::thread::spawn(move || closer.close(Some(1001), "bye".to_owned()))
-        .join()
-        .expect("the closing thread ends without panicking");
+    std::thread::spawn(move || {
+        closer
+            .close(Some(1001), "bye".to_owned())
+            .expect("a valid close")
+    })
+    .join()
+    .expect("the closing thread ends without panicking");
     tokio::time::advance(CLOSE_TIMEOUT).await;
 
     match next(&mut events).await {
@@ -256,5 +283,211 @@ async fn a_frame_that_cannot_be_flushed_is_failed_before_close() {
     match next(&mut events).await {
         SocketEvent::Close { code, .. } => assert_eq!(code, 1006),
         other => panic!("expected Close second, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_local_close_refuses_an_invalid_code_or_a_reason_over_123_bytes() {
+    let (handle, mut events, mut client) = pair(1 << 16).await;
+    for code in [0u16, 999, 1004, 1005, 1006, 1015, 2999, 5000, 65535] {
+        assert_eq!(
+            handle.close(Some(code), String::new()),
+            Err(CloseError::InvalidCode),
+            "{code} is not a valid status code"
+        );
+    }
+    assert_eq!(
+        handle.ready_state(),
+        OPEN,
+        "a refused close changes nothing"
+    );
+    assert!(events.try_recv().is_err(), "a refused close emits nothing");
+
+    assert_eq!(
+        handle.close(Some(1000), "x".repeat(124)),
+        Err(CloseError::ReasonTooLong),
+        "ws refuses one byte over 123"
+    );
+    assert_eq!(handle.ready_state(), OPEN);
+
+    handle
+        .close(Some(1000), "x".repeat(123))
+        .expect("123 bytes is the largest reason ws sends");
+    match read(&mut client).await {
+        Message::Close(Some(frame)) => {
+            assert_eq!(u16::from(frame.code), 1000);
+            assert_eq!(frame.reason.len(), 123);
+        }
+        other => panic!("expected the close, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_peer_close_mid_write_finishes_that_frame_before_answering() {
+    // One byte of duplex: the 4 KiB frame cannot flush, so a peer close arrives
+    // while the writer is mid-frame. The frame must finish intact and only then
+    // the close go out; appending the close to the pending buffer would corrupt
+    // the stream.
+    let (server, mut client) = tokio::io::duplex(1);
+    let (handle, _events) = open(Box::new(server));
+    assert_eq!(
+        handle.send(Bytes::from(vec![7u8; 4096]), true, 1),
+        SendResult::Queued
+    );
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    client
+        .write_all(&masked(0x8, &[0x03, 0xe8]))
+        .await
+        .expect("the peer closes");
+    let mut bytes = Vec::new();
+    tokio::time::timeout(Duration::from_secs(5), client.read_to_end(&mut bytes))
+        .await
+        .expect("the socket ends")
+        .expect("the bytes are read");
+
+    assert_eq!(&bytes[..4], &[0x82, 126, 0x10, 0x00]);
+    assert!(
+        bytes[4..4100].iter().all(|byte| *byte == 7),
+        "the payload is intact"
+    );
+    assert_eq!(
+        &bytes[4100..],
+        &[0x88, 0x02, 0x03, 0xe8],
+        "the close answers 1000"
+    );
+}
+
+#[tokio::test]
+async fn a_peer_reply_after_the_local_close_writes_no_second_close() {
+    let (server, mut client) = tokio::io::duplex(1 << 16);
+    let (handle, mut events) = open(Box::new(server));
+    handle
+        .close(Some(4008), "bye".to_owned())
+        .expect("a valid close");
+
+    // The local close reaches the wire first: 0x88, length 5, 4008, "bye".
+    let mut local = [0u8; 7];
+    client
+        .read_exact(&mut local)
+        .await
+        .expect("the local close arrives");
+    assert_eq!(local, [0x88, 0x05, 0x0f, 0xa8, b'b', b'y', b'e']);
+
+    client
+        .write_all(&masked(0x8, &[0x03, 0xe8]))
+        .await
+        .expect("the peer answers with 1000");
+    match next(&mut events).await {
+        SocketEvent::Close { code, .. } => assert_eq!(code, 1000, "the peer's code is reported"),
+        other => panic!("expected Close, got {other:?}"),
+    }
+
+    let mut rest = Vec::new();
+    tokio::time::timeout(Duration::from_secs(2), client.read_to_end(&mut rest))
+        .await
+        .expect("the connection ends")
+        .expect("the end is read");
+    assert!(
+        rest.is_empty(),
+        "no second close frame follows the peer's answer, got {rest:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_peer_close_before_the_local_close_flushes_keeps_the_local_code() {
+    // A one-byte duplex keeps the data frame in flight, so `close()` queues
+    // behind it. The peer's close must not replace the local code ws would send.
+    let (server, mut client) = tokio::io::duplex(1);
+    let (handle, _events) = open(Box::new(server));
+    assert_eq!(
+        handle.send(Bytes::from(vec![7u8; 4096]), true, 1),
+        SendResult::Queued
+    );
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    handle
+        .close(Some(4008), "local".to_owned())
+        .expect("a valid close");
+
+    client
+        .write_all(&masked(0x8, &[0x03, 0xe8]))
+        .await
+        .expect("the peer closes");
+    let mut bytes = Vec::new();
+    tokio::time::timeout(Duration::from_secs(5), client.read_to_end(&mut bytes))
+        .await
+        .expect("the socket ends")
+        .expect("the bytes are read");
+
+    assert_eq!(&bytes[..4], &[0x82, 126, 0x10, 0x00]);
+    assert!(bytes[4..4100].iter().all(|byte| *byte == 7));
+    assert_eq!(
+        &bytes[4100..],
+        &[0x88, 0x07, 0x0f, 0xa8, b'l', b'o', b'c', b'a', b'l'],
+        "the local 4008 close was already queued and is what goes out"
+    );
+}
+
+#[tokio::test]
+async fn a_close_on_a_closing_or_closed_socket_returns_before_validating() {
+    let (closing, _events, _client) = pair(1 << 16).await;
+    closing
+        .close(Some(4008), "bye".to_owned())
+        .expect("a valid close");
+    assert_eq!(
+        closing.close(Some(1005), "x".repeat(200)),
+        Ok(()),
+        "ws returns for CLOSING before the sender validates"
+    );
+    assert_eq!(closing.ready_state(), CLOSING);
+
+    let (closed, _events, _client) = pair(1 << 16).await;
+    closed.terminate();
+    assert_eq!(
+        closed.close(Some(1005), "x".repeat(200)),
+        Ok(()),
+        "ws returns for CLOSED before the sender validates"
+    );
+    assert_eq!(closed.ready_state(), CLOSED);
+}
+
+#[tokio::test]
+async fn a_peer_close_interrupting_a_local_close_does_not_send_it_twice() {
+    // A one-byte duplex leaves the local close mid-frame. The peer's close then
+    // arrives: teardown must finish that frame and stop, not write it again.
+    let (server, mut client) = tokio::io::duplex(1);
+    let (handle, mut events) = open(Box::new(server));
+    handle
+        .close(Some(4008), "bye".to_owned())
+        .expect("a valid close");
+
+    // One byte of the close is on the wire, so the frame is in flight.
+    let mut first = [0u8; 1];
+    client
+        .read_exact(&mut first)
+        .await
+        .expect("the close begins");
+    assert_eq!(first[0], 0x88);
+
+    client
+        .write_all(&masked(0x8, &[0x03, 0xe8]))
+        .await
+        .expect("the peer closes");
+    let mut rest = Vec::new();
+    tokio::time::timeout(Duration::from_secs(5), client.read_to_end(&mut rest))
+        .await
+        .expect("the socket ends")
+        .expect("the bytes are read");
+
+    let mut whole = vec![first[0]];
+    whole.extend_from_slice(&rest);
+    assert_eq!(
+        whole,
+        vec![0x88, 0x05, 0x0f, 0xa8, b'b', b'y', b'e'],
+        "one local close, completed, never a second"
+    );
+    match next(&mut events).await {
+        SocketEvent::Close { code, .. } => assert_eq!(code, 1000, "the peer's code is reported"),
+        other => panic!("expected Close, got {other:?}"),
     }
 }

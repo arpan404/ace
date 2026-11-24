@@ -6,22 +6,22 @@
 //! timeout, as `ws`'s does, and every closing write is bounded.
 
 use std::future::Future;
+use std::io;
 use std::sync::Arc;
 
-use futures_util::stream::{SplitSink, SplitStream};
+use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
+use tokio::io::{ReadHalf, WriteHalf};
 use tokio::sync::mpsc;
-use tokio_tungstenite::WebSocketStream;
-use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
-use tokio_tungstenite::tungstenite::protocol::{CloseFrame, Role, WebSocketConfig};
-use tokio_tungstenite::tungstenite::{Error as WsError, Message, Utf8Bytes};
 
-use super::{CLOSED, CLOSING, MAX_MESSAGE_BYTES, OPEN, Outbound, Shared, SocketEvent, lock};
+use super::{CLOSED, CLOSING, OPEN, Queued, Shared, SocketEvent, lock};
 use crate::driver::UpgradeIo;
+use crate::frame::assemble::{Message, conclude};
+use crate::frame::{Frame, FrameError, FrameReader, FrameWriter, Opcode, Outbound};
 use crate::prefixed::WRITE_TIMEOUT;
 
-type Source = SplitStream<WebSocketStream<Box<dyn UpgradeIo>>>;
-type Sink = SplitSink<WebSocketStream<Box<dyn UpgradeIo>>, Message>;
+type Source = FrameReader<ReadHalf<Box<dyn UpgradeIo>>>;
+type Sink = FrameWriter<WriteHalf<Box<dyn UpgradeIo>>>;
 
 /// How a socket's conversation ended, and what it still owes the wire.
 pub(super) struct Ending {
@@ -36,8 +36,9 @@ pub(super) struct Ending {
 enum Wire {
     /// The connection is gone: nothing more is written.
     Nothing,
-    /// The peer closed: flush tungstenite's queued reply.
-    Reply,
+    /// The peer closed. The writer sends the local close if one is queued, else
+    /// echoes this payload, unless a close frame already went out.
+    Peer(Vec<u8>),
     /// `ws` closes with this code (a violation, or its own local close).
     Close(u16),
 }
@@ -52,40 +53,49 @@ impl Ending {
             wire: Wire::Nothing,
         }
     }
-}
 
-impl Ending {
-    /// A tungstenite error. `ws` closes the wire with its code for the violation
+    /// A framing failure. `ws` closes the wire with its code for the violation
     /// and, having no peer close to report, ends the socket locally with `1006`.
-    fn failed(error: WsError) -> Self {
+    fn failed(error: FrameError) -> Self {
         let message = error.to_string();
-        let (code, wire) = match &error {
-            WsError::Capacity(_) => ("too_big", Wire::Close(1009)),
+        let wire = match &error {
+            FrameError::TooBig(_) => Wire::Close(1009),
             // Invalid UTF-8 in a text frame is its own code, not a protocol one.
-            WsError::Utf8(_) => ("protocol", Wire::Close(1007)),
-            WsError::Protocol(_) | WsError::AttackAttempt => ("protocol", Wire::Close(1002)),
-            _ => ("io", Wire::Nothing),
+            FrameError::InvalidUtf8(_) => Wire::Close(1007),
+            FrameError::Protocol(_) => Wire::Close(1002),
+            FrameError::TooManyFragments(_) => Wire::Close(1008),
+            FrameError::Io(_) => Wire::Nothing,
         };
         Ending {
             code: 1006,
             reason: Vec::new(),
-            error: Some((code, message)),
+            error: Some((error.error_code(), message)),
             wire,
         }
     }
 
-    /// The peer's close frame, or none: answered and reported with its code.
-    fn peer(frame: Option<CloseFrame>) -> Self {
-        let (code, reason) = match frame {
-            Some(frame) => (frame.code.into(), frame.reason.as_str().as_bytes().to_vec()),
-            // No code on the wire is `ws`'s 1005.
-            None => (1005, Vec::new()),
-        };
+    /// The queued pong payload passed the memory ceiling. `ws` has no limit;
+    /// this is the recorded difference, closed with 1008 as a policy refusal.
+    fn control_backlog() -> Self {
+        Ending {
+            code: 1006,
+            reason: Vec::new(),
+            error: Some(("protocol", "Too many queued pong bytes".to_owned())),
+            wire: Wire::Close(1008),
+        }
+    }
+
+    /// The peer's close frame: reported with its code and reason (`ws`'s 1005
+    /// when the frame named no code). What is written is decided in `finish`,
+    /// because `ws` keeps the local close it already queued and ends without a
+    /// second frame once one has been sent.
+    fn peer(frame: Option<(u16, Vec<u8>)>, reply: Vec<u8>) -> Self {
+        let (code, reason) = frame.unwrap_or((1005, Vec::new()));
         Ending {
             code,
             reason,
             error: None,
-            wire: Wire::Reply,
+            wire: Wire::Peer(reply),
         }
     }
 }
@@ -93,26 +103,20 @@ impl Ending {
 pub(super) async fn run(
     stream: Box<dyn UpgradeIo>,
     shared: Arc<Shared>,
-    queued: mpsc::UnboundedReceiver<Outbound>,
+    queued: mpsc::UnboundedReceiver<Queued>,
     woken: mpsc::Receiver<()>,
 ) {
-    let socket = WebSocketStream::from_raw_socket(stream, Role::Server, Some(config())).await;
-    let (sink, source) = socket.split();
+    let (reader, writer) = tokio::io::split(stream);
+    let source = FrameReader::new(reader);
+    let sink = FrameWriter::new(writer);
     let reader = tokio::spawn(read(source, Arc::clone(&shared), woken));
     write(sink, Arc::clone(&shared), queued).await;
     // The writer has ended the conversation; the reader returns at once.
     let _ = reader.await;
 }
 
-fn config() -> WebSocketConfig {
-    WebSocketConfig::default()
-        .max_message_size(Some(MAX_MESSAGE_BYTES))
-        .max_frame_size(Some(MAX_MESSAGE_BYTES))
-}
-
 /// Delivers what arrives until the socket ends, and records why. A peer's ping
-/// is answered by tungstenite on the read that follows and never surfaced; a
-/// pong is ignored, as `autoPong` does.
+/// is answered here and never surfaced; a pong is ignored, as `autoPong` does.
 async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver<()>) {
     let ending = loop {
         let readable = shared.readable();
@@ -121,19 +125,16 @@ async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver
             // The writer ended the conversation: it reports, so this side says
             // nothing more.
             _ = shared.over.cancelled() => return,
-            message = source.next(), if readable => match message {
-                Some(Ok(Message::Text(text))) => {
-                    if !shared.deliver(text.as_str().as_bytes().to_vec(), false) {
-                        break Ending::lost();
+            frame = source.next(), if readable => match frame {
+                Some(Ok(frame)) => match frame_in(&shared, &mut source, frame) {
+                    Ok(Some(message)) => {
+                        if !shared.deliver(message.data, message.binary) {
+                            break Ending::lost();
+                        }
                     }
-                }
-                Some(Ok(Message::Binary(data))) => {
-                    if !shared.deliver(data.to_vec(), true) {
-                        break Ending::lost();
-                    }
-                }
-                Some(Ok(Message::Close(frame))) => break Ending::peer(frame),
-                Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => {}
+                    Ok(None) => {}
+                    Err(ending) => break ending,
+                },
                 Some(Err(error)) => break Ending::failed(error),
                 None => break Ending::lost(),
             },
@@ -143,10 +144,39 @@ async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver
     shared.end(ending);
 }
 
+/// One frame's meaning: a completed message, nothing (a control frame handled
+/// here), or the end of the socket.
+fn frame_in(shared: &Shared, source: &mut Source, frame: Frame) -> Result<Option<Message>, Ending> {
+    match frame.opcode {
+        Opcode::Ping => {
+            if shared.control(Opcode::Pong, frame.payload) {
+                Ok(None)
+            } else {
+                Err(Ending::control_backlog())
+            }
+        }
+        // `ws`'s `autoPong` answers pings; a pong is never surfaced.
+        Opcode::Pong => Ok(None),
+        Opcode::Close => {
+            let reply = frame.payload.clone();
+            match conclude(&frame.payload) {
+                Ok(peer) => Err(Ending::peer(peer, reply)),
+                Err(code) => Err(Ending::failed(FrameError::from(code))),
+            }
+        }
+        Opcode::Text | Opcode::Binary | Opcode::Continuation => {
+            match source.assembler_mut().push(frame) {
+                Ok(message) => Ok(message),
+                Err(code) => Err(Ending::failed(FrameError::from(code))),
+            }
+        }
+    }
+}
+
 /// Flushes what `send` queued until the conversation ends, then ends it. A local
 /// close starts `ws`'s close timeout at the call, so a queue of frames still
 /// waiting cannot postpone the socket being destroyed.
-async fn write(mut sink: Sink, shared: Arc<Shared>, mut queued: mpsc::UnboundedReceiver<Outbound>) {
+async fn write(mut sink: Sink, shared: Arc<Shared>, mut queued: mpsc::UnboundedReceiver<Queued>) {
     loop {
         let item = tokio::select! {
             biased;
@@ -162,16 +192,41 @@ async fn write(mut sink: Sink, shared: Arc<Shared>, mut queued: mpsc::UnboundedR
             return finish(sink, &shared, &mut queued, Ending::lost(), None).await;
         };
         let owed = item.own.map(|own| own.id);
+        let close = item.frame.opcode == Opcode::Close;
         match flushed(&shared, sink.send(item.frame)).await {
-            Ok(Ok(())) => shared.complete(item.own, None),
+            Ok(Ok(())) => {
+                if close {
+                    shared.close_flushed();
+                }
+                shared.settle(item.own, item.charge, item.memory, item.control, None);
+            }
             Ok(Err(error)) => {
-                shared.complete(item.own, Some(not_open(shared.state())));
-                return finish(sink, &shared, &mut queued, Ending::failed(error), None).await;
+                shared.settle(
+                    item.own,
+                    item.charge,
+                    item.memory,
+                    item.control,
+                    Some(not_open(shared.state())),
+                );
+                return finish(
+                    sink,
+                    &shared,
+                    &mut queued,
+                    Ending::failed(error.into()),
+                    None,
+                )
+                .await;
             }
             // The frame is owed a `Sent`, which `finish` reports once the state
             // is sealed.
             Err(ending) => {
-                shared.release(item.own);
+                shared.release(item.charge, item.memory, item.control);
+                // The interrupted frame may be the local close itself. It counts
+                // as sent: `finish` flushes what is in flight, and a second close
+                // must never follow it.
+                if close && sink.accepted() {
+                    shared.close_flushed();
+                }
                 return finish(sink, &shared, &mut queued, ending, owed).await;
             }
         }
@@ -181,10 +236,10 @@ async fn write(mut sink: Sink, shared: Arc<Shared>, mut queued: mpsc::UnboundedR
 /// Runs one write to its end, or abandons it because the conversation ended: the
 /// stream is dropped whole then, so no half-written frame is resumed. The close
 /// deadline abandons it too, however long the queue in front of it is.
-async fn flushed<F: Future<Output = Result<(), WsError>>>(
+async fn flushed<F: Future<Output = Result<(), io::Error>>>(
     shared: &Shared,
     write: F,
-) -> Result<Result<(), WsError>, Ending> {
+) -> Result<Result<(), io::Error>, Ending> {
     let mut write = std::pin::pin!(write);
     tokio::select! {
         biased;
@@ -197,10 +252,10 @@ async fn flushed<F: Future<Output = Result<(), WsError>>>(
 /// One closing write. It is bounded twice: by the stream's write timeout, and by
 /// `terminate`, which drops the socket at once rather than waiting for a flush
 /// that may never come.
-async fn terminal<F: Future<Output = Result<(), WsError>>>(
+async fn terminal<F: Future<Output = Result<(), io::Error>>>(
     shared: &Shared,
     write: F,
-) -> Option<Result<(), WsError>> {
+) -> Option<Result<(), io::Error>> {
     tokio::select! {
         biased;
         _ = shared.stop.cancelled() => None,
@@ -211,7 +266,7 @@ async fn terminal<F: Future<Output = Result<(), WsError>>>(
 async fn finish(
     mut sink: Sink,
     shared: &Arc<Shared>,
-    queued: &mut mpsc::UnboundedReceiver<Outbound>,
+    queued: &mut mpsc::UnboundedReceiver<Queued>,
     ending: Ending,
     owed: Option<u64>,
 ) {
@@ -231,18 +286,24 @@ async fn finish(
         });
     }
     match ending.wire {
-        // tungstenite queued the reply as it read the peer's close; flushing it
-        // completes the handshake.
-        Wire::Reply => {
-            let _ = terminal(shared, sink.flush()).await;
+        // The peer's close: `ws` keeps a local close that was queued first and
+        // writes no second frame once one has gone out.
+        Wire::Peer(reply) => {
+            let payload = {
+                let mut inner = lock(&shared.inner);
+                if inner.close_sent {
+                    None
+                } else if inner.close.is_some() {
+                    inner.close.take()
+                } else {
+                    Some(reply)
+                }
+            };
+            close_frame(&mut sink, shared, payload.unwrap_or_default()).await;
         }
         // `ws`'s answer to a protocol or size violation, before it drops.
         Wire::Close(code) => {
-            let frame = CloseFrame {
-                code: CloseCode::from(code),
-                reason: Utf8Bytes::from_static(""),
-            };
-            let _ = terminal(shared, sink.send(Message::Close(Some(frame)))).await;
+            close_frame(&mut sink, shared, code.to_be_bytes().to_vec()).await;
         }
         Wire::Nothing => {}
     }
@@ -253,11 +314,40 @@ async fn finish(
         shared.sent(id, Some(not_open(shared.state())));
     }
     while let Ok(item) = queued.try_recv() {
-        shared.complete(item.own, Some(not_open(shared.state())));
+        shared.settle(
+            item.own,
+            item.charge,
+            item.memory,
+            item.control,
+            Some(not_open(shared.state())),
+        );
     }
     shared.finish_events(ending.code, ending.reason);
     // The reader stops at once; whatever it read meanwhile is dropped.
     shared.over.cancel();
+}
+
+/// Writes one close frame after finishing any partly written frame, inside the
+/// close deadline. A frame already in flight is completed first, never
+/// interleaved; if it cannot be finished the stream is dropped without a close,
+/// as `ws` drops a socket it cannot drain.
+async fn close_frame(sink: &mut Sink, shared: &Shared, payload: Vec<u8>) {
+    // Finish whatever is in flight first, whether or not a close still needs to
+    // go out: a close already being written is completed, never followed.
+    if !matches!(terminal(shared, sink.flush()).await, Some(Ok(()))) {
+        return;
+    }
+    if lock(&shared.inner).close_sent {
+        return;
+    }
+    let frame = Outbound {
+        opcode: Opcode::Close,
+        rsv1: false,
+        payload: Bytes::from(payload),
+    };
+    if matches!(terminal(shared, sink.send(frame)).await, Some(Ok(()))) {
+        shared.close_flushed();
+    }
 }
 
 /// `ws`'s words for a send that could not be completed.
