@@ -13,7 +13,7 @@ import {
 import { rebuildThread } from "./thread-row.ts";
 import { keepThreadRowConfirmed, threadRowConfirmed } from "./thread-row-trust.ts";
 import type { FrozenThread } from "./thread-cache.ts";
-import type { StreamSequences } from "./stream-sequences.ts";
+import type { SequenceAllocator } from "./stream-sequences.ts";
 import type { PayloadStore } from "./payload-store.ts";
 import type { HistoryIndex } from "./history-index.ts";
 import type { StatusStore } from "./status-store.ts";
@@ -26,7 +26,7 @@ import type { MeasurementStore } from "./measurement-store.ts";
 import type { NeedsYouThreads } from "./needs-you-threads.ts";
 interface EventWriteSource {
   db: DatabaseSync;
-  sequences: StreamSequences;
+  sequences: SequenceAllocator;
   payloads: PayloadStore;
   history: HistoryIndex;
   status: StatusStore;

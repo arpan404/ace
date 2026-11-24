@@ -11,7 +11,8 @@ import { EventWriter } from "./event-writer.ts";
 import { decodeThreadRow, threadRowColumns, threadRowSource } from "./thread-row.ts";
 import { createStoreThreadCache, type FrozenThread, type ThreadCache } from "./thread-cache.ts";
 import type { DelegationEdgeReader } from "./tree-root.ts";
-import { StreamSequences } from "./stream-sequences.ts";
+import { StreamSequences, type SequenceAllocator } from "./stream-sequences.ts";
+import { NativeStreamSequences } from "./native-writer/sequences.ts";
 import { BoundedEvents } from "./bounded-events.ts";
 import { rolledBack, type LineageFile } from "./sequence-lineage.ts";
 /** Committed sequences between marks: a rollback within the last this many may go unseen. */
@@ -66,7 +67,7 @@ import type { ArchiveReader } from "@ace/history-import";
 import { installArchive } from "./history-storage.ts";
 import { systemCredentials, type CredentialRuntime } from "./credential-runtime.ts";
 import { assertProcessSqlite, DatabaseSync, type StatementSync } from "@ace/provider-kit/sqlite";
-import { noteDatabaseBoot } from "@ace/provider-kit/native-switches";
+import { noteDatabaseBoot, storeWriterOn } from "@ace/provider-kit/native-switches";
 import {
   McpIntent,
   CommandResult,
@@ -152,7 +153,7 @@ export class Store {
   private readonly quarantineListeners = new Set<(thread: ThreadId, error: Error) => void>();
   private rolledBack = 0;
   private readonly streaming: StoreStream;
-  private readonly sequences: StreamSequences;
+  private readonly sequences: SequenceAllocator;
   private readonly readCache: ThreadReadCache;
   /** Each published event's JSON, made once and shared by the live buffer and the server. */
   readonly encodings = new EventEncodings();
@@ -234,11 +235,17 @@ export class Store {
       now: () => this.now(),
       sameDevice: (a, b) => this.sameDevice(a, b),
     });
-    this.sequences = new StreamSequences({
-      statement: (sql) => this.statement(sql),
-      commit: (run, outcome) => this.transaction(run, outcome),
-      reserved: (through, report) => this.markLineage(through, report),
-    });
+    this.sequences = storeWriterOn("sequences")
+      ? new NativeStreamSequences({
+          db: this.db,
+          commit: (run, outcome) => this.transaction(run, outcome),
+          reserved: (through, report) => this.markLineage(through, report),
+        })
+      : new StreamSequences({
+          statement: (sql) => this.statement(sql),
+          commit: (run, outcome) => this.transaction(run, outcome),
+          reserved: (through, report) => this.markLineage(through, report),
+        });
     this.now = options.now ?? Date.now;
     this.nextId = options.nextId ?? timeOrderedIds();
     this.writes = new StoreWriteGate(options.writeGate);

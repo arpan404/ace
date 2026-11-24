@@ -1,6 +1,6 @@
 import type { Event, EventPayload, ThreadId } from "@ace/protocol";
 import { canonicalEvent } from "./canonical-event.ts";
-import type { StreamSequences } from "./stream-sequences.ts";
+import type { SequenceAllocator } from "./stream-sequences.ts";
 import type { EventEncodings } from "./event-encodings.ts";
 import { isStoreBusy, LiveWriteRetry } from "./store-busy.ts";
 import { isDiskFull } from "./sqlite-failure.ts";
@@ -115,7 +115,7 @@ export class StoreStream {
   constructor(privateOptions: {
     scheduler: BufferScheduler;
     nextId(): string;
-    sequences: StreamSequences;
+    sequences: SequenceAllocator;
     blocked(): boolean;
     transaction(run: () => void, outcome: TransactionOutcome): void;
     /** Store an envelope under its own sequence; returns it and any follow-up rows. */
