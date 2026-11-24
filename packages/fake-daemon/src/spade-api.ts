@@ -915,6 +915,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
     return this.listed().map((agent) => ({ id: agent.id, main: agent.kind === "main" }));
   }
 
+  /** What works under a bot is the bot working: its task count, and working unless it waits. */
+  private rolledUp(agent: FakeSpadeAgent): Json {
+    const tasks = this.lanes.liveCount(agent.conversation);
+    if (!tasks) return {};
+    return agent.state === "idle" ? { tasks, state: "working" } : { tasks };
+  }
+
   private agentRoute(
     method: string,
     id: string | undefined,
@@ -924,7 +931,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (!id && method === "GET")
       return reply({
         agents: this.listed().map((agent) =>
-          Object.assign({}, agent, this.work.rosterFields(agent), {
+          Object.assign({}, agent, this.work.rosterFields(agent), this.rolledUp(agent), {
             pending:
               agent.state === "waiting"
                 ? fakeSpadePending(

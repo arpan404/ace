@@ -43,6 +43,13 @@ test("a routine's run names itself in its time line, not as the person, and a qu
   expect(within(bubbles[0] ?? document.body).getByText("Three meetings today.")).toBeTruthy();
 });
 
+/** The Routines section of the page, whichever heading is its own. */
+const routinesSection = async () => {
+  const headings = await screen.findAllByRole("heading", { name: "Routines" });
+  const section = headings.map((each) => each.closest("section")).find(Boolean);
+  return within(section ?? document.body);
+};
+
 test("the person adds, pauses and edits a bot's routines in its profile, and turns its heartbeat on", async () => {
   const { spade } = await spadeApp("/spade", (seed) => {
     withEndpoint(seed);
@@ -52,11 +59,6 @@ test("the person adds, pauses and edits a bot's routines in its profile, and tur
   await userEvent.click(await botRow("Scout"));
   await openProfile("Scout");
   await openSettingsPage("Routines");
-  const routinesSection = async () => {
-    const headings = await screen.findAllByRole("heading", { name: "Routines" });
-    const section = headings.map((each) => each.closest("section")).find(Boolean);
-    return within(section ?? document.body);
-  };
 
   // Add routine opens the New routine page: what to do, and when.
   await userEvent.click(

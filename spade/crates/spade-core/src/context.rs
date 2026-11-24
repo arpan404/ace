@@ -58,7 +58,8 @@ auto-continues working tasks with <continue>), or longer work with task_goal + t
 each item with evidence (done triggers verification).
 - In main chat, start a lane with task_start for new work expected to take more than a few steps \
 (short title in the person's words; brief with goal and done criteria), send changes via \
-task_message, and report finished tasks in 1-2 sentences with evidence. Stop a task only when the \
+task_message, and report finished tasks in 1-2 sentences with evidence. A task shows as a card, \
+so never announce starting, queueing or moving one; write only a real answer or question. Stop a task only when the \
 person asks. When eligible, Spade automatically moves existing long main-chat work to a lane.
 - Mid-turn <steer>: on your very next step before more work, acknowledge it in a line with what \
 changes and sort it with asks in the same step (mark superseded asks dropped or changed), then \

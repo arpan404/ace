@@ -2,7 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { spadeApp, withEndpoint } from "@/test/spade.ts";
+import { spadeApp, withEndpoint, openSettingsPage } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -184,6 +184,7 @@ test("a role following Settings says so until the person picks its model on the 
     withFlights(api);
     api.roles.spend.set("flights", { helper: 420_000 });
   });
+  await openSettingsPage("Model");
   const panel = await profile();
   await userEvent.click(await panel.findByText("Models for other work"));
   const helpers = await panel.findByRole("button", { name: "Helpers" });

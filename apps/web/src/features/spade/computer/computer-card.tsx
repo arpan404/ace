@@ -21,11 +21,17 @@ export function computerWord(
  * Activity's Computer card: "Bot's computer", its state, and a live thumbnail of its screen at
  * the right. It opens the full-screen view.
  */
-export function ComputerCard(props: { bot: RosterBot; place: ProfileComputerPlace }) {
+export function ComputerCard(props: {
+  bot: RosterBot;
+  place: ProfileComputerPlace;
+  /** Terminal, Screen or Browser, opened inside the panel. */
+  onOpenSurface(kind: "terminal" | "screen" | "browser"): void;
+}) {
   const { bot, place } = props;
   const word = computerWord(place.state);
   const { picture } = useBotPicture({ machine: bot.machine.key, bot: bot.id, surface: "screen" });
-  return (
+  const surfaces = fullViewsOf(place, bot);
+  const card = (
     <button
       type="button"
       aria-label={`Open ${bot.name}'s computer`}
@@ -54,5 +60,22 @@ export function ComputerCard(props: { bot: RosterBot; place: ProfileComputerPlac
         )}
       </span>
     </button>
+  );
+  return (
+    <>
+      {card}
+      <div role="group" aria-label="Open in the panel" className="mt-1 flex gap-1 px-1">
+        {surfaces.map((kind) => (
+          <button
+            key={kind}
+            type="button"
+            onClick={() => props.onOpenSurface(kind)}
+            className="h-7 rounded-full px-2.5 text-ui text-muted-foreground focus-ring hover:bg-hover hover:text-foreground"
+          >
+            {kind === "terminal" ? "Terminal" : kind === "screen" ? "Screen" : "Browser"}
+          </button>
+        ))}
+      </div>
+    </>
   );
 }

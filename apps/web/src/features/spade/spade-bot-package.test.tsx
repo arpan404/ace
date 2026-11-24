@@ -250,6 +250,7 @@ test("a development bot says Development in its row, its profile and on Running,
 
   const head = (await screen.findByRole("button", { name: "Rename Flight watcher" })).parentElement;
   expect(within(head ?? document.body).getByText("Development")).toBeTruthy();
+  await openSettingsPage("Job");
   expect(
     await screen.findByText("Updated from its package folder on this machine with ace bot dev."),
   ).toBeTruthy();

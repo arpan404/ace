@@ -1,5 +1,4 @@
 import { CardFace } from "./spade-card.tsx";
-import { LaneQuietLine, OverlapQuietLine } from "./lanes/lane-line.tsx";
 import { SpadeAgentCard, type SpadeCardChoose } from "./spade-agent-card.tsx";
 import { SpadeNoticeRow } from "./spade-notice-row.tsx";
 import type { BotFaceState } from "@ace/ui-core/bot-face";
@@ -50,7 +49,6 @@ import { InvokedChip } from "./spade-invoked-chip.tsx";
 import { BubbleFrame, Failure, FileChips, SpeakerLine, WorkingLine } from "./spade-chat-parts.tsx";
 import { useShowWork } from "./spade-show-work.ts";
 import { SkillProposal } from "./spade-skill-bubble.tsx";
-import { SpadeChildRow } from "./spade-child-row.tsx";
 import type { SpadeTalkContext } from "./spade-talk-row.tsx";
 import { KeepCaseDialog } from "./spade-keep-case.tsx";
 import { SpadeRequestBubble, type RequestAnswer } from "./spade-request-bubble.tsx";
@@ -61,9 +59,7 @@ import type { QuestionReply } from "./use-spade-conversation.ts";
 import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
 import { QuietLine, RestingLine } from "./spade-quiet-line.tsx";
 import { useCardAccent } from "./spade-accent.ts";
-import { SpadeDelegation } from "./spade-delegation.tsx";
 import { SpadeFace } from "./spade-face.tsx";
-import { SpadeWaitingWorkers } from "./spade-waiting-workers.tsx";
 import { SpadeBriefBubble } from "./spade-brief-bubble.tsx";
 import { SpadeDigestBubble } from "./spade-digest-bubble.tsx";
 import { useSpadeClient } from "./spade-machine.tsx";
@@ -165,7 +161,6 @@ export function SpadeChat(props: {
   /** The bot as the roster has it: its own task and name lines change it in place. */
   profile?: RosterBot | undefined;
   /** Opened to answer what its workers wait on: that shows at the end, brought into view. */
-  revealWorkers?: boolean | undefined;
   /** Reply to a message (ADR 0212 §4): the composer shows its strip. Absent offers no Reply. */
   onReply?: ((quote: SpadeQuote) => void) | undefined;
 }) {
@@ -204,7 +199,6 @@ export function SpadeChat(props: {
   );
   const [from, drawAll] = useNewestFirst(rows.length);
   const replies = useReplies(bot.name, props.onReply, drawAll, view.reactions, props.onReact);
-  const started = useMemo(() => startedWorkers(rows), [rows]);
   // Asleep or waiting on a wake: the resting line takes the working line's place (ADR 0160).
   const rest =
     view.resting &&
@@ -307,11 +301,6 @@ export function SpadeChat(props: {
               handlers={handlers}
             />
           ))}
-          <SpadeWaitingWorkers
-            workers={started}
-            reveal={props.revealWorkers === true}
-            handlers={{ bot: bot.id, face: handlers.face, onOpenBot: handlers.onOpenBot }}
-          />
           {rest && !props.paused && onWake ? (
             <RestingLine
               avatar={bot.avatar}
@@ -384,20 +373,6 @@ function useNewestFirst(count: number): [number, () => void] {
   // Going to an older message draws every row at once.
   const drawAll = useCallback(() => setFrom(0), []);
   return [Math.min(from, count), drawAll];
-}
-
-/** Every worker the chat's cards started, in the order they started. */
-function startedWorkers(rows: readonly SpadeChatRow[]): SpadeStartedWorker[] {
-  const workers: SpadeStartedWorker[] = [];
-  const add = (item: SpadeChatItem) => {
-    if (item.kind === "workers") workers.push(...item.workers);
-    if (item.kind === "together")
-      for (const each of item.parts) if (each.kind === "workers") workers.push(...each.workers);
-  };
-  for (const row of rows)
-    if (row.kind === "run") row.items.forEach(add);
-    else if (row.kind === "item") add(row.item);
-  return workers;
 }
 
 /** The reply still open, the last one in the conversation. */
@@ -746,15 +721,9 @@ function RunItem(props: {
       return <SpadeQuestionBubble item={item} botName={bot.name} onReply={handlers.onQuestion} />;
     case "notice":
       return <SpadeNoticeRow item={item} botName={bot.name} />;
+    // What other bots and agents do under the bot is the bot's own work: no card for it.
     case "workers":
-      return (
-        <SpadeDelegation
-          parts={[item]}
-          at={item.at}
-          botName={bot.name}
-          handlers={{ bot: bot.id, face: handlers.face, onOpenBot: handlers.onOpenBot }}
-        />
-      );
+      return null;
     case "card":
       return (
         <SpadeAgentCard
@@ -829,23 +798,8 @@ function Single(props: {
 }) {
   const { item, space, bot, handlers } = props;
   switch (item.kind) {
-    // Everything one turn did with other bots and agents: one card, a turn apart.
     case "together":
-      return (
-        <div className={space}>
-          <SpadeDelegation
-            parts={item.parts}
-            at={item.at}
-            botName={bot.name}
-            handlers={{
-              bot: bot.id,
-              face: handlers.face,
-              onOpenBot: handlers.onOpenBot,
-              talk: handlers.talk,
-            }}
-          />
-        </div>
-      );
+      return null;
     // A contract call another bot made: one compact line with what this bot returned.
     case "other": {
       if (!item.contract) return null;
@@ -903,28 +857,13 @@ function Single(props: {
         </div>
       );
     case "quiet": {
-      const { onOpenBot, onOpenWork } = props.handlers;
+      const { onOpenWork } = props.handlers;
       const quiet = item.quiet;
-      // A task's line opens the task, and carries its step while it runs (ADR 0217 §7).
-      if (quiet.kind === "lane" || quiet.kind === "lanes-overlapped")
-        return (
-          <div className={cn("flex", space)}>
-            {quiet.kind === "lane" ? (
-              <LaneQuietLine quiet={quiet} id={item.id} />
-            ) : (
-              <OverlapQuietLine quiet={quiet} />
-            )}
-          </div>
-        );
-      // A bot worker's line opens its chat, a goal's or a check's opens Work; an ace worker's
-      // is a note where it happened.
-      const worker = quiet.kind === "worker-reported" && !quiet.ace ? quiet.worker : undefined;
-      const onOpen =
-        quiet.kind === "goal" || quiet.kind === "checked"
-          ? onOpenWork
-          : worker && onOpenBot
-            ? () => onOpenBot(worker)
-            : undefined;
+      // Tasks, helpers and workers are the bot's own: none shows as a thing of its own.
+      if (quiet.kind === "lane" || quiet.kind === "lanes-overlapped") return null;
+      if (quiet.kind === "worker-reported" && !quiet.ace) return null;
+      // A goal's or a check's line opens Work; an ace worker's is a note where it happened.
+      const onOpen = quiet.kind === "goal" || quiet.kind === "checked" ? onOpenWork : undefined;
       return (
         <div className={cn("flex", space)}>
           <QuietLine line={spadeQuietLine(quiet)} face={props.handlers.face} onOpen={onOpen} />
@@ -959,20 +898,9 @@ function Single(props: {
           <NamedLine item={item} bot={props.handlers.profile} />
         </div>
       ) : null;
-    // A helper and a contract call are children the bot started: ace's child row, live.
-    case "helper": {
-      return (
-        <div className={space}>
-          <SpadeChildRow
-            name="Helper"
-            state={item.state}
-            detail={item.text}
-            startedAt={item.at}
-            onOpen={props.handlers.onOpenWork}
-          />
-        </div>
-      );
-    }
+    // A helper is the bot's own work: no line of its own.
+    case "helper":
+      return null;
     default:
       return null;
   }

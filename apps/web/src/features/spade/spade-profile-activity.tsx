@@ -56,6 +56,8 @@ export function ProfileActivity(props: {
   work: SpadeWork;
   workPlace: ProfileWorkPlace;
   computer: ProfileComputerPlace;
+  /** Opens a surface of its computer in the panel. */
+  onOpenSurface(kind: "terminal" | "screen" | "browser"): void;
   /** Opens the New routine page. */
   onNewRoutine(): void;
 }) {
@@ -99,7 +101,7 @@ export function ProfileActivity(props: {
       )}
       <section aria-label="Computer">
         <GroupHeading>Computer</GroupHeading>
-        <ComputerCard bot={bot} place={props.computer} />
+        <ComputerCard bot={bot} place={props.computer} onOpenSurface={props.onOpenSurface} />
       </section>
       <section aria-label="Voice chat">
         <GroupHeading>Voice chat</GroupHeading>

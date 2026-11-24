@@ -9,6 +9,7 @@ import {
   spadeApp,
   withEndpoint,
   openSettingsPage,
+  backToActivity,
 } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
@@ -259,6 +260,7 @@ test("Spade itself can be changed in its profile but never deleted, and keeps it
   expect(screen.queryByRole("button", { name: "Rename Spade" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Change face" })).toBeNull();
   // Its Library starts with what every bot knows about the person.
+  await backToActivity();
   await userEvent.click(screen.getByRole("tab", { name: "Library" }));
   const headings = await screen.findAllByRole("heading", { level: 3 });
   expect(headings.map((each) => each.textContent).slice(0, 2)).toEqual(["About you", "Notes"]);

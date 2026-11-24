@@ -36,7 +36,6 @@ const activityReads = (spade: FakeSpadeApi) =>
 async function openActivity() {
   await userEvent.click(await botRow("Scout"));
   await openProfile("Scout");
-  const profile = within(await screen.findByRole("region", { name: "Scout's profile" }));
   await openSettingsPage("Activity and safety");
 }
 

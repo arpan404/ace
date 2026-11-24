@@ -1,5 +1,23 @@
-import { CaretRightIcon } from "@ace/icons";
-import { Icon } from "@/components/icon.tsx";
+import {
+  BriefcaseIcon,
+  CaretRightIcon,
+  ClockIcon,
+  CpuIcon,
+  FolderIcon,
+  KeyIcon,
+  PaletteIcon,
+  RobotIcon,
+  ShieldCheckIcon,
+  ShieldIcon,
+  SpeakerHighIcon,
+} from "@ace/icons";
+import {
+  parseSpadePersonality,
+  spadePermissionSwitches,
+  spadePersonalityWords,
+  spadeQuietPersonality,
+} from "@ace/ui-core/spade-chat";
+import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { SettingCard } from "@/components/setting-row.tsx";
 import { ProfileSwitchesAndApps } from "./spade-settings-can-use.tsx";
 import { ProfileDecides, ProfileFilesAndGrants, ProfileSafetyLogs } from "./spade-bot-security.tsx";
@@ -19,6 +37,9 @@ import { ProfilePage } from "./spade-profile-page.tsx";
 import { ProfilePersonality } from "./spade-profile-personality.tsx";
 import { ProfileWorkLog } from "./spade-profile-work.tsx";
 import { ProfileRoutines } from "./spade-routines.tsx";
+import { useBotSecurity } from "./spade-security-api.ts";
+import { botVoice, useVoicePrefs } from "./spade-voice-prefs.ts";
+import { voiceKey } from "./use-spoken-replies.ts";
 import { useSpadeRoutines } from "./use-spade-routines.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
 
@@ -35,27 +56,69 @@ export type SettingsPage =
   | "safety"
   | "making";
 
-const pages: readonly { id: SettingsPage; title: string }[] = [
-  { id: "job", title: "Job" },
-  { id: "model", title: "Model" },
-  { id: "decides", title: "How it decides" },
-  { id: "can-use", title: "Can use" },
-  { id: "personality", title: "Personality" },
-  { id: "voice", title: "Voice" },
-  { id: "routines", title: "Routines" },
-  { id: "files", title: "Files and folders" },
-  { id: "safety", title: "Activity and safety" },
-  { id: "making", title: "Making bots" },
+const pages: readonly { id: SettingsPage; title: string; icon: IconGlyph }[] = [
+  { id: "job", title: "Job", icon: BriefcaseIcon },
+  { id: "model", title: "Model", icon: CpuIcon },
+  { id: "decides", title: "How it decides", icon: ShieldCheckIcon },
+  { id: "can-use", title: "Can use", icon: KeyIcon },
+  { id: "personality", title: "Personality", icon: PaletteIcon },
+  { id: "voice", title: "Voice", icon: SpeakerHighIcon },
+  { id: "routines", title: "Routines", icon: ClockIcon },
+  { id: "files", title: "Files and folders", icon: FolderIcon },
+  { id: "safety", title: "Activity and safety", icon: ShieldIcon },
+  { id: "making", title: "Making bots", icon: RobotIcon },
 ];
 
 const titleOf = (page: SettingsPage) => pages.find((each) => each.id === page)?.title ?? "";
 
-/** What a category row says at its right, when that is one short fact. */
-function valueOf(page: SettingsPage, bot: RosterBot, routines: number | undefined) {
-  if (page === "model") return bot.model.split("/").at(-1);
-  if (page === "routines") return routines === undefined ? undefined : String(routines);
-  if (page === "job") return bot.task ? bot.task.slice(0, 24) : undefined;
-  return undefined;
+const titled = (word: string) => word.charAt(0).toUpperCase() + word.slice(1);
+const makingWords = { yes: "Yes", ask: "Ask me first", no: "No" } as const;
+
+/** What each category row says at its right: one short fact about the bot as it is now. */
+function useCategoryValues(bot: RosterBot): Record<SettingsPage, string | undefined> {
+  const security = useBotSecurity(bot.id).data;
+  const routines = useSpadeRoutines(bot.id);
+  const voice = botVoice(useVoicePrefs(), voiceKey(bot.machine.key, bot.id));
+  const parts = bot.model.split("/");
+  const switches = security?.permissions
+    ? spadePermissionSwitches
+        .filter((each) => security.permissions?.on[each.key])
+        .map((each) => each.title)
+    : [];
+  const count = routines.routines.data?.length;
+  const beat = routines.heartbeat.data;
+  const personality = parseSpadePersonality(bot.raw.personality) ?? spadeQuietPersonality;
+  const folders = security?.folders.length;
+  return {
+    job: bot.task.trim().split("\n")[0]?.trim() || "Not set",
+    model: [parts[0] ? titled(parts[0]) : undefined, parts.at(-1), bot.machine.name]
+      .filter(Boolean)
+      .join(" · "),
+    decides: security
+      ? security.autonomy === "full_access"
+        ? "Full access"
+        : "Auto-review"
+      : undefined,
+    "can-use": switches.length
+      ? switches.slice(0, 2).join(", ")
+      : security
+        ? "Nothing extra"
+        : undefined,
+    personality: spadePersonalityWords(personality) || "Its own way",
+    voice: voice.speakReplies ? (voice.endpointVoice ?? voice.systemVoice ?? "Default") : "Off",
+    routines:
+      count === undefined
+        ? undefined
+        : `${count} ${count === 1 ? "routine" : "routines"} · Heartbeat ${beat?.enabled ? "on" : "off"}`,
+    files:
+      folders === undefined
+        ? undefined
+        : folders
+          ? `${folders} ${folders === 1 ? "folder" : "folders"}`
+          : "None",
+    safety: undefined,
+    making: makingWords[bot.mayCreateBots],
+  };
 }
 
 /**
@@ -72,7 +135,7 @@ export function ProfileSettings(props: {
   onBack(): void;
 }) {
   const { bot, page } = props;
-  const routines = useSpadeRoutines(bot.id).routines.data?.length;
+  const values = useCategoryValues(bot);
   if (page)
     return (
       <ProfilePage title={titleOf(page)} onBack={() => props.onPage(undefined)}>
@@ -103,7 +166,7 @@ export function ProfileSettings(props: {
     <ProfilePage title="Settings" onBack={props.onBack}>
       <SettingCard>
         {pages.map((each) => {
-          const value = valueOf(each.id, bot, routines);
+          const value = values[each.id];
           return (
             <button
               key={each.id}
@@ -112,8 +175,9 @@ export function ProfileSettings(props: {
               onClick={() => props.onPage(each.id)}
               className="flex min-h-11 w-full items-center gap-3 text-left text-ui text-foreground focus-ring-inset"
             >
+              <Icon icon={each.icon} size={16} className="shrink-0 text-muted-foreground" />
               <span className="flex-1">{each.title}</span>
-              {value && <span className="max-w-32 truncate text-muted-foreground">{value}</span>}
+              {value && <span className="max-w-44 truncate text-muted-foreground">{value}</span>}
               <Icon icon={CaretRightIcon} size={14} className="text-muted-foreground" />
             </button>
           );

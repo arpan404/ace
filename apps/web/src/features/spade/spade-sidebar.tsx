@@ -57,7 +57,7 @@ export function SpadeSidebar() {
   });
   const missing = useGoalMissing(roster.bots);
   const all = spadeFlatEntries(roster.bots, groups, missing);
-  const nested = spadeListEntries(roster.bots, groups, open, missing);
+  const nested = spadeListEntries(roster.bots, groups, missing);
   const searched = query.trim() !== "";
   // Searching looks through everything; otherwise Spade, then what's pinned, lead the rows.
   const listed = searched ? searchSpadeList(all, query) : spadePinnedFirst(nested, all);

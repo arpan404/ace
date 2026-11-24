@@ -11,6 +11,7 @@ import type { ProfilePanels } from "./spade-profile-details.tsx";
 import { ProfileActivity } from "./spade-profile-activity.tsx";
 import { ProfileHead } from "./spade-profile-head.tsx";
 import { ProfileLibrary } from "./spade-profile-library.tsx";
+import { PanelSurfaceView, type PanelSurface } from "./spade-panel-surface.tsx";
 import { ProfileSettings, type SettingsPage } from "./spade-profile-settings.tsx";
 import { NewRoutinePage } from "./spade-routine-new.tsx";
 import type { ProfileWorkPlace } from "./spade-profile-work.tsx";
@@ -116,11 +117,26 @@ export function SpadeProfile(props: {
         ? ("can-use" as const)
         : undefined;
   const [newRoutine, setNewRoutine] = useState(false);
+  // A file, the terminal, the screen or the browser, open in the panel in place of its tabs.
+  const [surface, setSurface] = useState<PanelSurface>();
+  const expand = (open: PanelSurface) =>
+    open.kind === "files"
+      ? props.computer.onView("files", open.at)
+      : props.computer.onView(open.kind);
   return (
     <section
       aria-label={`${bot.name}'s profile`}
       {...part("right-panel", undefined, "spade-profile")}
       className="flex h-full min-h-0 flex-col"
+      onKeyDown={(event) => {
+        // Esc goes back to the tab, unless the person is typing into the surface (its terminal,
+        // an editor): there it is the surface's own key.
+        if (event.key !== "Escape" || event.defaultPrevented || !surface) return;
+        const target = event.target;
+        if (target instanceof HTMLElement && target.closest("textarea, input, [contenteditable]"))
+          return;
+        setSurface(undefined);
+      }}
     >
       {props.covering && (
         <div className="flex h-11 shrink-0 items-center gap-2 px-2">
@@ -138,7 +154,7 @@ export function SpadeProfile(props: {
       )}
       {/* Never sideways: what is wider than the panel wraps or scrolls in its own frame. */}
       <div className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
-        {!settings && !newRoutine && (
+        {!settings && !newRoutine && !surface && (
           <div className="absolute top-3 right-3 z-10 flex items-center gap-1">
             <IconButton
               icon={GearSixIcon}
@@ -150,7 +166,17 @@ export function SpadeProfile(props: {
             {!props.covering && <CloseProfileButton onClose={props.onClose} round />}
           </div>
         )}
-        {newRoutine ? (
+        {surface && !newRoutine && !settings ? (
+          <div className="flex h-full flex-col pt-1">
+            <PanelSurfaceView
+              bot={bot}
+              surface={surface}
+              place={props.computer}
+              onBack={() => setSurface(undefined)}
+              onExpand={() => expand(surface)}
+            />
+          </div>
+        ) : newRoutine ? (
           <div className="px-4 pt-3 pb-8">
             <NewRoutinePage
               bot={bot}
@@ -214,10 +240,7 @@ export function SpadeProfile(props: {
               className="flex flex-col px-4 pb-8"
             >
               {shown === "library" ? (
-                <ProfileLibrary
-                  bot={bot}
-                  onOpenFile={(files) => props.computer.onView("files", files)}
-                />
+                <ProfileLibrary bot={bot} onOpenFile={(at) => setSurface({ kind: "files", at })} />
               ) : (
                 <ProfileActivity
                   bot={bot}
@@ -225,6 +248,7 @@ export function SpadeProfile(props: {
                   workPlace={props.work}
                   computer={props.computer}
                   onNewRoutine={() => setNewRoutine(true)}
+                  onOpenSurface={(kind) => setSurface({ kind })}
                 />
               )}
             </div>

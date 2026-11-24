@@ -139,14 +139,12 @@ export async function backToActivity() {
  */
 export async function openSettingsPage(title: string) {
   const row = new RegExp(`^${title}`);
-  if (!screen.queryByRole("button", { name: row })) {
-    const gear = screen.queryByRole("button", { name: "Settings" });
+  const profile = within(await screen.findByRole("region", { name: /'s profile$/ }));
+  if (!profile.queryByRole("button", { name: row })) {
+    const gear = profile.queryByRole("button", { name: "Settings" });
     // On a page already (a deep link, or the last test step): back to the list first.
     if (gear) await userEvent.click(gear);
-    else {
-      const profile = await screen.findByRole("region", { name: /'s profile$/ });
-      await userEvent.click(within(profile).getByRole("button", { name: "Back" }));
-    }
+    else await userEvent.click(profile.getByRole("button", { name: "Back" }));
   }
-  await userEvent.click(await screen.findByRole("button", { name: row }));
+  await userEvent.click(await profile.findByRole("button", { name: row }));
 }

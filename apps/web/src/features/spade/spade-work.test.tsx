@@ -152,7 +152,7 @@ test("the person edits a criterion in place and ends the goal; Work goes with it
   expect(work.queryByRole("button", { name: "End goal" })).toBeNull();
 });
 
-test("Stop on a worker stops it at once, with no confirm", async () => {
+test("Work lists no workers: what runs under the bot is the bot's own work", async () => {
   const { spade } = await spadeApp("/spade", (api) => {
     seed(api);
     api.addAgent({
@@ -165,11 +165,10 @@ test("Stop on a worker stops it at once, with no confirm", async () => {
     api.work.addAce("watcher", { id: "thread-rebase", name: "Rebase #2081", state: "needs_you" });
   });
   const work = within(await openWork("Watcher"));
-  expect(await work.findByText("Running the relay tests")).toBeTruthy();
-  expect(work.getByText("Needs you in Threads")).toBeTruthy();
-  await userEvent.click(work.getByRole("button", { name: "Stop Linux repro" }));
-  await waitFor(() => expect(spade.sent("POST", "/v1/conversations/c-repro/stop")).toHaveLength(1));
-  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(work.queryByText("Running the relay tests")).toBeNull();
+  expect(work.queryByText("Rebase #2081")).toBeNull();
+  expect(work.queryByRole("button", { name: "Stop Linux repro" })).toBeNull();
+  expect(spade.sent("POST", "/v1/conversations/c-repro/stop")).toEqual([]);
 });
 
 test("the goal's and the check's quiet lines in the chat open Work", async () => {

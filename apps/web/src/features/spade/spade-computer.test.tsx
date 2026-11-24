@@ -3,7 +3,15 @@ import { configure, fireEvent, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, onTestFinished, test } from "vitest";
 import { editorText, replaceEditorText } from "@/test/editor-text.ts";
-import { botAtWork, botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
+import {
+  botAtWork,
+  botRow,
+  openProfile,
+  spadeApp,
+  withEndpoint,
+  openSettingsPage,
+  backToActivity,
+} from "@/test/spade.ts";
 import { openSource } from "@/test/spade-files.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
@@ -330,26 +338,71 @@ test("the profile holds the bot's routines and spending in Settings, and its not
   const profile = within(await screen.findByRole("region", { name: "Scout's profile" }));
   // Everything else sits behind Settings, one scrolling view with a way back.
   await userEvent.click(await profile.findByRole("button", { name: "Settings" }));
-  for (const section of ["Task", "Runs with", "Routines"])
-    await profile.findByRole("heading", { name: section });
-  const routines = profile.getByRole("heading", { name: "Routines" }).closest("section");
+  await openSettingsPage("Job");
+  await profile.findByRole("heading", { name: "Task" });
+  await openSettingsPage("Model");
+  await profile.findByRole("heading", { name: "Runs with" });
+  await openSettingsPage("Routines");
+  const routines = (await profile.findAllByRole("heading", { name: "Routines" }))
+    .map((each) => each.closest("section"))
+    .find(Boolean);
   await waitFor(() => expect(routines?.textContent).toContain("Fare check"));
-  // What it may do and spend is further down the same view.
-  for (const section of ["Apps", "Spending"])
-    await profile.findByRole("heading", { name: section });
+  // What it may use, and what it spent, each on its own page.
+  await openSettingsPage("Can use");
+  await profile.findByRole("heading", { name: "Apps" });
+  await openSettingsPage("Activity and safety");
+  await profile.findByRole("heading", { name: "Spending" });
   expect(profile.getByText("$1.24")).toBeTruthy();
 
-  await userEvent.click(profile.getByRole("button", { name: "Back" }));
+  await backToActivity();
   await userEvent.click(await profile.findByRole("tab", { name: "Library" }));
   expect(await profile.findByText("Home airport is OPO")).toBeTruthy();
   await userEvent.click(await profile.findByRole("button", { name: /fares\.csv/ }));
-  // A file opens in the full-screen computer's Files, beside what else it used.
+  // A file opens in the panel itself, under its name, with no full-screen view yet.
+  const file = within(await screen.findByRole("region", { name: "fares.csv" }));
+  expect(screen.queryByRole("dialog", { name: "Scout's computer" })).toBeNull();
+  // Expand opens the same file in the full-screen computer's Files, beside what else it used.
+  await userEvent.click(file.getByRole("button", { name: "Full screen" }));
   const dialog = within(await screen.findByRole("dialog", { name: "Scout's computer" }));
   const tabs = dialog.getByRole("tablist", { name: "Computer" });
   expect(within(tabs).getByRole("tab", { name: "Files" }).getAttribute("aria-selected")).toBe(
     "true",
   );
   expect(within(tabs).getByRole("tab", { name: "Terminal" })).toBeTruthy();
+  // Collapsing returns to the panel, still on the file; Back returns to the tab.
+  await userEvent.click(dialog.getByRole("button", { name: "Collapse computer" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Scout's computer" })).toBeNull(),
+  );
+  await userEvent.click(
+    within(await screen.findByRole("region", { name: "fares.csv" })).getByRole("button", {
+      name: "Back",
+    }),
+  );
+  expect(await profile.findByRole("tab", { name: "Library" })).toBeTruthy();
+});
+
+test("the terminal opens inside the panel from the Computer card, and Full screen opens it big", async () => {
+  await spadeApp("/spade/scout?profile=work", usingTerminal);
+  const profile = within(await screen.findByRole("region", { name: "Scout's profile" }));
+  await userEvent.click(await profile.findByRole("button", { name: "Terminal" }));
+  const terminal = within(await screen.findByRole("region", { name: "Terminal" }));
+  expect(await terminal.findByRole("tabpanel", { name: "Terminal" })).toBeTruthy();
+  expect(screen.queryByRole("dialog", { name: "Scout's computer" })).toBeNull();
+
+  await userEvent.click(terminal.getByRole("button", { name: "Full screen" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "Scout's computer" }));
+  expect(dialog.getByRole("tab", { name: /^Terminal/ }).getAttribute("aria-selected")).toBe("true");
+});
+
+test("Escape in a surface open in the panel goes back to the tab", async () => {
+  await spadeApp("/spade/scout?profile=work", seed);
+  const profile = within(await screen.findByRole("region", { name: "Scout's profile" }));
+  await userEvent.click(await profile.findByRole("button", { name: "Terminal" }));
+  const panel = await screen.findByRole("region", { name: "Terminal" });
+  // Reading only (the bot isn't using it): Escape is the panel's.
+  fireEvent.keyDown(panel, { key: "Escape" });
+  expect(await profile.findByRole("tab", { name: "Activity" })).toBeTruthy();
 });
 
 test("on a phone the profile takes the window, with Chat to go back", async () => {

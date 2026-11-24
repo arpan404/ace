@@ -16,7 +16,7 @@ import { SpadeActivity } from "./spade-activity.tsx";
 import { pillButton, ProfileProblem, ProfileSection } from "./spade-profile-parts.tsx";
 import { endGoal } from "./spade-work-api.ts";
 import { WorkGoal, WorkPlan } from "./spade-work-goal.tsx";
-import { WorkDecisions, WorkWorkers } from "./spade-work-workers.tsx";
+import { WorkDecisions } from "./spade-work-decisions.tsx";
 import { workKey, type SpadeWork } from "./use-spade-work.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
 
@@ -114,7 +114,6 @@ export function ProfileWork(props: { bot: RosterBot; work: SpadeWork; place: Pro
           }}
         />
       )}
-      <WorkWorkers bot={bot} tree={work.tree.data} rows={work.rows} roster={place.roster} />
       <WorkDecisions decisions={work.decisions} onChange={place.onChange} />
       {goal && goal.goal.closed === undefined && <EndGoal bot={bot} />}
     </>

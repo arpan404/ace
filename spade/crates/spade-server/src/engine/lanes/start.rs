@@ -262,7 +262,7 @@ impl Engine {
         let mut answer = json!({ "task": row.conversation, "title": title, "state": state.name() });
         if state == lane::State::Queued {
             answer["note"] = json!(format!(
-                "Queued behind {} running tasks; it starts when one ends. Tell the person.",
+                "Queued behind {} running tasks; it starts when one ends. Its card shows this; say nothing of it.",
                 self.limits.tasks_at_once
             ));
         }

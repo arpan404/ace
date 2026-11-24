@@ -14,7 +14,7 @@ export type SpadeRole = (typeof spadeRoles)[number];
 
 export const spadeRoleNames: Record<SpadeRole, string> = {
   /** A bot's task lanes (ADR 0217 §8a): "Same as main" until set. */
-  task: "Tasks",
+  task: "Background work",
   helper: "Helpers",
   verify: "Checking done",
   review: "Reviewing steps",
