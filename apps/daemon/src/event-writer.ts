@@ -1,6 +1,8 @@
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { type Event, type EventPayload, type Thread, type ThreadId } from "@ace/protocol";
+import { storeWriterOn } from "@ace/provider-kit/native-switches";
 import { foldThread } from "./native-writer/fold.ts";
+import { createThread, storeEvent } from "./native-writer/events.ts";
 import { canonicalEvent } from "./canonical-event.ts";
 import { prepareRunClient } from "./run-client-storage.ts";
 import { liveMetadataChange } from "./thread-client-storage.ts";
@@ -130,35 +132,58 @@ export class EventWriter {
       let thread: Thread;
       if (event.payload.type === "thread.created") {
         thread = event.payload.thread;
-        if (
-          this.source
-            .statement("SELECT 1 FROM workspace_unregistered WHERE workspace_id=?")
-            .get(thread.workspaceId)
-        )
-          throw new Error("workspace_unregistered");
-        if (thread.id !== threadId || checkout) throw new Error("Invalid thread creation");
-        this.source
-          .statement(
-            "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at, imported) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        if (storeWriterOn("events")) {
+          // The same check order as the TypeScript path: an unregistered workspace wins
+          // over an invalid or duplicate creation. The native writer checks it again.
+          if (
+            this.source
+              .statement("SELECT 1 FROM workspace_unregistered WHERE workspace_id=?")
+              .get(thread.workspaceId)
           )
-          .run(
-            thread.id,
-            thread.workspaceId,
-            thread.title,
-            thread.provider,
-            JSON.stringify(thread.status),
-            thread.createdAt,
-            event.at,
-            thread.imported ? JSON.stringify(thread.imported) : null,
-          );
-        // Work starting in a project makes it the most recently used one there (ADR 0180): a
-        // machine's default checkout. A thread imported from history started nothing now.
-        if (!thread.imported)
+            throw new Error("workspace_unregistered");
+          if (thread.id !== threadId || checkout) throw new Error("Invalid thread creation");
+          createThread(this.source.db, {
+            id: thread.id,
+            workspaceId: thread.workspaceId,
+            title: thread.title,
+            provider: thread.provider,
+            statusJson: JSON.stringify(thread.status),
+            createdAt: thread.createdAt,
+            updatedAt: event.at,
+            importedJson: thread.imported ? JSON.stringify(thread.imported) : null,
+            imported: Boolean(thread.imported),
+          });
+        } else {
+          if (
+            this.source
+              .statement("SELECT 1 FROM workspace_unregistered WHERE workspace_id=?")
+              .get(thread.workspaceId)
+          )
+            throw new Error("workspace_unregistered");
+          if (thread.id !== threadId || checkout) throw new Error("Invalid thread creation");
           this.source
             .statement(
-              "INSERT INTO workspace_recent VALUES (?,?) ON CONFLICT(workspace_id) DO UPDATE SET opened_at=max(opened_at,excluded.opened_at)",
+              "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at, imported) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             )
-            .run(thread.workspaceId, event.at);
+            .run(
+              thread.id,
+              thread.workspaceId,
+              thread.title,
+              thread.provider,
+              JSON.stringify(thread.status),
+              thread.createdAt,
+              event.at,
+              thread.imported ? JSON.stringify(thread.imported) : null,
+            );
+          // Work starting in a project makes it the most recently used one there (ADR 0180): a
+          // machine's default checkout. A thread imported from history started nothing now.
+          if (!thread.imported)
+            this.source
+              .statement(
+                "INSERT INTO workspace_recent VALUES (?,?) ON CONFLICT(workspace_id) DO UPDATE SET opened_at=max(opened_at,excluded.opened_at)",
+              )
+              .run(thread.workspaceId, event.at);
+        }
       } else {
         const existing = previous;
         if (!existing) throw new Error("Unknown thread");
@@ -176,10 +201,23 @@ export class EventWriter {
       this.source.history.record(event);
       this.source.status.persist(event, thread);
       this.source.longThreads.append(event, thread, previousSeq);
-      this.source
-        .statement("INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)")
-        .run(seq, event.id, threadId, at, event.payload.type, JSON.stringify(event.payload));
-      this.source.statement("UPDATE host_sequence SET seq = MAX(seq,?) WHERE id = 1").run(seq);
+      if (storeWriterOn("events"))
+        storeEvent(this.source.db, {
+          seq,
+          id: event.id,
+          threadId,
+          at,
+          kind: event.payload.type,
+          payloadJson: JSON.stringify(event.payload),
+        });
+      else {
+        this.source
+          .statement(
+            "INSERT INTO events (seq, id, thread_id, at, type, payload) VALUES (?, ?, ?, ?, ?, ?)",
+          )
+          .run(seq, event.id, threadId, at, event.payload.type, JSON.stringify(event.payload));
+        this.source.statement("UPDATE host_sequence SET seq = MAX(seq,?) WHERE id = 1").run(seq);
+      }
       this.source.mcp.apply(event, thread);
       events.push(event);
     }
