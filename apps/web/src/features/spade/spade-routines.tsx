@@ -28,7 +28,11 @@ type Editing = { kind: "routine"; id: string } | { kind: "heartbeat" } | { kind:
  * hover. A row opens to its editor where it is. The heartbeat is a row like the others; Add
  * routine opens a new one at the foot.
  */
-export function ProfileRoutines(props: { bot: RosterBot }) {
+export function ProfileRoutines(props: {
+  bot: RosterBot;
+  /** Add routine opens the New routine page instead of a form in place. */
+  onNew?: (() => void) | undefined;
+}) {
   const { bot } = props;
   const { routines, heartbeat, client, refresh } = useSpadeRoutines(bot.id);
   const [editing, setEditing] = useState<Editing>();
@@ -114,7 +118,9 @@ export function ProfileRoutines(props: { bot: RosterBot }) {
       {editing?.kind === "new" ? (
         <RoutineEditor agent={bot.id} routine={undefined} onDone={done} onSaved={saved} />
       ) : (
-        <SettingAddRow onClick={() => setEditing({ kind: "new" })}>Add routine</SettingAddRow>
+        <SettingAddRow onClick={() => (props.onNew ? props.onNew() : setEditing({ kind: "new" }))}>
+          Add routine
+        </SettingAddRow>
       )}
     </ProfileSection>
   );

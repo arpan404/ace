@@ -711,3 +711,22 @@ fn a_workers_maker_writing_mid_turn_steers_like_the_person() -> Result {
     assert_eq!(marked, [("m2", false), ("m4", true)]);
     Ok(())
 }
+
+#[test]
+fn several_new_messages_are_listed_with_their_ids_and_a_line_on_quoting_each() -> Result {
+    let events = vec![
+        person("Book the flight"),
+        person("And the hotel"),
+        person("Also the trains"),
+    ];
+    let text = block::text(&Ledger::of(&events)).ok_or("a block")?;
+    assert!(text.contains("Unsorted:\n- m3: \"Also the trains\"\n- m2: \"And the hotel\"\n- m1: \"Book the flight\""), "{text}");
+    assert!(
+        text.contains("Several are new: answer each in its own <msg reply=\"<id>\">."),
+        "{text}"
+    );
+    // One new message needs no quoting.
+    let one = block::text(&Ledger::of(&events[..1])).ok_or("a block")?;
+    assert!(!one.contains("Several are new"), "{one}");
+    Ok(())
+}

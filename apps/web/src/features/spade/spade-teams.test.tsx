@@ -445,8 +445,9 @@ test("Duplicate copies the bot and opens the copy; Export saves its file under i
   const { spade } = await spadeApp("/spade", team);
   await userEvent.click(await botRow("Research"));
   await userEvent.click(
-    await screen.findByRole("button", { name: /^Research( on .*)?: open its profile$/ }),
+    await screen.findByRole("button", { name: /^Open Research's profile( on .*)?$/ }),
   );
+  await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
   await userEvent.click(await screen.findByRole("button", { name: "Export" }));
   await waitFor(() => expect(saved).toEqual(["Research.spade-bot.json"]));
   expect(spade.sent("GET", "/v1/agents/research/export")).toHaveLength(1);

@@ -14,6 +14,8 @@ import {
   type SpadeChatRow,
   withProposals,
   type SpadeAgentStyle,
+  type SpadePendingAsk,
+  spadeNeedsYouLine,
   type SpadeAvatar,
   type SpadeChatItem,
   type SpadeStartedWorker,
@@ -44,6 +46,7 @@ import { useHeldPhrase } from "./use-held-phrase.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { SpadeFold } from "./spade-fold.tsx";
 import { chatBubble, framed, inputBubble, mineBubble } from "./spade-bubble-style.ts";
+import { InvokedChip } from "./spade-invoked-chip.tsx";
 import { BubbleFrame, Failure, FileChips, SpeakerLine, WorkingLine } from "./spade-chat-parts.tsx";
 import { useShowWork } from "./spade-show-work.ts";
 import { SkillProposal } from "./spade-skill-bubble.tsx";
@@ -57,6 +60,7 @@ import { SpadeQuestionBubble } from "./spade-question-bubble.tsx";
 import type { QuestionReply } from "./use-spade-conversation.ts";
 import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
 import { QuietLine, RestingLine } from "./spade-quiet-line.tsx";
+import { useCardAccent } from "./spade-accent.ts";
 import { SpadeDelegation } from "./spade-delegation.tsx";
 import { SpadeFace } from "./spade-face.tsx";
 import { SpadeWaitingWorkers } from "./spade-waiting-workers.tsx";
@@ -69,6 +73,12 @@ import { NamedLine, TaskChangedLine } from "./spade-self-edit-lines.tsx";
 import { ClubAddedLine, MadeLine } from "./spade-made-lines.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
 import { DocumentCard, SpadeReplyContext, useReplies } from "./spade-chat-replies.tsx";
+
+/** "Inbox wants to email Marta Reyes": the bot's name, then why it needs the person. */
+function needsYouWords(bot: ChatBot): string {
+  const why = spadeNeedsYouLine(bot.pending ?? []);
+  return `${bot.name} ${why.charAt(0).toLowerCase()}${why.slice(1)}`;
+}
 
 /** The bot whose conversation this is, and the faces of other bots that write into it. */
 export interface ChatBot {
@@ -85,6 +95,8 @@ export interface ChatBot {
   phrases?: ReadonlyMap<string, string> | undefined;
   /** Its task as it stands, for a request to change it. */
   task?: string | undefined;
+  /** What it waits on the person for, so "needs you" says why. */
+  pending?: readonly SpadePendingAsk[] | undefined;
 }
 
 /**
@@ -134,6 +146,8 @@ export function SpadeChat(props: {
   onProposal?(id: string, save: boolean): Promise<boolean>;
   /** An endpoint's name by its id, for a failed reply's sentence; undefined when unknown. */
   endpointName?(id: string): string | undefined;
+  /** React to a message (an emoji), or take the reaction back (undefined). */
+  onReact?(message: string, emoji: string | undefined): Promise<boolean>;
   /** Try again on a failed reply, by its id: Spade answers that turn again in its place. */
   onRetry?(reply: string): Promise<boolean>;
   /** Set up a model, offered where a reply failed for want of one. */
@@ -156,6 +170,8 @@ export function SpadeChat(props: {
   onReply?: ((quote: SpadeQuote) => void) | undefined;
 }) {
   const { view, bot } = props;
+  // The person's bubbles take the bot's colour: its face's, or its chosen accent.
+  const mine = useCardAccent(bot);
   // Days change rarely: the clock as it stands is enough for Today and Yesterday.
   const now = useSeconds(false);
   const client = useSpadeClient();
@@ -187,7 +203,7 @@ export function SpadeChat(props: {
     [bubbles, showWork, opened, view.entries, proposals, digests, now],
   );
   const [from, drawAll] = useNewestFirst(rows.length);
-  const replies = useReplies(bot.name, props.onReply, drawAll);
+  const replies = useReplies(bot.name, props.onReply, drawAll, view.reactions, props.onReact);
   const started = useMemo(() => startedWorkers(rows), [rows]);
   // Asleep or waiting on a wake: the resting line takes the working line's place (ADR 0160).
   const rest =
@@ -273,7 +289,8 @@ export function SpadeChat(props: {
           role="feed"
           aria-label={`Conversation with ${bot.name}`}
           aria-busy={view.busy}
-          className="flex flex-col"
+          style={mine}
+          className="flex flex-col [--chat-mine-foreground:oklch(from_var(--chat-mine)_clamp(0,calc((0.7-l)*1000),1)_0_0)] [--chat-mine:var(--agent-accent-light)] dark:[--chat-mine:color-mix(in_oklab,var(--agent-accent-dark)_88%,white)]"
         >
           <KeepCaseDialog
             bot={{ id: bot.id, name: bot.name }}
@@ -316,7 +333,7 @@ export function SpadeChat(props: {
               <WorkingLine
                 avatar={bot.avatar}
                 state="needs-you"
-                label={task.sentence}
+                label={needsYouWords(bot)}
                 since={undefined}
                 onWatch={undefined}
               />
@@ -985,7 +1002,7 @@ function PersonItem(props: {
       {item.fromThread && <FromThreadLine thread={item.fromThread} />}
       {item.images.length > 0 && <Pictures images={item.images} side="person" />}
       {item.documents.length > 0 && <DocumentChips documents={item.documents} side="person" />}
-      {item.text && (
+      {(item.text || item.invoke) && (
         <BubbleFrame
           side="mine"
           when={props.when}
@@ -995,7 +1012,8 @@ function PersonItem(props: {
           quote={item.quote}
         >
           <div {...part("spade-message", undefined, "user")} className={cn(mineBubble, framed)}>
-            <SpadeBubbleText text={item.text} side="mine" />
+            {item.invoke && <InvokedChip invoked={item.invoke} />}
+            {item.text && <SpadeBubbleText text={item.text} side="mine" />}
             {/* A voice message: its transcript, and the recording to play. */}
             {item.voice && (
               <div className="-mx-2 mt-0.5 -mb-1 flex">

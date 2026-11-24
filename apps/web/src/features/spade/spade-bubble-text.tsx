@@ -1,5 +1,6 @@
 import { looksLikeMarkdown, withHardBreaks } from "@ace/ui-core";
 import { memo } from "react";
+import { WithEmoji } from "@/components/emoji.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { cn } from "@/lib/cn.ts";
 import "./spade-prose.css";
@@ -31,7 +32,11 @@ export const SpadeBubbleText = memo(function SpadeBubbleText(props: {
 }) {
   const side = props.side ?? "bot";
   if (side === "mine" && !looksLikeMarkdown(props.text))
-    return <p className="whitespace-pre-wrap">{props.text}</p>;
+    return (
+      <p className="whitespace-pre-wrap">
+        <WithEmoji text={props.text} />
+      </p>
+    );
   return (
     <Prose
       text={side === "mine" ? withHardBreaks(props.text) : props.text}

@@ -178,6 +178,7 @@ impl Engine {
             from_group: None,
             from_thread: Some(Box::new(from)),
             reply_to: None,
+            invoke: None,
         });
         let entry = InboxEntry {
             from_host: asked.host.to_owned(),

@@ -395,6 +395,7 @@ mod tests {
             from_group: None,
             from_thread: None,
             reply_to: None,
+            invoke: None,
         });
         let events = vec![
             Event::user_message("one"),

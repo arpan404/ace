@@ -1,5 +1,13 @@
+import { fakeSpadePending } from "./spade-pending.ts";
 import { FakeSpadeTasks } from "./spade-self-edit.ts";
 import { fakeSpadeQuoted } from "./spade-quoted.ts";
+import { fakeInvocables, fakeInvoked } from "./spade-invoke.ts";
+import {
+  fakeBotReactions,
+  fakePersonReaction,
+  fakeReactionEmoji,
+  fakeReactionTarget,
+} from "./spade-reactions.ts";
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
 import { FakeSpadeComputer, fakeFileRevision, fakeStale } from "./spade-computer.ts";
 import { FakeSpadeAccounts } from "./spade-accounts.ts";
@@ -356,6 +364,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
     this.store(agent.conversation, { type: "reply_started", reply: id });
     this.store(agent.conversation, { type: "step_finished", reply: id, text });
     this.store(agent.conversation, { type: "reply_finished", reply: id, text });
+    for (const reaction of fakeBotReactions(text, this.events.get(agent.conversation) ?? []))
+      this.store(agent.conversation, reaction);
     agent.last_message = {
       from: "agent",
       text,
@@ -873,7 +883,12 @@ export class FakeSpadeApi implements FakeSpadeServer {
   }
 
   /** The person's message into a conversation, as `POST /conversations/{id}/messages` takes it. */
-  private takeMessage(conversation: string, agent: FakeSpadeAgent | undefined, body: Json) {
+  private takeMessage(
+    conversation: string,
+    agent: FakeSpadeAgent | undefined,
+    body: Json,
+    invoke?: Json,
+  ) {
     const media = mediaOf(body);
     for (const image of (media.images ?? []) as Json[])
       this.images.set(String(image.sha256), String(image.media_type));
@@ -884,6 +899,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       text: body.text ?? "",
       ...media,
       ...(quoted ? { reply_to: quoted } : {}),
+      ...(invoke ? { invoke } : {}),
     });
     if (agent)
       agent.last_message = {
@@ -909,6 +925,12 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return reply({
         agents: this.listed().map((agent) =>
           Object.assign({}, agent, this.work.rosterFields(agent), {
+            pending:
+              agent.state === "waiting"
+                ? fakeSpadePending(
+                    (this.events.get(agent.conversation) ?? []).map((stored) => stored.event),
+                  )
+                : [],
             computer: this.computer.of(agent.id),
             autonomy: this.security.autonomy(agent.id),
           }),
@@ -1248,9 +1270,23 @@ export class FakeSpadeApi implements FakeSpadeServer {
       const limit = params.has("limit") ? Math.max(1, Number(params.get("limit"))) : Infinity;
       return reply(list.filter((stored) => stored.seq > after).slice(0, limit));
     }
+    // A reaction on a message: stored as it is, and it starts no turn.
+    if (sub === "messages" && subId && tail === "reactions") {
+      if (request.method !== "POST" && request.method !== "DELETE")
+        return problem(405, "Method not allowed.");
+      if (!fakeReactionTarget(list, subId)) return problem(404, "No such message.");
+      const body = request.body ? (JSON.parse(request.body) as Json) : {};
+      const emoji = request.method === "POST" ? fakeReactionEmoji(body) : "x";
+      if (!emoji) return problem(400, "That isn't an emoji.");
+      this.store(id, fakePersonReaction(subId, emoji, request.method === "DELETE"));
+      return reply({}, 202);
+    }
+    if (sub === "invocables" && request.method === "GET") return fakeInvocables(this.skillStore);
     if (sub === "messages" && request.method === "POST") {
       const body = request.body ? (JSON.parse(request.body) as Json) : {};
-      this.takeMessage(id, agent, body);
+      const invoked = fakeInvoked(this.skillStore, body);
+      if ("status" in invoked) return invoked;
+      this.takeMessage(id, agent, body, invoked.invoke);
       return reply({ seq: list.length }, 202);
     }
     // The person connected the app a connect card asks for (ADR 0131, amendment 1): the bot that

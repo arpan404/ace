@@ -2,21 +2,16 @@ import { spadeAgentTaskMax, type SpadePanel } from "@ace/ui-core/spade-chat";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
-import { SettingRow } from "@/components/setting-row.tsx";
+import { SettingCard, SettingRow } from "@/components/setting-row.tsx";
 import { Button, buttonLook } from "@/components/ui/button.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { cn } from "@/lib/cn.ts";
 import { ProfileMachine, ProfileMoveLine } from "./spade-bot-move.tsx";
 import { ProfilePackageLine } from "./spade-bot-package.tsx";
-import { ProfileContracts } from "./spade-profile-contracts.tsx";
 import { BotRoles } from "./spade-bot-roles.tsx";
-import { ProfileReach } from "./spade-bot-reach.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { useEditBot } from "./spade-profile-actions.ts";
-import { ProfileCases } from "./spade-profile-cases.tsx";
 import { pillButton, ProfileSection } from "./spade-profile-parts.tsx";
-import { ProfilePersonality } from "./spade-profile-personality.tsx";
-import { ProfileRoutines } from "./spade-routines.tsx";
 import { TaskHistory } from "./spade-task-history.tsx";
 import { useDeleteBot, useDuplicateBot, useExportBot } from "./use-bot-actions.ts";
 import { DeleteMakerDialog, type DeletingMaker } from "./spade-delete-maker.tsx";
@@ -39,14 +34,11 @@ export interface ProfilePanels {
   onOpen(panel: string): void;
 }
 
-export function ProfileDetails(props: { bot: RosterBot; panels?: ProfilePanels | undefined }) {
+/** Its package's panels, then what it is for: the Job page. */
+export function ProfileJob(props: { bot: RosterBot; panels?: ProfilePanels | undefined }) {
   const { bot } = props;
-  const edit = useEditBot(bot);
-  const [modelProblem, setModelProblem] = useState<string>();
-  const speechModel = useSpadeModels(true).data?.speechModel;
   return (
     <>
-      <ProfileMoveLine bot={bot} />
       <ProfilePackageLine bot={bot} />
       <ProfileSection label="Task">
         <TaskField bot={bot} />
@@ -63,6 +55,18 @@ export function ProfileDetails(props: { bot: RosterBot; panels?: ProfilePanels |
           ))}
         </ProfileSection>
       )}
+    </>
+  );
+}
+
+/** The model and machine it runs with, and the models for its other work: the Model page. */
+export function ProfileModel(props: { bot: RosterBot }) {
+  const { bot } = props;
+  const edit = useEditBot(bot);
+  const [modelProblem, setModelProblem] = useState<string>();
+  return (
+    <>
+      <ProfileMoveLine bot={bot} />
       <ProfileSection label="Runs with">
         <SettingRow
           title="Model"
@@ -80,17 +84,17 @@ export function ProfileDetails(props: { bot: RosterBot; panels?: ProfilePanels |
         <ProfileMachine bot={bot} />
         <BotRoles bot={bot} />
       </ProfileSection>
-      {bot.kind === "main" && <ProfileRunning />}
-      <ProfilePersonality bot={bot} />
-      <ProfileSection label="Voice">
-        <VoiceRows bot={voiceKey(bot.machine.key, bot.id)} speechModel={speechModel} />
-      </ProfileSection>
-      <ProfileRoutines bot={bot} />
-      <ProfileContracts bot={bot} />
-      <ProfileCases bot={bot} />
-      <ProfileReach bot={bot} />
-      <Foot bot={bot} />
     </>
+  );
+}
+
+/** How it sounds, on this device: the Voice page. */
+export function ProfileVoice(props: { bot: RosterBot }) {
+  const speechModel = useSpadeModels(true).data?.speechModel;
+  return (
+    <ProfileSection label="Voice">
+      <VoiceRows bot={voiceKey(props.bot.machine.key, props.bot.id)} speechModel={speechModel} />
+    </ProfileSection>
   );
 }
 
@@ -98,7 +102,7 @@ export function ProfileDetails(props: { bot: RosterBot; panels?: ProfilePanels |
  * Spade's own profile opens Running (ADR 0200 §6.3): Spade is what runs the bots, so what runs
  * is its to show. One row and a text button; no new place in the rail or the list's toolbar.
  */
-function ProfileRunning() {
+export function ProfileRunning() {
   return (
     <ProfileSection label="Running">
       <SettingRow
@@ -239,7 +243,7 @@ function TaskField(props: { bot: RosterBot }) {
 }
 
 /** Duplicate opens the copy; Export saves its file; Delete asks first. Spade can't be deleted. */
-function Foot(props: { bot: RosterBot }) {
+export function ProfileBotActions(props: { bot: RosterBot }) {
   const { bot } = props;
   const navigate = useNavigate();
   const duplicate = useDuplicateBot();
@@ -251,58 +255,68 @@ function Foot(props: { bot: RosterBot }) {
   const deleted = (done: boolean) => {
     if (done) void navigate({ to: "/spade", replace: true });
   };
+  const row =
+    "flex min-h-11 w-full items-center text-left text-ui text-foreground focus-ring-inset";
   return (
-    <div className="mt-6 -ml-2.5 flex flex-wrap items-center gap-1">
-      <Button
-        variant="ghost"
-        className={pillButton}
-        onClick={() =>
-          void duplicate(bot).then((copy) => {
-            if (copy)
-              void navigate({
-                to: "/spade/$agentId",
-                params: { agentId: copy.id },
-                search: {
-                  ...(bot.machine.primary ? {} : { on: bot.machine.key }),
-                  profile: "details",
-                },
-              });
-          })
-        }
-      >
-        Duplicate
-      </Button>
-      <Button variant="ghost" className={pillButton} onClick={() => void exportBot(bot)}>
-        Export
-      </Button>
-      {bot.kind !== "main" && (
-        <Button
-          variant="ghost"
-          tone="danger"
-          className={cn(pillButton, "ml-auto -mr-2.5")}
+    <>
+      <SettingCard>
+        <button
+          type="button"
+          data-setting-slot=""
+          className={row}
           onClick={() =>
-            void workersOf().then((made) => {
-              // A bot that made workers asks one thing: stop them, or keep them going.
-              if (made.workers.length)
-                return setDeleting({
-                  name: bot.name,
-                  ...made,
-                  run: (workers) => void remove(bot, workers).then(deleted),
+            void duplicate(bot).then((copy) => {
+              if (copy)
+                void navigate({
+                  to: "/spade/$agentId",
+                  params: { agentId: copy.id },
+                  search: {
+                    ...(bot.machine.primary ? {} : { on: bot.machine.key }),
+                    profile: "details",
+                  },
                 });
-              setConfirming({
-                title: `Delete ${bot.name}?`,
-                body: `This deletes ${bot.name} and its whole conversation.`,
-                confirm: "Delete bot",
-                run: () => void remove(bot).then(deleted),
-              });
             })
           }
         >
-          Delete bot…
-        </Button>
-      )}
+          Duplicate
+        </button>
+        <button
+          type="button"
+          data-setting-slot=""
+          className={row}
+          onClick={() => void exportBot(bot)}
+        >
+          Export
+        </button>
+        {bot.kind !== "main" && (
+          <button
+            type="button"
+            data-setting-slot=""
+            className={cn(row, "text-destructive")}
+            onClick={() =>
+              void workersOf().then((made) => {
+                // A bot that made workers asks one thing: stop them, or keep them going.
+                if (made.workers.length)
+                  return setDeleting({
+                    name: bot.name,
+                    ...made,
+                    run: (workers) => void remove(bot, workers).then(deleted),
+                  });
+                setConfirming({
+                  title: `Delete ${bot.name}?`,
+                  body: `This deletes ${bot.name} and its whole conversation.`,
+                  confirm: "Delete bot",
+                  run: () => void remove(bot).then(deleted),
+                });
+              })
+            }
+          >
+            Delete bot…
+          </button>
+        )}
+      </SettingCard>
       <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
       <DeleteMakerDialog deleting={deleting} onDone={() => setDeleting(undefined)} />
-    </div>
+    </>
   );
 }

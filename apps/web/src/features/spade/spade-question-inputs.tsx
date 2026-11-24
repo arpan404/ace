@@ -1,7 +1,7 @@
 import type { SpadeDraft, SpadeQuestion } from "@ace/ui-core/spade-chat";
 import { useId } from "react";
 import { ChoiceInputs } from "./spade-question-choices.tsx";
-import { optionChosen, optionRow, Radio, well } from "./spade-question-parts.tsx";
+import { LetterKey, optionChosen, optionLetter, optionRow, well } from "./spade-question-parts.tsx";
 import { Input, Textarea } from "@/components/ui/input.tsx";
 import { cn } from "@/lib/cn.ts";
 
@@ -73,7 +73,7 @@ export function QuestionInputs(props: {
                 onClick={() => props.onDraft({ kind: "confirm", value: answer })}
                 className={cn(optionRow, on && optionChosen)}
               >
-                <Radio on={on} />
+                <LetterKey letter={optionLetter(answer ? 0 : 1)} on={on} />
                 {answer ? "Yes" : "No"}
               </button>
             );

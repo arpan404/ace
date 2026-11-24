@@ -146,37 +146,34 @@ export const pinnedAt = (entry: SpadeListEntry): number | undefined =>
       : entry.bot.pinnedAt;
 
 /**
- * The pinned conversations, oldest pin first, which show as a strip under the list's buttons,
- * and the rest of `entries`, which stay in the rows below in their order. The strip draws on
- * `all`, so a pinned worker shows there while its family is folded.
+ * The list in its order: Spade, the main bot, first, then the pinned conversations, oldest pin
+ * first, then the rest as `entries` has them. Pins draw on `all`, so a pinned worker shows while
+ * its family is folded; a worker whose maker was pinned has no row to nest under and stands alone.
  */
-export function splitPinned(
+export function spadePinnedFirst(
   entries: readonly SpadeListEntry[],
   all: readonly SpadeListEntry[] = entries,
-): {
-  pinned: SpadeListEntry[];
-  rest: SpadeListEntry[];
-} {
-  const pinned = all.filter((entry) => pinnedAt(entry) !== undefined);
+): SpadeListEntry[] {
+  const pinned = all
+    .filter((entry) => pinnedAt(entry) !== undefined)
+    .toSorted((a, b) => (pinnedAt(a) ?? 0) - (pinnedAt(b) ?? 0));
   const pinnedBots = new Set(
     pinned.flatMap((entry) => (entry.kind === "bot" ? [botKey(entry.bot)] : [])),
   );
-  return {
-    pinned: pinned.toSorted((a, b) => (pinnedAt(a) ?? 0) - (pinnedAt(b) ?? 0)),
-    rest: entries
-      .filter((entry) => pinnedAt(entry) === undefined)
-      // A worker whose maker moved to the strip has no row to nest under.
-      .map((entry): SpadeListEntry => {
-        if (
-          entry.kind === "bot" &&
-          entry.depth === 1 &&
-          entry.bot.parent &&
-          pinnedBots.has(`${entry.bot.machine.key}/${entry.bot.parent.id}`)
-        )
-          return Object.assign({}, entry, { depth: 0 });
-        return entry;
-      }),
-  };
+  const rest = entries
+    .filter((entry) => pinnedAt(entry) === undefined)
+    .map((entry): SpadeListEntry => {
+      if (
+        entry.kind === "bot" &&
+        entry.depth === 1 &&
+        entry.bot.parent &&
+        pinnedBots.has(`${entry.bot.machine.key}/${entry.bot.parent.id}`)
+      )
+        return Object.assign({}, entry, { depth: 0 });
+      return entry;
+    });
+  const isMain = (entry: SpadeListEntry) => entry.kind === "bot" && entry.bot.kind === "main";
+  return [...rest.filter(isMain), ...pinned, ...rest.filter((entry) => !isMain(entry))];
 }
 
 function words(entry: SpadeListEntry): string[] {

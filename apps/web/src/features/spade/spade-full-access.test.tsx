@@ -9,7 +9,7 @@ import { fakeClient, harness } from "@/test/harness.tsx";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openProfile, spadeApp, withEndpoint, openSettingsPage } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -25,7 +25,7 @@ async function scoutsChoice() {
   await userEvent.click(await botRow("Scout"));
   await openProfile("Scout");
   const profile = within(await screen.findByRole("region", { name: "Scout's profile" }));
-  await userEvent.click(profile.getByRole("tab", { name: "Permissions" }));
+  await openSettingsPage("How it decides");
   const section = (await profile.findByRole("heading", { name: "Security" })).closest("section");
   if (!section) throw new Error("no Security section");
   const security = within(section);
@@ -68,7 +68,7 @@ test("a bot starts on Auto-review, and Full access asks first, then says what st
   expect(security.getByText(/never reads your secrets\.$/)).toBeTruthy();
   // The conversation's pill says so, quietly.
   expect(
-    await screen.findByRole("button", { name: "Scout, Full access: open its profile" }),
+    await screen.findByRole("button", { name: "Open Scout's profile, Full access" }),
   ).toBeTruthy();
 });
 

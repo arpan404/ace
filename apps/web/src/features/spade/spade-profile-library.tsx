@@ -1,15 +1,12 @@
 import { spadeSkillsOf } from "@ace/ui-core/spade-chat";
-import { formatAge } from "@ace/ui-core/time";
-import { FileIcon, FolderIcon, StackIcon } from "@ace/icons";
+import { StackIcon } from "@ace/icons";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Icon } from "@/components/icon.tsx";
-import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { searchSettleMs, useDebouncedValue } from "@/lib/debounced.ts";
-import { useNow } from "@/lib/time.ts";
-import { part } from "@/lib/suit-part.ts";
 import type { FilesAt } from "./computer/profile-computer.tsx";
+import { LibraryFiles } from "./spade-library-files.tsx";
 import { LibraryPage } from "./spade-library-page.tsx";
 import { LibraryLearnedFrom } from "./spade-provenance.tsx";
 import { LibraryPages } from "./spade-library-pages.tsx";
@@ -17,13 +14,9 @@ import { LibraryEpisode, LibraryPast } from "./spade-library-past.tsx";
 import { LibraryResults, LibrarySearchField } from "./spade-library-search.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { SpadeNotes } from "./spade-notes.tsx";
-import { ProfileNone, ProfileProblem, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
+import { ProfileNone, ProfileProblem, ProfileSection } from "./spade-profile-parts.tsx";
 import { readSkillStore } from "./spade-skills-api.ts";
-import { readFolder } from "./spade-workspace-api.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
-
-/** Files shown before All files. */
-const shownFiles = 5;
 
 /** What the Library has open in its place: a page or a piece of past work. */
 type Open = { kind: "page"; id: string } | { kind: "episode"; id: string };
@@ -77,77 +70,11 @@ export function ProfileLibrary(props: { bot: RosterBot; onOpenFile(files: FilesA
           <LibraryPages bot={bot} onOpen={openPage} />
           <LibraryLearnedFrom bot={bot} />
           <LibraryPast bot={bot} onOpen={openEpisode} />
-          <Files bot={bot} onOpen={props.onOpenFile} />
+          <LibraryFiles bot={bot} onOpen={props.onOpenFile} />
           <Skills bot={bot} />
         </>
       )}
     </>
-  );
-}
-
-/** The top of its workspace, newest kept first; a file or folder opens in Computer's Files. */
-function Files(props: { bot: RosterBot; onOpen(files: FilesAt): void }) {
-  const { bot } = props;
-  const client = useSpadeClient();
-  const machine = useSpadeMachine();
-  const now = useNow();
-  const listing = useQuery({
-    queryKey: ["spade", "workspace", machine.key, bot.id, ""],
-    queryFn: ({ signal }) => readFolder(client, bot.id, "", { signal }),
-  });
-  const entries = listing.data?.entries ?? [];
-  return (
-    <ProfileSection
-      label="Files"
-      bare={listing.isSuccess && entries.length === 0}
-      actions={
-        entries.length > 0 && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className={rowPill}
-            onClick={() => props.onOpen({ folder: "" })}
-          >
-            All files
-          </Button>
-        )
-      }
-    >
-      {listing.isPending ? (
-        <ListSkeleton label="files" shape="row" rows={2} />
-      ) : listing.isError ? (
-        <ProfileProblem text="Couldn't read the files." onRetry={() => void listing.refetch()} />
-      ) : entries.length === 0 ? (
-        <ProfileNone>{`${bot.name} hasn't kept any files yet.`}</ProfileNone>
-      ) : (
-        entries.slice(0, shownFiles).map((entry) => (
-          <button
-            key={entry.path}
-            type="button"
-            data-setting-slot=""
-            {...part("list-row", undefined, entry.kind)}
-            onClick={() =>
-              props.onOpen(
-                entry.kind === "folder" ? { folder: entry.path } : { folder: "", file: entry.path },
-              )
-            }
-            className="group/file flex min-h-11 min-w-0 items-center gap-3 rounded-sm py-2 text-left text-ui text-foreground focus-ring"
-          >
-            <Icon
-              icon={entry.kind === "folder" ? FolderIcon : FileIcon}
-              size={16}
-              className="shrink-0 text-muted-foreground"
-            />
-            <span className="min-w-0 flex-1 truncate group-hover/file:underline">{entry.name}</span>
-            {entry.modifiedAt !== undefined && (
-              <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
-                {formatAge(entry.modifiedAt, now)}
-              </span>
-            )}
-          </button>
-        ))
-      )}
-    </ProfileSection>
   );
 }
 

@@ -251,6 +251,7 @@ impl Engine {
             from_group: Some(Box::new(from_group)),
             from_thread: None,
             reply_to: reply_to.map(Box::new),
+            invoke: None,
         });
         let frames = self.live(&agent.conversation).frames.subscribe();
         let delivered = self

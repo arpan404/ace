@@ -61,7 +61,7 @@
   --chat-code-inset: 6px;
   --chat-code-radius: var(--radius-lg);
   /* Between bubbles of one run, and between turns. */
-  --chat-run-gap: 4px;
+  --chat-run-gap: 8px;
   --chat-turn-gap: 16px;
   --spade-round-button: 32px;
   --spade-pill-button: 36px;

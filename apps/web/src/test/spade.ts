@@ -120,7 +120,33 @@ export async function openNew(item: string) {
 export async function openProfile(name: string) {
   await userEvent.click(
     await screen.findByRole("button", {
-      name: new RegExp(`^${name}( on [^:,]*)?(, Full access)?: open its profile$`),
+      name: new RegExp(`^Open ${name}'s profile( on [^,]*)?(, Full access)?$`),
     }),
   );
+}
+
+/** Leaves the settings pages for Activity, from a page or from the list. */
+export async function backToActivity() {
+  const profile = await screen.findByRole("region", { name: /'s profile$/ });
+  while (!within(profile).queryByRole("tab", { name: "Activity" })) {
+    await userEvent.click(within(profile).getByRole("button", { name: "Back" }));
+  }
+}
+
+/**
+ * Opens one of the profile's settings pages by its title ("Job", "Can use", "Routines"…) from
+ * wherever the panel is: Activity, or the Settings list.
+ */
+export async function openSettingsPage(title: string) {
+  const row = new RegExp(`^${title}`);
+  if (!screen.queryByRole("button", { name: row })) {
+    const gear = screen.queryByRole("button", { name: "Settings" });
+    // On a page already (a deep link, or the last test step): back to the list first.
+    if (gear) await userEvent.click(gear);
+    else {
+      const profile = await screen.findByRole("region", { name: /'s profile$/ });
+      await userEvent.click(within(profile).getByRole("button", { name: "Back" }));
+    }
+  }
+  await userEvent.click(await screen.findByRole("button", { name: row }));
 }

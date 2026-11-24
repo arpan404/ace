@@ -5,7 +5,7 @@
  */
 
 const shape =
-  "min-w-0 rounded-(--chat-bubble-radius) px-(--chat-bubble-x) py-(--chat-bubble-y) font-prose text-prose leading-6 wrap-anywhere";
+  "min-w-0 rounded-[22px] px-(--chat-bubble-x) font-prose text-prose leading-6 wrap-anywhere";
 
 /** How wide each side's bubble may grow, against the conversation's column. */
 export const bubbleWidth = {
@@ -13,17 +13,17 @@ export const bubbleWidth = {
   mine: "max-w-[min(85%,56ch)]",
 } as const;
 
-/** The bot's words. */
-export const chatBubble = `${shape} ${bubbleWidth.bot} bg-chat-bubble text-foreground`;
+/** The bot's words: a soft block, no border, 22 corner, 16 by 18 padding. */
+export const chatBubble = `${shape} ${bubbleWidth.bot} bg-chat-bubble py-4 text-foreground`;
 
 /**
  * Another bot's message to this one: input, so on the person's side at their width, but drawn
  * in outline on the page rather than filled in the accent, so it is never taken for theirs.
  */
-export const inputBubble = `${shape} ${bubbleWidth.mine} border border-border bg-transparent text-foreground dark:border-border-strong`;
+export const inputBubble = `${shape} ${bubbleWidth.mine} border border-border bg-transparent py-2.5 text-foreground dark:border-border-strong`;
 
-/** The person's words, in the accent. */
-export const mineBubble = `${shape} ${bubbleWidth.mine} bg-chat-mine text-chat-mine-foreground`;
+/** The person's words: a pill in the bot's colour (`--chat-mine`, set per conversation by SpadeChat). */
+export const mineBubble = `${shape} ${bubbleWidth.mine} bg-chat-mine py-2.5 text-chat-mine-foreground`;
 
 /** A bubble inside `BubbleFrame`, which holds its width limit: it may fill the frame. */
 export const framed = "max-w-full";

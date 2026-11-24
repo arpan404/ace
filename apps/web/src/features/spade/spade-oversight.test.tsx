@@ -2,7 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openProfile, spadeApp, withEndpoint, openSettingsPage } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -37,7 +37,7 @@ async function openActivity() {
   await userEvent.click(await botRow("Scout"));
   await openProfile("Scout");
   const profile = within(await screen.findByRole("region", { name: "Scout's profile" }));
-  await userEvent.click(profile.getByRole("tab", { name: "Work" }));
+  await openSettingsPage("Activity and safety");
 }
 
 /** Scout's profile, on Details, and its Spending section. */
@@ -45,7 +45,7 @@ async function spendingOf() {
   await userEvent.click(await botRow("Scout"));
   await openProfile("Scout");
   const profile = within(await screen.findByRole("region", { name: "Scout's profile" }));
-  await userEvent.click(profile.getByRole("tab", { name: "Permissions" }));
+  await openSettingsPage("Activity and safety");
   const section = (await profile.findByRole("heading", { name: "Spending" })).closest("section");
   if (!section) throw new Error("no Spending section");
   return within(section);

@@ -2,7 +2,14 @@ import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { setShowWork } from "./spade-show-work.ts";
-import { botRow, openProfile, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
+import {
+  botRow,
+  openProfile,
+  roster,
+  spadeApp,
+  withEndpoint,
+  openSettingsPage,
+} from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -187,6 +194,7 @@ test("editing a bot sends only what changed", async () => {
   });
   await feed("Garden");
   await openProfile("Garden");
+  await openSettingsPage("Job");
   await userEvent.click(
     await screen.findByRole("button", { name: "Edit the task: Keep the garden alive" }),
   );
@@ -205,6 +213,7 @@ test("Esc puts a task being edited back, and nothing is sent", async () => {
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
     api.addAgent({ id: "garden", name: "Garden", task: "Keep the garden alive" });
   });
+  await openSettingsPage("Job");
   await userEvent.click(
     await screen.findByRole("button", { name: "Edit the task: Keep the garden alive" }),
   );
@@ -223,6 +232,7 @@ test("deleting a bot asks first, then removes it and its conversation", async ()
   });
   await feed("Garden");
   await openProfile("Garden");
+  await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
   await userEvent.click(await screen.findByRole("button", { name: "Delete bot…" }));
   const confirm = within(await screen.findByRole("dialog", { name: "Delete Garden?" }));
   expect(confirm.getByText("This deletes Garden and its whole conversation.")).toBeTruthy();
@@ -241,7 +251,9 @@ test("Spade itself can be changed in its profile but never deleted, and keeps it
   });
   await feed("Spade");
   await openProfile("Spade");
+  await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
   await screen.findByRole("button", { name: "Duplicate" });
+  await openSettingsPage("Job");
   expect(screen.getByRole("button", { name: "Write its task" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Delete bot…" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Rename Spade" })).toBeNull();

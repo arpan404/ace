@@ -237,3 +237,15 @@ describe("another bot's message", () => {
     });
   });
 });
+
+describe("reactions", () => {
+  test("each side's latest reaction shows on the message, and a take-back clears it", () => {
+    const c = conversation();
+    c.stored({ type: "reaction", message: "m2", emoji: "👍", by: "person" });
+    c.stored({ type: "reaction", message: "m2", emoji: "🙏", by: "bot" });
+    c.stored({ type: "reaction", message: "m2", emoji: "❤️", by: "person" });
+    expect(c.view().reactions.get("m2")).toEqual({ person: "❤️", bot: "🙏" });
+    c.stored({ type: "reaction", message: "m2", emoji: "", by: "person", removed: true });
+    expect(c.view().reactions.get("m2")).toEqual({ bot: "🙏" });
+  });
+});

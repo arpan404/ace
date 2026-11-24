@@ -52,6 +52,36 @@ export function ProfileSecurity(props: { bot: RosterBot }) {
   );
 }
 
+/** How it decides, and where its commands run and what it may reach. */
+export function ProfileDecides(props: { bot: RosterBot }) {
+  const data = useBotSecurity(props.bot.id).data;
+  return data ? <ProfileBoundaries bot={props.bot} security={data} /> : null;
+}
+
+/** Its folders and grants. */
+export function ProfileFilesAndGrants(props: { bot: RosterBot }) {
+  const data = useBotSecurity(props.bot.id).data;
+  if (!data) return null;
+  return (
+    <>
+      <ProfileFolders bot={props.bot} security={data} />
+      <ProfileGrants bot={props.bot} security={data} />
+    </>
+  );
+}
+
+/** Its checkpoints and its network activity. */
+export function ProfileSafetyLogs(props: { bot: RosterBot }) {
+  const data = useBotSecurity(props.bot.id).data;
+  if (!data) return null;
+  return (
+    <>
+      <ProfileCheckpoints bot={props.bot} />
+      <ProfileEgress bot={props.bot} />
+    </>
+  );
+}
+
 /**
  * How the bot decides (ADR 0163, amendment 2), what its package may do (ADR 0200 §3.4), then
  * where its commands run and what it may reach (ADR 0171). A bot on the machine's settings

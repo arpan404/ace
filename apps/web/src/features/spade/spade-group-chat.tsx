@@ -56,7 +56,7 @@ export function SpadeGroupChat(props: {
 }) {
   const { view } = props;
   // A club draws every row, so a quote's original is always on the page.
-  const replies = useReplies(props.name, props.onReply, noop);
+  const replies = useReplies(props.name, props.onReply, noop, noReactions, undefined);
   const waiting = view.state === "waiting";
   const waiter = spadeGroupWaiting(view, props.members);
   const shown = waiter ?? view.working;
@@ -113,6 +113,7 @@ export function SpadeGroupChat(props: {
 }
 
 const noop = () => {};
+const noReactions = new Map<string, never>();
 
 type GroupRow = SpadeGroupView["rows"][number];
 

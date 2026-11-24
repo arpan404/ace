@@ -4,7 +4,8 @@ import { useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
-import { AvatarChoice, draftFace, type AvatarDraft } from "./spade-avatar-choice.tsx";
+import { draftFace, type AvatarDraft } from "./spade-avatar-choice.tsx";
+import { FacePicker } from "./spade-face-picker.tsx";
 import { useMarkAccent } from "./spade-accent.ts";
 import { DottedFace, faceDotOf } from "./spade-list-parts.tsx";
 import { ProfileArchived } from "./spade-profile-archived.tsx";
@@ -110,12 +111,17 @@ export function FaceButton(props: {
       >
         {props.children}
       </PopoverTrigger>
-      <PopoverContent align="center" className="w-80 p-3">
-        <AvatarChoice
+      <PopoverContent
+        align="center"
+        aria-label="Face"
+        className="w-80 max-w-[calc(100vw-1.5rem)] p-0"
+      >
+        <FacePicker
           value={draft}
           fallback={draftFace(draft) ?? faceForId(bot.id)}
           takenPairs={worn}
           onChange={setDraft}
+          onReset={() => setDraft({ kind: "current", avatar: bot.avatar })}
         />
       </PopoverContent>
       {problem && (

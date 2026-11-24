@@ -1,5 +1,5 @@
 {
-  "about": "ADR 0212: how a bot's text splits into chat messages. Both parsers run this table: spade_core::chat_markup (Rust) and @ace/ui-core/spade-chat chat-markup.ts. `live` cases parse text still streaming. A segment's `reply`, `title` and `open` are absent when unset (open: false).",
+  "about": "ADR 0212: how a bot's text splits into chat messages. Both parsers run this table: spade_core::chat_markup (Rust) and @ace/ui-core/spade-chat chat-markup.ts. `live` cases parse text still streaming. A segment's `reply`, `title`, `to` and `open` are absent when unset (open: false). A `react` segment (`<react to=\"m12\">👍</react>`) has the emoji as `text` and the message id as `to`; it takes no message id itself, so ids count only `msg` and `doc` segments.",
   "cases": [
     {
       "name": "text with no tags is one message, as before",
@@ -493,6 +493,226 @@
         {
           "kind": "msg",
           "text": "<ms"
+        }
+      ]
+    },
+    {
+      "name": "a reaction is its own segment, with the message it is for",
+      "text": "<react to=\"m12\">👍</react>",
+      "segments": [
+        {
+          "kind": "react",
+          "text": "👍",
+          "to": "m12"
+        }
+      ]
+    },
+    {
+      "name": "a reaction sits in order between messages",
+      "text": "<msg>On it.</msg>\n<react to=\"m7\">❤️</react>\n<msg>Booked.</msg>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "On it."
+        },
+        {
+          "kind": "react",
+          "text": "❤️",
+          "to": "m7"
+        },
+        {
+          "kind": "msg",
+          "text": "Booked."
+        }
+      ]
+    },
+    {
+      "name": "words before a reaction outside any tag are their own message",
+      "text": "Got it. <react to=m3.2>👍</react> Done.",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Got it."
+        },
+        {
+          "kind": "react",
+          "text": "👍",
+          "to": "m3.2"
+        },
+        {
+          "kind": "msg",
+          "text": "Done."
+        }
+      ]
+    },
+    {
+      "name": "a reaction inside a message comes before it",
+      "text": "<msg>Thanks! <react to=\"m4\">🙏</react></msg>",
+      "segments": [
+        {
+          "kind": "react",
+          "text": "🙏",
+          "to": "m4"
+        },
+        {
+          "kind": "msg",
+          "text": "Thanks!"
+        }
+      ]
+    },
+    {
+      "name": "a reaction's emoji is trimmed and unknown attributes are skipped",
+      "text": "<react  emoji=x to='m5' >  🎉 </react>",
+      "segments": [
+        {
+          "kind": "react",
+          "text": "🎉",
+          "to": "m5"
+        }
+      ]
+    },
+    {
+      "name": "a reaction to something that is not an id is dropped",
+      "text": "<react to=\"the last one\">👍</react><msg>Ok.</msg>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Ok."
+        }
+      ]
+    },
+    {
+      "name": "a reaction with no id is dropped",
+      "text": "<react>👍</react>",
+      "segments": []
+    },
+    {
+      "name": "an empty reaction is dropped",
+      "text": "<react to=\"m5\"> </react>Ok.",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Ok."
+        }
+      ]
+    },
+    {
+      "name": "a reaction broken across lines is words",
+      "text": "<react to=\"m5\">👍\n</react>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "<react to=\"m5\">👍\n</react>"
+        }
+      ]
+    },
+    {
+      "name": "a reaction inside inline code stays literal",
+      "text": "Write `<react to=\"m5\">👍</react>` to react.",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Write `<react to=\"m5\">👍</react>` to react."
+        }
+      ]
+    },
+    {
+      "name": "reactions are kept when tags fall back to plain text",
+      "text": "<msg>a<msg>b</msg></msg><react to=\"m2\">👍</react>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "a\n\nb"
+        },
+        {
+          "kind": "react",
+          "text": "👍",
+          "to": "m2"
+        }
+      ]
+    },
+    {
+      "name": "live: a reaction still arriving is held back",
+      "text": "<msg>Sure.</msg><react to=\"m5\">👍</re",
+      "live": true,
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Sure."
+        }
+      ]
+    },
+    {
+      "name": "live: a reaction tag cut short is held back",
+      "text": "Sure. <rea",
+      "live": true,
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Sure.",
+          "open": true
+        }
+      ]
+    },
+    {
+      "name": "live: a whole reaction shows and is never open",
+      "text": "<react to=\"m5\">👍</react>",
+      "live": true,
+      "segments": [
+        {
+          "kind": "react",
+          "text": "👍",
+          "to": "m5"
+        }
+      ]
+    },
+    {
+      "name": "a reaction cut short at the end of finished text is words",
+      "text": "Sure. <react to=\"m5\">👍",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Sure. <react to=\"m5\">👍"
+        }
+      ]
+    },
+    {
+      "name": "a reply that quotes several messages is separate quoted bubbles, the latest left unquoted",
+      "text": "<msg reply=\"m3\">Flight booked.</msg>\n<msg reply=\"m4\">Hotel is held until Friday.</msg>\n<msg>Trains next.</msg>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Flight booked.",
+          "reply": "m3"
+        },
+        {
+          "kind": "msg",
+          "text": "Hotel is held until Friday.",
+          "reply": "m4"
+        },
+        {
+          "kind": "msg",
+          "text": "Trains next."
+        }
+      ]
+    },
+    {
+      "name": "a natural mix: a plain answer, a quoted answer to an older message, a reaction",
+      "text": "<msg>Booked for Tuesday.</msg>\n<msg reply=\"m4\">The hotel is under €180, yes.</msg>\n<react to=\"m6\">👍</react>",
+      "segments": [
+        {
+          "kind": "msg",
+          "text": "Booked for Tuesday."
+        },
+        {
+          "kind": "msg",
+          "text": "The hotel is under €180, yes.",
+          "reply": "m4"
+        },
+        {
+          "kind": "react",
+          "text": "👍",
+          "to": "m6"
         }
       ]
     }

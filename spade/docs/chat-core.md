@@ -78,6 +78,18 @@ streaming); the TypeScript client has the same parser, and both run
   names nothing is dropped and the message is sent as typed; a stored `reply_to` that can't be
   read is ignored. The model reads `[m14] (replying to your message m12: "…")` before the
   person's words; a club member reads `(replying to Quill's message: "…")`.
+- **Reactions.** `POST …/messages/{message}/reactions` with `{emoji}` puts the person's reaction
+  on a message, `DELETE` takes it back. Each is stored as
+  `{"type": "reaction", "message": "m12", "emoji": "👍", "by": "person", "removed": true}`
+  (`removed` absent when false; a take-back names the emoji it took back, or `""`) and served like
+  any event. One per side per message: a later one replaces the earlier. A reaction opens no
+  reply, steers none and marks nothing unseen. The model reads the person's at the end of its next
+  prompt, once, where they were stored: `[the person reacted 👍 to m30]`,
+  `[the person took back their reaction to m30]`, each message's latest and at most 10 to a note.
+  A bot reacts with `<react to="m12">👍</react>` (a `react` segment: the emoji as `text`, the id as
+  `to`; one whose id or emoji is missing is dropped). It takes no message id, is never a bubble or
+  plain text, and when the step is stored each becomes a `by: "bot"` reaction on a message that is
+  there; the model reads its own back in its words.
 - **Plain text.** Wherever a bot's words leave the chat as plain text (the list row's last line,
   a club's last line, an answer to another bot or an ace thread, a helper's result, speech, the
   heartbeat's quiet check) the markup is removed first (`chat_markup::plain`).
@@ -108,6 +120,7 @@ startup, so only processes that can read the person's files can talk to Spade.
 | `POST /v1/conversations`                    |                     | `410`: each agent has one conversation, created with it ([agents.md](agents.md))                    |
 | `GET /v1/conversations/{id}/events?after=N` |                     | `[{seq, at, event}]` after `seq` N                                                                  |
 | `POST /v1/conversations/{id}/messages`      | `{text, reply_to?}` | `202`; while a reply is open the message steers it; `reply_to`: Messages, ids and replies above     |
+| `POST /v1/conversations/{id}/messages/{m}/reactions` | `{emoji}` | `202`; `DELETE` takes it back; `404` when `m` names no message, `400` for an emoji that's empty, over 16 bytes or has spaces |
 | `POST /v1/conversations/{id}/stop`          |                     | `202`; `404` when nothing is answering                                                              |
 | `POST /v1/conversations/{id}/retry`         | `{reply}`           | `202`: Try again, below; `409` when `reply` isn't the last reply or didn't fail, or a reply is open |
 | `GET /v1/conversations/{id}/live?after=N`   |                     | Server-sent events, below                                                                           |

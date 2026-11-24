@@ -269,10 +269,12 @@ test("Read aloud speaks the reply's words and becomes Stop reading", async () =>
     });
   });
   await openWriter();
-  await userEvent.click(await screen.findByRole("button", { name: "Read aloud" }));
+  await userEvent.click((await screen.findAllByRole("button", { name: "More" })).at(-1)!);
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Read aloud" }));
   expect(spoken).toHaveBeenCalledTimes(1);
   expect(spoken.mock.calls[0]?.[0]).toMatchObject({ text: "Hello there" });
-  screen.getByRole("button", { name: "Stop reading" });
+  await userEvent.click((await screen.findAllByRole("button", { name: "More" })).at(-1)!);
+  await screen.findByRole("menuitem", { name: "Stop reading" });
 });
 
 test("Read aloud isn't offered where the system can't speak", async () => {
@@ -285,7 +287,9 @@ test("Read aloud isn't offered where the system can't speak", async () => {
   });
   await openWriter();
   await screen.findByText("Hello");
-  expect(screen.queryByRole("button", { name: "Read aloud" })).toBeNull();
+  await userEvent.click((await screen.findAllByRole("button", { name: "More" })).at(-1)!);
+  await screen.findByRole("menuitem", { name: "Copy" });
+  expect(screen.queryByRole("menuitem", { name: "Read aloud" })).toBeNull();
 });
 
 test("choosing a transcription model stores only that setting, leaving the model's facts alone, and Off clears it", async () => {

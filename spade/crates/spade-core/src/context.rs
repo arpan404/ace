@@ -19,7 +19,12 @@ Style:
 are fine). Use <doc title=\"…\">…</doc> only for deliverables to keep, copy or share, with a short \
 note in chat.
 - Person messages carry [m12]; Spade adds id=\"m30\" when showing your earlier replies. In new \
-<msg> output, use only the optional reply=\"<id>\" attribute when answering an older message.
+<msg> output, use only the optional reply=\"<id>\" attribute to quote the message you answer.
+- Text like a person to a colleague: answer what was asked, in the order it matters. Quote a \
+message (reply=\"<id>\") only when it would be unclear which you answer (several sent at once, \
+or an older one); never quote or react to every message, and never announce either.
+- React instead of writing when a reaction says it all (👍 to \"thanks\"): \
+<react to=\"m12\">👍</react>. Never react and also write the same thing.
 - Show answers people scan (comparisons, statuses with numbers, short tables, choices) as a \
 card with card_show (find it with tool_search); your words still carry the reply.
 - Example:
@@ -248,6 +253,7 @@ pub fn message_text(event: &Known, seq: u64) -> Option<String> {
         from_group,
         from_thread,
         reply_to,
+        invoke,
         ..
     } = event
     else {
@@ -286,14 +292,34 @@ pub fn message_text(event: &Known, seq: u64) -> Option<String> {
             quoted(&to.text)
         );
     }
-    Some(person_text(
+    let mut shown = person_text(
         &words,
         context.as_deref(),
         from_agent.as_ref(),
         from_routine.as_deref(),
         from_group.as_deref(),
         from_thread.as_deref(),
-    ))
+    );
+    // A skill or command the person started rides at the message's tail, as a `skill_load`
+    // result does, so the prompt before it never changes.
+    if let (true, Some(invoked)) = (typed, invoke.as_deref()) {
+        shown.push_str(&invoked_text(invoked));
+    }
+    Some(shown)
+}
+
+/// What the model reads after a message that started a skill or command.
+pub fn invoked_text(invoked: &crate::event::Invoked) -> String {
+    let name: String = invoked
+        .name
+        .chars()
+        .filter(|c| !c.is_control() && *c != '"')
+        .collect();
+    format!(
+        "\n\n<invoked kind=\"{}\" name=\"{name}\">\nThe person started this {} with their \
+         message. Follow it.\n\n{}\n</invoked>",
+        invoked.kind, invoked.kind, invoked.text
+    )
 }
 
 /// Quoted words on one line, as a JSON string, so a quote can't break out of its brackets.
@@ -652,8 +678,20 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
     // The last message the bot's words went in, by its index in `out`, and those words as plain
     // text, so a reply's end that repeats them isn't read twice.
     let mut last_words: Option<(usize, String)> = None;
+    // The person's reactions since the last thing the model read, told as one note before it.
+    let mut reactions = crate::reaction::Notes::default();
     for (at, event) in events {
         let Event::Known(event) = event else { continue };
+        if reactions.add(event) {
+            continue;
+        }
+        if let Some(text) = reactions.take() {
+            if pending.is_empty() {
+                push_person(&mut out, text, Vec::new());
+            } else {
+                held.push((text, Vec::new()));
+            }
+        }
         let seq = at as u64 + 1;
         match event {
             Known::UserMessage {
@@ -880,6 +918,13 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
             _ => {}
         }
     }
+    if let Some(text) = reactions.take() {
+        if pending.is_empty() {
+            push_person(&mut out, text, Vec::new());
+        } else {
+            held.push((text, Vec::new()));
+        }
+    }
     out
 }
 
@@ -895,6 +940,7 @@ pub(crate) fn arrives(event: &Known) -> bool {
             | Known::AsksChecked(_)
             | Known::AsksReminded(_)
             | Known::PersonActivity { .. }
+            | Known::Reaction { .. }
     ) || crate::question::is_late(event)
         || crate::wake::is_note(event)
 }
@@ -1340,6 +1386,8 @@ fn ends_reply(event: &Event) -> bool {
     )
 }
 
+#[cfg(test)]
+mod invoke_tests;
 #[cfg(test)]
 mod media_tests;
 #[cfg(test)]

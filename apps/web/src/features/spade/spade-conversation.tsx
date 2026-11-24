@@ -10,7 +10,7 @@ import {
 } from "@ace/ui-core/spade-chat";
 import { useNavigate } from "@tanstack/react-router";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { SidebarSimpleIcon, XIcon } from "@ace/icons";
+import { XIcon } from "@ace/icons";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
@@ -25,6 +25,7 @@ import {
 } from "./spade-bot-screen.tsx";
 import { SpadeChat, type ChatBot } from "./spade-chat.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
+import { slashActions } from "./spade-slash-actions.ts";
 import { SpadeFirstRun } from "./spade-first-run.tsx";
 import { showModelSetup, SpadeKeySetup } from "./spade-key-setup.tsx";
 import { ConversationPill, PillEdge, PillRow } from "./spade-pill.tsx";
@@ -40,7 +41,7 @@ import {
   type ComputerView,
   type ProfileTab,
 } from "./computer/panel-place.ts";
-import { ProfileStripActions, SpadeProfile } from "./spade-profile.tsx";
+import { ProfileShareButton, SpadeProfile } from "./spade-profile.tsx";
 import { useBotComputer } from "./computer/use-bot-computer.ts";
 import {
   ConversationSkeleton,
@@ -246,6 +247,7 @@ export function Conversation(props: {
         ),
       ),
       task: bot.task,
+      pending: bot.pending,
     }),
     [bot, props.roster],
   );
@@ -262,7 +264,11 @@ export function Conversation(props: {
       <h1 className="sr-only">{bot.name}</h1>
       <PillEdge />
       <PillRow>
-        <ConversationPill bot={bot} onOpen={() => openProfile()} />
+        <ConversationPill
+          bot={bot}
+          open={tab !== undefined}
+          onToggle={() => (tab !== undefined ? closePanel() : openProfile())}
+        />
         {lanes.lanes.length > 0 && (
           <LanesPill
             lanes={lanes.lanes}
@@ -382,6 +388,9 @@ export function Conversation(props: {
             // A notice or the bot list opened it while a worker waits on the person.
             revealWorkers={props.request === "workers" || bot.waitingFor === "worker"}
             onSetUpModel={setUpModel}
+            onReact={(message, emoji) =>
+              conversation.react(message, emoji).then(() => true, failed(`Couldn't react`))
+            }
             onRetry={(reply) =>
               conversation.tryAgain(reply).then(() => true, failed(`Couldn't try again`))
             }
@@ -409,6 +418,16 @@ export function Conversation(props: {
         needsModel={needsModel ? { onSetUp: setUpModel } : undefined}
         placeholder={`Message ${bot.name}`}
         recall={(older) => spadeSentText(view.entries, older)}
+        slash={{
+          conversation: bot.conversation,
+          actions: slashActions({
+            stop: stoppable && !computer.paused ? stop : undefined,
+            model: () => void navigate({ to: "/settings/spade/models" }),
+            routines: () => go({ profile: "work" }),
+            library: () => go({ profile: "library" }),
+            computer: () => go({ profile: "computer" }),
+          }),
+        }}
         quote={
           quote === undefined ? undefined : { text: quote, onRemove: () => setQuote(undefined) }
         }
@@ -490,7 +509,7 @@ export function Conversation(props: {
                   />
                 ) : panelShown ? (
                   // The top bar's part above the profile holds its strip: Share and close.
-                  <ProfileStripActions bot={bot} onClose={closePanel} />
+                  <ProfileShareButton bot={bot} />
                 ) : (
                   <>
                     {/* Its panels, by name: the header is one way in (§5.2). */}
@@ -504,13 +523,6 @@ export function Conversation(props: {
                         {each.title}
                       </Button>
                     ))}
-                    <IconButton
-                      icon={SidebarSimpleIcon}
-                      label={`Open ${bot.name}'s profile`}
-                      tip="Profile"
-                      className="-scale-x-100"
-                      onClick={() => openProfile()}
-                    />
                   </>
                 )}
               </>

@@ -133,7 +133,14 @@ test("Stop ends a running service in place, and a service that ended offers no S
       exit_code: 255,
     });
   });
-  const list = within(await (await profile()).findByRole("list", { name: "Flights's services" }));
+  const list = within(
+    await within(await screen.findByRole("dialog", { name: "Flights's computer" })).findByRole(
+      "list",
+      {
+        name: "Flights's services",
+      },
+    ),
+  );
   const row = (name: string) => within(list.getByText(name).closest("li") as HTMLElement);
   await waitFor(() => expect(row("alerts tail").getByText("Ended · exit 255")).toBeTruthy());
   expect(row("alerts tail").queryByRole("button", { name: "Stop" })).toBeNull();
@@ -154,7 +161,14 @@ test("Start runs an ended service again in place, and none is offered while one 
     api.services.start("flights", { name: "web", command: "bun run dev", state: "stopped" });
     api.services.start("flights", { name: "web", command: "bun run dev" });
   });
-  const list = within(await (await profile()).findByRole("list", { name: "Flights's services" }));
+  const list = within(
+    await within(await screen.findByRole("dialog", { name: "Flights's computer" })).findByRole(
+      "list",
+      {
+        name: "Flights's services",
+      },
+    ),
+  );
   const rows = () => list.getAllByRole("listitem").map((item) => within(item));
   await waitFor(() => expect(rows()).toHaveLength(3));
   const [tail, oldWeb] = rows();

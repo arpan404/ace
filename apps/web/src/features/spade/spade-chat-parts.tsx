@@ -1,25 +1,19 @@
 import {
   spadeFailureSentence,
+  spadeQuickReactions,
+  type SpadeMessageReactions,
   type SpadeAvatar,
   type SpadeBubbleFailure,
   type SpadeQuote,
 } from "@ace/ui-core/spade-chat";
 import type { BotFaceState } from "@ace/ui-core/bot-face";
-import { formatElapsed } from "@ace/ui-core/time";
-import {
-  ArrowBendUpLeftIcon,
-  CheckIcon,
-  CopyIcon,
-  DotsThreeIcon,
-  SpeakerHighIcon,
-  SpeakerSlashIcon,
-} from "@ace/icons";
+import { ArrowBendUpLeftIcon, DotsThreeIcon, SmileyIcon } from "@ace/icons";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { Emoji } from "@/components/emoji.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";
-import { useSeconds } from "@/lib/time.ts";
 import { bubbleWidth } from "./spade-bubble-style.ts";
 import { SpadeFace } from "./spade-face.tsx";
 import {
@@ -117,47 +111,60 @@ export function WorkingLine(props: {
   since: number | undefined;
   onWatch: (() => void) | undefined;
 }) {
-  const now = useSeconds(props.since !== undefined);
   const moving = props.state === "working" || props.state === "thinking";
   return (
     <div
       role="status"
-      className="mt-(--chat-turn-gap) flex min-w-0 items-center gap-2.5 first:mt-0"
+      className="group/work mt-(--chat-turn-gap) flex min-w-0 items-center gap-2.5 px-1 first:mt-0"
     >
-      <SpadeFace avatar={props.avatar} size={32} state={props.state} />
-      <span
-        // While it works, what it does sits in a small bubble of its own, where its next
-        // message will be: the other side typing (ADR 0212 §7).
-        className={cn(
-          "flex min-w-0 items-center gap-2.5",
-          moving && "rounded-(--chat-bubble-radius) bg-chat-bubble px-3.5 py-1.5",
-        )}
-      >
+      <SpadeFace avatar={props.avatar} size={28} state={props.state} />
+      {props.onWatch ? (
+        <button
+          type="button"
+          aria-label="Open its work"
+          onClick={props.onWatch}
+          className="min-w-0 cursor-pointer rounded-sm text-left focus-ring"
+        >
+          <span
+            // Its current phrase, a soft light sweeping across it while it works. Plain text.
+            key={moving ? props.label : undefined}
+            className={cn(
+              "min-w-0 truncate text-ui text-muted-foreground",
+              moving && "step-shimmer step-shimmer-live",
+              props.detail && "max-w-1/2 shrink-0",
+            )}
+          >
+            {props.label}
+          </span>
+        </button>
+      ) : (
         <span
-          // Each new phrase sweeps once in the step's light (`.step-shimmer`: three passes, then
-          // still; still under reduced motion). Plain text, never markup.
+          // Its current phrase, a soft light sweeping across it while it works. Plain text.
           key={moving ? props.label : undefined}
           className={cn(
             "min-w-0 truncate text-ui text-muted-foreground",
-            moving && "step-shimmer",
+            moving && "step-shimmer step-shimmer-live",
             props.detail && "max-w-1/2 shrink-0",
           )}
         >
           {props.label}
         </span>
-        {props.detail && (
-          <code className="min-w-0 truncate font-mono text-xs text-subtle-foreground">
-            {props.detail}
-          </code>
-        )}
-      </span>
-      {props.since !== undefined && (
-        <span className="shrink-0 text-ui text-subtle-foreground tabular-nums">
-          {formatElapsed(now - props.since)}
-        </span>
+      )}
+      {props.detail && (
+        <code className="min-w-0 truncate font-mono text-xs text-subtle-foreground">
+          {props.detail}
+        </code>
       )}
       {props.onWatch && (
-        <Button size="xs" variant="ghost" onClick={props.onWatch}>
+        <Button
+          size="xs"
+          variant="ghost"
+          onClick={(event) => {
+            event.stopPropagation();
+            props.onWatch?.();
+          }}
+          className="opacity-0 transition-opacity group-hover/work:opacity-100 focus-visible:opacity-100"
+        >
           Watch
         </Button>
       )}
@@ -177,6 +184,50 @@ export function SpeakerLine(props: { avatar: SpadeAvatar; name: string }) {
 
 /** How long a press on touch is held before the bubble's actions come up. */
 const holdFor = 450;
+
+/** A bare action beside a bubble: no fill, muted until hovered. */
+const bare =
+  "size-7 rounded-full bg-transparent text-subtle-foreground hover:bg-transparent hover:text-foreground aria-expanded:bg-transparent [&_svg]:size-5";
+
+/** Under a bubble's corner: what each side reacted with. The person's own comes off on a click. */
+function ReactionChips(props: {
+  mark: SpadeMessageReactions;
+  side: "bot" | "mine";
+  onRemove: (() => void) | undefined;
+}) {
+  const { person, bot } = props.mark;
+  const chip =
+    "-mt-2 rounded-full bg-chat-raised px-1.5 text-sm leading-6 shadow-[0_0_0_2px_var(--background)]";
+  return (
+    <span
+      className={cn(
+        "relative z-10 flex gap-1 px-3",
+        props.side === "bot" ? "self-start" : "self-end",
+      )}
+    >
+      {person &&
+        (props.onRemove ? (
+          <button
+            type="button"
+            aria-label={`Remove your ${person} reaction`}
+            onClick={props.onRemove}
+            className={cn(chip, "cursor-pointer focus-ring hover:bg-hover")}
+          >
+            <Emoji emoji={person} className="size-4" />
+          </button>
+        ) : (
+          <span aria-label={`You reacted ${person}`} className={chip}>
+            <Emoji emoji={person} className="size-4" />
+          </span>
+        ))}
+      {bot && (
+        <span aria-label={`Reacted ${bot}`} className={chip}>
+          <Emoji emoji={bot} className="size-4" />
+        </span>
+      )}
+    </span>
+  );
+}
 
 /**
  * A bubble with its actions: the exact time, Copy and (for the bot's words, where the system can
@@ -228,9 +279,13 @@ export function BubbleFrame(props: {
   const onKeep = props.onKeep;
   const work = props.work;
   const [menu, setMenu] = useState(false);
-  const more = onKeep !== undefined || work !== undefined;
-  const any =
-    copy !== undefined || speak !== undefined || props.when !== undefined || more || !!reply;
+  const [picking, setPicking] = useState(false);
+  const messageId = props.reply?.id;
+  const mark = messageId === undefined ? undefined : replies?.reactions.get(messageId);
+  const react = replies?.react;
+  // The person reacts to the bot's words; the bot's reactions to theirs just show.
+  const canReact = props.side === "bot" && react !== undefined && messageId !== undefined;
+  const any = true;
   const lit = props.reply !== undefined && replies?.lit === props.reply.id;
   const release = () => clearTimeout(timer.current);
   return (
@@ -264,78 +319,87 @@ export function BubbleFrame(props: {
       {props.children}
       {any && (
         <div
-          data-held={held || reading || menu || undefined}
+          data-held={held || reading || menu || picking || undefined}
           className={cn(
-            // Floating over the bubble's top edge, so a run's bubbles sit 4px apart with no
-            // room kept for them (ADR 0212 §7).
-            "absolute -top-4 z-10 flex items-center gap-0.5 rounded-full bg-popover p-0.5 text-popover-foreground shadow-glass transition-opacity duration-(--motion-fast)",
-            props.side === "bot" ? "right-2.5" : "left-2.5",
-            "pointer-events-none opacity-0 group-hover/bubble:pointer-events-auto group-hover/bubble:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 data-held:pointer-events-auto data-held:opacity-100",
+            // Bare icons beside the bubble, centred on it: to its right for the bot's words,
+            // its left for the person's. The padding (not a margin) keeps the hover unbroken.
+            "absolute top-1/2 z-10 flex -translate-y-1/2 items-center gap-2.5 text-subtle-foreground",
+            props.side === "bot" ? "left-full pl-3" : "right-full pr-3",
+            "pointer-events-none opacity-0 transition-opacity duration-(--motion-fast) group-hover/bubble:pointer-events-auto group-hover/bubble:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 data-held:pointer-events-auto data-held:opacity-100",
           )}
         >
-          {props.when && (
-            <span className="px-2 text-xs leading-4 text-subtle-foreground tabular-nums">
-              {props.when}
-            </span>
+          {canReact && (
+            <Menu open={picking} onOpenChange={setPicking}>
+              <MenuTrigger
+                render={<IconButton icon={SmileyIcon} label="React" size="sm" className={bare} />}
+              />
+              <MenuContent align="center" className="flex min-w-0 flex-row gap-0.5 p-1">
+                {spadeQuickReactions.map((emoji) => (
+                  <MenuItem
+                    key={emoji}
+                    aria-label={`React ${emoji}`}
+                    className="size-8 justify-center p-0 text-lg"
+                    onClick={() => react(messageId, mark?.person === emoji ? undefined : emoji)}
+                  >
+                    <Emoji emoji={emoji} className="size-5" />
+                  </MenuItem>
+                ))}
+              </MenuContent>
+            </Menu>
           )}
           {reply && (
             <IconButton
               icon={ArrowBendUpLeftIcon}
               label="Reply"
               size="sm"
-              className="rounded-full"
+              className={bare}
               onClick={() => {
                 setHeld(false);
                 replies.reply(reply);
               }}
             />
           )}
-          {copy !== undefined && (
-            <IconButton
-              icon={copied ? CheckIcon : CopyIcon}
-              label={copied ? "Copied" : "Copy"}
-              size="sm"
-              className="rounded-full"
-              onClick={() =>
-                void navigator.clipboard?.writeText(copy).then(() => {
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 1500);
-                })
-              }
+          <Menu open={menu} onOpenChange={setMenu}>
+            <MenuTrigger
+              render={<IconButton icon={DotsThreeIcon} label="More" size="sm" className={bare} />}
             />
-          )}
-          {speak !== undefined && (
-            <IconButton
-              icon={reading ? SpeakerSlashIcon : SpeakerHighIcon}
-              label={reading ? "Stop reading" : "Read aloud"}
-              size="sm"
-              className="rounded-full"
-              onClick={() => (reading ? stopReading() : readAloud(key, speak, voice))}
-            />
-          )}
-          {more && (
-            <Menu open={menu} onOpenChange={setMenu}>
-              <MenuTrigger
-                render={
-                  <IconButton
-                    icon={DotsThreeIcon}
-                    label="More"
-                    size="sm"
-                    className="rounded-full"
-                  />
-                }
-              />
-              <MenuContent align="end">
-                {work && (
-                  <MenuItem onClick={work.toggle}>
-                    {work.shown ? "Hide work" : "Show work"}
-                  </MenuItem>
-                )}
-                {onKeep && <MenuItem onClick={onKeep}>Keep as a test</MenuItem>}
-              </MenuContent>
-            </Menu>
-          )}
+            <MenuContent align="end">
+              {props.when && (
+                <div className="px-2.5 py-1.5 text-xs leading-4 text-subtle-foreground tabular-nums">
+                  {`Sent ${props.when}`}
+                </div>
+              )}
+              {copy !== undefined && (
+                <MenuItem
+                  onClick={() =>
+                    void navigator.clipboard?.writeText(copy).then(() => {
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 1500);
+                    })
+                  }
+                >
+                  {copied ? "Copied" : "Copy"}
+                </MenuItem>
+              )}
+              {speak !== undefined && (
+                <MenuItem onClick={() => (reading ? stopReading() : readAloud(key, speak, voice))}>
+                  {reading ? "Stop reading" : "Read aloud"}
+                </MenuItem>
+              )}
+              {work && (
+                <MenuItem onClick={work.toggle}>{work.shown ? "Hide work" : "Show work"}</MenuItem>
+              )}
+              {onKeep && <MenuItem onClick={onKeep}>Keep as a test</MenuItem>}
+            </MenuContent>
+          </Menu>
         </div>
+      )}
+      {mark && (
+        <ReactionChips
+          mark={mark}
+          side={props.side}
+          onRemove={canReact ? () => react(messageId, undefined) : undefined}
+        />
       )}
     </div>
   );

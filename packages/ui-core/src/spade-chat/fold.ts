@@ -16,6 +16,7 @@ import { spadeJoinWorkers } from "./delegations.ts";
 import { parseSpadeDecision } from "./decisions.ts";
 import { spadeCardChosen, spadeCardShown } from "./cards.ts";
 import { spadeNoticeSent } from "./notices.ts";
+import { spadeFoldReaction } from "./reactions.ts";
 import { spadeRiskWeight, spadeStepFacts, spadeStepLine } from "./step-facts.ts";
 import { spadeMessageId } from "./chat-markup.ts";
 import { spadeSameMessage as sameMessage } from "./pending-match.ts";
@@ -76,6 +77,7 @@ export function emptySpadeConversation(): SpadeConversationState {
     waitingSince: undefined,
     capabilities: emptySpadeCapabilities(),
     panels: new Map(),
+    reactions: new Map(),
   };
 }
 
@@ -102,6 +104,7 @@ export function foldSpade(state: SpadeConversationState, input: SpadeFoldInput):
           ...(input.documents?.length ? { documents: input.documents } : {}),
           ...(input.voice ? { voice: input.voice } : {}),
           ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+          ...(input.invoke ? { invoke: input.invoke } : {}),
         },
       ];
       return true;
@@ -254,6 +257,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           ? {}
           : { id: spadeMessageId(stored.seq) }),
         ...(event.reply_to ? { replyTo: event.reply_to } : {}),
+        ...(event.invoke ? { invoke: { kind: event.invoke.kind, name: event.invoke.name } } : {}),
       });
       return true;
     }
@@ -736,6 +740,9 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       state.entries[at] = { ...placed, ...next };
       return true;
     }
+    case "reaction":
+      spadeFoldReaction(state.reactions, event);
+      return true;
     case "panel_updated":
       state.panels.set(event.surface, event.data);
       return true;

@@ -34,6 +34,7 @@ mod groups;
 mod helpers;
 mod inbox;
 mod index;
+mod invoke;
 mod jobs;
 mod judge;
 mod knowledge;
@@ -66,6 +67,7 @@ mod pause;
 mod plugin_hooks;
 mod questions;
 mod reach;
+mod reactions;
 mod recipes;
 mod retry;
 mod review;
@@ -118,6 +120,7 @@ pub use groups::{
 };
 pub use helpers::ProfileSource;
 pub use inbox::{InboxAnswer, Sender as InboxSender};
+pub use invoke::{Invocable, InvokeError, InvokeRequest};
 pub use knowledge::{KnowledgeCall, KnowledgeError, entry_json};
 pub use knowledge_api::KnowledgeInput;
 pub use lanes::ENDED_SHOWN as ENDED_TASKS_SHOWN;
@@ -132,6 +135,7 @@ pub use outside_admit::{
 };
 pub use panels::{PanelError, PanelView};
 pub use reach::ReachError;
+pub use reactions::ReactError;
 pub use replays::{ReplayError, ReplayInput};
 pub use speech::{DEFAULT_VOICE, SpeakError, SpeakRequest};
 pub use suggest::{MarketBots, MarketFuture};
@@ -638,6 +642,11 @@ impl Engine {
             state: State::of(&transcript),
             last_message: roster::last_message_at(events.len(), |at| events.at(at)),
             waiting_for: memory::waiting_for(&transcript),
+            pending: spade_core::pending::open(
+                events.iter(),
+                &transcript.awaiting,
+                transcript.asking(),
+            ),
             questions_for_later: question::for_later(events.iter()),
             failure: spade_core::running::failure(events.iter()),
             task: spade_core::task::state_in(events.iter()),

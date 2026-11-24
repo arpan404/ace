@@ -1,4 +1,9 @@
-import { spadeQuoteName, type SpadeDocCard, type SpadeQuote } from "@ace/ui-core/spade-chat";
+import {
+  spadeQuoteName,
+  type SpadeDocCard,
+  type SpadeMessageReactions,
+  type SpadeQuote,
+} from "@ace/ui-core/spade-chat";
 import { FileTextIcon, XIcon } from "@ace/icons";
 import {
   createContext,
@@ -37,6 +42,10 @@ export interface SpadeReplyHandlers {
   lit: string | undefined;
   /** Whose words a bot's quote names. */
   botName: string;
+  /** What each side reacted with, by message id. */
+  reactions: ReadonlyMap<string, SpadeMessageReactions>;
+  /** React to a message, or take the person's reaction back (undefined); absent offers none. */
+  react: ((id: string, emoji: string | undefined) => void) | undefined;
 }
 
 export const SpadeReplyContext = createContext<SpadeReplyHandlers | undefined>(undefined);
@@ -59,8 +68,8 @@ export function QuoteLine(props: { quote: SpadeQuote; side: "bot" | "mine" }) {
       onClick={() => replies?.show(props.quote.id)}
       aria-label={`Replying to ${name}: ${props.quote.text}. Show the message`}
       className={cn(
-        "flex max-w-full min-w-0 items-baseline gap-1.5 border-l-2 border-border-strong py-0.5 pl-2 text-left text-xs leading-4 text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground focus-ring",
-        props.side === "mine" ? "mr-1 self-end" : "ml-1 self-start",
+        "flex max-w-full min-w-0 items-baseline gap-1.5 rounded-xl border-l-[3px] border-chat-mine bg-chat-bubble px-2.5 py-1.5 text-left text-xs leading-4 text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground focus-ring",
+        props.side === "mine" ? "self-end" : "self-start",
       )}
     >
       <span className="shrink-0 font-medium">{name}</span>
@@ -149,6 +158,8 @@ export function useReplies(
   botName: string,
   onReply: ((quote: SpadeQuote) => void) | undefined,
   drawAll: () => void,
+  reactions: ReadonlyMap<string, SpadeMessageReactions>,
+  onReact: ((id: string, emoji: string | undefined) => Promise<boolean>) | undefined,
 ): SpadeReplyHandlers | undefined {
   const [lit, setLit] = useState<string>();
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -174,9 +185,13 @@ export function useReplies(
     },
     [drawAll],
   );
-  return useMemo(
+  const react = useMemo(
     () =>
-      onReply ? { reply: onReply, show, lit, botName } : { reply: () => {}, show, lit, botName },
-    [onReply, show, lit, botName],
+      onReact ? (id: string, emoji: string | undefined) => void onReact(id, emoji) : undefined,
+    [onReact],
+  );
+  return useMemo(
+    () => ({ reply: onReply ?? (() => {}), show, lit, botName, reactions, react }),
+    [onReply, show, lit, botName, reactions, react],
   );
 }

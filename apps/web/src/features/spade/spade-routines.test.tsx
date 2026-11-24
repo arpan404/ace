@@ -1,7 +1,7 @@
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openProfile, spadeApp, withEndpoint, openSettingsPage } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -11,7 +11,7 @@ const routineMessage = (heartbeat: boolean, label: string) => ({
   text: heartbeat ? "Heartbeat check." : "Brief me on the day.",
   from_routine: {
     id: heartbeat ? "hb_1" : "rt_1",
-    name: heartbeat ? "Heartbeat" : "Daily briefing",
+    name: heartbeat ? "Heartbeat" : "Brief me.",
     run: `run_${label}`,
     label,
     heartbeat,
@@ -34,8 +34,8 @@ test("a routine's run names itself in its time line, not as the person, and a qu
   await userEvent.click(await botRow("Scout"));
   const chat = within(await screen.findByRole("feed", { name: "Conversation with Scout" }));
   expect(
-    (await chat.findByRole("separator", { name: /^Daily briefing · Today \d/ })).textContent,
-  ).toMatch(/^Daily briefing · Today \d{1,2}:\d{2}/);
+    (await chat.findByRole("separator", { name: /^Brief me. · Today \d/ })).textContent,
+  ).toMatch(/^Brief me. · Today \d{1,2}:\d{2}/);
   expect(chat.queryByRole("article", { name: "You" })).toBeNull();
   // The bot's one bubble; the heartbeat left none.
   const bubbles = chat.getAllByRole("article");
@@ -51,22 +51,29 @@ test("the person adds, pauses and edits a bot's routines in its profile, and tur
   });
   await userEvent.click(await botRow("Scout"));
   await openProfile("Scout");
-  const heading = await screen.findByRole("heading", { name: "Routines" });
-  const section = within(heading.closest("section") ?? document.body);
+  await openSettingsPage("Routines");
+  const routinesSection = async () => {
+    const headings = await screen.findAllByRole("heading", { name: "Routines" });
+    const section = headings.map((each) => each.closest("section")).find(Boolean);
+    return within(section ?? document.body);
+  };
 
-  // Add routine opens the editor where the row was.
-  await userEvent.click(await section.findByRole("button", { name: "Add routine" }));
-  const form = within(section.getByRole("form", { name: "New routine" }));
-  await userEvent.type(form.getByRole("textbox", { name: "Name" }), "Daily briefing");
-  await userEvent.type(form.getByRole("textbox", { name: "Each time" }), "Brief me.");
-  await userEvent.type(form.getByRole("textbox", { name: "Every" }), "whenever");
-  await userEvent.click(form.getByRole("button", { name: "Add routine" }));
+  // Add routine opens the New routine page: what to do, and when.
+  await userEvent.click(
+    await (await routinesSection()).findByRole("button", { name: "Add routine" }),
+  );
+  const page = within(await screen.findByRole("form", { name: "New routine" }));
+  await userEvent.type(page.getByRole("textbox", { name: "What to do" }), "Brief me.");
+  await userEvent.type(page.getByRole("textbox", { name: "When" }), "whenever");
+  await userEvent.click(page.getByRole("button", { name: "Create" }));
   // Spade's own words on what it couldn't read.
-  expect((await form.findByRole("alert")).textContent).toMatch(/Could not read the schedule/);
-  await userEvent.clear(form.getByRole("textbox", { name: "Every" }));
-  await userEvent.type(form.getByRole("textbox", { name: "Every" }), "daily at 9:00");
-  await userEvent.click(form.getByRole("button", { name: "Add routine" }));
-  await waitFor(() => expect(section.queryByRole("form")).toBeNull());
+  expect((await page.findByRole("alert")).textContent).toMatch(/Could not read the schedule/);
+  await userEvent.clear(page.getByRole("textbox", { name: "When" }));
+  await userEvent.click(page.getByRole("button", { name: "Every morning" }));
+  expect(page.getByText(/^Next: /)).toBeTruthy();
+  await userEvent.click(page.getByRole("button", { name: "Create" }));
+  await waitFor(() => expect(screen.queryByRole("form", { name: "New routine" })).toBeNull());
+  const section = await routinesSection();
   // "next tomorrow 9:00": when it runs, in words.
   expect(await section.findByText(/^Every day at 9:00 · next (tomorrow |\d)/)).toBeTruthy();
   expect(spade.routines.routines[0]?.time_zone).toBe(
@@ -74,12 +81,12 @@ test("the person adds, pauses and edits a bot's routines in its profile, and tur
   );
 
   // Its switch pauses it, and its row says so.
-  await userEvent.click(section.getByRole("switch", { name: "Daily briefing" }));
+  await userEvent.click(section.getByRole("switch", { name: "Brief me." }));
   expect(await section.findByText("Paused")).toBeTruthy();
   expect(spade.routines.routines[0]?.paused).toBe(true);
 
-  await userEvent.click(section.getByRole("button", { name: "Edit Daily briefing" }));
-  const edit = within(section.getByRole("form", { name: "Edit Daily briefing" }));
+  await userEvent.click(section.getByRole("button", { name: "Edit Brief me." }));
+  const edit = within(section.getByRole("form", { name: "Edit Brief me." }));
   await userEvent.click(edit.getByRole("button", { name: "Delete" }));
   await waitFor(() => expect(spade.routines.routines).toEqual([]));
 
@@ -92,15 +99,21 @@ test("the person adds, pauses and edits a bot's routines in its profile, and tur
   expect(spade.routines.heartbeats.get("scout")?.checklist).toBe("Is the build green?");
 });
 
-test("Esc puts an open routine back without saving it", async () => {
+test("Back from the New routine page saves nothing", async () => {
   const { spade } = await spadeApp("/spade/scout?profile=details", (seed) => {
     withEndpoint(seed);
     seed.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
     seed.addAgent({ id: "scout", name: "Scout" });
   });
+  await openSettingsPage("Routines");
   await userEvent.click(await screen.findByRole("button", { name: "Add routine" }));
-  const form = within(screen.getByRole("form", { name: "New routine" }));
-  await userEvent.type(form.getByRole("textbox", { name: "Name" }), "Daily briefing{Escape}");
+  const page = within(await screen.findByRole("form", { name: "New routine" }));
+  await userEvent.type(page.getByRole("textbox", { name: "What to do" }), "Brief me.");
+  await userEvent.click(
+    within(screen.getByRole("region", { name: "Scout's profile" })).getByRole("button", {
+      name: "Back",
+    }),
+  );
   await waitFor(() => expect(screen.queryByRole("form", { name: "New routine" })).toBeNull());
   expect(spade.routines.routines).toEqual([]);
 });

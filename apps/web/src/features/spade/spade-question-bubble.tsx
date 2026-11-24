@@ -152,6 +152,7 @@ function OpenCard(props: {
   const last = at === count - 1;
   // A lone yes-or-no question is answered by Yes or No themselves.
   const loneConfirm = count === 1 && current?.kind === "confirm";
+  const loneChoice = count === 1 && current?.kind === "choice";
   const draftOf = (index: number) => {
     const question = questions[index];
     return drafts[index] ?? (question ? spadeEmptyDraft(question) : undefined);
@@ -204,6 +205,8 @@ function OpenCard(props: {
     setDrafts(all);
     setProblem(undefined);
     if (loneConfirm && next.kind === "confirm") send(all);
+    // A lone pick-one question is answered by the row itself.
+    if (loneChoice && next.kind === "picks" && next.picked.length === 1) send(all);
   };
   const card = useRef<HTMLDivElement>(null);
   useCardFocus(card, at);
@@ -241,7 +244,9 @@ function OpenCard(props: {
         }
       >
         {props.task && <p className="text-muted-foreground">{props.task} asks</p>}
-        <SpadeBubbleText text={current.prompt} />
+        <div className="font-semibold">
+          <SpadeBubbleText text={current.prompt} />
+        </div>
       </NeedsYouLine>
       {(!loneConfirm || problem) && (
         <CardBody>

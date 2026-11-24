@@ -576,6 +576,7 @@ async fn model_step(
                     let cost = spending::cost_micros(engine.models.price(&model), &usage);
                     let calls = early.finish(engine, events, calls);
                     let made_calls = !calls.is_empty();
+                    let reactions = spade_core::reaction::in_words(&text);
                     let step = Event::Known(Known::StepFinished {
                         reply: reply.to_owned(),
                         text,
@@ -598,6 +599,8 @@ async fn model_step(
                     if let Err(error) = engine.record(id, &step) {
                         return Step::Failed(String::new(), error.to_string());
                     }
+                    // Each `<react>` in the step's words lands on its message.
+                    engine.bot_reactions(id, &reactions);
                     // The ledger gets the same cost the step records.
                     let _ = cost;
                     admitted.settle(&usage);

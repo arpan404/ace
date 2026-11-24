@@ -2,7 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openProfile, spadeApp, withEndpoint, openSettingsPage } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -67,14 +67,17 @@ function seed(spade: FakeSpadeApi) {
 
 const tabs = () => screen.getByRole("tablist", { name: "Profile" });
 
+const settings = async () =>
+  userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
 async function openWork(name: string) {
   await userEvent.click(await botRow(name));
   await openProfile(name);
-  await userEvent.click(await within(tabs()).findByRole("tab", { name: "Work" }));
+  await userEvent.click(await within(tabs()).findByRole("tab", { name: "Activity" }));
   return screen.findByRole("tabpanel");
 }
 
-test("a bot with a goal shows Work with the check's verdict; a bot that only chats has Work for its log", async () => {
+test("a bot with a goal shows Work with the check's verdict; a bot that only chats has its log in Settings", async () => {
   await spadeApp("/spade", seed);
   const work = within(await openWork("Watcher"));
   expect(await work.findByText("Linux run 18240117 timed out.")).toBeTruthy();
@@ -86,10 +89,11 @@ test("a bot with a goal shows Work with the check's verdict; a bot that only cha
 
   await userEvent.click(await botRow("Chatter"));
   await openProfile("Chatter");
-  // Work is always there, with the whole activity log; a bot without a goal has no plan in it.
+  // A bot without a goal has no plan in Activity; the whole log is in Settings.
   const chatter = within(await openWork("Chatter"));
-  expect(await chatter.findByRole("heading", { name: "Activity" })).toBeTruthy();
   expect(chatter.queryByRole("button", { name: "End goal" })).toBeNull();
+  await openSettingsPage("Activity and safety");
+  expect(await screen.findByRole("heading", { name: "Activity" })).toBeTruthy();
 });
 
 test("the list row says what the check found, never the bot's own done", async () => {
@@ -143,7 +147,7 @@ test("the person edits a criterion in place and ends the goal; Work goes with it
 
   await userEvent.click(work.getByRole("button", { name: "End goal" }));
   await waitFor(() => expect(spade.sent("DELETE", "/v1/agents/watcher/task/goal")).toHaveLength(1));
-  // The goal goes; Work stays, for the log.
+  // The goal goes with its plan.
   await waitFor(() => expect(work.queryByText("CI passes on Linux and macOS")).toBeNull());
   expect(work.queryByRole("button", { name: "End goal" })).toBeNull();
 });
@@ -191,12 +195,12 @@ test("the goal's and the check's quiet lines in the chat open Work", async () =>
   await userEvent.click(await screen.findByRole("button", { name: "Goal set · Get #2081 merged" }));
   const work = within(await screen.findByRole("tabpanel"));
   expect(await work.findByText("Linux run 18240117 timed out.")).toBeTruthy();
-  expect(within(tabs()).getByRole("tab", { name: "Work", selected: true })).toBeTruthy();
-  await userEvent.click(within(tabs()).getByRole("tab", { name: "Details" }));
+  expect(within(tabs()).getByRole("tab", { name: "Activity", selected: true })).toBeTruthy();
+  await settings();
   await userEvent.click(
     screen.getByRole("button", { name: "Checked · not yet: Linux CI still fails" }),
   );
-  expect(await within(tabs()).findByRole("tab", { name: "Work", selected: true })).toBeTruthy();
+  expect(await within(tabs()).findByRole("tab", { name: "Activity", selected: true })).toBeTruthy();
 });
 
 test("Change quotes the decision into the next message", async () => {
@@ -231,6 +235,7 @@ test("deleting a bot that made workers asks whether to stop them or keep them go
   });
   await userEvent.click(await botRow("Watcher"));
   await openProfile("Watcher");
+  await settings();
   await userEvent.click(await screen.findByRole("button", { name: "Delete bot…" }));
   const dialog = within(await screen.findByRole("dialog", { name: "Delete Watcher?" }));
   expect(dialog.getByText("Linux repro stays as your bot, stopped.")).toBeTruthy();

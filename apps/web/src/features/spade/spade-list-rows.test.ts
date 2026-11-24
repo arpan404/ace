@@ -9,7 +9,7 @@ import {
   spadeGroupRow,
   spadeListEntries,
   spadeNeedsYouCount,
-  splitPinned,
+  spadePinnedFirst,
 } from "./spade-list-rows.ts";
 import type { RosterGroup } from "./use-spade-groups.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
@@ -126,7 +126,7 @@ test("the rail counts what waits on the person, groups included, and nothing tha
   expect(spadeNeedsYouCount(bots, [group({ id: "g", name: "G", state: "waiting" })])).toBe(2);
 });
 
-test("pinned conversations leave the rows and read oldest pin first, but Spade never leaves the first row", () => {
+test("pinned conversations are the first rows after Spade, oldest pin first, then the rest", () => {
   const entries = spadeListEntries(
     [
       bot({ id: "main", kind: "main", name: "Spade" }),
@@ -137,15 +137,12 @@ test("pinned conversations leave the rows and read oldest pin first, but Spade n
   );
   const name = (entry: (typeof entries)[number]) =>
     entry.kind === "bot" ? entry.bot.name : entry.group.name;
-  const { pinned, rest } = splitPinned(entries);
-  expect(pinned.map(name)).toEqual(["Crew", "Atlas"]);
-  expect(rest.map(name)).toEqual(["Spade", "Bolt"]);
-  const spadePinned = splitPinned(
+  expect(spadePinnedFirst(entries).map(name)).toEqual(["Spade", "Crew", "Atlas", "Bolt"]);
+  // Even a Spade pinned in an older build is the first row, once.
+  const spadePinned = spadePinnedFirst(
     spadeListEntries([bot({ id: "main", kind: "main", name: "Spade", pinned_at: 5 })], []),
   );
-  // Even a Spade pinned in an older build stays the first row and is not in the strip.
-  expect(spadePinned.pinned).toEqual([]);
-  expect(spadePinned.rest.map(name)).toEqual(["Spade"]);
+  expect(spadePinned.map(name)).toEqual(["Spade"]);
 });
 
 const maker = { id: "gh", name: "Github watcher" };
@@ -255,7 +252,7 @@ test("a worker whose maker isn't listed is an ordinary bot, and the same id on a
   expect(shape(spadeListEntries(bots, [], "lark"))).toContain("lark:0");
 });
 
-test("the search and the pin strip still reach a worker while its family is folded", () => {
+test("the search and the pins still reach a worker while its family is folded", () => {
   const bots = family();
   bots[1] = bot({ id: "lark", name: "Linux repro", pinned_at: 9, parent: maker });
   const all = spadeFlatEntries(bots, []);
@@ -263,9 +260,7 @@ test("the search and the pin strip still reach a worker while its family is fold
   expect(
     searchSpadeList(all, "linux").map((entry) => ("bot" in entry ? entry.bot.id : "")),
   ).toEqual(["lark"]);
-  const { pinned, rest } = splitPinned(nested, all);
-  expect(pinned.map((entry) => ("bot" in entry ? entry.bot.id : ""))).toEqual(["lark"]);
-  expect(shape(rest)).toEqual(["gh:0", "inbox:0"]);
+  expect(shape(spadePinnedFirst(nested, all))).toEqual(["lark:0", "gh:0", "inbox:0"]);
 });
 
 test("a worker's row keeps its own state when its maker is pinned", () => {
@@ -277,9 +272,9 @@ test("a worker's row keeps its own state when its maker is pinned", () => {
     last_activity: 5,
     state: "working",
   });
-  const { rest } = splitPinned(spadeListEntries(bots, [], "gh"), spadeFlatEntries(bots, []));
-  expect(shape(rest)).toEqual(["lark:0", "otter:0", "inbox:0"]);
-  expect(rest[0]?.row.state).toBe("working");
+  const listed = spadePinnedFirst(spadeListEntries(bots, [], "gh"), spadeFlatEntries(bots, []));
+  expect(shape(listed)).toEqual(["gh:0", "lark:0", "otter:0", "inbox:0"]);
+  expect(listed[1]?.row.state).toBe("working");
 });
 
 const names = (entries: ReturnType<typeof spadeListEntries>) =>

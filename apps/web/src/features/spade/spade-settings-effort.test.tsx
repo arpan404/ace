@@ -2,7 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { spadeApp, withEndpoint } from "@/test/spade.ts";
+import { spadeApp, withEndpoint, openSettingsPage } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -49,6 +49,7 @@ test("a bot's role follows Settings' thinking until the person sets it on the bo
     withFlights(api);
     api.roles.globalEfforts = { helper: "high" };
   });
+  await openSettingsPage("Model");
   const panel = within(await screen.findByRole("region", { name: "Flights's profile" }));
   await userEvent.click(await panel.findByText("Models for other work"));
   const helpers = await panel.findByRole("combobox", { name: "Helpers thinking" });
