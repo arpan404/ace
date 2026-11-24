@@ -7,7 +7,7 @@ import XCTest
     func testThreadLoadsAndOptionsOpenAfterBackgrounding() {
         executionTimeAllowance = 60
         let app = open("ios-stream")
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 20))
         expectation(for: NSPredicate(format: "value == 'Ready'"), evaluatedWith: transcript)
         waitForExpectations(timeout: 15)
@@ -93,7 +93,7 @@ import XCTest
         let pill = app.descendants(matching: .any)["composer.live"]
         XCTAssertTrue(pill.waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["subagents.rollup"].exists, "the live tree is on the pill, not in the transcript")
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         for _ in 0..<3 { transcript.swipeUp(velocity: .fast) }
         sleep(2)
         screenshot("thread-end-subagents-on-pill")
@@ -106,7 +106,7 @@ import XCTest
         let app = launch()
         // Far down the fixture's inbox: the shared helper scrolls until the row is in the middle.
         app.revealRow("thread.ios-log-long").tap()
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 25))
         // Reading back offers Scroll to end over the composer, and nothing over the transcript's
         // trailing edge: no turn rail, its ticks or its card (#2173).
@@ -128,7 +128,7 @@ import XCTest
     func testASwipeAlongTheTranscriptsTrailingEdgeScrollsIt() {
         let app = launch()
         app.revealRow("thread.ios-log-long").tap()
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 25))
         for _ in 0..<2 { transcript.swipeDown(velocity: .fast) }
         XCTAssertTrue(app.buttons["transcript.latest"].waitForExistence(timeout: 10))
@@ -159,7 +159,7 @@ import XCTest
             .matching(NSPredicate(format: "label CONTAINS %@", "archived 0.x entries")).firstMatch.exists,
             "the strip carries the question")
         // Only once the transcript has loaded can the question's absence from it mean anything.
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         let ready = expectation(for: NSPredicate(format: "value == %@", "Ready"), evaluatedWith: transcript)
         wait(for: [ready], timeout: 25)
         XCTAssertTrue(app.descendants(matching: .any)["message.user.ios-question.item.3"].waitForExistence(timeout: 10),
@@ -202,7 +202,7 @@ import XCTest
             app.buttons["thread.ios-agents"].tap()
             let worked = app.buttons["work.toggle"].firstMatch
             XCTAssertTrue(worked.waitForExistence(timeout: 25))
-            let transcript = app.scrollViews["transcript"]
+            let transcript = app.collectionViews["transcript"]
             transcript.swipeDown(velocity: .fast)
             if round == 0, worked.isHittable { worked.tap() }
             transcript.swipeUp(velocity: .fast)
@@ -345,7 +345,7 @@ import XCTest
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
                                "--spike-items", "200", "--spike-open", "ios-stream", "--spike-focus", "ios-stream.item.103"]
         app.launchWithArguments()
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 30))
         let target = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "History 101.")).firstMatch
         XCTAssertTrue(target.waitForExistence(timeout: 20), "the focused message is shown")
@@ -395,7 +395,7 @@ import XCTest
         XCTAssertTrue(moment("Restarted, continued").exists)
         XCTAssertTrue(moment("2 subagents finished").exists)
         let wait = moment("Waited for the usage limit")
-        for _ in 0..<4 where !(wait.exists && wait.isHittable) { app.scrollViews["transcript"].swipeUp(velocity: .slow) }
+        for _ in 0..<4 where !(wait.exists && wait.isHittable) { app.collectionViews["transcript"].swipeUp(velocity: .slow) }
         XCTAssertTrue(wait.exists)
         screenshot("restarted-open-wait")
     }
@@ -436,11 +436,11 @@ import XCTest
     private func clearOfComposer(_ row: XCUIElement, in app: XCUIApplication) {
         let input = app.textViews["composer.input"]
         for _ in 0..<4 where input.exists && row.frame.maxY > input.frame.minY - 120 {
-            app.scrollViews["transcript"].swipeUp(velocity: .slow)
+            app.collectionViews["transcript"].swipeUp(velocity: .slow)
         }
     }
     private func swipeToTop(_ app: XCUIApplication) {
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         if transcript.exists { transcript.swipeDown(velocity: .fast) }
     }
     private func screenshot(_ name: String) {

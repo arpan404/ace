@@ -87,6 +87,9 @@ struct TranscriptPlaceKeeper: Sendable {
     /// The feed moved the scroll `delta` points itself (`TranscriptRowFrames.shifted`).
     mutating func shifted(by delta: Double) { frames.shifted(by: CGFloat(delta)) }
 
+    /// While the reader moves the feed, record its position without trying to hold it.
+    mutating func trackOrigin(_ origin: CGFloat) { _ = frames.scrolled(origin: origin) }
+
     mutating func next(_ event: Event, facts: Facts, now: Double) -> [Action] {
         var step = Step(facts: facts)
         switch event {

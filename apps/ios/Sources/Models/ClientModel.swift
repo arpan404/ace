@@ -18,7 +18,7 @@ import QuartzCore
     /// Whether `metadata` came from this visit. A reopened thread keeps its last metadata for
     /// the title, but not its word on status until the current snapshot arrives.
     var metadataCurrent = false
-    var items: [String: ItemModel] = [:]
+    let items = TranscriptItems<ItemModel>()
     var order: [String] = []
     var interactions: [String: ApprovalRow] = [:]
     /// The browser-help request whose card last opened the browser (`BrowserHelpPick`).
@@ -50,13 +50,17 @@ import QuartzCore
     func reorder() {
         order = positions.keys.filter { items[$0] != nil }.sorted { (positions[$0] ?? 0) < (positions[$1] ?? 0) }
     }
-    /// Places new items, each already positioned. Items that all land after the last one shown,
-    /// as streaming adds them, join the end without sorting the rest; anything else reorders.
+    /// Pages and streams usually add at an edge. Sort only the new items in that case.
     func place(_ added: [String]) {
         let landed = added.compactMap { id in positions[id].map { (id, $0) } }.sorted { $0.1 < $1.1 }
-        let last = order.last.flatMap { positions[$0] } ?? Int.min
-        if let first = landed.first, first.1 <= last { reorder(); return }
-        order.append(contentsOf: landed.map(\.0))
+        guard let first = landed.first, let last = landed.last else { return }
+        if order.last.flatMap({ positions[$0] }).map({ $0 < first.1 }) ?? order.isEmpty {
+            order.append(contentsOf: landed.map(\.0))
+        } else if let start = order.first.flatMap({ positions[$0] }), last.1 < start {
+            order.insert(contentsOf: landed.map(\.0), at: 0)
+        } else {
+            reorder()
+        }
     }
 }
 
@@ -123,6 +127,12 @@ import QuartzCore
     /// The history window's rows (`TranscriptReading`), beside the live thread: its patches carry
     /// the reading view's negative epoch.
     @ObservationIgnored var reading: ThreadModel?
+    /// Finished answers read ahead while the page waits to land.
+    @ObservationIgnored var prepareReadingAnswers: (([String]) -> Void)?
+    @ObservationIgnored var admitsOlderAppend: ((TranscriptReadingReply, [BridgePatch]) -> Bool)?
+    @ObservationIgnored private(set) var publishingOlderAppend = false
+    @ObservationIgnored private var waitsForOlderReply = false
+    @ObservationIgnored private var olderReply: TranscriptReadingReply?
     /// Around each frame that moves the reading rows, so the feed keeps the reader's place.
     @ObservationIgnored var readingWillMove: (() -> Void)?
     @ObservationIgnored var readingMoved: (() -> Void)?
@@ -153,6 +163,7 @@ import QuartzCore
     /// Owned here (per connection/machine scope); the type lives with the viewport
     /// (`TranscriptSession.swift`). Replaces any global hub: no module singleton.
     @ObservationIgnored var transcriptSessions = TranscriptSessionStore()
+    @ObservationIgnored private(set) var transcriptMarkdownHeights: TranscriptMarkdownHeights?
     /// An item a search hit asked to show once its thread is open.
     var focusOnOpen: ThreadFocus?
     var inboxLoaded = false
@@ -340,6 +351,10 @@ import QuartzCore
         let restoring = LaunchTrace.begin("inbox.restore", target.hostId)
         // One machine's cache whichever route reaches it (`ConnectionTarget.scope`).
         let database = Self.database(hostId: target.scope.hostId, deviceId: target.scope.deviceId, in: directory)
+        let heightCache = database.deletingPathExtension().appendingPathExtension("markdown-heights-v1.json")
+        if transcriptMarkdownHeights?.disk.url != heightCache {
+            transcriptMarkdownHeights = TranscriptMarkdownHeights(url: heightCache)
+        }
         let restored = await checkpoints(database)
         // The Spade tab as this principal last kept it, and no one else's (`KeptScope`).
         let spadeKept = await InboxCheckpoint.spadeBackground(database, target.keptScope)
@@ -499,6 +514,16 @@ import QuartzCore
     /// nil when one was made against text other than the row it will show, held frames included.
     /// An edit without a row keeps every other field of the row it edits.
     private func resolveTextEdits(_ patches: [BridgePatch]) -> [BridgePatch]? {
+        // Only text edits can reject a frame. Holding a rollback copy for a page of full
+        // rows makes each batch insertion copy the rows accumulated in earlier frames.
+        let hasTextEdits = patches.contains { patch in
+            if case .itemText = patch { return true }
+            return false
+        }
+        if !hasTextEdits {
+            for patch in patches { batch.note(patch) }
+            return patches
+        }
         let mark = batch.mark()
         var resolved: [BridgePatch] = []
         resolved.reserveCapacity(patches.count)
@@ -528,9 +553,21 @@ import QuartzCore
         return nil
     }
     /// A service reply can precede the page's row patches; do not request another page yet.
-    var readingSettled: Bool { !readingPageHeld && (readingHold?.isEmpty ?? true) }
-    /// Hold the reading rows from here until the page asked for settles.
-    func holdReading() { readingPageHeld = true; if readingHold == nil { readingHold = ReadingHold() } }
+    var readingSettled: Bool { !readingPageHeld && !waitsForOlderReply && (readingHold?.isEmpty ?? true) }
+
+    /// An older page also waits for the reply's eviction evidence before it may append in motion.
+    func holdReading(older: Bool = false) {
+        readingPageHeld = true
+        waitsForOlderReply = older
+        olderReply = nil
+        if readingHold == nil { readingHold = ReadingHold() }
+    }
+
+    func olderReadingReplied(_ reply: TranscriptReadingReply) {
+        waitsForOlderReply = false
+        olderReply = reply
+        flushReading()
+    }
     func beginReadingScroll() {
         readingScrolling = true
         if reading != nil, readingHold == nil { readingHold = ReadingHold() }
@@ -542,18 +579,25 @@ import QuartzCore
     /// Apply what was held now: the read failed or was cancelled, so no settle will come.
     func releaseReading() {
         readingPageHeld = false
+        waitsForOlderReply = false
+        olderReply = nil
         flushReading()
     }
     private func flushReading() {
-        guard !readingScrolling, !readingPageHeld else { return }
-        guard var hold = readingHold else { return }
+        guard !readingPageHeld, !waitsForOlderReply, var hold = readingHold else { return }
         let held = hold.take()
+        let append = olderReply.map { admitsOlderAppend?($0, held) == true } ?? false
+        guard !readingScrolling || append else { return }
+        olderReply = nil
         // Keep the hold only while it still signals work: awaiting fresh after an
         // overflow, or needsFresh with no fresh snapshot flushed yet.
         readingHold = (hold.awaitingFresh || hold.needsFresh) ? hold : nil
         if readingHold == nil { readingFreshNotified = false }
         if !held.isEmpty {
+            publishingOlderAppend = append
             apply(held)
+            publishingOlderAppend = false
+            if readingScrolling, readingHold == nil { readingHold = ReadingHold() }
             // A fresh snapshot flushed: recovery complete.
             if readingHold?.needsFresh == false { readingFreshNotified = false }
         } else if hold.needsFresh, !readingFreshNotified {
@@ -564,7 +608,15 @@ import QuartzCore
         }
     }
     /// The reading view ended: what it held goes with it.
-    func dropReading() { readingHold = nil; readingPageHeld = false; readingScrolling = false; reading = nil; readingFreshNotified = false }
+    func dropReading() {
+        readingHold = nil
+        readingPageHeld = false
+        waitsForOlderReply = false
+        olderReply = nil
+        readingScrolling = false
+        reading = nil
+        readingFreshNotified = false
+    }
     private func apply(_ patches: [BridgePatch]) {
         var reorder = false
         var added: [String] = []
@@ -579,6 +631,7 @@ import QuartzCore
         }
         var activityChanged = false
         var becameReady = false
+        var readingAnswers: [String] = []
         for patch in patches {
             patchCount += 1
             if readingHold != nil, let reading, let scope = patch.threadScope, scope.thread == reading.id, scope.epoch == reading.epoch {
@@ -587,6 +640,11 @@ import QuartzCore
                     flushReading()
                 } else {
                     readingHold?.append(patch)
+                    if prepareReadingAnswers != nil, readingAnswers.count < 32,
+                       case .item(_, _, _, let row?, _) = patch, row.type == "message",
+                       row.role != "user", row.complete, !row.text.isEmpty, row.text.utf8.count <= 64 * 1024 {
+                        readingAnswers.append(row.text)
+                    }
                 }
                 continue
             }
@@ -724,7 +782,7 @@ import QuartzCore
                 }
                 guard let target = scoped(id, epoch) else { continue }
                 moving(target)
-                target.items.removeAll(keepingCapacity: true)
+                target.items.removeAll()
                 target.positions.removeAll(keepingCapacity: true)
                 target.order = []
                 target.interactions = [:]
@@ -753,7 +811,7 @@ import QuartzCore
                 guard let target = scoped(id, epoch) else { continue }
                 moving(target)
                 target.beginSnapshot(revision: revision, warm: true, before: before)
-                target.items.removeAll(keepingCapacity: true)
+                target.items.removeAll()
                 target.positions.removeAll(keepingCapacity: true)
                 target.order = []
                 target.interactions = [:]
@@ -769,8 +827,10 @@ import QuartzCore
                 guard let target = scoped(id, epoch) else { continue }
                 let live = target !== reading
                 if let row {
-                    if let item = target.items[itemId] { item.row = row; if live { streamedUpdates += 1 } }
-                    else {
+                    if let item = target.items[itemId] {
+                        if live || item.row != row { item.row = row }
+                        if live { streamedUpdates += 1 }
+                    } else {
                         moving(target)
                         target.items[itemId] = ItemModel(row)
                         if let index = row.index { target.positions[itemId] = index }
@@ -786,7 +846,7 @@ import QuartzCore
                     // Only a row this model holds can leave it.
                     guard target.items[itemId] != nil else { break }
                     moving(target)
-                    target.items.removeValue(forKey: itemId); target.positions.removeValue(forKey: itemId)
+                    target.items[itemId] = nil; target.positions.removeValue(forKey: itemId)
                     target.noteRemoval(id: itemId, seq: removal?.seq, reason: removal?.reason)
                     if live { reorder = true } else { readingReorder = true }
                 }
@@ -920,6 +980,7 @@ import QuartzCore
             readingMoved?()
             ThreadOpenTrace.readingFrame(started: readingMoving)
         }
+        if !readingAnswers.isEmpty { prepareReadingAnswers?(Array(readingAnswers.reversed())) }
         if activityChanged, let hostId { liveActivity.update(row: { self.inbox[$0] }, hostId: hostId, online: connection == "ready") }
         if let thread = thread?.refresh ?? thread {
             if reorder { thread.reorder() } else if !added.isEmpty { thread.place(added) }
@@ -1005,6 +1066,7 @@ import QuartzCore
     func clearCache() {
         shelf.clear()
         transcriptSessions.clear()
+        transcriptMarkdownHeights?.clear()
         action(["type": "cache.clear"])
     }
     /// Drop the open thread's kept copy and read it again from the machine, in place.

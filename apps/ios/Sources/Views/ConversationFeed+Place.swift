@@ -7,7 +7,7 @@ extension ConversationFeed {
     /// has measured. No-ops (keeping the restore pending) until the frame
     /// arrives; clears once the frame settles within tolerance, and the
     /// viewport budget (or a gesture) cancels a restore that never settles.
-    func applySessionRestore(proxy: ScrollViewProxy) {
+    func applySessionRestore(proxy: TranscriptSurface) {
         guard let session = viewport.sessionAnchor,
             let frame = anchor.keeper.frames.frame(session.rowID) else { return }
         let metrics = intent.metrics
@@ -29,9 +29,9 @@ extension ConversationFeed {
             viewport: Double(metrics.viewport),
             topInset: Double(metrics.topInset), bottomInset: Double(metrics.bottomInset),
             rowHeight: Double(frame.height)) {
-            proxy.scrollTo(session.rowID, anchor: UnitPoint(x: 0, y: fraction))
+            surface.scroll(to: session.rowID, anchor: UnitPoint(x: 0, y: 1 - fraction))
         } else {
-            proxy.scrollTo(session.rowID, anchor: .top)
+            surface.scroll(to: session.rowID, anchor: .bottom)
         }
         viewport.noteCorrectionApplied()
     }
@@ -44,10 +44,11 @@ extension ConversationFeed {
     /// capture, successor search and session restore.
     func currentTopRow() -> (rowID: String, itemID: String?, top: Double)? {
         let inset = intent.metrics.topInset
-        let rows = TranscriptFeedRow.rows(shown)
-        guard let id = anchor.keeper.frames.topRow(of: rows.map(\.id), inset: inset),
-            let first = rows.first(where: { $0.id == id }) else { return nil }
-        return (rowID: first.id, itemID: first.block.row.items.first, top: anchor.keeper.frames.top(first.id, inset: inset) ?? 0)
+        let window = shown
+        guard let id = anchor.keeper.frames.topRow(inset: inset, containing: {
+            TranscriptFeedRow.block($0, in: window) != nil
+        }), let block = TranscriptFeedRow.block(id, in: window) else { return nil }
+        return (rowID: id, itemID: block.row.items.first, top: anchor.keeper.frames.top(id, inset: inset) ?? 0)
     }
     /// Takes the row at the top as the one to hold.
     func captureTop() {
@@ -60,7 +61,7 @@ extension ConversationFeed {
     }
     /// A row was laid out at `frame` in the content: on coming on screen, or when it or a row
     /// above it changed height. Heights feed the extent; the place keeper puts a held row back.
-    func rowLaidOut(_ id: String, frame: CGRect, proxy: ScrollViewProxy) {
+    func rowLaidOut(_ id: String, frame: CGRect, proxy: TranscriptSurface) {
         keep(.laidOut(id, frame), proxy: proxy)
         let change = anchor.keeper.lastLayout
         if change == .unchanged { return }
@@ -74,7 +75,11 @@ extension ConversationFeed {
         if !reading.landing.holdsPlace, viewport.sessionAnchor?.rowID == id { applySessionRestore(proxy: proxy) }
     }
     /// The feed scrolled: the content's top is at `origin` on screen. No row is touched.
-    func contentScrolled(to origin: CGFloat, proxy: ScrollViewProxy) {
+    func contentScrolled(to origin: CGFloat, proxy: TranscriptSurface) {
+        if intent.active, !reading.landing.holdsPlace, viewport.sessionAnchor == nil {
+            anchor.keeper.trackOrigin(origin)
+            return
+        }
         let before = anchor.keeper.frames.origin
         keep(.origin(origin), proxy: proxy)
         if anchor.keeper.frames.origin != before, viewport.sessionAnchor != nil { applySessionRestore(proxy: proxy) }
@@ -90,13 +95,13 @@ extension ConversationFeed {
     /// Hands `event` to the place keeper and does what it decides: hold a row, or scroll one back.
     /// Pure-geometry drift (async Markdown and media sizing) is corrected there, bounded by the
     /// viewport's budget and never during a gesture, a jump re-aiming, VoiceOver or following.
-    func keep(_ event: TranscriptPlaceKeeper.Event, proxy: ScrollViewProxy) {
+    func keep(_ event: TranscriptPlaceKeeper.Event, proxy: TranscriptSurface) {
         place(.keeper(event), proxy: proxy)
     }
     /// Routes `event` between the place keeper and a landing focus (`TranscriptFeedPlace`) and
     /// does what they decide. The landing is written back only when it changed, so a scroll
     /// with no focus landing writes nothing the feed observes.
-    func place(_ event: TranscriptFeedPlace.Event, proxy: ScrollViewProxy) {
+    func place(_ event: TranscriptFeedPlace.Event, proxy: TranscriptSurface) {
         let metrics = intent.metrics
         // The composer and keyboard float over the feed's bottom edge, inside its insets.
         let geometry = TranscriptFocusLanding.Geometry(viewport: Double(metrics.viewport),
@@ -110,13 +115,13 @@ extension ConversationFeed {
             switch action {
             case .hold(let id, let top):
                 let item = viewport.held?.rowID == id ? viewport.held?.itemID
-                    : TranscriptFeedRow.rows(shown).first { $0.id == id }?.block.row.items.first
+                    : TranscriptFeedRow.block(id, in: shown)?.row.items.first
                 viewport.noteCaptured(rowID: id, itemID: item, top: top)
             case .place(let id, let top):
-                if !placeRowAtTop(id, top: top, proxy: proxy) { proxy.scrollTo(id, anchor: .top) }
+                if !placeRowAtTop(id, top: top, proxy: proxy) { surface.scroll(to: id, anchor: .bottom) }
                 viewport.noteCorrectionApplied()
             case .aim(let id, let fraction):
-                proxy.scrollTo(id, anchor: fraction.map { UnitPoint(x: 0, y: $0) } ?? .center)
+                surface.scroll(to: id, anchor: fraction.map { UnitPoint(x: 0, y: 1 - $0) } ?? .center)
             case .released: pageIfNeeded(proxy)
             }
         }
@@ -126,14 +131,14 @@ extension ConversationFeed {
     /// alignment). Fraction math keeps partial rows as well as top-aligned
     /// ones, like the capture/restore fraction.
     @discardableResult
-    func placeRowAtTop(_ rowID: String, top: Double, proxy: ScrollViewProxy) -> Bool {
+    func placeRowAtTop(_ rowID: String, top: Double, proxy: TranscriptSurface) -> Bool {
         if shiftRow(rowID, toTop: top) { return true }
         guard let frame = anchor.keeper.frames.frame(rowID) else { return false }
         let metrics = intent.metrics
         guard let fraction = TranscriptAnchorPlacement.fraction(top: top,
             viewport: Double(metrics.viewport), topInset: Double(metrics.topInset),
             bottomInset: Double(metrics.bottomInset), rowHeight: Double(frame.height)) else { return false }
-        proxy.scrollTo(rowID, anchor: UnitPoint(x: 0, y: fraction))
+        surface.scroll(to: rowID, anchor: UnitPoint(x: 0, y: 1 - fraction))
         return true
     }
     /// Puts a measured `rowID` back `top` points below the header by moving the scroll its drift,
@@ -173,7 +178,7 @@ extension ConversationFeed {
     }
     func currentRevision() -> TranscriptLayoutRevision {
         TranscriptLayoutRevision.current(
-            width: Double(feedFrame.width > 0 ? feedFrame.width : intent.metrics.viewport),
+            width: Double(feedSize.width > 0 ? feedSize.width : intent.metrics.viewport),
             height: Double(intent.metrics.viewport),
             typeSize: String(describing: typeSize),
             density: densityId,
@@ -248,13 +253,12 @@ extension ConversationFeed {
     /// changes with no fresh list classify through the bounded removal log: a
     /// missing block whose items all left as `evicted` retains space, and
     /// every other missing block (deleted, regrouped, ambiguous) drops.
-    func updateExtent() {
-        let rows = TranscriptFeedRow.rows(shown)
+    func updateExtent(rows: [TranscriptFeedRow]) {
         let ids = rows.map(\.id)
         if reading.thread == nil {
             // Live tail: no retained space; streaming regroups and deletes drop.
             extent.update(change: TranscriptExtent.WindowChange(ids: ids, movement: .replace))
-            lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
+            anchor.lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
             return
         }
         let movement: TranscriptExtent.Movement
@@ -262,7 +266,7 @@ extension ConversationFeed {
         else { movement = reading.operation == "older" ? .older : .newer }
         if movement == .replace {
             extent.update(change: TranscriptExtent.WindowChange(ids: ids, movement: .replace))
-            lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
+            anchor.lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
             return
         }
         let fresh = reading.hasFreshWindowEvidence
@@ -273,7 +277,8 @@ extension ConversationFeed {
             evicted.formUnion(prefixedBlocks(evidence.evictedTrailing))
         }
         let removalByID = Dictionary(uniqueKeysWithValues: shown.recentRemovals.map { ($0.id, $0) })
-        for (blockID, items) in lastBlockItems where !ids.contains(blockID) {
+        let resident = Set(ids)
+        for (blockID, items) in anchor.lastBlockItems where !resident.contains(blockID) {
             guard !items.isEmpty else { continue }
             var allEvicted = true
             for item in items {
@@ -288,7 +293,7 @@ extension ConversationFeed {
             beforeSeq: evidence.beforeSeq, afterSeq: evidence.afterSeq,
             beforeCount: evidence.beforeCount, afterCount: evidence.afterCount,
             spans: evidence.blockSeqs))
-        lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
+        anchor.lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
     }
 
     /// Tells the bridge the reader left the end or came back to it, when that changed
@@ -310,13 +315,14 @@ extension ConversationFeed {
 
     /// Approaching a resident edge loads another page. A fling into retained space keeps
     /// loading after the finger lifts, until real rows cover the viewport again.
-    func pageIfNeeded(_ proxy: ScrollViewProxy) {
+    func pageIfNeeded(_ proxy: TranscriptSurface) {
         guard thread.loaded, !reading.loading, model.readingSettled, reading.problem == nil,
             !reading.landing.holdsPlace else { return }
         let inRetainedSpace = extent.needsContent(top: intent.metrics.top, bottom: intent.metrics.bottom)
         guard inRetainedSpace || (intent.active && !intent.consumed) else { return }
-        let ahead = max(AceDesign.Size.tap, intent.metrics.viewport * 1.5)
-        let edge = extent.edge(top: intent.metrics.top, bottom: intent.metrics.bottom, ahead: ahead, direction: viewport.direction)
+        let edge = extent.edge(top: intent.metrics.top, bottom: intent.metrics.bottom,
+                               viewport: intent.metrics.viewport, minimumAhead: AceDesign.Size.tap,
+                               direction: intent.direction)
         if edge == .older, reading.thread == nil ? thread.screen.hasOlder : reading.hasOlder {
             intent.consumed = true
             reading.read("older", model: model, live: thread, anchorItemId: currentAnchorItemID())

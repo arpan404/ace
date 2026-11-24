@@ -13,6 +13,7 @@ enum PerfCounters {
     nonisolated static let enabled: Bool = {
         #if ACE_FIXTURE
         ProcessInfo.processInfo.arguments.contains("--perf-log")
+            || ProcessInfo.processInfo.arguments.contains("-ace-fling-trace")
         #else
         false
         #endif
@@ -38,6 +39,8 @@ enum PerfCounters {
         timer.resume()
         return timer
     }()
+
+    nonisolated static func snapshot() -> [String: Int] { counts.withLock { $0 } }
 
     /// Counts one `name`, such as a body evaluation or a row laid out again. The name is built
     /// only when counting is on; outside fixture builds the call is empty.

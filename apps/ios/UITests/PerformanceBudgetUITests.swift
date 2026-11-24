@@ -142,7 +142,7 @@ import XCTest
         let app = try longThreadApp()
         app.launchWithArguments()
         XCTAssertTrue(app.openThread("ios-stream"))
-        measureTranscriptScroll(app, list: app.scrollViews.firstMatch, name: "transcript scroll")
+        measureTranscriptScroll(app, list: app.collectionViews["transcript"], name: "transcript scroll")
     }
 
     /// The same swipes on iPad with the thread's side panel open beside the transcript (Changes,
@@ -158,7 +158,7 @@ import XCTest
         XCTAssertTrue(toggle.waitForExistence(timeout: 10))
         toggle.tap()
         XCTAssertTrue(app.buttons["panel.tab.changes"].waitForExistence(timeout: 10), "the panel opened")
-        measureTranscriptScroll(app, list: app.scrollViews["transcript"], name: "transcript scroll beside the panel")
+        measureTranscriptScroll(app, list: app.collectionViews["transcript"], name: "transcript scroll beside the panel")
         XCTAssertTrue(app.buttons["panel.tab.changes"].exists, "the panel stayed open while measured")
     }
 
@@ -211,9 +211,12 @@ import XCTest
         let app = try longThreadApp()
         app.launchWithArguments()
         XCTAssertTrue(app.openThread("ios-stream"))
-        let list = app.scrollViews["transcript"]
+        let list = app.collectionViews["transcript"]
         XCTAssertTrue(list.waitForExistence(timeout: 10))
         let opened = try XCTUnwrap(app.probeValue("footprintMiB"))
+        let markdownKeys = ["markdown.parseHit", "markdown.parseMiss", "markdown.heightHit",
+                            "markdown.heightMiss", "markdown.heightDiskHit"]
+        let markdownBefore = markdownKeys.map { app.probeValue($0) ?? 0 }
         let lostBefore = app.probeValue("frames.lostMsTotal") ?? 0
         let began = Date()
         var swipes = 0
@@ -239,6 +242,10 @@ import XCTest
         let peak = try XCTUnwrap(app.probeValue("page.peakMiB"))
         report("reading far back: pages older, newer", [older, app.probeValue("pages.newer") ?? 0])
         report("reading far back: main-thread ms per page", [mainPerPage])
+        report("reading far back: apply ms per page", [(app.probeValue("page.applyMsTotal") ?? 0) / max(pages, 1)])
+        let markdownCounts = zip(markdownKeys, markdownBefore).map { (app.probeValue($0) ?? 0) - $1 }
+        report("reading far back: Markdown parse hits, misses", Array(markdownCounts.prefix(2)))
+        report("reading far back: Markdown height hits, misses, disk hits", Array(markdownCounts.suffix(3)))
         report("reading far back: late-frame ms per s", [lost / max(spent, 0.001)])
         report("reading far back: late-frame ms per page, seconds spent", [lost / max(pages, 1), spent])
         report("reading far back: footprint opened, far back, peak (MiB)", [opened, farBack, peak])

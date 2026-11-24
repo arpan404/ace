@@ -23,6 +23,28 @@ import Foundation
         #expect(reading.items["older"]?.row.text == "Earlier message")
     }
 
+    @Test func anOlderAppendCanReachTheFeedBeforeDecelerationEnds() throws {
+        let model = ClientModel(now: { 0 })
+        let reading = ThreadModel(id: "a")
+        reading.epoch = -1
+        model.reading = reading
+        model.admitsOlderAppend = { _, _ in true }
+        var patch = item("older", text: "Earlier message", index: 0)
+        patch["epoch"] = -1
+        let reply = try JSONDecoder().decode(TranscriptReadingReply.self, from: Data("""
+            {"active": true, "hasOlder": true, "hasNewer": false, "joined": true, "count": 1}
+            """.utf8))
+
+        model.beginReadingScroll()
+        model.holdReading(older: true)
+        model.receive(try frame([patch, ["type": "reading.settled", "threadId": "a", "epoch": -1]]))
+        #expect(reading.items.isEmpty)
+        model.olderReadingReplied(reply)
+        #expect(reading.order == ["older"])
+        #expect(model.readingSettled)
+        model.endReadingScroll()
+    }
+
     @Test func stoppingAScrollDoesNotExposeAPartialHistoryPage() throws {
         let model = ClientModel(now: { 0 })
         let reading = ThreadModel(id: "a")

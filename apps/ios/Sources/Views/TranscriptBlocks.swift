@@ -36,7 +36,7 @@ struct TranscriptLinks {
     /// What a row's rendering takes from its links. The closures read the models they close over
     /// when called, so a body calling one is observed on what it reads; links rebuilt with new
     /// closures but the same key render a row the same.
-    struct Key: Equatable {
+    struct Key: Hashable {
         var stepsModel: ObjectIdentifier?
         var stepsScreen: ObjectIdentifier?
         var stepsEpoch: Int?

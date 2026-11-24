@@ -76,6 +76,7 @@ import Observation
     /// What stops the checkout, shown above the composer.
     var work: WorkLine?
     @ObservationIgnored private var positions: [String: Int] = [:]
+    var blockPositions: [String: Int] { positions }
     @ObservationIgnored private var reorder = false
 
     /// Seed a warm staging copy from the visible screen with independent block

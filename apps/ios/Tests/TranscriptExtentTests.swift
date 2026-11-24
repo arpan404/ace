@@ -9,11 +9,23 @@ import Testing
         extent.measure("a", height: 1000)
         extent.measure("b", height: 1000)
         extent.update(["c", "d"], movement: .newer)
-        #expect(extent.edge(top: 2100, bottom: 1000, ahead: 200, direction: -1) == .older)
+        #expect(extent.edge(top: 2100, bottom: 1000, viewport: 100, minimumAhead: 44, direction: -1) == .older)
         #expect(extent.needsContent(top: 1900, bottom: 1000))
         extent.update(["a", "b"], movement: .older)
-        #expect(extent.edge(top: 1000, bottom: 100, ahead: 200, direction: 1) == .newer)
+        #expect(extent.edge(top: 1000, bottom: 100, viewport: 100, minimumAhead: 44, direction: 1) == .newer)
         #expect(extent.needsContent(top: 1000, bottom: 100))
+    }
+
+    @Test func anUpwardFlingPrefetchesTwoScreensFromTheResidentEdge() {
+        let extent = TranscriptExtent()
+        extent.update(["a"], movement: .replace)
+        extent.measure("a", height: 1_000)
+        extent.update(["b"], movement: .newer)
+
+        #expect(extent.edge(top: 2_600, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: -1) == .older)
+        #expect(extent.edge(top: 3_400, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: -1) == nil)
+        #expect(extent.edge(top: 2_600, bottom: 1_600, viewport: 800, minimumAhead: 44, direction: 1) == nil)
+        #expect(extent.edge(top: 2_600, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: 0) == nil)
     }
 
     @Test func pagingOlderKeepsTheHeightOfNewerRowsOutsideTheResidentWindow() {
