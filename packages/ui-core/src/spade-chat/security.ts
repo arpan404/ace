@@ -34,7 +34,7 @@ export type SpadeAutonomy = "auto_review" | "full_access";
  * list Spade's gate keeps, `spade_core::effect::full_access`).
  */
 export const spadeFullAccessSentence =
-  "It runs without ordinary approvals or model review. Network access is open. Spade asks when it recognizes a payment, a send in your name, or an access change. An app tool that hides what it does can act without asking. Payments, sends, and access changes through logged-in browser sites, ace coding agents, plugins, or bot code can go through because Spade cannot stop them where they happen. Ace children use ace’s own permissions.";
+  "It runs without ordinary approvals or model review. Network access is open unless an organization or network ceiling limits it. On Linux, Full access cannot run commands outside the sandbox yet. Spade asks when it recognizes a payment, a send in your name, or an access change. An app tool that hides what it does can act without asking. Payments, sends, and access changes through logged-in browser sites, ace coding agents, plugins, or bot code can go through because Spade cannot stop them where they happen. Ace children use ace’s own permissions.";
 
 /** What every bot inherits unless it sets its own. */
 export interface SpadeBotDefaults {

@@ -249,6 +249,93 @@ impl Engine {
         }
     }
 
+    /// Release old ordinary approval cards when the person enables Full access.
+    pub(crate) fn release_full_access_requests(&self) {
+        let Ok(agents) = self.store.agents() else {
+            return;
+        };
+        for agent in agents {
+            self.release_full_access_in(&agent.conversation);
+        }
+    }
+
+    pub(super) fn release_full_access_in(&self, id: &str) -> bool {
+        use spade_core::autonomy::{self, Class, Mode, Sensitive};
+        use spade_core::effect::{self, Effect};
+        if self.autonomy(id) != Mode::FullAccess || self.org_gate(id).is_some() {
+            return false;
+        }
+        let Ok(events) = self.load(id) else {
+            return false;
+        };
+        let transcript = Transcript::fold(events.iter());
+        let pending = transcript
+            .awaiting
+            .iter()
+            .chain(transcript.helper_awaiting.iter().map(|(id, _)| id));
+        let hard = |effect| {
+            matches!(
+                effect,
+                Some(
+                    Effect::Pay | Effect::SendAsPerson | Effect::ChangeAccess | Effect::Credential
+                )
+            )
+        };
+        let mut released = false;
+        for call in pending {
+            let Some(Known::ApprovalRequested {
+                name,
+                arguments,
+                effect: recorded,
+                reviewer_reason,
+                ..
+            }) = events.iter().rev().find_map(|event| match event {
+                Event::Known(asked @ Known::ApprovalRequested { call_id, .. })
+                    if call_id == call =>
+                {
+                    Some(asked)
+                }
+                _ => None,
+            })
+            else {
+                continue;
+            };
+            if hard(*recorded)
+                || hard(spade_core::review::raised(&events, call))
+                || autonomy::reaches_credentials(arguments)
+                || reviewer_reason.as_deref().is_some_and(|reason| {
+                    [
+                        effect::SPENDS,
+                        effect::SENDS_AS_YOU,
+                        effect::CHANGES_ACCESS,
+                        effect::PUSHES,
+                    ]
+                    .iter()
+                    .any(|line| reason.starts_with(line.trim_end_matches(", so you decide.")))
+                })
+            {
+                continue;
+            }
+            let Some(tool) = self.tools.get_for(id, name) else {
+                continue;
+            };
+            let classed = tool.classed(&format!("{id}.{call}"), arguments);
+            if hard(tool.effect(arguments))
+                || classed.credentials
+                || matches!(
+                    classed.class,
+                    Class::Sensitive(
+                        Sensitive::Payment | Sensitive::MessageAsPerson | Sensitive::Credentials
+                    )
+                )
+            {
+                continue;
+            }
+            released |= self.answer(id, call, true, false).is_ok();
+        }
+        released
+    }
+
     /// Answers an approval the open turn is waiting on, as the person.
     pub fn answer(
         &self,

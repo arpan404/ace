@@ -584,3 +584,46 @@ async fn turning_the_classifier_off_mid_call_never_lets_an_app_write_skip_both_s
     assert_eq!(sends.lock().map(|c| c.len()).unwrap_or(0), 0);
     Ok(())
 }
+
+#[tokio::test]
+async fn switching_to_full_access_releases_only_ordinary_pending_approvals() -> Result {
+    let write = FakeTool::new("publish_page", Risk::Write, "Published").declares(Effect::Publish);
+    let payment = FakeTool::new("charge_card", Risk::Write, "Charged").declares(Effect::Pay);
+    let w =
+        support::sandbox::reviewed_world(false, vec![Arc::new(write), Arc::new(payment)], |_| {
+            const REFUSE: &str = r#"{"verdict":"refuse","reason":"Check before publishing."}"#;
+            vec![
+                Script::reply("").call("first", "publish_page", json!({})),
+                Script::reply("").plain(REFUSE),
+                Script::reply("")
+                    .call("retry", "publish_page", json!({}))
+                    .call("payment", "charge_card", json!({})),
+                Script::reply("").plain(REFUSE),
+                Script::reply("Done."),
+            ]
+        })
+        .await?;
+    w.spade
+        .say(&w.conversation, "Publish the page and charge the card")
+        .await?;
+    w.spade
+        .wait_for_count(&w.conversation, "approval_requested", 2)
+        .await?;
+    assert_eq!(as_person(&w, &w.bot, json!("full_access")).await?.0, 200);
+    let events = w
+        .spade
+        .wait_for_count(&w.conversation, "tool_finished", 2)
+        .await?;
+    assert_eq!(output(&events, "retry"), "Published");
+    assert!(events.iter().any(|e| e["type"] == "approval_answered"
+        && e["call_id"] == "retry"
+        && e["allowed"] == true
+        && e["always"] == false));
+    assert!(
+        !events
+            .iter()
+            .any(|e| e["type"] == "approval_answered" && e["call_id"] == "payment")
+    );
+    assert!(!finished(&events, "payment"));
+    Ok(())
+}

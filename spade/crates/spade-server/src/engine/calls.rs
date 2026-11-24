@@ -644,6 +644,7 @@ pub(super) async fn handle_calls(
                         name: &name,
                         arguments: &arguments,
                         classed: &classed,
+                        registry: &registry,
                         hints: snapshot.as_ref().and_then(|t| t.hints()),
                         unresolved: remote && declared.is_none(),
                         reviewing: spade_classify::Reviewing {
@@ -1085,7 +1086,7 @@ pub(super) async fn handle_calls(
                     limit: allowed_to,
                     credential_guard: mode == Mode::FullAccess,
                     bound: Bound::from_stored(review::bound(events, &pending.call.id)),
-                    incomplete: stopped == Some(Stopped::Incomplete),
+                    incomplete: mode != Mode::FullAccess && stopped == Some(Stopped::Incomplete),
                 };
                 if launch == Launch::Outside {
                     let held = Held {
@@ -1131,6 +1132,10 @@ pub(super) async fn handle_calls(
         return run_tools(engine, id, reply, runnable, held, &facts, stop, pause).await;
     }
     if waiting {
+        // The mode may have changed while a review recorded its request.
+        if engine.release_full_access_in(id) {
+            return Handled::Continue;
+        }
         let live = engine.live(id);
         live.waiting_on_you
             .store(true, std::sync::atomic::Ordering::SeqCst);
