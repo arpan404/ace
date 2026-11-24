@@ -233,26 +233,27 @@ enum MessageAttachmentSource: Equatable, Sendable {
 struct MessageAttachmentRoutes: ViewModifier {
     let model: ClientModel
     let source: MessageAttachmentSource
-    @State private var viewing: AttachmentTarget?
-    @State private var preview: URL?
-    @State private var playing: MessageVideoTarget?
-    @State private var opening: String?
+    /// The pending open and what it presents, in one value so a newer tap supersedes an older one.
+    @State private var state = AttachmentOpenState()
+    @State private var task: Task<Void, Never>?
     @State private var problem: String?
 
     func body(content: Content) -> some View {
         content
             .environment(\.messageAttachments, access)
-            .fullScreenCover(item: $viewing) { target in
+            .fullScreenCover(item: viewing, onDismiss: { release(state.shown?.id) }) { target in
                 MediaPager(pages: target.pictures.map { line in
                     MediaPager.Page(title: line.name.isEmpty ? "Image" : line.name) { await original(target.itemId, line) }
                 }, start: target.start)
             }
-            .fullScreenCover(item: $playing) { video in
-                VideoViewer(title: video.name, url: video.url, mimeType: video.mimeType)
+            .fullScreenCover(item: playing, onDismiss: { release(state.shown?.id) }) { video in
+                VideoViewer(title: video.name, url: video.url, mimeType: video.mimeType) { sharing in
+                    discard(state.shareChanged(sharing))
+                }
             }
-            .quickLookPreview($preview)
+            .quickLookPreview(preview)
             .overlay(alignment: .top) {
-                if let opening {
+                if let opening = state.pending?.name {
                     HStack(spacing: AceDesign.Space.related) {
                         ProgressView().controlSize(.small)
                         Text("Opening \(opening)").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
@@ -263,10 +264,38 @@ struct MessageAttachmentRoutes: ViewModifier {
                     .accessibilityIdentifier("attachment.opening")
                 }
             }
+            .onDisappear {
+                task?.cancel()
+                discard(state.leave())
+            }
+            .task(id: state.shown?.closing == true ? state.shown?.id : nil) {
+                // A viewer asked to close that never reports its dismissal still hands over.
+                guard let id = state.shown?.id, state.shown?.closing == true else { return }
+                try? await Task.sleep(for: .seconds(1))
+                if !Task.isCancelled { release(id) }
+            }
             .alert("Couldn't open the file", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
                 Button("OK") { problem = nil }
             } message: { Text(problem ?? "") }
     }
+
+    /// Each viewer's dismissal names the viewer it is for, so a late one can't close its replacement.
+    private func cover<T>(_ pick: @escaping (AttachmentOpenState.Presentation) -> T?) -> Binding<T?> {
+        let id = state.shown?.id
+        return Binding(
+            get: { state.visible.flatMap(pick) },
+            set: { if $0 == nil { release(id) } }
+        )
+    }
+    private var viewing: Binding<AttachmentTarget?> { cover { if case let .images(target) = $0 { target } else { nil } } }
+    private var playing: Binding<MessageVideoTarget?> { cover { if case let .video(target) = $0 { target } else { nil } } }
+    private var preview: Binding<URL?> { cover { if case let .document(url) = $0 { url } else { nil } } }
+
+    private func release(_ id: Int?) {
+        guard let id else { return }
+        discard(state.dismissed(id))
+    }
+    private func discard(_ urls: [URL]) { urls.forEach(Self.discard) }
 
     private var access: MessageAttachmentAccess {
         let model = model, source = source
@@ -305,24 +334,32 @@ struct MessageAttachmentRoutes: ViewModifier {
         guard line.opens == true, let ref = line.ref, !ref.isEmpty else { return }
         if line.previewed {
             let shown = pictures.filter(\.previewed)
-            viewing = AttachmentTarget(itemId: itemId, pictures: shown.isEmpty ? [line] : shown,
-                                       start: shown.firstIndex(of: line) ?? 0)
+            task?.cancel()
+            discard(state.showImages(AttachmentTarget(itemId: itemId, pictures: shown.isEmpty ? [line] : shown,
+                                                      start: shown.firstIndex(of: line) ?? 0)))
             return
         }
-        opening = line.name
-        Task {
-            defer { opening = nil }
+        task?.cancel()
+        let token = state.begin(name: line.name)
+        task = Task {
             do {
                 let reply = try await model.service(source.request(itemId, ref, variant: "original", name: line.name),
                                                     as: AttachmentBytes.self)
                 guard let data = Data(base64Encoded: reply.data) else { throw ServiceFailure(message: "The file couldn't be decoded.") }
+                try Task.checkCancellation()
                 let kept = try Self.keep(data, named: reply.name)
-                if line.plays { playing = MessageVideoTarget(name: line.name, url: kept, mimeType: line.mimeType ?? reply.mimeType) }
-                else { preview = kept }
+                discard(state.complete(token, kept: kept, line: line, replyMimeType: reply.mimeType))
             } catch {
-                problem = "\(line.name) couldn't be read. Check the connection and try again."
+                if state.fail(token), !(error is CancellationError) {
+                    problem = "\(line.name) couldn't be read. Check the connection and try again."
+                }
             }
         }
+    }
+
+    /// Removes a kept copy and the folder `keep` made for it.
+    static func discard(_ url: URL) {
+        try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
     }
 
     /// A private copy for Quick Look, under the file's own name with any folders taken out.
@@ -338,7 +375,7 @@ struct MessageAttachmentRoutes: ViewModifier {
     }
 }
 
-private struct AttachmentTarget: Identifiable {
+struct AttachmentTarget: Identifiable, Equatable {
     let itemId: String
     /// The message's pictures, swiped through from `start`.
     let pictures: [AttachmentLine]
