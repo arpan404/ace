@@ -6,6 +6,7 @@ import { Agent, AgentItem, EventPayload, type Event, type ThreadId } from "@ace/
 import { afterEach, expect, test } from "vitest";
 import { createDevThread } from "./commands.ts";
 import { ManualClock } from "./engine/test-support.ts";
+import type { LineageFile } from "./sequence-lineage.ts";
 import { Store } from "./store.ts";
 import { isStoreBusy, isStoreRetry } from "./store-busy.ts";
 
@@ -16,15 +17,19 @@ afterEach(() => {
 const unpinned = { persist() {}, committed() {} };
 
 /** A store on manual time with `threads` threads, each with an empty streaming answer. */
-function setup(threads = 1) {
+function setup(
+  threads = 1,
+  options: { lineage?: LineageFile; onError?: (error: unknown) => void } = {},
+) {
   const home = mkdtempSync(join(tmpdir(), "ace-live-recovery-"));
   cleanup.push(() => rmSync(home, { recursive: true, force: true }));
   const path = join(home, "events.sqlite");
   const errors: unknown[] = [];
   const clock = new ManualClock();
   const open = () =>
-    new Store(path, (error) => errors.push(error), {
+    new Store(path, options.onError ?? ((error) => errors.push(error)), {
       bufferScheduler: { delay: clock.setTimer },
+      ...(options.lineage ? { lineage: options.lineage } : {}),
     });
   let store = open();
   cleanup.push(() => void store.close());
@@ -92,6 +97,11 @@ function setup(threads = 1) {
 }
 const words = (count: number, prefix = "word") =>
   Array.from({ length: count }, (_, index) => `${prefix}${index} `);
+/** Enough thread updates for published sequences to cross the lineage stride. */
+const updatesAt = (prefix: string) =>
+  Array.from({ length: 72 }, (_, index) =>
+    EventPayload.parse({ type: "thread.updated", title: `${prefix} ${index}` }),
+  );
 function stream(store: Store, id: ThreadId, index: number, appends: string[]): void {
   const payloads = appends.map((append) =>
     EventPayload.parse({
@@ -126,6 +136,219 @@ function failure(run: () => void): unknown {
   }
   throw new Error("Expected the write to fail");
 }
+
+test("a live batch whose range refill rolls back with its outer transaction is published only once stored and reuses no sequence", async () => {
+  const state = setup();
+  const [id] = state.ids;
+  if (!id) throw new Error("Missing thread");
+  // One warm-up delta reserves a range and is stored, so nothing stays pinned.
+  stream(state.store, id, 0, ["warm-up"]);
+  state.store.flushLiveWrites();
+  expect(state.store.hasLiveWrite(id)).toBe(false);
+  const reserved = Number(
+    state.store.statement("SELECT seq FROM host_sequence WHERE id=1").get()?.seq,
+  );
+  // Simulate an out-of-band durable writer at the reserved range's end without sending 65,536
+  // provider frames: the next batch has to refill the range.
+  state.store.atomic((db) =>
+    db
+      .prepare("INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)")
+      .run(
+        reserved - 1,
+        "reservation-boundary",
+        id,
+        999,
+        "thread.updated",
+        JSON.stringify({ type: "thread.updated", title: "near reservation boundary" }),
+      ),
+  );
+  // Committed state only: a delta that was published before its rows committed is not stored.
+  const committed = new DatabaseSync(state.path, { readOnly: true });
+  cleanup.push(() => committed.close());
+  const delivered: { append: string; seq: number; stored: boolean }[] = [];
+  cleanup.push(
+    state.store.subscribe((events) => {
+      for (const event of events) {
+        if (event.payload.type !== "item.delta" || event.payload.itemId !== "answer-0") continue;
+        delivered.push({
+          append: event.payload.append,
+          seq: event.seq,
+          stored:
+            committed.prepare("SELECT 1 FROM events WHERE seq=?").get(event.seq) !== undefined,
+        });
+      }
+    }),
+  );
+  expect(() =>
+    state.store.atomic(() => {
+      const payloads = ["first", "second"].map((append) =>
+        EventPayload.parse({
+          type: "item.delta",
+          itemId: "answer-0",
+          agentId: "root",
+          field: "text",
+          append,
+        }),
+      );
+      state.store.prepareLiveWrite(Buffer.byteLength(JSON.stringify(payloads)));
+      state.store.bufferLiveWrite(id, payloads, 1001, unpinned);
+      throw new Error("outer");
+    }),
+  ).toThrow("outer");
+  // The refill ran in a savepoint that the outer rollback undid: nothing may be published yet.
+  expect(delivered).toEqual([]);
+  state.store.flushLiveWrites();
+  expect(delivered.map(({ append, stored }) => [append, stored])).toEqual([
+    ["first", true],
+    ["second", true],
+  ]);
+  const published = delivered.map(({ seq }) => seq);
+  await state.reopen();
+  const [later] = state.store.appendEvents(id, [{ type: "thread.updated", title: "After reopen" }]);
+  if (!later) throw new Error("Missing event");
+  expect(later.seq).toBeGreaterThan(Math.max(...published));
+
+  // Two small batches in one outer transaction share the provisional range: the first
+  // admission writes the reservation, so neither append may refill (and seal) for the second.
+  const second = setup();
+  const [other] = second.ids;
+  if (!other) throw new Error("Missing thread");
+  const fresh = new DatabaseSync(second.path, { readOnly: true });
+  cleanup.push(() => fresh.close());
+  const batched: { append: string; stored: boolean }[] = [];
+  cleanup.push(
+    second.store.subscribe((events) => {
+      for (const event of events) {
+        if (event.payload.type !== "item.delta" || event.payload.itemId !== "answer-0") continue;
+        batched.push({
+          append: event.payload.append,
+          stored: fresh.prepare("SELECT 1 FROM events WHERE seq=?").get(event.seq) !== undefined,
+        });
+      }
+    }),
+  );
+  expect(() =>
+    second.store.atomic(() => {
+      stream(second.store, other, 0, ["one"]);
+      stream(second.store, other, 0, ["two"]);
+    }),
+  ).not.toThrow();
+  expect(batched).toEqual([]);
+  second.store.flushLiveWrites();
+  expect(batched).toEqual([
+    { append: "one", stored: true },
+    { append: "two", stored: true },
+  ]);
+  expect(storedText(second.store, other)).toBe("onetwo");
+
+  // A lineage write failing while published events are delivered must not skip the settlement
+  // of a range reserved in the same transaction: the range is confirmed, so later deltas
+  // publish at once instead of stalling behind covers() forever.
+  let failWrites = false;
+  const lineage: LineageFile = {
+    read: () => undefined,
+    write() {
+      if (failWrites) throw new Error("lineage unavailable");
+    },
+  };
+  const reports: unknown[] = [];
+  const faulty = setup(1, {
+    lineage,
+    onError: (error) => {
+      reports.push(error);
+      throw error;
+    },
+  });
+  const [target] = faulty.ids;
+  if (!target) throw new Error("Missing thread");
+  const updates = Array.from({ length: 64 }, (_, index) =>
+    EventPayload.parse({ type: "thread.updated", title: `Update ${index}` }),
+  );
+  failWrites = true;
+  expect(() =>
+    faulty.store.atomic(() => {
+      faulty.store.appendEvents(target, updates);
+      stream(faulty.store, target, 0, ["pinned"]);
+    }),
+  ).toThrow("lineage unavailable");
+  // Two distinct failures: the publish-time mark and the reservation's mark. The settlement
+  // must not report the error onError threw a second time.
+  expect(reports).toHaveLength(2);
+  const afterError: string[] = [];
+  cleanup.push(
+    faulty.store.subscribe((events) => {
+      for (const event of events)
+        if (event.payload.type === "item.delta") afterError.push(event.payload.append);
+    }),
+  );
+  stream(faulty.store, target, 0, ["later"]);
+  expect(afterError).toEqual(["pinned", "later"]);
+  faulty.store.flushLiveWrites();
+  expect(storedText(faulty.store, target)).toBe("pinnedlater");
+
+  // Dedupe belongs to one settlement pass: the same primitive failing in two transactions in
+  // a row must reach onError both times.
+  let repeatFailures = false;
+  let repeats = 0;
+  const repeated = setup(1, {
+    lineage: {
+      read: () => undefined,
+      write() {
+        if (repeatFailures) throw "lineage unavailable";
+      },
+    },
+    onError: () => {
+      repeats++;
+      throw "lineage unavailable";
+    },
+  });
+  const [repeatTarget] = repeated.ids;
+  if (!repeatTarget) throw new Error("Missing thread");
+  repeatFailures = true;
+  const attempts: unknown[] = [];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      repeated.store.atomic(() => repeated.store.appendEvents(repeatTarget, updatesAt("Repeat")));
+      attempts.push("no throw");
+    } catch (error) {
+      attempts.push(error);
+    }
+  }
+  expect(attempts).toEqual(["lineage unavailable", "lineage unavailable"]);
+  expect(repeats).toBe(2);
+
+  // A first `throw undefined` is still a failure: reported once, and rethrown as undefined.
+  let undefinedFailures = false;
+  let undefinedReports = 0;
+  const undefinedStore = setup(1, {
+    lineage: {
+      read: () => undefined,
+      write() {
+        if (undefinedFailures) throw undefined;
+      },
+    },
+    onError: () => {
+      undefinedReports++;
+      throw undefined;
+    },
+  });
+  const [undefinedTarget] = undefinedStore.ids;
+  if (!undefinedTarget) throw new Error("Missing thread");
+  undefinedFailures = true;
+  let threw = false;
+  let thrown: unknown = "not thrown";
+  try {
+    undefinedStore.store.atomic(() =>
+      undefinedStore.store.appendEvents(undefinedTarget, updatesAt("Blank")),
+    );
+  } catch (error) {
+    threw = true;
+    thrown = error;
+  }
+  expect(threw).toBe(true);
+  expect(thrown).toBeUndefined();
+  expect(undefinedReports).toBe(1);
+});
 
 test("a burst of 64 KiB or more streamed inside a transaction commits once, publishes once and leaves the store writable", async () => {
   const state = setup();

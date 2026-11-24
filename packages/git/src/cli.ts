@@ -91,6 +91,59 @@ export interface Output {
   stopped?: "capture" | "budget";
 }
 
+/** One shared Git verification: its promise, and the binary that attempt discovered. */
+interface VerificationAttempt {
+  promise: Promise<void>;
+  /** The binary this attempt found; written only while it is still `GitCli.ready`. */
+  binary: string | undefined;
+}
+
+/**
+ * A call cancelled between its awaits fails as every Git cancellation does (`git_cancelled`),
+ * never with the signal's bare AbortError.
+ */
+function throwIfCancelled(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new GitError("git_cancelled", "Git operation cancelled");
+}
+
+/**
+ * `work`, failing as `git_cancelled` when it failed with the abort itself (an AbortError, or the
+ * signal's reason). Any other failure (a filesystem or credential error) stays as it is, even
+ * when the signal also aborted meanwhile.
+ */
+async function cancelledAs<T>(signal: AbortSignal | undefined, work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    const fromAbort =
+      signal?.aborted === true &&
+      (error === signal.reason || (error instanceof Error && error.name === "AbortError"));
+    if (fromAbort) throw new GitError("git_cancelled", "Git operation cancelled");
+    throw error;
+  }
+}
+
+/** Wait for a shared `work` under one caller's signal; the work itself goes on. */
+function untilCancelled<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return work;
+  if (signal.aborted)
+    return Promise.reject(new GitError("git_cancelled", "Git operation cancelled"));
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(new GitError("git_cancelled", "Git operation cancelled"));
+    signal.addEventListener("abort", abort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener("abort", abort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+  });
+}
+
 export class GitCli {
   private readonly protectedWorktrees = new Set<string>();
   private readonly person = new AsyncLocalStorage<"person" | "reviewer">();
@@ -115,7 +168,7 @@ export class GitCli {
   readonly timeoutMs: number;
   private readonly facts: ConfigFacts;
   private readonly standardFiles = new Map<string, Promise<string[] | undefined>>();
-  private ready: Promise<void> | undefined;
+  private ready: VerificationAttempt | undefined;
   private readonly runtime: GitProcessRuntime;
   private readonly calls = new Set<Promise<Output>>();
   private readonly cancellations = new Set<() => void>();
@@ -430,7 +483,7 @@ export class GitCli {
     }
     await assertAvailable(cwd, this.leaseProbe);
     await this.ensureReady(cwd, options.directoryFd, options.signal);
-    options.signal?.throwIfAborted();
+    throwIfCancelled(options.signal);
     await assertAvailable(cwd, this.leaseProbe);
     try {
       return await this.execute(cwd, args, options);
@@ -447,7 +500,7 @@ export class GitCli {
         (): string[] => [],
       );
       if (!removed.includes(target)) throw error;
-      options.signal?.throwIfAborted();
+      throwIfCancelled(options.signal);
       return this.execute(cwd, args, options);
     }
   }
@@ -462,31 +515,90 @@ export class GitCli {
     return this.configuredBinary ?? this.resolvedBinary ?? "git";
   }
 
+  /**
+   * The version check is shared and cached, so it runs on no caller's signal (the service's
+   * deadline still bounds it); each caller waits for it under its own signal only, so one
+   * caller's abort fails that caller alone and leaves the check running for the rest.
+   */
   private ensureReady(cwd: string, directoryFd?: number, signal?: AbortSignal): Promise<void> {
-    this.ready ??= this.verify(cwd, directoryFd, signal).catch((error: unknown) => {
-      this.ready = undefined;
-      this.resolvedBinary = undefined;
-      throw error;
-    });
-    return this.ready;
+    // An aborted caller starts nothing: the shared check is never begun on its behalf.
+    if (signal?.aborted)
+      return Promise.reject(new GitError("git_cancelled", "Git operation cancelled"));
+    if (!this.ready) {
+      const attempt: VerificationAttempt = { promise: Promise.resolve(), binary: undefined };
+      attempt.promise = this.boundedVerify(cwd, directoryFd, attempt).catch((error: unknown) => {
+        if (this.ready === attempt) {
+          this.ready = undefined;
+          this.resolvedBinary = undefined;
+        }
+        throw error;
+      });
+      // Every caller may have stopped waiting; the shared check's failure is still handled.
+      attempt.promise.catch(() => {});
+      this.ready = attempt;
+    }
+    return untilCancelled(this.ready.promise, signal);
   }
 
-  private async verify(cwd: string, directoryFd?: number, signal?: AbortSignal): Promise<void> {
-    // Resolved once per verification; a missing executable later re-verifies (see `executeRaw`).
-    if (this.configuredBinary === undefined)
-      this.resolvedBinary = await this.runtime.locateGit(inheritedEnv()).catch(() => undefined);
+  /**
+   * The version check under the service's deadline as a whole: binary discovery (a PATH lookup
+   * that can stall) included, not only the `--version` process. The deadline aborts the attempt's
+   * one controller, so nothing new starts after it and a running step stops through its own abort
+   * path.
+   */
+  private boundedVerify(
+    cwd: string,
+    directoryFd: number | undefined,
+    attempt: VerificationAttempt,
+  ): Promise<void> {
+    const deadline = this.timeoutMs;
+    const controller = new AbortController();
+    return new Promise<void>((resolve, reject) => {
+      const cancel = this.runtime.scheduleTimeout(() => {
+        controller.abort();
+        reject(new GitError("git_timeout", `Git's version check exceeded ${deadline}ms`));
+      }, deadline);
+      this.verify(cwd, directoryFd, controller.signal, attempt).then(
+        () => {
+          cancel();
+          resolve();
+        },
+        (error: unknown) => {
+          cancel();
+          reject(error);
+        },
+      );
+    });
+  }
+
+  private async verify(
+    cwd: string,
+    directoryFd: number | undefined,
+    signal: AbortSignal,
+    attempt: VerificationAttempt,
+  ): Promise<void> {
+    // Resolved once per attempt; a missing executable later re-verifies (see `executeRaw`).
+    const binary =
+      this.configuredBinary === undefined
+        ? await this.runtime.locateGit(inheritedEnv(), signal).catch(() => undefined)
+        : undefined;
+    // A stale attempt publishes nothing: a newer attempt owns the service's answer.
+    if (this.configuredBinary === undefined && this.ready === attempt) {
+      attempt.binary = binary;
+      this.resolvedBinary = binary;
+    }
     // Windows searches a bare name in the working directory, a checkout, before PATH.
     if (
       this.runtime.platform === "win32" &&
       this.configuredBinary === undefined &&
-      this.resolvedBinary === undefined
+      binary === undefined
     )
       throw new GitError("git_missing", "Git for Windows was not found on PATH");
     // `--version` reads no repository: the fixed guards suffice, with no configuration query.
     const result = await this.executeRaw(cwd, ["--version"], {
       directoryFd,
-      signal,
       env: nonExecutingEnv(),
+      signal,
     });
     const version = /^git version (\d+)\.(\d+)\.(\d+)/.exec(textOutput(result));
     const [major, minor] = version
@@ -586,7 +698,13 @@ export class GitCli {
         allowFailure: true,
         captureBytes: 4_194_304,
       });
-    return learnConfigSources(cwd, query, () => this.standardConfigFiles(env, query), env.HOME);
+    return learnConfigSources(
+      cwd,
+      query,
+      () => this.standardConfigFiles(env, query),
+      env.HOME,
+      this.runtime.platform,
+    );
   }
 
   /** Where this Git keeps its system and global files depends only on the environment. */
@@ -597,7 +715,7 @@ export class GitCli {
     const key = JSON.stringify([this.binary, env]);
     const known = this.standardFiles.get(key);
     if (known) return known;
-    const files = standardConfigFiles(query).catch(() => undefined);
+    const files = standardConfigFiles(query, env, this.runtime.platform).catch(() => undefined);
     this.standardFiles.set(key, files);
     // files never rejects; forgetting a missing answer is the only cleanup it needs.
     void files
@@ -657,20 +775,23 @@ export class GitCli {
       });
     const lookup = this.credentialHelperLookup;
     const system = this.credentialConfigPaths.system ?? (await systemCredentialConfigFile(query));
-    const settings = await userTransportConfig({
-      files: [system, this.credentialConfigPaths.xdg, this.credentialConfigPaths.global],
-      query,
-      protectedRoots: [...this.protectedWorktrees],
-      helpers: !lookup,
-      // A checkout's own SSH command is the person's only where no agent or PR author writes.
-      repositorySsh: !this.protectedPath(cwd),
-      signal: options.signal,
-    });
+    const settings = await cancelledAs(options.signal, () =>
+      userTransportConfig({
+        files: [system, this.credentialConfigPaths.xdg, this.credentialConfigPaths.global],
+        query,
+        protectedRoots: [...this.protectedWorktrees],
+        helpers: !lookup,
+        // A checkout's own SSH command is the person's only where no agent or PR author writes.
+        repositorySsh: !this.protectedPath(cwd),
+        platform: this.runtime.platform,
+        signal: options.signal,
+      }),
+    );
     if (!lookup) return settings;
     const helpers: GitCredentialHelper[] = [];
     for (const scope of ["system", "global"] as const) {
-      options.signal?.throwIfAborted();
-      helpers.push(...(await lookup(scope, options.signal)));
+      throwIfCancelled(options.signal);
+      helpers.push(...(await cancelledAs(options.signal, () => lookup(scope, options.signal))));
     }
     return { helpers, sshCommand: settings.sshCommand };
   }
@@ -743,6 +864,9 @@ export class GitCli {
       options.beforeSpawn?.();
       if (options.signal?.aborted)
         throw new GitError("git_cancelled", "Git operation cancelled before dispatch");
+      // The verification attempt whose discovered binary this call starts, if any: a delayed
+      // ENOENT may only clear that exact attempt, never a newer one that resolved the same path.
+      const attempt = this.configuredBinary === undefined ? this.ready : undefined;
       const job = this.runtime.cleanupSupervisor ? undefined : this.jobs?.prepareJob();
       const child =
         options.directoryFd === undefined
@@ -823,11 +947,11 @@ export class GitCli {
         if (enough && !failure) {
           // Held until the group is gone, so whoever limits these reads counts it until then.
           const output = enoughOutput(enough);
-          void groupGone(this.runtime, pid).then(() => resolve(output));
+          void groupGone(this.runtime, pid, child).then(() => resolve(output));
         } else if (bounded) {
           // A bounded read that was cancelled or failed holds its place the same way.
           const ended = failure;
-          void groupGone(this.runtime, pid).then(() => reject(ended));
+          void groupGone(this.runtime, pid, child).then(() => reject(ended));
         } else reject(failure);
       };
       const kill = () => {
@@ -887,11 +1011,11 @@ export class GitCli {
         if (enough && !failure) {
           // Held until the group is gone, so whoever limits these reads counts it until then.
           const output = enoughOutput(enough);
-          void groupGone(this.runtime, pid).then(() => resolve(output));
+          void groupGone(this.runtime, pid, child).then(() => resolve(output));
         } else if (bounded) {
           // A bounded read that was cancelled or failed holds its place the same way.
           const ended = failure;
-          void groupGone(this.runtime, pid).then(() => reject(ended));
+          void groupGone(this.runtime, pid, child).then(() => reject(ended));
         } else reject(failure);
       };
       const cancel = () => {
@@ -971,7 +1095,8 @@ export class GitCli {
       child.stderr.on("data", stderrData);
       const spawnError = (error: NodeJS.ErrnoException) => {
         // The developer tools Git was moved or removed: find what `git` runs now, next call.
-        if (error.code === "ENOENT" && this.resolvedBinary === binary) {
+        // Only the attempt this call was dispatched with is dropped; a newer one keeps its answer.
+        if (error.code === "ENOENT" && attempt !== undefined && this.ready === attempt) {
           this.ready = undefined;
           this.resolvedBinary = undefined;
         }
@@ -1013,11 +1138,12 @@ export class GitCli {
         // ended, and the read settles once the group is gone, as a stopped read does.
         if (bounded && pid && this.runtime.platform !== "win32") {
           try {
-            if (this.runtime.groupAlive(pid)) this.runtime.signalGroup(pid, "SIGKILL");
+            if (this.runtime.groupAlive(pid, child))
+              this.runtime.signalGroup(pid, "SIGKILL", child);
           } catch {
             // Gone already.
           }
-          await groupGone(this.runtime, pid);
+          await groupGone(this.runtime, pid, child);
           if (settled) return;
         }
         detach();

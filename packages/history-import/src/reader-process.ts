@@ -3,12 +3,17 @@ import { EventEmitter } from "node:events";
 import type { WorkerOptions } from "node:worker_threads";
 import { watchMemory } from "@ace/provider-kit/memory-watchdog";
 import {
-  killGroup,
   registerGroup,
-  stopRetainedGroup,
   stopRetainedWindowsTree,
   unregisterGroup,
 } from "@ace/provider-kit/process-owner";
+import {
+  childGroup,
+  signalSoon,
+  stopRetainedGroup,
+  type LeaderGroup,
+} from "@ace/provider-kit/leader-group";
+import { newGroupToken, withGroupToken } from "@ace/provider-kit/group-token";
 import {
   residentSampler,
   residentSamplingAvailable,
@@ -86,6 +91,8 @@ export function readerMemoryError(limitBytes: number): Error {
 export class ReaderProcess extends EventEmitter {
   private child: ChildProcess;
   private pid: number | undefined;
+  /** POSIX: the reader's group, signalled by number only while the reader is unreaped. */
+  private group: LeaderGroup | undefined;
   private stopWatching: (() => void) | undefined;
   private exitCode: number | undefined;
   private failed = false;
@@ -94,7 +101,15 @@ export class ReaderProcess extends EventEmitter {
   constructor(binary: string, options: WorkerOptions, runtime: ReaderProcessRuntime) {
     super();
     this.runtime = runtime;
-    this.child = spawnReader(binary, options);
+    const token = process.platform === "win32" ? undefined : newGroupToken();
+    this.child = spawnReader(binary, options, token);
+    const spawned = this.child.pid;
+    if (spawned !== undefined && token !== undefined) {
+      const group = childGroup(spawned, token, this.child);
+      this.group = group;
+      // First of all exit listeners: once reaped its group number is never signalled.
+      this.child.once("exit", () => group.reaped());
+    }
     this.listen();
     this.pid = this.child.pid;
     const pid = this.pid;
@@ -139,7 +154,7 @@ export class ReaderProcess extends EventEmitter {
         pid,
         (graceMs) => this.stopGroup(pid, graceMs),
         { name: "history-reader" },
-        () => killGroup(pid, "SIGKILL"),
+        () => this.destroyGroup(),
       );
     } catch (error) {
       // Unowned, it must not run at all.
@@ -164,7 +179,7 @@ export class ReaderProcess extends EventEmitter {
         this.stopWatching = undefined;
         // A group kill refused (EPERM) still ends the reader itself and fails the import.
         try {
-          killGroup(pid, "SIGKILL");
+          this.destroyGroup();
         } catch (error) {
           runtime.warn(`Could not stop the history reader's process group: ${String(error)}`);
         }
@@ -204,7 +219,13 @@ export class ReaderProcess extends EventEmitter {
     if (this.runtime.platform === "win32") {
       await stopRetainedWindowsTree(pid, graceMs);
       unregisterGroup(pid);
-    } else await stopRetainedGroup(pid, graceMs);
+    } else if (this.group) await stopRetainedGroup(this.group, graceMs);
+    else unregisterGroup(pid);
+  }
+  /** Ends the reader's group at once; on Windows the reader alone, through its handle. */
+  private destroyGroup(): void {
+    if (this.group) signalSoon(this.group, "SIGKILL");
+    else this.child.kill("SIGKILL");
   }
   private finish(code: number): void {
     if (this.exitCode !== undefined) return;
@@ -218,12 +239,17 @@ export class ReaderProcess extends EventEmitter {
 }
 
 /** ace-history: frames on stdin and stdout, its own process group, exits when stdin closes. */
-function spawnReader(path: string, options: WorkerOptions): ChildProcess {
+function spawnReader(
+  path: string,
+  options: WorkerOptions,
+  token: string | undefined,
+): ChildProcess {
+  const env = readerEnv(options);
   return spawn(path, [], {
     detached: process.platform !== "win32",
     windowsHide: true,
     stdio: ["pipe", "pipe", "inherit"],
-    env: readerEnv(options),
+    env: token === undefined ? env : withGroupToken(env, token),
   });
 }
 

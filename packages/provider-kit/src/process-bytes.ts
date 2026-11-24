@@ -11,6 +11,8 @@ import {
 } from "./process-containment.ts";
 import { toWindowsCommand } from "./process-owner.ts";
 import { markedEnv } from "./process-marker.ts";
+import { childGroup } from "./leader-group.ts";
+import { newGroupToken, withGroupToken } from "./group-token.ts";
 
 export { terminateDirectoryProcesses } from "./directory-processes.ts";
 
@@ -58,16 +60,28 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
   const target = windows
     ? toWindowsCommand(options.command, options.args)
     : { command: options.command, args: [...options.args], verbatim: false };
+  const token = windows ? undefined : newGroupToken();
+  const env = markedEnv(options.env);
   const child = spawn(target.command, target.args, {
     cwd: options.cwd,
-    env: markedEnv(options.env),
+    env: token === undefined ? env : withGroupToken(env, token),
     ...(windows ? { detached: false, windowsHide: true } : { detached: true }),
     windowsVerbatimArguments: target.verbatim,
     stdio: ["ignore", "pipe", "pipe"],
   });
   const pid = child.pid;
+  const group = pid === undefined ? undefined : childGroup(pid, token, child);
+  // First of all exit listeners: once the leader is reaped its group number is never signalled.
+  child.once("exit", () => group?.reaped());
   // Never throws: it runs in the child's exit listener.
-  const destroy = (leader: number) => signalTree(leader, true, windows, killTree, child);
+  /** Resolves once delivered; never rejects (a refusal is reported, the leader signalled). */
+  const destroyed = () =>
+    group ? signalTree(group, true, windows, killTree, child).catch(() => {}) : Promise.resolve();
+  const destroy = () => {
+    destroyed().catch(() => {});
+  };
+  /** The exit's own group kill, which `exited` waits for: a relayed one is delivered later. */
+  let exitKill: Promise<void> | undefined;
   const factory = options.windowsJobFactory ?? createKillOnCloseJob;
   const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
   if (pid !== undefined) job?.assign(pid);
@@ -77,7 +91,7 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
   const terminate = () => {
     if (!cleanup)
       cleanup = (async () => {
-        if (pid !== undefined) destroy(pid);
+        await destroyed();
         if (windows) await endWindowsJob(job);
         // No lsof or /proc on Windows; the taskkill tree stop is the only reaper.
         if (options.ownedCwd && !windows) await terminateDirectoryProcesses([options.ownedCwd]);
@@ -114,13 +128,13 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
       }, 100);
     };
     child.once("exit", () => {
-      if (pid !== undefined) destroy(pid);
+      exitKill = destroyed();
       drain();
     });
     child.once("close", (code) => {
       closed = true;
       cancelDrain?.();
-      void (cleanup ?? Promise.resolve())
+      void Promise.all([cleanup, exitKill])
         .then(() => resolve(code), reject)
         .finally(() => {
           if (pid !== undefined) {
@@ -138,6 +152,6 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
     }
     await exited.catch(() => {});
   };
-  if (pid !== undefined) registerGroup(pid, stop, undefined, () => destroy(pid));
+  if (pid !== undefined) registerGroup(pid, stop, { name: "ace-process" }, destroy);
   return { stdout: child.stdout, stderr: child.stderr, exited, stop };
 }

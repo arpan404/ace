@@ -59,13 +59,27 @@ class FastClock extends Clock {
   };
 }
 
-async function following(seed: (daemon: FakeDaemon) => void, clock: InboxClock = new Clock()) {
+async function following(
+  seed: (daemon: FakeDaemon) => void,
+  clock: InboxClock = new Clock(),
+  deleted?: (threadId: string) => void,
+) {
   const { daemon, client } = sheetFixture();
   closers.push(() => client.close());
   seed(daemon);
   await client.start();
   const sink = new RecordingSink();
-  const inbox = followInbox(client, "mac", sink, clock);
+  const inbox = followInbox(
+    client,
+    "mac",
+    sink,
+    clock,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    deleted,
+  );
   closers.push(inbox);
   const act = (action: Record<string, unknown>, requestId: string) =>
     inboxAction(client, action, requestId, sink, inbox);
@@ -460,4 +474,21 @@ test("putting back a snooze the machine finds already over counts as done", asyn
   act({ kind: "snoozeAt", threadId: "a", until: 1 }, "back-a");
   await until(() => sink.read("receipt:back-a") !== undefined, "the answer");
   expect(sink.read("receipt:back-a")).toMatchObject({ ok: true, message: "" });
+});
+
+test("a deleted thread is announced once the machine deleted it, never for one it refused", async () => {
+  const gone: string[] = [];
+  const { sink, request } = await following(
+    (machine) => {
+      finished(machine, "a");
+      working(machine, "live");
+    },
+    new Clock(),
+    (threadId) => gone.push(threadId),
+  );
+  await until(() => ids(sink).length === 2, "the inbox");
+  await request({ type: "inbox.bulk", action: "delete", threadIds: ["a", "live"] });
+  await until(() => gone.length > 0, "the delete heard");
+  // The running thread was refused, so what was kept of it stays.
+  expect(gone).toEqual(["a"]);
 });

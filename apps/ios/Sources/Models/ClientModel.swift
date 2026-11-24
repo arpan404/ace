@@ -536,12 +536,10 @@ import QuartzCore
             // Another thread's or an older generation's edit is dropped like its whole row would be.
             guard let thread, thread.id == id, thread.epoch == epoch else { continue }
             guard let shown = batch.row(id, epoch, itemId, shown: { (thread.refresh ?? thread).items[itemId]?.row }),
-                  let text = edit.applied(to: shown.text) else {
+                  let row = edit.applied(to: shown, fields: fields) else {
                 batch.restore(mark)
                 return nil
             }
-            var row = fields ?? shown
-            row.text = text
             let whole = BridgePatch.item(id, epoch, itemId, row, nil)
             batch.note(whole)
             resolved.append(whole)

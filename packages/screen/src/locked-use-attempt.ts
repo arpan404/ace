@@ -153,6 +153,8 @@ export async function runProtectedAttempt<T>(
   let failure: LockedUseAttemptError | undefined;
   const working = Promise.withResolvers<void>();
   const completed = Promise.withResolvers<void>();
+  // The service reported this attempt's completion, whatever its reason: the Mac is relocked.
+  const relocked = Promise.withResolvers<void>();
   // Rejections are read through `failure`; these must never surface as unhandled.
   working.promise.catch(() => {});
   completed.promise.catch(() => {});
@@ -193,6 +195,7 @@ export async function runProtectedAttempt<T>(
   const onEvent = (event: LockedUseEvent) => {
     if (event.type === "state") return observe(event.status);
     if (event.attemptID != null && event.attemptID !== attemptID) return;
+    if (event.type === "completion" && event.attemptID === attemptID) relocked.resolve();
     if (event.type === "error") {
       const error = new LockedUseReplyError(event.code, event.message);
       return fail(
@@ -206,14 +209,16 @@ export async function runProtectedAttempt<T>(
   };
   const stops = [
     connection.onEvent(onEvent),
-    connection.onClose(() =>
+    connection.onClose(() => {
+      // The runtime keeps the interval held after a lost connection until a fresh status.
+      relocked.resolve();
       fail(
         new LockedUseAttemptError(
           "locked_use_connection_lost",
           "Locked computer use lost its service, so it stopped and the Mac is being locked again. Observe again before acting.",
         ),
-      ),
-    ),
+      );
+    }),
   ];
   if (attempt.signal) {
     const signal = attempt.signal;
@@ -225,8 +230,30 @@ export async function runProtectedAttempt<T>(
   }
   const deadline = (ms: number, error: LockedUseAttemptError) =>
     timers.push(scheduler.after(ms, () => fail(error)));
-  const cancel = () => {
-    if (!connection.closed) void connection.request({ type: "cancel", attemptID }).catch(() => {});
+  /**
+   * Cancels the attempt the service may hold and settles only once it confirms the relock
+   * (its completion), the connection ends, or the relock deadline passes. Until then the
+   * caller's run, and with it the protected interval, stays held.
+   */
+  const cancel = async () => {
+    if (connection.closed) return;
+    try {
+      await connection.request({ type: "cancel", attemptID });
+    } catch (error) {
+      // Refused: the service holds no attempt by this id (never begun, or already complete).
+      if (error instanceof LockedUseReplyError) return;
+    }
+    let stopWaiting: (() => void) | undefined;
+    const timedOut = new Promise<boolean>((resolve) => {
+      stopWaiting = scheduler.after(attempt.relockTimeoutMs ?? 30_000, () => resolve(true));
+    });
+    const unconfirmed = await Promise.race([relocked.promise.then(() => false), timedOut]);
+    stopWaiting?.();
+    if (unconfirmed)
+      failure = new LockedUseAttemptError(
+        "locked_use_relock_unconfirmed",
+        "Locked computer use stopped, and the Mac's relock was not confirmed. Stop computer actions and tell the person.",
+      );
   };
   // Whether the service may hold an attempt: begin was sent and not explicitly refused. A
   // begin that timed out or lost its reply may still have started one, so it is cancelled.
@@ -266,7 +293,7 @@ export async function runProtectedAttempt<T>(
       }
     await working.promise.catch(() => {});
     if (failure) {
-      if (mayHoldAttempt) cancel();
+      if (mayHoldAttempt) await cancel();
       throw failure;
     }
     // Working: the approved step runs, and stops if protection goes. Protection that already
@@ -290,7 +317,7 @@ export async function runProtectedAttempt<T>(
       await completed.promise.catch(() => {});
     }
     if (failure) {
-      cancel();
+      await cancel();
       throw failure;
     }
     stage = "finishing";

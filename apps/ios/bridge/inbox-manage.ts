@@ -300,7 +300,10 @@ export function runBulk(
     let saved = false;
     return dispatchCommand(owner, payload, id, pump, {
       saved: () => (saved = true),
-      receipt: heard,
+      receipt: (result) => {
+        heard(result);
+        if (result.ok && payload.type === "thread.delete") organizer.deleted?.(threadId);
+      },
     }).then(() => saved);
   };
   const withRetry = (result: BulkOutcome): BulkOutcome =>
