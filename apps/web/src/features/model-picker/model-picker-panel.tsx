@@ -24,7 +24,8 @@ import {
 } from "react";
 import { VirtualPickerRows, type PickerItem } from "./virtual-picker-rows.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { PickerRail } from "./picker-rail.tsx";
+import { ModelPickerRailMark, PickerRail } from "./picker-rail.tsx";
+import { numberedChoice } from "./picker-keys.ts";
 import { useNow } from "@/lib/time.ts";
 import { part } from "@/lib/suit-part.ts";
 import { formatResetCountdown } from "@/features/accounts/index.ts";
@@ -287,7 +288,7 @@ export function ModelPickerPanel(props: {
     if ((event.metaKey || event.ctrlKey) && /^[1-9]$/.test(event.key)) {
       event.preventDefault();
       // ⌘1–9 is a quick pick: it chooses the row and finishes, unlike a click that stays to tune.
-      const quick = models[Number(event.key) - 1];
+      const quick = numberedChoice(models, event.key);
       if (!quick || quick.unavailable) return;
       pick(quick);
       props.onClose?.();
@@ -420,6 +421,9 @@ export function ModelPickerPanel(props: {
         ref={rail}
         focusList={() => search.current?.focus()}
         onSelect={showTab}
+        renderMark={(entry, selected) => (
+          <ModelPickerRailMark entry={entry} selected={selected} />
+        )}
       />
       <div
         role="tabpanel"

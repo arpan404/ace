@@ -1,30 +1,36 @@
 import { StarIcon } from "@ace/icons";
-import type { KeyboardEvent, Ref } from "react";
+import type { KeyboardEvent, ReactNode, Ref } from "react";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { part } from "@/lib/suit-part.ts";
 import type { PickerEntry } from "@ace/ui-core";
+import { railChoice } from "./picker-keys.ts";
 
 const tabButton =
   "relative grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent/60 hover:text-foreground focus-ring-inset aria-selected:bg-accent aria-selected:text-foreground aria-disabled:opacity-40 pointer-coarse:size-8";
 
+/** What a rail needs of an entry; a model picker or Spade's sources supply their own shape. */
+export interface PickerRailEntry {
+  id: string;
+  name: string;
+  reason?: string | undefined;
+}
+
 /**
- * Favorites, then one tab per account, with roving keyboard focus. A provider with several
+ * Favorites, then one tab per source, with roving keyboard focus. A provider with several
  * accounts shows each as its own logo with the account's bubble on it, so they never read as
  * duplicates. An account that can't be used now (signed out, at its limit) keeps its tab, dimmed,
- * and opens on why.
+ * and opens on why. The caller draws each tab's mark, keeping its own provider and account rules.
  */
-export function PickerRail({
-  ref,
-  ...props
-}: {
-  entries: readonly PickerEntry[];
+export function PickerRail<T extends PickerRailEntry>(props: {
+  entries: readonly T[];
   selected: string;
   searching: boolean;
   listId: string;
   ref: Ref<HTMLDivElement>;
   focusList(): void;
   onSelect(id: string): void;
+  renderMark(entry: T, selected: boolean): ReactNode;
 }) {
   const onKey = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "ArrowRight" || (event.key === "Tab" && !event.shiftKey)) {
@@ -32,31 +38,21 @@ export function PickerRail({
       props.focusList();
       return;
     }
-    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-    event.preventDefault();
-    const tabs = props.entries;
     // From the focused tab, which a pointer or a programmatic focus may have moved off the selection.
     const focused =
       event.target instanceof HTMLElement
         ? event.target.closest("[data-tab]")?.getAttribute("data-tab")
         : null;
-    const at = tabs.findIndex((entry) => entry.id === (focused ?? props.selected));
-    const next =
-      tabs[
-        event.key === "Home"
-          ? 0
-          : event.key === "End"
-            ? tabs.length - 1
-            : (at + (event.key === "ArrowDown" ? 1 : -1) + tabs.length) % tabs.length
-      ];
+    const next = railChoice(props.entries, focused ?? props.selected, event.key);
     if (!next) return;
+    event.preventDefault();
     props.onSelect(next.id);
     event.currentTarget.querySelector<HTMLElement>(`[data-tab="${next.id}"]`)?.focus();
   };
   if (!props.entries.length) return null;
   return (
     <div
-      ref={ref}
+      ref={props.ref}
       role="tablist"
       aria-label="Model sources"
       {...part("tabs", undefined, "model-sources")}
@@ -85,20 +81,7 @@ export function PickerRail({
               onClick={() => props.onSelect(entry.id)}
               className={tabButton}
             >
-              {entry.id === "favorites" ? (
-                <StarIcon aria-hidden size={16} weight={selected ? "fill" : "regular"} />
-              ) : (
-                entry.provider && (
-                  <ProviderAccountIcon
-                    provider={entry.provider}
-                    instance={entry.instance}
-                    acpAgentId={entry.acpAgentId}
-                    size={16}
-                    tooltip={false}
-                    decorative
-                  />
-                )
-              )}
+              {props.renderMark(entry, selected)}
               {/* The selected tab's edge mark, against the list it shows. */}
               {selected && (
                 <span
@@ -111,5 +94,25 @@ export function PickerRail({
         );
       })}
     </div>
+  );
+}
+
+/** The shared rail's mark for ace's own model picker: a star, or the account's provider logo. */
+export function ModelPickerRailMark(props: {
+  entry: PickerEntry;
+  selected: boolean;
+}): ReactNode {
+  if (props.entry.id === "favorites")
+    return <StarIcon aria-hidden size={16} weight={props.selected ? "fill" : "regular"} />;
+  if (!props.entry.provider) return null;
+  return (
+    <ProviderAccountIcon
+      provider={props.entry.provider}
+      instance={props.entry.instance}
+      acpAgentId={props.entry.acpAgentId}
+      size={16}
+      tooltip={false}
+      decorative
+    />
   );
 }
