@@ -2,10 +2,12 @@ import { afterEach, expect, test } from "vitest";
 import { Command, type ThreadId } from "@ace/protocol";
 import { Store, Engine } from "@ace/daemon";
 import { harness, scriptFrames, start, end, question, task } from "./test-support.ts";
+import { crashCopy, cleanupRecovery } from "./recovery-test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0)) await close();
+  await cleanupRecovery();
 });
 function track<T extends Awaited<ReturnType<typeof harness>>>(h: T): T {
   cleanups.push(h.close);
@@ -157,24 +159,18 @@ test("a committed unattempted send waits after restart and runs after explicit r
 
 test("an intent with uncertain provider delivery is reported after restart without replay", async () => {
   const frames = scriptFrames();
-  const h = track(await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames));
+  // The send reaches the provider and the daemon dies before its reply, so ace cannot tell
+  // whether the input ran. A copy of the live store is a crash, not a graceful close, which
+  // would settle the send itself.
+  const h = track(await harness([{ on: "send" }], frames));
   const id = await h.create();
-  await h.engine.close();
-  h.store.atomic((db) => db.prepare("UPDATE intents SET status = 'running'").run());
-  const restartedStore = new Store(h.path);
-  const recovered = new Engine(restartedStore, { registry: h.registry, clock: h.clock });
-  try {
-    await recovered.flush();
-    expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(1);
-    expect(
-      Object.values(transcript(restartedStore, id).items).some(
-        (item) => item.type === "notice" && item.detail?.includes("execution is uncertain"),
-      ),
-    ).toBe(true);
-  } finally {
-    await recovered.close();
-    restartedStore.close();
-  }
+  const { store: restartedStore } = await crashCopy(h);
+  expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(1);
+  expect(
+    Object.values(transcript(restartedStore, id).items).some(
+      (item) => item.type === "notice" && item.detail?.includes("execution is uncertain"),
+    ),
+  ).toBe(true);
 });
 
 test("recovery uses the saved state from the same commit as the final turn events", async () => {
