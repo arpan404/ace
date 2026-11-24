@@ -20,7 +20,6 @@ const Targets = z.object({
   targetInfos: z.array(z.object({ targetId: z.string(), type: z.string(), url: z.string() })),
 });
 const Attached = z.object({ sessionId: z.string() });
-const Window = z.object({ windowId: z.number().int() });
 const Evaluated = z.object({
   result: z.object({ value: z.unknown().optional() }).optional(),
   exceptionDetails: z
@@ -31,8 +30,41 @@ const Evaluated = z.object({
     .optional(),
 });
 const Binding = z.object({ name: z.string(), payload: z.string() });
+const TargetInfo = z.object({ targetInfo: z.object({ targetId: z.string() }) });
+const ChromeTabId = z.number().int();
+const ExportNames = z.array(z.string());
+/** The tab shown in a window: whether it plays sound and whether it is muted. */
+const Audio = z.object({ audible: z.boolean(), muted: z.boolean() });
+const TabAudio = Audio.extend({ tabId: ChromeTabId });
+type TabAudioListener = (tabId: number, audio: z.infer<typeof Audio>) => void;
+
+/** One open capture's sound: what its viewer asked, and how to set what the document encodes. */
+interface CaptureSound {
+  tabId: number;
+  /** A viewer of this capture listens (ADR 0088, Audio): it asked for the tab's sound. */
+  wanted: boolean;
+  /** Applies `wanted`, less the tab's mute, which is for everyone. */
+  apply(): void;
+}
 
 const origin = `chrome-extension://${videoExtensionId}/`;
+
+/**
+ * Every export the daemon calls. A profile can keep an older build of the same id and version
+ * running (Chrome does not replace an unpacked extension whose version did not change), and
+ * calling an export it lacks is how every capture would then fail.
+ */
+const workerExports = ["ready", "open", "tabFor", "tabAudio", "mute"] as const;
+const documentExports = [
+  "supported",
+  "start",
+  "encodes",
+  "keyframe",
+  "audio",
+  "ingest",
+  "epoch",
+  "stop",
+] as const;
 
 /** The CDP surface the encoder uses: commands, and the sessions of attached targets. */
 type Connection = Pick<CdpConnection, "send" | "session">;
@@ -48,6 +80,12 @@ export class ChromeVideo implements VideoHost {
   private documentTarget: string | undefined;
   private sessions = new Set<string>();
   private captures = new Map<string, CaptureEvents>();
+  /** Told of each tab's sound as the extension's worker hears it (they outlive reinstalls). */
+  private tabAudioListeners = new Set<TabAudioListener>();
+  /** Tabs Chrome reports muted, by Chrome tab: their sound is off for every viewer (ADR 0088). */
+  private mutedTabs = new Set<number>();
+  /** Each open capture's sound, so a tab's mute applies to the captures of that tab. */
+  private captureAudio = new Map<string, CaptureSound>();
   /** Captures told to stop whose stop hasn't finished: their tab is still held until then. */
   private stopping = new Set<Promise<unknown>>();
   private ids = 0;
@@ -71,6 +109,7 @@ export class ChromeVideo implements VideoHost {
       this.ready = undefined;
       for (const events of this.captures.values()) events.ended();
       this.captures.clear();
+      this.captureAudio.clear();
     });
   }
   async supported(codecs: readonly string[], width: number, height: number): Promise<string[]> {
@@ -79,25 +118,73 @@ export class ChromeVideo implements VideoHost {
       await evaluate(document, "aceVideo.supported", [codecs, width, height]),
     );
   }
+  /**
+   * Told each time the extension's worker hears a tab's sound change, with the Chrome tab it
+   * belongs to. One per Chrome, so every thread's tabs listen here.
+   */
+  onTabAudio(listener: TabAudioListener): () => void {
+    this.tabAudioListeners.add(listener);
+    return () => {
+      this.tabAudioListeners.delete(listener);
+    };
+  }
+  /**
+   * The Chrome tab id of the page on `page`'s CDP session: the extension keys sound by tab, not
+   * by window, since a named popup shares its opener's window.
+   */
+  async chromeTabId(page: BrowserCdp): Promise<number> {
+    const { targetInfo } = TargetInfo.parse(await page.send("Target.getTargetInfo"));
+    const { worker } = await this.extension();
+    return ChromeTabId.parse(await evaluate(worker, "aceVideo.tabFor", [targetInfo.targetId]));
+  }
+  /** Whether the Chrome tab plays sound, and whether it is muted. */
+  async tabAudio(tabId: number): Promise<z.infer<typeof Audio>> {
+    const { worker } = await this.extension();
+    return Audio.parse(await evaluate(worker, "aceVideo.tabAudio", [tabId]));
+  }
+  /** Turns the sound of the Chrome tab off or on. */
+  async mute(tabId: number, muted: boolean): Promise<void> {
+    const { worker } = await this.extension();
+    await evaluate(worker, "aceVideo.mute", [tabId, muted]);
+  }
   async open(
     page: BrowserCdp,
     width: number,
     height: number,
     events: CaptureEvents,
   ): Promise<VideoCaptureHandle> {
-    const { windowId } = Window.parse(await page.send("Browser.getWindowForTarget"));
+    const tabId = await this.chromeTabId(page);
     const id = `capture-${++this.ids}`;
-    const document = await this.start(id, windowId, width, height);
+    const document = await this.start(id, tabId, width, height);
+    // A page already playing sound when its capture starts sends no change once the worker
+    // listens: seed the tab's state for every listener, best effort.
+    void this.tabAudio(tabId).then(
+      (audio) => this.announceTabAudio(tabId, audio),
+      () => {},
+    );
     this.captures.set(id, events);
+    const muted = () => this.mutedTabs.has(tabId);
+    const sound: CaptureSound = {
+      tabId,
+      wanted: false,
+      apply: () => {
+        void evaluate(document, "aceVideo.audio", [id, sound.wanted && !muted()]).catch(() => {});
+      },
+    };
+    this.captureAudio.set(id, sound);
     const call = (name: string, args: unknown[]) =>
       void evaluate(document, name, args).catch(() => {});
     return {
       encodes: (specs) => call("aceVideo.encodes", [id, specs]),
       keyframe: (encode) => call("aceVideo.keyframe", [id, encode]),
-      audio: (on) => call("aceVideo.audio", [id, on]),
+      audio: (on) => {
+        sound.wanted = on;
+        sound.apply();
+      },
       // Chunks go only to ace-media's ingest, binary.
       ingest: (target) => call("aceVideo.ingest", [id, target ?? null]),
       close: () => {
+        this.captureAudio.delete(id);
         if (!this.captures.delete(id)) return;
         const stopped = evaluate(document, "aceVideo.stop", [id]).catch(() => {});
         this.stopping.add(stopped);
@@ -107,19 +194,19 @@ export class ChromeVideo implements VideoHost {
     };
   }
   /**
-   * Opens capture `id` of the tab shown in `windowId` and returns the document encoding it.
-   * Each attempt takes a fresh stream id, since Chrome takes one only once. With the tab's sound
-   * first; a capture that can't take it streams its picture alone. A failed attempt can leave
-   * the tab held by a capture Chrome started but never handed over, which neither a new stream id
-   * nor a new document frees: then the extension is installed again, which ends every capture
-   * it asked for, and the tab is tried once more.
+   * Opens capture `id` of Chrome tab `tabId` and returns the document encoding it. Each attempt
+   * takes a fresh stream id, since Chrome takes one only once. With the tab's sound first; a
+   * capture that can't take it streams its picture alone. A failed attempt can leave the tab
+   * held by a capture Chrome started but never handed over, which neither a new stream id nor a
+   * new document frees: then the extension is installed again, which ends every capture it asked
+   * for, and the tab is tried once more.
    */
-  private async start(id: string, windowId: number, width: number, height: number) {
+  private async start(id: string, tabId: number, width: number, height: number) {
     // A capture still stopping holds its tab; asking for the tab before then is refused.
     await Promise.all(this.stopping);
     let { worker, document } = await this.extension();
     const attempt = async (audio: boolean) => {
-      const { streamId } = OpenedStream.parse(await evaluate(worker, "aceVideo.open", [windowId]));
+      const { streamId } = OpenedStream.parse(await evaluate(worker, "aceVideo.open", [tabId]));
       await evaluate(document, "aceVideo.start", [
         id,
         streamId,
@@ -168,10 +255,14 @@ export class ChromeVideo implements VideoHost {
     return this.install({});
   }
   /** Loads the unpacked extension and attaches to its worker and document, never to `not`. */
-  private async install(not: {
-    worker?: string | undefined;
-    document?: string | undefined;
-  }): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
+  private async install(
+    not: {
+      worker?: string | undefined;
+      document?: string | undefined;
+    },
+    /** This load follows installing a build that was already running. */
+    reinstalled = false,
+  ): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
     await writeVideoExtension(this.directory);
     const loaded = LoadedExtension.parse(
       await this.connection.send("Extensions.loadUnpacked", { path: this.directory }),
@@ -186,6 +277,8 @@ export class ChromeVideo implements VideoHost {
     this.workerTarget = attached.targetId;
     const worker = attached.session;
     await this.untilExport(worker, "ready");
+    worker.on("Runtime.bindingCalled", (raw) => this.receiveTab(raw));
+    await worker.send("Runtime.addBinding", { name: "aceVideoTab" });
     await evaluate(worker, "aceVideo.ready", []);
     const opened = await this.attach(`${origin}offscreen.html`, not.document);
     this.documentTarget = opened.targetId;
@@ -193,7 +286,29 @@ export class ChromeVideo implements VideoHost {
     await this.untilExport(document, "supported");
     document.on("Runtime.bindingCalled", (raw) => this.receive(raw));
     await document.send("Runtime.addBinding", { name: "aceVideoEvent" });
-    return { worker, document };
+    const missing = await this.missingExports(worker, document);
+    if (!missing.length) return { worker, document };
+    if (reinstalled)
+      throw new Error(`The video extension is out of date: ${missing.join(", ")} missing`);
+    // Chrome kept the build it was already running, which lacks these exports: install it again
+    // (which closes the old worker) and check the new one.
+    this.sessions.clear();
+    for (const events of this.captures.values()) events.ended();
+    this.captures.clear();
+    this.captureAudio.clear();
+    await this.connection.send("Extensions.uninstall", { id: videoExtensionId });
+    return this.install({ worker: attached.targetId, document: opened.targetId }, true);
+  }
+  /** The exports of `workerExports` and `documentExports` their `aceVideo` does not define. */
+  private async missingExports(
+    worker: BrowserCdp,
+    document: BrowserCdp,
+  ): Promise<string[]> {
+    const missing = [
+      ...(await absentExports(worker, workerExports)),
+      ...(await absentExports(document, documentExports)),
+    ];
+    return [...new Set(missing)].map((name) => `aceVideo.${name}`);
   }
   /** Attaches to the extension target at `url` (never `not`), waiting a few seconds for it. */
   private async attach(
@@ -251,6 +366,47 @@ export class ChromeVideo implements VideoHost {
     }
     const event = VideoEncoderEvent.safeParse(json);
     if (event.success) deliverVideoEvent(this.captures, event.data);
+  }
+  /** The worker's tab sound changes (`aceVideoTab`), as JSON. */
+  private receiveTab(raw: unknown): void {
+    const binding = Binding.safeParse(raw);
+    if (!binding.success || binding.data.name !== "aceVideoTab") return;
+    let json: unknown;
+    try {
+      json = JSON.parse(binding.data.payload);
+    } catch {
+      return;
+    }
+    const audio = TabAudio.safeParse(json);
+    if (!audio.success) return;
+    const { tabId, audible, muted } = audio.data;
+    this.announceTabAudio(tabId, { audible, muted });
+  }
+  private announceTabAudio(tabId: number, audio: z.infer<typeof Audio>): void {
+    if (audio.muted !== this.mutedTabs.has(tabId)) {
+      if (audio.muted) this.mutedTabs.add(tabId);
+      else this.mutedTabs.delete(tabId);
+      // The tab's mute is for everyone: its captures stop or resume their sound with it.
+      for (const sound of this.captureAudio.values())
+        if (sound.tabId === tabId) sound.apply();
+    }
+    for (const listener of this.tabAudioListeners) listener(tabId, audio);
+  }
+}
+
+/** The exports of `exports` an `aceVideo` on `target` does not define (a stale build lacks some). */
+async function absentExports(target: BrowserCdp, exports: readonly string[]): Promise<string[]> {
+  try {
+    const reply = Evaluated.parse(
+      await target.send("Runtime.evaluate", {
+        expression: `(${JSON.stringify(exports)}).filter((name) => typeof globalThis.aceVideo?.[name] !== "function")`,
+        returnByValue: true,
+      }),
+    );
+    return ExportNames.parse(reply.result?.value ?? [...exports]);
+  } catch {
+    // A target that cannot answer is no better than one that lacks the exports.
+    return [...exports];
   }
 }
 
