@@ -7,7 +7,6 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
 
 use ace_transport::{
@@ -88,18 +87,18 @@ impl Decided {
     }
 }
 
-/// No reservation yet: the decision task stores one before it answers, and the
-/// connection's drop turns it into the one release.
-const NONE: u64 = u64::MAX;
-
 /// The connection's wait on its upgrade's decision. It owns whatever the
 /// decision holds: a pending upgrade is abandoned, and an accepted reservation
 /// is released — whether the sender never answered, the send went unread, or
-/// the connection was dropped between the two.
+/// the connection was dropped between the two. The machine's `settle` sees the
+/// phase and the reservation in one step, so there is no window in which one is
+/// visible without the other.
 struct Pending {
     shared: Arc<Shared>,
     id: u64,
-    reservation: Arc<AtomicU64>,
+    /// The connection has the decision: releasing here would take the
+    /// reservation from the task that writes the `101`.
+    answered: bool,
     outcome: oneshot::Receiver<AdmissionOutcome>,
 }
 
@@ -113,9 +112,7 @@ impl Future for Pending {
             // upgrade, so admission refuses it rather than opening anything.
             Poll::Ready(Err(_)) => Poll::Ready(AdmissionOutcome::TimedOut),
             Poll::Ready(Ok(outcome)) => {
-                // The connection has the reservation now; releasing it here
-                // would take it from the task that writes the `101`.
-                this.reservation.store(NONE, Ordering::Release);
+                this.answered = true;
                 Poll::Ready(outcome)
             }
             Poll::Pending => Poll::Pending,
@@ -125,11 +122,11 @@ impl Future for Pending {
 
 impl Drop for Pending {
     fn drop(&mut self) {
-        let reservation = self.reservation.load(Ordering::Acquire);
-        if reservation == NONE {
-            self.shared.admission.abandoned(self.id);
-        } else if self.shared.admission.released(reservation) {
-            self.shared.release_js(reservation);
+        if self.answered {
+            return;
+        }
+        if let Some(held) = self.shared.admission.settle(self.id) {
+            self.shared.release(held);
         }
     }
 }
@@ -144,30 +141,31 @@ impl UpgradeAdmission for Admitting {
     ) -> Pin<Box<dyn Future<Output = AdmissionOutcome> + Send>> {
         let shared = Arc::clone(&self.0);
         let id = shared.admission.begin();
-        let reservation = Arc::new(AtomicU64::new(NONE));
         let (outcome, answer) = oneshot::channel();
-        shared.runtime.spawn(resolve(
-            Arc::clone(&shared),
-            id,
-            request,
-            Arc::clone(&reservation),
-            outcome,
-        ));
+        shared
+            .runtime
+            .spawn(resolve(Arc::clone(&shared), id, request, outcome));
         Box::pin(Pending {
             shared,
             id,
-            reservation,
+            answered: false,
             outcome: answer,
         })
     }
 
     fn writing(&self, reservation: u64) -> bool {
-        self.0.admission.writing(reservation)
+        if !self.0.admission.writing(reservation) {
+            return false;
+        }
+        // On the wire now: close() waits for it until it opens or releases,
+        // because a hyper upgrade registers its socket from a task of its own.
+        self.0.live.enter_writing();
+        true
     }
 
     fn release(&self, reservation: u64) {
-        if self.0.admission.released(reservation) {
-            self.0.release_js(reservation);
+        if let Some(held) = self.0.admission.released(reservation) {
+            self.0.release(held);
         }
     }
 }
@@ -178,7 +176,6 @@ async fn resolve(
     shared: Arc<Shared>,
     id: u64,
     request: UpgradeRequest,
-    reservation: Arc<AtomicU64>,
     outcome: oneshot::Sender<AdmissionOutcome>,
 ) {
     let asked = AdmitRequestJs {
@@ -225,17 +222,16 @@ async fn resolve(
     match answer {
         Ok(answer) => match Decided::of(&answer) {
             Decided::Accepted(held) => {
+                // The phase and the reservation are recorded together, so the
+                // connection's own drop can always release what it holds.
                 if shared.admission.accepted(id, held) {
-                    // The connection owns the reservation's release from here:
-                    // its own drop releases it if it never reads the answer.
-                    reservation.store(held, Ordering::Release);
                     let decision =
                         AdmissionOutcome::Decided(AdmissionDecision::Accept { reservation: held });
                     if outcome.send(decision).is_err() {
                         // The connection was dropped before it read the answer
                         // (its guard may have released already).
-                        if shared.admission.released(held) {
-                            shared.release_js(held);
+                        if let Some(released) = shared.admission.released(held) {
+                            shared.release(released);
                         }
                     }
                 } else if shared.admission.released_late(id) {
@@ -264,13 +260,16 @@ pub struct Sinking(pub Arc<Shared>);
 impl SocketSink for Sinking {
     fn opened(&self, reservation: u64, stream: Box<dyn UpgradeIo>, user_agent: Option<String>) {
         let shared = &self.0;
-        if !shared.admission.opened(reservation) {
+        if shared.admission.opened(reservation).is_none() {
             // Released, abandoned or timed out: the stream is dropped and no
             // socket is built, so a failed `101` can never arrive as one.
             drop(stream);
             return;
         }
+        // The socket joins the close wait before the wire count lets it go, so
+        // the close never sees neither.
         let socket = NativeSocketHandle::open(Arc::clone(shared), stream);
+        shared.live.leave_writing();
         let _ = shared.opened.call_with_return_value(
             FnArgs::from((socket, reservation as f64, user_agent)),
             ThreadsafeFunctionCallMode::NonBlocking,

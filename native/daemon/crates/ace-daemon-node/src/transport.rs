@@ -26,7 +26,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
 use ace_transport::{HopSecret, LoopbackListener, ProxyTarget, WebSocketUpgrades};
-use admission::Admission;
+use admission::{Admission, Held};
 use napi::bindgen_prelude::Object;
 use napi::threadsafe_function::ThreadsafeFunctionCallMode;
 use napi::{Env, JsValue};
@@ -85,6 +85,15 @@ pub(crate) struct Shared {
 }
 
 impl Shared {
+    /// The one release: the machine's transition already happened, so this is
+    /// the close wait's count and TypeScript's callback.
+    pub(crate) fn release(&self, held: Held) {
+        if held.writing {
+            self.live.leave_writing();
+        }
+        self.release_js(held.reservation);
+    }
+
     /// TypeScript drops one reservation. Called only by a transition that won.
     pub(crate) fn release_js(&self, reservation: u64) {
         let _ = self
@@ -119,10 +128,15 @@ impl CloseGate {
     }
 }
 
-/// The sockets that reached `opened` and have not reported `close`.
+/// The sockets that reached `opened` and have not reported `close`, and the
+/// upgrades still on the wire.
 pub(crate) struct Live {
     next: AtomicU64,
     sockets: Mutex<HashSet<u64>>,
+    /// Reservations in `Writing` that have neither opened nor been released. A
+    /// hyper upgrade registers its socket from a task of its own, after the
+    /// listener has drained, so the close waits for these too.
+    writing: AtomicU64,
     quiet: Notify,
 }
 
@@ -131,7 +145,28 @@ impl Live {
         Self {
             next: AtomicU64::new(1),
             sockets: Mutex::new(HashSet::new()),
+            writing: AtomicU64::new(0),
             quiet: Notify::new(),
+        }
+    }
+
+    /// An upgrade reached `Writing`: its `101` is on the wire until it opens or
+    /// releases.
+    pub(crate) fn enter_writing(&self) {
+        self.writing.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// An upgrade opened (its socket is counted first) or released.
+    pub(crate) fn leave_writing(&self) {
+        let mut remaining = 0;
+        let _ = self
+            .writing
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                remaining = count.saturating_sub(1);
+                Some(remaining)
+            });
+        if remaining == 0 {
+            self.quiet.notify_one();
         }
     }
 
@@ -154,7 +189,7 @@ impl Live {
     async fn quiet(&self) {
         loop {
             let quiet = self.quiet.notified();
-            if locked(&self.sockets).is_empty() {
+            if self.writing.load(Ordering::Acquire) == 0 && locked(&self.sockets).is_empty() {
                 return;
             }
             quiet.await;
@@ -298,7 +333,7 @@ impl NativeLoopback {
     }
 }
 
-/// A number that names a port: a whole number in `0..=65535`, where `0` is only
+// A number that names a port: a whole number in `0..=65535`, where `0` is only
 /// a port when the caller may pick one.
 fn addr(value: f64, name: &str, any_port: bool) -> napi::Result<SocketAddr> {
     let lowest = if any_port { 0.0 } else { 1.0 };
@@ -321,4 +356,38 @@ fn deadline(milliseconds: f64) -> u64 {
         return 0;
     }
     milliseconds as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    use super::Live;
+
+    #[tokio::test]
+    async fn a_close_waits_for_an_upgrade_that_has_not_registered_its_socket_yet() {
+        let live = Arc::new(Live::new());
+        live.enter_writing();
+        let stopped = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&stopped);
+        let waiting = Arc::clone(&live);
+        let quiet = tokio::spawn(async move {
+            waiting.quiet().await;
+            flag.store(true, Ordering::Release);
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(
+            !stopped.load(Ordering::Acquire),
+            "the close waits while the 101 is on the wire"
+        );
+        live.leave_writing();
+        tokio::time::timeout(Duration::from_secs(2), quiet)
+            .await
+            .expect("the close finishes once the upgrade registers or releases")
+            .expect("the wait did not panic");
+        assert!(stopped.load(Ordering::Acquire));
+    }
 }

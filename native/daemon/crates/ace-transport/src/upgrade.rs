@@ -145,16 +145,28 @@ impl UpgradeHandler for WebSocketUpgrades {
             let user_agent = request.user_agent.clone();
             // Admission may outlive the client. A client that goes away while
             // its decision is pending is abandoned, never answered: dropping
-            // the decision future is what abandons it.
+            // the decision future is what abandons it. A client that is still
+            // there — its bytes waiting, or nothing yet — keeps waiting for the
+            // decision, and one with bytes waiting is watched no further.
             let outcome = {
                 let deciding = admission.admit(request);
                 tokio::pin!(deciding);
-                let closed = stream.peer_closed();
-                tokio::pin!(closed);
-                tokio::select! {
-                    biased;
-                    outcome = &mut deciding => outcome,
-                    _ = &mut closed => return,
+                let mut watching = true;
+                loop {
+                    if !watching {
+                        break deciding.await;
+                    }
+                    let gone = stream.peer_closed();
+                    tokio::pin!(gone);
+                    let closed = tokio::select! {
+                        biased;
+                        outcome = &mut deciding => break outcome,
+                        closed = &mut gone => closed,
+                    };
+                    if closed {
+                        return;
+                    }
+                    watching = false;
                 }
             };
             let reservation = match decided(outcome) {

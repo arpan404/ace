@@ -357,6 +357,47 @@ async fn a_raw_upgrade_answers_in_ws_bytes_and_releases_only_on_refusal() {
 }
 
 #[tokio::test]
+async fn a_client_with_bytes_waiting_is_not_mistaken_for_one_that_left() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("a listener");
+    let address = listener.local_addr().expect("the listener's address");
+    let mut client = TcpStream::connect(address).await.expect("a client");
+    let (server, _) = listener.accept().await.expect("the connection");
+    let peer = Peer::of(&server).expect("the socket's addresses");
+    let admission = Arc::new(StubAdmission::never());
+    let sink = Arc::new(RecordingSink::default());
+    let upgrades = WebSocketUpgrades::new(admission.clone(), sink.clone());
+
+    let upgrade = upgrades.upgrade_raw(
+        head(&valid("GET")),
+        Prefixed::new(Bytes::new(), server, WRITE_TIMEOUT),
+        peer,
+        CancellationToken::new(),
+        Grace::new(),
+    );
+    tokio::pin!(upgrade);
+    // Bytes the client sent before its `101`: a client that is there, not gone.
+    client
+        .write_all(b"x")
+        .await
+        .expect("the client sends a byte");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(150), &mut upgrade)
+            .await
+            .is_err(),
+        "a client with bytes waiting is waited for, not abandoned"
+    );
+    assert!(
+        admission
+            .released
+            .lock()
+            .expect("the stub's lock")
+            .is_empty(),
+        "nothing was reserved, so nothing is released"
+    );
+    assert!(sink.0.lock().expect("the sink's lock").is_empty());
+}
+
+#[tokio::test]
 async fn a_client_that_leaves_while_its_decision_is_pending_is_abandoned() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("a listener");
     let address = listener.local_addr().expect("the listener's address");
