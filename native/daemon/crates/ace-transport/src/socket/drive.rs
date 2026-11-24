@@ -16,7 +16,7 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::{CloseFrame, Role, WebSocketConfig};
 use tokio_tungstenite::tungstenite::{Error as WsError, Message, Utf8Bytes};
 
-use super::{CLOSED, CLOSING, MAX_MESSAGE_BYTES, OPEN, Outbound, Shared, SocketEvent};
+use super::{CLOSED, CLOSING, MAX_MESSAGE_BYTES, OPEN, Outbound, Shared, SocketEvent, lock};
 use crate::driver::UpgradeIo;
 use crate::prefixed::WRITE_TIMEOUT;
 
@@ -216,6 +216,15 @@ async fn finish(
     owed: Option<u64>,
 ) {
     if let Some((code, message)) = &ending.error {
+        // ws reports a failed connection as CLOSING before its error event, so a
+        // handler that terminates from it finds a closing socket and leaves the
+        // 1009 or 1002 close frame the grace to reach the peer.
+        {
+            let mut inner = lock(&shared.inner);
+            if inner.state == OPEN {
+                inner.state = CLOSING;
+            }
+        }
         let _ = shared.emit(SocketEvent::Error {
             code,
             message: message.clone(),

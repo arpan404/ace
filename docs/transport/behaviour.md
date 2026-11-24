@@ -67,6 +67,11 @@ observes, and must hold unchanged with any `ACE_TRANSPORT`, `ACE_HTTP`, `ACE_REL
   without context takeover, both directions; outbound compression is chosen per message by the
   allowlist in `compression-policy.ts` (transcript and history bulk only, never a message that may
   carry a credential), for messages of at least 1,024 bytes. Loopback sockets never compress.
+- **Recorded difference (T1a.6's socket shell)**: outbound text that isn't valid UTF-8, a JavaScript
+  string holding a lone surrogate included, fails that send's callback instead of reaching the
+  peer, where `ws` sends the bytes and the peer closes with `1007`. The callback's error reads
+  `Invalid WebSocket frame: invalid UTF-8 sequence`. tungstenite cannot build an invalid text
+  frame, and the daemon sends JSON strings, so no message the daemon composes is affected.
 
 ## 3. HTTP
 

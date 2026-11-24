@@ -36,6 +36,7 @@
     "./flow-control": "./src/flow-control.ts",
     "./sqlite": "./src/sqlite.ts",
     "./native-switches": "./src/native-switches.ts",
+    "./native-transport": "./src/native-transport.ts",
     "./open-error": "./src/open-error.ts",
     "./incompatible-data": "./src/incompatible-data.ts",
     "./startup-output": "./src/startup-output.ts",

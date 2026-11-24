@@ -10,7 +10,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use ace_transport::socket::{MESSAGE_OVERHEAD, SocketEvent, SocketEvents, SocketHandle};
+use ace_transport::socket::{
+    MESSAGE_OVERHEAD, SendResult, SocketEvent, SocketEvents, SocketHandle,
+};
 use napi::Status;
 use napi::bindgen_prelude::{Buffer, Either, Uint8Array};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
@@ -119,14 +121,22 @@ impl NativeSocketHandle {
         Ok(())
     }
 
-    /// `ws`'s send while open: true when the frame was queued (and then owes
-    /// exactly one `sent`), false when nothing was queued.
+    /// `ws`'s send while open: `queued` (and then exactly one `sent`), or why
+    /// nothing was queued. The shell tells `not-open` (a close race) apart from
+    /// `full` and `invalid-utf8`, which only fail that one send's callback.
     #[napi(catch_unwind)]
-    pub fn send(&self, data: Uint8Array, binary: bool, id: f64) -> bool {
-        self.inner
+    pub fn send(&self, data: Uint8Array, binary: bool, id: f64) -> String {
+        match self
+            .inner
             .handle
             .send(bytes::Bytes::copy_from_slice(&data), binary, count(id))
-            == ace_transport::SendResult::Queued
+        {
+            SendResult::Queued => "queued",
+            SendResult::NotOpen => "not-open",
+            SendResult::Full => "full",
+            SendResult::InvalidUtf8 => "invalid-utf8",
+        }
+        .to_owned()
     }
 
     /// A deliberate close with its code and reason; idempotent per socket.
