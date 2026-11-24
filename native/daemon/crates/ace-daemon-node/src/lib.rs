@@ -29,6 +29,7 @@ mod translate_codex;
 mod translate_cursor;
 mod translate_opencode;
 mod translate_pi;
+mod writer;
 
 /// Largest integer a JavaScript number holds exactly.
 const SAFE: i64 = (1 << 53) - 1;
