@@ -9,9 +9,6 @@ import { cancelOpenWork, outlivingTurn } from "./cleanup.ts";
 type Started = Extract<Fact, { type: "turn.started" }>;
 type Ended = Extract<Fact, { type: "turn.ended" }>;
 
-/** Longest a steer-ended turn reads as working while the steer goes in. */
-export const steerHandoffMs = 30_000;
-
 function matchingRun(state: ThreadState, record: AgentRecord, nativeId: string): Run | undefined {
   const id = record.nativeRuns && get(record.nativeRuns, nativeId);
   return id === undefined ? undefined : get(state.runs, id);
@@ -74,7 +71,6 @@ export function startTurn(
   record.activity = "starting_turn";
   delete record.detail;
   delete record.wakeUntil;
-  delete record.steerUntil;
   delete record.retry;
   state.hasRun = true;
   emit(events, { type: "run.started", run });
@@ -143,8 +139,6 @@ export function endTurn(
   delete record.activeRun;
   delete record.retry;
   record.lastRun = run.id;
-  if (fact.endedBy === "steer" && !fact.historical) record.steerUntil = ctx.now + steerHandoffMs;
-  else delete record.steerUntil;
   record.lastOutcomeOrder = ++state.outcomeOrder;
   if (fact.outcome === "completed") record.lastSuccessfulOutcomeOrder = record.lastOutcomeOrder;
   if (fact.outcome === "failed") {

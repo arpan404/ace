@@ -57,11 +57,6 @@ export interface AgentRecord {
   limited?: { until?: number; message?: string };
   retry?: Omit<Extract<Fact, { type: "retry" }>, "type" | "agent">;
   wakeUntil?: number;
-  /**
-   * A turn a steer ended hands over to that steer until this time: the agent reads working, not
-   * interrupted, until its next turn starts.
-   */
-  steerUntil?: number;
   parentKey?: Key;
   spawnedByKey?: Key;
 }
@@ -122,6 +117,8 @@ export interface ThreadState {
   queueHeld?: true;
   /** The engine queue is paused by a Stop: its input waits for the person's Resume. */
   queueStopped?: true;
+  /** The engine queue is paused (a restart, a usage limit): its input sends nothing by itself. */
+  queuePaused?: true;
   hasRun: boolean;
   /** Its work moved to another machine and goes on there (ADR 0191). */
   movedTo?: Extract<ThreadStatus, { state: "moved" }>["to"];

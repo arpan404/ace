@@ -243,6 +243,11 @@ export type Fact =
        * resumes it, so nothing is waiting to send by itself (ADR 0052). Engine source only.
        */
       stopped?: boolean;
+      /**
+       * The engine's queue is paused for another reason (a restart, a usage limit): its input
+       * sends nothing by itself either. Engine source only.
+       */
+      paused?: boolean;
     }
   /** The thread's work moved to another machine (ADR 0191); null when it runs here again. */
   | { type: "thread.moved"; to: Extract<ThreadStatus, { state: "moved" }>["to"] | null }

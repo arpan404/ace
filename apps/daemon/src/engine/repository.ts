@@ -587,12 +587,15 @@ export class EngineRepository {
     const count = this.queuedCount(id);
     const held = count > 0 && this.queue.heldOnFailedSend(id);
     const stopped = count > 0 && !held && this.queue.stoppedByPerson(id);
+    const q = this.queue.get(id);
+    const paused = count > 0 && !held && !stopped && (q.paused || q.limited);
     const state = this.state(id);
     if (
       state &&
       state.queueSources.engine === count &&
       (state.queueHeld ?? false) === held &&
-      (state.queueStopped ?? false) === stopped
+      (state.queueStopped ?? false) === stopped &&
+      (state.queuePaused ?? false) === paused
     )
       return undefined;
     return {
@@ -601,6 +604,7 @@ export class EngineRepository {
       count,
       ...(held ? { held } : {}),
       ...(stopped ? { stopped } : {}),
+      ...(paused ? { paused } : {}),
     };
   }
   /** The thread's newest command ace took, by intent id (never reused, never deleted). */

@@ -32,8 +32,7 @@ function candidates(
       !state.hasRun &&
       record.agent.fidelity !== "placeholder" &&
       !record.activeRun &&
-      record.wakeUntil === undefined &&
-      record.steerUntil === undefined
+      record.wakeUntil === undefined
     )
       continue;
     if (
@@ -42,12 +41,6 @@ function candidates(
       record.agent.status.state === "working"
     )
       admit(key, "wake", record.wakeUntil);
-    if (
-      !record.activeRun &&
-      record.steerUntil !== undefined &&
-      record.agent.status.state === "working"
-    )
-      admit(key, "wake", record.steerUntil);
     if (state.config.liveness === "transport") {
       if (!isSettled(record.agent.status) && record.agent.status.state !== "unresponsive")
         admit(key, "transport", transportDeadline);
