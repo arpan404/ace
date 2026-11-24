@@ -707,8 +707,21 @@ fix. The native port then copies the fixed behaviour.
      afterCommit(callback: () => void): void;
      ```
 
-     - It runs at once when no transaction is open. That covers `installingHistory`, whose
-       `transaction` calls `run()` with no `BEGIN`.
+     - It runs at once only when no SQLite transaction is open: `transactionEvents` is unset and
+       `installingHistory` is false.
+     - **History installation is an open transaction.** `installHistory` runs its own
+       `BEGIN IMMEDIATE` (`store.ts:891` on main) and sets `installingHistory`. The nested
+       wrapper (`:576`) then calls `run()` with no `BEGIN` and no savepoint. A callback
+       registered there is pushed onto the same `commitCallbacks` list.
+       - `installHistory` runs the list after its `COMMIT` and `readCache.evict` (`:902`–`:903`),
+         in order, each in its own `try`, with a throw sent to `onError`.
+       - Its `catch` (`:904`) clears the list without running it.
+       - A nested `transaction` during installation records the list's length before `run()`
+         and truncates back to it if `run()` throws, because there is no savepoint to undo its
+         rows either.
+       - The callbacks run after that commit, not after the events publish. An installation's
+         events publish later, through `notifyHistory`, and a callback that waited for that
+         could wait indefinitely.
      - Inside one, it is pushed onto a new private `commitCallbacks` list. A nested savepoint
        records the list's length when it begins and truncates back to it when it rolls back,
        as `settling` does for `settlements` (`:583`, `:604`). The outermost rollback clears the
@@ -724,6 +737,13 @@ fix. The native port then copies the fixed behaviour.
      `repo.store.afterCommit(() => repo.onNamingPrompt?.(id, input))` instead of the port. The
      comment at `thread-titles.ts:96` ("the work starts after it commits") becomes true.
      `ThreadTitles` itself is unchanged.
+   - **The installation test** (`history-storage.process.test.ts`, written with the fix): "a
+     callback registered during history installation runs once after the install commits, and
+     never when the install rolls back". It installs an archive whose `appendEvents` callback
+     registers `store.afterCommit(spy)`. The spy has no calls until `installHistory` returns, then
+     exactly one. A second install is cancelled after the registration (`cancelled()` turns true,
+     so `installArchive` throws `History publication cancelled`, `history-storage.ts:13`), and its spy has no calls after the throw. A hook that ran at once
+     would fail the first half, and one queued without the install's own drain would never run.
    - **The test** (`engine/thread-title.process.test.ts`, written first and red on main): "a
      receipt that rolls back after acceptance never asks for its thread's title, and its retry asks
      once". Through the harness with an `onNamingPrompt` spy, bind a command policy that calls
