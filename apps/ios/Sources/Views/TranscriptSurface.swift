@@ -36,13 +36,17 @@ import UIKit
     var attached: Bool { scroller != nil }
 
     private var locate: ((String) -> CGRect?)?
+    private var aiming: (() -> Void)?
     private var animating: (() -> Void)?
 
-    /// The transcript's collection view: `locate` gives an entry's physical frame, `animating`
-    /// is told before an animated scroll starts.
-    func attach(_ scroller: UIScrollView, locate: @escaping (String) -> CGRect?, animating: @escaping () -> Void) {
+    /// The transcript's collection view: `locate` gives an entry's physical frame, `aiming` is
+    /// told before an animated scroll picks its target (a window change held for the reader lands
+    /// then, so the target is in the window the scroll runs in), `animating` before it starts.
+    func attach(_ scroller: UIScrollView, locate: @escaping (String) -> CGRect?,
+                aiming: @escaping () -> Void, animating: @escaping () -> Void) {
         self.scroller = scroller
         self.locate = locate
+        self.aiming = aiming
         self.animating = animating
     }
 
@@ -124,11 +128,13 @@ import UIKit
     /// scroll view's physical coordinates: `.top` is the live end's side.
     func scroll(to id: String, anchor: UnitPoint, animated: Bool = false) {
         PerfCounters.bump("offset.proxy")
-        guard let scroller, let frame = locate?(id) else { return }
+        guard let scroller else { return }
         if TranscriptFlingProbe.isolated, scroller.isDragging || scroller.isDecelerating {
             PerfCounters.bump("offset.blocked")
             return
         }
+        if animated { aiming?() }
+        guard let frame = locate?(id) else { return }
         let viewport = scroller.bounds.height
         let lowest = -scroller.adjustedContentInset.top
         let highest = max(lowest, scroller.contentSize.height + scroller.adjustedContentInset.bottom - viewport)
