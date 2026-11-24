@@ -134,6 +134,41 @@ function build(): Built[] {
       nextAt(),
     ),
   );
+  // Every field together on a thread with none of them, payload keys in reverse statement
+  // order: new keys land in statement order, never in payload order.
+  push(
+    "updated-reverse-from-empty",
+    {},
+    envelope(
+      {
+        type: "thread.updated",
+        goal: { text: "reverse" },
+        archivedAt: 1_700_000_000_010,
+        status: { state: "idle" },
+        acp: { instanceId: "s-r", installationId: "i-r", acpAgentId: "a-r" },
+        acpSupport: { supported: true },
+        effectiveCapabilities: { steer: true },
+        titleSource: "person",
+        title: "Reverse",
+        switch: { target: "z" },
+        execution: { mode: "reverse" },
+        queuedLaunch: { state: "queued" },
+        treeRootId: "thread-r2",
+        startedByClient: { client: "rc" },
+        startedBy: "thread-rs",
+        delegatedFrom: { host: "rh" },
+        delegatedBy: "thread-rp",
+        lineage: { depth: 3 },
+        provider: "opencode",
+        capabilities: { steer: true },
+        backend: "acp",
+        permission: { pending: false },
+        workspaceId: "workspace-reverse",
+      },
+      seq++,
+      nextAt(),
+    ),
+  );
   // Each null removal.
   const withRemovables = () =>
     baseThread({ queuedLaunch: { state: "q" }, archivedAt: 5, goal: { text: "g" } });
@@ -327,7 +362,9 @@ function build(): Built[] {
     baseThread(),
     envelope({ type: "agent.created", agent: agent("agent-😀", "root") }, seq++, nextAt()),
   );
-  // numbers in seq and at.
+  // Numbers in seq and at. `status` makes the number reach `activitySeq` (rule 3), not just
+  // the number fields every event already carries. `JSON.stringify(-0)` is "0", and the
+  // TypeScript fold's `activitySeq` prints as 0 too, so the -0 case replays the same bytes.
   for (const [label, value] of [
     ["1e21", 1e21],
     ["1.5e-7", 1.5e-7],
@@ -337,7 +374,11 @@ function build(): Built[] {
     push(
       `numbers-${label}`,
       baseThread(),
-      envelope({ type: "thread.updated", title: `n-${label}` }, value, value),
+      envelope(
+        { type: "thread.updated", title: `n-${label}`, status: { state: "working" } },
+        value,
+        value,
+      ),
     );
   // a thread whose keys include an array-index key.
   push(

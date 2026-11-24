@@ -3,6 +3,7 @@
 //! crosses for an event; `foldThread` is `updateThread` with the switch off and the native
 //! fold with it on, applied in place.
 
+import { appendFileSync } from "node:fs";
 import { updateThread } from "@ace/projection";
 import { storeWriterOn } from "@ace/provider-kit/native-switches";
 import { nativeCall, nativeHandle } from "@ace/provider-kit/sqlite";
@@ -32,6 +33,18 @@ export function foldInput(event: Event): { kind: string; payload: string | null 
   return undefined;
 }
 
+/** The native fold ran at least once in this process (the proof's evidence file). */
+let evidenceWritten = false;
+
+/** Appends one line to `ACE_STORE_WRITER_EVIDENCE` on the first native fold, when set. */
+function recordEvidence(): void {
+  if (evidenceWritten) return;
+  const path = process.env.ACE_STORE_WRITER_EVIDENCE;
+  if (path === undefined) return;
+  evidenceWritten = true;
+  appendFileSync(path, `${process.pid} fold\n`);
+}
+
 /** updateThread with the switch off; with it on, the native fold, applied in place. */
 export function foldThread(db: DatabaseSync, thread: Thread, event: Event): void {
   if (!storeWriterOn("fold")) {
@@ -40,6 +53,7 @@ export function foldThread(db: DatabaseSync, thread: Thread, event: Event): void
   }
   const input = foldInput(event);
   if (input === undefined) return;
+  recordEvidence();
   const text = nativeCall(() =>
     binding(db).foldThread(JSON.stringify(thread), input.kind, event.seq, event.at, input.payload),
   );

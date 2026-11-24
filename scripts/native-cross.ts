@@ -41,6 +41,7 @@ const known = [
   "ACE_CORE",
   "ACE_ENGINE",
   "ACE_GIT",
+  "ACE_STORE_WRITER",
 ];
 
 const [name, file] = process.argv.slice(2);
@@ -51,7 +52,10 @@ if (!existsSync(resolve(root, file)) && !existsSync(file))
 if (!process.env[name])
   throw new Error(`Set ${name} to its starting-on value in this environment first`);
 if (
-  (name === "ACE_SUPERVISOR" || name === "ACE_SESSIONS" || name === "ACE_ENGINE") &&
+  (name === "ACE_SUPERVISOR" ||
+    name === "ACE_SESSIONS" ||
+    name === "ACE_ENGINE" ||
+    name === "ACE_STORE_WRITER") &&
   process.env.ACE_STORE !== "native"
 )
   throw new Error(`${name} needs ACE_STORE=native`);
