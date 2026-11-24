@@ -71,8 +71,8 @@ pub fn naming_note(events: &[Event]) -> Option<&'static str> {
 
 const NAMING_NOTE: &str = "You have no name yet. Call profile_update first to set your name and \
 face, then reply. Name yourself in 1-3 plain words for the job (e.g. \"Fundraising Deck\", \
-\"Inbox Triage\", \"Release Notes\"), not a person's name, metaphor, mascot, \"Bot\" or \
-\"Assistant\".";
+\"Inbox Triage\", \"Release Notes\"), not an object, metaphor, mascot, person's name (e.g. \
+\"Compass\", \"Quill\"), \"Bot\" or \"Assistant\".";
 
 /// One version of a bot's task, as its history lists it.
 #[derive(Debug, Clone, PartialEq, Eq)]

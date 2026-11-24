@@ -902,8 +902,9 @@ pub fn note(event: &Known) -> String {
                 ),
             };
             format!(
-                "<moved task=\"{}\" from=\"spade\">\nMoved to task {} (the person was told); you \
-                 are free to talk.{kept}\n</moved>",
+                "<moved task=\"{}\" from=\"spade\">\nMoved to task {}, which continues this work \
+                 with its jobs and waits transferred (the person was told); you are free to \
+                 talk.{kept}\n</moved>",
                 moved.lane,
                 quoted(&moved.title)
             )
