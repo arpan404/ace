@@ -107,6 +107,57 @@ pub fn memo_allowed(events: &[Event], reply: &str, key: &str) -> bool {
     false
 }
 
+/// What the same call shape has already received during this reply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Prior {
+    Fresh,
+    Refused,
+    AllowedByPerson,
+    DeniedByPerson,
+}
+
+pub fn prior_attempt(events: &[Event], reply: &str, key: &str) -> Prior {
+    let mut answers = std::collections::HashMap::new();
+    let mut prior_step = false;
+    for event in events.iter().rev().take(256) {
+        match event {
+            Event::Known(Known::StepFinished { .. }) => prior_step = true,
+            Event::Known(Known::ApprovalAnswered {
+                reply: answered,
+                call_id,
+                allowed,
+                ..
+            }) if answered == reply => {
+                answers.entry(call_id.as_str()).or_insert(*allowed);
+            }
+            Event::Known(Known::CallReviewed {
+                reply: reviewed,
+                call_id,
+                memo: Some(memo),
+                verdict,
+                model,
+                ..
+            }) if prior_step && reviewed == reply && memo == key && !model.is_empty() => {
+                return match (verdict, answers.get(call_id.as_str())) {
+                    (Verdict::Escalate, Some(true)) => Prior::AllowedByPerson,
+                    (Verdict::Escalate, Some(false)) => Prior::DeniedByPerson,
+                    (Verdict::Refuse | Verdict::Escalate, _) => Prior::Refused,
+                    _ => Prior::Fresh,
+                };
+            }
+            Event::Known(
+                Known::ReplyStarted { .. }
+                | Known::Arrived { .. }
+                | Known::UserMessage { .. }
+                | Known::QuestionAnswered { .. }
+                | Known::AgentConfigured { .. },
+            ) => break,
+            _ => {}
+        }
+    }
+    Prior::Fresh
+}
+
 /// The person's latest messages to the bot (not other bots' or routines'), oldest first.
 pub fn person_words(events: &[Event]) -> Vec<String> {
     let mut words: Vec<String> = events

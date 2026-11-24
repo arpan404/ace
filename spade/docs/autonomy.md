@@ -36,18 +36,12 @@ A security setting per bot (`autonomy` in `security:<bot>`, `PUT
 worker without its own follows its parent and is never freer than a bot above it; a helper
 decides as its bot. Raising a bot (or the machine) to Full access needs the person's stamp from
 ace's daemon (`x-ace-person`, `security::attest`); going back never does. The gate reads the mode
-as `effect::Call::mode`: after the hard stops (a secret refused; `pay`, `send_as_person`,
-`change_access` and `unknown` to the person, a granted push under untrusted content too),
-`effect::full_access` asks for a command outside the sandbox the shell classifier reads as a payment, a send or an
-access change, a request to leave the sandbox, and a tool that declares nothing outside the
-sandbox or able to reach the network while untrusted content is in view; without that content it
-goes to the reviewer, never run on the classifier's say alone, unless the person allowed it (ADR
-0202 amendment 5); a tool the person declined stays declined. An app's tool that writes and can reach the network, sandboxed or not, goes to the
-reviewer under untrusted content or while Spade's classifier is off (`Call::remote`,
-`Call::classifier`); only a plugin server sealed offline with no environment of its own is exempt
-(`Tool::sealed`). A stamp's nonce is claimed in Spade's store, so it stays used across restarts. Everything else runs with no reviewer and no request.
-Spade's classifier may still raise a call it let run outside the sandbox (`engine.raise_only`);
-the ADR 0135 review is skipped. The sandbox is unchanged.
+as `effect::Call::mode`. Full access skips the reviewer and ordinary approval cards.
+Paying, sending in the person's name and changing access still go to the person, and
+credential reads are refused. The sandbox and checkpoints still hold. The egress
+proxy allows public hosts in Full access, per-bot drive switches do not apply, and
+`outside_sandbox: true` can run outside without another approval when Spade can bind
+what it launches. Package and organization authorization boundaries still apply.
 
 ### Effects
 

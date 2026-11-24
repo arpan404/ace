@@ -570,6 +570,19 @@ impl Shell {
         let mut shell = match &confined {
             None => platform::command(&self.env, command),
             Some(confined) => {
+                #[cfg(unix)]
+                let mapped;
+                #[cfg(unix)]
+                let command = if job.read_only {
+                    command
+                } else {
+                    // Keep the host's /tmp closed. Only the shell's cd resolves this alias,
+                    // using the workspace TMPDIR set by confinement.
+                    mapped = format!(
+                        "cd() {{ if [ \"$#\" -eq 1 ] && [ \"$1\" = /tmp ]; then command cd \"$TMPDIR\"; else command cd \"$@\"; fi; }}\n{command}"
+                    );
+                    &mapped
+                };
                 let (program, args) = platform::shell_args(&self.env, command);
                 let launched = (confined.launch)(&program, &args)?;
                 seals_env = launched.seals_env;

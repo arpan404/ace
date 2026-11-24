@@ -446,18 +446,14 @@ fn a_tool_renamed_after_it_was_pinned_loses_its_read_until_reviewed_again() {
 }
 
 #[test]
-fn in_full_access_an_unresolved_app_tool_is_reviewed_never_run_on_the_classifier_alone() {
+fn in_full_access_an_unresolved_app_tool_runs_without_a_review() {
     for classifier in [true, false] {
         let call = Call {
             mode: Mode::FullAccess,
             classifier,
             ..notion("create_page", "", silent())
         };
-        assert_eq!(
-            route(call),
-            Route::Review(Some(UNDECLARED_REVIEW.to_owned())),
-            "classifier={classifier}"
-        );
+        assert_eq!(route(call), Route::Run, "classifier={classifier}");
     }
     // The person's Always allow for its app lets it run, still past the classifier.
     let granted = Call {

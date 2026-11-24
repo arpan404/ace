@@ -543,6 +543,10 @@ something its parent lacks gets `400`. Revoking a parent's grant narrows every w
   person allowed this call outside, or the machine has no sandbox. The command is classed by the
   shell classifier and takes ADR 0163's route.
 
+In Full access the ordinary gate never requests approval or runs the reviewer. The
+three person-only effects and credential refusal still apply. Sandboxed runs use the
+proxy's open public-host policy within package and organization limits.
+
 **The gate's decision travels to the launch.** For each call it lets run, the gate records an
 immutable launch token under the call's key: _outside_ (sent outside the sandbox), _contained_
 (decided in the sandbox's light, whether it skipped review because the sandbox held it or was

@@ -54,9 +54,6 @@ pub(super) struct Screening<'a> {
     /// Whether the classifier was on and loaded when the call was routed: the one reading used
     /// for routing it and for screening it, so a switch in between never lets it skip both.
     pub ready: bool,
-    /// The routing let it run counting on the screening (an app's write in Full access): if the
-    /// classifier can't screen it after all, the reviewer decides instead.
-    pub required: bool,
     /// An app's tool that declares nothing (ADR 0202, amendment 5): one the classifier reads as
     /// plausibly a payment, a send or an access change goes to the person, though it isn't sure.
     pub unresolved: bool,
@@ -262,7 +259,13 @@ impl Engine {
                 self.decisions.mark(&key, form);
                 (Verdict::Allow, reason, Screened::Run)
             }
-            Screen::Person(effect) => {
+            Screen::Person(Effect::Credential) => {
+                let reason = spade_core::autonomy::CREDENTIALS_REFUSED.to_owned();
+                (Verdict::Refuse, reason.clone(), Screened::Refuse(reason))
+            }
+            Screen::Person(
+                effect @ (Effect::Pay | Effect::SendAsPerson | Effect::ChangeAccess),
+            ) => {
                 let line = line(effect).to_owned();
                 (
                     Verdict::Escalate,
@@ -270,6 +273,7 @@ impl Engine {
                     Screened::Ask(line, Some(effect)),
                 )
             }
+            Screen::Person(_) => return Ok(Screened::Review),
         };
         self.store_screened(id, reply, s, model, verdict, reason, screened)
     }
@@ -294,30 +298,25 @@ impl Engine {
                 Verdict::Allow => Screened::Run,
             });
         }
-        // Can't screen it: the reviewer decides one the routing counted on screening.
-        let unscreened = if s.required {
-            Screened::Review
-        } else {
-            Screened::Run
-        };
         if !s.ready {
-            return Ok(unscreened);
+            return Ok(Screened::Run);
         }
         let (Some(model), Some(subject)) = (Model::embedded(), subject(s)) else {
-            return Ok(unscreened);
+            return Ok(Screened::Run);
         };
         let decided = self.decided(id, s, model, &subject);
-        match plausible(
-            decided.screen,
-            decided.prediction.person_only(),
-            s.unresolved,
-        ) {
-            Screen::Person(effect) => {
+        match decided.screen {
+            Screen::Person(Effect::Credential) => Ok(Screened::Refuse(
+                spade_core::autonomy::CREDENTIALS_REFUSED.to_owned(),
+            )),
+            Screen::Person(
+                effect @ (Effect::Pay | Effect::SendAsPerson | Effect::ChangeAccess),
+            ) => {
                 let line = line(effect).to_owned();
                 let screened = Screened::Ask(line.clone(), Some(effect));
                 self.store_screened(id, reply, s, model, Verdict::Escalate, line, screened)
             }
-            Screen::LowRisk | Screen::Abstain => Ok(Screened::Run),
+            _ => Ok(Screened::Run),
         }
     }
 

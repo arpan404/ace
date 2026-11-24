@@ -343,3 +343,16 @@ reason, Allow once; a changed command offers no Always) and ui-core's `autonomy.
 call runs, a refusal returns to the bot, a retried refusal asks the person, a reviewer that can't
 be reached or answers what doesn't parse asks the person, and stored `ask`/`full_access` levels
 read as `auto_review` and move forward once.
+
+## Amendment 4 (2026-11-23) — Full access skips ordinary review and approval
+
+Full access runs ordinary calls, including unknown and undeclared app tools, after
+the existing capability ceilings. Untrusted content does not add an approval.
+Payments, sends in the person's name and access changes still ask. Credential reads
+are refused. A high-confidence classifier hard stop still applies where the
+classifier runs, without falling back to a reviewer when it is off or abstains.
+
+The per-bot driving switches are bypassed in Full access. The sandbox and its
+checkpoints stay in place for contained runs. An explicit outside request uses the
+existing outside launch binding, with Full access as its authorization. A command
+whose launch cannot be bound is refused. See ADR 0167 for the egress policy.

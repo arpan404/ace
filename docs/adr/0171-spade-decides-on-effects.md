@@ -760,3 +760,12 @@ rewording asks, adding standing instructions, and lifting them. Lifting still
 requires a later message from the person. Those restrictions are enforced by the
 ledger and return a tool error, so they cannot be overridden with an approval card.
 The profile, routines, notes and outward effects keep their existing gates.
+
+## Amendment 10 (2026-11-23) — Full access uses the three person-only stops
+
+For Full access, stop on credentials and ask for payment, sending as the
+person or changing access. Apply package and organization boundaries before
+autonomy. The ordinary path, including unknown and unannotated tools and
+driving, skips approval and model review. An explicit outside request uses
+the existing file and launch binding with the bot's Full access authorization.
+The egress proxy opens public-host access as described in ADR 0167.

@@ -451,6 +451,69 @@ async fn repeat_publish_reuses_a_review_only_for_matching_arguments_and_trust() 
     Ok(())
 }
 
+#[tokio::test]
+async fn a_second_model_refusal_asks_and_the_persons_allow_is_reused() -> Result {
+    let command = FakeTool::new("analytics__exec", Risk::Write, "Query results")
+        .unannotated_app("Runs analytics commands");
+    let calls = calls_of(&command);
+    let page = FakeTool::new("read_page", Risk::Read, "Untrusted output").untrusted();
+    let args = json!({"command": "call execute-sql {SELECT count(*) FROM events}"});
+    let refuse = r#"{"verdict":"refuse","reason":"Check the query scope."}"#;
+    let spade = reviewed_by_fake(
+        vec![
+            Script::reply("").call("page", "read_page", json!({})),
+            Script::reply("").call("first", "analytics__exec", args.clone()),
+            Script::reply("").plain(refuse),
+            Script::reply("").call("retry", "analytics__exec", args.clone()),
+            Script::reply("").plain(refuse),
+            Script::reply("").call("same", "analytics__exec", args),
+            Script::reply("Counted."),
+            Script::reply("").plain(TITLE),
+        ],
+        vec![Arc::new(command), Arc::new(page)],
+    )
+    .await?;
+    let (status, _) = spade
+        .put("/v1/oversight", json!({"classifier": false}))
+        .await?;
+    assert_eq!(status, 200);
+    let (_, conversation) = bot(&spade).await?;
+    spade.say(&conversation, "Count events").await?;
+    let events = spade.wait_for(&conversation, "approval_requested").await?;
+    assert_eq!(count(&events, "approval_requested"), 1);
+    assert_eq!(
+        first(&events, "approval_requested").ok_or("no approval")?["call_id"],
+        "retry"
+    );
+    let refusal = events
+        .iter()
+        .find(|e| e["type"] == "tool_finished" && e["call_id"] == "first")
+        .ok_or("missing first refusal")?;
+    assert_eq!(refusal["is_error"], true, "{refusal}");
+    assert_eq!(ran(&calls), 0);
+    let (status, body) = spade
+        .post(
+            &format!("/v1/conversations/{conversation}/approvals/retry"),
+            json!({"allowed": true, "always": false}),
+        )
+        .await?;
+    assert_eq!(status, 202, "{body}");
+    let events = settled(&spade, &conversation).await?;
+    assert_eq!(ran(&calls), 2);
+    assert_eq!(count(&events, "approval_requested"), 1);
+    let reused = events
+        .iter()
+        .find(|e| e["type"] == "call_reviewed" && e["call_id"] == "same")
+        .ok_or("missing reused allow")?;
+    assert_eq!(reused["verdict"], "allow");
+    assert_eq!(reused["cost_micros"], 0);
+    assert!(spade.fake.seen().iter().any(|request| {
+        let body = request.body.to_string();
+        body.contains("generic command") && body.contains("SELECT count(*)")
+    }));
+    Ok(())
+}
+
 /// The call went to the person on a rule, with `reason`: the stored verdict is the rules' own
 /// (no reviewer model) and the bubble says why.
 fn asked_by_rule(events: &[Value], reason: &str) -> Result {

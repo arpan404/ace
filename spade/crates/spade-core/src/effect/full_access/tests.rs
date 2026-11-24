@@ -1,8 +1,7 @@
-use super::NO_CLASSIFIER;
 use crate::autonomy::{CREDENTIALS_REFUSED, Class, Mode, Sensitive};
 use crate::effect::{
-    Ask, CHANGES_ACCESS, Call, DECLINED_TOOL, Drive, Effect, GIT_PUSH, Granted, OUTSIDE, PUSHES,
-    Place, Route, SENDS_AS_YOU, SPENDS, TAINTED_OUTWARD, UNDECLARED_TAINTED, UNKNOWN, route,
+    CHANGES_ACCESS, Call, Drive, Effect, GIT_PUSH, Granted, PUSHES, Place, Route, SENDS_AS_YOU,
+    SPENDS, route,
 };
 use crate::gate::Decision;
 use crate::tools::Risk;
@@ -40,31 +39,11 @@ fn full(tool: &str, effect: Option<Effect>) -> Call<'_> {
     }
 }
 
-/// A connector's or plugin's tool, run on its server outside the sandbox.
-fn app_tool(tool: &str, effect: Option<Effect>) -> Call<'_> {
-    Call {
-        remote: true,
-        ..full(tool, effect)
-    }
-}
-
-/// The same call by a bot on the auto-review.
-fn reviewed(call: Call<'_>) -> Call<'_> {
-    Call {
-        mode: Mode::AutoReview,
-        ..call
-    }
-}
-
 fn asks(line: &str) -> Route {
     Route::Ask {
         line: line.to_owned(),
         ask: None,
     }
-}
-
-fn is_review(route: &Route) -> bool {
-    matches!(route, Route::Review(_))
 }
 
 /// Every fact that would add a review or an ask under the auto-review, together.
@@ -89,40 +68,32 @@ fn under_everything(call: Call<'_>) -> [Call<'_>; 4] {
 }
 
 #[test]
-fn in_full_access_a_write_outside_the_sandbox_runs_without_review() {
-    let cases = [
-        // An app's data, another bot, an ace thread.
-        full("app_tool", Some(Effect::Network)),
-        // A command the bot runs outside the sandbox (its setting), however the classifier
-        // reads it short of a hard stop.
-        Call {
-            place: Place::Unsandboxed(Class::Sensitive(Sensitive::WriteOutside)),
-            ..full("shell", Some(Effect::WriteLocal))
-        },
-        Call {
-            place: Place::Unsandboxed(Class::Outward),
-            ..full("shell", Some(Effect::WriteLocal))
-        },
-        Call {
-            place: Place::Unsandboxed(Class::Sensitive(Sensitive::RemoteChange)),
-            ..full("shell", Some(Effect::WriteLocal))
-        },
-        Call {
-            place: Place::Unsandboxed(Class::Sensitive(Sensitive::UnseenScript)),
-            ..full("shell", Some(Effect::WriteLocal))
-        },
-        // A file write no checkpoint can undo.
-        Call {
-            place: Place::Unprotected,
-            ..full("workspace_write", Some(Effect::WriteLocal))
-        },
-        full("workspace_write", Some(Effect::WriteLocal)),
-        full("market_publish", Some(Effect::Publish)),
-    ];
-    for case in cases {
-        // The auto-review would have held each one.
-        assert_ne!(route(reviewed(case)), Route::Run, "{case:?}");
-        for call in under_everything(case) {
+fn full_access_runs_ordinary_calls_even_under_taint_with_permissions_and_classifier_off() {
+    for (tool, effect, place) in [
+        ("app__exec", None, Place::Host),
+        ("app__delete", Some(Effect::Network), Place::Host),
+        ("app__unknown", Some(Effect::Unknown), Place::Host),
+        ("browser_open", Some(Effect::Drive), Place::Host),
+        ("screen_act", Some(Effect::Drive), Place::Host),
+        ("sim_act", Some(Effect::Drive), Place::Host),
+        ("shell", Some(Effect::WriteLocal), Place::AsksOutside),
+        ("shell", Some(Effect::WriteLocal), Place::Unprotected),
+        (
+            "shell",
+            Some(Effect::WriteLocal),
+            Place::Unsandboxed(Class::Outward),
+        ),
+    ] {
+        let call = Call {
+            classifier: false,
+            place,
+            remote: tool.starts_with("app__"),
+            remembered: Some(false),
+            destructive: tool == "app__delete",
+            overwrites: tool == "app__delete",
+            ..full(tool, effect)
+        };
+        for call in under_everything(call) {
             assert_eq!(route(call), Route::Run, "{call:?}");
         }
     }
@@ -173,30 +144,25 @@ fn in_full_access_a_send_as_the_person_still_asks() {
 }
 
 #[test]
-fn in_full_access_untrusted_content_never_turns_a_granted_push_into_a_run() {
+fn a_grant_cannot_bypass_a_full_access_hard_stop() {
     let granted = Call {
         granted: Granted::Typed,
+        always: true,
+        rule: Decision::Run,
         ..full(GIT_PUSH, Some(Effect::SendAsPerson))
     };
-    // The person's grant runs it with nothing untrusted in view, as on the auto-review.
-    assert_eq!(route(granted), Route::Run);
-    let tainted = Call {
-        tainted: true,
-        ..granted
-    };
-    // The auto-review has the reviewer look; with no reviewer, the person does.
-    assert!(is_review(&route(reviewed(tainted))));
-    assert_eq!(route(tainted), asks(PUSHES));
+    for call in under_everything(granted) {
+        assert_eq!(route(call), asks(PUSHES));
+    }
 }
 
 #[test]
-fn in_full_access_an_access_change_or_an_unknown_effect_still_asks() {
+fn in_full_access_a_change_of_access_still_asks() {
     for (case, line) in [
         (
             full("okta__add_member", Some(Effect::ChangeAccess)),
             CHANGES_ACCESS,
         ),
-        (full("app__new_thing", Some(Effect::Unknown)), UNKNOWN),
         (
             Call {
                 place: Place::Unsandboxed(Class::Sensitive(Sensitive::Credentials)),
@@ -237,138 +203,4 @@ fn in_full_access_a_secret_is_still_refused() {
         };
         assert_eq!(route(always), refused);
     }
-}
-
-#[test]
-fn in_full_access_the_sandbox_is_never_widened() {
-    let asks_outside = Call {
-        place: Place::AsksOutside,
-        ..full("shell", Some(Effect::WriteLocal))
-    };
-    assert_eq!(
-        route(asks_outside),
-        Route::Ask {
-            line: OUTSIDE.to_owned(),
-            ask: Some(Ask::OutsideSandbox)
-        }
-    );
-}
-
-#[test]
-fn in_full_access_an_app_tool_that_declares_nothing_is_reviewed_as_on_the_auto_review() {
-    // An app's tool with no trusted declaration and a name Spade can't read (ADR 0202,
-    // amendment 5): the reviewer judges it, the classifier on or off; it never runs on the
-    // classifier's say alone.
-    let sync = app_tool("crm__sync", None);
-    for classifier in [true, false] {
-        let call = Call { classifier, ..sync };
-        assert!(is_review(&route(call)), "{:?}", route(call));
-    }
-    // Untrusted content in view: the person, whatever they answered before.
-    for remembered in [None, Some(true)] {
-        let steered = Call {
-            tainted: true,
-            remembered,
-            ..sync
-        };
-        assert_eq!(route(steered), asks(UNDECLARED_TAINTED));
-    }
-    // Their "no" for the bot still refuses it.
-    let declined = Call {
-        remembered: Some(false),
-        ..sync
-    };
-    assert_eq!(route(declined), Route::Refuse(DECLINED_TOOL.to_owned()));
-}
-
-#[test]
-fn in_full_access_an_app_write_goes_to_the_reviewer_when_the_classifier_is_off_or_content_is_untrusted()
- {
-    // Declared only `network`, though it sends: the classifier is what would catch that.
-    let send = app_tool("mail__send_email", Some(Effect::Network));
-    assert_eq!(route(send), Route::Run, "the classifier screens it next");
-    let off = Call {
-        classifier: false,
-        ..send
-    };
-    assert_eq!(route(off), Route::Review(Some(NO_CLASSIFIER.to_owned())));
-    let tainted = Call {
-        tainted: true,
-        ..send
-    };
-    assert_eq!(
-        route(tainted),
-        Route::Review(Some(TAINTED_OUTWARD.to_owned()))
-    );
-    let both = Call {
-        tainted: true,
-        classifier: false,
-        ..send
-    };
-    assert!(is_review(&route(both)));
-    // Too long to review whole: the person.
-    let long = Call { fits: false, ..off };
-    assert!(matches!(route(long), Route::Ask { .. }));
-    // An app's read runs as before.
-    let read = Call {
-        tainted: true,
-        classifier: false,
-        ..app_tool("mail__list", Some(Effect::Read))
-    };
-    assert_eq!(route(read), Route::Run);
-    // Spade's and ace's own writes aren't an app's: they keep running.
-    let own = Call {
-        tainted: true,
-        classifier: false,
-        ..full("bot_message", Some(Effect::Network))
-    };
-    assert_eq!(route(own), Route::Run);
-}
-
-#[test]
-fn in_full_access_a_sandbox_that_holds_an_app_tools_files_doesnt_hold_its_sends() {
-    // A plugin's server in the sandbox, with an API token and its network on: still remote.
-    let contained = |effect| Call {
-        place: Place::Sandbox,
-        ..app_tool("mailer__send_email", effect)
-    };
-    assert!(is_review(&route(contained(None))), "never run unreviewed");
-    let unscreened = Call {
-        classifier: false,
-        ..contained(None)
-    };
-    assert!(is_review(&route(unscreened)));
-    let off = Call {
-        classifier: false,
-        ..contained(Some(Effect::Network))
-    };
-    assert_eq!(route(off), Route::Review(Some(NO_CLASSIFIER.to_owned())));
-    let tainted = Call {
-        tainted: true,
-        ..contained(Some(Effect::Network))
-    };
-    assert_eq!(
-        route(tainted),
-        Route::Review(Some(TAINTED_OUTWARD.to_owned()))
-    );
-    // Only a server sealed offline with no credentials of its own runs its tools as the sandbox
-    // decides.
-    for effect in [None, Some(Effect::Network)] {
-        let sealed = Call {
-            remote: false,
-            tainted: true,
-            classifier: false,
-            ..contained(effect)
-        };
-        assert_eq!(route(sealed), Route::Run, "{effect:?}");
-    }
-}
-
-#[test]
-fn in_full_access_a_tool_the_person_declined_stays_declined() {
-    let declined = Call {
-        remembered: Some(false),
-        ..full("plugin__tool", None)
-    };
-    assert_eq!(route(declined), Route::Refuse(DECLINED_TOOL.to_owned()));
 }

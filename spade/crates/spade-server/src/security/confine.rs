@@ -103,9 +103,11 @@ impl Confine for Security {
                 .and(self.proxy.as_ref())
                 .map(|proxy| proxy.port()),
         });
-        std::fs::create_dir_all(&policy.temp).map_err(|error| {
-            format!("the sandbox's temporary folder could not be made: {error}")
-        })?;
+        cap_std::fs::Dir::open_ambient_dir(&policy.workspace, cap_std::ambient_authority())
+            .and_then(|dir| dir.create_dir_all(spade_sandbox::policy::TEMP))
+            .map_err(|error| {
+                format!("the sandbox's temporary folder could not be made: {error}")
+            })?;
         // Windows reports `contained` only for runs with no network on folders Spade owns; any
         // other run keeps the review path. Decided by the same probe the plugins ask before they
         // start (`review`), so the two never disagree.

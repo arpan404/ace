@@ -82,6 +82,19 @@ async fn a_sandboxed_command_runs_without_a_review_and_cannot_reach_outside_its_
 }
 
 #[tokio::test]
+async fn a_sandboxed_shell_maps_cd_tmp_and_uses_only_its_own_temp_files() -> Result {
+    let w = world(true, vec![], |_| vec![
+        shell("c1", r#"cd /tmp && [ "$PWD" = "$TMPDIR" ] && tmp=$(mktemp "$TMPDIR/spade.XXXXXX") && printf 'temp works' > "$tmp" && cat "$tmp""#.to_owned()),
+        Script::reply("Done."),
+    ]).await?;
+    w.spade.say(&w.conversation, "Use a temporary file").await?;
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    assert!(output(&events, "c1").contains("temp works"), "{events:?}");
+    assert!(asked(&events).is_empty());
+    Ok(())
+}
+
+#[tokio::test]
 async fn without_the_sandbox_the_same_command_is_reviewed_as_before() -> Result {
     let w = world(false, vec![], |_| {
         vec![

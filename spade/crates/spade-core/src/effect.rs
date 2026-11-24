@@ -19,7 +19,6 @@ mod permitted;
 pub mod runtime;
 pub mod shape;
 
-pub use full_access::NO_CLASSIFIER;
 pub use named::{Named, named};
 pub use shape::{Shape, shape};
 
@@ -623,6 +622,39 @@ pub fn route(call: Call<'_>) -> Route {
     }
 }
 
+/// Whether a review can never substitute for the person's decision on this effect.
+pub fn person_only(call: &Call<'_>) -> bool {
+    matches!(
+        call.effect,
+        Some(Effect::Pay | Effect::SendAsPerson | Effect::ChangeAccess)
+    ) || matches!(
+        call.place,
+        Place::Unsandboxed(Class::Sensitive(
+            autonomy::Sensitive::Payment
+                | autonomy::Sensitive::MessageAsPerson
+                | autonomy::Sensitive::Credentials
+        ))
+    )
+}
+
+/// Ordinary deterministic requests are grounds for model review. A review must be able to
+/// read the whole call, and cannot supply independent organization authorization.
+pub fn to_auto_review(call: &Call<'_>, route: Route) -> Route {
+    match route {
+        Route::Ask { line, .. } if call.org.is_none() && !person_only(call) => {
+            if call.fits {
+                Route::Review(Some(line))
+            } else {
+                Route::Refuse(
+                    "Spade couldn't read the whole call for review. Shorten it and retry."
+                        .to_owned(),
+                )
+            }
+        }
+        route => route,
+    }
+}
+
 /// Memoize only host calls whose review does not depend on executable files, a drive
 /// location, or a rule requiring a fresh judgment.
 pub fn may_memo_review(call: &Call<'_>) -> bool {
@@ -645,6 +677,12 @@ fn decide(call: Call<'_>, allowed: bool) -> Route {
     // person turned off, is refused before any review or request, in every mode.
     if let Some(why) = ceiling_refusal(&call) {
         return Route::Refuse(why);
+    }
+    if call.mode == Mode::FullAccess {
+        return call
+            .effect
+            .and_then(|effect| persons(call, effect, false))
+            .unwrap_or_else(|| full_access::route(call));
     }
     // The bot's Permissions next: a switch the person left off refuses what it covers, in every
     // mode, before any Always allow, grant, review or request.
@@ -696,11 +734,6 @@ fn decide(call: Call<'_>, allowed: bool) -> Route {
                 OVERWRITES
             }),
         );
-    }
-    // Full access is decided here: after the hard stops above, before anything that could reach
-    // the reviewer, so nothing it skips can come first.
-    if call.mode == Mode::FullAccess {
-        return full_access::route(call);
     }
     if call.effect == Some(Effect::Drive) {
         return permitted::drive(call);
@@ -856,7 +889,7 @@ fn persons(call: Call<'_>, effect: Effect, allowed: bool) -> Option<Route> {
     let line = match effect {
         Effect::Pay => SPENDS,
         Effect::ChangeAccess => CHANGES_ACCESS,
-        Effect::Unknown => UNKNOWN,
+        Effect::Unknown if call.mode != Mode::FullAccess => UNKNOWN,
         Effect::SendAsPerson if call.tool == GIT_PUSH => PUSHES,
         Effect::SendAsPerson => SENDS_AS_YOU,
         _ => return None,
@@ -865,7 +898,10 @@ fn persons(call: Call<'_>, effect: Effect, allowed: bool) -> Option<Route> {
         return Some(Route::Run);
     }
     // The person granted this push or comment for that repository.
-    if effect == Effect::SendAsPerson && call.granted == Granted::Typed {
+    if call.mode != Mode::FullAccess
+        && effect == Effect::SendAsPerson
+        && call.granted == Granted::Typed
+    {
         if !call.tainted {
             return Some(Route::Run);
         }

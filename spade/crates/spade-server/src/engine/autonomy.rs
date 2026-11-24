@@ -65,6 +65,7 @@ impl Engine {
 /// What the auto-review came to.
 pub(super) enum Reviewed {
     Run,
+    Refuse(String),
     /// The person decides, with the request's line: the reviewer refused it or couldn't decide.
     Escalate(String),
     Stopped,
@@ -115,7 +116,9 @@ pub(super) struct Under<'a> {
     /// Why the rules singled the call out, told to the reviewer.
     pub concern: Option<&'a str>,
     /// The reviewed tool and connection identity, when its verdict can be reused.
-    pub memo_identity: Option<String>,
+    pub identity: Option<String>,
+    pub reuse_review: bool,
+    pub reuse_person: bool,
     /// For a connected app's tool, its app's name, from the same snapshot as `def`.
     pub app: Option<&'a str>,
     /// For a driving step, where it acts as the gate just found: the verdict is stored with it
@@ -129,8 +132,7 @@ pub(super) struct Under<'a> {
 /// Has the reviewer judge one call, storing its verdict first. A verdict already stored for the
 /// call is used again, so a restart never reviews (or pays for) a call twice. A refusal, and
 /// anything but a clear answer (a failure, a timeout, an answer that doesn't parse twice), goes to
-/// the person with the reviewer's reason (ADR 0163, amendment 3): an unreviewed call never runs,
-/// and the bot is never told no for a reviewer's sake.
+/// the bot first. Only a second model refusal of the same call shape reaches the person.
 pub(super) async fn review(
     engine: &Arc<Engine>,
     id: &str,
@@ -174,7 +176,7 @@ pub(super) async fn review(
         concern: under.concern,
     };
     let effort = engine.role_effort(id, spade_core::routing::Role::Review);
-    let memo = under.memo_identity.and_then(|identity| {
+    let memo = under.identity.and_then(|identity| {
         review::memo_key(
             under.arguments,
             (
@@ -195,8 +197,18 @@ pub(super) async fn review(
             ),
         )
     });
-    if let Some(key) = memo.as_deref()
-        && review::memo_allowed(events, reply, key)
+    let prior = memo.as_deref().map_or(review::Prior::Fresh, |key| {
+        review::prior_attempt(events, reply, key)
+    });
+    if under.reuse_person && prior == review::Prior::DeniedByPerson {
+        return Reviewed::Refuse("The person declined this action.".to_owned());
+    }
+    let person_allowed = under.reuse_person && prior == review::Prior::AllowedByPerson;
+    if person_allowed
+        || (under.reuse_review
+            && memo
+                .as_deref()
+                .is_some_and(|key| review::memo_allowed(events, reply, key)))
     {
         return match record_rule(
             engine,
@@ -205,21 +217,23 @@ pub(super) async fn review(
             under.call,
             under.name,
             Verdict::Allow,
-            "Reused a model review from this reply.",
+            if person_allowed {
+                "Reused the person's approval from this reply."
+            } else {
+                "Reused a model review from this reply."
+            },
             under.bound,
             under.launch,
         ) {
             Ok(true) => Reviewed::Run,
             Ok(false) => Reviewed::Stopped,
-            Err(_) => {
-                Reviewed::Escalate("Spade couldn't store the review, so you decide.".to_owned())
-            }
+            Err(_) => Reviewed::Refuse("Spade couldn't store the review.".to_owned()),
         };
     }
     case.steps = review::recent_steps(events, &under.call.id);
     engine.set_status(id, Some(REVIEWING.to_owned()));
     let prompt = autonomy::prompt(&case).session(id).effort(effort);
-    let (outcome, cost) = match super::judge::judge::<Judgment>(
+    let (outcome, cost, judged) = match super::judge::judge::<Judgment>(
         engine,
         id,
         &model,
@@ -229,9 +243,9 @@ pub(super) async fn review(
     )
     .await
     {
-        Judged::Answer(judgment, cost) => (autonomy::judged(&judgment), cost),
-        Judged::Failed(why, cost) => (undecided(why), cost),
-        Judged::TimedOut(cost) => (undecided(TOOK_TOO_LONG), cost),
+        Judged::Answer(judgment, cost) => (autonomy::judged(&judgment), cost, true),
+        Judged::Failed(why, cost) => (undecided(why), cost, false),
+        Judged::TimedOut(cost) => (undecided(TOOK_TOO_LONG), cost, false),
         Judged::Stopped => return Reviewed::Stopped,
     };
     // The check is over: until the call starts or the person is asked, the bot is thinking, not
@@ -239,10 +253,20 @@ pub(super) async fn review(
     engine.set_status(id, Some(super::roster::THINKING.to_owned()));
     let (verdict, reason) = match &outcome {
         Outcome::Run => (Verdict::Allow, String::new()),
-        Outcome::Escalate(reason) => (Verdict::Escalate, reason.clone()),
+        Outcome::Escalate(reason) => {
+            let escalates = judged && prior == review::Prior::Refused;
+            (
+                if escalates {
+                    Verdict::Escalate
+                } else {
+                    Verdict::Refuse
+                },
+                reason.clone(),
+            )
+        }
     };
     let reviewed = Event::Known(Known::CallReviewed {
-        memo,
+        memo: if judged { memo } else { None },
         reply: reply.to_owned(),
         call_id: under.call.id.clone(),
         name: under.name.to_owned(),
@@ -259,15 +283,17 @@ pub(super) async fn review(
         Ok(true) => of(verdict, reason),
         Ok(false) => Reviewed::Stopped,
         // Not stored: the person decides rather than the call running unrecorded.
-        Err(_) => Reviewed::Escalate("Spade couldn't store the review, so you decide.".to_owned()),
+        Err(_) => Reviewed::Refuse("Spade couldn't store the review.".to_owned()),
     }
 }
 
 /// What the person is told when the review didn't come to an answer.
-pub(super) const TOOK_TOO_LONG: &str = "The review took too long, so you decide.";
+pub(super) const TOOK_TOO_LONG: &str = "The review took too long.";
 
 fn undecided(why: &str) -> Outcome {
-    Outcome::Escalate(line(Stop::ReviewerUndecided(why)))
+    Outcome::Escalate(
+        why.trim_end_matches('.').to_owned() + ". Retry when the reviewer is available.",
+    )
 }
 
 /// The request's line for a stopped call; a hard refusal's reason when it is one.
@@ -277,12 +303,11 @@ pub(super) fn line(stop: Stop<'_>) -> String {
     }
 }
 
-/// A verdict stored before: an approval runs; a refusal (the reviewer's, from a build that sent
-/// refusals back to the bot) is put to the person like a fresh one, never run.
+/// A stored verdict still applies to its original call.
 fn of(verdict: Verdict, reason: String) -> Reviewed {
     match verdict {
         Verdict::Allow => Reviewed::Run,
-        Verdict::Refuse => Reviewed::Escalate(line(Stop::Reviewer(&reason))),
+        Verdict::Refuse => Reviewed::Refuse(reason),
         Verdict::Escalate => Reviewed::Escalate(reason),
     }
 }
