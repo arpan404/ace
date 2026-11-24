@@ -62,7 +62,13 @@ the second option above.
    links, stale state). A fling doesn't re-evaluate rows already drawn.
 4. **UIKit reports the scroll.** Phases come from the scroll view's delegate. The release
    velocity comes from `scrollViewWillEndDragging(_:withVelocity:targetContentOffset:)`, so a
-   device trace (`-ace-fling-trace`) records it. Row frames come from the layout.
+   device trace (`-ace-fling-trace`) records it. Row frames come from the layout. The pure
+   `TranscriptScrollSequence` turns those callbacks and the touch watcher's into phases and
+   decides when a window change held for the reader lands: after the finger lifts or the fling
+   rests, with its geometry reported before the feed hears `.idle`, and before an animated jump
+   picks its target. A finger down is `.tracking`, which only holds window changes; the feed
+   treats the drag (`.interacting`) as the reader taking over, so a tap moves nothing. A tap
+   during the feed's own animated scroll leaves `.animating` in place.
 5. **VoiceOver reads the cells on screen oldest first.** Three-finger swipes page in the
    direction they read. The feed keeps the `transcript` identifier; UI tests find it as a
    collection view.

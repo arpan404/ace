@@ -10,8 +10,9 @@ extension ConversationFeed {
         setFollowing(true)
         toEnd(proxy)
     }
+    /// A fold opened or closed in place: a tap, not a scroll. The opening's end hold, an older
+    /// page's hold and whether the feed follows stay as they are.
     func disclosuresChanged() {
-        readerMovedFeed()
         intent.opened = true
         // Anchor the disclosure while reading history; the live end keeps following.
         if !following || reading.thread != nil, let top = currentTopRow() {

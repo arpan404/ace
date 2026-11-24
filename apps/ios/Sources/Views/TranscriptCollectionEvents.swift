@@ -11,14 +11,6 @@ struct TranscriptEntry {
     let content: () -> AnyView
 }
 
-/// What the scroll view is doing, as SwiftUI's `ScrollPhase` names it.
-enum TranscriptScrollPhase: Sendable {
-    case idle, tracking, interacting, decelerating, animating
-
-    /// A finger is down or a fling it started is running: the reader's own motion.
-    var isReaders: Bool { self == .tracking || self == .interacting || self == .decelerating }
-}
-
 /// The scroll view's geometry in its own (physical) coordinates.
 struct TranscriptScrollGeometry: Equatable, Sendable {
     var offset: CGFloat = 0
