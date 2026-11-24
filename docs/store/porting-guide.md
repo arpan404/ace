@@ -2026,7 +2026,10 @@ starting-off run alternate between off and the same list the starting-on run use
 - `packages/provider-kit/src/native-switches.ts`: `opposite("ACE_STORE_WRITER", "")` returns
   `process.env.ACE_STORE_WRITER_CROSS ?? "fold"`. The value is checked at module load with the
   same unknown-part and prefix rules as `ACE_STORE_WRITER`, and the same `needs ACE_STORE=native`
-  refusal.
+  refusal. Export `canonicalWriterParts(value: string | undefined): string`: `parseWriterParts`
+  (`:129`), then the parts in `writerPartsOrder` (`:120`), joined by `,`. It throws what
+  `parseWriterParts` throws. So `" events, fold,sequences,fold "` gives `"fold,sequences,events"`,
+  and `undefined` or `""` gives `""`.
 - `scripts/test-home-policy.ts`: pass `ACE_STORE_WRITER_CROSS` through, next to
   `ACE_STORE_WRITER`.
 - `native-switches.test.ts`: one case in the existing cross-switch tests. With
@@ -2044,15 +2047,18 @@ test computes each boot's expected mode from its own environment and asserts it 
 
 ```ts
 const cross = process.env.ACE_NATIVE_CROSS;
-const start = process.env.ACE_STORE_WRITER ?? "";
-const other = start === "" ? (process.env.ACE_STORE_WRITER_CROSS ?? "fold") : "";
+const start = canonicalWriterParts(process.env.ACE_STORE_WRITER);
+const other =
+  start === "" ? canonicalWriterParts(process.env.ACE_STORE_WRITER_CROSS ?? "fold") : "";
 const parts = (n: number) => (cross === "ACE_STORE_WRITER" && n % 2 === 1 ? other : start);
 const native = process.env.ACE_STORE === "native";
 const backend = (n: number) =>
   (cross === "ACE_STORE" && n % 2 === 1 ? !native : native) ? "native" : "typescript";
 ```
 
-Each report's `parts` (in `writerPartsOrder`, joined by `,`) must equal `parts(n)`, and its
+Both sides are canonical, so reordered, padded or repeated parts in the environment can't fail
+the check: the child reports `parts` as `canonicalWriterParts([...storeWriterParts()].join(","))`.
+Each report's `parts` must equal `parts(n)`, and its
 `backend` must equal `backend(n)`. The six `pid`s must be distinct and none may be the test's own.
 For evidence, a boot with parts has exactly one line per part and no others, and a boot without
 parts has none.
@@ -2123,11 +2129,17 @@ Move these into `store-cross-test-support.ts`, exported, with no change to what 
   `bufferLiveWrite` with the `unpinned` snapshot);
 - from `thread-row-trust.test.ts`: `confirmedSql`, used where it is today.
 
-Add one new helper beside them: `disk(path): Disk`. It opens its own `node:sqlite`
-`DatabaseSync`, the same observer in every mode, reads, and closes. It opens read-only while a
-`Store` holds the home, as `engine/live-write-buffer.process.test.ts:269` does. Before the
-child's `Store` opens, it opens writable so SQLite can recover the WAL after a kill, and it only
-reads. It returns, each in a fixed order:
+Add three new helpers beside them: `disk(path): Disk`, `copyHome(home, into)` and
+`diskCopy(into): Disk`. `disk` opens
+its own read-only `node:sqlite` `DatabaseSync`, the same observer in every mode, reads, and
+closes. It is used only while a `Store` holds the home, as
+`engine/live-write-buffer.process.test.ts:269` does. A reader then neither recovers nor
+checkpoints the WAL. The observer never opens a home that no live `Store` holds: a connection
+opened there could recover and checkpoint the WAL, and the next backend would then never see the
+WAL it has to recover. For a home nobody holds, `copyHome` copies `events.sqlite` and
+`events.sqlite-wal` (when present; never `-shm`) into a fresh directory `into`. Later,
+`diskCopy(into)` opens the copy writable, so SQLite can recover the copied WAL there, reads,
+closes and deletes the copy. `disk` and `diskCopy` return, each in a fixed order:
 
 ```ts
 type Disk = {
@@ -2158,9 +2170,13 @@ imports `Store` from `./store.ts`, `storeWriterParts` and `storeBackend` from
 The report is written with `writeFileSync`, as the last thing before the child exits or kills
 itself. Thread ids, item ids and `at` values below are fixed, never drawn from the clock. In order:
 
-1. `preOpen = disk(home/events.sqlite)`, before anything opens the home.
-2. `const store = new Store(path)`, then `db = store.atomic((db) => db)`. Record `pid`, `parts`
-   and `backend`, read after the open, since the value is fixed at this boot. Subscribe with
+1. Every boot except 0 (where the home and its tables don't exist yet): `copyHome` before anything
+   opens the home. Then `new Store(path)` opens the original first, so
+   the target backend does its own WAL recovery. Only after that does the child read the copy as
+   `preOpen = diskCopy(...)`. The copy is taken before the open and read after it, so `preOpen`
+   is what the previous process left, untouched by either the observer or the new backend.
+2. With the store open (`new Store(path)` above; at boot 0, the first open),
+   `db = store.atomic((db) => db)`. Record `pid`, `parts` and `backend`, read after the open, since the value is fixed at this boot. Subscribe with
    `store.subscribe` and record every published event's `seq` as `published`.
 3. Every phase except `write` records `opened = observe(store)` before it writes anything:
    - `snapshot(store, windows)` and `getThread(id)` for every id (the cache path);
@@ -2201,14 +2217,27 @@ itself. Thread ids, item ids and `at` values below are fixed, never drawn from t
       so adjacent merges reach and cross the 4096-byte check;
    2. a surrogate pair split across two appends (`"\ud83d"` then `"\ude00"`), and a lone
       `"\ud800"`;
-   3. at least 64 KiB in total, so the buffer's flush-now rule fires;
+   3. the threshold burst, written so its compacted rows are known without recomputing compaction.
+      It is `N` separate `stream` calls in one turn, each one delta of exactly 3,000 ASCII bytes
+      (`String.fromCharCode(65 + i % 26).repeat(3000)` for call `i`). Two adjacent deltas total
+      6,000 bytes, over the 4,096-byte merge limit, so no two merge, and each stored row is
+      exactly one input with that input's own seq. `N` is a constant in the child: the first
+      count whose last call makes the buffer's weight reach 64 KiB (`live-write-buffer.ts:155`).
+      The builder measures it once in TypeScript mode and writes it in. Preconditions, checked
+      with `disk` after every call: after calls 1 to `N` − 1, none of the burst's seqs are on
+      disk; after call `N`, all `N` are, with no explicit flush. Any other result fails the child
+      as "threshold burst did not flush on its final append". Then, still before any explicit
+      flush, the burst's stored rows must be exactly the `N` inputs, in order, with their
+      published seqs and appends;
    4. a delta on a different `field`, then one on the item's first field.
 
-   After each burst's turn and before any flush, read `disk`. After burst 3, every one of its
-   seqs must already be in `disk.events`: the threshold flushed it, and a later flush can't hide
-   that. Then call `store.flushLiveWrites()`. Then record, per burst, `rows`: the burst's stored
-   `item.delta` rows as `[{ field, appendUnits: append.length }]` in seq order (the compacted row
-   boundaries). Also record `appended`: per item, every append it stored, in order.
+   Each burst's input script is a constant, so its expected text is derived from the inputs:
+   per item and field, the join of the script's appends. Nothing records what was stored to
+   compare against itself. After bursts 1, 2 and 4, call `store.flushLiveWrites()`. Then record,
+   per burst, `rows`: its stored `item.delta` rows from `disk`, as
+   `[{ seq, field, append }]` in seq order (the compacted rows). A merged row keeps the last seq
+   of its span (`live-write-buffer.ts:249`), so a row's seq is not checked against each input's
+   seq, except in burst 3, where nothing merges.
 
    The first burst of every boot refills the sequence range, because `initialize` sets the
    reservation to `host_sequence` (`stream-sequences.ts:46`), so the first `prepare` after an
@@ -2218,7 +2247,8 @@ itself. Thread ids, item ids and `at` values below are fixed, never drawn from t
 
 7. The ending:
    - `write`, `final`: `flushLiveWrites()`, then `closed = observe(store)`, then
-     `await store.close()`. Then `durable = disk(...)`, and the child writes the report and exits 0.
+     `await store.close()`. Then `copyHome` and `durable = diskCopy(...)` (the home is no longer held), and the
+     child writes the report and exits 0.
    - `crash-in-transaction`:
      1. `flushLiveWrites()`, then `durable = disk(...)` and `closed = observe(store)`.
      2. Control the WAL, because whether uncommitted pages reach it depends on SQLite's cache and
@@ -2234,7 +2264,8 @@ itself. Thread ids, item ids and `at` values below are fixed, never drawn from t
         `process.kill(process.pid, "SIGKILL")` inside the callback.
    - `crash-with-buffered-tail`:
      1. `flushLiveWrites()`, then `durable = disk(...)` and `closed = observe(store)`.
-     2. `stream` 5 deltas, under 1 KiB in all, to one live item. Don't flush.
+     2. `stream` 5 deltas, under 1 KiB in all, to `tail-<boot>`, a message item created and
+        committed empty before step 1. Don't flush.
      3. In the same synchronous turn, check the preconditions and record them:
         - `published` holds all 5 tail seqs. `lostFrom` and `lostThrough` are the first and last;
         - `store.hasLiveWrite(threadId)` is true;
@@ -2275,13 +2306,17 @@ each boot _n_ > 0, against report _n_ − 1 (`prev`):
    `"snapshot"`. This is `engine/live-write-buffer.process`' "restart never reuses a sequence
    already delivered by a lost buffered tail" and its `messages[0]` assertion, across a process
    boundary.
-6. **No lost or duplicated deltas.** For each live item, `opened`'s `snapshotText` and the join of
-   its stored `item.delta` appends in `preOpen.events` both equal the join of its `appended`.
-   Appends of a lost tail are not in `appended`, so they must not be stored. Compacted row
-   boundaries: for each burst _k_, `rows[k]` is identical in all six reports, whichever mode wrote
-   it, and at least one row of burst 1 holds more than one append.
+6. **No lost or duplicated deltas.** For each burst item, `opened`'s `snapshotText` (the `text`
+   field) and, per field, the join of its stored `item.delta` appends in `preOpen.events` equal
+   the join of the burst script's appends for that field. That expectation comes from the inputs,
+   so a dropped or doubled append fails. The tail item `tail-<n-1>` (created and committed empty
+   before the tail) reads `""` in `opened` and has no `item.delta` row in `preOpen`. Compacted
+   rows: for each burst _k_, the `[field, append]` pairs of `rows[k]` are identical in all six
+   reports, whichever mode wrote them, and at least one row of burst 1 holds more than one input
+   append. In burst 3, `rows[3]` equals the `N` inputs one to one.
 7. **The required writes landed, with their columns and stamps.** In `requiredDisk` of every boot,
-   check the following against that boot's `preOpen`:
+   check the following against that boot's `preOpen` (at boot 0, against an empty home: every
+   revision counts as higher):
    - `workspace_recent` for `workspaces[n % 3]` reads `4e12 + n`, and the imported workspace's row
      is unchanged;
    - threads 0, 1 and 2 have a higher `revisions` entry than in `preOpen`, their columns hold the
@@ -2324,13 +2359,13 @@ fix is a test-first PR for that item, and the gate PR stays as it is.
 
 #### What each merged item changes, so the workload covers it
 
-| Item                       | Writes it changes                                                                                                                                                                                                       | Covered by                                                                                                                                       |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 5.1 `fold`                 | The thread projection `EventWriter` stores (`event-writer.ts:170`): queue, client and thread updates, `updatedAt`/`seq` stamps, the root agent id. Through those, the `threads` row, its revision and the sidebar facts | required writes 4.4 to 4.7 (one per fold rule), `threadStream` folded against the TS `updateThread` every step; assertions 2, 3, 7 and 8         |
-| 5.2b `sequences`           | `host_sequence` reservations at live admission (`prepare`), the cursor and confirmed range, and `replaySafe` after a restart                                                                                            | each boot's first burst (a refill), the tail crash's `killDisk.hostSequence`; assertions 2 and 5                                                 |
-| 5.3a `events`              | The `threads` insert and `workspace_recent` at `thread.created` (none for an imported thread), every `events` row and its `host_sequence` `MAX` update                                                                  | required writes 4.2 and 4.3, `crash-<n>` in the killed transaction, every stream step; assertions 2, 4, 5 and 7                                  |
-| 5.4a `live` (pure)         | Which `item.delta` rows are stored, through compaction (merge rule, 4096-byte check, split pairs, lone surrogates), and the retry delays                                                                                | bursts 1, 2 and 4 on fixed input in every mode; assertion 6 (texts, and row boundaries identical across modes)                                   |
-| 5.4b `live` (buffer state) | When rows are stored: the 64 KiB flush-now, the 75 ms and 1 s deadlines, pinning, `committed` and `rearm`, and so what a crash loses                                                                                    | burst 3 seen on disk before any explicit flush, and the tail crash (published, unstored, never reused, refused on replay); assertions 2, 5 and 6 |
+| Item                       | Writes it changes                                                                                                                                                                                                       | Covered by                                                                                                                                                                          |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 5.1 `fold`                 | The thread projection `EventWriter` stores (`event-writer.ts:170`): queue, client and thread updates, `updatedAt`/`seq` stamps, the root agent id. Through those, the `threads` row, its revision and the sidebar facts | required writes 4.4 to 4.7 (one per fold rule), `threadStream` folded against the TS `updateThread` every step; assertions 2, 3, 7 and 8                                            |
+| 5.2b `sequences`           | `host_sequence` reservations at live admission (`prepare`), the cursor and confirmed range, and `replaySafe` after a restart                                                                                            | each boot's first burst (a refill), the tail crash's `killDisk.hostSequence`; assertions 2 and 5                                                                                    |
+| 5.3a `events`              | The `threads` insert and `workspace_recent` at `thread.created` (none for an imported thread), every `events` row and its `host_sequence` `MAX` update                                                                  | required writes 4.2 and 4.3, `crash-<n>` in the killed transaction, every stream step; assertions 2, 4, 5 and 7                                                                     |
+| 5.4a `live` (pure)         | Which `item.delta` rows are stored, through compaction (merge rule, 4096-byte check, split pairs, lone surrogates), and the retry delays                                                                                | bursts 1, 2 and 4 on fixed input in every mode; assertion 6 (texts, and row boundaries identical across modes)                                                                      |
+| 5.4b `live` (buffer state) | When rows are stored: the 64 KiB flush-now, the 75 ms and 1 s deadlines, pinning, `committed` and `rearm`, and so what a crash loses                                                                                    | burst 3's exact rows on disk after its final append and before any explicit flush, and the tail crash (published, unstored, never reused, refused on replay); assertions 2, 5 and 6 |
 
 Retries and quarantine (`live-retry`, `live-discard`) stay proven by `store-live-write-recovery`
 and `engine/live-write-quarantine.process` in each mode. They don't change what a crossing
