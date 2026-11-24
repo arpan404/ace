@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UIKit
 @testable import Ace
 
 @Suite @MainActor struct BackgroundHoldTests {
@@ -89,36 +90,68 @@ import Testing
         #expect(hold.setEnabled(false) == [.endTask])
         #expect(hold.becameActive() == [.wake])
     }
-    @Test func theKeeperReleasesTheTaskWhenIOSExpiresItBeforeTheAppReturns() {
+}
+
+/// The keeper as the app runs it: UIKit's lifecycle notifications on a test center, and a fake
+/// background-task API in place of `UIApplication`'s.
+@Suite @MainActor struct BackgroundKeeperTests {
+    @MainActor final class FakeTasks {
         var began = 0, ended: [Int] = [], woke = 0
         var expire: (@MainActor () -> Void)?
-        let keeper = BackgroundKeeper(enabled: true, connections: { ["ready"] },
-            begin: { handler in began += 1; expire = handler; return 7 }, end: { ended.append($0) }, wake: { woke += 1 })
-        keeper.resignActive()
-        keeper.enteredBackground()
-        expire?()
-        #expect(ended == [7])
-        keeper.becameActive()
-        #expect(began == 1)
-        #expect(ended == [7])
-        #expect(woke == 1)
+        var states = ["ready"]
+        let center = NotificationCenter()
+        lazy var keeper: BackgroundKeeper = {
+            let keeper = BackgroundKeeper(enabled: true, connections: { [unowned self] in states },
+                begin: { [unowned self] handler in began += 1; expire = handler; return 7 },
+                end: { [unowned self] in ended.append($0) }, wake: { [unowned self] in woke += 1 })
+            keeper.observe(center)
+            return keeper
+        }()
+        init(states: [String] = ["ready"]) { self.states = states; _ = keeper }
+        func post(_ name: Notification.Name) { center.post(name: name, object: nil) }
+    }
+
+    @Test func leavingTheAppAndComingBackHoldsOnceReleasesOnceAndWakesOnce() {
+        let app = FakeTasks()
+        app.post(UIApplication.willResignActiveNotification)
+        #expect(app.began == 1)
+        app.post(UIApplication.didEnterBackgroundNotification)
+        app.post(UIApplication.didBecomeActiveNotification)
+        #expect(app.began == 1)
+        #expect(app.ended == [7])
+        #expect(app.woke == 1)
+    }
+    @Test func resigningAndReturningWithoutLeavingTheScreenReleasesTheHoldWithoutWaking() {
+        let app = FakeTasks()
+        app.post(UIApplication.willResignActiveNotification)
+        app.post(UIApplication.didBecomeActiveNotification)
+        #expect(app.began == 1)
+        #expect(app.ended == [7])
+        #expect(app.woke == 0)
+    }
+    @Test func theKeeperReleasesTheTaskWhenIOSExpiresItBeforeTheAppReturns() {
+        let app = FakeTasks()
+        app.post(UIApplication.willResignActiveNotification)
+        app.post(UIApplication.didEnterBackgroundNotification)
+        app.expire?()
+        #expect(app.ended == [7])
+        app.post(UIApplication.didBecomeActiveNotification)
+        #expect(app.began == 1)
+        #expect(app.ended == [7])
+        #expect(app.woke == 1)
     }
     @Test func theKeeperTakesTheHoldWhenAMachineStartsConnectingAfterTheAppResigns() {
-        var began = 0
-        var states: [String] = []
-        let keeper = BackgroundKeeper(enabled: true, connections: { states },
-            begin: { _ in began += 1; return 7 }, end: { _ in }, wake: {})
-        keeper.resignActive()
-        states = ["connecting"]
-        keeper.connectionsChanged()
-        #expect(began == 1)
+        let app = FakeTasks(states: [])
+        app.post(UIApplication.willResignActiveNotification)
+        #expect(app.began == 0)
+        app.states = ["connecting"]
+        app.keeper.connectionsChanged()
+        #expect(app.began == 1)
     }
     @Test func theKeeperAsksForNothingWhileNoMachineSocketIsWorking() {
-        var began = 0
-        let keeper = BackgroundKeeper(enabled: true, connections: { ["fatal"] },
-            begin: { _ in began += 1; return 7 }, end: { _ in }, wake: {})
-        keeper.resignActive()
-        keeper.enteredBackground()
-        #expect(began == 0)
+        let app = FakeTasks(states: ["fatal"])
+        app.post(UIApplication.willResignActiveNotification)
+        app.post(UIApplication.didEnterBackgroundNotification)
+        #expect(app.began == 0)
     }
 }

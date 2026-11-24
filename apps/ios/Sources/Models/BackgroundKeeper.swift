@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import UIKit
 
@@ -9,6 +10,7 @@ import UIKit
     private let end: (Int) -> Void
     private let wake: () -> Void
     private var task: Int?
+    private var observers: [AnyCancellable] = []
 
     init(enabled: Bool, connections: @escaping () -> [String], begin: @escaping (@escaping @MainActor () -> Void) -> Int,
          end: @escaping (Int) -> Void, wake: @escaping () -> Void) {
@@ -33,9 +35,21 @@ import UIKit
             wake: wake)
     }
 
-    func resignActive() { run(hold.resignActive(connections: connections())) }
-    func enteredBackground() { run(hold.enteredBackground()) }
-    func becameActive() { run(hold.becameActive()) }
+    /// Follows UIKit's lifecycle notifications on `center`, not SwiftUI's scene phase (see
+    /// `BackgroundHold`). Each is handled as it is posted, on the main thread that posts it.
+    func observe(_ center: NotificationCenter) {
+        observers = [
+            center.publisher(for: UIApplication.willResignActiveNotification)
+                .sink { [weak self] _ in MainActor.assumeIsolated { self?.resignActive() } },
+            center.publisher(for: UIApplication.didEnterBackgroundNotification)
+                .sink { [weak self] _ in MainActor.assumeIsolated { self?.enteredBackground() } },
+            center.publisher(for: UIApplication.didBecomeActiveNotification)
+                .sink { [weak self] _ in MainActor.assumeIsolated { self?.becameActive() } },
+        ]
+    }
+    private func resignActive() { run(hold.resignActive(connections: connections())) }
+    private func enteredBackground() { run(hold.enteredBackground()) }
+    private func becameActive() { run(hold.becameActive()) }
     /// A machine's connection state changed (`MachinesModel.onConnectionChange`).
     func connectionsChanged() { run(hold.connectionsChanged(connections())) }
     func refreshSetting(_ on: Bool) { run(hold.setEnabled(on)) }
