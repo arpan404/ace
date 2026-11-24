@@ -1,6 +1,6 @@
 import { spadeMostInRoute } from "@ace/ui-core/spade-chat";
 import { PlusIcon, XIcon } from "@ace/icons";
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
@@ -176,10 +176,25 @@ function AddFallback(props: {
   choose(next: string[]): Promise<void>;
 }) {
   const [adding, setAdding] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const addRef = useRef<HTMLButtonElement>(null);
+  const editRef = useRef<HTMLDivElement>(null);
   const id = useId();
+  // Opening the picker puts the keyboard in it; cancelling puts it back on the button that
+  // opened it, which the edit replaced.
+  useEffect(() => {
+    if (!adding) return;
+    editRef.current?.querySelector<HTMLElement>("button")?.focus();
+  }, [adding]);
+  useEffect(() => {
+    if (adding || !restoring) return;
+    addRef.current?.focus();
+    setRestoring(false);
+  }, [adding, restoring]);
   if (!adding)
     return (
       <button
+        ref={addRef}
         type="button"
         onClick={() => setAdding(true)}
         className="inline-flex h-6 w-fit items-center gap-1.5 rounded-sm px-1 text-xs text-subtle-foreground transition-colors duration-(--motion-fast) hover:text-foreground focus-ring"
@@ -189,7 +204,11 @@ function AddFallback(props: {
       </button>
     );
   return (
-    <div {...part("settings-row", undefined, "route-fallback")} className="flex items-center gap-2">
+    <div
+      ref={editRef}
+      {...part("settings-row", undefined, "route-fallback")}
+      className="flex items-center gap-2"
+    >
       <label htmlFor={id} className="w-24 shrink-0 text-xs text-subtle-foreground">
         If it can't answer
       </label>
@@ -210,7 +229,10 @@ function AddFallback(props: {
         variant="ghost"
         aria-label="Cancel adding fallback"
         className="shrink-0 text-subtle-foreground hover:text-foreground"
-        onClick={() => setAdding(false)}
+        onClick={() => {
+          setAdding(false);
+          setRestoring(true);
+        }}
       >
         <XIcon aria-hidden size={14} />
       </Button>
