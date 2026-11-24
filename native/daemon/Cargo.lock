@@ -157,13 +157,13 @@ version = "0.1.0"
 dependencies = [
  "ace-adapter-api",
  "ace-core",
+ "ace-json",
  "ace-store",
  "async-task",
  "concurrent-queue",
  "futures",
  "lru",
  "serde",
- "serde_json",
  "thiserror",
 ]
 

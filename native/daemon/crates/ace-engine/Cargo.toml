@@ -29,7 +29,8 @@ futures = "0.3"
 lru = "0.19"
 # serde: engine state and records serialize for tests and stored rows.
 serde = { version = "1", features = ["derive"] }
-# serde_json: frames and records keep provider and stored JSON as values, never re-encoded.
-serde_json = { version = "1", features = ["raw_value"] }
+# ace-json: JSON goes through it (rule 8), never serde_json: the registry view and later
+# module payloads keep JavaScript's key order, numbers and lone surrogates.
+ace-json = { path = "../ace-json" }
 # thiserror: one typed error enum for the crate, mapped in the binding.
 thiserror = { version = "2" }

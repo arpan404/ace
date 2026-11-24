@@ -601,7 +601,9 @@ mod tests {
 
     fn table() -> std::sync::Arc<Connection> {
         let connection = connection();
-        connection.exec("CREATE TABLE t (v INTEGER)").expect("table");
+        connection
+            .exec("CREATE TABLE t (v INTEGER)")
+            .expect("table");
         connection
     }
 
