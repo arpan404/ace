@@ -25,6 +25,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
+use ace_supervisor::errors::NodeIoError;
 use ace_transport::{HopSecret, LoopbackListener, ProxyTarget, WebSocketUpgrades};
 use admission::{Admission, Held};
 use napi::bindgen_prelude::Object;
@@ -38,6 +39,35 @@ use upgrade::{AdmitFn, Admitting, OpenedFn, ReleaseFn, Sinking};
 /// The admission deadline when the caller names none: `socket-admission.ts`'s
 /// hello window, which admission answers with its own `503`.
 const ADMIT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The listener's bind failure as node's `listen` reports it: the errno's name and
+/// libuv value, node's message shape (`listen EADDRINUSE: address already in use
+/// 127.0.0.1:PORT`) and the address. The shell sets those fields on the JS error;
+/// napi's own error can carry only its status as `code`.
+fn bind_rejection(addr: SocketAddr, error: &std::io::Error) -> napi::Error {
+    let io = NodeIoError::new("listen", error);
+    let message = format!("listen {}: {} {addr}", io.code(), listen_reason(error));
+    let payload = serde_json::json!({
+        "code": io.code(),
+        "errno": io.errno(),
+        "syscall": "listen",
+        "address": addr.ip().to_string(),
+        "port": addr.port(),
+        "message": message,
+    });
+    napi::Error::from_reason(payload.to_string())
+}
+
+/// The OS words node prints after the code for a refused listen; the standard
+/// library's own text otherwise.
+fn listen_reason(error: &std::io::Error) -> String {
+    match error.kind() {
+        std::io::ErrorKind::AddrInUse => "address already in use".to_owned(),
+        std::io::ErrorKind::AddrNotAvailable => "address not available".to_owned(),
+        std::io::ErrorKind::PermissionDenied => "permission denied".to_owned(),
+        _ => error.to_string(),
+    }
+}
 
 /// The addon's transport runtime: the listener, its connections, and the tasks
 /// that carry JavaScript's answers back. The shell's thread never waits on it.
@@ -268,6 +298,9 @@ impl NativeLoopback {
                         port,
                     };
                     deferred.resolve(move |_env| Ok(loopback));
+                }
+                Err(ace_transport::TransportError::Bind { addr, source }) => {
+                    deferred.reject(bind_rejection(addr, &source))
                 }
                 Err(error) => deferred.reject(napi::Error::from_reason(error.to_string())),
             }
