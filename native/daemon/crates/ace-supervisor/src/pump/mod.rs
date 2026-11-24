@@ -129,10 +129,6 @@ pub struct Flow {
     /// A diverted child's consumer hears `end` when the flow closes too, not
     /// only at EOF; unset for every stream the shell owns.
     end_on_close: std::sync::atomic::AtomicBool,
-    /// Resumes handed to the pump. A chunk paused on receipt only if no
-    /// resume arrived after it was delivered, so a resume racing `taken(false)`
-    /// is never lost (E3.0b).
-    resumes: std::sync::atomic::AtomicU64,
 }
 
 #[derive(Default)]
@@ -144,6 +140,10 @@ struct FlowState {
     /// The pipe hung up: what is left in it is read past the allowance, so
     /// EOF (and `close`) arrive though nobody reads.
     draining: bool,
+    /// Resumes handed to the pump. A chunk paused on receipt only if no
+    /// resume arrived after it was delivered, so a resume racing
+    /// `taken(false)` is never lost (E3.0b).
+    resumes: u64,
 }
 
 impl Flow {
@@ -154,7 +154,6 @@ impl Flow {
             closed: CancellationToken::new(),
             budget,
             end_on_close: std::sync::atomic::AtomicBool::new(false),
-            resumes: std::sync::atomic::AtomicU64::new(0),
         })
     }
 
@@ -167,10 +166,12 @@ impl Flow {
     }
 
     /// A chunk was received and its consumer wants no more: pause, unless a
-    /// resume arrived after that chunk was delivered (`Delivered::new`).
+    /// resume arrived after that chunk was delivered (`Delivered::new`). The
+    /// check and the pause are one critical section, the same one `resume`
+    /// updates, so neither can slip between them (E3.0b).
     pub(crate) fn pause_unless_resumed_since(&self, generation: u64) {
-        if self.resumes.load(std::sync::atomic::Ordering::SeqCst) == generation
-            && let Ok(mut state) = self.state.lock()
+        if let Ok(mut state) = self.state.lock()
+            && state.resumes == generation
         {
             state.paused = true;
         }
@@ -178,16 +179,15 @@ impl Flow {
 
     /// The resume count when a chunk starts delivery.
     pub(crate) fn resume_generation(&self) -> u64 {
-        self.resumes.load(std::sync::atomic::Ordering::SeqCst)
+        self.state.lock().map_or(0, |state| state.resumes)
     }
 
     /// The shell's stream wants more: what it read ahead goes back to the pool.
     pub fn resume(&self) {
-        // Counted before the flag clears: a pause decided from an older
-        // generation is undone here, and a later one sees this resume.
-        self.resumes
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        // Counted and cleared under one lock, so a pause decided from an
+        // older generation is undone here and a later one sees this resume.
         if let Ok(mut state) = self.state.lock() {
+            state.resumes += 1;
             state.paused = false;
         }
         self.give_back();
