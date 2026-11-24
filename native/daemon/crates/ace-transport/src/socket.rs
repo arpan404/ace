@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The socket and its lifecycle (T1a.4). `tokio-tungstenite` frames the bytes and
-//! answers the protocol's control frames; this module owns what `ws` owns above
-//! that: the ready state, the buffered amount, pause and resume, the bound in front
-//! of JavaScript, and one event per outcome. Nothing here parses an ace message.
+//! The socket and its lifecycle (T1a.4). `frame` puts RFC 6455 on the wire and
+//! assembles what arrives; this module owns what `ws` owns above that: the ready
+//! state, the buffered amount, pause and resume, the bound in front of
+//! JavaScript, and one event per outcome. Nothing here parses an ace message.
 //!
 //! `drive` runs the two tasks, so a slow write never stops a control frame being
 //! read; `events` is what the owner receives. Dropping the handle or the receiver
@@ -15,11 +15,11 @@ use std::time::Duration;
 use bytes::Bytes;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc;
-use tokio_tungstenite::tungstenite::{Message, Utf8Bytes};
 use tokio_util::sync::CancellationToken;
 use zeroize::Zeroize;
 
 use crate::driver::UpgradeIo;
+use crate::frame::{Opcode, Outbound as Frame};
 
 mod drive;
 mod events;
@@ -28,12 +28,12 @@ mod handle;
 mod tests;
 
 pub use events::{SendResult, SocketEvent, SocketEvents};
-pub use handle::SocketHandle;
+pub use handle::{CloseError, SocketHandle};
 
 use drive::Ending;
 
 /// `maxPayload` (`server.ts:252`): one inbound message, after any inflation.
-pub const MAX_MESSAGE_BYTES: usize = 1 << 20;
+pub use crate::frame::MAX_MESSAGE_BYTES;
 /// `socket-input.ts`'s `messageOverhead`: a message is charged its length plus
 /// this, so an empty one still counts, inbound and outbound alike.
 pub const MESSAGE_OVERHEAD: u64 = 256;
@@ -46,25 +46,40 @@ pub const DELIVERY_MESSAGES: u64 = 64;
 pub const OUTBOUND_MESSAGES: u64 = 16_384;
 /// `ws`'s `closeTimeout`: an unanswered local close is destroyed and reported `1006`.
 pub const CLOSE_TIMEOUT: Duration = Duration::from_secs(30);
+/// Queued pong memory may not pass this: each pong's frame bytes plus its queue
+/// entry. `ws` has no bound; 16 MiB is four times the outbox's 4 MiB resync
+/// threshold, so the policy normally acts first and this only stops a peer that
+/// outruns it from growing memory without end. Past it the socket closes with
+/// 1008 (recorded in the porting guide).
+pub const CONTROL_BYTES: u64 = 16 * 1024 * 1024;
 
 /// `ws`'s ready states, as `readyState` reports them.
 pub const OPEN: u8 = 1;
 pub const CLOSING: u8 = 2;
 pub const CLOSED: u8 = 3;
 
-/// What a `send` still owes: the id that gets one `Sent`, and the charged bytes
-/// (its length plus the per-message overhead) it holds in `buffered_amount`.
+/// What a `send` still owes: the id that gets one `Sent`.
 #[derive(Clone, Copy)]
 struct Own {
     id: u64,
-    length: u64,
 }
 
-/// One thing for the writer: a frame, and the `send` whose completion it is.
-struct Outbound {
-    frame: Message,
+/// One thing for the writer: a frame, the `send` whose completion it is, and the
+/// bytes it charged. A control reply is charged but owes no `Sent`.
+struct Queued {
+    frame: Frame,
     own: Option<Own>,
+    /// What `bufferedAmount` grows by: a pong's frame bytes, a send's payload
+    /// plus the outbox's per-message overhead.
+    charge: u64,
+    /// What the pong memory ceiling counts: frame bytes plus the entry itself.
+    memory: u64,
+    control: bool,
 }
+
+/// A queued pong's own allocation, counted against [`CONTROL_BYTES`] beside its
+/// frame bytes so empty pings are bounded too.
+pub const CONTROL_ENTRY_BYTES: u64 = std::mem::size_of::<Queued>() as u64;
 
 /// The socket's state, its outbound queue and its events under one lock, so a
 /// `send` checks `OPEN`, charges and enqueues as one step and nothing is emitted
@@ -72,8 +87,13 @@ struct Outbound {
 struct Inner {
     state: u8,
     /// `None` once the socket is closed: no later `send` can queue anything.
-    outbound: Option<mpsc::UnboundedSender<Outbound>>,
+    outbound: Option<mpsc::UnboundedSender<Queued>>,
     events: Option<mpsc::UnboundedSender<SocketEvent>>,
+    /// The local close frame queued but not yet on the wire (`ws`'s
+    /// `_closeFrameSent === false` after `close()`).
+    close: Option<Vec<u8>>,
+    /// A close frame has been flushed, local or a reply.
+    close_sent: bool,
 }
 
 struct Shared {
@@ -82,6 +102,8 @@ struct Shared {
     buffered: AtomicU64,
     /// Sends whose `Sent` the owner has not taken, which bounds the queue.
     pending: AtomicU64,
+    /// Queued pong payload bytes, for [`CONTROL_BYTES`] only.
+    control_bytes: AtomicU64,
     paused: AtomicBool,
     /// Charged bytes and messages waiting for JavaScript, so for the reader.
     waiting_bytes: AtomicU64,
@@ -110,6 +132,51 @@ impl Shared {
         let _ = self.wake.try_send(());
     }
 
+    /// Queues one control frame the reader owes (a pong), with no `Sent`: control
+    /// frames answer the peer, they are not one of the owner's sends. `bufferedAmount`
+    /// grows by the 2-byte header plus payload, which is what `ws` reports; the
+    /// memory ceiling also counts the queue entry. Reading never stops for a pong.
+    /// False when the queued memory would pass [`CONTROL_BYTES`]: the caller closes
+    /// with 1008.
+    fn control(&self, opcode: Opcode, payload: Vec<u8>) -> bool {
+        let charge = 2 + payload.len() as u64;
+        let memory = charge + CONTROL_ENTRY_BYTES;
+        let inner = lock(&self.inner);
+        let Some(outbound) = inner.outbound.as_ref() else {
+            return true;
+        };
+        // `ws`'s `pong` returns for a socket that is no longer OPEN
+        // (websocket.js:412-426), so a ping after `close()` gets no reply.
+        if inner.state != OPEN {
+            return true;
+        }
+        let queued = self.control_bytes.fetch_add(memory, Ordering::Relaxed) + memory;
+        if queued > CONTROL_BYTES {
+            self.control_bytes.fetch_sub(memory, Ordering::Relaxed);
+            return false;
+        }
+        self.buffered.fetch_add(charge, Ordering::Relaxed);
+        let frame = Frame {
+            opcode,
+            rsv1: false,
+            payload: Bytes::from(payload),
+        };
+        if outbound
+            .send(Queued {
+                frame,
+                own: None,
+                charge,
+                memory,
+                control: true,
+            })
+            .is_err()
+        {
+            debit(&self.control_bytes, memory);
+            debit(&self.buffered, charge);
+        }
+        true
+    }
+
     fn state(&self) -> u8 {
         lock(&self.inner).state
     }
@@ -135,20 +202,37 @@ impl Shared {
         let _ = self.emit(SocketEvent::Sent { id, error });
     }
 
-    /// Releases a frame's bytes without completing it; `finish` reports the `Sent`
-    /// once sealed, and the owner's taking it is what releases `pending`.
-    fn release(&self, own: Option<Own>) {
-        if let Some(own) = own {
-            debit(&self.buffered, own.length);
+    /// Releases a frame's charge without completing it; `finish` reports the
+    /// `Sent` once sealed, and the owner's taking it is what releases `pending`.
+    fn release(&self, charge: u64, memory: u64, control: bool) {
+        debit(&self.buffered, charge);
+        if control {
+            debit(&self.control_bytes, memory);
         }
     }
 
-    fn complete(&self, own: Option<Own>, error: Option<String>) {
-        let Some(own) = own else {
-            return;
-        };
-        self.release(Some(own));
-        self.sent(own.id, error);
+    /// One queued frame is done: release its charge, its control slot, and the
+    /// one `Sent` a data send owes.
+    fn settle(
+        &self,
+        own: Option<Own>,
+        charge: u64,
+        memory: u64,
+        control: bool,
+        error: Option<String>,
+    ) {
+        self.release(charge, memory, control);
+        if let Some(own) = own {
+            self.sent(own.id, error);
+        }
+    }
+
+    /// A close frame reached the wire: `ws`'s `_closeFrameSent`, and no later
+    /// reply is written.
+    fn close_flushed(&self) {
+        let mut inner = lock(&self.inner);
+        inner.close_sent = true;
+        inner.close = None;
     }
 
     fn emit(&self, event: SocketEvent) -> Result<(), SocketEvent> {
@@ -204,9 +288,12 @@ pub fn open(stream: Box<dyn UpgradeIo>) -> (SocketHandle, SocketEvents) {
             state: OPEN,
             outbound: Some(outbound),
             events: Some(events),
+            close: None,
+            close_sent: false,
         }),
         buffered: AtomicU64::new(0),
         pending: AtomicU64::new(0),
+        control_bytes: AtomicU64::new(0),
         paused: AtomicBool::new(false),
         waiting_bytes: AtomicU64::new(0),
         waiting_messages: AtomicU64::new(0),
@@ -226,12 +313,18 @@ pub fn open(stream: Box<dyn UpgradeIo>) -> (SocketHandle, SocketEvents) {
 }
 
 /// The frame for one outbound payload: text only for UTF-8, which TypeScript sends.
-fn message(data: Bytes, binary: bool) -> Result<Message, std::str::Utf8Error> {
-    if binary {
-        Ok(Message::Binary(data))
+fn message(data: Bytes, binary: bool) -> Result<Frame, std::str::Utf8Error> {
+    let opcode = if binary {
+        Opcode::Binary
     } else {
-        Utf8Bytes::try_from(data).map(Message::Text)
-    }
+        std::str::from_utf8(&data)?;
+        Opcode::Text
+    };
+    Ok(Frame {
+        opcode,
+        rsv1: false,
+        payload: data,
+    })
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {

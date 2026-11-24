@@ -832,6 +832,15 @@ extension over `flate2`, on our own framing. The tasks, in order:
 The brief lists the recorded differences from `ws` and the Node/Bun TLS stack, the failure modes
 on restart and reconnect, and the owner's decisions of 2026-11-24.
 
+**Recorded difference (T1b.3a, pong backlog).** `ws` has no bound on the pongs queued while a
+connection cannot write; a peer that floods pings grows its buffer until the slow-link policy
+resyncs. The native socket keeps reading through the backlog and charges each pong its 2-byte
+header plus payload for `bufferedAmount`, exactly as `ws` reports it, so a sustained flood can
+cross the outbox's thresholds and resync there just as with `ws` (4 MiB is 2,097,152 empty pongs,
+or about 33,026 pongs of 125-byte payloads). The one native bound is memory: 16 MiB of queued pong
+memory, each frame's bytes plus a fixed per-entry overhead, four times the outbox's 4 MiB hard
+limit; past it the socket closes with `1008` and a `protocol` error.
+
 ### T2: hello, authentication, devices (needs T1, store phase 5's writer default-on)
 
 `socket-hello.ts`, `remote-auth.ts`, `ticket-pool.ts`, `pairing-codes.ts`, `pairing-issue.ts`,

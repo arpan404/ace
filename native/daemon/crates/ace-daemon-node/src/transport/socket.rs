@@ -139,10 +139,15 @@ impl NativeSocketHandle {
         .to_owned()
     }
 
-    /// A deliberate close with its code and reason; idempotent per socket.
+    /// A deliberate close with its code and reason; idempotent per socket. `ws`
+    /// refuses an invalid code or a reason over 123 bytes before sending, and so
+    /// does this: the shell sees the throw, and nothing was queued.
     #[napi(catch_unwind)]
-    pub fn close(&self, code: Option<u16>, reason: String) {
-        self.inner.handle.close(code, reason);
+    pub fn close(&self, code: Option<u16>, reason: String) -> napi::Result<()> {
+        self.inner
+            .handle
+            .close(code, reason)
+            .map_err(|error| napi::Error::new(Status::InvalidArg, error.message()))
     }
 
     /// Drops the connection and reports `close` with `1006`.

@@ -20,8 +20,7 @@ bytes = { version = "1.12" }
 # getrandom: the 32-byte hop secret from the OS CSPRNG, read once at the
 # boundary (`HopSecret::generate`) and never anywhere else.
 getrandom = { version = "0.4" }
-# futures-util: the Stream/Sink traits the socket drives its two halves with, as
-# tokio-tungstenite itself binds them (already in the lock through it).
+# futures-util: the Stream/Sink traits `frame` puts the wire behind.
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 # http: request and response types on the hop.
 http = { version = "1.5" }
@@ -44,11 +43,8 @@ tokio = { version = "1.54", features = [
 ] }
 # tokio-util: CancellationToken tells connection tasks and upgrade handlers the listener is closing.
 tokio-util = { version = "0.7.20" }
-# tokio-tungstenite: the socket's WebSocket framing (RFC 6455) over tokio. No TLS
-# and no client: the daemon only ever serves a socket it upgraded itself.
-tokio-tungstenite = { version = "0.30", default-features = false }
 # tungstenite: `derive_accept_key` alone, the `Sec-WebSocket-Accept` digest the
-# handshake pins to ws's. Framing is tokio-tungstenite's (T1a.4); no TLS, no URL.
+# handshake pins to ws's. Framing is `frame`'s since T1b.3a; no TLS, no URL.
 tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 # zeroize: the hop secret is wiped on drop in a way the optimizer cannot remove.
 zeroize = { version = "1" }
@@ -57,3 +53,6 @@ zeroize = { version = "1" }
 # tokio/test-util: the socket's close deadline is driven by tokio's clock, which a
 # test advances (`start_paused`) instead of waiting 30 s.
 tokio = { version = "1.54", features = ["test-util"] }
+# tokio-tungstenite: the client in the socket tests, so every framing test runs
+# against another implementation instead of this one's writer. No TLS, no URL.
+tokio-tungstenite = { version = "0.30", default-features = false }
