@@ -75,9 +75,7 @@ test("a Cloudflare gateway's token is asked for beside the provider's key", asyn
     if (!endpoint) throw new Error("the gateway was not added");
     return endpoint;
   });
-  expect(created.base_url).toBe(
-    "https://gateway.ai.cloudflare.com/v1/acct-1/my-gateway/compat/",
-  );
+  expect(created.base_url).toBe("https://gateway.ai.cloudflare.com/v1/acct-1/my-gateway/compat/");
   await waitFor(() =>
     expect(spade.sent("PUT", `/v1/keys/${String(created.id)}/gateway`)).toEqual([
       { token: "cf-token" },
