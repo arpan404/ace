@@ -22,7 +22,7 @@ import type { MediaHealth } from "./supervision-policy.ts";
 import type { ToMedia } from "./wire.ts";
 
 const capabilities: RouteCapabilities = {
-  ingest: ["tab", "tab-pictures", "screen", "simulator"],
+  ingest: ["tab", "tab-pictures", "screen", "simulator", "emulator-frames"],
   delivery: false,
 };
 
@@ -719,6 +719,98 @@ describe("a stopped source says why, so its live views never go blank without a 
     w.status("s3", "ended", "reader-ended");
     w.advance(failedRetryMs);
     expect(w.opened()).toHaveLength(4);
+  });
+
+  it("a source ace-media never answers is opened again, its views told why meanwhile", () => {
+    const w = world();
+    const l = producer();
+    w.sources.add(l.p);
+    expect(w.opened()).toHaveLength(1);
+    expect(w.sources.state((p) => p === l.p)).toBe("live");
+    w.advance(openTimeoutMs - 1);
+    expect(w.opened()).toHaveLength(1);
+    w.advance(1);
+    // The open it never answered is given up, closed there, and its source retried.
+    expect(w.closed()).toEqual(["s1"]);
+    expect(l.stops).toEqual([unansweredReason]);
+    w.advance(failedRetryMs);
+    expect(w.opened()).toHaveLength(2);
+  });
+
+  it("a device source ace-media takes but never plays is opened again, instead of staying live forever", () => {
+    const w = world();
+    const l = producer("emulator-frames");
+    w.sources.add(l.p);
+    w.status("s1", "starting");
+    expect(l.points).toHaveLength(1);
+    w.advance(unplayedTimeoutMs - 1);
+    expect(w.opened()).toHaveLength(1);
+    w.advance(1);
+    expect(l.stops).toEqual([unplayedReason]);
+    w.advance(failedRetryMs);
+    expect(w.opened()).toHaveLength(2);
+    // Once it plays, the path is left alone.
+    w.status("s2", "starting");
+    w.status("s2", "playing");
+    w.advance(unplayedTimeoutMs * 4);
+    expect(w.opened()).toHaveLength(2);
+  });
+
+  it("a source that stops playing is opened again at once", () => {
+    const w = world();
+    const l = producer();
+    w.sources.add(l.p);
+    w.status("s1", "starting");
+    w.status("s1", "playing");
+    w.status("s1", "ended");
+    expect(w.opened()).toHaveLength(2);
+  });
+
+  it("a producer that throws on a callback costs only its own source", () => {
+    const w = world();
+    const broken = producer("tab", "broken");
+    broken.p.stopped = () => {
+      throw new Error("producer bug");
+    };
+    const other = producer("screen", "other");
+    w.sources.add(broken.p);
+    w.sources.add(other.p);
+    w.state.up = false;
+    w.state.health = "restarting";
+    expect(() => w.sources.exited()).not.toThrow();
+    w.state.up = true;
+    w.state.health = "healthy";
+    w.sources.replay();
+    // Both were reset and open again, including the source after the one that threw.
+    expect(w.opened().map(({ source }) => source)).toEqual(["s1", "s2", "s3", "s4"]);
+  });
+
+  it("a producer whose point throws refuses its source, which opens again by itself", async () => {
+    const w = world();
+    const l = producer();
+    let refuse = true;
+    l.p.point = () => {
+      if (refuse) throw new Error("cannot point");
+      return Promise.resolve();
+    };
+    w.sources.add(l.p);
+    expect(() => w.status("s1", "starting")).not.toThrow();
+    // The throw is the refusal a rejected point is; the source retries, never left stuck.
+    await Promise.resolve();
+    expect(l.stops).toEqual([failedReason]);
+    refuse = false;
+    w.advance(failedRetryMs);
+    expect(w.opened()).toHaveLength(2);
+  });
+
+  it("a closed source ace-media never played is never opened again", () => {
+    const w = world();
+    const l = producer();
+    const source = w.sources.add(l.p);
+    w.status("s1", "starting");
+    source.close();
+    w.advance(openTimeoutMs + unplayedTimeoutMs + failedRetryMs * 4);
+    expect(w.opened()).toHaveLength(1);
   });
 
   it("a closed source that ace-media ended never opens again", () => {

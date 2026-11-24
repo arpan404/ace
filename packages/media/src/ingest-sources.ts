@@ -202,7 +202,18 @@ export const drainMs = 2_000;
  * unit. Every other source (JPEG picture sources too) ends on its producer's ingest end, and is
  * closed once ace-media's marker follows its last unit, or at the drain limit.
  */
+/** Sources ace-media reads itself (a Simulator's reader): it closes them there on drain. */
 const readByMedia: ReadonlySet<SourceKind> = new Set<SourceKind>(["simulator"]);
+/**
+ * Device sources: their first picture always comes once the device streams (a Simulator's
+ * reader, a scrcpy stream, emulator frames), so one ace-media took but never played is stuck.
+ * A tab or a screen can stay quiet until something changes, so it is never given up for that.
+ */
+const playsOnOpen: ReadonlySet<SourceKind> = new Set<SourceKind>([
+  "simulator",
+  "scrcpy",
+  "emulator-frames",
+]);
 
 type Entry = {
   producer: IngestProducer;
@@ -647,9 +658,9 @@ export class IngestSources {
     if (!path.acknowledged) {
       path.acknowledged = true;
       this.#announce(entry, path);
-      // A source ace-media reads itself plays only from its own reader: one it took and never
-      // plays is given up, since nothing in the daemon else would open it again.
-      if (readByMedia.has(entry.producer.kind) && message.status !== "ended")
+      // A device source ace-media took but never plays is given up and opened again, rather
+      // than left looking live while nothing streams.
+      if (playsOnOpen.has(entry.producer.kind) && message.status !== "ended")
         this.#watch(path, { ms: unplayedTimeoutMs, reason: unplayedReason });
     }
     if (message.status === "starting") return this.#started(entry, path);
