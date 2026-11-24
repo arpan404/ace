@@ -8,7 +8,11 @@ import {
   failedRetryMs,
   IngestSources,
   maxIngestReopens,
+  openTimeoutMs,
   restartingReason,
+  unansweredReason,
+  unplayedReason,
+  unplayedTimeoutMs,
   type IngestAddress,
   type IngestProducer,
 } from "./ingest-sources.ts";
@@ -56,6 +60,7 @@ function world() {
     features: ["source.ingest", "source.sync", "picture-ingest", "privacy-open"] as string[],
   };
   const sent: { message: ToMedia; payload?: Uint8Array }[] = [];
+  const logs: string[] = [];
   const timers: { at: number; run: () => void; cancelled: boolean }[] = [];
   let now = 0;
   let ids = 0;
@@ -104,6 +109,7 @@ function world() {
       timers.push(timer);
       return () => void (timer.cancelled = true);
     },
+    log: (message) => void logs.push(message),
   });
   const advance = (ms: number) => {
     now += ms;
@@ -129,7 +135,7 @@ function world() {
       ...(reason ? { reason } : {}),
       ...(to === "retrying" ? { attempts: 1 } : {}),
     });
-  return { state, sent, sources, router, advance, opened, types, closed, status, stills };
+  return { state, sent, sources, router, advance, opened, types, closed, status, stills, logs };
 }
 
 function producer(kind: SourceKind = "tab", source = "p") {
@@ -733,6 +739,107 @@ describe("a stopped source says why, so its live views never go blank without a 
     w.status("s1", "starting");
     w.status("s1", "ended", "encoder-unavailable");
     expect(l.stops).toEqual(["encoder-unavailable"]);
+  });
+});
+
+describe("a source ace-media never took is opened again, never left looking live", () => {
+  it("an open ace-media never answered is given up and opened again after the usual wait", () => {
+    const w = world();
+    const l = producer("simulator");
+    w.sources.add(l.p);
+    // The daemon's state has the source live from the moment the open went out, so a viewer is
+    // granted it: until ace-media answers, that is a source no process has.
+    expect(w.sources.state(() => true)).toBe("live");
+    expect(w.opened()).toHaveLength(1);
+    w.advance(openTimeoutMs - 1);
+    expect(w.opened()).toHaveLength(1);
+    w.advance(1);
+    expect(w.sources.state(() => true)).toBe("failed");
+    expect(l.stops).toEqual([unansweredReason]);
+    // It opens again on the existing backoff, not at once.
+    expect(w.opened()).toHaveLength(1);
+    w.advance(failedRetryMs);
+    expect(w.opened()).toHaveLength(2);
+    // Playing resets the wait: an answered open is not given up.
+    w.status("s2", "starting");
+    w.status("s2", "playing");
+    w.advance(openTimeoutMs * 2);
+    expect(w.opened()).toHaveLength(2);
+  });
+
+  it("a Simulator ace-media opened but never started playing is opened again, so its reader is never left dead", () => {
+    const w = world();
+    const l = producer("simulator");
+    w.sources.add(l.p);
+    w.status("s1", "starting");
+    expect(w.sources.state(() => true)).toBe("live");
+    w.advance(unplayedTimeoutMs - 1);
+    expect(w.opened()).toHaveLength(1);
+    w.advance(1);
+    expect(w.sources.state(() => true)).toBe("failed");
+    expect(l.stops).toEqual([unplayedReason]);
+    w.advance(failedRetryMs);
+    expect(w.opened()).toHaveLength(2);
+  });
+
+  it("a source whose producer streams in itself is never given up for staying unplayed", () => {
+    // A tab or screen that shows nothing new sends no picture: it is not a broken source.
+    const w = world();
+    const l = producer("tab");
+    w.sources.add(l.p);
+    w.status("s1", "starting");
+    w.advance(unplayedTimeoutMs * 4);
+    expect(w.opened()).toHaveLength(1);
+    expect(l.stops).toEqual([]);
+  });
+
+  it("a producer that throws as it is told where to stream fails its source, which opens again", async () => {
+    const w = world();
+    const l = producer("tab");
+    w.sources.add(l.p);
+    l.p.point = () => {
+      throw new Error("ingest socket gone");
+    };
+    // The status is ace-media's own message: it must never leave the daemon's handler throwing.
+    expect(() => w.status("s1", "starting")).not.toThrow();
+    await Promise.resolve();
+    expect(l.stops).toEqual([failedReason]);
+    expect(w.sources.state(() => true)).toBe("failed");
+    w.advance(failedRetryMs);
+    expect(w.opened()).toHaveLength(2);
+  });
+});
+
+describe("ace-media's exit leaves no source believing the dead process still has it", () => {
+  it("a producer whose unpoint throws costs only its own source: the rest are reset and opened again", () => {
+    const w = world();
+    const bad = producer("tab", "bad");
+    const idle = producer("tab", "idle");
+    const sim = producer("simulator", "sim");
+    w.sources.add(bad.p);
+    w.sources.add(idle.p);
+    w.sources.add(sim.p);
+    w.status("s1", "starting");
+    w.status("s3", "starting");
+    // A capture already gone throws as its producer is pointed away.
+    const point = bad.p.point;
+    bad.p.point = (address) => {
+      if (!address) throw new Error("capture gone");
+      return point(address);
+    };
+    w.state.up = false;
+    w.state.health = "restarting";
+    w.sources.exited();
+    // Every source is off, not just the ones whose callbacks returned.
+    expect(w.sources.live()).toEqual([]);
+    expect(w.sources.state(() => true)).toBe("pending");
+    expect(w.logs).toContain("source callback failed");
+    w.state.up = true;
+    w.state.health = "healthy";
+    w.sources.replay();
+    expect(w.opened().map((open) => open.source)).toEqual(["s1", "s2", "s3", "s4", "s5", "s6"]);
+    w.status("s6", "starting");
+    expect(sim.points.at(-1)?.path).toBe("s6");
   });
 });
 

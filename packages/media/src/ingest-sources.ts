@@ -152,6 +152,18 @@ export const maxIngestReopens = 3;
 export const failedRetryMs = 2_000;
 const failedRetryMaxMs = 60_000;
 /**
+ * How long ace-media may take to answer an open. Every ace-media answers an open with a status at
+ * once (starting, or ended saying why), so one that never does did not take the source: the path
+ * is given up and its source opened again, by {@link failedRetryMs} backing off.
+ */
+export const openTimeoutMs = 10_000;
+/**
+ * How long a source ace-media reads itself (a Simulator's serve-sim stream) may go after ace-media
+ * took it without playing. ace-media's own reader gives up after 15 s without a stream; this is
+ * the daemon's backstop, so one that breaks there never leaves the source looking live forever.
+ */
+export const unplayedTimeoutMs = 30_000;
+/**
  * Whether a stopped source comes back by itself soon (`retrying`: ace-media is restarting) or
  * not (`unavailable`: crash-looping, missing, or it can't take this source).
  */
@@ -161,6 +173,10 @@ export type StopStatus = "retrying" | "unavailable";
 export const restartingReason = "ace-media stopped and is starting again";
 /** What they say when ace-media kept failing the source. */
 export const failedReason = "ace-media couldn't take this video";
+/** What they say when ace-media never answered its open, before it opens it again. */
+export const unansweredReason = "ace-media didn't answer for this video";
+/** What they say when ace-media took a stream it reads itself and that stream never played. */
+export const unplayedReason = "ace-media couldn't play this video";
 /** ace-media's reason for ending a source it has no encoder for (yet). */
 const noEncoderReason = "encoder-unavailable";
 /**
@@ -253,6 +269,11 @@ type Path = {
   epoch: number;
   /** ace-media answered its open: a privacy epoch sent now can't overtake it. */
   acknowledged: boolean;
+  /**
+   * Waits on ace-media to answer the open (or, for a source it reads itself, to play it): a
+   * path that never does is given up and opened again, so a source is never left looking live.
+   */
+  watchdog: (() => void) | undefined;
 };
 
 /** A page's CSS size and its device pixel ratio, as a producer shows it. */
@@ -472,23 +493,73 @@ export class IngestSources {
     }, wait);
   }
 
+  /** Keeps the watchdog on a path that ace-media must answer or play; undefined cancels it. */
+  #watch(path: Path, timeout: { ms: number; reason: string } | undefined): void {
+    path.watchdog?.();
+    path.watchdog = timeout
+      ? this.#options.schedule(() => this.#reopen(path, timeout.reason), timeout.ms)
+      : undefined;
+  }
+
+  /**
+   * A path ace-media never answered, or took and never played: it is given up (its views say
+   * why) and its source opened again, backing off as a source ace-media ended does. ace-media is
+   * the only reader of a stream it reads itself, so leaving it open would leave the source live
+   * in the daemon and unread in the process for good.
+   */
+  #reopen(path: Path, reason: string): void {
+    path.watchdog = undefined;
+    const { entry } = path;
+    if (entry.closed || entry.live !== path) return;
+    this.#options.log?.("source opened again", {
+      source: entry.producer.source,
+      path: path.id,
+      reason,
+    });
+    this.#leave(entry);
+    this.#failed(entry, reason);
+  }
+
   /** The supervisor's `onExit`: every id, token and handle of that process is gone. */
   exited(): void {
-    for (const entry of this.#entries) {
-      const live = entry.live;
-      this.#live(entry, undefined);
-      entry.generation++;
-      const was = entry.state;
-      entry.state = "off";
-      if (was === "ingest") void entry.producer.point(undefined).catch(() => {});
-      if (live) this.#finish(live, true, false);
-      // A source still waiting for its first start hears each new reason too: a launch that dies
-      // before it is ready changes nothing else it could see.
-      const why = this.#options.why?.() ?? (was !== "off" ? restartingReason : undefined);
-      if (why) this.#tell(entry, why);
-    }
+    // The daemon's own state is reset first, entry by entry: a producer whose callback throws
+    // (a capture already gone) must never leave the sources after it believing the dead process
+    // still has them, where `replay` would not open them again.
+    for (const entry of this.#entries) this.#exited(entry);
     // Deleting while iterating a Map is safe: finished paths aren't visited again.
     for (const path of this.#paths.values()) this.#finish(path, true, false);
+  }
+
+  #exited(entry: Entry): void {
+    const live = entry.live;
+    this.#live(entry, undefined);
+    entry.generation++;
+    const was = entry.state;
+    entry.state = "off";
+    this.#producer(entry, "point", () => {
+      if (was === "ingest") void entry.producer.point(undefined).catch(() => {});
+    });
+    if (live) this.#finish(live, true, false);
+    // A source still waiting for its first start hears each new reason too: a launch that dies
+    // before it is ready changes nothing else it could see.
+    const why = this.#options.why?.() ?? (was !== "off" ? restartingReason : undefined);
+    if (why) this.#tell(entry, why);
+  }
+
+  /**
+   * Runs one of a producer's own callbacks: a producer that throws costs its own source, never
+   * the daemon or the other sources.
+   */
+  #producer(entry: Entry, callback: string, run: () => void): void {
+    try {
+      run();
+    } catch (error) {
+      this.#options.log?.("source callback failed", {
+        source: entry.producer.source,
+        callback,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /** Tells a stopped producer why, once per reason while it stays stopped. */
@@ -499,7 +570,7 @@ export class IngestSources {
   ): void {
     if (entry.closed || entry.told === reason) return;
     entry.told = reason;
-    entry.producer.stopped?.(reason, status);
+    this.#producer(entry, "stopped", () => entry.producer.stopped?.(reason, status));
   }
 
   #live(entry: Entry, path: Path | undefined): void {
@@ -572,9 +643,14 @@ export class IngestSources {
 
   #status(entry: Entry, path: Path, message: Status): void {
     // ace-media's first word about the open: privacy epochs held for it go now, in order.
+    this.#watch(path, undefined);
     if (!path.acknowledged) {
       path.acknowledged = true;
       this.#announce(entry, path);
+      // A source ace-media reads itself plays only from its own reader: one it took and never
+      // plays is given up, since nothing in the daemon else would open it again.
+      if (readByMedia.has(entry.producer.kind) && message.status !== "ended")
+        this.#watch(path, { ms: unplayedTimeoutMs, reason: unplayedReason });
     }
     if (message.status === "starting") return this.#started(entry, path);
     if (message.status === "playing") {
@@ -692,10 +768,14 @@ export class IngestSources {
       want: undefined,
       epoch,
       acknowledged: false,
+      watchdog: undefined,
     };
     this.#paths.set(id, path);
     this.#live(entry, path);
     entry.state = "opening";
+    // Every ace-media answers an open at once: one that doesn't never took the source, and a
+    // viewer granted it meanwhile would watch a source no process has.
+    this.#watch(path, { ms: openTimeoutMs, reason: unansweredReason });
     if (route.egress) this.#send({ type: "source.egress", source: id, on: true });
     if (entry.codecs) this.#send({ type: "source.codecs", source: id, codecs: entry.codecs });
     if (entry.page) this.#send(pageMessage(id, entry.page));
@@ -736,7 +816,7 @@ export class IngestSources {
       path: path.id,
       ...(ingest.pid ? { pid: ingest.pid } : {}),
     };
-    const pointed = entry.producer.point(address);
+    const pointed = this.#point(entry, address);
     if (path.want) entry.producer.want?.(path.want);
     pointed.then(
       () => token.fill(0),
@@ -753,6 +833,18 @@ export class IngestSources {
     );
   }
 
+  /**
+   * Points a producer at ace-media. One that throws instead of answering is a refusal like a
+   * rejected promise: the source fails and opens again, never half-pointed.
+   */
+  #point(entry: Entry, address: IngestAddress): Promise<void> {
+    try {
+      return entry.producer.point(address);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+
   /** Stops the producer streaming; its path drains until its marker. */
   #leave(entry: Entry): void {
     const live = entry.live;
@@ -760,7 +852,9 @@ export class IngestSources {
     entry.generation++;
     const was = entry.state;
     entry.state = "off";
-    if (was === "ingest") void entry.producer.point(undefined).catch(() => {});
+    this.#producer(entry, "point", () => {
+      if (was === "ingest") void entry.producer.point(undefined).catch(() => {});
+    });
     if (live) this.#retire(live);
     if (!this.wanted(entry.producer.kind)) {
       entry.release?.();
@@ -820,6 +914,7 @@ export class IngestSources {
   #finish(path: Path, interrupted: boolean, close: boolean): void {
     if (!this.#paths.has(path.id)) return;
     this.#paths.delete(path.id);
+    this.#watch(path, undefined);
     if (path.entry.acceleratedBy === path.id) {
       path.entry.acceleratedBy = undefined;
       this.#options.acceleration?.(path.entry.producer, undefined);
@@ -832,7 +927,9 @@ export class IngestSources {
     path.release = undefined;
     if (path.pointed && !path.reported) {
       path.reported = true;
-      path.entry.producer.pathEnded?.(path.id, interrupted);
+      this.#producer(path.entry, "pathEnded", () =>
+        path.entry.producer.pathEnded?.(path.id, interrupted),
+      );
     }
   }
 
