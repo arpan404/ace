@@ -155,8 +155,10 @@ struct TranscriptCollection: UIViewRepresentable {
                 return events.assistivePage(older, moves)
             }
             view.assistiveEnded = { [weak self] in self?.move(to: .idle) }
-            surface.attach(view, locate: { [weak layout] id in
-                guard let layout, let index = layout.geometry.position(of: id) else { return nil }
+            // The surface outlives the collection view (it is the feed's state): weak, or leaving
+            // the thread would keep the view and its cells alive.
+            surface.attach(view, locate: { [weak layout, weak view] id in
+                guard let layout, let view, let index = layout.geometry.position(of: id) else { return nil }
                 return CGRect(x: 0, y: layout.geometry.top(at: index), width: view.bounds.width,
                               height: layout.geometry.height(at: index))
             }, animating: { [weak self] in self?.move(to: .animating) })
