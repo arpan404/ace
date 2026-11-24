@@ -46,6 +46,8 @@ pub(crate) struct Options {
     pub alpn: Vec<Vec<u8>>,
     pub kx_groups: Option<Vec<&'static dyn SupportedKxGroup>>,
     pub versions: Vec<&'static rustls::SupportedProtocolVersion>,
+    /// The client's own cipher-suite order, when a test fixes it.
+    pub cipher_suites: Option<Vec<rustls::SupportedCipherSuite>>,
 }
 
 impl Default for Options {
@@ -54,6 +56,7 @@ impl Default for Options {
             alpn: vec![b"http/1.1".to_vec()],
             kx_groups: None,
             versions: vec![&rustls::version::TLS13, &rustls::version::TLS12],
+            cipher_suites: None,
         }
     }
 }
@@ -61,14 +64,16 @@ impl Default for Options {
 /// A client configuration that trusts exactly the keys whose SPKI DER is one of
 /// `pins`.
 pub(crate) fn client_config(pins: &[Vec<u8>], options: Options) -> Arc<ClientConfig> {
-    let provider = match options.kx_groups {
-        Some(groups) => {
-            let mut provider = rustls::crypto::aws_lc_rs::default_provider();
-            provider.kx_groups = groups;
-            Arc::new(provider)
-        }
-        None => provider(),
-    };
+    // The client's groups and suites are the provider's order: rustls reads a
+    // client's preference from there.
+    let mut base = rustls::crypto::aws_lc_rs::default_provider();
+    if let Some(groups) = options.kx_groups {
+        base.kx_groups = groups;
+    }
+    if let Some(suites) = options.cipher_suites {
+        base.cipher_suites = suites;
+    }
+    let provider = Arc::new(base);
     let verifier = Arc::new(Pinned {
         pins: pins.to_vec(),
         algorithms: provider.signature_verification_algorithms,

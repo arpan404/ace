@@ -87,10 +87,23 @@ every run-time decision of remote access (`remote-runtime.ts`, `remote-direct.ts
 1. **TLS 1.2 cipher suites**: only ECDHE with AES-GCM or ChaCha20-Poly1305 (rustls' aws-lc-rs
    suites). The Node/Bun stack also accepts CBC and DHE suites; a client offering only those fails
    the handshake. Every ace client (browsers, iOS `URLSession`, Node and Bun) offers AEAD ECDHE.
-2. **Key exchange groups**: `X25519MLKEM768` first, then X25519, P-256 and P-384, so every client
-   that negotiates the hybrid today still does. Not offered: X448, P-521 and the finite-field
-   groups OpenSSL also lists; a client offering only those fails the handshake (no ace client
-   does).
+2. **Key exchange groups follow the client's order.** rustls 0.23 keeps the provider's groups
+   (`X25519MLKEM768`, X25519, P-256, P-384), but picks the first one the *client* lists, not the
+   server's first (`rustls-0.23.46/src/server/hs.rs:557`–`:560`, `:645`–`:651`), and has no option
+   to prefer the server's; its only use of the server order is the default key share. Node/OpenSSL
+   picks the hybrid even for a client that lists X25519 first (the owner's 2026-11-24 probe), so
+   the same client gets classical TLS here and hybrid TLS there. Every ace client names the hybrid
+   first, probed with a raw `ClientHello` capture on 2026-11-24:
+   - Chromium 158 (Electron 44's engine; BoringSSL has led with it since Chrome 131):
+     `GREASE, X25519MLKEM768, X25519, P-256, P-384`, key shares `GREASE, X25519MLKEM768, X25519`;
+   - Apple `URLSession` on macOS 27 (the iOS 26 stack): `GREASE, X25519MLKEM768, X25519, P-256,
+     P-384, P-521`, key shares `GREASE, X25519MLKEM768, X25519`;
+   - Node 26.8.1: `X25519MLKEM768, X25519, P-256, X448, P-384, P-521, ffdhe2048, ffdhe3072`, key
+     shares `X25519MLKEM768, X25519`;
+   - Bun 1.4.4: `X25519MLKEM768, X25519, P-256, P-384`, key shares `X25519MLKEM768, X25519`.
+   rustls ignores the GREASE entries, so none of them gets classical. Not offered at all: X448,
+   P-521 and the finite-field groups OpenSSL also lists; a client offering only those fails the
+   handshake (no ace client does).
 3. **Session resumption**: rustls' `aws_lc_rs::Ticketer` (in memory, keys rotated every 6 h,
    valid about 12 h). Node's default session lifetime is 300 s, so a paired machine may
    resume where it would have made a full handshake. Restarting or re-opening the listener makes
@@ -229,10 +242,15 @@ move, and every later change to `server.ts` is net zero or negative.
   | SNI      | a later head: the idle timer armed when the last answer closed keeps running until the next `request` (`:161`–`:169`) | bounded by `keep_alive` / `trusted_keep_alive`    |
   | SNI      | `http.keepAliveTimeout = max(keepAlive, trustedKeepAlive)` (`:103`–`:105`), set past both so it never fires first     | not ported: Rust's own idle timer is the only one |
 
-  A reviewer compares each row with the source line it names. **Write timeout**: on a remote connection
-  `TimedIo` bounds only the `101` or refusal write (`upgrade_write`) and is disarmed
-  (`TimedIo::set_timeout(None)`, new) before the stream reaches the socket or hyper's HTTP loop:
-  Node bounds no HTTP or WebSocket write, and a slow 3G peer stalls longer than 5 s.
+  A reviewer compares each row with the source line it names. **Write timeout**: the bound is a shared
+  `WriteTimeout` (`prefixed.rs`, new) so the connection's I/O and its upgrade handler change the
+  same value. On a remote connection it is `None` for hyper's HTTP — Node bounds no HTTP write, and
+  a slow 3G peer stalls longer than 5 s — and the upgrade handler arms `upgrade_write` for the
+  `101` or a refusal, then drops it again once the socket is a WebSocket (raw path:
+  `set_write_timeout(None)` before `opened`; hyper path: after the upgrade resolves). That is what
+  keeps a stalled `101` from holding `close()` past its deadline: the upgrade arms the connection's
+  grace, so the deadline no longer cancels it, and only the write bound ends it. Loopback keeps
+  its timed HTTP and loses the bound on the WebSocket it opens, as Node has it.
 
 - **The accept loop** (`accept.rs`): T1a's loop moved out of `listener.rs` (accept, the TCP cap,
   `ACCEPT_RETRY`, the `JoinSet`, the close deadline) and made generic over a per-connection
@@ -279,10 +297,13 @@ move, and every later change to `server.ts` is net zero or negative.
   `.with_protocol_versions(&[&TLS13, &TLS12])` (Node's `minVersion: "TLSv1.2"`, max 1.3),
   `.with_no_client_auth()`, `.with_cert_resolver(resolver)`; `alpn_protocols = [b"http/1.1"]`
   (`sni-listener.ts:107`, and `node:https`'s default); `ticketer = rustls::crypto::aws_lc_rs::Ticketer::new()?`;
-  `max_early_data_size = 0` (no 0-RTT, as Node); `ignore_client_order = false` (Node's
-  `honorCipherOrder` default); no `key_log`, ever. The key exchange groups are the provider's
-  `DEFAULT_KX_GROUPS` with `prefer-post-quantum`, unchanged (`X25519MLKEM768`, X25519, P-256,
-  P-384). **The process provider** (`tls/provider.rs`, new, the crate's one boundary to it):
+  `max_early_data_size = 0` (no 0-RTT, as Node); the cipher suites in Node's order
+  (`TLS13_AES_256_GCM_SHA384`, ChaCha20-Poly1305, `TLS13_AES_128_GCM_SHA256`, then the TLS 1.2
+  AEAD suites in the same strength order) with `ignore_client_order = true`, because Node honours
+  the server's order (a 2026-11-24 probe offered ChaCha20 first and Node chose AES-256-GCM) and
+  rustls' default follows the client's; no `key_log`, ever. The key exchange groups are the
+  provider's `DEFAULT_KX_GROUPS` with `prefer-post-quantum`, unchanged (`X25519MLKEM768`, X25519,
+  P-256, P-384), and the client's order decides among them (recorded difference 2). **The process provider** (`tls/provider.rs`, new, the crate's one boundary to it):
   `pub fn process_provider() -> Result<Arc<CryptoProvider>, TransportError>` installs
   `rustls::crypto::aws_lc_rs::default_provider()` with `install_default` on its first call and
   returns `CryptoProvider::get_default()`; if a provider was already installed, it is accepted only

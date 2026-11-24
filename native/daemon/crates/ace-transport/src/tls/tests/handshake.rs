@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use rustls::pki_types::CertificateDer;
 use rustls::version::TLS12;
-use rustls::{ClientConfig, HandshakeKind, NamedGroup, ProtocolVersion, ServerConfig};
+use rustls::{CipherSuite, ClientConfig, HandshakeKind, NamedGroup, ProtocolVersion, ServerConfig};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -207,6 +207,53 @@ fn served(client: &tokio_rustls::client::TlsStream<TcpStream>) -> Vec<u8> {
 }
 
 #[tokio::test]
+async fn a_client_that_lists_x25519_first_gets_classical_tls() {
+    // rustls 0.23 picks the key-exchange group from the client's order, not the
+    // server's (`server/hs.rs`: the first client-listed group the server
+    // supports), and offers no way to prefer the server's; recorded as a
+    // difference. Every ace client names the hybrid first, so none of them
+    // lands here.
+    let (config, pin) = server(rsa());
+    let (addr, task) = client::endpoint(config).await;
+    let options = Options {
+        kx_groups: Some(vec![
+            rustls::crypto::aws_lc_rs::kx_group::X25519,
+            rustls::crypto::aws_lc_rs::kx_group::X25519MLKEM768,
+        ]),
+        ..Options::default()
+    };
+    let client = client::connect(addr, client::client_config(&[pin], options), "localhost")
+        .await
+        .expect("the handshake completes");
+    assert_eq!(negotiated(&client), NamedGroup::X25519);
+    assert!(task.await.expect("the server task").is_some());
+}
+
+#[tokio::test]
+async fn the_server_cipher_order_wins_as_it_does_on_node() {
+    // Node's probe: a client that offers ChaCha20-Poly1305 first still gets
+    // AES-256-GCM, because the server's order decides. The config follows it.
+    let (config, pin) = server(rsa());
+    let (addr, task) = client::endpoint(config).await;
+    let options = Options {
+        cipher_suites: Some(vec![
+            rustls::crypto::aws_lc_rs::cipher_suite::TLS13_CHACHA20_POLY1305_SHA256,
+            rustls::crypto::aws_lc_rs::cipher_suite::TLS13_AES_128_GCM_SHA256,
+            rustls::crypto::aws_lc_rs::cipher_suite::TLS13_AES_256_GCM_SHA384,
+        ]),
+        ..Options::default()
+    };
+    let client = client::connect(addr, client::client_config(&[pin], options), "localhost")
+        .await
+        .expect("the handshake completes");
+    assert_eq!(
+        negotiated_suite(&client),
+        CipherSuite::TLS13_AES_256_GCM_SHA384
+    );
+    assert!(task.await.expect("the server task").is_some());
+}
+
+#[tokio::test]
 async fn a_second_connection_resumes_with_a_ticket() {
     let (config, pin) = server(rsa());
     let client_config = client::client_config(&[pin], Options::default());
@@ -250,6 +297,15 @@ async fn round_trip(config: Arc<ServerConfig>, client_config: Arc<ClientConfig>)
         .expect("a finished handshake has a kind");
     server.await.expect("the server task");
     kind
+}
+
+fn negotiated_suite(stream: &tokio_rustls::client::TlsStream<TcpStream>) -> CipherSuite {
+    stream
+        .get_ref()
+        .1
+        .negotiated_cipher_suite()
+        .expect("a finished handshake negotiated a suite")
+        .suite()
 }
 
 fn negotiated(stream: &tokio_rustls::client::TlsStream<TcpStream>) -> NamedGroup {
