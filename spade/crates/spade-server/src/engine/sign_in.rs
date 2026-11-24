@@ -449,21 +449,19 @@ impl Engine {
         // it was in flight wins over this list.
         let still = {
             let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
-            let row = self
-                .store
-                .endpoints()
-                .ok()
-                .and_then(|all| all.into_iter().find(|e| e.id == id));
-            match row {
-                None => Still::Gone,
-                Some(row)
-                    if !row.sign_in.as_ref().is_some_and(|s| s.signed_in)
-                        || accounts.is_some_and(|a| !a.is_current(id, generation)) =>
-                {
-                    Still::SignedOut
-                }
-                Some(row) if !row.models.is_empty() => Still::Saved,
-                Some(_) => Still::Empty,
+            match self.store.endpoints() {
+                Err(error) => return Listed::Unreadable(error.to_string()),
+                Ok(all) => match all.into_iter().find(|e| e.id == id) {
+                    None => Still::Gone,
+                    Some(row)
+                        if !row.sign_in.as_ref().is_some_and(|s| s.signed_in)
+                            || accounts.is_some_and(|a| !a.is_current(id, generation)) =>
+                    {
+                        Still::SignedOut
+                    }
+                    Some(row) if !row.models.is_empty() => Still::Saved,
+                    Some(_) => Still::Empty,
+                },
             }
         };
         let listed = match listed {
