@@ -17,6 +17,7 @@ import type { NotificationState, NotificationTransport } from "./service.ts";
 import {
   WorkerCall,
   WorkerConfig,
+  linkedLimit,
   notifyWireShape,
   type FromWorker,
   type ToWorker,
@@ -467,7 +468,7 @@ export class NotificationWorker {
         device,
         afterCursor,
         checkpoint,
-        ...(linked?.length ? { linked: [...linked] } : {}),
+        ...(linked?.length ? { linked: linked.slice(0, linkedLimit) } : {}),
       }),
     );
   }

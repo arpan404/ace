@@ -13,6 +13,8 @@ import { MetadataEvent } from "./metadata.ts";
 import { InboxFeed } from "./inbox.ts";
 
 const seq = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+/** Most other ids one device reads its feed with: an install's account device and its pairings. */
+export const linkedLimit = 16;
 export const WorkerCall = z.discriminatedUnion("method", [
   z.object({ method: z.literal("cursor") }),
   z.object({ method: z.literal("getPreferences"), device: DeviceId.and(z.string().max(200)) }),
@@ -64,7 +66,7 @@ export const WorkerCall = z.discriminatedUnion("method", [
     checkpoint: z.literal(true).optional(),
     linked: z
       .array(DeviceId.and(z.string().max(200)))
-      .max(16)
+      .max(linkedLimit)
       .optional(),
   }),
 ]);
