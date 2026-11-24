@@ -166,17 +166,22 @@ pub enum OutputStream {
 /// unanswered (the shell is gone), it only frees the chunk's slot.
 pub struct Delivered {
     flow: Arc<Flow>,
+    /// The flow's resume count when this chunk started delivery.
+    generation: u64,
 }
 
 impl Delivered {
     pub(crate) fn new(flow: Arc<Flow>) -> Self {
-        Self { flow }
+        let generation = flow.resume_generation();
+        Self { flow, generation }
     }
 
     /// The shell took the chunk; `more` is false when its stream is full.
+    /// A resume that arrived after this chunk was delivered wins over the
+    /// pause, so the pump never waits for a resume already given (E3.0b).
     pub fn taken(self, more: bool) {
         if !more {
-            self.flow.pause();
+            self.flow.pause_unless_resumed_since(self.generation);
         }
     }
 }

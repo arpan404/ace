@@ -106,12 +106,13 @@ pub fn supervisor_spawn(
             ),
             None => (Sink::Shell(shell), false),
         };
-        let child = spawn_child(&spec, sink, runtime()?.handle()).map_err(bind_error)?;
-        if let Some(target) = target
-            && let Some(ports) = child.ports()
-        {
-            let _ = target.target.ports.set(ports);
-        }
+        let child = spawn_child(
+            &spec,
+            sink,
+            runtime()?.handle(),
+            target.map(|target| &target.target),
+        )
+        .map_err(bind_error)?;
         Ok(NativeChild { child, diverted })
     })
 }

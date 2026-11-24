@@ -7,14 +7,14 @@
 //! (`process-owner.ts`) and this child's handle, which keeps the group id
 //! ace's while anything of the group lives (`leader.rs`).
 
-use crate::divert::{ChildPorts, OutputControl, StdinPort};
+use crate::divert::{ChildPorts, DivertTarget, OutputControl, StdinPort};
 use crate::errors::SupervisorError;
 #[cfg(unix)]
 use crate::leader::GroupSignal;
 use crate::leader::Leader;
 use crate::pump::{Flow, StdinMessage};
 use crate::signal::SignalName;
-use crate::spawn::{EventSink, OutputStream, RawExit, SpawnSpec};
+use crate::spawn::{EventSink, OutputStream, RawExit, SpawnSpec, StdioMode};
 use std::sync::Arc;
 #[cfg(unix)]
 use tokio_util::sync::CancellationToken;
@@ -126,13 +126,46 @@ struct Pipes {
 mod pumps;
 #[cfg(windows)]
 pub(crate) use pumps::PipeEnd;
-use pumps::{start_output, start_stdin};
+use pumps::{output_flow, start_output, start_stdin};
 
-/// Spawns `spec` on `runtime`; events reach `sink` in order.
+/// Spawns `spec` on `runtime`; events reach `sink` in order. A `divert` target
+/// takes the pipes (E3.0b); a spawn that fails ends them exactly once each.
 pub fn spawn_child<E: EventSink + Clone>(
     spec: &SpawnSpec,
     sink: E,
     runtime: &tokio::runtime::Handle,
+    divert: Option<&DivertTarget>,
+) -> Result<SupervisedChild, SupervisorError> {
+    match spawn_owned(spec, sink, runtime, divert) {
+        Ok(child) => Ok(child),
+        Err(error) => {
+            end_diverted(spec, divert);
+            Err(error)
+        }
+    }
+}
+
+/// A spawn that failed has no pump to end its pipes: the consumer hears each
+/// piped stream's end exactly once, and nothing else.
+fn end_diverted(spec: &SpawnSpec, divert: Option<&DivertTarget>) {
+    let Some(target) = divert else {
+        return;
+    };
+    for (mode, stream) in [
+        (spec.stdout, OutputStream::Stdout),
+        (spec.stderr, OutputStream::Stderr),
+    ] {
+        if mode == StdioMode::Piped {
+            target.consumer.end(stream);
+        }
+    }
+}
+
+fn spawn_owned<E: EventSink + Clone>(
+    spec: &SpawnSpec,
+    sink: E,
+    runtime: &tokio::runtime::Handle,
+    divert: Option<&DivertTarget>,
 ) -> Result<SupervisedChild, SupervisorError> {
     spec.validate()?;
     let _entered = runtime.enter();
@@ -185,23 +218,55 @@ pub fn spawn_child<E: EventSink + Clone>(
     };
     // Every fallible step is done: from here the leader and its waiter own it.
     let leader = Leader::new(unowned.own()?);
-    let mut stdin = None;
-    if let Some(pipe) = pipes.stdin.take() {
-        let (queue, received) = tokio::sync::mpsc::unbounded_channel();
-        stdin = Some((queue, start_stdin(runtime, &sink, pipe, received)));
-    }
-    let mut pumps = Vec::new();
-    let mut outputs = [None, None];
+    let diverted = divert.is_some();
     let budget = crate::pump::OutputBudget::new(spec.max_output_bytes);
-    if let Some(pipe) = pipes.stdout.take() {
-        let (pump, flow) = start_output(runtime, &sink, OutputStream::Stdout, pipe, &budget);
-        pumps.push(pump);
-        outputs[0] = Some(flow);
+    let stdin_parts = pipes.stdin.take().map(|pipe| {
+        let (queue, received) = tokio::sync::mpsc::unbounded_channel();
+        (queue, received, pipe)
+    });
+    // A diverted child's flows emit `end` however their pump stops, `dispose`
+    // included, so the flag is set before any pump starts (E3.0b).
+    let mut outputs = [None, None];
+    if pipes.stdout.is_some() {
+        outputs[0] = Some(output_flow(&budget, diverted));
     }
-    if let Some(pipe) = pipes.stderr.take() {
-        let (pump, flow) = start_output(runtime, &sink, OutputStream::Stderr, pipe, &budget);
-        pumps.push(pump);
-        outputs[1] = Some(flow);
+    if pipes.stderr.is_some() {
+        outputs[1] = Some(output_flow(&budget, diverted));
+    }
+    // Published before any pump starts, so the first chunk's consumer already
+    // has its controls (E3.0b).
+    if let Some(target) = divert
+        && let (Some((queue, _, _)), Some(stdout), Some(stderr)) = (
+            stdin_parts.as_ref(),
+            outputs[0].as_ref(),
+            outputs[1].as_ref(),
+        )
+    {
+        let _ = target.ports.set(ChildPorts {
+            stdin: StdinPort::new(queue.clone()),
+            output: OutputControl::new(Some(Arc::clone(stdout)), Some(Arc::clone(stderr))),
+        });
+    }
+    let stdin = stdin_parts
+        .map(|(queue, received, pipe)| (queue, start_stdin(runtime, &sink, pipe, received)));
+    let mut pumps = Vec::new();
+    if let (Some(pipe), Some(flow)) = (pipes.stdout.take(), outputs[0].clone()) {
+        pumps.push(start_output(
+            runtime,
+            &sink,
+            OutputStream::Stdout,
+            pipe,
+            flow,
+        ));
+    }
+    if let (Some(pipe), Some(flow)) = (pipes.stderr.take(), outputs[1].clone()) {
+        pumps.push(start_output(
+            runtime,
+            &sink,
+            OutputStream::Stderr,
+            pipe,
+            flow,
+        ));
     }
     let [stdout, stderr] = outputs;
     #[cfg(windows)]

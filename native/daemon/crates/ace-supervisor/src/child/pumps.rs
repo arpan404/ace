@@ -77,7 +77,17 @@ pub(super) fn start_stdin<E: EventSink + Clone>(
     StdinAbort::Pipe(pipe)
 }
 
-/// Starts one output pump; its flow is the shell stream's.
+/// One output's flow, made before the child's ports are published: a
+/// diverted child's flow emits `end` on every close path, `dispose` included.
+pub(super) fn output_flow(budget: &Arc<crate::pump::OutputBudget>, diverted: bool) -> Arc<Flow> {
+    let flow = Flow::new(Arc::clone(budget));
+    if diverted {
+        flow.mark_end_on_close();
+    }
+    flow
+}
+
+/// Starts one output pump; its flow was made before the ports were published.
 pub(super) fn start_output<
     E: EventSink + Clone,
     R: PipeEnd + tokio::io::AsyncRead + crate::pump::HangUp,
@@ -86,16 +96,14 @@ pub(super) fn start_output<
     sink: &E,
     stream: OutputStream,
     pipe: R,
-    budget: &Arc<crate::pump::OutputBudget>,
-) -> (tokio::task::JoinHandle<()>, Arc<Flow>) {
-    let flow = Flow::new(Arc::clone(budget));
+    flow: Arc<Flow>,
+) -> tokio::task::JoinHandle<()> {
     let (task_sink, task_flow) = (sink.clone(), Arc::clone(&flow));
-    let pump = runtime.spawn(async move {
+    runtime.spawn(async move {
         if !pipe.connected().await {
             task_sink.end(stream);
             return;
         }
         pump_output(&task_sink, pipe, stream, task_flow).await;
-    });
-    (pump, flow)
+    })
 }
