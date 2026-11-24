@@ -41,7 +41,7 @@ enum TranscriptEnd {
     var fling: TranscriptFlingReach?
     /// How far the fling still carries from where the scroll is now.
     var flingReach: Double { fling?.remaining(at: -Double(metrics.y)) ?? 0 }
-    func begin() { active = true; consumed = false; rearmAfterAppend = false; fling = nil }
+    func begin() { active = true; direction = 0; consumed = false; rearmAfterAppend = false; fling = nil }
 }
 
 /// While the keyboard is up, a tap on the conversation only puts it away: the tap takes priority

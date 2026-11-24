@@ -27,8 +27,8 @@ struct TranscriptStackGeometry: Equatable, Sendable {
     func measuredHeight(_ id: String) -> CGFloat? { measured[id] }
 
     /// Lays out `ids` in order. A blank room whose height is `declared` (a spacer, the keyboard's
-    /// room) takes it now: an older page and the far spacer it shrinks land as one change, so
-    /// nothing remeasures on screen after it. Any other id laid out now keeps the height it has,
+    /// room) takes it now: an older page and any newer spacer growth land as one change.
+    /// Any other id laid out now keeps the height it has,
     /// measured or estimated, so a page that only adds rows elsewhere moves none of these. An id
     /// joining takes its last measured height, then `estimate`, then the mean of what has been
     /// measured, then `fallback`. Returns how far the scroll offset must move so `anchor`, an
@@ -64,8 +64,7 @@ struct TranscriptStackGeometry: Equatable, Sendable {
     /// The entry a window change keeps where it is on screen, among `kept` entries meeting
     /// `minY..<maxY`. Following the end, the first of them: the end's entries hold still. Away
     /// from it, the first row on screen, then the first entry that draws something. A screen of
-    /// blank room alone (a fling through the far spacer) has nothing to keep: the change lands
-    /// without moving the offset, so it never waits for the fling to end.
+    /// blank room alone has no drawable entry to keep.
     func readerAnchor(from minY: CGFloat, to maxY: CGFloat, keeping kept: Set<String>, followsEnd: Bool,
                       isRow: (String) -> Bool, isBlank: (String) -> Bool) -> String? {
         let onScreen = indices(from: minY, to: maxY).lazy.map { ids[$0] }.filter { kept.contains($0) }

@@ -188,7 +188,6 @@ struct ConversationFeed: View {
                         .disabled(stale)
                 })
             }
-            list.append(room("spacer.before", CGFloat(extent.before)))
             if stale {
                 let cached = reading.isStale, loading = reading.loading
                 list.append(entry("history.cached", [cached, loading]) {
