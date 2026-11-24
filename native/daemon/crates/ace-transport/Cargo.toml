@@ -22,10 +22,7 @@ bytes = { version = "1.12" }
 getrandom = { version = "0.4" }
 # futures-util: the Stream/Sink traits the socket drives its two halves with, as
 # tokio-tungstenite itself binds them (already in the lock through it).
-futures-util = { version = "0.3", default-features = false, features = [
-  "sink",
-  "std",
-] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 # http: request and response types on the hop.
 http = { version = "1.5" }
 # http-body-util: Full and the boxed body the proxy streams both ways.
