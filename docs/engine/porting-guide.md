@@ -557,18 +557,24 @@ Steps, in order:
 
    ```rust
    pub enum GateState { Open, Paused, Failed, Draining }
-   pub struct ReadGate { /* Mutex<Inner { state: GateState, exited: bool, output: Option<OutputControl> }> */ }
+   pub struct ReadGate { /* Mutex<Inner { state: GateState, before_drain: Option<GateState>, exited: bool, output: Option<OutputControl> }> */ }
    impl ReadGate {
        pub fn attach(&self, output: OutputControl);
        /// Answers one delivered chunk under the gate's lock: `delivered.taken(false)` for Paused
        /// and Failed, `taken(true)` for Open and Draining. Never read the state and answer later.
        pub fn answer(&self, delivered: Delivered);
        pub fn set_paused(&self, paused: bool); // under the lock; Paused→Open resumes both streams
-       pub fn fail(&self);                  // →Failed from any state but Draining: no resume ever
-       pub fn drain(&self);                 // →Draining, resumes both streams
+       /// Latches failure: no resume ever. In Draining it only sets `before_drain = Failed`
+       /// (the drain goes on), so a later undrain restores Failed.
+       pub fn fail(&self);
+       /// From Open, Paused or Failed: save that state in `before_drain`, →Draining, resume both
+       /// streams. A second drain keeps the first saved state.
+       pub fn drain(&self);
        pub fn exited(&self);                // sets `exited`, then drain()
-       /// A close whose stop failed: Draining→Open (the bridge re-mirrors outputFlow at the next
-       /// frame). A no-op once `exited` is set.
+       /// A close whose stop failed: restore `before_drain` exactly and clear it. Open stays
+       /// open; Paused stays paused (the next chunk is answered taken(false)); Failed stays
+       /// failed and is never resumed. Only a later set_paused(false) moves Paused→Open, and
+       /// nothing moves Failed. A no-op once `exited` is set, or when not Draining.
        pub fn undrain(&self);
    }
    ```
@@ -758,10 +764,16 @@ Steps, in order:
    correlation id if any, and `resume_deadlines_after: bool`); `dialogs: IndexMap<String, (Value, Option<String>)>`
    (the dialog and its timer key); `waiting_on_human: bool`; `rollback: Option<(String, Option<bool>)>`;
    `closed: bool`; `stdin_failed: Option<String>`; the stderr `DroppedNotes`; and
-   `budget: ace_supervisor::jsonrpc::WriterQueue` built with `WriterQueue::new(2 * 1024 * 1024)`.
-   That is Pi's write budget today (`new RpcWriter(proc.stdin, 2 * 1024 * 1024)`, `rpc.ts:43`;
-   the check is `rpc-writer.ts:36`–`:37`). Each write is charged its line's UTF-8 bytes plus one
-   for the newline, from the moment it is queued until its `stdin_written`.
+   `queued_bytes: usize`, the write budget. The limit is `2 * 1024 * 1024`, Pi's today
+   (`new RpcWriter(proc.stdin, 2 * 1024 * 1024)`, `rpc.ts:43`; the check is
+   `rpc-writer.ts:36`–`:37`). Each `WriteRecord` carries its `charge` (its line's UTF-8 bytes
+   plus one for the newline). Don't use `ace_supervisor::jsonrpc::WriterQueue`: its `written`
+   releases only the one claimed write, and here every write goes to the stdin port at once.
+   **Every write's completion releases its charge exactly once, success or failure**:
+   `stdin_written` subtracts the oldest record's charge; `write_refused` the newest's;
+   `stdin_error` every outstanding record's, as each settles; `close` and `finish` whatever is
+   still outstanding. A record is removed from `writes` in the same step that releases its
+   charge, so nothing is released twice.
 4. Implement its methods. Every method returns its effects in the order the state changed:
 
    ```rust
@@ -772,12 +784,12 @@ Steps, in order:
        /// 2. seq += 1, id = "ace-<seq>" (as today: an oversized command still uses up its number);
        /// 3. encode {type, ...params, id}; over 1 MiB → Err(Refused::FrameLimit), with no pending
        ///    entry, no timer and no frame left behind;
-       /// 4. charge the budget (`budget.enqueue(bytes + 1)`). If it is full, return
+       /// 4. charge the budget: if `queued_bytes + charge > 2 MiB`, return
        ///    Ok([Settle { id, Err(Uncertain::WriteQueueFull) }]): no pending entry, no timer, no
        ///    frame. The promise settles through the queue, never as a throw, because today it
        ///    rejects asynchronously with a plain Error;
        /// 5. only then insert the pending entry, ArmTimer("deadline:<id>", 30000) unless
-       ///    waiting_on_human, push the WriteRecord (with its budget ticket), and return
+       ///    waiting_on_human, add `charge` to `queued_bytes`, push the WriteRecord, and return
        ///    [ArmTimer?, Write].
        pub fn request(&mut self, command: &str, params: &ace_json::Map, id: u64) -> Result<Vec<Effect>, PiError>;
        /// rpc.write (rpc.ts:70-79) for a dialog answer: steps 1, 3 and 4 without correlation.
@@ -785,16 +797,17 @@ Steps, in order:
        pub fn write(&mut self, data: &ace_json::Map, id: u64, resume_after: bool) -> Result<Vec<Effect>, PiError>;
        /// The stdin port refused the Write just returned (the pump has ended: `StdinPort::write`
        /// gave Err). Called by the I/O shell under the same lock (E3-pi.2, step 2). Undo the newest
-       /// WriteRecord: release its budget ticket, remove its pending entry, CancelTimer its
+       /// WriteRecord: release its charge, remove its pending entry, CancelTimer its
        /// deadline, Settle it with Uncertain::StdinClosed, mark stdin_failed, then Fatal. No
        /// reservation is ever left without a settlement.
        pub fn write_refused(&mut self) -> Vec<Effect>;
-       /// One stdin write reached the pipe: release its budget ticket, pop the oldest WriteRecord and emit its send Frame
+       /// One stdin write reached the pipe: pop the oldest WriteRecord, release its charge and emit its send Frame
        /// (rpc.ts:78). For a write() record, Settle Ok; then, if resume_after and dialogs is
        /// empty, resume deadlines (rpc.ts:99-103).
        pub fn stdin_written(&mut self) -> Vec<Effect>;
-       /// stdin failed: no later write reaches Pi. Settle every unacknowledged WriteRecord's
-       /// promise (and its pending request) with Uncertain::StdinFailed(message); set
+       /// stdin failed: no later write reaches Pi. Release every unacknowledged WriteRecord's
+       /// charge and settle its promise (and its pending request) with
+       /// Uncertain::StdinFailed(message); set
        /// stdin_failed; then Fatal. A send whose bytes may have reached the pipe is uncertain,
        /// never refused.
        pub fn stdin_error(&mut self, message: &str) -> Vec<Effect>;
@@ -947,7 +960,13 @@ Steps, in order:
    9. `hooks.drained` awaits `proc.exited` and then calls
       `ctx.onExit({ deliberate, message: \`Pi process ${exit.reason}, code ${exit.code}\` })`.
       Nothing follows it.
-   10. If `ACE_SESSIONS_EVIDENCE` is set, append the evidence line of E3.0d step 3 once the open
+   10. **Hooks that need `proc`.** `proc` is assigned only once `io.spawn` returns. Keep a
+       `let spawned = false`, set to `true` on the line after that assignment. `hooks.fatal`
+       and `hooks.drained` both begin with `if (!spawned) return;`. So the `Drained` that
+       `abandon()` publishes on the spawn-failure path (step 6.2) settles the bridge's promises
+       and timers and calls no hook that touches `proc`, and `ctx.onExit` is not called: the
+       open rejects instead, as today when the spawn throws.
+   11. If `ACE_SESSIONS_EVIDENCE` is set, append the evidence line of E3.0d step 3 once the open
        succeeds.
 7. **Close, replacing `session.ts:285`–`:297`.** Today's order (release, close the RPC, then
    stop) leaves an unusable session if the stop fails. The native close is retryable and tears
@@ -957,14 +976,26 @@ Steps, in order:
       refuses new commands with `"Pi session closed"`, as today. Call `handle.drain()` (the
       cancellation of ADR 0223 §7 rule 4). Do not call `release()`, `rpc.close()` or detach
       anything yet.
-   3. Stop: `windows ? stopTree() : proc.stop({ graceMs: 1000 })`.
-   4. If the stop rejects: clear the in-flight promise, restore `closing` and `deliberate`, call
-      `handle.undrain()` (the gate goes back to following `outputFlow`; a no-op if the leader has
-      exited), set `treeStop = undefined` so the next Windows close calls `stopTreeAfterEof`
-      again instead of returning the cached rejection (`:65`–`:68`), and reject with the stop's
-      error. The handle, its queue, the dialogs and the child are untouched,
-      so the engine can give the session back (`engine/sessions.ts:1064`–`:1069`) and a later
-      `close` tries again.
+   3. Stop. POSIX: `proc.stop({ graceMs: 1000 })`. Windows: don't call `stopTreeAfterEof` or
+      the cached `stopTree` (`:65`–`:68`). Compose the same steps from `@ace/provider-kit/tree-stop`
+      so a retry keeps the first attempt's record:
+      1. on the first attempt only, `firstTree = recordTree(proc.pid)` while the leader is alive,
+         then `proc.stdin.end()`;
+      2. on every attempt, if the leader is still alive, `fresh = recordTree(proc.pid)`, a new
+         snapshot that may name descendants started since;
+      3. `await proc.stop({ graceMs: 1000 })`, then `await firstTree.end()` and
+         `await fresh?.end()`, in that order. A `RecordedTree` can be ended again, and it keeps the
+         members it proved (`tree-stop.ts:105`–`:125`), so a retry stops the union of both
+         records, including descendants that outlived a leader which has since exited.
+   4. If the stop rejects: clear the in-flight promise, restore `deliberate`, call
+      `handle.undrain()` (E3.0c: the gate's state before the drain comes back exactly, and a
+      latched failure stays failed), and reject with the stop's error. **The session is then
+      stop-only, not usable.** On Windows stdin is already closed and can't be reopened, and on
+      POSIX signals have been sent, so `closing` stays `true` and `check()` keeps refusing
+      commands. The handle, its queue, the dialogs, `firstTree` and the child are untouched, so
+      frames still reach the engine, the engine can give the session back
+      (`engine/sessions.ts:1064`–`:1069`), and the only thing a later `close` does is try the
+      stop again (step 3).
    5. If the stop resolves: `await bridge.drainedPromise` (every frame the child produced has been
       delivered), then `release()`, then resolve. `close()` resolves only after the drain.
       The `proc.exited` handler (`:304`–`:310`) keeps `closed = true` and `release()`, because a
@@ -994,7 +1025,8 @@ Steps, in order:
   `extension.ts`, `extension-api.ts` or `extension-mcp.ts`; set a Rust timer; release anything
   before a stop is confirmed.
 - **Reviewer checks**: a hunk-by-hunk diff of `native-session.ts` against `session.ts` shows
-  only the replacements above, plus step 7's close; a failed stop leaves `request` working; a
+  only the replacements above, plus step 7's close; a failed stop leaves the session whole but
+  stop-only (`request` refuses, frames still flow, a retried close reuses `firstTree`); a
   successful close resolves after `Drained`; no frame is built outside the bridge; the files
   pass in all three modes.
 
@@ -1014,6 +1046,11 @@ No test reboots a home with a Pi thread, so the owner allows one new test for it
    the boot (`noteDatabaseBoot`). Close the last engine and store in `finally`. Use
    `createPiAdapter` with a `runtime.spawn` that runs `packages/adapter-pi/src/testing/fake-pi.ts`,
    as `testing/harness.ts:120`–`:128` does, and give the fake its home through `FAKE_PI_HOME`.
+   Before boot 0, seed that home as `testing/harness.ts:62`–`:67` does:
+   `await writeFile(join(home, "source.jsonl"), sessionFixture(home, "native", 3))`, with
+   `sessionFixture` from `packages/adapter-pi/src/testing/native-history.ts`. Without it the fake
+   loads no history, and on each reboot Pi's resume finds nothing valid to check
+   (`checkedSessionReference`, `session-header.ts:58`–`:66`).
 3. The test: boot 0 starts a Pi thread and completes one turn, then records the thread's stored
    native session id. Then **two** restarts, boots 1 and 2. After each one:
    1. the thread's stored native session id is unchanged;
