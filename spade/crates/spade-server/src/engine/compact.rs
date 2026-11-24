@@ -177,11 +177,11 @@ pub(super) fn age_if_due(engine: &Engine, id: &str, events: &[Event]) -> bool {
     if !engine.ages_results(id) {
         return false;
     }
-    // A stub points at `history_read`; a conversation not offered it keeps its results whole.
+    // A stub points at `history_read`; a conversation that cannot run it keeps its results whole.
     let readable = engine
-        .offered_for(id)
-        .iter()
-        .any(|tool| tool.name == spade_core::aging::READ_BACK);
+        .registry_for(id)
+        .get(spade_core::aging::READ_BACK)
+        .is_some();
     if !readable {
         return false;
     }

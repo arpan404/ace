@@ -1,7 +1,11 @@
 //! Helpers (ADR 0152): a short-lived loop a bot starts with `helper {task, profile?}`. A helper
 //! runs as one of the bot's background jobs, in its own hidden conversation driven by the same
-//! `next_step` as any turn. These are its rules, with no I/O: which tools a profile offers, the
-//! instructions it starts from, where a helper stands, and what it hands back.
+//! `next_step` as any turn. These are its rules, with no I/O: which tools a profile lets it run,
+//! what it is told in its first message, where a helper stands, and what it hands back.
+//!
+//! A helper's system prompt is the one every conversation starts from and its offered tools are
+//! its bot's (docs/helpers.md, "A helper's conversation"), so the provider's cache serves both; a
+//! profile narrows what it may run, not what the model is offered.
 
 use crate::event::{Event, Known};
 use crate::tools::{Registry, Risk, ToolDef};
@@ -46,18 +50,18 @@ pub const NEVER: &[&str] = &[
     crate::lane::TASKS,
 ];
 
-/// What a helper is for: its instructions and the tools it may use.
+/// What a helper is for: its instructions and the tools it may run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Profile {
     pub name: String,
     /// One line on what it is for, for the bot choosing a profile.
     pub about: String,
-    /// What the helper is told, after Spade's rules for helpers.
+    /// What the helper is told about itself, after Spade's rules for helpers.
     pub instructions: String,
-    /// Offer only tools that read.
+    /// Run only tools that read.
     pub reads_only: bool,
-    /// Offer only these tools, by name (a plugin agent's tool list). `None` offers every tool
-    /// the rest allows.
+    /// Run only these tools, by name (a plugin agent's tool list). `None` runs every tool the
+    /// rest allows.
     pub tools: Option<Vec<String>>,
     /// A model from the person's endpoints (`endpoint/model`); `None` uses the bot's.
     pub model: Option<String>,
@@ -94,8 +98,8 @@ what you found."
         }
     }
 
-    /// Whether a helper of this profile is offered `def`.
-    pub fn offers(&self, def: &ToolDef) -> bool {
+    /// Whether a helper of this profile may run `def`.
+    pub fn allows(&self, def: &ToolDef) -> bool {
         let name = def.spec.name.as_str();
         if NEVER.contains(&name) || def.risk == Risk::Memory || def.background {
             // Background tools answer later as a job result, after the helper's own answer.
@@ -109,13 +113,16 @@ what you found."
             .is_none_or(|tools| tools.iter().any(|t| t == name))
     }
 
-    /// The bot's registry narrowed to what this profile offers.
-    pub fn registry(&self, registry: Registry) -> Registry {
-        registry.retain(|def| self.offers(def))
+    /// The bot's registry narrowed to what this profile lets the helper run. The model is offered
+    /// the bot's whole list; this is what a call of the helper's is checked against.
+    pub fn allowed(&self, registry: Registry) -> Registry {
+        registry.retain(|def| self.allows(def))
     }
 
-    /// The helper's standing instructions: Spade's rules for helpers, then the profile's.
-    pub fn system(&self) -> String {
+    /// What the helper is told about itself, in the context of its first message: Spade's rules
+    /// for helpers, then the profile's. It is not its system prompt, which is the one every
+    /// conversation starts from, so the provider's cache serves both (design.md, Caching).
+    pub fn told(&self) -> String {
         format!("{RULES}\n\n{}", self.instructions.trim())
     }
 }
@@ -302,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn explore_is_offered_reads_only_and_general_everything_a_helper_may_have() {
+    fn explore_may_run_reads_only_and_general_everything_a_helper_may_have() {
         let tools = [
             def("web_fetch", Risk::Read),
             def("workspace_write", Risk::Write),
@@ -318,19 +325,19 @@ mod tests {
                 ..def("research", Risk::Read)
             },
         ];
-        let offered = |profile: &Profile| -> Vec<String> {
+        let allowed = |profile: &Profile| -> Vec<String> {
             tools
                 .iter()
-                .filter(|d| profile.offers(d))
+                .filter(|d| profile.allows(d))
                 .map(|d| d.spec.name.clone())
                 .collect()
         };
         assert_eq!(
-            offered(&Profile::explore()),
+            allowed(&Profile::explore()),
             vec!["web_fetch", "memory_search"]
         );
         assert_eq!(
-            offered(&Profile::general()),
+            allowed(&Profile::general()),
             vec!["web_fetch", "workspace_write", "shell", "memory_search"]
         );
         let narrowed = Profile {
@@ -338,9 +345,19 @@ mod tests {
             ..Profile::general()
         };
         assert_eq!(
-            offered(&narrowed),
+            allowed(&narrowed),
             vec!["shell"],
             "a tool list narrows, never adds"
+        );
+    }
+
+    #[test]
+    fn a_profile_is_told_with_spades_rules_first() {
+        let told = Profile::explore().told();
+        assert!(told.starts_with(RULES), "{told}");
+        assert!(
+            told.ends_with(Profile::explore().instructions.trim()),
+            "{told}"
         );
     }
 

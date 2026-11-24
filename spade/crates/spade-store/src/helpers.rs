@@ -46,8 +46,10 @@ pub(crate) const LANE_COPIES: &str = "
     );
 ";
 
-/// A helper as stored. The profile is kept as it was when the helper started, so its prompt
-/// rebuilds to the same bytes after a restart even if the profile changed or went away.
+/// A helper as stored. The profile is kept as it was when the helper started, so what it may run
+/// stays what it was after a restart even if the profile changed or went away. `system` is the
+/// standing text a helper stored before helpers shared their bot's prompt pinned; a helper made
+/// since has none, its prompt being its bot's.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredHelper {
     /// The helper's own conversation.
@@ -59,7 +61,7 @@ pub struct StoredHelper {
     /// The bot's reply that started it, so Stop on that reply stops it.
     pub reply: String,
     pub profile: String,
-    /// Its standing instructions.
+    /// Its pinned system text, or empty when its prompt is its bot's.
     pub system: String,
     pub reads_only: bool,
     /// The tools a plugin agent's profile narrowed it to, by name.
