@@ -114,6 +114,12 @@ export class ChromeVideo implements VideoHost {
     const { windowId } = Window.parse(await page.send("Browser.getWindowForTarget"));
     const id = `capture-${++this.ids}`;
     const document = await this.start(id, windowId, width, height);
+    // A page already playing sound when its capture starts sends no change once the worker
+    // listens: seed the tab's state for every listener, best effort.
+    void this.tabAudio(windowId).then(
+      (audio) => this.announceTabAudio(windowId, audio),
+      () => {},
+    );
     this.captures.set(id, events);
     const call = (name: string, args: unknown[]) =>
       void evaluate(document, name, args).catch(() => {});
@@ -293,7 +299,10 @@ export class ChromeVideo implements VideoHost {
     const audio = TabAudio.safeParse(json);
     if (!audio.success) return;
     const { windowId, audible, muted } = audio.data;
-    for (const listener of this.tabAudioListeners) listener(windowId, { audible, muted });
+    this.announceTabAudio(windowId, { audible, muted });
+  }
+  private announceTabAudio(windowId: number, audio: z.infer<typeof Audio>): void {
+    for (const listener of this.tabAudioListeners) listener(windowId, audio);
   }
 }
 
