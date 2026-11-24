@@ -21,7 +21,7 @@ use crate::json_bind;
 use crate::{NativeDatabase, fail};
 
 mod live;
-mod transaction;
+pub(crate) mod transaction;
 
 #[napi]
 impl NativeDatabase {
@@ -131,11 +131,15 @@ impl NativeDatabase {
         live::NativeLiveBuffer::empty()
     }
 
-    /// The transaction stack for this connection (task 5.5). Its frames run on the connection,
-    /// so a nested savepoint sees the same open transaction the TypeScript store holds.
+    /// The transaction stack for this connection (task 5.5; one per connection since E5.1).
+    /// Its frames run on the connection, so a nested savepoint sees the same open transaction
+    /// the TypeScript store holds, and the Rust engine shares this same stack.
     #[napi(catch_unwind)]
     pub fn transaction_stack(&self) -> transaction::NativeTransactionStack {
-        transaction::NativeTransactionStack::new(Arc::clone(self.connection()))
+        transaction::NativeTransactionStack::new(
+            Arc::clone(self.connection()),
+            self.transaction_state(),
+        )
     }
 }
 

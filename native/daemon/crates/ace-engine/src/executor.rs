@@ -472,8 +472,8 @@ impl Executor {
         self.draining.take();
     }
 
-    #[cfg(test)]
-    pub(crate) fn claim(&self) -> u8 {
+    /// The claim's current value, for the probe and the tests.
+    pub fn claim(&self) -> u8 {
         self.shared.claim.load(SeqCst)
     }
 

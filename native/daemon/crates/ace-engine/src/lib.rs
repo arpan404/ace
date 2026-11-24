@@ -4,6 +4,8 @@
 //! its after-commit wakes, and `ready`/`flush`/`close` with every public method declared at its
 //! final timing. E5.2 to E5.10 fill in the modules behind these seams.
 
+pub use futures;
+
 pub mod access;
 pub mod actor;
 pub mod approvals;
@@ -351,6 +353,41 @@ impl Core {
         self.ports.resolve_ready(result.err());
     }
 
+    /// `flush`'s loop, for a task that flushes from inside another one: it excludes its own
+    /// task and worker run.
+    pub async fn flush_to_quiescence(&self, exclude: Option<TaskId>) -> Result<(), EngineError> {
+        if let Some(ready) = self.ready_future() {
+            match ready.await {
+                Ok(Ok(())) => {}
+                Ok(Err(message)) => return Err(EngineError::Registry(message)),
+                Err(_) => return Err(EngineError::Closed),
+            }
+        }
+        loop {
+            let waiters = self.worker_waiters(exclude);
+            if waiters.is_empty() && self.executor.idle() && self.quiescent(exclude) {
+                return Ok(());
+            }
+            if !waiters.is_empty() {
+                futures::future::join_all(waiters).await;
+                continue;
+            }
+            // One macrotask's worth: the pump runs the work queued behind us.
+            futures::future::poll_fn(|cx| {
+                cx.waker().wake_by_ref();
+                std::task::Poll::Pending::<()>
+            })
+            .await;
+        }
+    }
+
+    /// The probe's stub: the recovery-candidate scan answers with no rows (E5.3 deletes this).
+    pub fn probe_empty_candidates(&self) {
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            state.probe_empty_candidates = true;
+        }
+    }
+
     /// The readiness sequence of `index.ts:466`–`:487`.
     async fn ready_steps(&self) -> Result<(), EngineError> {
         if self.inputs.any_ready_port() {
@@ -412,9 +449,8 @@ impl Core {
 
 impl DeferredHost for Core {
     fn wake(&self, thread: &str, _lane: Lane) {
-        if self.closing.get() {
-            return;
-        }
+        // A released wake belongs to work admitted before admission closed, so the shutdown
+        // join runs it; only `shut` stops new runnables, in the schedule function.
         self.record_wake(thread);
     }
 
@@ -507,35 +543,9 @@ impl Engine {
         let task = core.executor.spawn(Lane::Work, async move {
             let core = inner;
             let exclude = core.executor.current();
-            let mut error: Option<EngineError> = None;
-            if let Some(ready) = core.ready_future() {
-                match ready.await {
-                    Ok(Ok(())) => {}
-                    Ok(Err(message)) => error = Some(EngineError::Registry(message)),
-                    Err(_) => error = Some(EngineError::Closed),
-                }
-            }
-            loop {
-                if error.is_some() {
-                    break;
-                }
-                // One macrotask's worth: the pump runs the work queued behind us.
-                futures::future::poll_fn(|cx| {
-                    cx.waker().wake_by_ref();
-                    std::task::Poll::Pending::<()>
-                })
-                .await;
-                let waiters = core.worker_waiters(exclude);
-                if !waiters.is_empty() {
-                    futures::future::join_all(waiters).await;
-                    continue;
-                }
-                if core.executor.idle() && core.quiescent(exclude) {
-                    break;
-                }
-            }
+            let result = core.flush_to_quiescence(exclude).await;
             core.ports
-                .settle_call(call, error.as_ref().map(ToString::to_string));
+                .settle_call(call, result.as_ref().err().map(ToString::to_string));
         });
         task.detach();
     }
@@ -692,7 +702,8 @@ async fn close_sequence(core: Rc<Core>) -> CloseOutcome {
     }
     core.phase.set("join");
     if !core.admission_closed.replace(true) {
-        drop(core.executor.close_admission());
+        let drained = core.executor.close_admission();
+        let _ = drained.await;
     }
     outcome
 }

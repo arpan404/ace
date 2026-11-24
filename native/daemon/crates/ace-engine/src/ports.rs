@@ -63,7 +63,7 @@ pub trait Ports {
     fn command_id(&self) -> String;
     /// `options.ids`, else the Rust UUIDv7 of `time-ordered-id.ts` (its clock and random bytes
     /// come from the binding).
-    fn next_id(&self) -> String;
+    fn next_id(&self, kind: &str) -> String;
 
     // ---- Reporting and readiness (E5.1) ----
     fn report(&self, error: String);
