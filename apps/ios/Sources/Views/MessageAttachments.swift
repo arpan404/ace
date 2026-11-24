@@ -234,9 +234,9 @@ struct MessageAttachmentRoutes: ViewModifier {
     let model: ClientModel
     let source: MessageAttachmentSource
     @State private var viewing: AttachmentTarget?
-    @State private var preview: URL?
-    @State private var playing: MessageVideoTarget?
-    @State private var opening: String?
+    /// The pending open and what it presents, in one value so a newer tap supersedes an older one.
+    @State private var state = AttachmentOpenState()
+    @State private var task: Task<Void, Never>?
     @State private var problem: String?
 
     func body(content: Content) -> some View {
@@ -247,12 +247,12 @@ struct MessageAttachmentRoutes: ViewModifier {
                     MediaPager.Page(title: line.name.isEmpty ? "Image" : line.name) { await original(target.itemId, line) }
                 }, start: target.start)
             }
-            .fullScreenCover(item: $playing) { video in
+            .fullScreenCover(item: playing) { video in
                 VideoViewer(title: video.name, url: video.url, mimeType: video.mimeType)
             }
-            .quickLookPreview($preview)
+            .quickLookPreview(preview)
             .overlay(alignment: .top) {
-                if let opening {
+                if let opening = state.pending?.name {
                     HStack(spacing: AceDesign.Space.related) {
                         ProgressView().controlSize(.small)
                         Text("Opening \(opening)").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
@@ -266,6 +266,23 @@ struct MessageAttachmentRoutes: ViewModifier {
             .alert("Couldn't open the file", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
                 Button("OK") { problem = nil }
             } message: { Text(problem ?? "") }
+    }
+
+    /// Closing either presentation removes the copy it owned.
+    private var playing: Binding<MessageVideoTarget?> {
+        Binding(
+            get: { if case let .video(target) = state.presentation { target } else { nil } },
+            set: { if $0 == nil { release() } }
+        )
+    }
+    private var preview: Binding<URL?> {
+        Binding(
+            get: { if case let .document(url) = state.presentation { url } else { nil } },
+            set: { if $0 == nil { release() } }
+        )
+    }
+    private func release() {
+        if let url = state.close() { Self.discard(url) }
     }
 
     private var access: MessageAttachmentAccess {
@@ -309,20 +326,31 @@ struct MessageAttachmentRoutes: ViewModifier {
                                        start: shown.firstIndex(of: line) ?? 0)
             return
         }
-        opening = line.name
-        Task {
-            defer { opening = nil }
+        task?.cancel()
+        let token = state.begin(name: line.name)
+        task = Task {
             do {
                 let reply = try await model.service(source.request(itemId, ref, variant: "original", name: line.name),
                                                     as: AttachmentBytes.self)
                 guard let data = Data(base64Encoded: reply.data) else { throw ServiceFailure(message: "The file couldn't be decoded.") }
+                try Task.checkCancellation()
                 let kept = try Self.keep(data, named: reply.name)
-                if line.plays { playing = MessageVideoTarget(name: line.name, url: kept, mimeType: line.mimeType ?? reply.mimeType) }
-                else { preview = kept }
+                let route: AttachmentOpenState.Route = line.plays
+                    ? .video(name: line.name, mimeType: line.genericVideoType ?? line.mimeType ?? reply.mimeType)
+                    : .document
+                // A copy the latest open doesn't present is removed at once.
+                if state.complete(token, kept: kept, as: route) == nil { Self.discard(kept) }
             } catch {
-                problem = "\(line.name) couldn't be read. Check the connection and try again."
+                if state.fail(token), !(error is CancellationError) {
+                    problem = "\(line.name) couldn't be read. Check the connection and try again."
+                }
             }
         }
+    }
+
+    /// Removes a kept copy and the folder `keep` made for it.
+    static func discard(_ url: URL) {
+        try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
     }
 
     /// A private copy for Quick Look, under the file's own name with any folders taken out.

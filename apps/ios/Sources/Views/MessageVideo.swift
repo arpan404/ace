@@ -17,7 +17,13 @@ struct AttachmentLayout: Equatable {
 extension AttachmentLine {
     /// A video the machine can send: drawn as a tile and played in the app.
     var plays: Bool {
-        opens == true && !(ref ?? "").isEmpty && (kind == "video" || (mimeType ?? "").hasPrefix("video/"))
+        opens == true && !(ref ?? "").isEmpty
+            && (kind == "video" || (mimeType ?? "").hasPrefix("video/") || genericVideoType != nil)
+    }
+
+    /// The type a known video extension plays under when the file was sent as generic binary.
+    var genericVideoType: String? {
+        AttachmentVideoType.isGeneric(mimeType) ? AttachmentVideoType.fromExtension(name) : nil
     }
 }
 
@@ -56,7 +62,7 @@ struct AttachmentVideoTile: View {
 }
 
 /// A message's video, read and kept for the player.
-struct MessageVideoTarget: Identifiable {
+struct MessageVideoTarget: Identifiable, Equatable {
     let name: String
     let url: URL
     let mimeType: String
