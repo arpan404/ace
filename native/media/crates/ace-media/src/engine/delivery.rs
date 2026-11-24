@@ -98,6 +98,7 @@ struct View {
     codecs: Vec<String>,
     viewport: Viewport,
     audio: bool,
+    local: bool,
     paused: bool,
     fanout: Fanout,
     rate: LinkRate,
@@ -200,11 +201,20 @@ fn id(value: &str) -> Id {
 
 impl Delivery {
     /// Removes a view, remembering the last sequence it used for its connection and target.
+    /// A retired view's planned encode loses its keyframe cut: the cut was computed against
+    /// the viewer set's minimum link share, which the membership change invalidates. A cut
+    /// that is still warranted comes back on the next oversized keyframe (whose oversized
+    /// bytes still go); a local-only survivor is never stuck at a remote viewer's cut rate.
     fn retire_view(&mut self, key: &str) -> Option<View> {
         let view = self.views.remove(key)?;
         let at = (view.connection.clone(), target_key(&view.target));
         let last = self.sequences.entry(at).or_default();
         *last = (*last).max(view.sequence);
+        if let Some(encode) = view.encode {
+            if let Some(facts) = self.sources.get_mut(&view.source) {
+                facts.cut.remove(&encode);
+            }
+        }
         Some(view)
     }
 
@@ -284,6 +294,7 @@ impl Delivery {
                 codecs: open.codecs,
                 viewport: open.viewport,
                 audio: open.audio,
+                local: open.local,
                 paused: false,
                 fanout: Fanout::new(Window::default()),
                 rate: LinkRate::new(limits),
@@ -801,22 +812,33 @@ impl Delivery {
     /// second of their share of the link): one far over it cuts the rate its producer is asked
     /// for, so its next keyframes are smaller; each one within it lets the rate back up. The
     /// oversized one still goes (an empty window takes any unit). True when the cut changed.
+    /// Loopback viewers never cut: the cap protects slow links, and a local estimate (8-16
+    /// Mbit/s over loopback) would otherwise hold a still picture at the cut floor with no
+    /// keyframes to recover it.
     fn keyframe_sized(&mut self, source: &str, frame: &MediaFrame) -> bool {
         // The views taking this unit's encode, with the plan's id for it (the producer's id
         // differs while it runs its own encodes).
-        let taking: Vec<(f64, u32)> = self
+        let taking: Vec<(f64, u32, bool)> = self
             .views
             .values()
             .filter(|v| v.source == source && v.taking == Some(frame.encode))
-            .filter_map(|v| Some((carried(v) * self.share(&v.session), v.encode?)))
+            .filter_map(|v| Some((carried(v) * self.share(&v.session), v.encode?, v.local)))
             .collect();
-        let Some(rate) = taking.iter().map(|(rate, _)| *rate).reduce(f64::min) else {
+        if taking.iter().all(|(_, _, local)| *local) {
+            return false;
+        }
+        let Some(rate) = taking
+            .iter()
+            .filter(|(_, _, local)| !local)
+            .map(|(rate, _, _)| *rate)
+            .reduce(f64::min)
+        else {
             return false;
         };
         let cap = (rate.max(RATE_FLOOR) / 8.0 * KEYFRAME_SECONDS).max(1.0);
         let size = frame.payload.len() as f64;
         // One keyframe moves each planned encode's cut once, however many views share it.
-        let mut planned: Vec<u32> = taking.iter().map(|(_, id)| *id).collect();
+        let mut planned: Vec<u32> = taking.iter().map(|(_, id, _)| *id).collect();
         planned.sort_unstable();
         planned.dedup();
         let facts = self.sources.entry(source.to_owned()).or_default();

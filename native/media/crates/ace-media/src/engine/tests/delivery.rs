@@ -1237,3 +1237,123 @@ fn a_spaced_keyframe_request_goes_unasked_when_the_producers_own_keyframe_comes_
     engine.tick(at(NOW.mono_ms + 300));
     assert_eq!(keyframes(&engine.effects().collect::<Vec<_>>()), 0);
 }
+
+#[test]
+fn a_local_views_oversized_keyframe_leaves_its_bitrate_alone() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    // A local viewer (loopback carries far more than the 8 Mbit/s estimate): the keyframe
+    // cap, which protects slow links, must not cut its still picture blurry.
+    send(
+        &mut engine,
+        json!({ "type": "viewer.open", "viewer": "v1", "connection": CONNECTION,
+                "owner": owner("phone", pairing(1)), "issued": 3, "source": "s1",
+                "target": { "kind": "browser", "threadId": "t1" }, "codecs": ["avc1.42E033"],
+                "viewport": { "width": 390, "height": 844, "dpr": 3, "scale": 1 },
+                "local": true, "audio": false }),
+        &[],
+        NOW,
+    );
+    let first = ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW);
+    let Some(before) = wants(&first).pop() else {
+        panic!("no plan");
+    };
+    // The first is acked: the window is empty.
+    engine.media_message(
+        CONNECTION,
+        &json!({ "type": "browser.ack", "threadId": "t1", "sequence": 1, "video": true })
+            .to_string(),
+        NOW,
+    );
+    engine.effects().for_each(drop);
+    // A 500 KB keyframe: over half a second even of the local share (5.6 Mbit/s -> ~350 KB
+    // cap), but loopback is not a slow link, so it still goes and the producer is not
+    // asked for less.
+    let mut big = h264(true, 1, 1, Vec::new());
+    big.payload.resize(500_000, 1);
+    let effects = ingest(&mut engine, 1, big, NOW);
+    assert!(!binaries(&effects).is_empty(), "the keyframe still went");
+    let after = wants(&effects).pop();
+    assert!(
+        after
+            .as_ref()
+            .is_none_or(|w| w[0].bitrate == before[0].bitrate),
+        "a local-only encode is not cut: {after:?} vs {before:?}"
+    );
+}
+
+#[test]
+fn a_remote_viewer_leaving_clears_its_shared_encodes_cut_for_the_local_left() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    // The local view alone: planned at its own share.
+    send(
+        &mut engine,
+        json!({ "type": "viewer.open", "viewer": "v1", "connection": CONNECTION,
+                "owner": owner("phone", pairing(1)), "issued": 3, "source": "s1",
+                "target": { "kind": "browser", "threadId": "t1" }, "codecs": ["avc1.42E033"],
+                "viewport": { "width": 390, "height": 844, "dpr": 3, "scale": 1 },
+                "local": true, "audio": false }),
+        &[],
+        NOW,
+    );
+    let first = ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW);
+    let Some(alone) = wants(&first).pop() else {
+        panic!("no plan");
+    };
+    // A remote viewer of the same page shares the encode, paced by its thin link.
+    ticket(&mut engine, "mc_two", owner("phone", pairing(1)), 5, 21);
+    assert!(engine.claim_ticket(&[21; 32], NOW).is_some());
+    send(
+        &mut engine,
+        json!({ "type": "viewer.open", "viewer": "v2", "connection": "mc_two",
+                "owner": owner("phone", pairing(1)), "issued": 6, "source": "s1",
+                "target": { "kind": "browser", "threadId": "t1" }, "codecs": ["avc1.42E033"],
+                "viewport": { "width": 390, "height": 844, "dpr": 3, "scale": 1 },
+                "local": false, "audio": false, "link": { "downlinkKbps": 400 } }),
+        &[],
+        NOW,
+    );
+    // One delta so the remote view takes the shared encode too; a keyframe sized only
+    // against the local view would never cut.
+    let mut bump = h264(false, 9, 1, Vec::new());
+    bump.payload.resize(1_000, 9);
+    engine.effects().for_each(drop);
+    let _ = ingest(&mut engine, 1, bump, NOW);
+    engine.effects().for_each(drop);
+    for (connection, sequence) in [(CONNECTION, 2), ("mc_two", 1)] {
+        engine.media_message(
+            connection,
+            &json!({ "type": "browser.ack", "threadId": "t1", "sequence": sequence, "video": true })
+                .to_string(),
+            NOW,
+        );
+    }
+    engine.effects().for_each(drop);
+    // A 500 KB keyframe: over half a second of the shared encode's (remote-paced) share,
+    // so the producer is asked for less while the remote view shares it.
+    let mut big = h264(true, 1, 1, Vec::new());
+    big.payload.resize(500_000, 1);
+    let cut = ingest(&mut engine, 1, big, NOW);
+    let Some(shared) = wants(&cut).pop() else {
+        panic!("the shared encode was not cut");
+    };
+    assert!(
+        shared[0].bitrate < alone[0].bitrate,
+        "cut while shared: {} vs local-alone {}",
+        shared[0].bitrate,
+        alone[0].bitrate
+    );
+    // The remote viewer leaves: the local survivor's encode is no longer cut.
+    let after = send(
+        &mut engine,
+        json!({ "type": "viewer.close", "viewer": "v2" }),
+        &[],
+        NOW,
+    );
+    let Some(recovered) = wants(&after).pop() else {
+        panic!("closing the remote view replans the survivor");
+    };
+    assert_eq!(
+        recovered[0].bitrate, alone[0].bitrate,
+        "local-only again: {recovered:?} vs {alone:?}"
+    );
+}
