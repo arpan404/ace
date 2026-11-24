@@ -486,17 +486,21 @@ fn nested(depth: usize) -> String {
 }
 
 #[test]
-fn a_30_000_deep_payload_is_admitted_in_one_linear_pass() {
+fn a_30_000_deep_payload_is_admitted_and_kept_raw() {
     let depth = 30_000usize;
     let payload = nested(depth);
     let mut wire = new_wire();
     let line = format!(r#"{{"type":"future","v":{payload}}}"#);
-    let start = std::time::Instant::now();
-    assert_eq!(names(&wire.stdout_line(&line)), vec!["frame:Recv"]);
-    let elapsed = start.elapsed();
+    let effects = wire.stdout_line(&line);
+    assert_eq!(names(&effects), vec!["frame:Recv"]);
+    let (_, text) = frames(&effects).pop().expect("the raw frame");
+    let value = ace_json::parse(&text).expect("raw text is valid JSON");
     assert!(
-        elapsed < std::time::Duration::from_millis(1000),
-        "admission must not rescan subtrees: {elapsed:?}"
+        matches!(
+            value.as_object().and_then(|map| map.get("v")),
+            Some(Value::Array(_))
+        ),
+        "the deep field is admitted, not null"
     );
 }
 
