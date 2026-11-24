@@ -11,19 +11,28 @@ const types: Record<string, string> = {
   pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   mp3: "audio/mpeg",
   wav: "audio/wav",
-  mp4: "video/mp4",
-  mov: "video/quicktime",
-  m4v: "video/x-m4v",
   heic: "image/heic",
   heif: "image/heif",
   tif: "image/tiff",
   tiff: "image/tiff",
   bmp: "image/bmp",
 };
+// Video extensions the phone plays. They only stand in for a sender that didn't say what the
+// file is; an explicit type (an archive named .m4v) is kept.
+const videoTypes: Record<string, string> = {
+  mp4: "video/mp4",
+  mov: "video/quicktime",
+  m4v: "video/x-m4v",
+};
 export function binaryMime(name: string, declared?: string): string {
+  const extension = extname(name).slice(1).toLowerCase();
+  const named = declared && /^[\w.+-]+\/[\w.+-]+$/.test(declared) ? declared : undefined;
+  const generic = !named || named.toLowerCase() === "application/octet-stream";
   return (
-    types[extname(name).slice(1).toLowerCase()] ??
-    (declared && /^[\w.+-]+\/[\w.+-]+$/.test(declared) ? declared : "application/octet-stream")
+    types[extension] ??
+    (generic ? videoTypes[extension] : undefined) ??
+    named ??
+    "application/octet-stream"
   );
 }
 export function textEncoding(header: Uint8Array): "utf-8" | "utf-16le" | "utf-16be" {
