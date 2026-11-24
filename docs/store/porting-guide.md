@@ -1738,7 +1738,7 @@ anything done to the stamp. The case runs in all three modes with the rest of th
 if Rust's write survives, if `rebuildThread` is skipped, or if the throw is lost.
 
 **Cross gate** (ADR 0223 §8): task 5.x-gate's file, with `columns` in the part list and a
-`columns` line in its assertion 8:
+`columns` line in its evidence check:
 
 ```sh
 f=apps/daemon/src/store-cross-backend.process.test.ts
@@ -1983,15 +1983,15 @@ addon is loaded once and shared, a worker can't be killed mid-transaction the wa
 and the worker only writes history imports. So the writer items merged so far (5.1, 5.2b, 5.3a,
 5.4a, 5.4b) have no real cross-mode proof yet.
 
-**Decision: option (a), one new process test, run by the existing gate unchanged.** The test
-never opens a `Store` itself. Every boot of its home is a separate child process (`spawn` of
-`process.execPath`, the same runtime as the worker) that opens the home with `new Store(path)`.
-Under `native-cross.ts`, each child is a fresh process, so it takes the backend the boot log gives
-boot _n_, and the gate's per-root assertion passes for real. Run plainly, every child inherits
-the same switch, so the file is a crash-and-restart test across processes in each of rule 3's
-three modes. `native-cross.ts` needs no change: the boot log, `ACE_NATIVE_CROSS` and
-`ACE_NATIVE_CROSS_LOG` already reach the worker through `scripts/test-home-policy.ts`, and the
-children inherit them. Rule 2 allows this new file as "a test for behaviour nothing covers
+**Decision: option (a), one new process test, run by the gate.** The test never opens a `Store`
+itself. Every boot of its home is a separate child process (`spawn` of `process.execPath`, the
+same runtime as the worker) that opens the home with `new Store(path)`. Under `native-cross.ts`,
+each child is a fresh process, so it takes the backend the boot log gives boot _n_, and the gate's
+per-root assertion passes for real. Run plainly, every child inherits the same switch, so the file
+is a crash-and-restart test across processes in each of rule 3's three modes. The boot log,
+`ACE_NATIVE_CROSS` and `ACE_NATIVE_CROSS_LOG` already reach the worker through
+`scripts/test-home-policy.ts`, and the children inherit them. The gate needs one small change
+(G0, below) so its starting-off run uses the full part list. children inherit them. Rule 2 allows this new file as "a test for behaviour nothing covers
 today", named here: a home crossing backends between processes. It is the one new
 `*.process.test.ts`, and its real edge is process death. The other two options were rejected:
 
@@ -2001,12 +2001,9 @@ today", named here: a home crossing backends between processes. It is the one ne
   tests, which boot a whole daemon to write a handful of rows.
 
 Later store items (5.3b-2 `columns`, 5.5 `transactions`, 5.3c onward) reuse this file as their
-gate. They add their evidence kind and, if needed, a write to the workload. They never add a new
-gate file.
+gate (step G3).
 
-**The phases.** One home, six children in this order. A boot's mode is whatever the gate (or the
-plain run) gives it, so the test never names a backend. Even boots run the starting value and odd
-boots the opposite one:
+**The phases.** One home, six children in this order:
 
 | Boot | Phase                      | Ends with                                                  |
 | ---- | -------------------------- | ---------------------------------------------------------- |
@@ -2017,24 +2014,60 @@ boots the opposite one:
 | 4    | `crash-with-buffered-tail` | the same, in the other mode                                |
 | 5    | `final`                    | clean `close()`                                            |
 
-Starting on, the boots run on, off, on, off, on, off. So each crash kind happens once on and once
-off, each is recovered by the opposite mode, and every on-to-off and off-to-on transition happens
-with the full part list. Starting off, the gate's opposite of unset is `fold` only
-(`native-switches.ts`, `opposite`), so that run covers off and `fold` alone. The starting-on run is
-the one that proves every part.
+**Both directions with the full part list (gate change G0).** Today the gate's opposite of an unset
+`ACE_STORE_WRITER` is `fold` (`native-switches.ts:369`). So the starting-off run would turn on only
+`fold`, and in the starting-on run the on boots are always 0, 2 and 4: an on crash in a
+transaction always follows a crash, and an off one always follows a clean boot. G0 makes the
+starting-off run alternate between off and the same list the starting-on run uses:
+
+- `scripts/native-cross.ts`: for `ACE_STORE_WRITER`, the starting-off run sets
+  `ACE_STORE_WRITER_CROSS` to the starting-on value of `ACE_STORE_WRITER`, then deletes
+  `ACE_STORE_WRITER` as it does today. The usage line says so.
+- `packages/provider-kit/src/native-switches.ts`: `opposite("ACE_STORE_WRITER", "")` returns
+  `process.env.ACE_STORE_WRITER_CROSS ?? "fold"`. The value is checked at module load with the
+  same unknown-part and prefix rules as `ACE_STORE_WRITER`, and the same `needs ACE_STORE=native`
+  refusal.
+- `scripts/test-home-policy.ts`: pass `ACE_STORE_WRITER_CROSS` through, next to
+  `ACE_STORE_WRITER`.
+- `native-switches.test.ts`: one case in the existing cross-switch tests. With
+  `ACE_STORE_WRITER_CROSS=fold,sequences` and an unset `ACE_STORE_WRITER`, boot 1 runs
+  `fold,sequences`, and an unknown or non-prefix value refuses to start.
+
+With G0, the starting-on run is on, off, on, off, on, off and the starting-off run is off, on, off,
+on, off, on, with the same parts. Each crash kind then runs in each mode after both a clean boot and
+a crash.
+
+**The test checks the modes itself, because the gate accepts any alternation.**
+`assertAlternation` (`native-cross.ts:115`) only checks that a boot's effective value equals or
+differs from boot 0's. An empty `parts` list would also pass the evidence check vacuously. So the
+test computes each boot's expected mode from its own environment and asserts it exactly:
+
+```ts
+const cross = process.env.ACE_NATIVE_CROSS;
+const start = process.env.ACE_STORE_WRITER ?? "";
+const other = start === "" ? (process.env.ACE_STORE_WRITER_CROSS ?? "fold") : "";
+const parts = (n: number) => (cross === "ACE_STORE_WRITER" && n % 2 === 1 ? other : start);
+const native = process.env.ACE_STORE === "native";
+const backend = (n: number) =>
+  (cross === "ACE_STORE" && n % 2 === 1 ? !native : native) ? "native" : "typescript";
+```
+
+Each report's `parts` (in `writerPartsOrder`, joined by `,`) must equal `parts(n)`, and its
+`backend` must equal `backend(n)`. The six `pid`s must be distinct and none may be the test's own.
+For evidence, a boot with parts has exactly one line per part and no others, and a boot without
+parts has none.
 
 **Files the builder may touch:**
 
+- G0: `scripts/native-cross.ts`, `packages/provider-kit/src/native-switches.ts`,
+  `packages/provider-kit/src/native-switches.test.ts`, `scripts/test-home-policy.ts`;
 - G1, a pure move: `apps/daemon/src/store-cross-test-support.ts` (new),
   `apps/daemon/src/thread-columns.process.test.ts`, `apps/daemon/src/store-live-writes.test.ts`,
   `apps/daemon/src/thread-row-trust.test.ts` (imports only, plus deleting what moved);
 - G2: `apps/daemon/src/store-cross-child.ts` (new),
-  `apps/daemon/src/store-cross-backend.process.test.ts` (new) and, only if the file's measured
-  time is over 30 s, `scripts/test-budgets.json`;
-- G3: nothing; it is the run and the PR text.
+  `apps/daemon/src/store-cross-backend.process.test.ts` (new).
 
-Nothing else. `native-cross.ts`, `native-switches.ts` and every `Store` source file stay as they
-are.
+Nothing else. No `Store` source file changes, and no `scripts/test-budgets.json` entry.
 
 #### Step G1: move the assertions the gate reuses (no behaviour change)
 
@@ -2088,8 +2121,29 @@ Move these into `store-cross-test-support.ts`, exported, with no change to what 
 - from `store-live-writes.test.ts`: `answerText` and `snapshotText`, with the item id as a
   parameter (`"answer"` at the existing call sites), and `stream` (`prepareLiveWrite` +
   `bufferLiveWrite` with the `unpinned` snapshot);
-- from `thread-row-trust.test.ts`: `confirmedSql` and a `confirmedIds(db): string[]`, sorted,
-  built on it.
+- from `thread-row-trust.test.ts`: `confirmedSql`, used where it is today.
+
+Add one new helper beside them: `disk(path): Disk`. It opens its own `node:sqlite`
+`DatabaseSync`, the same observer in every mode, reads, and closes. It opens read-only while a
+`Store` holds the home, as `engine/live-write-buffer.process.test.ts:269` does. Before the
+child's `Store` opens, it opens writable so SQLite can recover the WAL after a kill, and it only
+reads. It returns, each in a fixed order:
+
+```ts
+type Disk = {
+  events: { seq: number; id: string; thread_id: string; type: string; payload: string }[]; // ORDER BY seq
+  hostSequence: number; // SELECT seq FROM host_sequence WHERE id=1
+  recent: { workspace_id: string; opened_at: number }[]; // workspace_recent, ORDER BY workspace_id
+  threads: Record<string, unknown>[]; // SELECT * FROM threads ORDER BY id
+  cold: Record<string, unknown>[]; // SELECT * FROM thread_cold ORDER BY thread_id
+  revisions: { thread_id: string; revision: number }[]; // sidebar_thread_revisions, ORDER BY thread_id
+  stamps: Record<string, unknown>[]; // SELECT * FROM thread_row_trust ORDER BY thread_id
+  walBytes: number; // size of events.sqlite-wal, 0 if missing
+};
+```
+
+`Store.readEvents` flushes the live buffer (`store.ts:1174`), so the child never uses it to
+observe a buffered tail. Every on-disk check below goes through `disk`.
 
 Proof: the three source files pass, unchanged in count and names, in all three modes (rule 3).
 G1 is its own commit, and G2 starts from it.
@@ -2097,109 +2151,172 @@ G1 is its own commit, and G2 starts from it.
 #### Step G2: the child and the test
 
 **`store-cross-child.ts`** is a script, run as
-`process.execPath store-cross-child.ts <phase> <home> <previous-report|-> <report>`. It imports
-`Store` from `./store.ts`, `storeWriterParts` and `storeBackend` from
+`process.execPath store-cross-child.ts <boot> <phase> <home> <previous-report|-> <report>`. It
+imports `Store` from `./store.ts`, `storeWriterParts` and `storeBackend` from
 `@ace/provider-kit/native-switches`, and the support module. It uses `node:assert` for the
-`Assertions` (never vitest), and it writes its report with `writeFileSync`, the last thing before
-it exits or kills itself. In order:
+`Assertions` (never vitest). A failed assertion or a failed precondition exits 1 with the message.
+The report is written with `writeFileSync`, as the last thing before the child exits or kills
+itself. Thread ids, item ids and `at` values below are fixed, never drawn from the clock. In order:
 
-1. `const store = new Store(join(home, "events.sqlite"))`, then `db = store.atomic((db) => db)`.
-   Record `pid`, `parts: [...storeWriterParts()]` and `backend: storeBackend()`, read after the
-   open, since the value is fixed at this boot. Subscribe with `store.subscribe` and record every
-   published event's `seq` as `published`.
-2. Every phase except `write` records `opened = observe(store)` before it writes anything:
+1. `preOpen = disk(home/events.sqlite)`, before anything opens the home.
+2. `const store = new Store(path)`, then `db = store.atomic((db) => db)`. Record `pid`, `parts`
+   and `backend`, read after the open, since the value is fixed at this boot. Subscribe with
+   `store.subscribe` and record every published event's `seq` as `published`.
+3. Every phase except `write` records `opened = observe(store)` before it writes anything:
    - `snapshot(store, windows)` and `getThread(id)` for every id (the cache path);
-   - `readEvents({ afterSeq: 0, limit: 100_000 })` in full;
    - `headSeq()`;
-   - `snapshotText` for each live item, and `answerText` over its stored `item.delta` rows;
-   - `confirmedIds(db)`.
+   - `snapshotText` for each live item.
 
    After a tail crash it also opens a probe on the lost thread: `subscribe(store, "probe",
    { kind: "thread", threadId }, previous.lostThrough, 1000, push)`, closed at once. The first
    message type goes in the report as `probeFirst`.
 
-3. The workload:
-   - `write` creates 3 workspaces and 10 threads (`createThreads`, seed 21) and two message items
-     for live output on two threads;
-   - every phase runs 100 `threadStream` steps with seed `21 + boot`. Thread state comes from
-     the previous report (`state`), and new item ids take a `b<boot>-` prefix;
-   - every phase runs four live bursts (`stream`), each followed by `store.flushLiveWrites()`.
-     The bursts are: 40 deltas of 10 to 200 bytes on one item, interleaved with the other
-     thread's deltas, so compaction merges and splits at the 4096-byte check; one delta with a
-     surrogate pair split across two appends (`"\ud83d"` then `"\ude00"`) and one lone
-     `"\ud800"`; one burst of at least 64 KiB, so the flush-now rule fires; and one burst on an
-     agent or field different from the item's last delta.
-     The report's `appended` keeps, per item, every append it stored, in order.
-4. The ending:
-   - `write`, `final`: `flushLiveWrites()`, then `closed = observe(...)`, then
-     `await store.close()`, then write the report and exit 0;
-   - `crash-in-transaction`: `flushLiveWrites()`, then `durable = observe(...)` and the WAL size
-     (`statSync(home/events.sqlite-wal).size`, 0 if missing). Then, inside `store.atomic`:
-     create thread `crash-<boot>` (`createDevThread`), append 64 `item.created` events of 64 KiB
-     text each to an existing thread, plus a `thread.updated` title on a second thread. Record
-     the WAL size again, write the report (`crashing: "transaction"`), and call
-     `process.kill(process.pid, "SIGKILL")` inside the callback;
-   - `crash-with-buffered-tail`: `flushLiveWrites()`, then `durable = observe(...)`. Then
-     `stream` 5 deltas, under 1 KiB in all, to one live item, with no flush, so the 75 ms
-     deadline hasn't fired. Record `lostFrom` and `lostThrough`, the first and last published
-     seq of those deltas, write the report (`crashing: "tail"`), and call
-     `process.kill(process.pid, "SIGKILL")` in the same synchronous turn.
+4. **The required writes**, committed, in this order, in every boot. Shrinking the workload never
+   removes them:
+   1. `write` only: 3 workspaces and 10 threads (`createThreads`, seed 21), and two threads'
+      message items for live output.
+   2. `thread.created` for `recent-<boot>` in `workspaces[boot % 3]`, at `4e12 + boot`. That is
+      later than any clock, so `workspace_recent` must then read exactly that `opened_at`
+      (`event-writer.ts:178`).
+   3. `thread.created` for `imported-<boot>` with `imported` set (the shape in
+      `engine/metadata-commands.process.test.ts:26`) in `workspaces[(boot + 1) % 3]`, at
+      `5e12 + boot`. It must not change `workspace_recent`.
+   4. `agent.created`, `origin` `"root"`, on `recent-<boot>` (fold rule 4).
+   5. `queue.updated` on thread 0 (fold rule 1).
+   6. `thread.client.updated` on thread 1, with `pinned`, `details` and `live` in one change
+      (fold rule 2; `client` and `thread_cold` columns).
+   7. `thread.updated` on thread 2, with `title`, `status` and `capabilities` in one change
+      (fold rule 3; the hot columns, `provider_metadata` and `thread_cold`).
+
+   Then `requiredDisk = disk(...)` (read-only).
+
+5. 60 `threadStream` steps with seed `21 + boot`. Thread state comes from the previous report
+   (`state`), and new item ids take a `b<boot>-` prefix. The home never holds more than 25
+   threads, so each step's `check` stays bounded (O(threads × 4 windows)). History-sized reads
+   happen only in `disk` and `observe`, at most four times per child.
+6. **The live bursts.** Each burst is one fixed script, the same in every boot, on a fresh message
+   item `live-<boot>-<k>`, created and committed before it. Each is issued in one synchronous turn,
+   so compaction sees the same input in every mode:
+   1. 40 deltas of 10 to 200 bytes from a fixed list, interleaved with another thread's deltas,
+      so adjacent merges reach and cross the 4096-byte check;
+   2. a surrogate pair split across two appends (`"\ud83d"` then `"\ude00"`), and a lone
+      `"\ud800"`;
+   3. at least 64 KiB in total, so the buffer's flush-now rule fires;
+   4. a delta on a different `field`, then one on the item's first field.
+
+   After each burst's turn and before any flush, read `disk`. After burst 3, every one of its
+   seqs must already be in `disk.events`: the threshold flushed it, and a later flush can't hide
+   that. Then call `store.flushLiveWrites()`. Then record, per burst, `rows`: the burst's stored
+   `item.delta` rows as `[{ field, appendUnits: append.length }]` in seq order (the compacted row
+   boundaries). Also record `appended`: per item, every append it stored, in order.
+
+   The first burst of every boot refills the sequence range, because `initialize` sets the
+   reservation to `host_sequence` (`stream-sequences.ts:46`), so the first `prepare` after an
+   open reserves `65536` more (`:83`). Crossing an exhausted range inside one boot takes 65,536
+   events. That stays proven per mode by 5.2a's test in `store-live-write-recovery.test.ts`, not
+   by the gate.
+
+7. The ending:
+   - `write`, `final`: `flushLiveWrites()`, then `closed = observe(store)`, then
+     `await store.close()`. Then `durable = disk(...)`, and the child writes the report and exits 0.
+   - `crash-in-transaction`:
+     1. `flushLiveWrites()`, then `durable = disk(...)` and `closed = observe(store)`.
+     2. Control the WAL, because whether uncommitted pages reach it depends on SQLite's cache and
+        on WAL space being reused. On the store connection, run
+        `PRAGMA wal_checkpoint(TRUNCATE)` (it must report `busy = 0`), then
+        `PRAGMA cache_size = -256`. Read `walBefore` from `disk`; it must be 0.
+     3. Inside `store.atomic`: create thread `crash-<boot>` in `workspaces[boot % 3]` at
+        `6e12 + boot`, append 64 `item.created` events of 64 KiB of text each to thread 3, and a
+        `thread.updated` title on thread 4.
+     4. Still inside the transaction, read `walInside` from `disk`. If it isn't greater than 0,
+        exit 1 with "precondition: no uncommitted frames reached the WAL".
+     5. Write the report (`crashing: "transaction"`) and call
+        `process.kill(process.pid, "SIGKILL")` inside the callback.
+   - `crash-with-buffered-tail`:
+     1. `flushLiveWrites()`, then `durable = disk(...)` and `closed = observe(store)`.
+     2. `stream` 5 deltas, under 1 KiB in all, to one live item. Don't flush.
+     3. In the same synchronous turn, check the preconditions and record them:
+        - `published` holds all 5 tail seqs. `lostFrom` and `lostThrough` are the first and last;
+        - `store.hasLiveWrite(threadId)` is true;
+        - `killDisk = disk(...)` holds none of the 5 seqs, and `killDisk.hostSequence` is at
+          least `lostThrough` (the reservation covers what was published).
+
+        If any precondition fails, exit 1 naming it.
+
+     4. Write the report (`crashing: "tail"`) and call `process.kill(process.pid, "SIGKILL")` in
+        the same turn.
 
 **`store-cross-backend.process.test.ts`** has one test: "a home written in one process reopens
 in another with every read, sequence and live delta intact, after clean closes, a kill inside a
 transaction and a kill with a buffered tail". It makes a temp home and an evidence file. It runs
 the six children in order, each with `{ ...process.env, ACE_STORE_WRITER_EVIDENCE: evidence }`
-and no other env change, and collects stdout and stderr. Then it asserts, for each boot _n_ > 0
-against the report of _n_ − 1:
+and no other env change, and collects stdout and stderr. It asserts the modes as above. Then, for
+each boot _n_ > 0, against report _n_ − 1 (`prev`):
 
 1. **Exit.** `write` and `final` exit 0. A crash phase exits by `SIGKILL` (on win32, exit code 1),
    and its report says `crashing`. On any other exit, fail with the child's stderr.
-2. **Reads survive the crossing.** `opened` `toStrictEqual` the previous `durable` (crash phases)
-   or `closed` (clean ends). This covers the threads, the sidebar windows with their
-   `window.revision`, the cache reads, every stored event in full, `headSeq`, and every live
-   item's text. It is `thread-columns`' restart assertion
+2. **The disk is what the previous mode left.** `preOpen` `toStrictEqual` `prev.durable`, except
+   `walBytes`. After a tail crash it also equals `prev.killDisk` (except `walBytes`): no tail row
+   reached SQLite, and `host_sequence` didn't move. This covers every column, revision, cold row,
+   stamp and recency row the other mode wrote.
+3. **Reads survive the crossing.** `opened` `toStrictEqual` `prev.closed`: the threads, the
+   sidebar windows with their `window.revision`, the cache reads, `headSeq` and every live item's
+   text. These are `thread-columns`' restart assertion
    (`expect(snapshot(store, windows)).toStrictEqual(before)` and the `getThread` loop),
-   `thread-row-trust`'s "threads this build wrote read back after a restart exactly as they were",
-   and `store-live-writes`' "survives reopen" (`stored` equals what was published).
-3. **The killed transaction left nothing.** `crash-<n-1>` is absent from `opened`
-   (`getThread` undefined, not in `listThreads`). The WAL size recorded inside the transaction
-   is larger than the one before it, so uncommitted frames were on disk when the process died.
-4. **No lost or duplicated deltas.** For each live item, `opened`'s `snapshotText` and
-   `answerText` both equal the join of every append in `appended` across earlier boots.
-   Appends of a lost tail are not in `appended`, so they must not be stored. At least one stored
-   `item.delta` row's append is longer than any single append that went into it, so compaction
-   ran.
-5. **Sequences continue.** Within each report, stored seqs strictly increase. Every seq stored or
-   published by boot _n_ is greater than every seq boot _n_ − 1 published, the lost tail's
-   included. This is `engine/live-write-buffer.process`' "restart never reuses a sequence
-   already delivered by a lost buffered tail" (`headSeq() > lostCursor`), across a process
-   boundary. After a tail crash, `probeFirst` is `"snapshot"` (the same test's
-   `messages[0]` assertion: replay from a published but unstored cursor is refused).
-6. **Revisions move forward.** Each sidebar window's revision in `closed` or `durable` is at least
-   its revision in `opened`, and greater for a window whose threads the phase changed.
-7. **Trust stamps hold.** The previous report's `confirmedIds` is a non-empty subset of
-   `opened.confirmedIds`. The open may confirm more (`thread-row-trust`: "open checks only the
-   most recently changed rows"), but it never drops a stamp the other mode wrote.
-8. **Each on boot ran native code.** For every report, each part in `parts` has an evidence line
-   `${pid} ${part}` (`fold`, `sequences`, `events`, `live`; compaction and the buffer both write
-   the `live` line). A part added later adds its kind here, and nothing else changes.
+   `thread-row-trust`'s "threads this build wrote read back after a restart exactly as they
+   were", and `store-live-writes`' "survives reopen".
+4. **The killed transaction left nothing.** `crash-<n-1>` isn't in `preOpen.threads`, and no
+   `workspace_recent` row has `opened_at` `6e12 + (n-1)`. `prev.walInside > 0` and
+   `prev.walBefore === 0`: uncommitted frames were on disk when the process died.
+5. **Sequences continue.** Within `preOpen.events`, seqs strictly increase. Every seq boot _n_
+   stored or published is greater than `prev`'s on-disk `host_sequence` (the persisted
+   reservation, not just its last published seq). So the next allocation clears the whole
+   reserved range, and a recovery that shrank it fails. After a tail crash, `probeFirst` is
+   `"snapshot"`. This is `engine/live-write-buffer.process`' "restart never reuses a sequence
+   already delivered by a lost buffered tail" and its `messages[0]` assertion, across a process
+   boundary.
+6. **No lost or duplicated deltas.** For each live item, `opened`'s `snapshotText` and the join of
+   its stored `item.delta` appends in `preOpen.events` both equal the join of its `appended`.
+   Appends of a lost tail are not in `appended`, so they must not be stored. Compacted row
+   boundaries: for each burst _k_, `rows[k]` is identical in all six reports, whichever mode wrote
+   it, and at least one row of burst 1 holds more than one append.
+7. **The required writes landed, with their columns and stamps.** In `requiredDisk` of every boot,
+   check the following against that boot's `preOpen`:
+   - `workspace_recent` for `workspaces[n % 3]` reads `4e12 + n`, and the imported workspace's row
+     is unchanged;
+   - threads 0, 1 and 2 have a higher `revisions` entry than in `preOpen`, their columns hold the
+     values written in step 4, and each has a `stamps` row at exactly its new revision;
+   - `requiredDisk.events` from this boot holds one each of `thread.created` (×2),
+     `agent.created`, `queue.updated`, `thread.client.updated` and `thread.updated`, in that
+     order.
 
-Inside each child, every `threadStream` step runs `check` (cache vs fresh row vs TS fold, and
-live sidebar windows vs a full read) as `thread-columns` does. A child whose check fails exits 1,
-and assertion 1 reports its stderr.
+   Assertion 2 then shows the next mode found those same stamps before its open could confirm
+   anything (`store.ts:376` confirms recent rows at open, so checking ids after the open would
+   hide a missing stamp).
 
-**Proof (G2):** the file passes in all three modes of rule 3, then under the gate, both ways:
+8. **Revisions move forward.** In `closed`, each sidebar window's revision is at least its revision
+   in `opened`, and greater for a window whose threads the phase changed.
+
+Inside each child, every `threadStream` step runs `check` (cache vs fresh row vs the TS fold, and
+live sidebar windows vs a full read), as `thread-columns` does.
+
+**Proof (G2):** the file passes in all three modes of rule 3, then under the gate, both ways. Time
+every run:
 
 ```sh
 f=apps/daemon/src/store-cross-backend.process.test.ts
 test -f "$f" || { echo "missing $f"; exit 1; }
-ACE_STORE=native ACE_STORE_WRITER=fold,sequences,events,live bun scripts/native-cross.ts ACE_STORE_WRITER "$f"
-ACE_STORE=native bun scripts/native-cross.ts ACE_STORE "$f"   # the native connection vs node:sqlite, ACE_STORE_WRITER unset
+time (ACE_STORE=native ACE_STORE_WRITER=fold,sequences,events,live bun --bun x vitest run "$f" --maxWorkers=4)
+time (ACE_STORE=native bun --bun x vitest run "$f" --maxWorkers=4)
+time (bun --bun x vitest run "$f" --maxWorkers=4)
+time (ACE_STORE=native ACE_STORE_WRITER=fold,sequences,events,live bun scripts/native-cross.ts ACE_STORE_WRITER "$f")
+time (ACE_STORE=native bun scripts/native-cross.ts ACE_STORE "$f")   # ACE_STORE_WRITER unset
 ```
 
-Each prints "1 rebooted root(s) alternated" for both runs. Time the file. A process test's budget
-is 30 s, so lower the step count (never the phases) until it fits. Add a `test-budgets.json`
-entry only with the measured time and a reason.
+Each gate run prints "1 rebooted root(s) alternated" for both starting values. Vitest's own
+duration for the file must be at most 30 s in every one of these runs. If it isn't, lower the
+`threadStream` step count, never below 20, and never the required writes, the bursts or the
+phases. If 20 steps still don't fit, stop and report the timings. The PR lists every duration.
 
 **If the gate fails on today's parts**, that is a cross-mode bug in a merged item, not in the
 gate. Stop, and report the failing assertion, the boot, its `parts`, and the previous boot's. The
@@ -2207,13 +2324,13 @@ fix is a test-first PR for that item, and the gate PR stays as it is.
 
 #### What each merged item changes, so the workload covers it
 
-| Item                       | Writes it changes                                                                                                                                                                                                       | Covered by                                                                                                                                    |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| 5.1 `fold`                 | The thread projection `EventWriter` stores (`event-writer.ts:170`): queue, client and thread updates, `updatedAt`/`seq` stamps, the root agent id. Through those, the `threads` row, its revision and the sidebar facts | `threadStream` (every sidebar event type, folded against TS `updateThread` each step); assertions 2 and 6                                     |
-| 5.2b `sequences`           | `host_sequence` reservations at live admission (`prepare`), the cursor and confirmed range, and `replaySafe` after a restart                                                                                            | live bursts (each `prepareLiveWrite` reserves), the 64 KiB burst crossing a refill, the tail crash; assertions 5 and 8                        |
-| 5.3a `events`              | The `threads` insert and `workspace_recent` at `thread.created`, every `events` row and its `host_sequence` `MAX` update                                                                                                | `createThreads`, every stream step, `crash-<n>` inside the killed transaction; assertions 2, 3 and 5                                          |
-| 5.4a `live` (pure)         | Which `item.delta` rows are stored, through compaction (merge rule, 4096-byte check, split pairs, lone surrogates), and the retry delays                                                                                | the interleaved, surrogate and other-field bursts; assertion 4 (texts, rows and the merged-row check)                                         |
-| 5.4b `live` (buffer state) | When rows are stored: the 64 KiB flush-now, the 75 ms and 1 s deadlines, pinning, `committed` and `rearm`, and so what a crash loses                                                                                    | the 64 KiB burst, `flushLiveWrites` durable points, the tail crash (published, unstored, never reused, refused on replay); assertions 4 and 5 |
+| Item                       | Writes it changes                                                                                                                                                                                                       | Covered by                                                                                                                                       |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 5.1 `fold`                 | The thread projection `EventWriter` stores (`event-writer.ts:170`): queue, client and thread updates, `updatedAt`/`seq` stamps, the root agent id. Through those, the `threads` row, its revision and the sidebar facts | required writes 4.4 to 4.7 (one per fold rule), `threadStream` folded against the TS `updateThread` every step; assertions 2, 3, 7 and 8         |
+| 5.2b `sequences`           | `host_sequence` reservations at live admission (`prepare`), the cursor and confirmed range, and `replaySafe` after a restart                                                                                            | each boot's first burst (a refill), the tail crash's `killDisk.hostSequence`; assertions 2 and 5                                                 |
+| 5.3a `events`              | The `threads` insert and `workspace_recent` at `thread.created` (none for an imported thread), every `events` row and its `host_sequence` `MAX` update                                                                  | required writes 4.2 and 4.3, `crash-<n>` in the killed transaction, every stream step; assertions 2, 4, 5 and 7                                  |
+| 5.4a `live` (pure)         | Which `item.delta` rows are stored, through compaction (merge rule, 4096-byte check, split pairs, lone surrogates), and the retry delays                                                                                | bursts 1, 2 and 4 on fixed input in every mode; assertion 6 (texts, and row boundaries identical across modes)                                   |
+| 5.4b `live` (buffer state) | When rows are stored: the 64 KiB flush-now, the 75 ms and 1 s deadlines, pinning, `committed` and `rearm`, and so what a crash loses                                                                                    | burst 3 seen on disk before any explicit flush, and the tail crash (published, unstored, never reused, refused on replay); assertions 2, 5 and 6 |
 
 Retries and quarantine (`live-retry`, `live-discard`) stay proven by `store-live-write-recovery`
 and `engine/live-write-quarantine.process` in each mode. They don't change what a crossing
@@ -2221,11 +2338,13 @@ reads, so the gate needs no fault injection.
 
 #### Step G3: run it on what is merged
 
-In every writer task's proof, the cross gate is the G2 command with that task's parts (5.3b-2's
-paragraph already says so). The daemon CLI files (`daemon-crash-recovery.process`,
-`daemon-stop-restart.process`) stay gate files for `ACE_SUPERVISOR`, not for the store. The G2
-PR runs the gate for the merged parts (`fold,sequences,events,live`) and for `ACE_STORE`, and
-pastes both outputs. Only then do 5.1 to 5.4b count as proven across modes.
+In every writer task's proof, the cross gate is the G2 gate commands with that task's parts
+(5.3b-2's paragraph already says so). A later part adds its evidence kind and, if its writes aren't
+covered yet, a required write in step 4, never a new gate file. The daemon CLI files
+(`daemon-crash-recovery.process`, `daemon-stop-restart.process`) stay gate files for
+`ACE_SUPERVISOR`, not for the store. The G2 PR runs the gate for the merged parts
+(`fold,sequences,events,live`) and for `ACE_STORE`, and pastes both outputs. Only then do 5.1 to
+5.4b count as proven across modes.
 
 ## Reviewing a phase 5 task
 
@@ -2240,4 +2359,4 @@ pastes both outputs. Only then do 5.1 to 5.4b count as proven across modes.
 8. `cargo fmt --check`, `cargo clippy --all-targets`, `cargo test` and
    `bun run check:daemon-native` pass.
 9. The two-process cross gate (task 5.x-gate) passes, starting on and starting off, with the
-   task's parts, and the task's evidence kind is in its assertion 8.
+   task's parts, within 30 s per run, and the task's evidence kind is in its evidence check.
