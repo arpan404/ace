@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
-import { Input } from "@/components/ui/input.tsx";
+import { Input, apiKeyFieldClassName } from "@/components/ui/input.tsx";
 import { editEndpoint, removeEndpoint, setKey } from "./spade-api.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 import { SpadeProviderMark } from "./spade-marks.tsx";
@@ -143,6 +143,7 @@ export function KeyDialog(props: { account: SpadeEndpoint; provider: string; onC
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         disabled={change.busy}
+        className={apiKeyFieldClassName}
       />
     </Shell>
   );
