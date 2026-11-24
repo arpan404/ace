@@ -261,9 +261,11 @@ export function bootFake(): {
   // In Electron `window.ace` is the read-only desktop bridge, so use `aceFake` there.
   Object.assign(globalThis, { ["ace" in globalThis ? "aceFake" : "ace"]: { daemon, client } });
   // A build server with its own folders, so Add project offers a machine picker.
-  // `?fakeWorld=org`: the build server is Acme Robotics' host, under its relay id.
+  // `?fakeWorld=org` and `?fakeWorld=spade-all`: the build server is Acme Robotics' host, under
+  // its relay id, so its Spade binding and the org host catalog name the same machine.
   const orgWorld = world === "org";
-  const serverId = orgWorld ? fakeOrgHostId : "build-server";
+  const orgHost = orgWorld || world === "spade-all";
+  const serverId = orgHost ? fakeOrgHostId : "build-server";
   const server = new FakeDaemon({
     clock: () => Date.now(),
     hostId: serverId,
