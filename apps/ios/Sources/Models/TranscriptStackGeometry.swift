@@ -26,23 +26,37 @@ struct TranscriptStackGeometry: Equatable, Sendable {
     /// The last height measured for `id`, from this window or an earlier one.
     func measuredHeight(_ id: String) -> CGFloat? { measured[id] }
 
-    /// Lays out `ids` in order. An id laid out now keeps the height it has, measured or estimated,
-    /// so a page that only adds rows elsewhere moves none of these. An id joining takes its last
-    /// measured height, then `estimate`, then the mean of what has been measured, then `fallback`.
-    /// Returns how far the scroll offset must move so `anchor`, an entry laid out before and
-    /// after, stays where it was on screen; 0 without one.
+    /// Lays out `ids` in order. A blank room whose height is `declared` (a spacer, the keyboard's
+    /// room) takes it now: an older page and the far spacer it shrinks land as one change, so
+    /// nothing remeasures on screen after it. Any other id laid out now keeps the height it has,
+    /// measured or estimated, so a page that only adds rows elsewhere moves none of these. An id
+    /// joining takes its last measured height, then `estimate`, then the mean of what has been
+    /// measured, then `fallback`. Returns how far the scroll offset must move so `anchor`, an
+    /// entry laid out before and after, stays where it was on screen; 0 without one.
     @discardableResult
-    mutating func replace(_ ids: [String], estimate: (String) -> CGFloat? = { _ in nil },
-                          keeping anchor: String? = nil) -> CGFloat {
+    mutating func replace(_ ids: [String], declared: [String: CGFloat] = [:],
+                          estimate: (String) -> CGFloat? = { _ in nil }, keeping anchor: String? = nil) -> CGFloat {
         let before = anchor.flatMap { top(of: $0) }
         let mean = measured.isEmpty ? fallback : measuredSum / CGFloat(measured.count)
         let kept = positions.mapValues { heights[$0] }
         self.ids = ids
-        heights = ids.map { kept[$0] ?? measured[$0] ?? estimate($0) ?? mean }
+        heights = ids.map { declared[$0] ?? kept[$0] ?? measured[$0] ?? estimate($0) ?? mean }
         positions = Dictionary(ids.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         restack(from: 0)
         guard let before, let anchor, let after = top(of: anchor) else { return 0 }
         return after - before
+    }
+
+    /// The entry a window change keeps where it is on screen, among `kept` entries meeting
+    /// `minY..<maxY`. Following the end, the first of them: the end's entries hold still. Away
+    /// from it, the first row on screen, then the first entry that draws something. A screen of
+    /// blank room alone (a fling through the far spacer) has nothing to keep: the change lands
+    /// without moving the offset, so it never waits for the fling to end.
+    func readerAnchor(from minY: CGFloat, to maxY: CGFloat, keeping kept: Set<String>, followsEnd: Bool,
+                      isRow: (String) -> Bool, isBlank: (String) -> Bool) -> String? {
+        let onScreen = indices(from: minY, to: maxY).lazy.map { ids[$0] }.filter { kept.contains($0) }
+        if followsEnd { return onScreen.first }
+        return onScreen.first(where: isRow) ?? onScreen.first { !isBlank($0) }
     }
 
     /// Records `id`'s measured height. Returns its change from the height it was laid out at, or

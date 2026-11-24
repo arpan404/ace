@@ -147,7 +147,10 @@ struct ConversationFeed: View {
             }
         }
         func room(_ id: String, _ height: CGFloat) -> TranscriptEntry {
-            entry(id, height) { Color.clear.frame(height: height).accessibilityHidden(true) }
+            var room = entry(id, height) { Color.clear.frame(height: height).accessibilityHidden(true) }
+            // The cell measures to whole points (`TranscriptCell`).
+            room.height = ceil(max(0, height))
+            return room
         }
         var list: [TranscriptEntry] = []
         list.append(room("room.keyboard", CGFloat(keyboardRoom.leaving)))

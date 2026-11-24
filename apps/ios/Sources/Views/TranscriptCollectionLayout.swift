@@ -27,20 +27,22 @@ import UIKit
     /// An entry measured to a new height. UIKit moves the offset by the layout's correction only
     /// after this returns, so the frames are reported with the offset once it has.
     var resized: (() -> Void)?
-    private var pending: (ids: [String], estimate: (String) -> CGFloat?, anchor: String?)?
+    private var pending: (ids: [String], declared: [String: CGFloat], estimate: (String) -> CGFloat?, anchor: String?)?
     private var adjustment: CGFloat = 0
 
-    /// The ids the next layout pass lays out, keeping `anchor` where it is on screen.
-    func stage(_ ids: [String], estimate: @escaping (String) -> CGFloat?, anchor: String?) {
-        pending = (ids, estimate, anchor)
+    /// The ids the next layout pass lays out, keeping `anchor` where it is on screen. Blank rooms
+    /// take their `declared` heights.
+    func stage(_ ids: [String], declared: [String: CGFloat] = [:], estimate: @escaping (String) -> CGFloat?, anchor: String?) {
+        pending = (ids, declared, estimate, anchor)
     }
 
     /// How far laying out `ids` would move the offset to keep `anchor` where it is on screen,
     /// without laying them out.
-    func offsetChange(laying ids: [String], estimate: (String) -> CGFloat?, anchor: String?) -> CGFloat {
+    func offsetChange(laying ids: [String], declared: [String: CGFloat], estimate: (String) -> CGFloat?,
+                      anchor: String?) -> CGFloat {
         guard keepsPlace else { return 0 }
         var probe = geometry
-        return probe.replace(ids, estimate: estimate, keeping: anchor)
+        return probe.replace(ids, declared: declared, estimate: estimate, keeping: anchor)
     }
 
     /// The offset change a window change still owes, taken once.
@@ -53,7 +55,8 @@ import UIKit
         super.prepare()
         guard let staged = pending else { return }
         pending = nil
-        adjustment += geometry.replace(staged.ids, estimate: staged.estimate, keeping: staged.anchor)
+        adjustment += geometry.replace(staged.ids, declared: staged.declared, estimate: staged.estimate,
+                                       keeping: staged.anchor)
         changed?()
     }
 
