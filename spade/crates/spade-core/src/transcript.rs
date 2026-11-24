@@ -393,6 +393,9 @@ impl Transcript {
             | Known::ContractMisfit { .. }
             | Known::ContractEnded { .. }
             | Known::NoticeSent { .. }
+            | Known::ChildAsked { .. }
+            | Known::ChildAnswered { .. }
+            | Known::ChildAnswerDelivered { .. }
             | Known::TaskParked { .. } => {}
         }
         if self.open_reply().is_none() {

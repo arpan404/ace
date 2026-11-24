@@ -299,6 +299,7 @@ impl Engine {
         let mut work: Option<(Vec<String>, Vec<String>)> = None;
         let build = |events: &[Event]| {
             if !lane::move_due(events, reply, elapsed_ms)
+                || self.has_waiting_child_question(events)
                 || spade_core::turn::stop_requested(events, reply)
             {
                 return None;

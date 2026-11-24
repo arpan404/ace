@@ -469,7 +469,7 @@ async fn model_step(
         false => prompt,
     };
     // Main's lanes that haven't ended close it, so main knows what runs where (ADR 0217 §6).
-    let prompt = engine.with_lanes_block(id, prompt);
+    let prompt = engine.with_child_asks(events, engine.with_lanes_block(id, prompt));
     let live = engine.live(id);
     engine.step_began(id);
     engine.set_status(id, Some(super::roster::THINKING.to_owned()));

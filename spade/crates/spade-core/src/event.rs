@@ -846,6 +846,20 @@ pub enum Known {
     LaneMessage(crate::lane::Message),
     /// In main: main sent a lane a message (`task_message`, ADR 0217 §3), with the asks it took.
     LaneMessaged(crate::lane::Messaged),
+    /// An internal question waiting for the bot that started the work.
+    ChildAsked {
+        ask: String,
+        child: String,
+        reply: String,
+        call_id: String,
+        from: String,
+        question: String,
+        questions: Vec<crate::question::Question>,
+    },
+    ChildAnswerDelivered {},
+    ChildAnswered {
+        ask: String,
+    },
     /// In main: a lane ended (stopped, failed, finished), so main's copies of its open requests
     /// close: its approvals and question cards there can no longer be answered (ADR 0217 §4).
     LaneRequestsClosed(crate::lane::RequestsClosed),

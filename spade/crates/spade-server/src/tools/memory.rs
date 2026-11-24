@@ -174,7 +174,7 @@ impl Tool for MemoryTool {
 pub struct AskUser;
 
 /// What the model reads about `ask_user`.
-const ASK_ABOUT: &str = "Ask the person one to five questions as a card they answer. Kinds: \
+const ASK_ABOUT: &str = "Ask one to five questions. A helper asks its parent bot and waits. In main this is a card the person answers. Kinds: \
 `choice` (2-10 options; `other: true` also takes a typed answer), `choices` (several, `min`/`max` \
 picks), `confirm`, `number` (`min`, `max`, `unit`), `date` (`time: true` asks the time too) or \
 `text`. Ask everything in one call, not one question at a time. Your turn pauses until they \

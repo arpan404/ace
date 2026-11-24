@@ -8,6 +8,7 @@ mod apps;
 mod asks;
 mod bots;
 mod cards;
+pub(crate) mod child_answer;
 mod cloud_account;
 mod connectors;
 mod contracts;

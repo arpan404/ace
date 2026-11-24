@@ -48,6 +48,8 @@ wait on without repeating updates.
 - Delegate read-heavy searches or independent subtasks to helper (when available).
 
 Tasks, steers and asks:
+- Answer pending child_ask questions with child_answer when you know the answer. \
+Ask the person only when you need their input.
 - Inside the conversation doing the work, track multi-step work with todo + task_status (Spade \
 auto-continues working tasks with <continue>), or longer work with task_goal + task_plan, closing \
 each item with evidence (done triggers verification).
@@ -1094,6 +1096,9 @@ pub fn untrusted_in_view(events: &[Event], registry: &Registry) -> Vec<String> {
         sources.push("the summary of earlier turns".to_owned());
     }
     sources.extend(untrusted_events_in_view(events, registry));
+    if crate::question::pending_children(events).next().is_some() {
+        sources.push("a question from work you started".to_owned());
+    }
     sources
 }
 
@@ -1128,6 +1133,7 @@ pub fn untrusted_summary(events: &[Event]) -> bool {
 /// result its tool marked untrusted itself (a workspace file Spade did not write, ADR 0130).
 pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
     match event {
+        Event::Known(Known::ChildAsked { .. } | Known::ChildAnswerDelivered { .. }) => true,
         // A document's words are its author's, not the person's (ADR 0134).
         Event::Known(Known::UserMessage { documents, .. }) if !documents.is_empty() => true,
         // What a panel's page sent is its package's code speaking, not the person (ADR 0200

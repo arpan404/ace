@@ -51,5 +51,5 @@ pub fn with_engine_tools(mut tools: Toolbox, handle: &EngineHandle) -> Toolbox {
     // A bot's tools for its workers (ADR 0161).
     let tools = crate::tools::with_worker_tools(tools, handle);
     // Main's tools for its task lanes (ADR 0217).
-    crate::tools::with_task_tools(tools, handle)
+    crate::tools::with_task_tools(crate::tools::child_answer::add(tools, handle), handle)
 }

@@ -371,3 +371,18 @@ pub fn typed_answer(events: &[Event], message: &Event) -> Option<Event> {
         typed: true,
     }))
 }
+
+/// The parent questions without recorded answers, newest first.
+pub fn pending_children(events: &[Event]) -> impl Iterator<Item = &Known> {
+    let mut answered = std::collections::HashSet::new();
+    events.iter().rev().filter_map(move |event| match event {
+        Event::Known(Known::ChildAnswered { ask }) => {
+            answered.insert(ask.as_str());
+            None
+        }
+        Event::Known(known @ Known::ChildAsked { ask, .. }) if !answered.contains(ask.as_str()) => {
+            Some(known)
+        }
+        _ => None,
+    })
+}

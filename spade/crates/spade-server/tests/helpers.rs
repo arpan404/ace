@@ -912,42 +912,170 @@ async fn a_helper_takes_as_many_steps_as_its_task_needs_and_its_cost_is_the_bots
     Ok(())
 }
 
+#[derive(Default)]
+struct ChildAskIds(
+    spade_server::clock::CountingIds,
+    std::sync::atomic::AtomicU64,
+);
+
+impl spade_server::clock::Ids for ChildAskIds {
+    fn next(&self, prefix: &str) -> String {
+        if prefix == "ask" {
+            return format!(
+                "ask_{}",
+                self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            );
+        }
+        self.0.next(prefix)
+    }
+}
+
 #[tokio::test]
-async fn a_helpers_ask_user_is_refused_and_it_carries_on_to_its_answer() -> Result {
-    let mut scripts = warm_up();
-    scripts.extend([
+async fn a_helpers_question_is_answered_by_its_parent_without_a_persons_card() -> Result {
+    use spade_testkit::Route;
+
+    let routes = vec![
+        Route::when(
+            spade_core::helper::RULES,
+            vec![
+                Script::reply("").call("q1", "ask_user", json!({ "question": "Which build?" })),
+                Script::reply("The release build failed on step 3."),
+            ],
+        ),
+        Route::when(
+            "<child_ask",
+            vec![
+                Script::reply("").call(
+                    "a1",
+                    "child_answer",
+                    json!({ "ask": "ask_0", "answer": ["release"] }),
+                ),
+                Script::reply("I found the build."),
+            ],
+        ),
+    ];
+    let mut main = warm_up();
+    main.extend([
         starts(&[helper_call("h1", "Read the build log", None)]),
-        // The helper's step outlasts the bot's pause, so the bot's next step comes first.
-        Script::reply("")
-            .call("q1", "ask_user", json!({ "question": "Which build?" }))
-            .call("w1", "linger", json!({})),
-        Script::reply("A helper is reading the log."),
-        Script::reply("The build log says step 3 failed."),
-        Script::reply("Step 3 failed."),
+        Script::reply("I am checking the log."),
     ]);
-    let linger = FakeTool::new("linger", Risk::Read, "ok").slow(Duration::from_millis(1000));
-    let spade = Spade::start(scripts, tools(vec![pause(), linger])).await?;
+    let options = Options {
+        ids: Some(Arc::new(ChildAskIds::default())),
+        ..Options::default()
+    };
+    let spade = Spade::start_routed(routes, main, tools(vec![pause()]), options).await?;
     let (_, conversation) = warm_bot(&spade).await?;
     spade.say(&conversation, "Why did CI fail?").await?;
-    let events = spade.wait_for(&conversation, "job_finished").await?;
-    let result = events
-        .iter()
-        .find(|e| e["type"] == "job_finished")
-        .cloned()
-        .unwrap_or_default();
-    assert_eq!(result["content"], "The build log says step 3 failed.");
+    let events = settled(&spade, &conversation).await?;
+    assert_eq!(count(&events, "question_asked"), 0);
+    assert_eq!(count(&events, "approval_requested"), 0);
+    assert!(!serde_json::to_string(&events)?.contains("Which build?"));
+    assert!(
+        events.iter().any(|e| e["type"] == "job_finished"
+            && e["content"] == "The release build failed on step 3.")
+    );
+    let prompts = spade.fake.seen();
+    assert!(prompts.iter().any(|step| {
+        let body = step.body.to_string();
+        body.contains("<child_ask") && body.contains("Which build?")
+    }));
+    assert!(
+        prompts
+            .iter()
+            .any(|step| step.body.to_string().contains("Answer: release"))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_helpers_question_is_delivered_again_after_restart_and_answered_once() -> Result {
+    use spade_testkit::Route;
+    use support::lanes::wait_count;
+
+    let ids = Arc::new(ChildAskIds::default());
+    let options = || Options {
+        ids: Some(ids.clone()),
+        ..Options::default()
+    };
+    let routes = vec![
+        Route::when(
+            spade_core::helper::RULES,
+            vec![Script::reply("").call("q1", "ask_user", json!({ "question": "Which build?" }))],
+        ),
+        Route::when("<child_ask", vec![Script::reply("I will check the build.")]),
+    ];
+    let mut main = warm_up();
+    main.extend([
+        starts(&[helper_call("h1", "Read the build log", None)]),
+        Script::reply("I am checking the log."),
+    ]);
+    let spade = Spade::start_routed(routes, main, tools(vec![pause()]), options()).await?;
+    let (agent, conversation) = warm_bot(&spade).await?;
+    wait_count(&spade, &conversation, "reply_finished", 1).await?;
+    spade.say(&conversation, "Why did CI fail?").await?;
+    wait_count(&spade, &conversation, "reply_finished", 2).await?;
+    assert_eq!(state(&spade, &agent).await?, "working");
+    assert!(
+        spade
+            .fake
+            .seen()
+            .iter()
+            .any(|step| step.body.to_string().contains("<child_ask"))
+    );
+    let spade = spade
+        .restart_routed(
+            vec![
+                Route::when(
+                    spade_core::helper::RULES,
+                    vec![Script::reply("Step 3 failed.")],
+                ),
+                Route::when(
+                    "<child_ask",
+                    vec![
+                        Script::reply("")
+                            .call(
+                                "a1",
+                                "child_answer",
+                                json!({ "ask": "ask_0", "answer": ["release"] }),
+                            )
+                            .call(
+                                "a2",
+                                "child_answer",
+                                json!({ "ask": "ask_0", "answer": ["release"] }),
+                            ),
+                    ],
+                ),
+            ],
+            vec![Script::reply("I found the build.")],
+            Vec::new(),
+            options(),
+        )
+        .await?;
+    let events = settled(&spade, &conversation).await?;
+    assert_eq!(count(&events, "question_asked"), 0);
+    assert!(
+        events
+            .iter()
+            .any(|e| e["type"] == "job_finished" && e["content"] == "Step 3 failed.")
+    );
     let found = helpers(&spade, &conversation).await?;
-    let helper = found[0]["conversation"].as_str().unwrap_or_default();
+    let helper = found[0]["conversation"]
+        .as_str()
+        .ok_or("missing helper conversation")?;
     let steps = spade.events(helper).await?;
-    assert_eq!(count(&steps, "question_asked"), 0, "{:?}", types(&steps));
-    let answered = steps
-        .iter()
-        .find(|e| e["type"] == "tool_finished" && e["call_id"] == "q1")
-        .cloned()
-        .ok_or("ask_user got no result")?;
-    assert_eq!(answered["is_error"], true);
-    let said = answered["content"].as_str().unwrap_or_default();
-    assert!(said.contains("Refused"), "{said}");
+    assert_eq!(count(&steps, "question_answered"), 1);
+    assert!(
+        steps
+            .iter()
+            .any(|e| e["type"] == "question_answered" && e["answers"] == json!(["release"]))
+    );
+    assert!(
+        spade
+            .fake
+            .seen()
+            .iter()
+            .any(|step| step.body.to_string().contains("<child_ask"))
+    );
     Ok(())
 }
 

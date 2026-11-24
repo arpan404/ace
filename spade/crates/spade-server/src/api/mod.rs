@@ -342,7 +342,15 @@ pub(super) fn problem(status: StatusCode, message: &str) -> Response {
 /// A stored event as served, with its escalation level when it reaches the person (ADR 0165):
 /// derived here, never stored.
 fn stored(event: &StoredEvent) -> Value {
-    let mut served = json!({ "seq": event.seq, "at": event.at_ms, "event": event.event.to_json() });
+    let body = match &event.event {
+        spade_core::Event::Known(
+            spade_core::event::Known::ChildAsked { .. }
+            | spade_core::event::Known::ChildAnswered { .. }
+            | spade_core::event::Known::ChildAnswerDelivered { .. },
+        ) => json!({"type": "internal"}),
+        other => other.to_json(),
+    };
+    let mut served = json!({ "seq": event.seq, "at": event.at_ms, "event": body });
     if let spade_core::Event::Known(known) = &event.event
         && let Some(level) = spade_core::escalation::level(known)
     {

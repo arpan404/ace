@@ -227,7 +227,7 @@ impl Engine {
     /// Stores `asked` (an `ask_user` card, and its deferral when it waits on nothing) in `id`,
     /// unless `reply` was stopped; a lane's goes to main too in the same write, naming the lane,
     /// where the person answers it (ADR 0217 §4). Its call id there is `<lane>.<call>`.
-    pub(in super::super) fn ask_question(
+    pub(in super::super) fn ask_lane_question(
         self: &Arc<Self>,
         id: &str,
         reply: &str,

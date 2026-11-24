@@ -120,8 +120,7 @@ pub(super) async fn handle_calls(
             }
             Status::New if name == TOOL_SEARCH => runnable.push((pending.call, name, arguments)),
             // A helper may run only what its profile allows (ADR 0152), checked before any tool
-            // the turn loop answers itself: a helper's `ask_user` would wait on a question
-            // nobody can see. Its profile narrows what it runs, not what the model is offered:
+            // the turn loop answers itself. Its profile narrows what it runs:
             // that list is its bot's, so the provider's cache serves both (docs/helpers.md).
             Status::New if helper.is_some() && registry.get(&name).is_none() => {
                 let refused = ToolOutput::error(helper_refusal(engine, id, &name));
@@ -134,7 +133,8 @@ pub(super) async fn handle_calls(
                     let refused = ToolOutput::error(why);
                     finish_tool(engine, id, reply, &pending.call, &name, refused).await;
                 }
-                Ok(ask) => {
+                Ok(mut ask) => {
+                    ask.wait |= helper.is_some();
                     let mut asked = vec![Event::Known(Known::QuestionAsked {
                         lane: None,
                         reply: reply.to_owned(),
@@ -149,8 +149,7 @@ pub(super) async fn handle_calls(
                             by_bot: true,
                         }));
                     }
-                    // A lane's question is asked in main too, in the same write, where the
-                    // person answers it (ADR 0217 §4).
+                    // A helper waits for its parent to answer.
                     match engine.ask_question(id, reply, &asked) {
                         Ok(true) => {}
                         Ok(false) => return Handled::Stopped,

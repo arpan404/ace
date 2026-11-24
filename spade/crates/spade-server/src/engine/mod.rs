@@ -16,6 +16,7 @@ mod brief;
 mod calls;
 mod cards;
 mod cases;
+mod child_asks;
 mod classify;
 mod compact;
 mod computer;
@@ -1268,13 +1269,14 @@ impl Engine {
                 return Ok(());
             }
             let events = self.load(id)?;
-            if needs_reply(&events) {
+            let open = Transcript::fold(events.iter()).open_reply().is_some();
+            if !open && (needs_reply(&events) || self.has_waiting_child_question(&events)) {
                 let model = self.reply_model(id);
                 let opener = spade_core::lane::opener(&events);
                 self.append(id, &Event::reply_opened(self.ids.next("r"), model, opener))?;
                 true
             } else {
-                Transcript::fold(events.iter()).open_reply().is_some()
+                open
             }
         };
         if open {

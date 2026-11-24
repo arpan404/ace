@@ -45,6 +45,9 @@ impl Engine {
         call_id: &str,
         reply: QuestionReply,
     ) -> Result<(), QuestionError> {
+        if self.is_helper(id) {
+            return Err(QuestionError::NotFound);
+        }
         // A lane's card asked in main goes to the lane, then main's copy closes (ADR 0217 §4).
         // Main's copy closes in the same write as a waiting card; a late answer, delivered to
         // the lane on its own, closes it after.
@@ -173,7 +176,7 @@ impl Engine {
 
     /// Every question card in the conversation, oldest first; `None` for an unknown one.
     pub fn questions_view(&self, id: &str) -> Result<Option<Vec<View>>, StoreError> {
-        if !self.reachable(id)? {
+        if self.is_helper(id) || !self.reachable(id)? {
             return Ok(None);
         }
         Ok(Some(question::views(self.load(id)?.iter())))
