@@ -70,17 +70,21 @@ time limit (ADR 0158).
 - **Exactly once.** A job's result is delivered only if none is stored for that job yet (checked
   under the delivery lock, for every job). After a restart each helper job still open is run
   again rather than reported lost; it finds its helper and waits for it, or delivers at once if
-  the helper ended just before the restart.
+  the helper ended just before the restart. A helper whose job the bot does not have open is
+  closed as stopped instead: nothing would collect its answer (research's parts are this when
+  their research job was lost in the restart).
 - **Working.** While a helper job is open the bot's `jobs` count holds and its state is
   `working`, so the bot never reads as idle or done while a helper runs, also after the reply
   that started it has ended.
 - **Stop.** Stop on the bot's conversation stops the helpers of the reply it names and of the
   jobs it names (every running job): a running helper is stopped like any reply
   (`stop_requested`, then `reply_stopped`), a queued one gets a `stop_requested` with no reply and
-  never starts. The job ends "Stopped by the person…", which opens no reply. A helper is stored
-  under the lock Stop stores its marker under, and not at all once a stored stop names its job
-  or reply, so Stop either finds it or it is never made. After a restart, a helper job a stored
-  stop names is not run again: its helper is closed as stopped and the job ends stopped.
+  never starts. A job that starts helpers of its own (research does: one per part, stored as
+  `<research job>/<n>`) stops them with it. The job ends "Stopped by the person…", which opens no
+  reply. A helper is stored under the lock Stop stores its marker under, and not at all once a
+  stored stop names its job or reply, so Stop either finds it or it is never made. After a
+  restart, a helper job a stored stop names is not run again: its helper is closed as stopped and
+  the job ends stopped.
 
 What the result says, from `helper::ended`:
 
@@ -160,8 +164,10 @@ job ends. It never makes the bot's own reply wait.
 A helper's result carries `untrusted: true` on `job_finished` when anything untrusted was in the
 helper's view: a web page, an app's output, or a task written while the bot had untrusted
 content in view (such a task reaches the helper as the bot's message, `from_agent`, which taints
-the helper's turn). The turn that reads that result is untrusted, so its writes ask, exactly as if
-the bot had read the page itself.
+the helper's turn). A research part's task is always one of these, even when its bot's context was
+clean: the plan that writes it is a model's words, so it reaches the helper as a `<bot_message>`.
+The turn that reads that result is untrusted, so its writes ask, exactly as if the bot had read the
+page itself.
 
 ## Limits and spend
 

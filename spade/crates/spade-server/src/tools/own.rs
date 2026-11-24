@@ -15,7 +15,7 @@ use super::{
 };
 use crate::learning::{Learning, SkillFeedback, SkillPropose};
 use crate::media;
-use crate::research::{LiveWeb, ResearchTool};
+use crate::research::ResearchTool;
 use crate::services::Services;
 use crate::workspace::{Commands, Workspaces, workspace_tools};
 
@@ -64,15 +64,9 @@ pub fn own_tools(own: Own) -> Vec<Arc<dyn Tool>> {
         Arc::new(TaskPlan),
         Arc::new(DecisionLog),
         Arc::new(Asks),
-        // Deep research (ADR 0135), reading through the same backends and fetcher.
-        Arc::new(ResearchTool::new(
-            Arc::new(LiveWeb {
-                search: search.clone(),
-                fetcher,
-            }),
-            workspaces.clone(),
-            bots.clone(),
-        )),
+        // Deep research (ADR 0135): a team of read-only helpers over `web_search` and
+        // `web_fetch`.
+        Arc::new(ResearchTool::new(workspaces.clone(), bots.clone())),
     ];
     tools.extend(workspace_tools(workspaces.clone(), bots.clone(), commands));
     // Bots' owned services (ADR 0160), through the same shell rules as `shell`.

@@ -89,6 +89,7 @@ async fn answer(State(shared): State<Shared>, uri: Uri, headers: HeaderMap) -> R
     };
     if let Ok(mut seen) = shared.seen.lock() {
         seen.push(Seen {
+            at: std::time::Instant::now(),
             path: uri
                 .path_and_query()
                 .map_or_else(|| uri.path().to_owned(), |p| p.as_str().to_owned()),

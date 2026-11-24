@@ -74,6 +74,36 @@ pub fn canonical_url(raw: &str) -> String {
 /// unrelated file occupies the first candidate). Safe on macOS, Linux and Windows.
 #[must_use]
 pub fn snapshot_path(raw_url: &str, snapshot_bytes: &[u8], attempt: usize) -> String {
+    let prefix = snapshot_prefix(raw_url);
+    let content_hash = short_hex(snapshot_bytes, 4);
+    if attempt <= 1 {
+        format!("{prefix}{content_hash}.md")
+    } else {
+        format!("{prefix}{content_hash}-{attempt}.md")
+    }
+}
+
+/// Whether `path` names a snapshot `web_fetch` could have saved for `raw_url`:
+/// `web/<host>-<url-hash8>-<content-hash8>[-<attempt>].md`. The content's digest is the
+/// writer's, so a reader checks everything else: a path from another page, or made up, fails.
+#[must_use]
+pub fn is_snapshot_of(raw_url: &str, path: &str) -> bool {
+    let Some(rest) = path.strip_prefix(&snapshot_prefix(raw_url)) else {
+        return false;
+    };
+    let Some(rest) = rest.strip_suffix(".md") else {
+        return false;
+    };
+    let (content, attempt) = match rest.split_once('-') {
+        Some((content, attempt)) => (content, Some(attempt)),
+        None => (rest, None),
+    };
+    let hex8 = |text: &str| text.len() == 8 && text.bytes().all(|b| b.is_ascii_hexdigit());
+    hex8(content) && attempt.is_none_or(|attempt| attempt.parse::<usize>().is_ok_and(|n| n >= 2))
+}
+
+/// `web/<host>-<url-hash8>-`, the part of a snapshot's path that names the page and not its text.
+fn snapshot_prefix(raw_url: &str) -> String {
     let canonical = canonical_url(raw_url);
     let host = url::Url::parse(&canonical)
         .ok()
@@ -81,12 +111,7 @@ pub fn snapshot_path(raw_url: &str, snapshot_bytes: &[u8], attempt: usize) -> St
         .filter(|h| !h.is_empty())
         .unwrap_or_else(|| "page".to_owned());
     let url_hash = short_hex(canonical.as_bytes(), 4);
-    let content_hash = short_hex(snapshot_bytes, 4);
-    if attempt <= 1 {
-        format!("{WEB_DIR}/{host}-{url_hash}-{content_hash}.md")
-    } else {
-        format!("{WEB_DIR}/{host}-{url_hash}-{content_hash}-{attempt}.md")
-    }
+    format!("{WEB_DIR}/{host}-{url_hash}-")
 }
 
 fn short_hex(bytes: &[u8], num_bytes: usize) -> String {

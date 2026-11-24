@@ -588,6 +588,12 @@ impl Engine {
         let _ = settled.wait_for(|done| *done).await;
     }
 
+    /// Milliseconds on the injected monotonic clock: budgets and waits use this, never the wall
+    /// clock, so a test can drive them and the machine's clock cannot move a deadline.
+    pub(crate) fn monotonic_ms(&self) -> i64 {
+        self.clock.monotonic_ms()
+    }
+
     pub fn now_ms(&self) -> i64 {
         self.clock.now_ms()
     }
