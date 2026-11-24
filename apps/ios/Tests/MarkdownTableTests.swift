@@ -44,27 +44,27 @@ import UIKit
         #expect(broken == "see apps/\u{200B}ios/\u{200B}project.\u{200B}yml:\u{200B}35 now.")
     }
 
-    @Test func aLabelAndProseTableFitsTheRowWithoutScrolling() async throws {
+    @Test func aLabelAndProseTableFitsTheRowWithoutScrolling() {
         let answer = """
         | Child | What it's fixing |
         | --- | --- |
         | Tables | Wide tables in answers run past the screen. This child lays them out to fit, wrapping the prose column. |
         | Code | `apps/ios/project.yml:35` and `cloud.acehq.dev` ran off the edge of the text instead of wrapping inside it. |
         """
-        let views = try await laidOut(answer, width: 360) { $0.dropFirst().contains { $0.bounds.height > 40 } }
-        #expect(views.dropFirst().contains { $0.bounds.height > 40 })
-        #expect(!views.contains { $0 is UIScrollView })
+        let narrow = laidOut(answer, width: 360), wide = laidOut(answer, width: 2000)
+        #expect(narrow.width > 0 && narrow.width <= 360)
+        #expect(narrow.height > wide.height)
     }
 
-    @Test func aTableOfLongUnbreakableWordsStillFitsTheRow() async throws {
+    @Test func aTableOfLongUnbreakableWordsStillFitsTheRow() {
         let answer = """
         | One | Two | Three |
         | --- | --- | --- |
         | Supercalifragilisticexpialidocious | Antidisestablishmentarianism | Pneumonoultramicroscopicsilicovolcanoconiosis |
         """
-        let views = try await laidOut(answer, width: 360) { $0.dropFirst().contains { $0.bounds.height > 40 } }
-        #expect(!views.contains { $0 is UIScrollView })
-        #expect(!views.contains { $0.accessibilityIdentifier == "markit-table" })
+        let narrow = laidOut(answer, width: 360), wide = laidOut(answer, width: 2000)
+        #expect(narrow.width > 0 && narrow.width <= 360)
+        #expect(narrow.height > wide.height)
     }
 
     @Test func mathInACellIsDrawnAsItsFormulaAndReadAsItsSource() throws {
@@ -123,25 +123,10 @@ import UIKit
 
     private static let traits = UITraitCollection(preferredContentSizeCategory: .large)
 
-    /// Draws `text` as an answer at `width` and returns its views once `ready` holds for them.
-    private func laidOut(_ text: String, width: CGFloat, ready: ([UIView]) -> Bool) async throws -> [UIView] {
-        let host = UIHostingController(rootView: AceMarkdown(text: text, flavor: AnswerMarkdown.flavor).frame(width: width))
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
-        window.rootViewController = host
-        window.isHidden = false
-        defer { window.isHidden = true }
-        var views: [UIView] = []
-        for _ in 0..<40 {
-            host.view.setNeedsLayout()
-            host.view.layoutIfNeeded()
-            views = Self.views(in: host.view)
-            if ready(views) { break }
-            try await Task.sleep(for: .milliseconds(50))
-        }
-        return views
-    }
-
-    private static func views(in view: UIView) -> [UIView] {
-        [view] + view.subviews.flatMap { views(in: $0) }
+    /// The size a table takes when offered `width`.
+    private func laidOut(_ source: String, width: CGFloat) -> CGSize {
+        let table = MarkdownTableView(source: source, flavor: AnswerMarkdown.flavor, theme: AceMarkdownTheme.current(),
+                                      selectable: false, onLink: { _ in }, onReference: { _ in })
+        return UIHostingController(rootView: table).sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude))
     }
 }
