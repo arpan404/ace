@@ -184,3 +184,61 @@ it("a phone's other id reads the alert recorded for the id it registered, once, 
     missed.entries.map((entry) => entry.notification.id),
   );
 });
+
+it("a phone's alert survives more than sixteen other pairings once its account hello proves it", async () => {
+  const { f, presence, status } = await phone();
+  const account = DeviceId.parse("account-phone");
+  const base = Date.now();
+  const registered = f.store.devices.create("Phone", ["read", "operate"], base);
+  const proof = await pairingLinkProof(
+    registered.token,
+    registered.device.id,
+    account,
+    crypto.subtle,
+  );
+  f.store.devices.link(account, proof, base);
+  const reader = f.store.devices.create("Phone (relay)", ["read"], base);
+  f.store.devices.link(
+    account,
+    await pairingLinkProof(reader.token, reader.device.id, account, crypto.subtle),
+    base,
+  );
+  for (let n = 1; n <= 18; n++) {
+    const stale = f.store.devices.create(`Old ${n}`, ["read"], base + 100_000 + n);
+    f.store.devices.link(
+      account,
+      await pairingLinkProof(stale.token, stale.device.id, account, crypto.subtle),
+      base + 100_000 + n,
+    );
+  }
+  const open = async (pairing: typeof registered) => {
+    const response = await fetch(f.server.url.replace("ws:", "http:") + "/v1/tickets", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${pairing.token}` },
+    });
+    const { ticket } = SocketTicket.parse(await response.json());
+    const client = await f.open();
+    client.send({ type: "hello", protocolVersion: 1, deviceId: pairing.device.id, ticket });
+    expect(await client.next()).toMatchObject({ type: "welcome" });
+    return client;
+  };
+  const direct = await open(registered);
+  direct.send({
+    type: "notification.register",
+    requestId: "register",
+    device: { channel: "websocket", platform: "phone" },
+  });
+  expect(await direct.next()).toMatchObject({ type: "notification.register.result" });
+  direct.send({ type: "presence.update", threadId: null, inputAgeMs: 0, appState: "background" });
+  await presence("background");
+  await direct.close();
+  await status("done");
+  // Its later account hello proves the same pairing again, after every other one.
+  f.store.devices.link(account, proof, base + 200_000);
+
+  const wake = await open(reader);
+  wake.send({ type: "notification.feed", requestId: "feed", afterCursor: 0 });
+  const missed = await wake.next();
+  if (missed.type !== "notification.feed.result") throw new Error(`Unexpected ${missed.type}`);
+  expect(missed.entries.map((entry) => entry.notification.status)).toEqual(["done"]);
+});

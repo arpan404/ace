@@ -1,6 +1,5 @@
 import { join } from "node:path";
 import { logError } from "@ace/diagnostics";
-import { notificationsRetained } from "@ace/notify";
 import { repeatableWarmup } from "./warmup.ts";
 import { loadNotificationChannels } from "../notification-config.ts";
 import { createDaemonNotifications } from "../notifications.ts";
@@ -57,16 +56,20 @@ export async function startNotifications(context: ServiceContext): Promise<void>
 }
 
 import type { SocketContext, SocketService } from "./socket.ts";
-import { visibleFeed } from "../notification-feed-view.ts";
+import { notificationsRetained, linkedLimit } from "@ace/notify";
+import { capLinked, emptyMemberFeed, memberFeed, visibleFeed } from "../notification-feed-view.ts";
 export function createNotificationsSession({
   options,
   authorize,
   canReadThread,
+  orgHost,
+  memberStanding,
   sessionId,
   onPresence,
   fail,
   send,
 }: SocketContext): SocketService {
+  let warnedCut = false;
   return {
     async handle(message, device) {
       if (message.type === "notification.config") {
@@ -102,17 +105,37 @@ export function createNotificationsSession({
           fail("notifications_unavailable", "Notifications unavailable", false, correlation);
           return true;
         }
+        // A member has no inbox until pushes are filtered per member (ADR 0221): the same empty
+        // answer to every read and receipt, never the host's global head.
+        if (memberStanding?.()) {
+          send({
+            type: "notification.feed.result",
+            requestId: message.requestId,
+            ...emptyMemberFeed,
+          });
+          return true;
+        }
         try {
           // One phone reached directly and over its account relay reads one feed: its saved
           // cursor covers both ids, so neither route's read can skip the other's alerts.
-          const linked = options.store.devices.linked(device, (options.now ?? Date.now)());
+          const all = options.store.devices.linked(device, (options.now ?? Date.now)());
+          const { ids: linked, cut } = capLinked(all, linkedLimit);
+          // The stalest pairings are the ones dropped; say so once per socket.
+          if (cut > 0 && !warnedCut) {
+            warnedCut = true;
+            options.log?.(
+              new Error(`Notification feed linked ${cut} stalest device ids beyond ${linkedLimit}`),
+            );
+          }
           const feed = await options.notifications.feed(
             device,
             message.afterCursor,
             message.checkpoint,
             linked,
           );
-          const visible = visibleFeed(feed, canReadThread);
+          const visible = orgHost?.()
+            ? memberFeed(feed, canReadThread)
+            : visibleFeed(feed, canReadThread);
           send({ type: "notification.feed.result", requestId: message.requestId, ...visible });
         } catch {
           fail("notification_rejected", "Could not read missed notifications", false, correlation);
