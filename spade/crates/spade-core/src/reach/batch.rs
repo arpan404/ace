@@ -1,0 +1,500 @@
+//! Batching pending `needs_you` notices from one bot or tree (ADR 0195). When several approvals
+//! or questions from the same bot or orchestration tree arrive together, they reach the person as
+//! one grouped notice instead of several. `block` and `stop` levels still reach the person as
+//! ADR 0195 requires; `stop` is never batched here.
+
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+
+use crate::escalation::{Level, one_line};
+
+use super::{Approvals, Category, Decision, Moment, Notice, Reach, Settings, decide};
+
+/// How long pending `needs_you` asks from the same bot or tree wait to coalesce into one notice.
+pub const WINDOW_MS: u64 = 250;
+
+/// Which kind of `needs_you` event one item in a batch came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AskKind {
+    Approval,
+    Question,
+}
+
+impl AskKind {
+    pub fn event_type(self) -> &'static str {
+        match self {
+            Self::Approval => "approval_requested",
+            Self::Question => "question_asked",
+        }
+    }
+}
+
+/// The root bot of the tree whose pending asks are grouped together.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TreeRoot {
+    pub agent: String,
+    pub name: String,
+    pub conversation: String,
+}
+
+/// One pending approval or question eligible to be grouped with others from its tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingAsk {
+    pub id: String,
+    pub agent: String,
+    pub name: String,
+    pub conversation: String,
+    pub seq: i64,
+    pub at_ms: i64,
+    pub kind: AskKind,
+    pub level: Level,
+    pub request: String,
+    pub text: String,
+    pub engaged: bool,
+    pub bot_on: bool,
+    pub approvals: Approvals,
+}
+
+/// One notice produced from a tree's pending asks, ready to record and emit on `/notices/live`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Planned {
+    pub id: String,
+    pub agent: String,
+    pub name: String,
+    pub text: String,
+    pub level: Level,
+    pub decision: Decision,
+    /// Notice JSON payload without `id`, `category`, `reach` or `why` (filled on send).
+    pub notice: Value,
+}
+
+/// Decides and groups `items` belonging to `root`'s tree at `moment`.
+///
+/// - Each item is decided against `settings` and `moment` using its own bot switches (`bot_on`,
+///   `approvals`, `engaged`, `level`) so a silenced bot never leaks into a live alert and `block`
+///   items still follow ADR 0195.
+/// - One `now` (or `held`) item stays its exact individual `kind: "event"` notice.
+/// - Two or more `now` (or `held`) items from the same bot or tree merge into one grouped
+///   `kind: "needs_you_batch"` notice under `root`, carrying the highest `level` in the group.
+/// - A grouped `now` notice counts at most once against the proactive budget, and does not count
+///   at all if any item in it is urgent (`block` or `engaged`).
+pub fn plan(
+    settings: &Settings,
+    root: &TreeRoot,
+    items: &[PendingAsk],
+    moment: Moment<'_>,
+) -> Vec<Planned> {
+    if items.is_empty() {
+        return Vec::new();
+    }
+    let mut now: Vec<(&PendingAsk, Decision)> = Vec::new();
+    let mut held: Vec<(&PendingAsk, Decision)> = Vec::new();
+    let mut none: Vec<(&PendingAsk, Decision)> = Vec::new();
+    for item in items {
+        let decision = decide(
+            settings,
+            Notice {
+                category: Category::NeedsYou,
+                level: Some(item.level),
+                engaged: item.engaged,
+                bot_on: item.bot_on,
+                approvals: item.approvals,
+            },
+            moment,
+        );
+        match decision.reach {
+            Reach::Now => now.push((item, decision)),
+            Reach::Held => held.push((item, decision)),
+            Reach::None => none.push((item, decision)),
+        }
+    }
+    let mut out = Vec::new();
+    push_bucket(&mut out, root, &now, Reach::Now);
+    push_bucket(&mut out, root, &held, Reach::Held);
+    for (item, decision) in none {
+        out.push(single(item, decision));
+    }
+    out
+}
+
+fn push_bucket(
+    out: &mut Vec<Planned>,
+    root: &TreeRoot,
+    bucket: &[(&PendingAsk, Decision)],
+    reach: Reach,
+) {
+    match bucket {
+        [] => {}
+        [(item, decision)] => out.push(single(item, *decision)),
+        many => {
+            let items: Vec<&PendingAsk> = many.iter().map(|(item, _)| *item).collect();
+            let decision = match reach {
+                Reach::Now => Decision {
+                    reach: Reach::Now,
+                    why: None,
+                    counts: many.iter().all(|(_, d)| d.counts),
+                },
+                Reach::Held => Decision {
+                    reach: Reach::Held,
+                    why: many[0].1.why,
+                    counts: false,
+                },
+                Reach::None => return,
+            };
+            out.push(grouped(root, &items, decision));
+        }
+    }
+}
+
+fn single(item: &PendingAsk, decision: Decision) -> Planned {
+    Planned {
+        id: item.id.clone(),
+        agent: item.agent.clone(),
+        name: item.name.clone(),
+        text: item.text.clone(),
+        level: item.level,
+        decision,
+        notice: json!({
+            "kind": "event",
+            "agent": item.agent,
+            "name": item.name,
+            "conversation": item.conversation,
+            "seq": item.seq,
+            "at": item.at_ms,
+            "type": item.kind.event_type(),
+            "level": item.level,
+            "request": item.request,
+            "text": item.text,
+        }),
+    }
+}
+
+fn grouped(root: &TreeRoot, items: &[&PendingAsk], decision: Decision) -> Planned {
+    let level = items.iter().map(|i| i.level).max().unwrap_or(Level::Ask);
+    let approvals = items.iter().filter(|i| i.kind == AskKind::Approval).count();
+    let questions = items.len().saturating_sub(approvals);
+    let latest_at = items.iter().map(|i| i.at_ms).max().unwrap_or(0);
+    let first_seq = items.first().map_or(0, |i| i.seq);
+    let text = batch_text(root, items);
+    let id = batch_id(&root.agent, latest_at, first_seq, items.len());
+    let listed: Vec<Value> = items
+        .iter()
+        .map(|item| {
+            json!({
+                "id": item.id,
+                "agent": item.agent,
+                "name": item.name,
+                "conversation": item.conversation,
+                "seq": item.seq,
+                "at": item.at_ms,
+                "type": item.kind.event_type(),
+                "request": item.request,
+                "level": item.level,
+                "text": item.text,
+            })
+        })
+        .collect();
+    Planned {
+        id,
+        agent: root.agent.clone(),
+        name: root.name.clone(),
+        text: text.clone(),
+        level,
+        decision,
+        notice: json!({
+            "kind": "needs_you_batch",
+            "agent": root.agent,
+            "name": root.name,
+            "conversation": root.conversation,
+            "at": latest_at,
+            "level": level,
+            "count": items.len(),
+            "approvals": approvals,
+            "questions": questions,
+            "text": text,
+            "items": listed,
+        }),
+    }
+}
+
+/// One plain, lock-screen-safe line summarizing a batch of pending asks from `root`'s tree.
+pub fn batch_text(root: &TreeRoot, items: &[&PendingAsk]) -> String {
+    let approvals = items.iter().filter(|i| i.kind == AskKind::Approval).count();
+    let questions = items.len().saturating_sub(approvals);
+    let blocking = items.iter().any(|i| i.level == Level::Block);
+    let counts = match (approvals, questions) {
+        (a, 0) => format!("{} waiting", plural(a, "approval", "approvals")),
+        (0, q) if !blocking => format!("{} for later", plural(q, "question", "questions")),
+        (0, q) => format!("{} waiting", plural(q, "question", "questions")),
+        (a, q) => format!(
+            "{} and {} waiting",
+            plural(a, "approval", "approvals"),
+            plural(q, "question", "questions")
+        ),
+    };
+    let all_root = items.iter().all(|i| i.agent == root.agent);
+    if all_root {
+        return one_line(&format!("{counts}."));
+    }
+    let mut bots: Vec<&str> = Vec::new();
+    for item in items {
+        if !bots.contains(&item.name.as_str()) {
+            bots.push(&item.name);
+        }
+    }
+    let from = match bots.as_slice() {
+        [one] => (*one).to_owned(),
+        [first, second] => format!("{first} and {second}"),
+        [first, rest @ ..] => format!("{first} and {} others", rest.len()),
+        [] => return one_line(&format!("{counts}.")),
+    };
+    one_line(&format!("{counts} ({from})."))
+}
+
+fn plural(count: usize, one: &str, many: &str) -> String {
+    if count == 1 {
+        format!("1 {one}")
+    } else {
+        format!("{count} {many}")
+    }
+}
+
+fn batch_id(agent: &str, latest_at: i64, first_seq: i64, count: usize) -> String {
+    let suffix = format!(":{latest_at}:{first_seq}:{count}");
+    let max_agent = 160usize.saturating_sub("batch:".len() + suffix.len());
+    let cut: String = agent.chars().take(max_agent).collect();
+    format!("batch:{cut}{suffix}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::reach::{Why, settings::Budget};
+
+    const NOW: i64 = 1_763_560_800_000;
+
+    fn root() -> TreeRoot {
+        TreeRoot {
+            agent: "a-root".into(),
+            name: "Builder".into(),
+            conversation: "c-root".into(),
+        }
+    }
+
+    fn ask(
+        agent: &str,
+        name: &str,
+        seq: i64,
+        kind: AskKind,
+        level: Level,
+        request: &str,
+    ) -> PendingAsk {
+        PendingAsk {
+            id: format!("event:c-{agent}:{seq}"),
+            agent: agent.into(),
+            name: name.into(),
+            conversation: format!("c-{agent}"),
+            seq,
+            at_ms: NOW + seq,
+            kind,
+            level,
+            request: request.into(),
+            text: match kind {
+                AskKind::Approval => "Wants your yes to use shell.".into(),
+                AskKind::Question => "Asks: Which branch?".into(),
+            },
+            engaged: false,
+            bot_on: true,
+            approvals: Approvals::Notify,
+        }
+    }
+
+    fn moment(sent: &[i64]) -> Moment<'_> {
+        Moment {
+            now_ms: NOW,
+            minute: 12 * 60,
+            sent,
+        }
+    }
+
+    #[test]
+    fn a_single_ask_stays_an_individual_event_notice() {
+        let items = [ask(
+            "a-root",
+            "Builder",
+            5,
+            AskKind::Question,
+            Level::Block,
+            "q1",
+        )];
+        let planned = plan(&Settings::default(), &root(), &items, moment(&[]));
+        assert_eq!(planned.len(), 1);
+        assert_eq!(planned[0].id, "event:c-a-root:5");
+        assert_eq!(planned[0].notice["kind"], "event");
+        assert_eq!(planned[0].notice["request"], "q1");
+        assert_eq!(planned[0].decision.reach, Reach::Now);
+        assert!(!planned[0].decision.counts);
+    }
+
+    #[test]
+    fn several_asks_from_one_bot_or_tree_merge_into_one_grouped_notice() {
+        let same_bot = [
+            ask(
+                "a-root",
+                "Builder",
+                5,
+                AskKind::Approval,
+                Level::Block,
+                "c1",
+            ),
+            ask("a-root", "Builder", 6, AskKind::Question, Level::Ask, "q1"),
+            ask(
+                "a-root",
+                "Builder",
+                7,
+                AskKind::Approval,
+                Level::Block,
+                "c2",
+            ),
+        ];
+        let planned = plan(&Settings::default(), &root(), &same_bot, moment(&[]));
+        assert_eq!(planned.len(), 1);
+        assert_eq!(planned[0].notice["kind"], "needs_you_batch");
+        assert_eq!(planned[0].notice["level"], "block");
+        assert_eq!(planned[0].notice["count"], 3);
+        assert_eq!(planned[0].notice["approvals"], 2);
+        assert_eq!(planned[0].notice["questions"], 1);
+        assert_eq!(planned[0].text, "2 approvals and 1 question waiting.");
+        assert_eq!(planned[0].decision.reach, Reach::Now);
+        assert!(
+            !planned[0].decision.counts,
+            "a batch containing a block never consumes proactive budget"
+        );
+
+        let tree = [
+            ask("a-scout", "Scout", 2, AskKind::Approval, Level::Block, "c1"),
+            ask(
+                "a-runner",
+                "Runner",
+                4,
+                AskKind::Question,
+                Level::Block,
+                "q1",
+            ),
+        ];
+        let planned = plan(&Settings::default(), &root(), &tree, moment(&[]));
+        assert_eq!(planned.len(), 1);
+        assert_eq!(planned[0].agent, "a-root");
+        assert_eq!(planned[0].name, "Builder");
+        assert_eq!(planned[0].notice["conversation"], "c-root");
+        assert_eq!(
+            planned[0].text,
+            "1 approval and 1 question waiting (Scout and Runner)."
+        );
+        assert_eq!(planned[0].notice["items"].as_array().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn non_blocking_questions_batched_together_count_once_against_budget() {
+        let settings = Settings {
+            budget: Budget {
+                per_hour: Some(1),
+                per_day: Some(10),
+            },
+            ..Settings::default()
+        };
+        let asks = [
+            ask("a-root", "Builder", 1, AskKind::Question, Level::Ask, "q1"),
+            ask("a-root", "Builder", 2, AskKind::Question, Level::Ask, "q2"),
+        ];
+        let planned = plan(&settings, &root(), &asks, moment(&[]));
+        assert_eq!(planned.len(), 1);
+        assert_eq!(planned[0].level, Level::Ask);
+        assert_eq!(planned[0].text, "2 questions for later.");
+        assert_eq!(planned[0].decision.reach, Reach::Now);
+        assert!(planned[0].decision.counts);
+    }
+
+    #[test]
+    fn dnd_and_bot_off_are_respected_per_item_while_block_always_reaches_the_person() {
+        let settings = Settings {
+            dnd: true,
+            ..Settings::default()
+        };
+        let mut quiet_worker = ask(
+            "a-quiet",
+            "Quiet",
+            3,
+            AskKind::Approval,
+            Level::Block,
+            "c-off",
+        );
+        quiet_worker.bot_on = false;
+        let items = [
+            ask(
+                "a-root",
+                "Builder",
+                1,
+                AskKind::Question,
+                Level::Ask,
+                "q-later",
+            ),
+            ask(
+                "a-root",
+                "Builder",
+                2,
+                AskKind::Approval,
+                Level::Block,
+                "c-now",
+            ),
+            quiet_worker,
+        ];
+        let planned = plan(&settings, &root(), &items, moment(&[]));
+        assert_eq!(planned.len(), 3);
+        // The blocking approval still reaches the person during DND (ADR 0195).
+        assert_eq!(planned[0].decision.reach, Reach::Now);
+        assert_eq!(planned[0].notice["request"], "c-now");
+        // The non-blocking ask waits for quiet's end.
+        assert_eq!(planned[1].decision.reach, Reach::Held);
+        assert_eq!(planned[1].decision.why, Some(Why::Dnd));
+        assert_eq!(planned[1].notice["request"], "q-later");
+        // The silenced worker never leaks into a live alert.
+        assert_eq!(planned[2].decision.reach, Reach::None);
+        assert_eq!(planned[2].decision.why, Some(Why::BotOff));
+        assert_eq!(planned[2].notice["request"], "c-off");
+    }
+
+    #[test]
+    fn held_approvals_under_dnd_approvals_wait_group_together() {
+        let settings = Settings {
+            dnd: true,
+            approvals: Approvals::Wait,
+            ..Settings::default()
+        };
+        let mut a1 = ask(
+            "a-root",
+            "Builder",
+            1,
+            AskKind::Approval,
+            Level::Block,
+            "c1",
+        );
+        a1.approvals = Approvals::Wait;
+        let mut a2 = ask(
+            "a-root",
+            "Builder",
+            2,
+            AskKind::Approval,
+            Level::Block,
+            "c2",
+        );
+        a2.approvals = Approvals::Wait;
+        let planned = plan(&settings, &root(), &[a1, a2], moment(&[]));
+        assert_eq!(planned.len(), 1);
+        assert_eq!(planned[0].decision.reach, Reach::Held);
+        assert_eq!(planned[0].decision.why, Some(Why::Dnd));
+        assert_eq!(planned[0].notice["kind"], "needs_you_batch");
+        assert_eq!(planned[0].text, "2 approvals waiting.");
+    }
+}

@@ -460,3 +460,112 @@ async fn an_unusual_spend_rate_alerts_once() -> Result {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn several_pending_questions_and_approvals_from_one_bot_arrive_as_one_grouped_notice()
+-> Result {
+    let spade = Spade::start(
+        vec![
+            Script::reply("")
+                .call(
+                    "w1",
+                    "bot_create",
+                    json!({ "name": "Helper", "task": "Check logs", "brief": "Check logs." }),
+                )
+                .call(
+                    "q1",
+                    "ask_user",
+                    json!({ "questions": [{ "kind": "text", "prompt": "Format?", "default": "Markdown" }] }),
+                )
+                .call("q2", "ask_user", json!({ "question": "Ship now?" })),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    let (id, conversation) = bot(&spade, "Release").await?;
+    let mut body = listen(&spade).await?;
+    spade.say(&conversation, "Prepare the release").await?;
+    let notices = until_notice(&mut body, |n| n["category"] == "needs_you").await;
+    // Wait past one batch window to verify no second notice arrives for the same step.
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let needs_you: Vec<&Value> = notices
+        .iter()
+        .filter(|n| n["category"] == "needs_you")
+        .collect();
+    assert_eq!(needs_you.len(), 1, "{notices:?}");
+    let batch = needs_you[0];
+    assert_eq!(
+        about(batch),
+        (json!("needs_you"), json!("now"), Value::Null)
+    );
+    assert_eq!(batch["kind"], "needs_you_batch");
+    assert_eq!(batch["level"], "block");
+    assert_eq!(batch["agent"], id.as_str());
+    assert_eq!(batch["name"], "Release");
+    assert_eq!(batch["count"], 3);
+    assert_eq!(batch["approvals"], 1);
+    assert_eq!(batch["questions"], 2);
+    assert_eq!(batch["text"], "1 approval and 2 questions waiting.");
+    assert_eq!(batch["items"].as_array().map(Vec::len), Some(3));
+    Ok(())
+}
+
+#[tokio::test]
+async fn pending_asks_across_a_bots_worker_tree_group_into_one_notice_under_the_root() -> Result {
+    let spade = Spade::start(
+        vec![
+            // Parent creates worker Scout; once approved, both Scout and Builder each ask a
+            // question on their next step, which coalesce into one notice under root Builder.
+            Script::reply("").call(
+                "w1",
+                "bot_create",
+                json!({ "name": "Scout", "task": "Check staging", "brief": "Check staging." }),
+            ),
+            Script::reply("").call("q-a", "ask_user", json!({ "question": "Staging branch?" })),
+            Script::reply("").call("q-b", "ask_user", json!({ "question": "Deploy window?" })),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    let (root_id, root_chat) = bot(&spade, "Builder").await?;
+    let mut body = listen(&spade).await?;
+    spade.say(&root_chat, "Check staging").await?;
+    let notices = until_notice(&mut body, |n| n["request"] == "w1").await;
+    assert!(
+        notices
+            .iter()
+            .any(|n| n["request"] == "w1" && n["reach"] == "now"),
+        "{notices:?}"
+    );
+
+    let (status, reply) = spade
+        .post(
+            &format!("/v1/conversations/{root_chat}/approvals/w1"),
+            json!({ "allowed": true }),
+        )
+        .await?;
+    assert_eq!(status, 202, "{reply}");
+
+    let notices = until_notice(&mut body, |n| n["kind"] == "needs_you_batch").await;
+    let batch = notices
+        .iter()
+        .find(|n| n["kind"] == "needs_you_batch")
+        .cloned()
+        .unwrap_or(Value::Null);
+    assert_eq!(
+        about(&batch),
+        (json!("needs_you"), json!("now"), Value::Null),
+        "{notices:?}"
+    );
+    assert_eq!(batch["agent"], root_id.as_str());
+    assert_eq!(batch["name"], "Builder");
+    assert_eq!(batch["conversation"], root_chat.as_str());
+    assert_eq!(batch["level"], "block");
+    assert_eq!(batch["count"], 2);
+    let text = batch["text"].as_str().unwrap_or_default();
+    assert!(
+        text.contains("2 questions waiting") && text.contains("Scout") && text.contains("Builder"),
+        "{text}"
+    );
+    Ok(())
+}
