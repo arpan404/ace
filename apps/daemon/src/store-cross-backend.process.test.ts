@@ -155,11 +155,11 @@ test("a home written in one process reopens in another with every read, sequence
     const reportPath = join(root, `report-${boot}.json`);
     const previous = boot === 0 ? undefined : join(root, `report-${boot - 1}.json`);
     const run = await runBoot(boot, phase, home, previous, reportPath, evidence);
-    // 1. The exit the phase asks for.
+    // 1. The exit the phase asks for: a crash dies by SIGKILL, which Windows reports as exit 1.
     const crashed = phase === "crash-in-transaction" || phase === "crash-with-buffered-tail";
     if (crashed && process.platform !== "win32")
       expect(run.signal, `boot ${boot}: ${run.stderr}`).toBe("SIGKILL");
-    else expect(run.code, `boot ${boot}: ${run.stderr}`).toBe(0);
+    else expect(run.code, `boot ${boot}: ${run.stderr}`).toBe(crashed ? 1 : 0);
     const report = Report.parse(JSON.parse(readFileSync(reportPath, "utf8")) as unknown);
     expect(report.boot).toBe(boot);
     expect(report.phase).toBe(phase);
@@ -210,18 +210,25 @@ test("a home written in one process reopens in another with every read, sequence
       expect(prev.walBefore).toBe(0);
     }
 
-    // 5. Sequences continue past what was reserved, not just past what was published.
+    // 5. Sequences continue past what was reserved, not just past what was published. Every row
+    // the boot stored is a row `preOpen` did not hold, so a reused sequence cannot fall out of
+    // the comparison by being filtered against the very watermark it had to clear.
     const seqs = preOpen.events.map((event) => event.seq);
     expect(seqs).toStrictEqual([...seqs].toSorted((a, b) => a - b));
     expect(new Set(seqs).size).toBe(seqs.length);
-    // Every event a boot stores is published, so its published set is what must clear the range.
+    const held = new Set(seqs);
+    const storedNow = report.durable.events.filter((event) => !held.has(event.seq));
+    expect(storedNow.length, `boot ${n} stored no row of its own`).toBeGreaterThanOrEqual(6);
+    for (const event of storedNow)
+      expect(event.seq, `boot ${n} reused a sequence`).toBeGreaterThan(preOpen.hostSequence);
     expect(report.published.length).toBeGreaterThan(0);
     for (const seq of report.published)
       expect(seq, `boot ${n} reused a sequence`).toBeGreaterThan(preOpen.hostSequence);
-    expect(
-      report.requiredDisk.events.filter((event) => event.seq > preOpen.hostSequence).length,
-      `boot ${n} stored no row of its own`,
-    ).toBeGreaterThanOrEqual(6);
+    for (const seq of report.requiredSeqs)
+      expect(
+        report.requiredDisk.events.some((event) => event.seq === seq),
+        `boot ${n} lost a required write's row`,
+      ).toBe(true);
     if (prev.crashing === "tail") expect(report.probeFirst).toBe("snapshot");
     expect(opened.texts["answer-1"]).toBe(alongsideAppends.join("").repeat(n));
 

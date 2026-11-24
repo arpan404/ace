@@ -14,6 +14,9 @@ import { join } from "node:path";
 // The process's own SQLite library (ADR 0222): with `ACE_STORE=native` the addon serves reads
 // too, so two libraries never hold one file's WAL locks.
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
+// The recovery copy is read by node:sqlite whatever the store runs on, so the two independent
+// halves of the crossing are checked by independent SQLite libraries.
+import { DatabaseSync as NodeDatabaseSync } from "node:sqlite";
 import {
   Agent,
   AgentId,
@@ -47,6 +50,11 @@ export interface StreamState {
 }
 
 export type Window = { limit: number; project?: string; archived?: boolean };
+
+/** Threads and thread reads in id order, for the cache comparisons below. */
+function byId(a: { id: string } | undefined, b: { id: string } | undefined): number {
+  return (a?.id ?? "").localeCompare(b?.id ?? "");
+}
 
 /** Small seeded generator, so a failing sequence replays exactly. */
 export function random(seed: number) {
@@ -303,6 +311,17 @@ export function threadStream(
       fresh.threads,
       label,
     );
+    // The seeded threads on their own: a home that lost one must fail here, never vanish from
+    // both sides of the comparison above.
+    const seeded = new Set<string>(ids);
+    const freshSeeded = fresh.threads.filter((thread) => seeded.has(thread.id));
+    assert.strictEqual(freshSeeded.length, ids.length, `${label}, seeded threads`);
+    assert.strictEqual(ids.map((id) => store.getThread(id)).toSorted(byId), freshSeeded, label);
+    assert.strictEqual(
+      ids.map((id) => structuredClone(store.readThread(id))).toSorted(byId),
+      freshSeeded,
+      label,
+    );
     // Live sidebar windows, updated from changed rows, match a full read.
     windows.forEach((window, index) => {
       const entries = live[index];
@@ -448,10 +467,16 @@ export function copyHome(home: string, into: string): void {
   if (existsSync(wal)) copyFileSync(wal, join(into, "events.sqlite-wal"));
 }
 
-/** Reads a `copyHome` copy writable, so SQLite recovers the copied WAL there, then deletes it. */
+/**
+ * Reads a `copyHome` copy writable, so SQLite recovers the copied WAL there, then deletes it.
+ * The copy is the previous process's own file with its own WAL, so node:sqlite can recover it
+ * even while the store runs on the addon: the reading library is deliberately not the store's,
+ * so a recovery bug in the store's library cannot hide behind itself. (A live home is different:
+ * `disk` must use the process's own library there.)
+ */
 export function diskCopy(into: string): Disk {
   const path = join(into, "events.sqlite");
-  const db = new DatabaseSync(path);
+  const db = new NodeDatabaseSync(path);
   try {
     return readDisk(db, path);
   } finally {
