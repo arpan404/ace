@@ -1057,6 +1057,45 @@ fn a_browser_view_header_uses_an_announced_page_matching_the_seeded_size() {
 }
 
 #[test]
+fn a_browser_view_header_follows_the_announced_page_closest_to_each_frames_shape() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    // A resize from landscape to portrait: frames of both shapes are in flight, and each
+    // keeps the geometry it was captured in.
+    send(
+        &mut engine,
+        json!({ "type": "source.page", "source": "s1", "width": 1280, "height": 800, "scale": 1 }),
+        &[],
+        NOW,
+    );
+    send(
+        &mut engine,
+        json!({ "type": "source.page", "source": "s1", "width": 800, "height": 1280, "scale": 1 }),
+        &[],
+        NOW,
+    );
+    let landscape = ingest(
+        &mut engine,
+        1,
+        browser_key(0, (1280, 800), (1280, 800)),
+        NOW,
+    );
+    assert_eq!(
+        browser_video_header(&landscape),
+        Some((1280, 800, 1280, 800))
+    );
+    let portrait = ingest(
+        &mut engine,
+        1,
+        browser_key(1, (800, 1280), (800, 1280)),
+        NOW,
+    );
+    assert_eq!(
+        browser_video_header(&portrait),
+        Some((800, 1280, 800, 1280))
+    );
+}
+
+#[test]
 fn a_page_that_changes_size_plans_its_views_again_at_its_new_shape() {
     let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
     // Planned at the first unit's size: a phone-shaped page.
