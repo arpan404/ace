@@ -12,6 +12,7 @@ pub mod listener;
 pub mod peer;
 pub mod prefixed;
 pub mod proxy;
+pub mod socket;
 pub mod upgrade;
 
 pub use driver::{RefuseUpgrades, UpgradeHandler, UpgradeIo, UpgradeReply};
@@ -22,6 +23,7 @@ pub use listener::LoopbackListener;
 pub use peer::Peer;
 pub use prefixed::{Prefixed, TimedIo};
 pub use proxy::ProxyTarget;
+pub use socket::{SendResult, SocketEvent, SocketHandle};
 pub use upgrade::{
     AdmissionDecision, AdmissionOutcome, SocketSink, UpgradeAdmission, UpgradeRequest,
     WebSocketUpgrades,
