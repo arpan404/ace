@@ -377,7 +377,7 @@ same rules:
 
 - **Reads** (`read`, `:118`): the append overlay (`appendValue`), then `touched`, then the
   budget, then SQLite: `SELECT value FROM engine_state_records WHERE thread_id=? AND section=? AND
-  key=?`, then every `engine_state_appends` patch for the key `ORDER BY id`, then the pending
+key=?`, then every `engine_state_appends` patch for the key `ORDER BY id`, then the pending
   in-transaction `patches`. The byte count is the base JSON's bytes plus each patch's text bytes.
   The value is validated with the section's decoder **without stripping**: unknown fields stay
   (`parseRecord`, `:15`; rule 8). A hit moves to newest. While tracking, a read records the value
@@ -425,7 +425,7 @@ Port `Snapshot` (`persistence.ts:19`–`:296`):
   data, which a home written by a newer build has).
 - **Decode** (`snapshot.ts:146`): parse, check `engineSnapshot === 9` (else
   `IncompatibleDataError(location, "Unsupported engine snapshot format: expected 9",
-  "Quit ace, then start it with a fresh ACE_HOME.")`, `schema-version.ts:24`), then validate the
+"Quit ace, then start it with a fresh ACE_HOME.")`, `schema-version.ts:24`), then validate the
   header shape without stripping. `EngineError::Incompatible { message, recovery }` crosses to the
   facade, which throws `new IncompatibleDataError(store location, message, recovery)`.
   `skippableAtStartup` (`startup-skip.ts`) then sees the same class.
@@ -456,7 +456,7 @@ that need SQL take the `EngineStore` or a `Tx` (E5.1 step 8; E5.3 adds `Tx::conn
   `Missing engine state`.
 - **`save(state, payloads, at)`** (`:294`), inside `EngineStore::atomic`: sync; reuse the resident
   snapshot only if it is the same snapshot (`Rc::ptr_eq`, the TypeScript's `snapshot.state !==
-  state`), else wrap the given state in a new one, which rewrites every record, as today; on a
+state`), else wrap the given state in a new one, which rewrites every record, as today; on a
   `run.started`, `item.created` or `item.updated` payload, capture execution sources (step 6a);
   `readiness.capture` (E5.9 collaborator); `retainChanges`; `writeEvents` (Decision 1); upsert
   `thread_state` with the header and `headSeq()`; `flush`; record the seq; retire, insert, trim.
@@ -590,7 +590,7 @@ none, and have candidates after it). The one-line change at E5.1's two call site
   - `threads` by its primary key `id` (cursor: the last `id` scanned);
   - `intents` by the index `intents_pending(thread_id, status, id)`, cursor the last
     `(thread_id, status, id)` scanned, `WHERE (thread_id, status, id) > (?, ?, ?) ORDER BY
-    thread_id, status, id LIMIT 256` (row-value comparison), evaluating the predicate per row;
+thread_id, status, id LIMIT 256` (row-value comparison), evaluating the predicate per row;
   - `engine_queue` by its primary key `thread_id`.
 
   Each source's page is at most **256 rows scanned**, and its cursor advances to the **last row
@@ -749,7 +749,7 @@ pass with a broken header, records or appends.
 - "a folded batch stores the expected engine rows": after a fixed batch (an agent seen, a turn
   started, a message item, deltas past 32,768 UTF-16 units, a tool call, a turn ended), the test
   reads `thread_state.state`, every `engine_state_records` row of the thread (`section, key,
-  value`, ordered by `rowid`) and every `engine_state_appends` row (`section, key, patch`, by
+value`, ordered by `rowid`) and every `engine_state_appends` row (`section, key, patch`, by
   `id`), and compares them with literal expected text in the test (header key order, record JSON,
   the coalesced patches). Then it **reopens them through the engine**: a fresh native engine on the
   same home folds one more delta and one more turn, and the test asserts the resulting rows again
