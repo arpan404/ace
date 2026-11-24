@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createCipheriv, createHash, createPrivateKey, randomBytes, verify } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { z } from "zod";
@@ -18,6 +19,28 @@ let output = "";
 const apnsKey = apnsKeyPair();
 const daemonKey = createPrivateKey(signingKeyPem());
 const strangerKey = createPrivateKey(signingKeyPem());
+const activityStates = JSON.parse(
+  readFileSync(
+    new URL("../../../fixtures/live-activity-content-state.json", import.meta.url),
+    "utf8",
+  ),
+);
+const update = {
+  v: 1,
+  event: "update",
+  timestamp: 1795500002,
+  priority: 5,
+  staleAfter: 900,
+  state: { ...activityStates.update, working: 1200, failed: -3 },
+};
+const start = {
+  ...update,
+  event: "start",
+  timestamp: 1795500000,
+  priority: 10,
+  slot: 15,
+  state: activityStates.start,
+};
 
 beforeAll(async () => {
   apns = await startFakeApns();
@@ -91,6 +114,12 @@ const push = (
     },
     body: new Uint8Array(options.body ?? record()),
   });
+const activity = (handle: string, body: unknown, authorization = auth()) =>
+  fetch(`${origin}/v1/activity/${handle}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization },
+    body: JSON.stringify(body),
+  });
 
 it("advertises its supported handle kinds without authorization", async () => {
   const response = await fetch(`${origin}/v1/capabilities`);
@@ -120,6 +149,160 @@ it.each(["start", "liveactivity"])("refuses an encrypted alert from a %s handle"
   const handle = await handleFor("91".repeat(32), "production", kind);
   const before = apns.calls.length;
   expect((await push(handle)).status).toBe(403);
+  expect(apns.calls).toHaveLength(before);
+});
+
+it("starts, updates and ends an activity with the gateway-built APNs payloads", async () => {
+  const startToken = "a1".repeat(32);
+  const updateToken = "b2".repeat(32);
+  const startHandle = await handleFor(startToken, "sandbox", "start");
+  const updateHandle = await handleFor(updateToken, "sandbox", "liveactivity");
+  const finalState = {
+    ...activityStates.update,
+    seq: 43,
+    at: 1795500010,
+    phase: "settled",
+    needsYou: 0,
+    working: 0,
+    waiting: 0,
+    limited: 0,
+    background: 0,
+    done: 6,
+  };
+  const before = apns.calls.length;
+  expect((await activity(startHandle, start)).status).toBe(201);
+  expect((await activity(updateHandle, update)).status).toBe(201);
+  expect(
+    (
+      await activity(updateHandle, {
+        ...update,
+        event: "end",
+        timestamp: 1795500011,
+        priority: 10,
+        dismissAfter: 900,
+        state: finalState,
+      })
+    ).status,
+  ).toBe(201);
+  const calls = apns.calls.slice(before);
+  expect(
+    calls.map(({ headers }) => ({
+      path: headers[":path"],
+      topic: headers["apns-topic"],
+      pushType: headers["apns-push-type"],
+      priority: headers["apns-priority"],
+      expiration: headers["apns-expiration"],
+    })),
+  ).toEqual([
+    {
+      path: `/3/device/${startToken}`,
+      topic: "app.ace.ios.push-type.liveactivity",
+      pushType: "liveactivity",
+      priority: "10",
+      expiration: "1795500900",
+    },
+    {
+      path: `/3/device/${updateToken}`,
+      topic: "app.ace.ios.push-type.liveactivity",
+      pushType: "liveactivity",
+      priority: "5",
+      expiration: "1795500902",
+    },
+    {
+      path: `/3/device/${updateToken}`,
+      topic: "app.ace.ios.push-type.liveactivity",
+      pushType: "liveactivity",
+      priority: "10",
+      expiration: "1795500911",
+    },
+  ]);
+  expect(calls.map(({ body }) => JSON.parse(body.toString()))).toEqual([
+    {
+      aps: {
+        timestamp: 1795500000,
+        event: "start",
+        "content-state": activityStates.start,
+        "stale-date": 1795500900,
+        "input-push-token": 1,
+        "attributes-type": "MachineActivityAttributes",
+        attributes: { slot: 15, version: 1 },
+        alert: { title: "ace", body: "An agent started working" },
+      },
+    },
+    {
+      aps: {
+        timestamp: 1795500002,
+        event: "update",
+        "content-state": activityStates.update,
+        "stale-date": 1795500902,
+      },
+    },
+    {
+      aps: {
+        timestamp: 1795500011,
+        event: "end",
+        "content-state": finalState,
+        "stale-date": 1795500911,
+        "dismissal-date": 1795500911,
+      },
+    },
+  ]);
+});
+
+it("refuses activity requests whose handle kind or registering daemon does not match", async () => {
+  const alertHandle = await handleFor("c3".repeat(32), "production", "alert");
+  const activityHandle = await handleFor("d4".repeat(32), "production", "liveactivity");
+  const startHandle = await handleFor("e5".repeat(32), "production", "start");
+  const end = { ...update, event: "end", dismissAfter: 900 };
+  const before = apns.calls.length;
+  for (const [handle, body] of [
+    [alertHandle, start],
+    [alertHandle, update],
+    [alertHandle, end],
+    [activityHandle, start],
+    [startHandle, update],
+    [startHandle, end],
+  ] as const) {
+    expect((await activity(handle, body)).status).toBe(403);
+  }
+  expect((await activity(startHandle, start, auth(strangerKey))).status).toBe(403);
+  expect((await activity(activityHandle, update, auth(strangerKey))).status).toBe(403);
+  expect((await activity(activityHandle, update, "")).status).toBe(401);
+  expect(apns.calls).toHaveLength(before);
+});
+
+it("rejects malformed activity JSON and oversized requests without sending to APNs", async () => {
+  const activityHandle = await handleFor("f6".repeat(32), "production", "liveactivity");
+  const before = apns.calls.length;
+  for (const invalid of [
+    { ...update, title: "private title" },
+    { ...update, state: { ...update.state, rows: [] } },
+    { ...update, state: { ...update.state, needsYou: "1" } },
+    { ...update, state: { ...update.state, needsYou: 0.5 } },
+    { ...update, state: { ...update.state, phase: "unknown" } },
+    { ...update, state: { ...update.state, seq: -1 } },
+    { ...update, timestamp: Number.MAX_SAFE_INTEGER },
+    { ...update, v: 2 },
+    { ...update, priority: 1 },
+    { ...update, staleAfter: 59 },
+    { ...update, staleAfter: 3601 },
+    { ...update, slot: 0 },
+    { ...update, dismissAfter: 900 },
+    { ...start, slot: 16 },
+    { ...start, slot: undefined },
+    { ...update, event: "end" },
+    { ...update, event: "end", dismissAfter: -1 },
+    { ...update, event: "end", dismissAfter: 14401 },
+  ]) {
+    expect((await activity(activityHandle, invalid)).status).toBe(400);
+  }
+  const response = await fetch(`${origin}/v1/activity/${activityHandle}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: auth() },
+    body: "{",
+  });
+  expect(response.status).toBe(400);
+  expect((await activity(activityHandle, "x".repeat(1023))).status).toBe(413);
   expect(apns.calls).toHaveLength(before);
 });
 
