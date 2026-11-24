@@ -265,7 +265,9 @@ export async function scrcpyCapture(options: {
       awaitingKey = undefined;
     }
     if (forward && !forward.closed) {
-      forward.write(scrcpyFrame(unit, number));
+      // The frame depicts the native display at the encode's size, so the client's
+      // width/scale is the display input uses.
+      forward.write(scrcpyFrame(unit, displayFor(unit.width, unit.height), number));
       return;
     }
     // Opens the source in ace-media, which points the capture at its ingest once it has it.
@@ -551,15 +553,19 @@ export async function scrcpyCapture(options: {
 }
 
 /** A scrcpy unit as the MediaFrame the daemon forwards: the producer stamp keeps its sequence. */
-function scrcpyFrame(unit: VideoUnit, sequence: number): MediaFrame {
+export function scrcpyFrame(
+  unit: VideoUnit,
+  display: { width: number; height: number },
+  sequence: number,
+): MediaFrame {
   return {
     kind: 1,
     flags: unit.keyframe ? 1 : 0,
     ageUs: 0,
     width: unit.width,
     height: unit.height,
-    displayWidth: unit.width,
-    displayHeight: unit.height,
+    displayWidth: display.width,
+    displayHeight: display.height,
     scale: 1000,
     rotation: 0,
     codec: 1,

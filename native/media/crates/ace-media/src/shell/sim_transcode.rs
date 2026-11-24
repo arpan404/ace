@@ -18,6 +18,12 @@ pub struct Transcode {
     force_key: bool,
     /// The decoder has had a keyframe: it can't start from a delta.
     primed: bool,
+    /// The source picture's size and scale, which a transcoded frame still depicts: its own
+    /// size is the encode's, while `display_*` and `scale` stay the source's so the client's
+    /// `width / scale` is the source's coordinate width at any encode size.
+    source_width: u16,
+    source_height: u16,
+    source_scale: u16,
 }
 
 fn spec(wire: &EncodeSpec) -> Spec {
@@ -44,6 +50,10 @@ impl Transcode {
             id: wire.id,
             force_key: true,
             primed: false,
+            source_width: 0,
+            source_height: 0,
+            // serve-sim's stream is in device pixels: one encoded px per point.
+            source_scale: 1000,
         })
     }
 
@@ -65,6 +75,10 @@ impl Transcode {
         unit: &EncodedUnit,
         frames: &mut Vec<MediaFrame>,
     ) -> Result<(), CodecError> {
+        // The transcode depicts the source's picture at the encode's size: remember what it
+        // depicts before it is decoded and scaled away.
+        self.source_width = u16::try_from(unit.size.width).unwrap_or(u16::MAX);
+        self.source_height = u16::try_from(unit.size.height).unwrap_or(u16::MAX);
         // Asked for between serve-sim's keyframes: the decoder starts at the next one (the
         // reader opens a fresh subscription, whose first unit is one).
         if !self.primed {
@@ -101,6 +115,11 @@ impl Transcode {
             };
             if let Ok(Some(mut frame)) = self.out.frame(record) {
                 frame.encode = self.id;
+                if self.source_width > 0 && self.source_height > 0 {
+                    frame.display_width = self.source_width;
+                    frame.display_height = self.source_height;
+                    frame.scale = self.source_scale;
+                }
                 frames.push(frame);
             }
         }

@@ -139,6 +139,14 @@ fn a_simulator_is_re_encoded_at_the_viewers_size_on_videotoolbox_without_a_copy(
         assert_eq!((frame.width, frame.height), (588, 1280));
         assert_eq!((frame.kind, frame.codec, frame.encode), (1, 1, 3));
     }
+    for frame in &frames {
+        assert_eq!(
+            (frame.display_width, frame.display_height),
+            (1206, 2622),
+            "a transcode still depicts its source's size"
+        );
+        assert_eq!(frame.scale, 1000, "a transcode keeps its source's scale");
+    }
     let acceleration = transcode.acceleration();
     #[cfg(target_arch = "aarch64")]
     assert!(
