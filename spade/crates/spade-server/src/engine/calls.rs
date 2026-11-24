@@ -556,6 +556,15 @@ pub(super) async fn handle_calls(
                     // does, a bot it makes for the person included, gets past what its package
                     // declared.
                     let own = effect::ceiling_refusal(&gate).map(Route::Refuse);
+                    if own.is_none()
+                        && name == spade_core::self_edit::TASK_UPDATE
+                        && (untrusted || !in_view.is_empty())
+                        && engine.task_update_is_unchanged(id, &arguments)
+                    {
+                        let unchanged = ToolOutput::ok(spade_core::self_edit::TASK_UNCHANGED);
+                        finish_tool(engine, id, reply, &pending.call, &name, unchanged).await;
+                        continue;
+                    }
                     // A bot's own task, name and face are decided next, in every access level:
                     // with anything untrusted in view, a change goes to the person.
                     let own = own.or_else(|| {

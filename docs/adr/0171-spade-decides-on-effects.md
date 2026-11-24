@@ -740,3 +740,23 @@ the stricter read threshold under taint. App calls and other reviewed effects ca
 only be raised by the classifier. Extending settlement needs labelled examples and
 held-out calibration in `spade/tools/classify-train`, as well as a deterministic
 boundary that can enforce the new settled class.
+
+## Amendment 9 (2026-11-23) — Answer an unchanged task without an approval
+
+When `task_update` repeats the current task after trimming surrounding whitespace,
+Spade returns the existing no-change result even with untrusted content in view. The
+package ceiling still applies. The engine answers directly and never dispatches a
+write, so a concurrent edit cannot turn this answer into authorization to change
+the task. An actual rewrite still goes to the person under taint in every access
+mode. The request explains that approving would let the proposed instructions
+persist into future replies.
+
+The effect table puts `task_status`, `todo`, `task_plan`, `decision_log` and `asks`
+under local writes. Status and todo have read-level review risk. The plan, decision
+log and asks are answered by the engine. These paths already run without approval
+under taint, within their own limits. An open goal remains the person's to change.
+Under ADR 0215, `asks` can update states under taint, but refuses splitting or
+rewording asks, adding standing instructions, and lifting them. Lifting still
+requires a later message from the person. Those restrictions are enforced by the
+ledger and return a tool error, so they cannot be overridden with an approval card.
+The profile, routines, notes and outward effects keep their existing gates.
