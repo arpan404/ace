@@ -4,6 +4,7 @@ import type { MarketFetch } from "./http.ts";
 import type { PluginPort, SpadePort, SuitPort } from "./install.ts";
 import type { PickPorts } from "./pick.ts";
 import type { Membership } from "./org-registry.ts";
+import type { TemplatePort } from "./publish-template.ts";
 import type { MarketGrantPort } from "./publish.ts";
 
 /* What the marketplace service (`service.ts`) is opened with, and what one request adds. */
@@ -25,6 +26,7 @@ export interface MarketplaceOptions {
   spade: SpadePort;
   /** What the publish flow's picker reads: Spade's bots and skills, ace's skills, plugins. */
   pick?: PickPorts | undefined;
+  templates?: TemplatePort;
   /** Runs `run` after `ms`; returns its cancel. */
   schedule: (run: () => void, ms: number) => () => void;
   /**

@@ -1,3 +1,4 @@
+import { templatePort } from "../marketplace/template-port.ts";
 import { realpath } from "node:fs/promises";
 import { namedFetch } from "@ace/client/ace-client";
 import { userInfo } from "node:os";
@@ -40,6 +41,11 @@ export async function startMarketplace(context: ServiceContext): Promise<void> {
       () => services.spade?.ready()?.connection,
       () => services.spade?.status().version,
     ),
+    templates: templatePort({
+      connection: () => services.spade?.ready()?.connection,
+      key: () => services.spade?.personKey(),
+      now: context.now,
+    }),
     pick: pickPorts({
       spade: () => services.spade?.ready()?.connection,
       skills: () => services.skillLibrary,
@@ -190,13 +196,15 @@ function serviceAlone(
   return (
     marketplace?.request(
       operation,
-      operation.op === "publish"
-        ? { grant, personGrant }
-        : {
-            withoutPerson,
-            ...(orgGrant ? { orgGrant } : {}),
-            ...(account ? { membership: () => membershipOf(account) } : {}),
-          },
+      operation.op === "publishTemplate"
+        ? { grant, withoutPerson }
+        : operation.op === "publish"
+          ? { grant, personGrant }
+          : {
+              withoutPerson,
+              ...(orgGrant ? { orgGrant } : {}),
+              ...(account ? { membership: () => membershipOf(account) } : {}),
+            },
     ) ??
     Promise.resolve({
       op: "error",

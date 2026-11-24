@@ -122,23 +122,25 @@ async function verifyListed(
   http: MarketHttp,
   keys: MarketKeySet,
   entry: FeedEntry,
-): Promise<void> {
-  if (!entry.version) return;
+): Promise<boolean> {
+  if (!entry.version) return false;
   const body = VersionBody.safeParse(await http.version(entry.type, entry.name, entry.version));
-  if (!body.success) return;
+  if (!body.success) return false;
   let manifest;
   try {
     manifest = verifyManifest(body.data.manifest, keys);
   } catch {
-    return;
+    return false;
   }
   if (
+    manifest.registry !== undefined ||
     manifest.type !== entry.type ||
     manifest.name !== entry.name ||
     manifest.version !== entry.version
   )
-    return;
+    return false;
   store.saveVerifiedPublisher(verifiedKey(manifest), manifest.publisher.id);
+  return true;
 }
 
 export async function readEntry(
@@ -153,36 +155,45 @@ export async function readEntry(
   if (!source) return undefined;
   const listing = await store.listing(source.id);
   const entry = listing.entries.find((item) => item.type === type && item.name === name);
-  if (!entry) return undefined;
   if (source.kind === "git")
-    return {
-      summary: summaryOf(source, entry, marks()),
-      description: listing.folders?.[entryKey(entry)]?.description ?? "",
-      versions: [],
-    };
-  const detail: MarketEntryDetail = {
-    summary: summaryOf(source, entry, marks()),
-    description: "",
-    versions: [],
-  };
-  try {
-    const page = http ? EntryBody.safeParse(await http.entry(type, name)) : undefined;
-    if (page?.success) {
-      detail.description = page.data.description;
-      const state = readWithdrawn(store);
-      detail.versions = page.data.versions;
-      for (const version of detail.versions) {
-        const reason =
-          withdrawalOf(state, source.id, { type, name, ...version }) ?? version.withdrawn;
-        if (reason) version.withdrawn = reason.slice(0, 500);
+    return (
+      entry && {
+        summary: summaryOf(source, entry, marks()),
+        description: listing.folders?.[entryKey(entry)]?.description ?? "",
+        versions: [],
       }
+    );
+  let shown = entry;
+  let description = "";
+  let versions: MarketEntryDetail["versions"] = [];
+  if (http && source.enabled) {
+    try {
+      const page = EntryBody.safeParse(await http.entry(type, name));
+      if (page.success) {
+        const direct = page.data.entry;
+        if (
+          !shown &&
+          direct.type === type &&
+          direct.name === name &&
+          (await verifyListed(store, http, ports.keys, direct))
+        )
+          shown = direct;
+        if (shown) {
+          description = page.data.description;
+          const state = readWithdrawn(store);
+          versions = page.data.versions.map((version) => {
+            const reason =
+              withdrawalOf(state, source.id, { type, name, ...version }) ?? version.withdrawn;
+            return reason ? { ...version, withdrawn: reason.slice(0, 500) } : version;
+          });
+        }
+      }
+      if (entry) await verifyListed(store, http, ports.keys, entry);
+    } catch {
+      // Offline: a listed page can still show the local index.
     }
-    if (http) await verifyListed(store, http, ports.keys, entry);
-  } catch {
-    // Offline: the page shows what the listing has.
   }
-  detail.summary = summaryOf(source, entry, marks());
-  return detail;
+  return shown && { summary: summaryOf(source, shown, marks()), description, versions };
 }
 
 /** An entry's page, with its install when it was installed from this source. */

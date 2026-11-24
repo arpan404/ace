@@ -266,7 +266,13 @@ async function callsOf(
     case "draftDelete":
       return [{ method: "DELETE", path: `/v1/me/drafts/${action.id}`, answer: "done" }];
     case "draftPublish":
-      return [{ method: "POST", path: `/v1/me/drafts/${action.id}/publish`, answer: "published" }];
+      return [
+        {
+          method: "POST",
+          path: `/v1/me/drafts/${action.id}/publish${action.visibility === "unlisted" ? "?visibility=unlisted" : ""}`,
+          answer: "published",
+        },
+      ];
     case "listing":
       return [
         {
@@ -382,6 +388,7 @@ export async function publishAction(
     personGrant?: string | undefined;
     /** A draft's archive already read and checked on this machine (`check.ts`). */
     archive?: Uint8Array | undefined;
+    templateReviewHash?: string | undefined;
   },
   action: MarketPublishAction,
 ): Promise<MarketResult> {
@@ -418,7 +425,9 @@ export async function publishAction(
   let answer: MarketPublishAnswer | undefined;
   let draftId: string | undefined;
   for (const call of calls) {
-    const path = call.path.replace("{id}", draftId ?? "");
+    let path = call.path.replace("{id}", draftId ?? "");
+    if (action.action === "draftPublish" && ports.templateReviewHash)
+      path += `${path.includes("?") ? "&" : "?"}reviewed=${encodeURIComponent(ports.templateReviewHash)}`;
     const headers: Record<string, string> = { authorization: `Bearer ${grant}` };
     let body: Uint8Array | string | undefined;
     if (call.bytes) {

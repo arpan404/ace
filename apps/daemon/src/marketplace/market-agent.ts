@@ -1,3 +1,4 @@
+import { marketError } from "./market-error.ts";
 import { ThreadId } from "@ace/protocol";
 import type { MarketOperation, MarketResult } from "@ace/protocol/marketplace";
 import { providerNames } from "@ace/ui-core/providers";
@@ -107,18 +108,23 @@ export class MarketAgent {
       : [];
     return this.deps.marketplace.request(
       operation,
-      operation.op === "publish"
-        ? { grant, names, personGrant }
-        : {
-            names,
-            withoutPerson: by === "without-person",
-            ...(orgGrant ? { orgGrant } : {}),
-            ...(bound ? { membership: () => membershipOf(bound.account) } : {}),
-          },
+      operation.op === "publishTemplate"
+        ? { grant, names, withoutPerson: by !== "person" }
+        : operation.op === "publish"
+          ? { grant, names, personGrant }
+          : {
+              names,
+              withoutPerson: by === "without-person",
+              ...(orgGrant ? { orgGrant } : {}),
+              ...(bound ? { membership: () => membershipOf(bound.account) } : {}),
+            },
     );
   }
 
   forAgent(threadId: string, operation: MarketOperation): Promise<MarketResult> {
+    if (operation.op === "publishTemplate")
+      return Promise.resolve(marketError("forbidden", "Only the person can publish a template."));
+
     return agentMarketRequest(
       {
         run: (next) => this.asPerson(next),

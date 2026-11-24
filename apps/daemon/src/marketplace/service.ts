@@ -1,3 +1,4 @@
+import { publishTemplate } from "./publish-template.ts";
 import { join } from "node:path";
 import {
   Signed,
@@ -467,6 +468,20 @@ export class MarketplaceService {
           this.#store.source("market"),
           operation.handle,
         );
+      case "publishTemplate": {
+        if (ports.withoutPerson !== false)
+          return error("forbidden", "Only the person can publish a template.");
+        const templates = this.#options.templates;
+        if (!templates) return error("unavailable", "Spade isn't ready to share templates.");
+        return this.#serial(() =>
+          publishTemplate(
+            templates,
+            { http: this.#http(), grant: ports.grant },
+            operation,
+            ports.names ?? [],
+          ),
+        );
+      }
       case "publish":
         return markOwnProfile(
           await publishRequest(

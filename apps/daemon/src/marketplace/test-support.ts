@@ -62,6 +62,7 @@ export interface Listed {
 /** The market's read routes over versions a test publishes. */
 export async function fakeMarket() {
   const listed: Listed[] = [];
+  const hidden = new Set<string>();
   let featured: { type: string; name: string }[] = [];
   let withdrawn: Signed | undefined;
   let stamp = 1;
@@ -115,7 +116,11 @@ export async function fakeMarket() {
       if (route(call, response, (status, body) => send(response, status, body))) return;
     const parts = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
     if (url.pathname === "/v1/index") {
-      const keys = new Set(listed.map((item) => `${item.version.type}/${item.version.name}`));
+      const keys = new Set(
+        listed
+          .map((item) => `${item.version.type}/${item.version.name}`)
+          .filter((key) => !hidden.has(key)),
+      );
       const entries = [...keys].map((key) => {
         const [type = "", name = ""] = key.split("/");
         return feedEntry(latest(type, name)!);
@@ -148,6 +153,7 @@ export async function fakeMarket() {
         return send(response, 200, {
           entry: feedEntry(versions.at(-1)!),
           description: "A test entry.",
+          unlisted: hidden.has(`${type}/${name}`),
           versions: versions.toReversed().map((item) => ({
             version: item.version.version,
             hash: item.version.hash,
@@ -179,7 +185,8 @@ export async function fakeMarket() {
       claims.set(`${type}/${name}`, fields);
       stamp++;
     },
-    publish(version: SignedVersion, files: ArchiveFile[]) {
+    publish(version: SignedVersion, files: ArchiveFile[], visibility = "listed") {
+      if (visibility === "unlisted") hidden.add(`${version.type}/${version.name}`);
       listed.push({ version, files });
       stamp++;
     },
@@ -474,6 +481,7 @@ export async function marketplaceHarness(options: {
   spade: ReturnType<typeof fakeSpade> extends Promise<infer T> ? T : never;
   /** What the publish picker reads; a test sets the person's own skills and plugins. */
   pick?: PickPorts;
+  templates?: import("./publish-template.ts").TemplatePort;
   /** Where the service's clock starts: the real time, for grants a real market checks. */
   clock?: number;
 }) {
@@ -526,6 +534,7 @@ export async function marketplaceHarness(options: {
       plugins: () => pluginPort(() => plugins),
       spade: spadePort(options.spade.connection, options.spade.version),
       pick: options.pick,
+      ...(options.templates ? { templates: options.templates } : {}),
       schedule: () => () => {},
       allowLocalGit: true,
     });

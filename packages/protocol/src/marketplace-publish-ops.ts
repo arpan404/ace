@@ -42,6 +42,7 @@ import {
   marketPrivacyResults,
 } from "./marketplace-publish-pick.ts";
 import { RegistryAdmin } from "./marketplace-registry.ts";
+import { ShareTemplateId, ShareTemplateReview } from "./marketplace-template.ts";
 import { MarketScanReport } from "./marketplace-scan.ts";
 import { MarketOrgId } from "./marketplace-signed.ts";
 import { SuitId } from "./suits.ts";
@@ -101,7 +102,11 @@ export const MarketPublishAction = z.discriminatedUnion("action", [
     checked: MarketDraftChecked.optional(),
   }),
   z.strictObject({ action: z.literal("draftDelete"), id: MarketDraftId }),
-  z.strictObject({ action: z.literal("draftPublish"), id: MarketDraftId }),
+  z.strictObject({
+    action: z.literal("draftPublish"),
+    id: MarketDraftId,
+    visibility: z.literal("unlisted").optional(),
+  }),
   z.strictObject({ action: z.literal("listing"), ...entry, listing: MarketListingEdit }),
   z.strictObject({
     action: z.literal("preview"),
@@ -238,6 +243,11 @@ export type MarketPublisherPage = z.infer<typeof MarketPublisherPage>;
 /** The ops `marketplace.request` gains (ADR 0174 §11). */
 export const marketPublishOperations = [
   z.strictObject({ op: z.literal("discover") }),
+  z.strictObject({
+    op: z.literal("publishTemplate"),
+    id: ShareTemplateId,
+    review: ShareTemplateReview,
+  }),
   z.strictObject({ op: z.literal("publisher"), handle: MarketPublisherName }),
   /** A listing picture or an avatar by its sha256, as the market serves it. */
   z.strictObject({ op: z.literal("picture"), kind: MarketPictureKind, hash: MarketHash }),
@@ -254,6 +264,11 @@ export const marketPublishOperations = [
 ] as const;
 
 export const marketPublishResults = [
+  z.strictObject({
+    op: z.literal("publishedTemplate"),
+    name: MarketEntryName,
+    visibility: MarketVisibility,
+  }),
   z.strictObject({ op: z.literal("discover"), discover: MarketDiscover }),
   z.strictObject({ op: z.literal("publisher"), page: MarketPublisherPage }),
   /** The picture's bytes as base64, checked against its hash, with their type. */

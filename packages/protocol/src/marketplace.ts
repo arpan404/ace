@@ -661,3 +661,5 @@ export const MarketServerMessage = z.discriminatedUnion("type", [
   }),
 ]);
 export type MarketServerMessage = z.infer<typeof MarketServerMessage>;
+
+export * from "./marketplace-template.ts";
