@@ -161,8 +161,10 @@ job ends. It never makes the bot's own reply wait.
 A helper's result carries `untrusted: true` on `job_finished` when anything untrusted was in the
 helper's view: a web page, an app's output, or a task written while the bot had untrusted
 content in view (such a task reaches the helper as the bot's message, `from_agent`, which taints
-the helper's turn). The turn that reads that result is untrusted, so its writes ask, exactly as if
-the bot had read the page itself.
+the helper's turn). A research part's task is always one of these, even when its bot's context was
+clean: the plan that writes it is a model's words, so it reaches the helper as a `<bot_message>`.
+The turn that reads that result is untrusted, so its writes ask, exactly as if the bot had read the
+page itself.
 
 ## Limits and spend
 

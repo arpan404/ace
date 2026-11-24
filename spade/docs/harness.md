@@ -170,8 +170,8 @@ instead of re-fetching; refuses local and private addresses),
 reply, [autonomy.md](autonomy.md)), `sleep_until` and `wait_for` (the bot ends its turn and is
 woken at a time or by an event; with the deferred `wake_cancel` and the service tools, ADR 0160,
 autonomy.md), `research` (a background job that runs one read-only helper for each part of a
-question and answers with a compact report that cites the page behind every finding,
-[oversight.md](oversight.md)), `helper` (a background job that hands part of the work to a
+question and answers with a compact report that cites the page behind every finding, each one a
+page that part's helper fetched, [oversight.md](oversight.md)), `helper` (a background job that hands part of the work to a
 short-lived helper with a fresh context, in a hidden conversation of its own,
 [helpers.md](helpers.md)), the workspace tools, `shell` and `python` ([workspace.md](workspace.md);
 the system prompt's "How you work" tells the bot to write and run a short Python script for counting,
