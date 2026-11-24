@@ -57,12 +57,13 @@ export async function startNotifications(context: ServiceContext): Promise<void>
 
 import type { SocketContext, SocketService } from "./socket.ts";
 import { notificationsRetained, linkedLimit } from "@ace/notify";
-import { capLinked, memberFeed, visibleFeed } from "../notification-feed-view.ts";
+import { capLinked, emptyMemberFeed, memberFeed, visibleFeed } from "../notification-feed-view.ts";
 export function createNotificationsSession({
   options,
   authorize,
   canReadThread,
   orgHost,
+  memberStanding,
   sessionId,
   onPresence,
   fail,
@@ -102,6 +103,16 @@ export function createNotificationsSession({
         }
         if (!options.notifications?.feed) {
           fail("notifications_unavailable", "Notifications unavailable", false, correlation);
+          return true;
+        }
+        // A member has no inbox until pushes are filtered per member (ADR 0221): the same empty
+        // answer to every read and receipt, never the host's global head.
+        if (memberStanding?.()) {
+          send({
+            type: "notification.feed.result",
+            requestId: message.requestId,
+            ...emptyMemberFeed,
+          });
           return true;
         }
         try {

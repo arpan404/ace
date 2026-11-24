@@ -40,3 +40,6 @@ export function memberFeed(
 export function capLinked<T>(linked: readonly T[], limit: number): { ids: T[]; cut: number } {
   return { ids: linked.slice(0, limit), cut: Math.max(0, linked.length - limit) };
 }
+
+/** What an organization member reads and checkpoints while their feed is empty. */
+export const emptyMemberFeed: NotificationFeed = { cursor: 0, entries: [], retracted: [] };
