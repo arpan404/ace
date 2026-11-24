@@ -57,6 +57,8 @@ async function stalledWorker() {
       },
     },
   });
+  // Shutdown withdraws what services publish, so hold this one to finish its stalled close.
+  const notifications = daemon.notifications;
   return {
     root,
     daemon,
@@ -75,7 +77,7 @@ async function stalledWorker() {
       if (!existsSync(path)) unlocked.resolve();
       try {
         release?.();
-        await daemon.notifications.close();
+        await notifications.close();
         await unlocked.promise;
       } finally {
         watcher.close();
