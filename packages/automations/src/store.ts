@@ -311,6 +311,19 @@ export class AutomationStore {
       unreadable,
     );
   }
+  /**
+   * The readable job due first that is not a schedule, while model lists are loading: schedules
+   * wait for a model, every other trigger doesn't.
+   */
+  nextOther(excluded: readonly string[] = [], unreadable?: Unreadable): JobMetadata | undefined {
+    if (excluded.length > 4) throw new Error("Too many excluded polls");
+    return this.firstReadable(
+      this.sql(
+        "SELECT id FROM automation_jobs WHERE due IS NOT NULL AND json_extract(body,'$.trigger.kind')<>'schedule' AND id NOT IN(?,?,?,?) ORDER BY due,id LIMIT 1001",
+      ).iterate(excluded[0] ?? "", excluded[1] ?? "", excluded[2] ?? "", excluded[3] ?? ""),
+      unreadable,
+    );
+  }
   nextScheduled(unreadable?: Unreadable): JobMetadata | undefined {
     return this.firstReadable(
       this.sql(

@@ -352,6 +352,63 @@ test.concurrent(
   },
 );
 
+test.concurrent(
+  "after readiness settles, a missing model fails the due run visibly",
+  { timeout: 180_000 },
+  async ({ expect }) => {
+    const f = await idleDaemon({
+      seedModels: false,
+      deferModels: true,
+      armDeadlineMs: 100,
+      modelRetryMs: 100,
+    });
+    try {
+      let connection = await f.connect();
+      const due = Math.ceil((Date.now() + 2000) / 60_000) * 60_000;
+      const automation = {
+        ...f.definition("missing-model", due),
+        missedRun: "run_once" as const,
+      };
+      expect(
+        await connection.ask({
+          type: "automation.put",
+          requestId: "save",
+          automation,
+          expectedRevision: null,
+        }),
+      ).toMatchObject({ ok: true });
+      await f.daemon.settings.set("automations.enabled", false, { kind: "global" });
+      await f.stop();
+      await delay(Math.max(0, due - Date.now()) + 150);
+      await f.restart();
+      connection = await f.connect();
+      await f.daemon.settings.set("automations.enabled", true, { kind: "global" });
+      await delay(500);
+      // Readiness settles, but the automation's model was never registered: the run is admitted
+      // and the engine refuses it, which is reported, never a silent loss.
+      f.settleModels();
+      await expect
+        .poll(
+          async () =>
+            (
+              await connection.ask({
+                type: "automation.inbox",
+                requestId: "failed",
+                automationId: automation.id,
+                limit: 50,
+              })
+            ).inbox?.runs?.map((run) => [run.status, run.result]),
+          { timeout: 30_000 },
+        )
+        .toEqual([["failed", "model_unavailable"]]);
+      expect(f.prompts).toEqual([]);
+      expect(f.daemon.store.listThreads()).toEqual([]);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
 test.concurrent("a manual retry and a committed deletion survive daemon restart without another execution", async ({
   expect,
 }) => {

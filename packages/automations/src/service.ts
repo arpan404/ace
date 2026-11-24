@@ -37,8 +37,8 @@ import type { GhClient } from "./gh-process.ts";
  */
 const lateGraceMs = 2 * 60_000;
 /**
- * How often a scheduler that is waiting for model lists looks again when nothing tells it they
- * settled. Readiness normally wakes it at once; this only bounds a missed notification.
+ * How often a scheduler held for model lists looks again when nothing tells it they settled.
+ * Readiness normally wakes it at once; this only bounds a missed notification.
  */
 const modelRetryMs = 30_000;
 function message(error: unknown): string {
@@ -72,8 +72,6 @@ export class AutomationService {
   private generation = 0;
   private ticking = false;
   private cancellations: Cancellations;
-  /** A due schedule this pass kept for model lists, so the batch stops re-reading it. */
-  private waitingForModels = false;
   constructor(store: AutomationStore, deps: Dependencies, gh?: GhClient) {
     this.store = store;
     this.deps = deps;
@@ -531,23 +529,17 @@ export class AutomationService {
     const deadlines = [job?.due, this.executions.nextDeadline()].filter(
       (value): value is number => value !== undefined && value !== null,
     );
-    if (!deadlines.length) return;
     const now = this.deps.now();
-    const earliest = Math.min(...deadlines);
-    // A due schedule held for model lists must not spin; recheck on the retry interval, but
-    // still wake for an execution's earlier deadline (a refused write waits to be retried).
-    const held =
-      job?.automation.trigger.kind === "schedule" &&
-      job.due !== null &&
-      job.due <= now &&
-      !this.readyForModels();
-    const execution = this.executions.nextDeadline();
-    const delay = held
-      ? Math.min(
-          this.deps.modelRetryMs ?? modelRetryMs,
-          execution === undefined ? Infinity : Math.max(0, execution - now),
-        )
-      : Math.min(60_000, Math.max(0, earliest - now));
+    // A due schedule held for model lists is not returned by `nextJob`; recheck it now and then
+    // so a missed readiness wake still fires it, without holding another trigger's deadline.
+    const schedule =
+      this.deps.modelsLoading?.() === true ? this.store.nextScheduled(this.unreadable) : undefined;
+    const held = schedule !== undefined && schedule.due !== null && schedule.due <= now;
+    if (!deadlines.length && !held) return;
+    const delay = Math.min(
+      held ? (this.deps.modelRetryMs ?? modelRetryMs) : Infinity,
+      deadlines.length ? Math.min(60_000, Math.max(0, Math.min(...deadlines) - now)) : Infinity,
+    );
     this.cancelTimer = this.deps.timer.arm(delay, () => {
       this.cancelTimer = undefined;
       const operation = this.tick().catch((error) => this.report(error));
@@ -555,22 +547,26 @@ export class AutomationService {
       return operation;
     });
   }
-  /** Model lists settled (or there is no such gate): due schedules may be spent now. */
+  /** Model lists settled (or there is no such gate): a due schedule may be spent now. */
   private readyForModels(): boolean {
     return this.deps.modelsLoading?.() !== true;
   }
-  /** Ace's model lists settled: a due occurrence kept for them fires now. */
+  /** Ace's model lists settled: an occurrence kept for them fires now. */
   modelsReady(): void {
     this.arm();
   }
   private nextJob(): JobMetadata | undefined {
+    // A scheduled run needs its automation's model; everyone else keeps its own deadline.
+    if (this.deps.modelsLoading?.() === true)
+      return this.polling.size >= 4
+        ? undefined
+        : this.store.nextOther([...this.polling], this.unreadable);
     return this.polling.size >= 4
       ? this.store.nextScheduled(this.unreadable)
       : this.store.next([...this.polling], this.unreadable);
   }
   private async tick(): Promise<void> {
     this.ticking = true;
-    this.waitingForModels = false;
     try {
       this.executions.expire();
       // A bounded batch yields to I/O if a large number of jobs share a deadline.
@@ -594,8 +590,6 @@ export class AutomationService {
           } catch (error) {
             this.isolateJob(job, this.generation, error);
           }
-          // A due schedule held for model lists would otherwise be read again in this batch.
-          if (this.waitingForModels) break;
         }
       }
     } finally {
@@ -658,10 +652,7 @@ export class AutomationService {
     }
     // The run's thread is created with this automation's model; while ace is still loading its
     // model lists, keep the occurrence due (never advance it) and wait to be woken.
-    if (!this.readyForModels()) {
-      this.waitingForModels = true;
-      return;
-    }
+    if (!this.readyForModels()) return;
     const admission = this.store.transaction(() => {
       const result = this.admit(
         job.automation,

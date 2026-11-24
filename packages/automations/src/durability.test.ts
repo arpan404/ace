@@ -180,6 +180,39 @@ it("a GitHub poll failure sets both compat and trigger health, cleared only by s
   expect(list(h, "recovered").schedules?.[0]?.triggerError).toBeUndefined();
 });
 
+it("a GitHub poll keeps its deadline while a due schedule waits for model lists", async () => {
+  let polls = 0;
+  const h = harness({
+    async get() {
+      polls++;
+      return { status: 304, etag: undefined, next: undefined, data: undefined };
+    },
+  });
+  h.service.stop();
+  // The schedule is due first, so without skipping it this pass would never reach the poll.
+  h.service.put(scheduled("run_once"));
+  h.now = start + 120_000;
+  h.service.put(
+    definition({
+      id: "poll",
+      trigger: {
+        kind: "github",
+        repository: "user/project",
+        event: "pr_changed",
+        pollIntervalMs: 60_000,
+      },
+    }),
+  );
+  h.deps.modelsLoading = () => true;
+  h.service.start();
+  await h.timer.fire();
+  await h.service.settled();
+  // The poll ran on its own deadline; the due schedule stayed due for its model.
+  expect(polls).toBe(1);
+  expect(h.inputs).toEqual([]);
+  expect(list(h, "held").schedules?.find((entry) => entry.id === "triage")?.nextRunAt).toBe(start);
+});
+
 it("manual retries reuse the same executor key even after the run row is pruned", async () => {
   const h = harness();
   h.service.put(definition());

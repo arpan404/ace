@@ -2,20 +2,38 @@ import type { AutomationService } from "@ace/automations";
 import { logError } from "@ace/diagnostics";
 import type { ServiceContext } from "./services/types.ts";
 
+/** One pending wait for model readiness: arms the scheduler at its deadline. */
+type WaitTimer = (callback: () => void, ms: number) => () => void;
+
+const systemWait: WaitTimer = (callback, ms) => {
+  const timer = setTimeout(callback, ms);
+  timer.unref();
+  return () => clearTimeout(timer);
+};
+
 /** Both host and agent-owned schedulers follow the same global admission lifecycle. */
 export async function followAutomationSetting(
   context: ServiceContext,
   service: AutomationService,
+  wait: WaitTimer = systemWait,
 ): Promise<void> {
   const settings = context.services.settings;
   if (!settings) throw new Error("settings_unavailable");
   let stopped = false;
   let enabled = false;
-  /** Who is waiting on model readiness: a later enable or disable turns the earlier one stale. */
+  /** Who is waiting on model readiness: a later enable, disable or shutdown turns it stale. */
   let arming = 0;
+  /** The pending readiness wait, cancelled when the scheduler is disarmed. */
+  let waiting: AbortController | undefined;
+  const disarm = () => {
+    arming++;
+    const control = waiting;
+    waiting = undefined;
+    control?.abort();
+  };
   context.resources.onShutdown(() => {
     stopped = true;
-    arming++;
+    disarm();
     service.stop();
   });
   /**
@@ -33,40 +51,55 @@ export async function followAutomationSetting(
    */
   const startWhenReady = async () => {
     const turn = ++arming;
+    waiting?.abort();
+    const control = new AbortController();
+    waiting = control;
     const ready = context.services.modelsReady;
-    if (ready) {
-      const waitMs = context.options.automationModelWaitMs ?? 30_000;
-      const deadline = context.now() + waitMs;
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const bounded = new Promise<void>((resolve) => {
-        const check = () => {
-          const left = deadline - context.now();
-          if (left > 0) {
-            timer = setTimeout(check, left);
-            timer.unref();
-            return;
-          }
-          resolve();
-        };
-        timer = setTimeout(check, Math.max(0, deadline - context.now()));
-        timer.unref();
-      });
-      try {
-        await Promise.race([
-          ready.catch((error: unknown) =>
-            context.log.log("warn", "Model admission failed", logError(error)),
-          ),
-          bounded.then(() =>
-            context.log.log(
-              "warn",
-              "Arming automations while model lists load; due runs stay due until they settle",
-              { waitMs },
+    try {
+      if (ready) {
+        const waitMs = context.options.automationModelWaitMs ?? 30_000;
+        const deadline = context.now() + waitMs;
+        let cancel: (() => void) | undefined;
+        const bounded = new Promise<void>((resolve) => {
+          const check = () => {
+            const left = deadline - context.now();
+            if (left > 0) {
+              cancel = wait(check, left);
+              return;
+            }
+            resolve();
+          };
+          cancel = wait(check, Math.max(0, deadline - context.now()));
+          // A disable or shutdown ends the wait now instead of leaving it to the deadline.
+          control.signal.addEventListener(
+            "abort",
+            () => {
+              cancel?.();
+              resolve();
+            },
+            { once: true },
+          );
+        });
+        try {
+          await Promise.race([
+            ready.catch((error: unknown) =>
+              context.log.log("warn", "Model admission failed", logError(error)),
             ),
-          ),
-        ]);
-      } finally {
-        if (timer) clearTimeout(timer);
+            bounded.then(() => {
+              if (control.signal.aborted) return;
+              context.log.log(
+                "warn",
+                "Arming automations while model lists load; due runs stay due until they settle",
+                { waitMs },
+              );
+            }),
+          ]);
+        } finally {
+          cancel?.();
+        }
       }
+    } finally {
+      if (waiting === control) waiting = undefined;
     }
     if (turn !== arming || !enabled || stopped || context.signal.aborted) return;
     service.start();
@@ -76,7 +109,7 @@ export async function followAutomationSetting(
     enabled = value === true;
     if (stopped || context.signal.aborted) return;
     if (!enabled) {
-      arming++;
+      disarm();
       service.stop();
       context.services.commands?.invalidateExtras?.();
       return;

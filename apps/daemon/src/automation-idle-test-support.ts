@@ -95,6 +95,10 @@ export async function idleDaemon(
       await registerModels();
       admission?.resolve();
     },
+    /** Settle model admission without registering any model (a genuinely missing one). */
+    settleModels() {
+      admission?.resolve();
+    },
     get daemon() {
       return daemon;
     },
