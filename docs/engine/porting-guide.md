@@ -1387,11 +1387,12 @@ not with E5.2 to E5.4 (they open sessions, deliver, restart and stop background 
 `adapters.ts` stays TypeScript. Its step 12 is the test seam and the per-item proof order.
 
 E5.4's builder brief is [e5-4-brief.md](e5-4-brief.md). It splits E5.4 into six rounds (E5.4a to
-E5.4f) and corrects this table's E5.4 row, pending the owner's answers to its open questions:
+E5.4f) and corrects this table's E5.4 row with the owner's decisions of 2026-11-24:
 `person-command` stays TypeScript (the facade's normalization); `readMessageFacts` moves to E5.5;
-E5.4 ports `Recovery`'s command path and the other receipt-time functions its "receipt path"
-table lists, which drop from the E5.5, E5.7, E5.8, E5.9 and E5.10 rows; and most of the commands
-row first passes natively at E5.6 or later, as its proof table says.
+E5.4 ports the synchronous receipt dependencies its "receipt dependencies" table lists, which drop
+from the E5.5 to E5.10 rows while their execution stays there; it amends E5.1 with three
+synchronous ports and one probe hook; and most of the commands row first passes natively at E5.6
+or later, as its proof table says.
 
 | Item                                     | TypeScript replaced                                                                                                                                                                                                                                                                                                                                                                                                  | Rust (`ace-engine/src/`)                                                                                                  | (a) files that prove it (behaviour.md §19 rows)                                                                                                   | (b) cases to move                                                                                                                                                                          |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

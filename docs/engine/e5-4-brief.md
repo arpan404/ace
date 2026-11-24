@@ -2,714 +2,871 @@
 
 Part of the [engine porting guide](porting-guide.md). Its rules 1–16, "Files per work item" and
 "For every E5 item" apply unchanged, and so does the [E5.1 brief](e5-1-brief.md): its decisions,
-its facade kinds (R, M, A, H, B), its re-entrancy rules and its test seam (step 12). Where this
-brief is more exact, it wins. Read
+its facade kinds (R, M, A, H, B), its re-entrancy rules and its test seam (step 12), as amended
+below. The E5.3 brief (`docs/engine/e5-3-brief.md` on `ace/rust-engine-e5-3-brief`, not yet merged) fixes the `Repo` API, the
+fold's collaborator traits and the opener this brief builds on. Where this brief is more exact, it
+wins for E5.4. Read
 [ADR 0223](../adr/0223-the-engine-and-adapters-move-to-rust-behind-the-same-interfaces.md) §4, §5
 and §8, [ADR 0053](../adr/0053-queue-and-recovery.md) (the queue, holds and recovery, with its
-amendments of 2026-10-15, -17 and -18), and [behaviour.md](behaviour.md) §3, §9, §10 and §17
-first. TypeScript paths are in `apps/daemon/src/engine/` unless they say otherwise; line numbers
-are as of `origin/ace/daemon-rust-rewrite` a9229d6400.
+amendments of 2026-10-15, -17 and -18), [ADR 0170](../adr/0170-daemon-never-blocks-on-history-sized-work.md)
+and [behaviour.md](behaviour.md) §3, §9, §10 and §17 first. TypeScript paths are in
+`apps/daemon/src/engine/` unless they say otherwise. Line numbers are as of
+`origin/ace/daemon-rust-rewrite` a9229d6400.
 
 E5.4 ports what happens between a command arriving and its work being picked up: the receipt
 (`handler.handle`, synchronous inside the receipt transaction), creation admission and
 validation, the durable intents and the queue, the input journal and the transcript's input
-items, ace's own inputs, and the sends worker's choice of what to deliver next. It does not
-deliver anything: claiming an intent and calling the provider is E5.5, opening sessions is E5.6.
+items, ace's own inputs, and the sends worker's choice of what to deliver next. It delivers
+nothing: claiming an intent and calling the provider is E5.5, and opening sessions is E5.6.
 
-It is the largest E5 item, so it lands as six builder rounds, **E5.4a to E5.4f**, each under
-about 2,000 lines of Rust (tests included), each behind the one switch, each leaving the switch-off
-path byte-identical.
+It lands as six builder rounds, **E5.4a to E5.4f**, each under about 2,000 lines of Rust (tests
+included), each behind the one switch, each leaving the switch-off path byte-identical, and each
+with a seam test it can reach when it lands.
 
-## Decisions this brief makes
+Revised 2026-11-24 after review (gpt-6.2-sol, high) and the owner's decisions:
 
-1. **Six sub-items in dependency order** (table below). E5.4a and E5.4b touch only their own
-   tables and pure rules, so they run in parallel with E5.2 and E5.3. E5.4c to E5.4e need E5.3's
-   `Repo` (thread state, `apply`, `save`, the store reads) and start once E5.3 has merged. E5.4f
-   needs E5.2's actor and E5.4e. E5.5 starts after E5.4f, as the guide orders it.
-2. **The receipt path is ported whole, wherever its code lives.** A receipt that reaches an
-   unported function fails, and the failure makes the whole receipt roll back. If E5.4 ported only
-   its own files, nearly every native receipt would fail until E5.10, because a create calls
-   `permissions.ensure` (E5.7) and `transitions.set` (E5.9), and a Stop calls `cancelPending`
-   (E5.10). So E5.4 also ports the **synchronous, receipt-time** functions of later items' modules
-   that every ordinary receipt reaches. It writes them in those owners' files, which is safe
-   because E5.5 to E5.10 start after E5.4f. The owner then keeps them as its own code, and its row
-   in the guide drops them. Branches that only special receipts reach (fork, switch, merge,
-   permission changes, interaction answers, imported threads) become declaration stubs in the
-   owner's file. They fail `NotPorted` naming the owner, and the receipt rolls back. "The receipt
-   path" below lists every function and which way it goes. This is open question 1; until the
-   owner answers, build it this way.
-3. **Never edit E5.2's or E5.3's files.** They are built in parallel. What E5.4 needs from E5.3
-   (`Repo`) it calls through E5.3's API ("Seams", below), and what E5.2 needs from E5.4 (the
-   input journal's correlation on the frame path) E5.4b provides as `pub fn`s named here.
-4. **`Recovery`'s command path is E5.4's.** `recovery.ts` is E5.8's module, but the receipt calls
-   `recovery.handle` (every queue command), `recovery.admit`, `sync` and `releaseLimitHold` on every
-   send. E5.4d takes those methods (listed in the module map) into `ace-engine/src/queue/holds.rs`.
-   E5.8 keeps the rest of `recovery.ts` (restart captures, limit observation, deadline firing) and
-   calls `holds` for the shared parts. This is open question 2.
-5. **Daemon services stay TypeScript, reached through synchronous ports.** `workspaceDirectory`
-   (`realpathSync`), the handoff text (`portableContext` over `@ace/handoff`) and the forge links
-   of a created thread (`WorkspacePrLinks`, `WorkspaceIssueLinks`) are not engine logic, and a
-   Rust copy would not be byte-identical: `std::fs::canonicalize` returns the on-disk case on
-   macOS and a `\\?\` prefix on Windows, where `realpathSync` does neither. That is the precedent
-   `worktree-title.ts` set (it stays TypeScript behind the `worktreeGit` port). E5.4e adds three
-   synchronous ports to `ports.rs` in one commit (open question 5).
-6. **Pure package helpers on the hot or receipt path move to Rust.** These are the input
-   signature on every echoed frame, the provisional title on every person send, and the provider
-   admission rule on every command. Each goes into the crate that owns it (open question 6). Its
-   TypeScript stays, because the web app, iOS and the TypeScript adapters keep using it. No case
-   is copied into Rust: the (a) files that reach a helper prove it, and a helper that no (a) file
-   reaches gets one cargo test, and the commit says which (rule 5).
-7. **`personCommand` stays in the shell.** E5.1 step 9 keeps the normalization in
-   `native-engine/engine.ts` (`handler.handle` calls `personCommand` before the binding). So
-   `person-command.ts` is not replaced, and `admitCreation`'s facade calls it before the binding
-   too. The guide's E5.4 row is corrected to say so.
-8. **`message-facts.ts` splits.** `readyForInput` and `threadCapabilities` are the sends worker's,
-   and E5.4f ports them. `readMessageFacts` serves the facade's `messageFacts` member, which E5.1
-   gave to E5.5, and it reads E5.5's `steer-yield` rules. So it moves to E5.5 (open question 3).
-9. **Open-time statements stay as they are.** The constructors of `QueueStore`, `IntentStore`,
-   `InputJournal`, `AceInputs` and `indexTitleInputs` run DDL, a forward migration and two
-   history-sized statements at every open (`queue-store.ts:57`–`:94`, `intents.ts:56`–`:65`,
-   `input-journal.ts:69`–`:104`, `ace-inputs.ts:9`–`:17`, `title-input.ts:9`–`:15`). The engine's
-   stored formats do not change in ADR 0223 (§5), so the native open runs the same statements in
-   the same order. E5.4 exposes them as `queue::open`, `intents::open` and `inputs::open`, and
-   E5.3's repository open calls them where `repository.ts` constructs those classes today. The two
-   that break ADR 0170 are noted in open question 7 and are not fixed here.
+- the rounds were re-cut so that every round reaches its own seam test, and E5.3's fold hooks
+  are now 4a's and 4b's;
+- the synchronous receipt dependencies of later items are ported;
+- three daemon services are synchronous TypeScript ports, written here as an amendment to E5.1;
+- creation keeps the catalog-backed model calls and tells an absent owner from an unknown one;
+- every receipt side effect is commit-scoped;
+- refusals that commit earlier writes are named;
+- the open-time scans follow the prerequisite fix on main;
+- the Stop test asserts what TypeScript does.
 
-## The sub-items
+## Decisions
 
-| Sub-item                                         | What it ports                                                                                                                                                                                                                     | Rust (`ace-engine/src/`)                                                                                                             | Needs              | Facade members it fills                                                                          | Est. Rust lines |
-| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------ | ------------------------------------------------------------------------------------------------ | --------------- |
-| **E5.4a** intents and the queue store            | `intents.ts`, `queue-store.ts`, `snooze-wake.ts` (`wakeFor`), `input-fate.ts`, `input-delivery.ts`, `edited-context.ts`, `goal-change.ts`; the repository's intent and queue delegations; `boundedJson`                           | `intents/{mod,header,store}.rs`, `queue/{mod,record,store,page,wake}.rs`, `inputs/fate.rs`, `rules.rs`                               | E5.1               | `queue`, `queuePage`, `commandFailure`, `commandExecution`, `prioritizeSubagentResult`           | 1,700           |
-| **E5.4b** the input journal and input text       | `input-journal.ts`, `ace-input-attribution.ts`, `ace-waits.ts`; the input-text helpers it uses (`withoutPortableHandoff`, `withoutHandoffEnvelope`, `nativeCommandInputs`, Claude's and Pi's provider input, `aceWaitTargets`)    | `inputs/{journal,origin,signature,ace_waits}.rs`; `ace-adapter-claude/src/input.rs`, `ace-adapter-pi/src/input.rs` (the parts named) | E5.1               | none (E5.2's frame path calls it)                                                                | 1,500           |
-| **E5.4c** transcript inputs and ace inputs       | `transcript-inputs.ts`, `ace-inputs.ts`, `title-input.ts`, `thread-posts.ts`; `provisionalTitle`                                                                                                                                  | `inputs/{transcript,ace,title,posts}.rs`, `inputs/provisional_title.rs`                                                              | E5.3, E5.4a, E5.4b | `inputFate`                                                                                      | 1,300           |
-| **E5.4d** queue commands, holds, receipt prelude | `queue-commands.ts`, `stale-inputs.ts`, `guest-admission.ts`; `Recovery`'s command path; the receipt's prelude (`handler.ts:55`–`:123`); `steer-selection.ts` and `steer-notes.ts` (receipt path)                                 | `queue/{commands,holds,stale}.rs`, `commands/{mod,prelude,guest}.rs`; `steering/{selection,notes}.rs` (owner E5.5)                   | E5.3, E5.4a–c      | `handler`, `internalHandler` (prelude and queue commands), `admissionReopened`, `prepareCommand` | 1,800           |
-| **E5.4e** thread receipts and creation           | the rest of `handler.ts`, `create-thread.ts`, `creation-admissions.ts`, `creation-validation.ts`, `workspace-directory.ts` (as a port); receipt-path functions of `stop-intents`, `stop-scope`, `permissions`, `transition-state` | `commands/{receipt,stop,create,admissions,validation}.rs`; owners' files as "The receipt path" lists                                 | E5.3, E5.4d        | `handler` (every command), `spawn`, `admitCreation`, `creationPending`, `cancelDelegatedInputs`  | 1,950           |
-| **E5.4f** the sends worker                       | `Engine.work`, `wake`, `wakeQueued`, `releaseDormant` (`index.ts:1220`–`:1384`); `readyForInput`, `threadCapabilities` (`message-facts.ts:42`–`:87`)                                                                              | `queue/{worker,ready}.rs`                                                                                                            | E5.2, E5.4e        | none (internal; the sends lane's `run`, E5.1 step 11)                                            | 700             |
+1. **The synchronous receipt dependencies are ported, wherever their module lives** (owner
+   decision 1). A receipt that reaches an unported function fails and rolls back. So every
+   function that an ordinary receipt (create, prepare, send, Stop, archive, every queue command)
+   or the sends worker calls synchronously is ported by E5.4. That includes switch admission for
+   a selecting steer and guard release for a Stop. E5.4 writes them in their owners' files, which
+   is safe because E5.5 to E5.10 start after E5.4f. **Execution stays with the owning items**:
+   delivery, session opening and closing, transition execution, deadline firing, and readiness
+   capture by the fold. Commands that are other items' own receipts stay stubs: fork, switch and
+   merge (`acceptTransition`, E5.9), permission and mode changes and interaction answers (E5.7),
+   and adoption of an imported thread (E5.8). A stub fails
+   `EngineError::not_ported(<what>, <item>)`. "The receipt dependencies" lists every function
+   and which way it goes.
+2. **Command-time holds are 4d's; E5.8 executes deadlines** (owner decision 2). These are
+   `Recovery`'s `preferences`, `prepare`, `handle`, `admit`, `withoutRestatedSelection`, `sync`,
+   `bindingChanged`, `releaseLimitHold`, `lift`, `owns`, `begin`, `release`, and `schedule`'s
+   arming. E5.8 keeps `fire`, `fireOne`, `automatic`, the deferrals, captures and limit
+   observation, and calls 4d's functions for the shared parts.
+3. **`readMessageFacts` and the `messageFacts` member move to E5.5** (owner decision 3).
+   `readyForInput` and `threadCapabilities` stay in 4f for the sends worker.
+4. **Six rounds** (owner decision 4) in the order of the table below. 4a and 4b need only E5.1 and
+   run alongside E5.2 and E5.3. 4c, 4d and 4e need E5.3's `Repo`. 4f needs E5.2's actor and 4e.
+   E5.5 starts after 4f.
+5. **E5.3's fold hooks are 4a's and 4b's.** E5.3's `InputFacts` collaborator trait
+   (`repository/collaborators.rs`) is how the fold calls into E5.4. Every one of its methods is
+   implemented in 4a or 4b, which need no E5.3 code, so the fold never waits on a round that waits
+   on E5.3. 4a moves `impl InputFacts for State` out of `collaborators.rs` into
+   `ace-engine/src/queue/fold_hooks.rs` with its methods, as E5.3's step 7 allows. 4b adds its
+   methods to that block. Until each method lands it keeps E5.3's default, an explicit
+   `NotPorted` stub naming its round, and E5.3's probe pass-through covers the fold seam meanwhile.
+   `rootRunStart` is in E5.3's `InputFacts` list but `root-run-start.ts` is E5.5's module, so E5.5
+   implements it, and E5.3's table is corrected to say so.
+6. **Daemon services stay TypeScript, as synchronous ports on the shared stack** (owner
+   decision 5): `workspaceDirectory`, `portableHandoff`, `linkCreatedThread`. The contract is in
+   "Amendments to E5.1". The path keeps `realpathSync`'s spelling on macOS and Windows, because
+   the port calls `workspace-directory.ts:3`–`:6` itself.
+7. **Pure package helpers on the receipt or frame path go to their owners' crates** (owner
+   decision 6), keeping JavaScript's serialization and error bytes exactly. Their TypeScript
+   stays (the web app, iOS and the TypeScript adapters use them). No test case is copied: the (a)
+   files that reach a helper prove it, and a helper no (a) file reaches gets one cargo test, and
+   the commit says so (rule 5).
+8. **The DDL stays TypeScript; the history-sized open-time scans are fixed on main first** (owner
+   decision 7). E5.3's opener runs the TypeScript constructors at boot, so every
+   `CREATE TABLE`/`CREATE INDEX` keeps one source (E5.3, "Migrations"). The scans that grow with
+   history move to resumable idle batches in a TypeScript prerequisite PR on main, before E5.3,
+   specified in the E5.3 brief's "Prerequisite fix on main (TS)" section. E5.4 ports the idle-batch
+   version of each pass in the round that owns its table. "Open-time work" audits every statement.
+9. **`personCommand` stays in the shell.** E5.1 step 9 keeps the normalization in
+   `native-engine/engine.ts`, so `person-command.ts` is not replaced, and the `admitCreation`
+   facade calls it before the binding as well.
+10. **Never edit E5.2's or E5.3's files**, except the one move of `impl InputFacts for State` that
+    E5.3's step 7 allows. What E5.4 needs from `Repo` it calls through E5.3's API. If a method is
+    missing, ask for it in E5.3's review.
 
-Every sub-item adds its binding methods in its own `#[napi] impl NativeEngine` block in
-`ace-daemon-node/src/engine/{intents,queue,inputs,commands}.rs` (E5.1 step 9) and fills the matching
-functions in `apps/daemon/src/native-engine/{intents,queue,inputs,commands}.ts`. A sub-item that
-would pass 2,000 lines splits along the module list above, never by arbitrary cuts, and no file
-passes 400 lines.
+## The rounds
+
+| Round                                                  | What it ports                                                                                                                                                                                                                                                                                                             | Rust (`ace-engine/src/`)                                                                                                                                                                  | Needs        | Facade members                                                                                  | Seam test it reaches                                                               | Est. lines |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ---------- |
+| **4a** intents, queue store, steer notes, fold hooks I | `intents.ts`, `queue-store.ts` (statements, not DDL), `steer-notes.ts`, `stale-inputs.ts`, `snooze-wake.ts`, `input-fate.ts`, `input-delivery.ts`, `edited-context.ts`, `goal-change.ts`; the repository's intent and queue delegations; `boundedJson`; the queue tables' idle passes                                     | `intents/`, `queue/{record,store,page,wake,stale,fold_hooks,idle}.rs`, `steering/notes.rs` (owner E5.5), `inputs/fate.rs`, `rules.rs`                                                     | E5.1         | `queue`, `queuePage`, `commandFailure`, `commandExecution`, `prioritizeSubagentResult`          | TypeScript-written home reads; `probe.inputFacts` stale retirement                 | 1,800      |
+| **4b** input journal, input text, fold hooks II        | `input-journal.ts`, `ace-input-attribution.ts`, `ace-inputs.ts` (`attribute`, `get`), `ace-waits.ts`, `bindStartedRun`, `bindConsumedInput`, `bindItemRun` (`transcript-inputs.ts:157`–`:226`); the input-text helpers; the journal's idle pass                                                                           | `inputs/{journal,origin,signature,runs,ace,ace_waits,idle}.rs`; `ace-adapter-claude/src/input.rs`, `ace-adapter-pi/src/input.rs` (parts named)                                            | E5.1         | none                                                                                            | `probe.inputFacts` correlation and run binding on a TypeScript-written home        | 1,600      |
+| **4c** transcript inputs and storage dependencies      | the rest of `transcript-inputs.ts`; `ace-inputs.ts` `record`; `title-input.ts`; `thread-posts.ts`; `provisionalTitle`; and the receipt's storage reads and writes of `session-metadata`, `transition-state`, `transition-readiness` (reads) and `permissions` (`ensure`)                                                  | `inputs/{transcript,title,posts,provisional_title}.rs`; `sessions/metadata.rs` (E5.6), `transitions/{state,readiness}.rs` (E5.9), `access/storage.rs` (E5.7)                              | E5.3, 4a, 4b | `inputFate`                                                                                     | `inputFate` precedence on a TypeScript-written home                                | 1,800      |
+| **4d** queue commands, holds, steer admission, Stop    | `queue-commands.ts`; `Recovery`'s command path; `guest-admission.ts`; the receipt's prelude (`handler.ts:55`–`:123`); `steer-selection.ts`; `switch-admission.ts`'s `resolveSwitch` and `recordSwitch`; `stop-intents.ts`; `stop-scope.ts`'s `targetsRoot`; `transition-state`'s `releaseGuards`                          | `queue/{commands,holds}.rs`, `commands/{mod,prelude,guest}.rs`; `steering/selection.rs` (E5.5), `transitions/switch_admission.rs` (E5.9), `liveness/{stop_intents,stop_scope}.rs` (E5.10) | E5.3, 4a–4c  | `handler`/`internalHandler` (prelude and queue commands), `admissionReopened`, `prepareCommand` | queue commands, refusals, steer fallback and rollback on a TypeScript-written home | 1,900      |
+| **4e** thread receipts and creation                    | the rest of `handler.ts`; `create-thread.ts`; `creation-admissions.ts`; `creation-validation.ts`; `EngineModels`' synchronous calls (`models.ts:37`–`:105`); `reclaimIdleSlot`'s choice (`slot-reclaim.ts:24`–`:48`); the three ports                                                                                     | `commands/{receipt,create,admissions,validation}.rs`; `models/select.rs` (E5.6), `release/reclaim.rs` (E5.6)                                                                              | E5.3, 4d     | `handler` (every command), `spawn`, `admitCreation`, `creationPending`, `cancelDelegatedInputs` | create, send, Stop, refusals and creation parity; the receipt bench                | 1,950      |
+| **4f** the sends worker                                | `Engine.work`, `wake`, `wakeQueued`, `releaseDormant` (`index.ts:1220`–`:1384`); `readyForInput`, `threadCapabilities` (`message-facts.ts:42`–`:87`); the worker's synchronous steering reads (`steer-lane.ts:32`–`:45`, `:106`–`:140`; `steer-yield.ts`'s pure rules); `switchReady`, `usageBlocked`, `runsProviderWork` | `queue/{worker,ready}.rs`; `steering/route.rs` (E5.5), `transitions/switch_ready.rs` (E5.9)                                                                                               | E5.2, 4e     | none (the sends lane's `run`, E5.1 step 11)                                                     | a held send never reaches delivery; a runnable one reaches E5.5's stub once        | 900        |
+
+Every round adds its binding methods in its own `#[napi] impl NativeEngine` block in
+`ace-daemon-node/src/engine/{intents,queue,inputs,commands}.rs` (E5.1 step 9), fills the matching
+functions in `apps/daemon/src/native-engine/{intents,queue,inputs,commands}.ts`, and puts its
+`engine-probe` hooks in `ace-daemon-node/src/engine/probe_commands.rs`. A round that would pass
+2,000 lines splits along its module list, never by arbitrary cuts, and no file passes 400 lines.
+A ported function in an owner's file starts its file with
+`//! Ported by E5.4<x> as a synchronous receipt dependency; owned by E5.<n>.`
+
+## Amendments to E5.1
+
+E5.1 is in review. These are its contract, written here for its builder to add before it merges.
+If E5.1 merges first, 4a (the probe hook) and 4e (the ports) add them in one commit each, with an
+E5.1 reviewer.
+
+### Three synchronous ports (`ports.rs`, binding `engine/ports.rs`, shell `native-engine/ports.ts`)
+
+Each is a synchronous JS callback on the JS thread, called with no `with_state` borrow held. It
+runs inside the receipt's open transaction when the receipt calls it, so any store read sees the
+receipt's uncommitted writes, and any store write nests as a savepoint on the **shared stack**
+(E5.1 step 8) and rolls back with the receipt. Arguments and results cross as JSON through
+`ace-json`. A throw crosses as a JS error and is handled as the TypeScript call site handles it.
+
+| Port                                                   | Shell implementation                                                                                                                                                                                                                                                                                      | Rust call site                                                                                                                    | A throw                                                |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `workspaceDirectory(path: string): string`             | `workspaceDirectory` (`workspace-directory.ts:3`–`:6`): `realpathSync`, then `statSync(...).isDirectory()`. The result is `realpathSync`'s string, unchanged.                                                                                                                                             | `validateCreation`'s `directory(path)` (`creation-validation.ts:41`), in `admitCreation` (no transaction open) and in the receipt | `workspace_unavailable`, as the `catch` at `:42`–`:44` |
+| `portableHandoff(sourceThreadId): PortableContext`     | `creation-validation.ts:84`–`:104`'s body: `getThread`, `readBoundedItemPage(id, MAX_SAFE_INTEGER, 100, 262144)`, `historicalItemCount`, `portableContext(...)` with `{maxBytes: 65536, maxItems: 100, historyTruncated}`. Returns `portableContext`'s result as JSON, or `null` when the source is gone. | the `handoffFrom` branch, after the Rust checks before it; `null` → `handoff_source_not_found`                                    | propagates, as today (no `catch`)                      |
+| `linkCreatedThread({threadId, at, prStatus?, issue?})` | `handler.ts:327`–`:342`'s store writes: `WorkspacePrLinks` `link`, `update` and `publish` when `prStatus` is given; `WorkspaceIssueLinks.link` when `issue` is.                                                                                                                                           | the receipt's create, at `:326`; the `transitions` context update (`:333`–`:337`) stays in Rust after it                          | propagates, as today                                   |
+
+The shell's port object has a fixed shape. A test that passes no ports gets the shell's defaults,
+which are these three implementations, because the TypeScript engine always uses them
+(`index.ts:404`).
+
+### One probe hook (`testing.ts`, binding `engine/probe_commands.rs`, feature `engine-probe`)
+
+```ts
+interface EngineProbe {
+  // …E5.1's members…
+  /** Calls one E5.3 `InputFacts` method natively, inside a transaction of its own; JSON in, JSON out. */
+  inputFacts(method: string, args: unknown): unknown;
+}
+```
+
+It reaches the fold hooks of 4a and 4b before E5.2 and E5.3 can drive them from a frame. Until 4a
+lands it rejects with `NativeEngineIncomplete("inputFacts lands in E5.4a")`. It is scaffolding
+and is deleted with E5.3's pass-through collaborators, when the last owner lands.
+
+### The creation owner (E5.1 step 9's facade, `native-engine/commands.ts`)
+
+`CommandContext.creationOwner` is a JS object compared by identity (`creation-admissions.ts:46`),
+and the TypeScript tells three cases apart. `authorized` accepts an absent owner only when no
+reservation holds the id, and refuses an object it doesn't know in every case: with a reservation
+the identity differs, and without one `owner === undefined` is false. The facade keeps a
+`WeakMap<object, number>` filled by `admitCreation`, and passes Rust one of three values:
+`Owner::Absent` (no `creationOwner`), `Owner::Known(id)`, or `Owner::Unknown` (an object the map
+lacks, including one whose reservation was released). Rust's `authorized` is then
+`held ? owner == Known(held.owner) && held.command == command : owner == Absent`. `Unknown`
+never equals anything.
 
 ## Module map
 
-Each TypeScript module, by line, to its Rust module and sub-item. "Moves" means the owner's row
-in the guide drops it; "stub" means a declaration in the owner's file that fails
-`EngineError::not_ported(<what>, <item>)`.
+"Moves" means the owner's row in the guide drops the function; "stub" means a declaration in the
+owner's file that fails `NotPorted`.
 
-### E5.4a
+### 4a
 
-| TypeScript                                                                                                                                                                                                                           | Rust                                           | Notes                                                                                                                                                                                                                                                                                                                                             |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `intents.ts:9`–`:50` (`Header`, `columns`, kinds, `header`)                                                                                                                                                                          | `intents/header.rs`                            | `IntentHeader` with the same fields; `status` and `delivery` decode strictly, as zod does. A row this build can't read is reported through `headers`'s `unreadable` callback, never dropped silently.                                                                                                                                             |
-| `intents.ts:52`–`:65` (constructor)                                                                                                                                                                                                  | `intents/mod.rs` `open`                        | The four `CREATE INDEX IF NOT EXISTS`, same text, same order (decision 9).                                                                                                                                                                                                                                                                        |
-| `intents.ts:74`–`:456` (every method)                                                                                                                                                                                                | `intents/store.rs`                             | Same SQL, character for character, as prepared statements cached per text on the shared connection. `headers` pages by 64 on `id` as today (`:133`–`:160`); `uncertainSends` pages by 64 (`:236`–`:250`).                                                                                                                                         |
-| `queue-store.ts:19`–`:50` (`RecoveryRecord`, `exitedAfter`, `exitShown`, `isSend`)                                                                                                                                                   | `queue/record.rs`                              | `RecoveryRecord` is `QueueState` plus the seven fields; `continuation` at most 16,384 UTF-16 units (zod `max` counts code units, not bytes).                                                                                                                                                                                                      |
-| `queue-store.ts:52`–`:95` (constructor)                                                                                                                                                                                              | `queue/mod.rs` `open`                          | Tables, indexes, `INSERT OR IGNORE … FROM thread_state`, `requireEngineColumns`, the `exited` forward migration, and the attachment re-track of live inputs, in that order.                                                                                                                                                                       |
-| `queue-store.ts:104`–`:240`, `:307`–`:459`                                                                                                                                                                                           | `queue/store.rs`                               | `get` throws `Missing queue metadata`; `set` bumps `revision`, clears `lastFailure` exactly when `:146`–`:150` does, and appends `[...wakeFor, queue.updated]` in one `appendEvents`.                                                                                                                                                             |
-| `queue-store.ts:242`–`:306` (`snapshot`, `page`, `message`)                                                                                                                                                                          | `queue/page.rs`                                | `page`'s byte budget is `Buffer.byteLength(String(row.payload))`: UTF-8 bytes of the stored text, cut at 512 KiB after the first message. Its three errors are thrown, not returned (below).                                                                                                                                                      |
-| `snooze-wake.ts:6`–`:21`; `@ace/projection` `queueWakesSnooze` (`thread-attention.ts:42`) and `snoozeWokeByQueue` (`snooze-woke.ts:59`)                                                                                              | `queue/wake.rs`                                | Moves from E5.10. Needs `threadAttention` for a queue; port only the queue branch it reads, in `ace-projection` beside `thread.rs`.                                                                                                                                                                                                               |
-| `input-fate.ts:1`–`:69`                                                                                                                                                                                                              | `inputs/fate.rs`                               | Pure. The two strings `Removed from queue` and `Cancelled before delivery` are constants here; `stop-intents` and `queue-store` use them.                                                                                                                                                                                                         |
-| `input-delivery.ts:5`–`:23`, `goal-change.ts:9`–`:14`, `edited-context.ts:3`–`:21`                                                                                                                                                   | `rules.rs`                                     | `isDeepStrictEqual` on `ExecutionOptions` and `ProviderGoal` is structural equality of the decoded JSON values. `editedContext` compares `JSON.stringify` of both contexts, so key order counts.                                                                                                                                                  |
-| `repository.ts:508`–`:515` (`add`), `:586`–`:604` (`engineQueueFact`), `:605`–`:625` (`latestIntent`, `commandsSince`), `:626`–`:642` (`queuedCount`), `:643`–`:660` (`inputCapacity`), `:664` (`mark`), `:485`–`:495` (`cancelled`) | `intents/store.rs`, `queue/store.rs`           | E5.4's, not E5.3's: they are only delegations or SQL over E5.4's tables. `engineQueueFact` reads the thread state, so it is `queue::engine_queue_fact(&ThreadState, …)` and E5.4d calls it with state from `Repo`. `add` passes `interactions.owner` (E5.7), which only interaction answers reach: a stub until E5.7.                             |
-| `packages/provider-kit/src/ipc.ts:4` (`boundedJson`)                                                                                                                                                                                 | `ace-json::bounded`                            | Promote `ace-adapter-cursor/src/translate/tool_names.rs:14` into `ace-json`, re-point its caller, and check it against `ipc.ts:4`–`:60`: fail when the UTF-8 bytes exceed the budget, when nodes (values plus own keys, in visit order) exceed 32,768, when depth exceeds 64, or when an array is longer than `32768 - nodes`. One copy, not two. |
-| `index.ts:591`–`:597` (`prioritizeSubagentResult`), `:1076`–`:1084` (`commandFailure`, `commandExecution`, `queuePage`), `:1146`–`:1148` (`queue`)                                                                                   | binding `engine/queue.rs`, `engine/intents.rs` | R and M as E5.1's table says.                                                                                                                                                                                                                                                                                                                     |
+| TypeScript                                                                                                                                                                           | Rust                                                                  | Notes                                                                                                                                                                                                                                                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `intents.ts:9`–`:50`                                                                                                                                                                 | `intents/header.rs`                                                   | `IntentHeader` with the same fields. `status` and `delivery` decode strictly, as zod does, and a row this build can't read goes to `headers`'s `unreadable` callback.                                                                                                               |
+| `intents.ts:74`–`:456`                                                                                                                                                               | `intents/store.rs`                                                    | Same SQL, character for character, as statements cached per text on the shared connection. `headers` and `uncertainSends` page by 64 on `id`. The constructor's indexes stay TypeScript (decision 8).                                                                               |
+| `queue-store.ts:19`–`:50`                                                                                                                                                            | `queue/record.rs`                                                     | `RecoveryRecord`: `continuation` at most 16,384 UTF-16 units (zod's `max` counts code units).                                                                                                                                                                                       |
+| `queue-store.ts:104`–`:240`, `:307`–`:459`                                                                                                                                           | `queue/store.rs`                                                      | `get` throws `Missing queue metadata`. `set` bumps `revision`, clears `lastFailure` exactly where `:146`–`:150` does, and appends `[...wakeFor, queue.updated]` in one `appendEvents`.                                                                                              |
+| `queue-store.ts:242`–`:306`                                                                                                                                                          | `queue/page.rs`                                                       | Reads `engine_steer_notes.fell_back` (`:255`), which is why the steer notes are 4a's. `page`'s budget is the UTF-8 bytes of the stored payload text, cut at 512 KiB after the first message.                                                                                        |
+| `steer-notes.ts:31`–`:50`                                                                                                                                                            | `steering/notes.rs` (moves from E5.5)                                 | `personSteered`, `fellBack`, `steeredAgain`, `personChose`. The table's DDL stays TypeScript.                                                                                                                                                                                       |
+| `stale-inputs.ts`                                                                                                                                                                    | `queue/stale.rs`                                                      | `retireUncertainInputs` takes the thread's backend as an argument (4d reads it from session metadata), so 4a needs no `Repo`. `retire` throws `Invalid intent identity`.                                                                                                            |
+| `snooze-wake.ts:6`; `@ace/projection` `queueWakesSnooze` (`thread-attention.ts:42`), `snoozeWokeByQueue` (`snooze-woke.ts:59`)                                                       | `queue/wake.rs` (moves from E5.10); `ace-projection/src/attention.rs` | Only the queue branch of `threadAttention`.                                                                                                                                                                                                                                         |
+| `input-fate.ts`; `input-delivery.ts`; `goal-change.ts`; `edited-context.ts`                                                                                                          | `inputs/fate.rs`, `rules.rs`                                          | Pure. `isDeepStrictEqual` is structural equality of the decoded JSON. `editedContext` compares `JSON.stringify` of both contexts, so key order counts.                                                                                                                              |
+| `repository.ts:485`–`:495` (`cancelled`), `:508`–`:515` (`add`), `:586`–`:660` (`engineQueueFact`, `latestIntent`, `commandsSince`, `queuedCount`, `inputCapacity`), `:664` (`mark`) | `intents/store.rs`, `queue/store.rs`                                  | E5.4's (E5.3 brief, module map). `engineQueueFact` takes the `ThreadState`. `add` passes `interactions.owner` (E5.7), which only interaction answers reach: a stub.                                                                                                                 |
+| `packages/provider-kit/src/ipc.ts:4`                                                                                                                                                 | `ace-json/src/bounded.rs`                                             | Promote `ace-adapter-cursor/src/translate/tool_names.rs:14` and re-point its caller. It fails when the UTF-8 bytes pass the budget, when nodes (values plus own keys, in visit order) pass 32,768, when depth passes 64, or when an array is longer than `32768 - nodes`. One copy. |
+| `index.ts:591`–`:597`, `:1076`–`:1084`, `:1146`–`:1148`                                                                                                                              | binding `engine/{queue,intents}.rs`                                   | R and M, as in E5.1's table.                                                                                                                                                                                                                                                        |
 
-### E5.4b
+`InputFacts` methods 4a implements: `pending.handedOver`, `pending.uncertainContinuation`,
+`pending.resolvingInteractions`, `pending.finishContinuation`, `pending.awaiting`, `queue.get`,
+`queue.set`, `queue.prune`, `queue.hasUncertain`, `retireEndedTurnInputs`, `goalChange`.
 
-| TypeScript                                                                                               | Rust                              | Notes                                                                                                                                                                                                                                                  |
-| -------------------------------------------------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `input-journal.ts:23`–`:41` (`inputOrigin`, `personInput`)                                               | `inputs/origin.rs`                | `trigger` `user`/`unknown`/none → `person`; `goal` → `parent_agent`; anything else is its own kind; an explicit `origin` wins and gets `commandId`.                                                                                                    |
-| `input-journal.ts:42`–`:66` (`signature`, `providerInput`)                                               | `inputs/signature.rs`             | SHA-256 (`sha2` 0.11, as `ace-adapter-api` already uses it) of the text parts of `withoutPortableHandoff(parts)` joined by `"\n"`, lowercase hex.                                                                                                      |
-| `input-journal.ts:67`–`:104` (constructor)                                                               | `inputs/mod.rs` `open`            | Same DDL, in three transactions as today, the two orphan `DELETE`s and the trigger.                                                                                                                                                                    |
-| `input-journal.ts:106`–`:294`                                                                            | `inputs/journal.rs`               | `identify` throws `Provider reused an input message identity for a different command`. `generation IS ?` binds NULL for an absent generation, so `IS` (not `=`) is kept.                                                                               |
-| `ace-input-attribution.ts`, `ace-inputs.ts:35`–`:41` (`attribute`)                                       | `inputs/ace.rs`                   | `AceInput` decodes `results` at most 64.                                                                                                                                                                                                               |
-| `ace-waits.ts`; `packages/mcp-server/src/waits.ts:15`                                                    | `inputs/ace_waits.rs`             | `aceWaitTargets`: decode `WaitArguments` and `DelegateArguments` exactly as their zod schemas in `waits.ts` (including `bareToolName`); a failed decode is `None`. Targets are de-duplicated in first-seen order.                                      |
-| `packages/projection/src/portable-input.ts:5`; `packages/handoff/src/envelope.ts:25`                     | `inputs/signature.rs`             | `withoutHandoffEnvelope` measures and slices in **UTF-16 code units** (`text.length`, `indexOf`, `slice`), validates the manifest with `PortableHandoff` from `ace-protocol`, and strips leading `\r?\n` runs.                                         |
-| `packages/commands/src/native-command-inputs.ts:3`                                                       | `inputs/signature.rs`             | Throws `Unresolved command mention`.                                                                                                                                                                                                                   |
-| `packages/adapter-claude/src/input.ts:30`–`:84` (`content`, text parts only), `:91`–`:99` (`admissions`) | `ace-adapter-claude/src/input.rs` | Only what `providerInput` reads: the first admission's text parts. The errors still fire in the same order (`Unresolved Claude mention`, `Claude image inputs require a matching base64 data URL`), because the journal's `sending` throws them today. |
-| `packages/adapter-pi/src/input.ts:4`–`:28` (`piInput(...).message`)                                      | `ace-adapter-pi/src/input.rs`     | Same budget (1 MiB per value, `+256` per part), the same errors and the reserved `/ace-rollback`, `/ace-context` check.                                                                                                                                |
+### 4b
 
-E5.2's frame path calls three functions, and E5.4b exports them with these signatures so that E5.2
-can code against them before E5.4b lands:
+| TypeScript                                                                                                       | Rust                              | Notes                                                                                                                                                                                                                                               |
+| ---------------------------------------------------------------------------------------------------------------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `input-journal.ts:23`–`:41`                                                                                      | `inputs/origin.rs`                | `trigger` `user`, `unknown` or none → `person`; `goal` → `parent_agent`; anything else is its own kind. An explicit `origin` wins and gets `commandId`.                                                                                             |
+| `input-journal.ts:42`–`:66`                                                                                      | `inputs/signature.rs`             | SHA-256 (`sha2` 0.11, as `ace-adapter-api` uses it) of the text parts of `withoutPortableHandoff(parts)` joined by `"\n"`, lowercase hex.                                                                                                           |
+| `input-journal.ts:106`–`:294`                                                                                    | `inputs/journal.rs`               | `identify` throws `Provider reused an input message identity for a different command`. `generation IS ?` binds NULL for an absent generation, so `IS` stays.                                                                                        |
+| `transcript-inputs.ts:157`–`:226` (`bindStartedRun`, `bindConsumedInput`, `bindItemRun`)                         | `inputs/runs.rs`                  | Pure over the `ThreadState` they are given and the journal. They mutate the state's item map before returning the event, as today.                                                                                                                  |
+| `ace-input-attribution.ts`; `ace-inputs.ts:27`–`:41` (`get`, `attribute`)                                        | `inputs/ace.rs`                   | `AceInput.results` at most 64.                                                                                                                                                                                                                      |
+| `ace-waits.ts`; `packages/mcp-server/src/waits.ts:15`                                                            | `inputs/ace_waits.rs`             | `WaitArguments` and `DelegateArguments` decoded exactly as their zod schemas, `bareToolName` included; targets de-duplicated in first-seen order.                                                                                                   |
+| `packages/projection/src/portable-input.ts:5`; `packages/handoff/src/envelope.ts:25`                             | `inputs/signature.rs`             | `withoutHandoffEnvelope` measures and slices in **UTF-16 code units**, validates the manifest with `ace-protocol`'s `PortableHandoff`, and strips leading `\r?\n` runs.                                                                             |
+| `packages/commands/src/native-command-inputs.ts:3`                                                               | `inputs/signature.rs`             | Throws `Unresolved command mention`.                                                                                                                                                                                                                |
+| `packages/adapter-claude/src/input.ts:30`–`:99` (`content`, `admissions`: the text parts of the first admission) | `ace-adapter-claude/src/input.rs` | The errors fire in the same order with the same bytes: `Unresolved Claude mention`, `Claude image inputs require a matching base64 data URL`. File and PDF parts render as `content` renders them, and only their text survives into the signature. |
+| `packages/adapter-pi/src/input.ts:4`–`:28` (`.message`)                                                          | `ace-adapter-pi/src/input.rs`     | 1 MiB per value and `+256` per part; `Unresolved Pi mention`, `Pi input exceeds frame budget`, `Pi images require a matching base64 data URL`, `Reserved Pi control command`.                                                                       |
 
-```rust
-pub fn correlate(tx: &Tx, thread: &ThreadId, fact: Fact, root: &str, generation: Option<u32>) -> Result<Option<Fact>, EngineError>; // input-journal.ts:224
-pub fn attribute(tx: &Tx, thread: &ThreadId, fact: Fact) -> Result<Fact, EngineError>;             // ace-inputs.ts:35
-pub fn ace_wait_fact(state: &ThreadState, fact: &Fact) -> Option<Fact>;                             // ace-waits.ts:10
-```
+`InputFacts` methods 4b implements: `inputs.correlate`, `inputs.keyFor`, `aceInputs.attribute`,
+`aceWaitFact`, `bindConsumedInput`, `bindStartedRun`.
 
-### E5.4c
+### 4c
 
-| TypeScript                                             | Rust                            | Notes                                                                                                                                                                                                                                                                                                                 |
-| ------------------------------------------------------ | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `transcript-inputs.ts:14`–`:254`                       | `inputs/transcript.rs`          | Every function, including `admitInput`, `bindStartedRun`, `bindConsumedInput` (E5.5 and E5.2 call them). `bindItemRun` and `bindConsumedInput` mutate the state's item map before returning the event, as today. `notifyNamingPrompt` calls the `onNamingPrompt` port.                                                |
-| `ace-inputs.ts:7`–`:33` (`record`, `get`, constructor) | `inputs/ace.rs`, `inputs::open` |                                                                                                                                                                                                                                                                                                                       |
-| `title-input.ts`                                       | `inputs/title.rs`               | `oldestTitleInput` walks the index one item at a time through E5.3's `read_item_page`, never a whole page of history.                                                                                                                                                                                                 |
-| `thread-posts.ts`                                      | `inputs/posts.rs`               | Reached as `engine.hosts.posts` (`host-threads.ts:42`, `services/thread-address.ts:60`), E5.7's facade object: E5.4c ports the two functions and E5.7 exposes them on `hosts`.                                                                                                                                        |
-| `packages/ui-core/src/thread-title.ts:14`, `:53`       | `inputs/provisional_title.rs`   | `provisionalTitle` and `untitledThread` (`New thread`), with `attachmentMarker` (`composer-markers.ts`). The rule is in its doc comment: first line with words, no Markdown, mentions, chips or markers, single spaces, at most 60 characters, cut at a word boundary. Proven by `thread-title.process` `:22`, `:67`. |
-| `index.ts:1135`–`:1145` (`inputFate`)                  | binding `engine/inputs.rs`      | One transaction, as today.                                                                                                                                                                                                                                                                                            |
+| TypeScript                                                                                                                                                 | Rust                                              | Notes                                                                                                                                                                   |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transcript-inputs.ts:14`–`:156`, `:227`–`:254`                                                                                                            | `inputs/transcript.rs`                            | `notifyNamingPrompt` defers the `onNamingPrompt` port call to after commit ("Receipt effects").                                                                         |
+| `ace-inputs.ts:20`–`:24` (`record`)                                                                                                                        | `inputs/ace.rs`                                   |                                                                                                                                                                         |
+| `title-input.ts:17`–`:27`                                                                                                                                  | `inputs/title.rs`                                 | `oldestTitleInput` walks the index one item at a time through `Repo`'s `read_item_page`. The index DDL stays TypeScript.                                                |
+| `thread-posts.ts`                                                                                                                                          | `inputs/posts.rs`                                 | Reached as `engine.hosts.posts` (`host-threads.ts:42`, `services/thread-address.ts:60`). E5.7's `hosts` facade object exposes it.                                       |
+| `packages/ui-core/src/thread-title.ts:14`, `:53`; `composer-markers.ts` (`attachmentMarker`)                                                               | `inputs/provisional_title.rs`                     | First line with words, no Markdown, mentions, chips or markers, single spaces, at most 60 characters, cut at a word boundary.                                           |
+| `session-metadata.ts` (`session`, `backend`, `createSession`, `createUnpreparedSession`)                                                                   | `sessions/metadata.rs` (moves from E5.6)          | Row reads and writes only. `nativeSession` and `pinSessionIdentity` stay E5.6's.                                                                                        |
+| `transition-state.ts:87`–`:196` (`guarded`, `guardOwner`, `guard`, `get`, `set`, `remember`), `history.grant`                                              | `transitions/state.rs` (moves from E5.9)          | Metadata rows. `releaseGuards` (`:102`) is 4d's. `delivered` and `selection` stay E5.9's.                                                                               |
+| `transition-readiness.ts:85`–`:95` (`refreshBlocked`, `agentsReady`, `acceptsPersonInput`); `repository.ts:496`–`:507` (`quiescent`, `acceptsPersonInput`) | `transitions/readiness.rs` (reads move from E5.9) | `capture` stays E5.9's, through E5.3's `MoveFacts`. `quiescent` and `acceptsPersonInput` from `@ace/core` go to `ace-core` (`person_input.rs`), with `continueMessage`. |
+| `permissions.ts:115`–`:124` (`ensure`, with `state` and `read`)                                                                                            | `access/storage.rs` (moves from E5.7)             | `INSERT OR IGNORE`, then the read.                                                                                                                                      |
+| `index.ts:1135`–`:1145` (`inputFate`)                                                                                                                      | binding `engine/inputs.rs`                        | One transaction, as today.                                                                                                                                              |
 
-### E5.4d
+### 4d
 
-| TypeScript                                                                                                                                                                                                                                                                                         | Rust                                                      | Notes                                                                                                                                                                                                                                                                                                     |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `handler.ts:55`–`:123` (guest and host refusals, imported adoption, deleting, retired Cursor, provider disabled, reserved workspace)                                                                                                                                                               | `commands/prelude.rs`                                     | Order is contract (below). `adoptImportedThread` (E5.8) is a stub. `providerCommandDisabled` goes to `ace-core` (`provider_admission.rs`, open question 6).                                                                                                                                               |
-| `handler.ts:122` → `recovery.ts:111`–`:129` (`handle`) → `queue-commands.ts:17`–`:262` (`handleQueue`)                                                                                                                                                                                             | `queue/commands.rs`                                       | Every branch. `handle` clears the restart streak on the person's accepted Resume (`:122`–`:127`): `restart-resume.ts`'s `RestartStreaks.clear` is a single `DELETE`, and moves with it.                                                                                                                   |
-| `recovery.ts:103`–`:110` (`preferences`), `:91`–`:102` (`prepare`), `:130`–`:165` (`admit`, `withoutRestatedSelection`), `:166`–`:200` (`sync`), `:618`–`:627` (`schedule`, arming only), `:717`–`:739` (`bindingChanged`), `:780`–`:840` (`releaseLimitHold`, `lift`, `owns`, `begin`, `release`) | `queue/holds.rs`                                          | Moves from E5.8 (decision 4). `schedule` arms the deadline timer through the clock port; the timer's callback calls `recovery::fire` (E5.8), a stub that reports `NotPorted` through `onError` once per firing and never throws. `RecoveryPreferences` decodes with its zod defaults (`queue`, `manual`). |
-| `stale-inputs.ts`                                                                                                                                                                                                                                                                                  | `queue/stale.rs`                                          | `retire` throws `Invalid intent identity` on a non-integer id. `retireEndedTurnInputs` is called by E5.2's fold path.                                                                                                                                                                                     |
-| `guest-admission.ts`                                                                                                                                                                                                                                                                               | `commands/guest.rs`                                       | The (b) cases of `retired-bot-threads.test.ts` move here.                                                                                                                                                                                                                                                 |
-| `steer-selection.ts:20`–`:106`, `steer-notes.ts:14`–`:50`                                                                                                                                                                                                                                          | `steering/selection.rs`, `steering/notes.rs` (owner E5.5) | Receipt path (decision 2). `recordSwitch`/`resolveSwitch` (`switch-admission.ts`, E5.9) are stubs, reached only by a steer that changes the model or options.                                                                                                                                             |
-| `index.ts:1111`–`:1134` (`prepareCommand`), `:1150`–`:1153` (`admissionReopened`)                                                                                                                                                                                                                  | binding `engine/commands.rs`                              | `silence.prepareCommand` returns at once when no `resolveSilenceMs` port was given (`silence.ts:85`); with one, it is E5.6's stub.                                                                                                                                                                        |
-| `index.ts:410`–`:431` (`internalHandler`, `handler`)                                                                                                                                                                                                                                               | shell, as E5.1 step 9                                     | The binding's `handle` is `engineHandler.handle`. With E5.4d alone, every payload type outside the prelude and the queue commands returns `NotPorted("thread commands land in E5.4e")`.                                                                                                                   |
+| TypeScript                                                                                                                                             | Rust                                                                              | Notes                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `handler.ts:55`–`:123`                                                                                                                                 | `commands/prelude.rs`                                                             | Check order is contract (below). `adoptImportedThread` (E5.8) is a stub. `providerCommandDisabled` goes to `ace-core` (`provider_admission.rs`).                                                                                                                                                                                        |
+| `recovery.ts:111`–`:129` → `queue-commands.ts:17`–`:262`                                                                                               | `queue/commands.rs`                                                               | Every branch. `RestartStreaks.clear` (`restart-resume.ts:98`–`:100`, one `DELETE`) moves with it.                                                                                                                                                                                                                                       |
+| `recovery.ts:91`–`:110`, `:130`–`:200`, `:618`–`:627`, `:717`–`:739`, `:780`–`:840`                                                                    | `queue/holds.rs` (moves from E5.8)                                                | `schedule` cancels the previous timer and arms the next deadline. Inside a transaction it runs at commit ("Receipt effects"). The timer's callback is `recovery::fire` (E5.8), a stub that reports `NotPorted` through `onError` once per firing and never throws. `RecoveryPreferences` decodes with its defaults (`queue`, `manual`). |
+| `guest-admission.ts`                                                                                                                                   | `commands/guest.rs`                                                               | The (b) cases of `retired-bot-threads.test.ts` move here.                                                                                                                                                                                                                                                                               |
+| `steer-selection.ts:20`–`:106`                                                                                                                         | `steering/selection.rs` (moves from E5.5)                                         | `fenceSteer`, `steerLostRun` (with `runId: null` meaning the sender saw no run), `admitSteer`, `queueSteerSelection`.                                                                                                                                                                                                                   |
+| `switch-admission.ts:48`–`:112` (`resolveSwitch`, `recordSwitch`)                                                                                      | `transitions/switch_admission.rs` (moves from E5.9)                               | The receipt side of a selecting steer. Executing the switch stays E5.9's.                                                                                                                                                                                                                                                               |
+| `stop-intents.ts:5`–`:106` (`cancelPending`, `cancelDelegatedInputs`); `stop-scope.ts:10` (`targetsRoot`); `transition-state.ts:102` (`releaseGuards`) | `liveness/{stop_intents,stop_scope}.rs` (move from E5.10), `transitions/state.rs` | Guard release for a Stop is ported; the merge or fork it released runs in E5.9.                                                                                                                                                                                                                                                         |
+| `index.ts:1111`–`:1134`, `:1150`–`:1153`                                                                                                               | binding `engine/commands.rs`                                                      | `silence.prepareCommand` returns at once without a `resolveSilenceMs` port (`silence.ts:85`); with one it is E5.6's stub.                                                                                                                                                                                                               |
+| `index.ts:410`–`:431`                                                                                                                                  | shell, as E5.1 step 9                                                             | With 4d alone, every payload type outside the prelude and the queue commands throws `NotPorted("thread commands land in E5.4e")`.                                                                                                                                                                                                       |
 
-### E5.4e
+### 4e
 
-| TypeScript                                                                                                                     | Rust                                      | Notes                                                                                                                                                |
-| ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `handler.ts:124`–`:204` (transitions, permission and mode, preparing workspace, size, `fail`, the type list)                   | `commands/receipt.rs`                     |                                                                                                                                                      |
-| `handler.ts:205`–`:385` (create and prepare in the receipt)                                                                    | `commands/create.rs`                      | `models.select` (E5.6) is a stub when a `models` port was given; without one the `isDefaultSelection` rule (`@ace/models`) runs in Rust.             |
-| `handler.ts:386`–`:479` (archive, thread checks, interaction and task targets)                                                 | `commands/receipt.rs`                     |                                                                                                                                                      |
-| `handler.ts:480`–`:556`, `:562`–`:591` (admission tail, Stop, `releaseInterruptedHold`, `stopsOneAgent`)                       | `commands/stop.rs`, `commands/receipt.rs` |                                                                                                                                                      |
-| `create-thread.ts`                                                                                                             | `commands/create.rs`                      | `createThreadState` is `ace_core::state::create_thread_state` (`ace-core/src/state.rs:472`).                                                         |
-| `creation-admissions.ts`                                                                                                       | `commands/admissions.rs`                  | The owner object becomes a numeric owner id (below).                                                                                                 |
-| `creation-validation.ts`                                                                                                       | `commands/validation.rs`                  | `reportedOrTable` (`provider-kit/src/access-modes.ts:127`) and `cursorInstanceId` (`cursor-selection.ts:5`) port beside it, only the paths it reads. |
-| `workspace-directory.ts`                                                                                                       | port `workspaceDirectory`                 | Decision 5.                                                                                                                                          |
-| `apps/daemon/src/worktree-base.ts:13`–`:53`                                                                                    | `commands/create.rs`                      | `requestedBase`, `requestedBaseKey`, `baseBranchLabel`: pure.                                                                                        |
-| `apps/daemon/src/thread-fence.ts:102` (`workChangedSince`)                                                                     | `commands/receipt.rs`                     | SQL over events, same text.                                                                                                                          |
-| `index.ts:599`–`:646` (`spawn`), `:1092`–`:1110` (`creationPending`, `admitCreation`), `:921`–`:926` (`cancelDelegatedInputs`) | binding `engine/commands.rs`              | `spawn` still throws `Spawn requires thread.create or thread.prepare`. `permissions.narrow` (E5.7) is a stub, reached only with a `parentThreadId`.  |
+| TypeScript                                                                                                            | Rust                                        | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `handler.ts:124`–`:204`, `:376`–`:556`, `:562`–`:591`                                                                 | `commands/receipt.rs`                       | `acceptTransition`: stub for `thread.fork`, `thread.merge`, `thread.switch`; every other type passes (`transition-handler.ts:29`). Permission and mode set, and `interaction.resolve`: stubs (E5.7).                                                                                                                                                                                                                                                                                                                                                |
+| `handler.ts:205`–`:375`; `create-thread.ts`                                                                           | `commands/create.rs`                        | `createThreadState` is `ace_core::state::create_thread_state`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `creation-admissions.ts`                                                                                              | `commands/admissions.rs`                    | The three-way owner ("Amendments to E5.1").                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `creation-validation.ts`                                                                                              | `commands/validation.rs`                    | `reportedOrTable` (`access-modes.ts:127`) and `cursorInstanceId` (`cursor-selection.ts:5`) beside it, the paths read.                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `models.ts:19`–`:105` (constructor, `permissionCapabilities`, `knownPermissionCapabilities`, `permissions`, `select`) | `models/select.rs` (moves from E5.6)        | **Always constructed, catalog or not** (`index.ts:193`; handed to the handler at `:408`). Without a catalog, `select` is `isDefaultSelection(model) ? undefined : model`. With one it calls the `models` port's `resolve` and `list` synchronously, as `:84`–`:104` and `:56`–`:58` do, with `selectionModelFilter` and `executionModelId` from `@ace/models` ported beside it. `onModelUnavailable` is called before `ModelSelectionError`, and that error maps to `model_unavailable`. `prepare` (async) and `migrateCachedDefaults` stay E5.6's. |
+| `slot-reclaim.ts:24`–`:48`                                                                                            | `release/reclaim.rs` (moves from E5.6)      | The choice and the `idleDue` mark. The retire wake goes on the after-commit queue. Closing the session stays E5.6's.                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `apps/daemon/src/worktree-base.ts:13`–`:53`; `thread-fence.ts:102`                                                    | `commands/create.rs`, `commands/receipt.rs` | Pure; SQL with the same text.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `index.ts:599`–`:646`, `:921`–`:926`, `:1092`–`:1110`                                                                 | binding `engine/commands.rs`                | `spawn` still throws `Spawn requires thread.create or thread.prepare`. `permissions.narrow` and `parent` (E5.7, the ceiling) are stubs reached only with `parentThreadId`.                                                                                                                                                                                                                                                                                                                                                                          |
 
-### E5.4f
+### 4f
 
-| TypeScript                                                                                   | Rust              | Notes                                                                                                                                                                                                                                       |
-| -------------------------------------------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `index.ts:1300`–`:1384` (`work`)                                                             | `queue/worker.rs` | The sends lane's `run` (E5.1 step 11). Awaits stay where they are: `actor.flush()` first, then every check re-read after it. `delivery.run` (E5.5), `sessions.close` (E5.6), `switchReady` (E5.9) and `steerLane.yielded` (E5.5) are stubs. |
-| `index.ts:1256`–`:1277` (`wake`), `:1220` (`wakeQueued`), `:1225`–`:1254` (`releaseDormant`) | `queue/worker.rs` | `wake` checks `isHistoryWriting` and defers through `store.writable()`, as `:1260`–`:1271` does. Reaching `actor.stop`, `repo.evict` and the slot release is E5.2's and E5.3's API.                                                         |
-| `message-facts.ts:42`–`:87` (`threadCapabilities`, `readyForInput`)                          | `queue/ready.rs`  | `runsProviderWork` (`transition-history.ts`, E5.9), `repo.quiescent` and `acceptsPersonInput` (`ace-core`, `packages/core/src/person-input.ts:14`, open question 6) are called as their owners provide them.                                |
+| TypeScript                                                                                                                                                 | Rust                                            | Notes                                                                                                                                                                                                                                             |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.ts:1300`–`:1384` (`work`)                                                                                                                           | `queue/worker.rs`                               | After `actor.flush()` every check is re-read. `delivery.run` and `delivery.fail` (E5.5) and `sessions.close` (E5.6) are stubs: execution.                                                                                                         |
+| `index.ts:1220`–`:1277`                                                                                                                                    | `queue/worker.rs`                               | `wake` checks `isHistoryWriting` and defers through `store.writable()`, as `:1260`–`:1271` does.                                                                                                                                                  |
+| `message-facts.ts:42`–`:87`                                                                                                                                | `queue/ready.rs`                                |                                                                                                                                                                                                                                                   |
+| `steer-lane.ts:32`–`:45` (`isSteer`, `yielded`), `:106`–`:140` (`route`); `steer-yield.ts`'s `isPersonSteer`, `steerRestartsTurn`, `rootRun`, `steerRoute` | `steering/route.rs` (moves from E5.5)           | `work` calls `yielded` (`index.ts:1363`) before it picks an ordinary message, so it must not be a stub. `route` clears a stale `steerYield` on the actor, as `:135`–`:136` does. `run`, `steerNow`, `yieldTurn` and `markYieldedEnd` stay E5.5's. |
+| `switch-recovery.ts:6`–`:61` (`usageBlocked`, `switchReady`); `transition-history.ts:26` (`runsProviderWork`)                                              | `transitions/switch_ready.rs` (moves from E5.9) | Synchronous reads.                                                                                                                                                                                                                                |
 
-## The receipt path
+## The receipt dependencies
 
-Every function an ordinary receipt (create, prepare, send, Stop, archive, every queue command)
-reaches, with what E5.4 does with it. "Port" means E5.4 writes it in the named file (decision 2).
+What an ordinary receipt or the sends worker reaches synchronously, and what E5.4 does with each.
+"Port" is decision 1; "stub" is an owner's own command or execution.
 
-| Function (TypeScript)                                                                           | Reached by                                       | Owner | E5.4                                            | Sub-item |
-| ----------------------------------------------------------------------------------------------- | ------------------------------------------------ | ----- | ----------------------------------------------- | -------- |
-| `fenceSteer`, `admitSteer`, `queueSteerSelection` (`steer-selection.ts:20`, `:50`, `:96`)       | every send; `queue.edit`                         | E5.5  | port, `steering/selection.rs`                   | d        |
-| `steerLostRun` (`steer-selection.ts:36`)                                                        | delivery only                                    | E5.5  | port with the rest of the file                  | d        |
-| `SteerNotes` (`steer-notes.ts`)                                                                 | `queue.edit` to steer; queue reads (`fell_back`) | E5.5  | port, `steering/notes.rs`                       | d        |
-| `recordSwitch`, `resolveSwitch` (`switch-admission.ts`)                                         | a steer or send that changes model or options    | E5.9  | stub                                            | d        |
-| `Recovery` command path (above)                                                                 | every queue command and send                     | E5.8  | port, `queue/holds.rs`                          | d        |
-| `RestartStreaks.clear` (`restart-resume.ts`)                                                    | every send; the person's Resume                  | E5.8  | port (one statement)                            | d        |
-| `Recovery.fire`, `automatic` (`recovery.ts:579`–`:700`)                                         | a deadline's timer                               | E5.8  | stub (reported, never thrown)                   | d        |
-| `wakeFor` (`snooze-wake.ts:6`)                                                                  | every `queue.set`                                | E5.10 | port, `queue/wake.rs`                           | a        |
-| `cancelPending`, `cancelDelegatedInputs` (`stop-intents.ts:5`, `:72`)                           | every Stop; delegation cancel                    | E5.10 | port, `liveness/stop_intents.rs`                | e        |
-| `targetsRoot` (`stop-scope.ts:10`)                                                              | every interrupt                                  | E5.10 | port                                            | e        |
-| `threadTree` (`thread-liveness.ts:13`)                                                          | archive with `beforeSeq`                         | E5.10 | stub                                            | e        |
-| `transitions.releaseGuards` (`transition-state.ts:102`)                                         | a Stop with a pending merge or fork intent       | E5.9  | stub                                            | e        |
-| `transitions.get`, `set`, `remember`, `guarded`, `guardOwner` (`transition-state.ts:87`–`:196`) | every create; every send                         | E5.9  | port, `transitions/state.rs`                    | e        |
-| `transitions.history.grant` (`HandoffAccess`)                                                   | create with `handoffFrom`                        | E5.9  | stub                                            | e        |
-| `acceptTransition` (`transition-handler.ts:29`)                                                 | `thread.fork`, `thread.merge`, `thread.switch`   | E5.9  | stub for those three; others pass               | e        |
-| `permissions.ensure`, `state`, `read` (`permissions.ts:115`–`:124`)                             | every create                                     | E5.7  | port, `access/storage.rs`                       | e        |
-| `permissions.parent`, `narrow`, `accept`, `acceptNative`                                        | spawn with a parent; permission and mode set     | E5.7  | stub                                            | e        |
-| `interactions.outcome`, `owner`; `validResolution`                                              | `interaction.resolve`                            | E5.7  | stub for the whole `interaction.resolve` branch | e        |
-| `adoptImportedThread` (`imported-thread.ts`)                                                    | a send to an imported thread                     | E5.8  | stub                                            | d        |
-| `models.select` (`models.ts`)                                                                   | create with a `models` port                      | E5.6  | stub                                            | e        |
-| `repo.reserve` → `reclaimIdleSlot` (`slot-reclaim.ts:24`)                                       | a receipt at capacity                            | E5.6  | stub (only when every slot is taken)            | e        |
-| `repo.createSession`, `createUnpreparedSession`, `session`, `backend`                           | every create; capability reads                   | E5.3  | call `Repo`                                     | e        |
+| Function                                                                                                     | Reached by                                                         | Owner       | E5.4                          | Round |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ | ----------- | ----------------------------- | ----- |
+| `SteerNotes`                                                                                                 | queue reads; `queue.edit` to steer                                 | E5.5        | port                          | 4a    |
+| `wakeFor`                                                                                                    | every `queue.set`                                                  | E5.10       | port                          | 4a    |
+| session metadata rows                                                                                        | every create; every capability and backend read                    | E5.6        | port                          | 4c    |
+| transition metadata and guards; handoff grant                                                                | every create and send; `admitSteer`                                | E5.9        | port                          | 4c    |
+| readiness reads, `quiescent`, `acceptsPersonInput`                                                           | `admitSteer`; `readyForInput`                                      | E5.9        | port                          | 4c    |
+| `permissions.ensure`                                                                                         | every create                                                       | E5.7        | port                          | 4c    |
+| `fenceSteer`, `admitSteer`, `queueSteerSelection`, `steerLostRun`                                            | every send; `queue.edit`                                           | E5.5        | port                          | 4d    |
+| `resolveSwitch`, `recordSwitch`                                                                              | a steer that changes model or options                              | E5.9        | port                          | 4d    |
+| `Recovery`'s command path; `RestartStreaks.clear`                                                            | every queue command and send                                       | E5.8        | port                          | 4d    |
+| `cancelPending`, `cancelDelegatedInputs`, `targetsRoot`, `releaseGuards`                                     | every Stop; delegation cancel                                      | E5.10, E5.9 | port                          | 4d    |
+| `EngineModels` synchronous calls                                                                             | every create; `validateCreation`                                   | E5.6        | port                          | 4e    |
+| `reclaimIdleSlot`'s choice                                                                                   | a receipt at capacity                                              | E5.6        | port                          | 4e    |
+| `yielded`, `route`, `isSteer`, steer-yield's pure rules; `switchReady`, `runsProviderWork`                   | every pass of the sends worker                                     | E5.5, E5.9  | port                          | 4f    |
+| `Recovery.fire`, `automatic`                                                                                 | a deadline's timer                                                 | E5.8        | stub (reported, never thrown) | 4d    |
+| `acceptTransition`                                                                                           | `thread.fork`, `thread.merge`, `thread.switch`                     | E5.9        | stub                          | 4e    |
+| `permissions.accept`, `acceptNative`, `narrow`, `parent`; `interactions.outcome`, `owner`; `validResolution` | permission or mode set; spawn with a parent; `interaction.resolve` | E5.7        | stub                          | 4e    |
+| `adoptImportedThread`                                                                                        | a send to an imported thread                                       | E5.8        | stub                          | 4d    |
+| `threadTree`                                                                                                 | archive with `beforeSeq`                                           | E5.10       | stub                          | 4e    |
+| `delivery.run`, `delivery.fail`, `sessions.close`, `models.prepare`                                          | the sends worker; session opening                                  | E5.5, E5.6  | stub                          | 4f    |
 
-A stub's failure inside the receipt is a thrown `EngineError`, so the shell's `store.atomic`
-rolls the receipt back and the command gets the JS error. It is never a `CommandResult`. The
-switch is off by default until E5.10, so no person sees it.
+A stub reached inside a receipt throws, so the shell's `store.atomic` rolls the receipt back and
+the caller gets the JS error. It is never a `CommandResult`. The switch is off by default until
+E5.10, so no person sees one.
 
 ## The receipt, rule by rule
 
-`engineHandler.handle` (`handler.ts:55`–`:556`) checks in this order. The first that applies wins,
-and a refusal commits nothing (behaviour.md §3). The Rust keeps the order exactly, because tests
-pin which refusal wins when two apply.
+`engineHandler.handle` (`handler.ts:55`–`:556`) checks in this order, and the first that applies
+wins. Tests pin which refusal wins when two apply, so the order is contract.
 
-1. **Guest, then host** (`:57`–`:64`), for any payload with a `threadId`: `guestRefusal`, then
-   `hostRefusal`.
-2. **Imported thread** (`:65`–`:76`): a `thread.send` to an `imported` thread adopts it; if
-   adoption throws, `history_unavailable`.
+1. **Guest, then host** (`:57`–`:64`), for any payload with a `threadId`.
+2. **Imported thread** (`:65`–`:76`): a `thread.send` to an `imported` thread adopts it; if that
+   throws, `history_unavailable`.
 3. **Deleting** (`:77`–`:82`): `thread_deleting`.
-4. **Retired Cursor CLI thread** (`:83`–`:95`): a thread with `continuation`, any type but
-   `thread.archive` and `thread.fork`.
-5. **Provider disabled** (`:97`–`:118`), only when a `providerEnabled` port was given.
-6. **Workspace reserved** (`:119`–`:121`): `workspace_change_in_progress`.
-7. **Queue commands** (`:122`–`:123`): any `queue.*`, `thread.resume` or `thread.limit` goes to
-   `handleQueue` and returns its result.
+4. **Retired Cursor CLI thread** (`:83`–`:95`): any type but `thread.archive` and `thread.fork`.
+5. **Provider disabled** (`:97`–`:118`), only with a `providerEnabled` port.
+6. **Workspace reserved** (`:119`–`:121`).
+7. **Queue commands** (`:122`–`:123`) → `handleQueue`.
 8. **Transitions** (`:124`–`:134`).
-9. **Permission and mode** (`:136`–`:153`): `thread_not_found` without state; else the permission
-   result, or `not_implemented` when it declines.
+9. **Permission and mode** (`:136`–`:153`).
 10. **Workspace change preparing or uncertain** (`:154`–`:163`).
-11. **Size** (`:164`–`:170`), for `thread.send` and `thread.create` only: more than 64 input parts,
-    or `boundedJson(command, 262144)` failing, is `message_too_large`.
-12. **Type list** (`:191`–`:204`): anything else is `not_implemented`.
-13. **Inside one `store.atomic`** (`:205`): create and prepare (`:206`–`:375`), or the thread
-    checks (`:376`–`:445`), or the interaction and task targets (`:446`–`:478`); then the
-    admission tail (`:480`–`:553`).
+11. **Size** (`:164`–`:170`), for `thread.send` and `thread.create`: more than 64 parts, or
+    `boundedJson(command, 262144)` failing.
+12. **Type list** (`:191`–`:204`): else `not_implemented`.
+13. **One `store.atomic`** (`:205`): create and prepare (`:206`–`:375`), or the thread checks
+    (`:376`–`:445`), or the interaction and task targets (`:446`–`:478`); then the admission tail
+    (`:480`–`:553`).
 
 The admission tail, in order:
 
-- Cursor SDK sends: `boundedJson(p.input, maxInputBytes)` → `provider_input_budget_exceeded`;
-  `inputCapacity(maxPendingInputs)` → `provider_input_queue_full` (`:480`–`:487`).
-- `recovery.admit`: at 256 inputs in flight, or over 256 KiB as `Buffer.byteLength(JSON.stringify(command))`,
-  `queue_capacity_exceeded`. It drops a restated selection, then fills an omitted `thread.send`
-  delivery from the thread's `followUpBehavior` (`:489`; `recovery.ts:130`–`:165`).
+- Cursor SDK sends: `provider_input_budget_exceeded`, then `provider_input_queue_full`
+  (`:480`–`:487`).
+- `recovery.admit` (`:489`; `recovery.ts:130`–`:150`): it **clears the restart streak first**
+  (`:133`), then refuses with `queue_capacity_exceeded` at 256 inputs in flight or over 256 KiB as
+  `Buffer.byteLength(JSON.stringify(command))`, then drops a restated selection and fills an
+  omitted delivery from `followUpBehavior`.
 - `fenceSteer`, then `admitSteer` (`:492`–`:494`).
-- For `thread.send`: `retireUncertainInputs`, `releaseInterruptedHold`, `releaseLimitHold`, in
-  that order (`:500`–`:504`).
-- Reserve a slot unless the send is held (`:505`–`:506`): `engine_capacity_exceeded`.
-- A thread Stop (`thread.interrupt` whose target is the root, `stopsOneAgent` false): cancel
-  pending (`cancelPending`), then set the queue `{paused: true, reason: "stopped", limited: false,
-resetAt: null, resumeAt: null, timerAction: null, holdToken: +1}`, then apply `limit.cleared` for
-  every limited agent without `externalStatus` (`:510`–`:535`).
-- `repo.add`, `acceptInput`, `queueSteerSelection`; for create and send, `notifyNamingPrompt`,
-  an empty `queue.set` (a revision bump with its `queue.updated`), `recovery.sync` (`:536`–`:543`).
-- The wakes (`:545`–`:548`): the thread, then each released thread. They go on the outermost
-  transaction's after-commit queue (E5.1 step 3), never run inline.
-- Result: `{commandId, ok: true, threadId}`.
+- For `thread.send`: `retireUncertainInputs`, `releaseInterruptedHold`, `releaseLimitHold`
+  (`:500`–`:504`).
+- Reserve a slot unless the send is held: `engine_capacity_exceeded` (`:505`–`:506`).
+- A thread Stop (`:510`–`:535`): `cancelPending`, then hold the queue `stopped` (`limited: false`,
+  `resetAt`, `resumeAt` and `timerAction` cleared, `holdToken + 1`), then `limit.cleared` for each
+  limited agent without `externalStatus`.
+- `repo.add`, `acceptInput`, `queueSteerSelection`; for create and send, `notifyNamingPrompt`, an
+  empty `queue.set` (a revision bump with its `queue.updated`), `recovery.sync` (`:536`–`:543`).
+- Wakes for the thread, then each released thread (`:545`–`:548`).
+- `{commandId, ok: true, threadId}`.
+
+### What a refusal commits
+
+A refusal is a `CommandResult`, not a throw, so the transaction around it **commits**. Writes the
+receipt made before refusing stay. The Rust returns `Ok(result)` and commits the same way. Known
+writes before a refusal:
+
+- `queue_capacity_exceeded`: the restart streak is already cleared (`recovery.ts:133`).
+- `engine_capacity_exceeded` on a send: uncertain inputs are retired, a stopped or restart hold
+  and a limit hold are released, each with its `queue.updated` (`handler.ts:500`–`:506`).
+- `history_unavailable` comes after a failed adoption; any successful adoption followed by a later
+  refusal stays adopted (`:65`–`:76`).
+- In a queue command, refusals come before its writes, except a resend of a continuation, which
+  checks capacity before any write.
+- `reserve` in a create (`:263`) is the last check before writes.
+
+Refusals before step 13 and the prelude's refusals write nothing. Only a throw (a stub, a store
+error, a policy throwing after `accept`) rolls back.
+
+### Receipt effects are commit-scoped
+
+Every receipt read and write goes through the `Tx` of the shell's open transaction: the outer
+stack, with the TypeScript's inner `store.atomic` calls as nested savepoints, and no statement
+outside it. No Rust cache holds queue, intent or journal state (prepared statements only). Every
+effect outside the database goes on the outermost transaction's after-commit queue (E5.1 step 3),
+is dropped on rollback, and runs once, after the shell's publication:
+
+| Effect                                              | TypeScript today                                                                                                                             | Native                                                                                                    |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| thread and released-thread wakes                    | `queueMicrotask` (`handler.ts:545`, `queue-commands.ts`, `recovery.ts:816`)                                                                  | after-commit wake                                                                                         |
+| `schedule`: cancel the deadline timer, arm the next | immediately, inside the receipt (`recovery.ts:618`–`:627`)                                                                                   | after commit, reading `nextDeadline` then; outside any transaction, at once                               |
+| `onNamingPrompt` (title and branch generation)      | inside the receipt; `ThreadTitles.namingPrompt` marks `attempted` at once and starts its work by microtask (`../thread-titles.ts:97`–`:118`) | the port is called after commit, so a rolled-back receipt never names its thread or burns its one attempt |
+| the reclaim's retire wake                           | `ports.retire` inside the receipt (`slot-reclaim.ts:44`)                                                                                     | after-commit wake                                                                                         |
+
+On rollback, in-memory marks the receipt made are undone the way E5.3's rollback undoes resident
+state (E5.3 step 8). The reclaim's `idleDue` and the repository's `retiring` set are E5.3's and
+E5.2's, so 4e asks those reviews to confirm.
+
+The naming change differs from TypeScript, which names a thread whose receipt rolled back. No (a)
+file depends on that, and the seam test below pins the native behaviour.
 
 ### Error texts, byte-exact
 
-A `CommandResult` crosses as JSON and the shell parses it, so key order is the order below and
-fields that are absent stay absent (never `null`). `ok: false` results are `{commandId, ok, error}`
-plus, where shown, `code`, `title`, `detail` in that order.
+A `CommandResult` crosses as JSON, so key order is the order shown here, and absent fields stay
+absent (never `null`). Refusals are `{commandId, ok, error}`, plus `code`, `title` and `detail`
+in that order where shown.
 
-| Error                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Extra fields                                                                                                                                             | Source                         |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
-| `guest_thread`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | `title: "No agent here"`, `detail: "This thread holds work from ${guest.name \|\| "another machine"}; it has no agent here."` (an empty name falls back) | `guest-admission.ts:26`–`:32`  |
-| `host_thread` (Spade's host thread; types in `startsAgent` plus `thread.fork`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | `title: "Spade's own thread"`, `detail: "Spade works through this thread; nothing runs in it."`                                                          | `guest-admission.ts:49`–`:55`  |
-| `host_thread` (`spade-bot`, every command)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | `title: "A Spade bot's old thread"`, `detail: "Spade bots no longer run here; talk to the bot in Spade."`                                                | `guest-admission.ts:61`–`:67`  |
-| `cursor_cli_retired`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | `title: "This Cursor thread is read-only"`, `detail: "Continue in a new thread to carry its history to Cursor."`                                         | `handler.ts:89`–`:94`          |
-| `interaction_expired`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | `code: "interaction_expired"`, `title: "Question expired"`, `detail: "The provider disconnected. This question can no longer be answered."`              | `handler.ts:171`–`:189`        |
-| `interaction_unavailable`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | `code: "interaction_unavailable"`, `title: "Question unavailable"`, `detail: "This question is no longer active."`                                       | same                           |
-| `history_unavailable`, `thread_deleting`, `provider_disabled`, `workspace_change_in_progress`, `thread_not_found`, `not_implemented`, `message_too_large`, `thread_creation_in_progress`, `model_unavailable`, `workspace_preparation_mismatch`, `engine_capacity_exceeded`, `thread_changed`, `thread_transition_in_progress`, `unsupported_goal`, `agent_not_found`, `stale_interrupt`, `unsupported_child_control`, `already_resolved`, `invalid_resolution`, `task_not_found`, `task_not_stoppable`, `provider_input_budget_exceeded`, `provider_input_queue_full`, `queue_capacity_exceeded` | none                                                                                                                                                     | `handler.ts`                   |
-| `invalid_command`, `pr_requires_worktree`, `thread_exists`, `message_too_large`, `acp_identity_required`, `provider_unavailable`, `workspace_not_found`, `workspace_unavailable`, `workspace_change_in_progress`, `conflicting_account_selection`, `permission_mode_unsupported`, `handoff_source_not_found`, `queue_capacity_exceeded`, `provider_input_budget_exceeded`, `launch_options_unsupported`                                                                                                                                                                                           | none (in `validateCreation`'s order, `creation-validation.ts:23`–`:128`)                                                                                 | `creation-validation.ts`       |
-| `invalid_queue_command`, `thread_not_found`, `queue_conflict`, `message_already_claimed`, `uncertain_delivery`, `message_too_large`, `invalid_queue_entry`, `message_not_uncertain`, `engine_capacity_exceeded`, `invalid_queue_position`, `sdk_account_migration_unsupported`, `acp_account_fixed`, `migration_unavailable`, `no_scheduled_resume`, `switch_selection_required`, `reset_time_unknown`, `recovery_in_progress`                                                                                                                                                                    | none                                                                                                                                                     | `queue-commands.ts`            |
-| `thread_exists`, `permission_parent_not_found`, an `AccessError` code or `permission_ceiling_unverifiable`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | none                                                                                                                                                     | `spawn`, `index.ts:621`–`:640` |
+| Error                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Extra fields                                                                                                                                | Source                         |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| `guest_thread`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | `title: "No agent here"`, `detail: "This thread holds work from ${guest.name \|\| "another machine"}; it has no agent here."`               | `guest-admission.ts:26`–`:32`  |
+| `host_thread` (Spade's host thread)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | `title: "Spade's own thread"`, `detail: "Spade works through this thread; nothing runs in it."`                                             | `guest-admission.ts:49`–`:55`  |
+| `host_thread` (`spade-bot`, every command)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | `title: "A Spade bot's old thread"`, `detail: "Spade bots no longer run here; talk to the bot in Spade."`                                   | `guest-admission.ts:61`–`:67`  |
+| `cursor_cli_retired`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | `title: "This Cursor thread is read-only"`, `detail: "Continue in a new thread to carry its history to Cursor."`                            | `handler.ts:89`–`:94`          |
+| `interaction_expired`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | `code: "interaction_expired"`, `title: "Question expired"`, `detail: "The provider disconnected. This question can no longer be answered."` | `handler.ts:171`–`:189`        |
+| `interaction_unavailable`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | `code: "interaction_unavailable"`, `title: "Question unavailable"`, `detail: "This question is no longer active."`                          | same                           |
+| `history_unavailable`, `thread_deleting`, `provider_disabled`, `workspace_change_in_progress`, `thread_not_found`, `not_implemented`, `message_too_large`, `thread_creation_in_progress`, `model_unavailable`, `workspace_preparation_mismatch`, `engine_capacity_exceeded`, `thread_changed`, `thread_transition_in_progress`, `unsupported_goal`, `agent_not_found`, `stale_interrupt`, `unsupported_child_control`, `already_resolved`, `invalid_resolution`, `task_not_found`, `task_not_stoppable`, `provider_input_budget_exceeded`, `provider_input_queue_full`, `queue_capacity_exceeded` | none                                                                                                                                        | `handler.ts`                   |
+| `invalid_command`, `pr_requires_worktree`, `thread_exists`, `message_too_large`, `acp_identity_required`, `provider_unavailable`, `workspace_not_found`, `workspace_unavailable`, `workspace_change_in_progress`, `conflicting_account_selection`, `permission_mode_unsupported`, `handoff_source_not_found`, `queue_capacity_exceeded`, `provider_input_budget_exceeded`, `launch_options_unsupported`                                                                                                                                                                                           | none, in `validateCreation`'s order (`creation-validation.ts:23`–`:128`)                                                                    | `creation-validation.ts`       |
+| `invalid_queue_command`, `thread_not_found`, `queue_conflict`, `message_already_claimed`, `uncertain_delivery`, `message_too_large`, `invalid_queue_entry`, `message_not_uncertain`, `engine_capacity_exceeded`, `invalid_queue_position`, `sdk_account_migration_unsupported`, `acp_account_fixed`, `migration_unavailable`, `no_scheduled_resume`, `switch_selection_required`, `reset_time_unknown`, `recovery_in_progress`                                                                                                                                                                    | none                                                                                                                                        | `queue-commands.ts`            |
+| `thread_exists`, `permission_parent_not_found`, an `AccessError` code or `permission_ceiling_unverifiable`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | none                                                                                                                                        | `spawn`, `index.ts:621`–`:640` |
 
-Successes: `{commandId, ok: true, threadId}` for create, prepare, send and every thread command;
-`{commandId, ok: true}` (no `threadId`) for archive and every queue command.
+Successes are `{commandId, ok: true, threadId}` for create, prepare, send and the thread commands,
+and `{commandId, ok: true}` for archive and every queue command.
 
-Strings that are not `CommandResult`s, and stay byte-exact:
+Not `CommandResult`s, and byte-exact too:
 
-- `admitCreation` returns a string: `daemon_shutting_down`, `engine_starting`, then
+- `admitCreation` returns strings: `daemon_shutting_down`, `engine_starting`, then
   `validateCreation`'s error, then `acquire`'s `invalid_command`, `thread_creation_in_progress`,
-  `thread_exists`, `engine_capacity_exceeded` (`creation-admissions.ts:19`–`:24`).
-- `queuePage` **throws** `Error("queue_conflict")`, `Error("queue_revision_required")`,
-  `Error("invalid_queue_cursor")`, in that order of checks (`queue-store.ts:269`–`:279`). The
-  facade throws a plain `Error` with that message, because callers (`services/recovery.ts:148`)
-  match it.
-- Stored intent errors: `Cancelled before delivery` (Stop), `Cancelled by queue pause`,
-  `Removed from queue`; `commandFailure` falls back to `Not delivered` and `inputFate` to `Not sent`.
+  `thread_exists`, `engine_capacity_exceeded`.
+- `queuePage` **throws** plain `Error`s, `queue_conflict`, `queue_revision_required` and
+  `invalid_queue_cursor`, checked in that order (`queue-store.ts:269`–`:279`). Callers match the
+  message (`services/recovery.ts:148`).
+- Stored intent errors: `Cancelled before delivery`, `Cancelled by queue pause`,
+  `Removed from queue`. `commandFailure` falls back to `Not delivered` and `inputFate` to
+  `Not sent`.
 - Thrown inside the engine: `Missing queue metadata`, `Invalid queue entry`,
   `Invalid intent identity`, `Provider reused an input message identity for a different command`,
-  and the input-text errors listed under E5.4b.
+  and 4b's input-text errors.
 
 ### Commands as stored
 
-The `intents.payload` column is `JSON.stringify(command)`. Where the TypeScript ran the command
-through `Command.parse` first (`recovery.admit`, `withoutRestatedSelection`, `admitSteer`,
-`queue.edit`, `queue.resend`'s replacement, `acquire`'s normalized command, `spawn`, and
-`personCommand` in the shell), zod strips unknown keys, applies defaults and orders keys as the
-schema does (porting rule 8). Where it did not (a `thread.create` that `validateCreation` returns
-unchanged), the stored text keeps the command as it arrived. The Rust does the same: decode with
-`ace-protocol`'s `Command` and serialize in schema order exactly where the TypeScript parsed, and
-pass the arrived `ace_json::Value` through untouched where it did not. Byte length matters,
-because `queuePage`'s 512 KiB budget and the admission budgets measure it.
+`intents.payload` is `JSON.stringify(command)`. Where the TypeScript ran `Command.parse` first,
+zod strips unknown keys, applies defaults and orders keys by the schema (rule 8). Those sites are
+`recovery.admit`, `withoutRestatedSelection`, `fenceSteer`, `admitSteer`, `queue.edit`, the
+`queue.resend` replacement, `acquire`'s normalized command, `spawn`, and `personCommand` in the
+shell. Where it did not (a `thread.create` that `validateCreation` returns unchanged), the stored
+text is the command as it arrived. The Rust decodes with `ace-protocol`'s `Command` and serializes
+in schema order exactly at those sites, and passes the arrived `ace_json::Value` through
+elsewhere. Byte length is observable: `queuePage`'s 512 KiB budget and the admission budgets
+measure it.
 
 ## Creation
 
 - **Two phases.** `admitCreation` (`index.ts:1095`) validates, then `acquire` reserves a slot and
-  holds the thread id for an owner across the server's asynchronous Git preparation. The receipt
-  (`handler.ts:209`) accepts only the same owner with the same command: `authorized` compares the
-  owner by identity and the command by `JSON.stringify`, or accepts an unowned command when no
-  owner holds the id (`creation-admissions.ts:42`–`:48`).
-- **The owner across the boundary.** The facade's `admitCreation` creates the owner as a fresh
-  JS object, gives it a numeric id from a counter, keeps a `WeakMap<object, number>`, and passes
-  the id to Rust. `CommandContext.creationOwner` is mapped back through the same map before the
-  binding call. `release()` calls the binding with the id, and Rust deletes the owner only if it
-  still matches (`:31`–`:35`). An object the map doesn't know is "no owner".
-- **`validateCreation`** (`creation-validation.ts:14`–`:129`) runs in both phases, in its order.
-  Its `directory` is the `workspaceDirectory` port, which throws for a missing or non-directory
-  path (`workspace_unavailable`). The handoff branch (`:84`–`:104`) calls the `portableHandoff`
-  port with the source thread id and `readBoundedItemPage(id, MAX_SAFE_INTEGER, 100, 262144)`'s
-  bounds, and gets back what `portableContext` returns. The port reads the page itself, so no
-  history crosses into Rust.
-- **The receipt's create** (`handler.ts:206`–`:375`) keeps its order: authorized, validate, model
-  selection, the pull-request and prepared-workspace checks, slot (skipped for `thread.prepare`),
-  `createEngineThread`, the forge links through the `linkCreatedThread` port (PR link and status
-  when prepared from a PR; the issue link for `thread.create` with `issue`), the handoff context
-  and its synthetic `handoff:<commandId>` input, the history grant (stub). A `thread.prepare`
-  releases its slot and returns at `:370`.
-- **`createEngineThread`** (`create-thread.ts`) writes, in order: `permissions.ensure` (twice, as
-  today: `:33` and inside the `Thread`), the `Thread` (parsed, so schema order), `thread.hasSentMessage = false`,
-  `repo.save(state, [thread.created])`, the session row (prepared or unprepared), `queue.ensure`,
-  `transitions.set`, `transitions.remember`.
-- **Title.** `p.title`, else `provisionalTitle(p.input)` for create, else `New thread`. The source
-  is `agent` for a prepare that says so, `person` for any explicit title, else `provisional`
-  (`:271`–`:279`).
+  holds the id across the server's Git preparation. The receipt accepts the same owner with the
+  same command (`JSON.stringify` equality), or no owner when nothing holds the id. An unknown
+  owner is refused ("Amendments to E5.1").
+- **Validation** (`creation-validation.ts:14`–`:129`) runs in both phases, in its order, with the
+  catalog-backed capabilities at `:62`: `models.permissionCapabilities(provider, instanceId,
+base)`, which reads the catalog's `list` when a catalog is configured.
+- **The receipt's create** (`handler.ts:206`–`:375`), in order: `authorized`; validate; `select`
+  (`:227`–`:237`, with the catalog); the pull-request and prepared-workspace checks; the slot
+  (skipped for `thread.prepare`); `createEngineThread`; `linkCreatedThread`; the PR workspace
+  context; the handoff context and its synthetic `handoff:<commandId>` input; the history grant.
+  A prepare releases its slot and returns at `:370`.
+- **`createEngineThread`** writes, in order: `permissions.ensure`, the parsed `Thread` (with a
+  second `ensure` inside it, as today), `hasSentMessage = false`, `save(state, [thread.created])`,
+  the session row, `queue.ensure`, `transitions.set`, `transitions.remember`.
+- **Title**: `p.title`, else `provisionalTitle(p.input)` for create, else `New thread`. The source
+  is `agent` for a prepare that says so, `person` for any explicit title, else `provisional`.
 
 ## Queue semantics
 
 - **Queued and steered.** `delivery: "queue"` waits for the root's run to end; `"steer"` joins the
-  running turn, and with no turn running starts the next one (ADR 0053, 2026-10-17 and -18). An
-  omitted delivery on `thread.send` becomes the thread's `followUpBehavior` (default `queue`) at
-  admission. `thread.create` and every non-send intent store `queue` (`intents.ts:84`). A steer
-  aimed at a run that has ended, or at a run other than the one now running, queues instead
-  (`fenceSteer`). A steer that changes model or options is split by `admitSteer` into the send
-  and a queued switch.
-- **What counts.** `pendingCount` (`queue-store.ts:186`) counts sends and creates waiting
-  (`pending`, `queued`) plus uncertain sends and continuations, but **not** child results
-  (`trigger = 'subagent_result'`). A live continuation adds one unless it is uncertain.
-  `waitingSends` counts child results too. Snapshot, page, `head`, `editable` and `move` never
-  show or touch a child result. `prioritizeSubagentResult` puts a child result at position 0
-  without a revision bump.
-- **Capacity.** 256 inputs in flight per thread (`maxMessages`, counted by `inputCapacity`:
-  waiting, sending, or sent and awaiting acknowledgement; an uncertain one does not count), 256
-  KiB per command, at most 64 parts per message.
-- **Revision.** Every `queue.set` increments `revision` and appends `queue.updated` (with a snooze
-  wake first when one applies), so an empty patch is a revision bump. Every queue command
-  compares `expectedRevision` inside the receipt (`queue_conflict`). Claimed messages are
-  immutable (`message_already_claimed`).
-- **Holds.** `paused` with a `reason`: `stopped`, `restart`, `manual`, `limit`, `snooze`,
-  `uncertain`, `not_sent`, `model_unavailable`. `limited`, `resetAt`, `resumeAt` and `timerAction`
-  (`resume`, `snooze`, `migrate`, `clear`) hold the limit and its deadline. `holdToken` increments
-  on every hold change, so a continuation holding an older token does nothing (`owns`, `begin`,
-  `release`). `lastFailure` clears when a hold is released or replaced by a reason other than a
-  failed send. `exited` follows `exitedAfter` (`queue-store.ts:37`) and is shown only when true.
-  `shown` hides `resumeAt` for a `clear` deadline.
-- **What releases a hold.**
-  - A new `thread.send` releases `stopped` and `restart` holds, unless the queue is limited, has
-    uncertain inputs, is recovering, or is a Cursor SDK `restart` hold (`releaseInterruptedHold`).
-    It also releases a `limit` or `snooze` hold, or the `clear` marker (`manual` with `resetAt`),
-    unless uncertain or recovering (`releaseLimitHold` → `lift`). And it retires every uncertain
-    input, keeping a Cursor SDK continuation (`retireUncertainInputs`).
-  - Removing or editing the head message of a `not_sent` or `model_unavailable` hold releases it,
-    if there is no continuation and no limit (`queue-commands.ts:37`–`:43`).
-  - Resending the last uncertain input releases an `uncertain` hold, never a pause, limit or
-    continuation (`:130`–`:141`; `reconcileUncertainty`).
-  - `queue.pause` fails pending resume intents (`Cancelled by queue pause`) and holds `manual`,
-    keeping `resetAt` only while limited.
-  - `thread.resume`, `queue.resume` and `thread.limit` (resume now, switch, migrate) add a
-    recovery intent and hold the queue under its current reason (or `manual`) until it runs.
-    `resume_at_reset` and `snooze_until_reset` set a deadline from the account's reset, else the
-    stored `resetAt`, refusing one in the past (`reset_time_unknown`). `cancel_resume` turns a
-    scheduled resume back into a `clear`.
-- **Persistence.** Everything above is in `engine_queue`, `intents`, `engine_queue_attachments`
-  and `engine_steer_notes`, written in the receipt's transaction. A queued message is not in the
-  transcript: its user item is created when delivery claims it (`admitInput`, ADR 0065).
-  Attachments are tracked per live intent and pruned when the intent is done or failed and no
-  longer awaiting or uncertain, which is what `retainsAttachment` reads.
-- **Stale inputs** (`stale-inputs.ts`). An uncertain input stays in the queue as "may have run"
-  and holds it (`uncertain`) until it is retired. Two things retire it: the provider ending a turn
-  in the session it was submitted to (`retireEndedTurnInputs`, called from the fold), or a new
-  message (`retireUncertainInputs`). A retired input clears `uncertain` and is pruned; it is never
-  sent again, and its transcript notice stays. Only the `uncertain` hold lifts; a limit or
-  continuation reconciles its own reason, and any other hold gets a revision bump so clients drop
-  the entry.
-- **Input fate** (`input-fate.ts:43`), checked in this order: replaced (by the resend's command),
-  uncertain, waiting (`pending`/`queued`), delivered with its run, failed (`removed` for
-  `Removed from queue`), delivered (written), else by intent status: unknown, sending (`running`),
-  delivered (`done`).
+  running turn, or starts the next turn when none runs (ADR 0053, 2026-10-17 and -18). An omitted
+  delivery on `thread.send` becomes `followUpBehavior` (default `queue`) at admission. Other
+  intents store `queue`.
+- **Fencing a steer** (`fenceSteer`, `steer-selection.ts:20`–`:30`). Only a send with a `runId`
+  is fenced. `runId: null` means the sender saw no run, so it is lost when a root run is active
+  now. A string is lost unless that run is the active root run and still `active`. A lost steer is
+  re-parsed without `runId`, and its delivery becomes `queue` only if the sender gave one: an
+  omitted delivery stays omitted, so `followUpBehavior` decides it later.
+- **Splitting a selecting steer** (`admitSteer`, `:50`–`:93`). A steer that names a model or
+  options, on a provider that can steer, while the tree is not quiescent and a slot is reserved,
+  becomes the plain send plus a `thread.switch` (`<commandId>:selection`). Its selection builds on
+  a queued switch's selection, else the thread's transition selection, else the session. It is
+  recorded and placed right after the send. Otherwise, including when `resolveSwitch` returns a
+  string, the **fallback** is the same send with `delivery: "queue"`.
+- **What counts.** `pendingCount` counts waiting sends and creates plus uncertain sends and
+  continuations, never child results (`trigger = 'subagent_result'`), plus one for a live
+  continuation that isn't uncertain. `waitingSends` includes child results. Snapshot, page,
+  `head`, `editable` and `move` never show or touch a child result.
+  `prioritizeSubagentResult` sets position 0 with no revision bump.
+- **Capacity**: 256 inputs in flight (`inputCapacity`; an uncertain input does not count), 256
+  KiB per command, 64 parts per message.
+- **Revision**: every `queue.set` increments `revision` and appends `queue.updated`, with a snooze
+  wake first when one applies, so an empty patch is a bump. Every queue command compares
+  `expectedRevision` (`queue_conflict`). Claimed messages are immutable
+  (`message_already_claimed`).
+- **Holds**: `paused` with a reason of `stopped`, `restart`, `manual`, `limit`, `snooze`,
+  `uncertain`, `not_sent` or `model_unavailable`. `limited`, `resetAt`, `resumeAt` and
+  `timerAction` hold a limit and its deadline. `holdToken` increments on every hold change (`owns`,
+  `begin`, `release`). `lastFailure` clears when a hold is released or replaced by a reason other
+  than a failed send. `exited` follows `exitedAfter` and shows only when true. `shown` hides
+  `resumeAt` for a `clear` deadline.
+- **What releases a hold**:
+  - A new `thread.send` releases a `stopped` or `restart` hold unless limited, uncertain,
+    recovering or a Cursor SDK `restart` (`releaseInterruptedHold`). It also lifts a `limit` or
+    `snooze` hold, or the `clear` marker, unless uncertain or recovering (`releaseLimitHold`). And
+    it retires every uncertain input, keeping a Cursor SDK continuation.
+  - Removing or editing the head of a `not_sent` or `model_unavailable` hold releases it, without
+    a continuation or limit (`queue-commands.ts:37`–`:43`).
+  - Resending the last uncertain input releases only an `uncertain` hold.
+  - `queue.pause` fails pending resume intents with `Cancelled by queue pause` and holds `manual`.
+  - `thread.resume`, `queue.resume` and `thread.limit` add a recovery intent and hold under the
+    current reason, or `manual`. A reset-timed action takes the account's reset, else the stored
+    one, and refuses one in the past. `cancel_resume` turns a scheduled resume into a `clear`.
+- **Stop** (`cancelPending`, `stop-intents.ts:5`–`:66`). It does not cancel waiting sends.
+  - Pending and queued **sends stay queued**, held by the `stopped` hold for the person's Resume or
+    next message.
+  - Pending resume and limit intents fail with `Cancelled before delivery`; their continuation
+    record stays for a later Resume.
+  - Pending merges fail and release their guards, and fork guards are released.
+  - User inputs of active runs get `notAnswered: "stopped"`.
+  - A running or awaiting send, create or fork **that was claimed but never submitted** (no
+    `submittedGeneration`, not acknowledged) is **deferred**: it goes back to `queued`. One that
+    **was submitted** fails with `Cancelled before delivery` and its item is marked `stopped`.
+- **Persistence**: `engine_queue`, `intents`, `engine_queue_attachments` and `engine_steer_notes`,
+  written in the receipt's transaction. A queued message is not in the transcript: its item is
+  created when delivery claims it (`admitInput`, ADR 0065).
+- **Stale inputs.** An uncertain input holds the queue (`uncertain`) until it is retired, and is
+  never sent again.
+  - `retireEndedTurnInputs` retires only the uncertain sends whose `submitted_generation` equals
+    the generation of the session that ended a turn. Sends of other generations stay.
+  - `retireUncertainInputs` (a new message) retires all of them, except a Cursor SDK
+    continuation.
+  - Only the `uncertain` hold lifts, and only when none is left. A limit or continuation
+    reconciles its own reason, and any other case gets a revision bump.
+- **Input fate**, in this order: replaced; uncertain; waiting (`pending` or `queued`); delivered
+  with its run; failed (`removed` for `Removed from queue`, else the error or `Not sent`), checked
+  before "written"; delivered (written); else by status: unknown, sending (`running`), delivered
+  (`done`).
 
 ## Intents and their journal
 
-- **The `intents` table** holds each accepted command: `command_id`, `thread_id`, `kind` (the
-  payload type), `payload` (the stored command), `status` (`pending`, `queued`, `running`,
-  `done`, `failed`), `attempts`, `awaiting`, `ack_target`, `delivery`, `acknowledged`, `trigger`,
-  `submitted_generation`, `resolution_generation`, `resolution_id`, `position`, `uncertain`,
-  `error`. Its schema is E5.3's (migrations); its statements are E5.4a's.
-- **Dispatch order** is `(position, id)` within a kind group: recoveries (`thread.resume`,
-  `queue.resume`, `thread.limit`) before deliveries (`thread.create`, `thread.send`,
-  `thread.fork`, `thread.switch`, `thread.merge`); `transition` puts switch before merge; the
-  person's steer goes ahead of ace's (`personSteer`). Controls are everything else, `pending`, up
-  to 64 at a time. `runnableThreads` excludes threads with a slot, a foreign transition guard or a
-  fenced ownership.
-- **The sends worker's choice** (`work`, E5.4f), after `actor.flush()`: poisoned actors fail
-  their waiting intents with the two fixed messages (`index.ts:1306`–`:1311`); a reserved
-  workspace or a fenced thread waits; a ready transition runs first; then a recovery; then
-  nothing while a recovery acknowledgement is outstanding or the queue is held; then the first
-  message, which is a child result when a transition heads the queue, else the yielded steer,
-  else the queued message when the head is a steer and a root run is active, else the head. It is
-  marked `queued`, the queue is synced, and it goes to delivery only when nothing is awaiting and
-  `readyForInput` holds.
-- **`readyForInput`** (`message-facts.ts:67`): a child result waits for the whole tree
-  (`readyForChildResults`); a quiescent thread takes anything; a selecting send waits while
-  provider work runs; otherwise the derived status is `new`, `done` or `failed`, or the send is
-  the person's or a parent agent's with no selection and the root accepts person input.
-- **Lifecycle writes**: `add` (pending, at `queue.position`), `claim` (running, `attempts + 1`),
-  `beginSend` (the acknowledgement target, and the continuation record for recoveries), `submit`
-  (generation), `joinRunningTurn`, `defer`, `requeue` (back to a plain queued message), `mark`
-  (done or failed, pruning attachments). E5.4a ports them all; E5.5 calls the delivery ones.
-- **The input journal** (`engine_inputs`, `engine_input_echoes`, `engine_input_identities`,
-  `engine_input_replacements`) correlates provider echoes with accepted inputs without scanning
-  history (behaviour.md §9). `register` at acceptance stores the signature of the person's parts
-  and the origin. `sending` at delivery re-signs with the provider's own rendering (Claude's first
-  admission, Pi's message) and the generation. `correlate` on each root user-message fact matches,
-  in order: a native identity (`identify`), an echo alias, then the oldest unmatched sent input of
-  that generation with the same signature. It rewrites the fact to the input's key with its
-  origin, `synthetic: !personInput(origin)` and the provider's `nativeId`, and drops the
-  provider's parts, so the person's original parts stay.
-- **Runs.** `attachRun` binds an input to the run it steered into; `bindSent` gives every sent,
-  unbound input of a generation to the run that started; `bindConsumedInput` moves a steer the
-  provider reports consumed by another run, deleting and re-creating its item when it moves off a
-  finished run.
+- **`intents`** holds each accepted command with its kind, stored payload, status (`pending`,
+  `queued`, `running`, `done`, `failed`), attempts, `awaiting`, `ack_target`, delivery,
+  `acknowledged`, trigger, the submitted and resolution generations, `resolution_id`, position,
+  `uncertain` and error. Its schema is TypeScript's (decision 8); its statements are 4a's.
+- **Dispatch order** is `(position, id)` within a group. Recoveries come before deliveries;
+  `transition` puts switch before merge; the person's steer goes ahead of ace's (`personSteer`).
+  Controls are everything else that is `pending`, 64 at a time. `runnableThreads` excludes
+  threads with a slot, a foreign transition guard or fenced ownership.
+- **The sends worker's choice** (`work`, 4f), after `actor.flush()`:
+  1. A poisoned actor fails its waiting intents with the two fixed messages (`index.ts:1306`–`:1311`).
+  2. A reserved workspace or a fenced thread waits.
+  3. A ready transition runs.
+  4. Then a recovery.
+  5. Nothing runs while a recovery acknowledgement is outstanding or the queue is held.
+  6. Otherwise it picks: a child result when a transition heads the queue; else the yielded steer;
+     else, when the head is a steer and a root run is active, the queued message; else the head.
+     The pick is marked `queued`, the queue is synced, and it is delivered only when nothing is
+     awaiting and `readyForInput` holds.
+- **`readyForInput`**: a child result waits for the whole tree; a quiescent thread takes anything;
+  a selecting send waits while provider work runs. Otherwise the derived status must be `new`,
+  `done` or `failed`, or the send must be the person's or a parent agent's, with no selection,
+  while the root accepts person input.
+- **Lifecycle writes**: `add`, `claim`, `beginSend`, `submit`, `joinRunningTurn`, `defer`,
+  `requeue`, `mark`. 4a ports them; E5.5 calls the delivery ones.
+- **The input journal** correlates provider echoes with accepted inputs without scanning history.
+  - `register` at acceptance keeps the signature of the person's parts and the origin.
+  - `sending` at delivery re-signs with the provider's own rendering (Claude's first admission,
+    Pi's message) and records the generation.
+  - `correlate` matches a root user message by native identity, then by echo alias, then by the
+    oldest unmatched sent input of that generation with the same signature. It rewrites the fact
+    to the input's key, origin and `synthetic: !personInput(origin)`, and keeps the person's
+    parts.
+- **Runs**: `attachRun` binds a steer to its run. `bindSent` gives a generation's sent, unbound
+  inputs to the run that started. `bindConsumedInput` moves a steer the provider reports consumed
+  elsewhere, re-creating its item when it leaves a finished run.
 
 ## Ace-input attribution
 
-ace's own inputs (child results, notices) carry origin only through ace's persisted command,
-never through native content (`ace-input-attribution.ts:13`). `AceInputs.record` keeps, per
-`(thread, command)`, the agent, the item key and up to 64 delegation outcomes. When a native
-transport echoes a user-role message whose origin is `subagent_result` with a `commandId`,
-`attribute` replaces it with a `delegation.settled` item for the recorded agent and item:
-`complete: true`, the results, `delivery: "ace-input"`, `origin: "ace"`, and the echo's `raw` if
-it had one. An echo on another agent, or with no record, passes unchanged. `admitInput` skips the
-user item for a child result that has a record (`transcript-inputs.ts:106`), so the result shows
-once, as its settled delegation. `aceWaitFact` marks a running ace `wait` (or `delegate` with
-`waitSeconds`) as `subagents.waiting` on `ace-child:<threadId>` targets, once per item.
+Origin comes only from ace's persisted command, never from native content.
+`AceInputs.record` keeps, per thread and command, the agent, the item key and up to 64 outcomes.
+
+- **An echo is folded into its settled delegation.** A user-role echo with a `subagent_result`
+  origin and a `commandId` becomes a `delegation.settled` item for the recorded agent and item:
+  `complete: true`, the results, `delivery: "ace-input"`, `origin: "ace"`, and the echo's `raw`.
+  An echo on another agent, or with no record, passes unchanged.
+- **The child result shows once.** `admitInput` writes no user item for a child result that has
+  a record, so it appears only as its settled delegation.
+- **ace waits.** `aceWaitFact` marks a running ace `wait`, or a `delegate` with `waitSeconds`, as
+  `subagents.waiting` on `ace-child:<threadId>` targets, once per item.
+
+## Open-time work
+
+The audit owner decision 7 asks for: every statement E5.4's modules run when the store opens, its
+cost class under ADR 0170 (`:40`–`:60`, rules 1–4), and what E5.4 ports. The DDL is TypeScript's
+(decision 8). **The prerequisite PR on main** (E5.3 brief, "Prerequisite fix on main (TS)") fixes
+every history-sized row on both backends. Its names, progress storage and batch sizes win over
+this table, and the round that ports a pass updates this table to match.
+
+| Statement (TypeScript)                                                                                                                                                                                                       | Class                                                                                                                                   | What it needs                                                                                                                                                                                                                        | E5.4 ports                                                                                                                           |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `CREATE TABLE IF NOT EXISTS` (`queue-store.ts:57`–`:68`, `input-journal.ts:71`–`:94`, `ace-inputs.ts:10`–`:15`, `steer-notes.ts:17`–`:19`)                                                                                   | O(1)                                                                                                                                    | nothing                                                                                                                                                                                                                              | nothing (TypeScript DDL)                                                                                                             |
+| `CREATE INDEX IF NOT EXISTS` on `intents` (`intents.ts:60`–`:63`, `queue-store.ts:71`–`:74`), `engine_inputs` (`input-journal.ts:76`, `:96`–`:97`), `engine_queue` (`queue-store.ts:70`), `engine_queue_attachments` (`:69`) | O(1) where the index exists; **history-sized** the first time on a home without it                                                      | The prerequisite decides, per index, between creating it only in the fresh-schema migration (an older home below that layout is refused, as `migrateEngine` already refuses) and an idle build with readers that don't depend on it. | nothing (TypeScript DDL)                                                                                                             |
+| `CREATE INDEX engine_first_person_input ON items(...)` (`title-input.ts:12`)                                                                                                                                                 | O(1) where it exists; **history-sized** (every item) the first time                                                                     | as above, on `items`, the largest table                                                                                                                                                                                              | nothing                                                                                                                              |
+| `INSERT OR IGNORE INTO engine_queue(thread_id) SELECT thread_id FROM thread_state` (`queue-store.ts:75`)                                                                                                                     | **history-sized**, every open (every thread)                                                                                            | Recommended: `ensure` on read, so `get` inserts the default row when one is missing (O(1) per read) and nothing reads a thread without a row. Needs no backfill, and no agent state waits on a batch (rule 5).                       | the prerequisite's form, in `queue/store.rs`                                                                                         |
+| `requireEngineColumns` (`queue-store.ts:76`, `input-journal.ts:95`); `exited` `ALTER TABLE ADD COLUMN` (`:77`–`:85`)                                                                                                         | O(1) (`PRAGMA table_info`; adding a column with a default is metadata only)                                                             | nothing                                                                                                                                                                                                                              | nothing                                                                                                                              |
+| the attachment re-track over live inputs (`queue-store.ts:86`–`:93`)                                                                                                                                                         | **history-sized**, every open: its predicate (`status IN (…) OR awaiting=1 OR uncertain=1` with a kind filter) has no index covering it | An idle, resumable pass by `intents.id` with progress saved. While incomplete, `retains` answers **retained** for every hash (rule 3), so the blob sweep never deletes the attachment of an input it has not reached.                | the idle pass as an engine idle task in `queue/idle.rs` (4a): bounded slices, one pump step each, progress in the prerequisite's row |
+| `DELETE … WHERE thread_id NOT IN (SELECT id FROM threads)` on `engine_input_echoes` and `engine_inputs` (`input-journal.ts:98`–`:99`)                                                                                        | **history-sized**, every open                                                                                                           | An idle, resumable sweep by primary key. Orphans are inert (every read filters by a live thread), and the trigger at `:100`–`:103` keeps new deletes clean.                                                                          | the idle sweep in `inputs/idle.rs` (4b)                                                                                              |
+| `CREATE TRIGGER IF NOT EXISTS engine_inputs_delete` (`input-journal.ts:100`–`:103`)                                                                                                                                          | O(1)                                                                                                                                    | nothing                                                                                                                                                                                                                              | nothing                                                                                                                              |
+
+The idle passes run as engine tasks on the pump, in slices of 256 rows by primary key, one
+transaction per slice, never inside a receipt. They resume from their saved progress after a
+restart and stop at close admission (E5.1 step 4). Each round times its pass's first slice and a
+whole pass on a cold `cp -c` clone of a large home with no daemon on it (ADR 0170 rule 6), and
+reports the figures.
 
 ## Seams: landing without E5.2 and E5.3
 
-- **E5.4a and E5.4b** use only E5.1's `EngineStore::atomic` and `Tx` and their own tables. Their
-  cargo tests open a temp `ace_store` database (the event database schema, created by
-  `ace-store`'s open), run `queue::open`, `intents::open` and `inputs::open`, seed rows with SQL
-  copied from the statements under test, and assert results. The facade reads of E5.4a work
-  before E5.3 because reads don't wait for `ready()`, and the probe's `emptyCandidates()` lets
-  `ready()` resolve.
-- **E5.3's `Repo`** is the API E5.4c to E5.4f call: `state`, `require_state`, `apply`, `save`,
-  `evict`, `reserve`, `release`, `reserved_slot`, `create_session`, `create_unprepared_session`,
-  `session`, `backend`, `cleaning`, `native_entity`, `entity_thread`, `reserved`, `workspace`,
-  `next_command_id`, and the store reads (`get_thread`, `get_workspace`, `read_item_page`,
-  `read_bounded_item_page`, `item_created_seq`, `historical_item_count`, `workspace_reservations`,
-  `append_events`, `is_history_writing`, `record_command`). If E5.3 names one differently, use
-  E5.3's name. Never add a method to E5.3's files; ask for it in E5.3's review.
-- **E5.2** calls E5.4b's three functions on the frame path, and `stale::retire_ended_turn_inputs`
-  and `transcript::bind_started_run` / `bind_consumed_input` from the fold. E5.4f calls E5.2's
-  `Actor` (`flush`, `poisoned`, `persistence_failed`, `schedule`, `sync_queue`, `stop`, `backlog`,
-  `idle_due`, `session`).
-- **Proof before the (a) files can pass** goes through E5.1's seam. Seam tests live in
-  `native-engine/commands.test.ts` (in process, switch on) and
-  `native-engine/commands-home.process.test.ts`. The second is for homes the TypeScript engine
-  wrote (`engineSeam({ seedWithTypeScript })`, one seeding script per case under
-  `native-engine/testing/`). Each names in a comment the (a) test that will show the same thing,
-  and is deleted in the commit where that file first passes natively (E5.1 step 12).
+- **4a and 4b** use only E5.1's `EngineStore::atomic` and `Tx`, and tables the TypeScript opener
+  created. Their seam tests reach the code through the facade reads (4a) and
+  `probe.inputFacts` (4a, 4b) on homes the TypeScript engine wrote
+  (`engineSeam({ seedWithTypeScript })`). The facade reads don't wait for `ready()`, and E5.1's
+  `emptyCandidates()` (or E5.3's candidate scan, once it lands) lets `ready()` resolve.
+- **The fold** calls E5.4 only through E5.3's `InputFacts`. Each method is 4a's or 4b's (decision
+  5); one not yet landed is E5.3's `NotPorted` default, and E5.3's probe pass-through covers its
+  fold seam.
+- **E5.3's `Repo`** is what 4c to 4f call: `state`, `require_state`, `apply`, `save`, `evict`,
+  `reserve`, `release`, `reserved_slot`, `cleaning`, `native_entity`, `entity_thread`, `reserved`,
+  `workspace`, `next_command_id`, and the store reads through its ports and `Tx`. E5.3's names
+  win.
+- **E5.2's actor** is what 4f calls: `flush`, `poisoned`, `persistence_failed`, `schedule`,
+  `sync_queue`, `stop`, `backlog`, `idle_due`, `session`, `steer_yield`.
+- Seam tests live in `native-engine/commands.test.ts` (in process, switch on) and
+  `native-engine/commands-home.process.test.ts` (homes the TypeScript engine wrote; the second
+  process is the real edge). The seeding scripts are under `native-engine/testing/`. Each seam
+  test names in a comment the (a) test that will show the same thing, and is deleted in the
+  commit where that file first passes natively (E5.1 step 12).
 
 ## Proof
 
 ### The 31 class (a) files
 
-Each is run alone, unchanged, switch off and on (rule 3). "Proves" is the sub-item whose code
-the file mostly covers; "first native green" is the earliest item after which it can pass with
-the switch on. Most of them deliver, and that is E5.5 and E5.6. These are expected results, read
-from the files. Each sub-item runs its files, records the real result, and amends this table and
-E5.1 step 12's in its PR.
+Each runs alone, unchanged, switch off and on (rule 3). "First native green" is the earliest item
+after which it can pass with the switch on; most deliver, which is E5.5 and E5.6. These are
+expected results read from the files. Each round records the real result and amends this table
+and E5.1 step 12's in its PR.
 
-| File (`*.process.test.ts`) | Proves   | First native green                                                             | Why                                                             |
-| -------------------------- | -------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------- |
-| `metadata-commands`        | E5.4e    | **E5.4e**                                                                      | Archive receipts and `not_implemented`; opens no session.       |
-| `chat-thread`              | E5.4e    | E5.4e if the delivery stub's single report doesn't fail the harness, else E5.6 | A create receipt's details; the woken send reaches E5.5's stub. |
-| `guest-admission`          | E5.4d    | E5.7                                                                           | Seeds through `engine.guests.create`.                           |
-| `queue-capacity`           | E5.4a    | E5.6                                                                           | Inputs awaiting admission need a session.                       |
-| `input-leases`             | E5.4a    | E5.6                                                                           | Attachment retention across sends and steers.                   |
-| `queue-context`            | E5.4a, d | E5.8                                                                           | Pages and edits; `:54` restarts.                                |
-| `late-admission`           | E5.4b    | E5.6                                                                           | Late correlated admission.                                      |
-| `catalog-mentions`         | E5.4b    | E5.6                                                                           | Native-command inputs and their signature.                      |
-| `command-catalog`          | E5.4b    | E5.6                                                                           | Same, over the socket.                                          |
-| `input-fate`               | E5.4c    | E5.6                                                                           | Fate after real deliveries.                                     |
-| `queued-run-binding`       | E5.4c    | E5.6 (steer cases E5.5)                                                        | `admitInput`, `bindStartedRun`, `bindConsumedInput`.            |
-| `wake-run-inputs`          | E5.4c    | E5.6                                                                           | Origins of woken runs.                                          |
-| `agent-trigger-admission`  | E5.4c    | E5.6                                                                           | Origins by trigger.                                             |
-| `thread-title`             | E5.4c, e | E5.6                                                                           | `:45` and `:113` replay provider titles.                        |
-| `stale-inputs`             | E5.4d    | E5.6                                                                           | Retirement after a real turn end.                               |
-| `submission`               | E5.4d    | E5.6                                                                           | Uncertain copies after exits.                                   |
-| `held-send-release`        | E5.4d    | E5.6 (`:184` E5.8)                                                             | Failed-send holds.                                              |
-| `queue-resend-route`       | E5.4d    | E5.6                                                                           | Resend through the server route.                                |
-| `queue-recovery`           | E5.4d    | E5.8                                                                           | `:386` and `:418` restart.                                      |
-| `admission-recovery`       | E5.4d    | E5.8                                                                           | Continuations across restart.                                   |
-| `acknowledged-response`    | E5.4d    | E5.6 (`:95` E5.8)                                                              | Acknowledgement before the daemon stopped.                      |
-| `defaults`                 | E5.4e    | E5.6                                                                           | Model defaults through the `models` port.                       |
-| `client-model-defaults`    | E5.4e    | E5.6                                                                           | Same.                                                           |
-| `model-selection`          | E5.4e    | E5.6                                                                           | Same; `:174` steers (E5.5).                                     |
-| `worktree-title`           | E5.4e    | E5.6                                                                           | Prepared workspaces and provider titles.                        |
-| `organization`             | E5.4e    | E5.10                                                                          | PR settle.                                                      |
-| `pr-settle-once`           | E5.4e    | E5.10                                                                          | Same.                                                           |
-| `switch-admission`         | E5.4e    | E5.9                                                                           | Switch admission (stubbed in E5.4).                             |
-| `queue-selection`          | E5.4d    | E5.9                                                                           | Selecting steers split into switches.                           |
-| `queue-transitions`        | E5.4d    | E5.9                                                                           | Fork and switch of held queues.                                 |
-| `overload-delivery`        | E5.4f    | E5.8                                                                           | Mailbox overload, `restart=true` reopens.                       |
+| File (`*.process.test.ts`) | Proves | First native green                                                        | Why                                                             |
+| -------------------------- | ------ | ------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `metadata-commands`        | 4e     | **4e**                                                                    | Archive receipts and `not_implemented`; no session.             |
+| `chat-thread`              | 4e     | 4f, if the delivery stub's one report doesn't fail its harness; else E5.6 | A create receipt's details; the woken send reaches E5.5's stub. |
+| `guest-admission`          | 4d     | E5.7                                                                      | Seeds through `engine.guests.create`.                           |
+| `queue-capacity`           | 4a     | E5.6                                                                      | Inputs awaiting admission.                                      |
+| `input-leases`             | 4a     | E5.6                                                                      | Attachment retention across sends and steers.                   |
+| `queue-context`            | 4a, 4d | E5.8                                                                      | Pages and edits; `:54` restarts.                                |
+| `late-admission`           | 4b     | E5.6                                                                      | Late correlated admission.                                      |
+| `catalog-mentions`         | 4b     | E5.6                                                                      | Native-command inputs and their signature.                      |
+| `command-catalog`          | 4b     | E5.6                                                                      | The same, over the socket.                                      |
+| `input-fate`               | 4c     | E5.6                                                                      | Fate after real deliveries.                                     |
+| `queued-run-binding`       | 4b, 4c | E5.6 (steer cases E5.5)                                                   | Run binding.                                                    |
+| `wake-run-inputs`          | 4c     | E5.6                                                                      | Origins of woken runs.                                          |
+| `agent-trigger-admission`  | 4c     | E5.6                                                                      | Origins by trigger.                                             |
+| `thread-title`             | 4c, 4e | E5.6                                                                      | `:45` and `:113` replay provider titles.                        |
+| `stale-inputs`             | 4a     | E5.6                                                                      | Retirement after a real turn end.                               |
+| `submission`               | 4d     | E5.6                                                                      | Uncertain copies after exits.                                   |
+| `held-send-release`        | 4d     | E5.6 (`:184` E5.8)                                                        | Failed-send holds.                                              |
+| `queue-resend-route`       | 4d     | E5.6                                                                      | Resend through the server route.                                |
+| `queue-recovery`           | 4d     | E5.8                                                                      | `:386` and `:418` restart.                                      |
+| `admission-recovery`       | 4d     | E5.8                                                                      | Continuations across restart.                                   |
+| `acknowledged-response`    | 4d     | E5.6 (`:95` E5.8)                                                         | Acknowledgement before the daemon stopped.                      |
+| `defaults`                 | 4e     | E5.6                                                                      | Catalog defaults (`models.prepare` is E5.6's).                  |
+| `client-model-defaults`    | 4e     | E5.6                                                                      | The same.                                                       |
+| `model-selection`          | 4e     | E5.6                                                                      | The same; `:174` steers (E5.5).                                 |
+| `worktree-title`           | 4e     | E5.6                                                                      | Prepared workspaces and provider titles.                        |
+| `organization`             | 4e     | E5.10                                                                     | PR settle.                                                      |
+| `pr-settle-once`           | 4e     | E5.10                                                                     | The same.                                                       |
+| `switch-admission`         | 4d     | E5.9                                                                      | Executing the switch.                                           |
+| `queue-selection`          | 4d     | E5.9                                                                      | Selecting steers, applied by the switch.                        |
+| `queue-transitions`        | 4d     | E5.9                                                                      | Fork and switch of held queues.                                 |
+| `overload-delivery`        | 4f     | E5.8                                                                      | Mailbox overload; `restart=true` reopens.                       |
 
-Seven of these also appear in later items' rows (`submission`, `input-fate`, `input-leases`,
+Seven of these are also in later items' rows (`submission`, `input-fate`, `input-leases`,
 `held-send-release` in E5.5's, `guest-admission` in E5.7's, `model-selection` in E5.6's,
 `switch-admission` in E5.9's). A file is green when it first passes, whichever item that is.
 
 ### Class (b) cases to move
 
-- `edited-context.test.ts` (four cases) → `#[cfg(test)]` in `rules.rs` (E5.4a).
-- `retired-bot-threads.test.ts` (two cases) → `commands/guest.rs` (E5.4d).
+- `edited-context.test.ts` (four cases) → `rules.rs` (4a).
+- `retired-bot-threads.test.ts` (two cases) → `commands/guest.rs` (4d).
 
-Same inputs and expectations; the TypeScript files stay until their modules are deleted.
+### Seam tests
 
-### Named tests
+Each runs with the switch on (`describe.runIf(engineBackend() === "native")`) and is deleted when
+the (a) test in its comment passes natively.
 
-Seam tests (switch on, `describe.runIf(engineBackend() === "native")`; each deleted when the (a)
-test in its comment passes natively):
+**4a** (`commands-home.process.test.ts`):
 
-- E5.4a, `commands-home.process.test.ts`:
-  - "a queue the TypeScript engine wrote reads the same natively: snapshot, first page, next page,
-    total" (seeded: three queued sends, one uncertain, one child result, a `stopped` hold; asserts
-    literal values: the child result absent, the uncertain message `state: "uncertain"`, `exited`
-    absent, `next` set). (a): `queue-context.process` `:15`.
-  - "a page refuses a stale revision, a cursor without a revision and an unknown cursor, with the
-    TypeScript messages". (a): `queue-context.process` `:15`.
-  - "commandFailure and commandExecution read a removed, a cancelled and a done intent".
-    (a): `input-fate.process` `:38`.
-- E5.4c, `commands-home.process.test.ts`:
-  - "inputFate natively reads waiting, removed, replaced and delivered inputs of a
-    TypeScript-written home". (a): `input-fate.process` `:8`, `:38`, `:66`.
-- E5.4d, `commands-home.process.test.ts` and `commands.test.ts`:
-  - "queue edits on a TypeScript-written queue commit natively with their receipts: edit, move,
-    remove, pause, each a single revision bump with one `queue.updated`". (a):
-    `queue-recovery.process` `:17`.
-  - "two receipts on one revision: the first wins, the second gets `queue_conflict` and commits
-    nothing". (a): `queue-recovery.process` `:73`.
-  - "removing the failed head releases a `not_sent` hold; removing one behind it keeps the hold".
-    (a): `held-send-release.process` `:62`, `:93`.
-  - "a guest thread and Spade's threads refuse with their titles and details" (seeded with the
-    TypeScript engine, since `guests.create` is E5.7's). (a): `guest-admission.process` `:5`.
-  - "a refused receipt commits nothing and releases no wake" (the probe's `woken()` is empty and
-    `headSeq` unchanged). (a): `metadata-commands.process` `:54`.
-  - "a receipt whose policy throws after accepting rolls back, and its wake never runs".
-    (a): `engine/reliability.process` (the receipt cases).
-- E5.4e, `commands.test.ts`:
-  - "create, send and Stop receipts write their intent, queue and title rows natively, and the
-    Stop holds the queue as `stopped` and cancels the waiting send". (a):
-    `queued-run-binding.process` `:324`, `stop-queue.process`.
-  - "the receipt's refusals win in the TypeScript order": a table over seeded conditions for
-    `thread_deleting`, `cursor_cli_retired`, `workspace_change_in_progress`, `message_too_large`
-    (65 parts), `not_implemented`, `thread_not_found`, `agent_not_found`, `stale_interrupt`,
-    `unsupported_goal`, `engine_capacity_exceeded` (`maxActiveThreads: 1`) and
-    `queue_capacity_exceeded` (256 in flight). Each row asserts the whole result object.
-    (a): the commands row.
-  - "a receipt that reaches an unported branch fails NotPorted naming the item, and commits
-    nothing" (`thread.fork` → E5.9). Deleted with E5.10's switch-on run.
-  - "admitCreation holds the id for its owner; a second admission, a foreign owner and a changed
-    command are refused; release frees the slot". (a): `worktree-title.process` `:12`.
-- E5.4f, `commands.test.ts`:
-  - "a send on a held queue is marked queued and never reaches delivery" (`onError` empty) and
-    "a runnable send reaches delivery, which reports E5.5 once". (a): `queued-run-binding.process`
-    `:57`.
+- "a queue the TypeScript engine wrote reads the same natively: snapshot, first page, next page,
+  total". The seed has three queued sends (one that fell back from a steer), one uncertain, one
+  child result, and a `stopped` hold. Asserted as literals: the child result absent, `fellBack`
+  on the fallen-back message, the uncertain one `state: "uncertain"`, `exited` absent, `next` set.
+  (a): `queue-context.process` `:15`.
+- "a page refuses a stale revision, a cursor without a revision and an unknown cursor, with the
+  TypeScript messages". (a): `queue-context.process` `:15`.
+- "commandFailure and commandExecution read a removed, a cancelled and a done intent".
+  (a): `input-fate.process` `:38`.
+- "a turn's end retires only the uncertain sends of its own session generation". Through
+  `probe.inputFacts("retireEndedTurnInputs", …)` on a seed with uncertain sends submitted in
+  generations 1 and 2: ending generation 2 retires its sends, generation 1's stay, and the hold
+  stays `uncertain`. Ending generation 1 then lifts it, with one `queue.updated` each.
+  (a): `stale-inputs.process` `:47`.
 
-Cargo tests (in the module beside the function, new behaviour only where marked):
+**4b** (`commands-home.process.test.ts`):
 
-- `queue/record.rs`: `exitedAfter` over every `(before, patch)` combination; `lastFailure`
-  clearing; `shown` hiding `resumeAt` for `clear`.
-- `queue/page.rs`: the 512 KiB cut keeps the first message whatever its size; `next` only when a
-  row was left; the subagent-result exclusion.
-- `queue/store.rs`: `move` (to front, after a message, unknown, itself); `reconcileUncertainty`'s
-  reason table.
-- `ace-json::bounded`: the four limits at their boundaries (moved with the function).
-- `inputs/signature.rs`: `withoutHandoffEnvelope` with a v1 JSON manifest, a tagged envelope, an
-  invalid manifest, a too-long envelope, and a multi-byte prefix (UTF-16 counting). New: no (a)
-  file reaches the invalid and too-long branches. The commit says so.
-- `inputs/journal.rs`: correlation by identity, by alias, by signature within a generation, by
-  signature with no generation (`IS NULL`), and the identity-reuse error.
-- `commands/admissions.rs`: `authorized` with no owner, the right owner, a foreign owner, a
-  changed command.
+- "an echo correlates natively to the input the TypeScript engine sent: by native identity, by
+  signature in its own generation, and not in another generation". `probe.inputFacts("inputs.correlate", …)`
+  returns the input's key, its origin and `synthetic: false`, or the fact unchanged.
+  (a): `late-admission.process` `:15`.
+- "a Claude input with a slash command correlates by its first admission's text".
+  (a): `catalog-mentions.process` `:10`.
+- "a started run takes the inputs its generation was sent, and no others"
+  (`bindStartedRun`). (a): `queued-run-binding.process` `:101`.
+
+**4c** (`commands-home.process.test.ts`):
+
+- "inputFate follows its precedence on a TypeScript-written home". One row per rule, asserted as
+  whole fates: a resent uncertain input is `replaced` (not `uncertain`); an uncertain one in the
+  queue is `uncertain` (not `waiting`); a waiting one is `waiting` even with a run recorded; a
+  Stop-cancelled written input is `failed` with `Cancelled before delivery` (not `delivered`); a
+  removed one is `removed`; a written one with no intent is `delivered`.
+  (a): `input-fate.process` `:8`, `:38`, `:66`, `:115`.
+
+**4d** (`commands-home.process.test.ts`, `commands.test.ts`):
+
+- "queue edits on a TypeScript-written queue commit natively: edit, move, remove and pause, each a
+  single revision bump with one `queue.updated`". (a): `queue-recovery.process` `:17`.
+- "two receipts on one revision: the first wins, the second gets `queue_conflict` and commits
+  nothing". (a): `queue-recovery.process` `:73`.
+- "removing the failed head releases a `not_sent` hold; removing one behind it keeps the hold".
+  (a): `held-send-release.process` `:62`, `:93`.
+- "editing a selecting message to steer, on a provider that can't steer, keeps it queued with its
+  selection; on one that can, while the tree works, it splits into the steer and a switch placed
+  right after it". (a): `queue-selection.process` `:219`, `:84`.
+- "a guest thread and Spade's threads refuse with their titles and details" (seeded with the
+  TypeScript engine). (a): `guest-admission.process` `:5`.
+- "a refused receipt before the atomic step writes nothing and releases no wake" (`headSeq`
+  unchanged, the probe's `woken()` empty). (a): `metadata-commands.process` `:54`.
+- "a queue command whose policy throws after accepting rolls back: no revision bump, no wake, and
+  the deadline timer neither cancelled nor re-armed". The port log shows no `setTimer` and no
+  cancel for a `thread.limit` `resume_at_reset` that rolled back. (a): `engine/reliability.process`
+  (the receipt cases).
+
+**4e** (`commands.test.ts`):
+
+- "a Stop keeps waiting sends queued under a `stopped` hold, defers a claimed send that was never
+  submitted, and cancels a submitted one". Waiting sends are still `queued` and in the snapshot;
+  the claimed one is back to `queued`; the submitted one is `failed` with
+  `Cancelled before delivery` and its item `notAnswered: "stopped"`; a pending resume is failed.
+  (a): `stop-queue.process`, `input-fate.process` `:115`.
+- "create and send receipts write their intent, queue and title rows natively".
+  (a): `queued-run-binding.process` `:324`.
+- "a steer that saw no run (`runId: null`) queues when a root run is active and stays a steer when
+  none is; one aimed at an ended run queues, with an omitted delivery left omitted".
+  (a): `queue-recovery.process` `:151`, `:197`, `:324`.
+- "the receipt's refusals win in the TypeScript order". A table over seeded conditions:
+  `thread_deleting`, `cursor_cli_retired`, `workspace_change_in_progress`, `message_too_large` (65
+  parts), `not_implemented`, `thread_not_found`, `agent_not_found`, `stale_interrupt`,
+  `unsupported_goal`, `engine_capacity_exceeded` (`maxActiveThreads: 1`),
+  `queue_capacity_exceeded` (256 in flight). Each row asserts the whole result object.
+- "a refused send commits what it did first": `queue_capacity_exceeded` leaves the restart streak
+  cleared; `engine_capacity_exceeded` leaves the uncertain input retired and the `stopped` hold
+  released, each with its `queue.updated`.
+- "creation with a catalog selects and validates through it": a catalog port resolving the
+  default gives the concrete model id; an unknown explicit model gets `model_unavailable` with one
+  `onModelUnavailable` call; the catalog's permission modes decide `permission_mode_unsupported`;
+  with no catalog a default sentinel is dropped and an explicit model kept.
+  (a): `client-model-defaults.process` `:27`, `:297`.
+- "an absent owner is accepted only without a reservation; an unknown owner is refused with and
+  without one; release frees the slot once". (a): `worktree-title.process` `:12`.
+- "a receipt that rolls back never names its thread" (no `onNamingPrompt` call), and "one that
+  commits calls it once, after commit". (a): `thread-title.process` `:22`.
+- "a receipt that reaches an unported command fails NotPorted naming the item, and commits
+  nothing" (`thread.fork` → E5.9). Deleted with E5.10's switch-on run.
+- The receipt bench (below).
+
+**4f** (`commands.test.ts`):
+
+- "a send on a held queue is marked queued and never reaches delivery" (`onError` empty).
+- "a runnable send passes the steering reads and reaches delivery, which reports E5.5 once". This
+  covers `yielded`, `route` and `readyForInput` on a probe-attached session.
+  (a): `queued-run-binding.process` `:57`.
+
+### Cargo tests
+
+These sit beside their functions. Tests of new behaviour are marked as such in the commit.
+
+- `queue/record.rs`: `exitedAfter` over every `(before, patch)` combination, `lastFailure`
+  clearing, `shown`.
+- `queue/page.rs`: the 512 KiB cut always keeps the first message; `next` only when a row was
+  left over.
+- `queue/store.rs`: `move` (to the front, after a message, unknown, itself); the reason table of
+  `reconcileUncertainty`.
+- `ace-json::bounded`: each of the four limits at its boundary.
+- `inputs/signature.rs`: `withoutHandoffEnvelope` with a v1 manifest, a tagged envelope, an
+  invalid manifest, a too-long envelope and a multi-byte prefix. New: no (a) file reaches the
+  invalid and too-long branches.
+- `commands/admissions.rs`: `authorized` with an absent, a known, a foreign and an unknown owner,
+  with and without a reservation.
+- `queue/idle.rs`, `inputs/idle.rs`: a pass stopped after a slice resumes from its progress and
+  visits each row once. New: the passes are the prerequisite's.
 
 ## Benches and the cross-mode run
 
-- E5.4 cannot run `bench/head-of-line.ts` switch-on: no send is delivered until E5.6. Each of
-  E5.4d and E5.4e reports one figure instead: the receipt's own time, p50 and p99 over 10,000
-  `thread.send` receipts to one thread on a held queue (nothing delivers), switch off and on, from
-  a loop in the seam test file (`--bench` filter, not run by default). That covers `sendReceipt`'s
-  synchronous part. E5.8 runs the full bench.
-- The E5 cross-mode list needs restart (E5.8). Before that, `commands-home.process.test.ts` is the
-  cross-backend proof that E5.4's reads and receipts work on TypeScript-written homes. The reverse
-  direction (a home written natively, read by TypeScript) is the cross-mode run's.
+- **The receipt bench is 4e's.** 4d can't accept a send. 4e times 10,000 `thread.send` receipts to
+  one thread on a queue held `manual`, which accepts the send as held, so nothing delivers. It
+  reports p50 and p99 with the switch off and on, from a loop in `commands.test.ts` behind a
+  `--bench` filter that doesn't run by default. That covers the synchronous part of `sendReceipt`.
+  E5.8 runs `bench/head-of-line.ts` in full.
+- Each idle pass reports its cold-clone timings (Open-time work).
+- The E5 cross-mode list needs restart (E5.8). Until then `commands-home.process.test.ts` is the
+  proof that E5.4 reads and acts on TypeScript-written homes. The reverse direction is the
+  cross-mode run's.
 
-## Files (all yours; nothing else)
+## Files
 
-- `native/daemon/crates/ace-engine/src/{intents,queue,inputs,commands}/…` and `rules.rs`; the
-  four module roots replace E5.1's stubs (`commands.rs` keeps `Commands` and `quiescent`, which
-  E5.4f fills: a thread with a running sends task is not quiescent).
-- In later items' files, only what "The receipt path" lists: `steering/{selection,notes}.rs`,
-  `liveness/stop_intents.rs`, `transitions/state.rs`, `access/storage.rs`, and the stubs. Each such
-  file starts with `//! Ported by E5.4<x> for the receipt path; owned by E5.<n>.`
-- `ace-core/src/{person_input,provider_admission}.rs` (open question 6),
-  `ace-projection/src/attention.rs` (the queue branch), `ace-adapter-claude/src/input.rs`,
-  `ace-adapter-pi/src/input.rs`, `ace-json/src/bounded.rs` and the one re-pointed call in
-  `ace-adapter-cursor`.
-- Bindings: `ace-daemon-node/src/engine/{intents,queue,inputs,commands}.rs`. Shell:
+- `native/daemon/crates/ace-engine/src/{intents,queue,inputs,commands,models,release}/…`,
+  `rules.rs`, and `queue/fold_hooks.rs` (with the one `impl InputFacts for State` move out of
+  E5.3's `collaborators.rs`). `commands.rs` keeps `Commands` and `quiescent`, which 4f fills: a
+  thread with a running sends task is not quiescent.
+- In later items' files, only what "The receipt dependencies" lists, each with its header line:
+  `steering/{notes,selection,route}.rs`, `sessions/metadata.rs`,
+  `transitions/{state,readiness,switch_admission,switch_ready}.rs`, `access/storage.rs`,
+  `liveness/{stop_intents,stop_scope}.rs`, `models/select.rs`, `release/reclaim.rs`, and the stubs.
+- `ace-core/src/{person_input,provider_admission}.rs`, `ace-projection/src/attention.rs`,
+  `ace-adapter-claude/src/input.rs`, `ace-adapter-pi/src/input.rs`, `ace-json/src/bounded.rs` and
+  the one re-pointed call in `ace-adapter-cursor`.
+- Bindings: `ace-daemon-node/src/engine/{intents,queue,inputs,commands,probe_commands}.rs`. Shell:
   `apps/daemon/src/native-engine/{intents,queue,inputs,commands}.ts`, `commands.test.ts`,
-  `commands-home.process.test.ts`, `testing/` seeding scripts; in E5.4e, the three ports in
-  `ace-engine/src/ports.rs`, `ace-daemon-node/src/engine/ports.rs` and `native-engine/ports.ts`.
-- `docs/engine/porting-guide.md` (this brief's link and the row corrections) and E5.1's step 12
-  table, amended per sub-item.
+  `commands-home.process.test.ts`, `testing/`. The E5.1 amendments, if E5.1 has merged without
+  them: `ports.rs`, `engine/ports.rs`, `native-engine/ports.ts`, `testing.ts`.
+- `docs/engine/porting-guide.md` (the row corrections), E5.1 step 12's table, and E5.3's
+  `InputFacts` row (`rootRunStart` is E5.5's), amended per round.
 
 ## Must not
 
-- Edit E5.2's or E5.3's files, or any TypeScript engine module (the switch-off path stays
-  byte-identical; `git diff origin/ace/daemon-rust-rewrite -- apps/daemon/src/engine` is empty).
-- Make an unported branch succeed, or return a `CommandResult` for one: it fails `NotPorted`, and
-  the receipt rolls back.
-- Run a wake, a spawn or a task inside the receipt; every wake goes on the after-commit queue.
+- Edit E5.2's or E5.3's files beyond the one `impl` move, or any TypeScript engine module
+  (`git diff origin/ace/daemon-rust-rewrite -- apps/daemon/src/engine` is empty).
+- Run any DDL from Rust, or any history-sized statement at open.
+- Make an unported branch succeed, or return a `CommandResult` for one.
+- Run a wake, a timer change, a naming prompt or a task inside the receipt.
+- Roll back a refusal, or commit a throw.
 - Call a JS port while holding a `with_state` borrow, or hold a transaction across an await.
-- Change a table, column, index, statement text or JSON shape; reorder the receipt's checks.
+- Change a table, column, index, statement text or JSON shape, or reorder the receipt's checks.
 - Copy a package helper's TypeScript tests into Rust, or add a parity harness.
-- Run the full suite, `bun run check`, or any tier; one file at a time (rule 3).
+- Run the full suite, `bun run check` or any tier; one file at a time (rule 3).
 
 ## Reviewer checks
 
-- The receipt's checks are in `handler.ts`'s order; the refusal table's rows match their sources
-  character for character (`detail` with the guest name and its fallback included).
-- `queuePage` throws plain `Error`s with the three messages; `admitCreation` returns strings.
-- Every `Command.parse` site of the TypeScript is a schema-order serialization in Rust, and no
-  other site is.
-- The receipt-path table matches the code: every "port" exists in the named file with its header
-  line, every "stub" fails `NotPorted` with its item, and the guide's rows for E5.5, E5.7, E5.8,
-  E5.9 and E5.10 drop what moved.
-- `recovery::fire` reports and never throws; `schedule` cancels the previous timer before arming.
-- The owner map is a `WeakMap`; an unknown owner object is "no owner".
-- The sends worker re-reads the queue and the transition guard after `actor.flush()`.
+- The receipt's checks follow `handler.ts`'s order. The refusal table matches its sources
+  character for character. A refusal returns `Ok` and commits; a stub throws and rolls back.
+- Every receipt statement is on the outer stack's `Tx`; wakes, `schedule`, the naming prompt and
+  the reclaim's retire are after-commit only.
+- `queuePage` throws plain `Error`s; `admitCreation` returns strings; `Owner::Unknown` never
+  authorizes.
+- `EngineModels` is built with or without a catalog, and `select`, `permissionCapabilities` and
+  `knownPermissionCapabilities` call the catalog port synchronously exactly where the TypeScript
+  does.
+- The ported files of later items carry their header line, and the guide's rows for E5.5, E5.6,
+  E5.7, E5.8, E5.9 and E5.10 drop what moved.
+- Every `InputFacts` method is 4a's or 4b's (or E5.5's `rootRunStart`), and none waits on 4c–4f.
+- `work` reaches ordinary delivery when nothing is yielded; `yielded` is ported, not stubbed.
+- Each idle pass resumes from saved progress; `retains` answers retained until the re-track has
+  finished.
 - Each seam test names the (a) test that replaces it.
 
-## Open questions, with recommendations
+## Decided (2026-11-24)
 
-1. **Port the receipt path across items' modules (decision 2)?** The alternative is that every
-   native create, send and Stop fails until E5.7, E5.9 and E5.10 have landed, so the commands row
-   shows nothing until the end of E5. **Recommend yes**, with the owners keeping the code and their
-   rows amended, as listed. The cost is about 450 lines of other items' code in E5.4d and E5.4e.
-2. **`Recovery`'s command path to E5.4 (decision 4)?** **Recommend yes.** Every queue command and
-   send goes through it, and E5.8 is three items later. E5.8 keeps captures, limit observation
-   and deadline firing.
-3. **`readMessageFacts` and the `messageFacts` member to E5.5?** **Recommend yes**: its rules are
-   `steer-yield`'s. E5.4f keeps `readyForInput` and `threadCapabilities` for the sends worker.
-4. **Is six rounds right?** Folding E5.4f into E5.5 would save a round, but E5.1 gave the sends
-   lane's `run` to E5.4, and E5.4's seam test needs the worker's hold checks. **Recommend six**,
-   with E5.4a and E5.4b in parallel with E5.2 and E5.3.
-5. **Three new synchronous ports (decision 5): `workspaceDirectory`, `portableHandoff`,
-   `linkCreatedThread`.** `ports.rs` is E5.1's file, which is in review now. **Recommend adding
-   them in E5.1's current review round**, so no later item edits `ports.rs`. Failing that, E5.4e
-   adds them in one commit with a reviewer from E5.1. A Rust `canonicalize` was rejected because
-   on macOS it returns the on-disk case and on Windows a `\\?\` prefix, which `realpathSync` does
-   not, and both change the stored worktree path.
-6. **Where the pure package helpers go in Rust.** **Recommend by owner**: `acceptsPersonInput`,
-   `continueMessage` and `providerCommandDisabled` in `ace-core` (they are `@ace/core` exports
-   that E4 left TypeScript-only); Claude's and Pi's provider-input text in their adapter crates;
-   `boundedJson` in `ace-json`, replacing the private copy in `ace-adapter-cursor`; the queue
-   branch of `threadAttention` in `ace-projection`; `provisionalTitle`, `withoutHandoffEnvelope`,
-   `nativeCommandInputs`, `aceWaitTargets`, `cursorInstanceId`, `reportedOrTable` (the paths read)
-   and `worktree-base` in `ace-engine`. They are proven by the (a) files, with no copied cases. The
-   TypeScript originals stay, because the web app, iOS and the TypeScript adapters use them. That
-   leaves two implementations of each until the clients move, which ADR 0223 accepts for the
-   engine but did not list for these packages. The owner should confirm.
-7. **Open-time work that grows with history (decision 9).** Two of the constructors break
-   ADR 0170. `QueueStore` re-tracks attachments by scanning every live input
-   (`queue-store.ts:84`–`:93`). `InputJournal` deletes orphans with `NOT IN (SELECT id FROM
-threads)` over the whole journal (`input-journal.ts:97`–`:98`). **Recommend porting both
-   unchanged** (formats and behaviour are contract in ADR 0223 §5), timing native open on a large
-   home with a cold cache in E5.3's measurement, and filing one change, for both backends, that
-   moves both into idle bounded batches (ADR 0170).
+The owner's answers to the first revision's questions, all as Codex (gpt-6.2-sol, high)
+recommended:
+
+1. Port the synchronous receipt dependencies, including switch admission for a selecting steer
+   and guard release for a Stop; execution stays with the owners.
+2. Command-time holds are 4d's; E5.8 executes deadlines.
+3. `readMessageFacts` moves to E5.5.
+4. Six rounds, with the dependency and proof fixes above.
+5. `workspaceDirectory`, `portableHandoff` and `linkCreatedThread` are synchronous TypeScript ports
+   on the shared stack, keeping `realpathSync`'s spelling.
+6. Helpers go to their owners' crates, with JavaScript's serialization and error bytes kept.
+7. The history-sized open-time scans are fixed on main first, before E5.3, and E5.4 ports the
+   resumable idle-batch version.
+
+## Open questions
+
+1. **Commit-scoped naming differs from TypeScript**, which names a thread whose receipt rolled
+   back. **Recommend keeping the native behaviour** and fixing the TypeScript to match in the
+   prerequisite PR or a small follow-up, so the two backends agree.
+2. **`engine_queue` rows on read.** **Recommend** that the prerequisite replace the open-time
+   `INSERT OR IGNORE … FROM thread_state` with an insert on first read, instead of an idle
+   backfill, so no read of a thread's queue ever depends on a batch finishing (ADR 0170 rule 5).
