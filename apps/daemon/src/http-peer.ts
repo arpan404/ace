@@ -1,10 +1,15 @@
 import type { IncomingMessage } from "node:http";
+import { TLSSocket } from "node:tls";
 
 /** Who sent an HTTP request and which ports carried it, as the transport saw them. */
 export interface HttpPeer {
   address: string;
   remotePort: number;
   localPort: number;
+  /** The TLS name the client asked for, or null with no SNI (or a plain connection). */
+  servername: string | null;
+  /** Whether the native listener's proxy hop established these facts (T1b.2). */
+  viaHop: boolean;
 }
 
 /** A peer the transport established itself, for requests whose socket says something else. */
@@ -18,10 +23,16 @@ const peers = new WeakMap<IncomingMessage, HttpPeer>();
 export function peerOf(request: IncomingMessage): HttpPeer {
   const peer = peers.get(request);
   if (peer) return peer;
+  const socket = request.socket;
   return {
-    address: request.socket.remoteAddress ?? "unknown",
-    remotePort: request.socket.remotePort ?? 0,
-    localPort: request.socket.localPort ?? 0,
+    address: socket.remoteAddress ?? "unknown",
+    remotePort: socket.remotePort ?? 0,
+    localPort: socket.localPort ?? 0,
+    servername:
+      socket instanceof TLSSocket && typeof socket.servername === "string"
+        ? socket.servername
+        : null,
+    viaHop: false,
   };
 }
 

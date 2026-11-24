@@ -7,6 +7,7 @@ import {
 } from "node:http";
 import type { Socket } from "node:net";
 import { createServer as createTlsServer, type TlsOptions } from "node:tls";
+import { peerOf } from "./http-peer.ts";
 import { bindListener } from "./listener.ts";
 
 export interface SniLimits {
@@ -39,9 +40,15 @@ const trusted = Symbol("ace.sni.trusted");
 /**
  * A request on this connection authenticated: the connection is kept open for the listener's
  * longer limit once idle, and the answer says so (`Keep-Alive: timeout=N`) so the caller keeps
- * it as long. Outside an SNI listener's connection this does nothing.
+ * it as long. Outside an SNI listener's connection this does nothing. Through the native hop
+ * (T1b.2) the trust crosses as `x-ace-hop-trust`, which never reaches the client, and Rust
+ * writes the `Keep-Alive` answer.
  */
 export function keepTrusted(request: IncomingMessage, response: ServerResponse): void {
+  if (peerOf(request).viaHop) {
+    if (!response.headersSent) response.setHeader("x-ace-hop-trust", "1");
+    return;
+  }
   const limit: unknown = Reflect.get(request.socket, trustedLimit);
   if (typeof limit !== "number") return;
   Reflect.set(request.socket, trusted, true);
