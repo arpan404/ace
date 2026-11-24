@@ -1,14 +1,14 @@
 import {
+  BotsIcon,
+  BrainIcon,
   BriefcaseIcon,
   CaretRightIcon,
   ClockIcon,
-  CpuIcon,
   FolderIcon,
-  KeyIcon,
-  PaletteIcon,
-  RobotIcon,
+  ListChecksIcon,
   ShieldCheckIcon,
-  ShieldIcon,
+  SlidersHorizontalIcon,
+  SmileyIcon,
   SpeakerHighIcon,
 } from "@ace/icons";
 import {
@@ -71,8 +71,8 @@ const groups: readonly { label: string; pages: readonly PageEntry[] }[] = [
     label: "Bot",
     pages: [
       { id: "job", title: "Job", icon: BriefcaseIcon },
-      { id: "model", title: "Model", icon: CpuIcon },
-      { id: "personality", title: "Personality", icon: PaletteIcon },
+      { id: "model", title: "Model", icon: BrainIcon },
+      { id: "personality", title: "Personality", icon: SmileyIcon },
       { id: "voice", title: "Voice", icon: SpeakerHighIcon },
     ],
   },
@@ -80,7 +80,7 @@ const groups: readonly { label: string; pages: readonly PageEntry[] }[] = [
     label: "Access and automation",
     pages: [
       { id: "decides", title: "How it decides", icon: ShieldCheckIcon },
-      { id: "can-use", title: "Can use", icon: KeyIcon },
+      { id: "can-use", title: "Can use", icon: SlidersHorizontalIcon },
       { id: "routines", title: "Routines", icon: ClockIcon },
       { id: "files", title: "Files and folders", icon: FolderIcon },
     ],
@@ -88,8 +88,8 @@ const groups: readonly { label: string; pages: readonly PageEntry[] }[] = [
   {
     label: "Oversight",
     pages: [
-      { id: "safety", title: "Activity and safety", icon: ShieldIcon },
-      { id: "making", title: "Making bots", icon: RobotIcon },
+      { id: "safety", title: "Activity and safety", icon: ListChecksIcon },
+      { id: "making", title: "Making bots", icon: BotsIcon },
     ],
   },
 ];
@@ -104,10 +104,15 @@ function useCategoryValues(bot: RosterBot): Record<SettingsPage, string | undefi
   const routines = useSpadeRoutines(bot.id);
   const voice = botVoice(useVoicePrefs(), voiceKey(bot.machine.key, bot.id));
   const endpoints = useSpadeModels(true).data?.endpoints ?? [];
-  const modelName = spadeModelLabel(
+  const modelLabel = spadeModelLabel(
     { endpoints: endpoints.map((endpoint) => ({ endpoint, models: endpoint.models })) },
     bot.model,
-  ).name;
+  );
+  const modelSummary = !bot.model.trim()
+    ? "Not set"
+    : modelLabel.source && modelLabel.name
+      ? `${modelLabel.source} · ${modelLabel.name}`
+      : modelLabel.name || modelLabel.source || "Not set";
   const switches = security?.permissions
     ? spadePermissionSwitches
         .filter((each) => security.permissions?.on[each.key])
@@ -138,7 +143,7 @@ function useCategoryValues(bot: RosterBot): Record<SettingsPage, string | undefi
         : `${switches[0]}, +${switches.length - 1}`;
   return {
     job: bot.task.trim().split("\n")[0]?.trim() || "Not set",
-    model: modelName || bot.model.split("/").at(-1) || undefined,
+    model: modelSummary,
     decides: security
       ? security.autonomy === "full_access"
         ? "Full access"
@@ -215,17 +220,18 @@ export function ProfileSettings(props: {
                   type="button"
                   data-setting-slot=""
                   onClick={() => props.onPage(each.id)}
-                  className={cn(profileRowClass, "min-h-11 py-2.5")}
+                  className={cn(profileRowClass, "min-h-12 py-2")}
                 >
-                  <Icon icon={each.icon} size={16} className="shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate text-ui text-foreground">
-                    {each.title}
+                  <span
+                    aria-hidden="true"
+                    className="grid size-7 shrink-0 place-items-center rounded-[8px] bg-foreground/[0.06] text-muted-foreground"
+                  >
+                    <Icon icon={each.icon} size={16} />
                   </span>
-                  {value && (
-                    <span className="max-w-36 shrink-0 truncate text-xs text-muted-foreground tabular-nums">
-                      {value}
-                    </span>
-                  )}
+                  <span className="shrink-0 text-ui text-foreground">{each.title}</span>
+                  <span className="min-w-0 flex-1 truncate text-right text-xs text-muted-foreground tabular-nums">
+                    {value ?? ""}
+                  </span>
                   <Icon
                     icon={CaretRightIcon}
                     size={13}

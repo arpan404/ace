@@ -257,12 +257,29 @@ pub fn mentions(text: &str, names: &[&str]) -> Vec<usize> {
 /// context, and whether any line is another bot's (whose words are untrusted). `me` is the
 /// recipient, whose own lines don't count.
 pub fn recent(events: &[Event], me: &GroupBot, before_run: &str) -> (String, bool) {
-    let messages: Vec<(&Option<GroupBot>, &String)> = events
+    let indexed: Vec<(Option<i64>, &Event)> = events.iter().map(|e| (None, e)).collect();
+    recent_lines(&indexed, me, before_run)
+}
+
+/// Like [`recent`], prefixed with each stored message's id (`[m<seq>]`) so a club member can
+/// target earlier messages with `<react to="m…">`.
+pub fn recent_with_ids(events: &[(i64, &Event)], me: &GroupBot, before_run: &str) -> (String, bool) {
+    let indexed: Vec<(Option<i64>, &Event)> =
+        events.iter().map(|(seq, e)| (Some(*seq), *e)).collect();
+    recent_lines(&indexed, me, before_run)
+}
+
+fn recent_lines(
+    events: &[(Option<i64>, &Event)],
+    me: &GroupBot,
+    before_run: &str,
+) -> (String, bool) {
+    let messages: Vec<(Option<i64>, &Option<GroupBot>, &String)> = events
         .iter()
-        .filter_map(|event| match event {
+        .filter_map(|(seq, event)| match event {
             Event::Known(Known::GroupMessage {
                 run, text, from, ..
-            }) if run != before_run => Some((from, text)),
+            }) if run != before_run => Some((*seq, from, text)),
             _ => None,
         })
         .collect();
@@ -270,7 +287,7 @@ pub fn recent(events: &[Event], me: &GroupBot, before_run: &str) -> (String, boo
     let mut untrusted = false;
     let lines: Vec<String> = messages[start..]
         .iter()
-        .map(|(from, text)| {
+        .map(|(seq, from, text)| {
             let who = match from {
                 None => "the person".to_owned(),
                 Some(bot) if same(bot, me) => "you".to_owned(),
@@ -280,7 +297,10 @@ pub fn recent(events: &[Event], me: &GroupBot, before_run: &str) -> (String, boo
                 }
             };
             let text: String = text.chars().take(RECENT_CHARS).collect();
-            format!("{who}: {text}")
+            match seq {
+                Some(seq) => format!("[m{seq}] {who}: {text}"),
+                None => format!("{who}: {text}"),
+            }
         })
         .collect();
     (lines.join("\n"), untrusted)

@@ -49,10 +49,16 @@ async function choose(picker: HTMLElement, option: string) {
 
 test("a bot starts on Auto-review, and Full access asks first, then says what still asks and shows in its conversation", async () => {
   const { spade } = await spadeApp("/spade", seed);
-  const { profile, picker } = await scoutsChoice();
+  const { profile, decision, picker } = await scoutsChoice();
   expect(
     within(picker).getByRole("button", { name: "Auto-review" }).getAttribute("aria-pressed"),
   ).toBe("true");
+  expect(
+    decision.getByText(
+      "A reviewer checks each step that changes something and decides for you. You're asked only if it refuses the same step twice, or for the three below.",
+    ),
+  ).toBeTruthy();
+  expect(decision.queryByText(/Runs every step itself/)).toBeNull();
   // The "Always asks you" group lists the three boundaries that always ask.
   const alwaysSection = (await profile.findByRole("heading", { name: "Always asks you" })).closest(
     "section",
@@ -61,6 +67,9 @@ test("a bot starts on Auto-review, and Full access asks first, then says what st
   expect(within(alwaysSection).getByText("Pay")).toBeTruthy();
   expect(within(alwaysSection).getByText("Send as you")).toBeTruthy();
   expect(within(alwaysSection).getByText("Change access")).toBeTruthy();
+  expect(
+    within(alwaysSection).getByText("These always need your approval, even in Full access."),
+  ).toBeTruthy();
 
   // Cancelling the confirmation changes nothing.
   await chooseSegment(picker, "Full access");
@@ -85,6 +94,12 @@ test("a bot starts on Auto-review, and Full access asks first, then says what st
       within(picker).getByRole("button", { name: "Full access" }).getAttribute("aria-pressed"),
     ).toBe("true"),
   );
+  expect(
+    decision.getByText(
+      "Runs every step itself, inside or outside the sandbox, with nothing reviewed. Only the three below come to you.",
+    ),
+  ).toBeTruthy();
+  expect(decision.queryByText(/A reviewer checks each step/)).toBeNull();
   // The conversation's pill says so, quietly.
   expect(
     await screen.findByRole("button", { name: "Open Scout's profile, Full access" }),

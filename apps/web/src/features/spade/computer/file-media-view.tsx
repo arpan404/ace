@@ -50,13 +50,19 @@ export function FileMediaView(props: {
   if (now?.failed) return props.fallback;
   if (!now?.url)
     return (
-      <LoadingRegion label="File" className="p-4">
+      <LoadingRegion label="File" className="flex flex-1 flex-col p-4">
         <Skeleton className="h-40 w-full rounded-md" />
       </LoadingRegion>
     );
   const name = path.split("/").at(-1) ?? path;
   return (
-    <div className="flex h-full min-h-0 items-center justify-center overflow-auto p-4">
+    <div
+      className={
+        mode === "pdf"
+          ? "flex h-full min-h-0 flex-1 flex-col overflow-hidden p-2 @[560px]/panel:p-4"
+          : "flex h-full min-h-0 flex-1 items-center justify-center overflow-auto p-4"
+      }
+    >
       <FileMedia
         url={now.url}
         name={name}

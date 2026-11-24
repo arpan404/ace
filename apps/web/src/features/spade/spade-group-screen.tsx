@@ -228,6 +228,18 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[]; p
             name={group.name}
             view={view}
             onReply={setReplying}
+            onReact={(id, emoji) =>
+              conversation.react(id, emoji).then(
+                () => true,
+                (error: unknown) => {
+                  toast.error({
+                    title: "Couldn't save that reaction",
+                    description: message(error),
+                  });
+                  return false;
+                },
+              )
+            }
             seenSeq={unreadFrom}
             members={group.members.map((member, index) => ({
               id: member.agent,

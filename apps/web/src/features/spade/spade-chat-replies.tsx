@@ -1,8 +1,9 @@
 import {
-  spadeQuoteName,
+  type SpadeAvatar,
   type SpadeDocCard,
   type SpadeMessageReactions,
   type SpadeQuote,
+  spadeQuoteName,
 } from "@ace/ui-core/spade-chat";
 import { FileTextIcon, XIcon } from "@ace/icons";
 import {
@@ -24,16 +25,21 @@ import {
 } from "@/components/ui/dialog.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { cn } from "@/lib/cn.ts";
-import type { QuoteAccentVariables } from "./spade-accent.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 
 /*
  * Replying to a message and long words in a Spade chat (ADR 0212, docs/design/spade.md §3): the
- * compact quote inset inside the top of a bubble (jumping to the original on click), the
- * composer's strip while replying, and the document card for long words.
+ * messenger-style muted label + faded ghost bubble above a reply (jumping to the original on
+ * click), the composer's strip while replying, and the document card for long words.
  */
 
-/** What a chat's bubbles reach to reply to a message and to go to one. */
+/** A reactor's display identity for reaction hover/long-press popovers. */
+export interface SpadeReactor {
+  name: string;
+  avatar?: SpadeAvatar | undefined;
+}
+
+/** What a chat's bubbles reach to reply to a message, react to one, and jump to a quoted one. */
 export interface SpadeReplyHandlers {
   /** Start replying to a message: the composer shows its strip. */
   reply(quote: SpadeQuote): void;
@@ -43,12 +49,14 @@ export interface SpadeReplyHandlers {
   lit: string | undefined;
   /** Whose words a bot's quote names. */
   botName: string;
-  /** What each side reacted with, by message id. */
+  /** What each reactor put on a message, by message id. */
   reactions: ReadonlyMap<string, SpadeMessageReactions>;
   /** React to a message, or take the person's reaction back (undefined); absent offers none. */
   react: ((id: string, emoji: string | undefined) => void) | undefined;
-  /** Accent colour variables for the quoted sender's 2px bar, if that sender has a colour. */
-  accentOf?: ((who: SpadeQuote["who"]) => QuoteAccentVariables | undefined) | undefined;
+  /** True in clubs: the person can react to any message, including their own. */
+  canReactOwn?: boolean | undefined;
+  /** Resolve a reactor id (`"person"`, `"bot"`, or club member agent id) to face and name. */
+  reactorOf?: ((id: string) => SpadeReactor | undefined) | undefined;
 }
 
 export const SpadeReplyContext = createContext<SpadeReplyHandlers | undefined>(undefined);
@@ -61,61 +69,68 @@ export const messageAttribute = "data-spade-message";
 /** Space-separated list of all merged message ids inside a single coalesced bubble. */
 export const messageIdsAttribute = "data-spade-message-ids";
 
+/** Quiet label above a reply's ghost bubble ("Replied to you", "You replied to Flights", etc.). */
+export function replyLabel(
+  quote: SpadeQuote,
+  side: "bot" | "mine",
+  botName: string,
+  replier?: string,
+): string {
+  if (side === "mine") {
+    if (quote.who.kind === "person") return "You replied to yourself";
+    return `You replied to ${spadeQuoteName(quote.who, botName)}`;
+  }
+  if (quote.who.kind === "person") return "Replied to you";
+  const target = spadeQuoteName(quote.who, botName);
+  if (replier && replier === target) return `${replier} replied to itself`;
+  return replier ? `${replier} replied to ${target}` : `Replied to ${target}`;
+}
+
 /**
- * Compact quote inset inside the top of a bubble: a 2px rounded accent bar in the quoted sender's
- * colour, their name in 12px semibold, and one truncated line of the quoted text in 12px muted.
- * Clicking anywhere on the inset scrolls to and highlights the original message.
+ * Messenger-style reply context sitting directly above a reply bubble: a muted 12px label
+ * ("Replied to you" / "You replied to Flights" / "Flights replied to Inbox") and a compact faded
+ * ghost bubble in the original sender's shape and colour. Clicking jumps to and highlights the
+ * original message.
  */
-export function QuoteInset(props: { quote: SpadeQuote; side: "bot" | "mine" }) {
+export function ReplyGhost(props: {
+  quote: SpadeQuote;
+  side: "bot" | "mine";
+  /** Club member name when a club member is replying (e.g. "Flights"). */
+  replier?: string | undefined;
+}) {
   const replies = useSpadeReplies();
-  const name = spadeQuoteName(props.quote.who, replies?.botName ?? "Spade");
-  const accent = replies?.accentOf?.(props.quote.who);
+  const label = replyLabel(props.quote, props.side, replies?.botName ?? "Spade", props.replier);
   const mine = props.side === "mine";
+  const quotedPerson = props.quote.who.kind === "person";
   return (
-    <button
-      type="button"
-      onClick={() => replies?.show(props.quote.id)}
-      aria-label={`Replying to ${name}: ${props.quote.text}. Show the message`}
-      style={accent}
-      className={cn(
-        "mb-2 flex w-full min-w-0 cursor-pointer items-stretch gap-2.5 rounded-[10px] px-2.5 py-1.5 text-left transition-colors duration-(--motion-fast) focus-ring",
-        mine
-          ? "bg-chat-mine-foreground/[0.12] hover:bg-chat-mine-foreground/[0.18]"
-          : "bg-foreground/[0.05] hover:bg-foreground/[0.08]",
-      )}
+    <div
+      data-part="spade-reply-ghost"
+      className={cn("flex max-w-full min-w-0 flex-col", mine ? "items-end" : "items-start")}
     >
       <span
-        aria-hidden
         className={cn(
-          "w-[2px] shrink-0 self-stretch rounded-full",
-          mine
-            ? accent
-              ? "bg-[oklch(from_var(--quote-accent-light)_0.86_c_h)] dark:bg-[oklch(from_var(--quote-accent-dark)_0.88_c_h)]"
-              : "bg-chat-mine-foreground/75"
-            : accent
-              ? "bg-(--quote-accent-light) dark:bg-(--quote-accent-dark)"
-              : "bg-chat-mine",
+          "mb-1 max-w-full truncate text-[12px] leading-4 text-muted-foreground",
+          mine ? "pr-1.5 text-right" : "pl-1.5 text-left",
         )}
-      />
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span
-          className={cn(
-            "truncate text-[12px] leading-4 font-semibold",
-            mine ? "text-chat-mine-foreground" : "text-foreground",
-          )}
-        >
-          {name}
-        </span>
-        <span
-          className={cn(
-            "truncate text-[12px] leading-4",
-            mine ? "text-chat-mine-meta" : "text-muted-foreground",
-          )}
-        >
-          {props.quote.text}
-        </span>
+      >
+        {label}
       </span>
-    </button>
+      <button
+        type="button"
+        onClick={() => replies?.show(props.quote.id)}
+        aria-label={`${label}: ${props.quote.text}. Show the message`}
+        className={cn(
+          // Extra bottom padding leaves room for the reply bubble overlapping by 6px.
+          "max-w-[min(100%,42ch)] min-w-0 cursor-pointer rounded-[16px] px-3 pt-1.5 pb-2.5 text-left text-[13px] leading-[1.38] transition-colors duration-(--motion-fast) focus-ring",
+          mine ? "mr-1.5" : "ml-1.5",
+          quotedPerson
+            ? "bg-[color-mix(in_oklab,var(--chat-mine)_34%,transparent)] text-foreground/75 hover:bg-[color-mix(in_oklab,var(--chat-mine)_44%,transparent)]"
+            : "border border-foreground/[0.06] bg-chat-bubble/55 text-muted-foreground hover:bg-chat-bubble/75",
+        )}
+      >
+        <span className="line-clamp-2 break-words">{props.quote.text}</span>
+      </button>
+    </div>
   );
 }
 
@@ -153,7 +168,7 @@ export function ReplyStrip(props: { quote: SpadeQuote; botName: string; onClear(
  * Long words as a card on the bot's side (ADR 0212 §5): the document mark, the title, two lines
  * of preview and Open, which shows every word in a sheet over the chat.
  */
-export function DocumentCard(props: { doc: SpadeDocCard; quote?: SpadeQuote | undefined }) {
+export function DocumentCard(props: { doc: SpadeDocCard }) {
   const [open, setOpen] = useState(false);
   const { doc } = props;
   return (
@@ -163,7 +178,6 @@ export function DocumentCard(props: { doc: SpadeDocCard; quote?: SpadeQuote | un
         aria-label={doc.title}
         className="flex w-full max-w-[min(100%,52ch)] min-w-0 flex-col rounded-(--chat-bubble-radius) bg-chat-bubble px-4 py-3.5"
       >
-        {props.quote && <QuoteInset quote={props.quote} side="bot" />}
         <div className="flex min-w-0 items-start gap-3">
           <FileTextIcon aria-hidden className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
@@ -194,6 +208,11 @@ export function DocumentCard(props: { doc: SpadeDocCard; quote?: SpadeQuote | un
 /** How long a message gone to from its quote stays lit. */
 const litFor = 1600;
 
+export interface UseRepliesOptions {
+  canReactOwn?: boolean | undefined;
+  reactorOf?: ((id: string) => SpadeReactor | undefined) | undefined;
+}
+
 /**
  * Replying in a chat: Reply hands the message to the composer, and a quote goes to its original,
  * drawing every row first when the original is older than the rows drawn yet.
@@ -204,7 +223,7 @@ export function useReplies(
   drawAll: () => void,
   reactions: ReadonlyMap<string, SpadeMessageReactions>,
   onReact: ((id: string, emoji: string | undefined) => Promise<boolean>) | undefined,
-  accentOf?: ((who: SpadeQuote["who"]) => QuoteAccentVariables | undefined) | undefined,
+  options?: UseRepliesOptions,
 ): SpadeReplyHandlers | undefined {
   const [lit, setLit] = useState<string>();
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -238,8 +257,19 @@ export function useReplies(
       onReact ? (id: string, emoji: string | undefined) => void onReact(id, emoji) : undefined,
     [onReact],
   );
+  const canReactOwn = options?.canReactOwn;
+  const reactorOf = options?.reactorOf;
   return useMemo(
-    () => ({ reply: onReply ?? (() => {}), show, lit, botName, reactions, react, accentOf }),
-    [onReply, show, lit, botName, reactions, react, accentOf],
+    () => ({
+      reply: onReply ?? (() => {}),
+      show,
+      lit,
+      botName,
+      reactions,
+      react,
+      canReactOwn,
+      reactorOf,
+    }),
+    [onReply, show, lit, botName, reactions, react, canReactOwn, reactorOf],
   );
 }

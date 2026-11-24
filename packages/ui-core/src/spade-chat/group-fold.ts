@@ -6,6 +6,10 @@ import { spadeChatSegments, spadeMessageId } from "./chat-markup.ts";
 import { spadeDocCard, type SpadeDocCard } from "./documents-in-chat.ts";
 import { spadeMayFold } from "./long-messages.ts";
 import {
+  spadeFoldReaction,
+  type SpadeMessageReactions,
+} from "./reactions.ts";
+import {
   spadeQuoteOf,
   spadeReplyToField,
   spadeSaid,
@@ -91,6 +95,8 @@ export interface SpadeGroupState {
   pending: { key: string; text: string; replyTo?: SpadeReplyTo | undefined }[];
   /** Asks still open, by ask id, in the order they were made. */
   asks: Map<string, { run: string; to: SpadeGroupBot }>;
+  /** Standing reactions per message id across club members and the person. */
+  reactions: Map<string, SpadeMessageReactions>;
   /** The group's state and few words, from the live stream's `status` frames. */
   state: "idle" | "working" | "waiting";
   status: string | undefined;
@@ -111,6 +117,7 @@ export function emptySpadeGroup(): SpadeGroupState {
     items: [],
     pending: [],
     asks: new Map(),
+    reactions: new Map(),
     state: "idle",
     status: undefined,
     waitingMember: undefined,
@@ -177,6 +184,10 @@ function foldStored(state: SpadeGroupState, stored: SpadeStored): boolean {
   state.lastSeq = stored.seq;
   const firstLoad = !state.loaded;
   state.loaded = true;
+  if (stored.event.type === "reaction") {
+    spadeFoldReaction(state.reactions, stored.event);
+    return true;
+  }
   // Group events are no bot conversation's, so the shared parser keeps them as raw data.
   const raw = stored.event.type === "unknown" ? stored.event.raw : undefined;
   const parsed = groupEvent.safeParse(raw);
@@ -301,6 +312,8 @@ export type SpadeGroupRow =
 export interface SpadeGroupView {
   loaded: boolean;
   rows: SpadeGroupRow[];
+  /** Standing reactions per message id across club members and the person. */
+  reactions: ReadonlyMap<string, SpadeMessageReactions>;
   /** Anything is open: an ask, or the group says it isn't idle. Stop is offered then. */
   busy: boolean;
   state: "idle" | "working" | "waiting";
@@ -367,6 +380,7 @@ export function spadeGroupView(state: SpadeGroupState): SpadeGroupView {
   return {
     loaded: state.loaded,
     rows,
+    reactions: new Map(state.reactions),
     busy: state.state !== "idle" || state.asks.size > 0,
     state: state.state,
     status: state.status,

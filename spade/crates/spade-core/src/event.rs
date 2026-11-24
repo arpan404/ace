@@ -893,6 +893,9 @@ pub enum Known {
         #[serde(default)]
         emoji: String,
         by: ReactionBy,
+        /// The reacting bot's agent id in a club; absent for the person and a bot's own chat.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent: Option<String>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         removed: bool,
     },

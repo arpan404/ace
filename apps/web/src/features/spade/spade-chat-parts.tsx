@@ -1,14 +1,23 @@
 import {
+  spadeAggregateReactions,
   spadeFailureSentence,
   spadeQuickReactions,
-  type SpadeMessageReactions,
   type SpadeAvatar,
   type SpadeBubbleFailure,
   type SpadeQuote,
+  type SpadeReactionGroup,
 } from "@ace/ui-core/spade-chat";
 import type { BotFaceState } from "@ace/ui-core/bot-face";
 import { ArrowBendUpLeftIcon, DotsThreeIcon, SmileyIcon } from "@ace/icons";
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import {
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { Emoji } from "@/components/emoji.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -28,6 +37,8 @@ import { useBotVoiceContext } from "./use-spoken-replies.ts";
 import {
   messageAttribute,
   messageIdsAttribute,
+  ReplyGhost,
+  type SpadeReactor,
   useSpadeReplies,
 } from "./spade-chat-replies.tsx";
 
@@ -224,72 +235,192 @@ const holdFor = 450;
 const bare =
   "size-7 rounded-full bg-transparent text-subtle-foreground hover:bg-hover/60 hover:text-foreground aria-expanded:bg-hover/60 aria-expanded:text-foreground [&_svg]:size-[18px]";
 
-/** Overlapping the bubble's bottom edge: what each side reacted with. The person's comes off on click. */
-function ReactionChips(props: {
-  mark: SpadeMessageReactions;
+/** One aggregated emoji chip with optional count, own-reaction highlight, toggle on click, and hover/long-press who-reacted card. */
+function ReactionChip(props: {
+  group: SpadeReactionGroup;
   side: "bot" | "mine";
-  onRemove: (() => void) | undefined;
+  canReact: boolean;
+  onToggle: ((emoji: string, mine: boolean) => void) | undefined;
+  reactorOf: ((id: string) => SpadeReactor | undefined) | undefined;
 }) {
-  const { person, bot } = props.mark;
-  const chip =
-    "-mt-2 inline-flex h-6 items-center rounded-full bg-chat-raised px-1.5 text-sm leading-none shadow-[0_0_0_2px_var(--background)]";
+  const { group, side, canReact, onToggle, reactorOf } = props;
+  const mine = group.by.includes("person");
+  const count = group.by.length;
+  const [shown, setShown] = useState(false);
+  const longPressed = useRef(false);
+  const chipRef = useRef<HTMLSpanElement>(null);
+  const holdTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(holdTimer.current), []);
+  useEffect(() => {
+    if (!shown) return;
+    const away = (event: PointerEvent) => {
+      if (!chipRef.current?.contains(event.target as Node)) setShown(false);
+    };
+    document.addEventListener("pointerdown", away);
+    return () => document.removeEventListener("pointerdown", away);
+  }, [shown]);
+
+  const reactors = group.by.map((id) => {
+    const found = reactorOf?.(id);
+    if (found) return { id, ...found };
+    if (id === "person") return { id, name: "You" };
+    return { id, name: id === "bot" ? "Spade" : id };
+  });
+  const names = reactors.map((reactor) => reactor.name);
+  const chipClass = cn(
+    "inline-flex h-6 items-center gap-1 rounded-full text-[12px] leading-none shadow-[0_0_0_2px_var(--background)] transition-colors duration-(--motion-fast)",
+    count > 1 ? "px-2" : "px-1.5",
+    mine
+      ? "bg-[color-mix(in_oklab,var(--chat-mine)_22%,var(--chat-raised))] text-foreground ring-1 ring-inset ring-[color-mix(in_oklab,var(--chat-mine)_55%,transparent)]"
+      : "bg-chat-raised text-muted-foreground ring-1 ring-inset ring-foreground/[0.08]",
+    canReact &&
+      (mine
+        ? "cursor-pointer focus-ring hover:bg-[color-mix(in_oklab,var(--chat-mine)_30%,var(--chat-raised))]"
+        : "cursor-pointer focus-ring hover:bg-hover hover:text-foreground"),
+  );
+  const label = mine
+    ? count > 1
+      ? `Remove your ${group.emoji} reaction (${count} reactions: ${names.join(", ")})`
+      : `Remove your ${group.emoji} reaction`
+    : canReact
+      ? count > 1
+        ? `React ${group.emoji} (${count} reactions: ${names.join(", ")})`
+        : `React ${group.emoji} (${names.join(", ")})`
+      : count > 1
+        ? `Reacted ${group.emoji} (${count}: ${names.join(", ")})`
+        : `Reacted ${group.emoji}`;
+  const content = (
+    <>
+      <Emoji emoji={group.emoji} className="size-3.5 shrink-0" />
+      {count > 1 && <span className="text-[11px] font-medium tabular-nums">{count}</span>}
+    </>
+  );
+  const clearHold = () => clearTimeout(holdTimer.current);
+  const touchProps = {
+    onPointerDown: (event: ReactPointerEvent) => {
+      if (event.pointerType !== "touch") return;
+      event.stopPropagation();
+      longPressed.current = false;
+      clearHold();
+      holdTimer.current = setTimeout(() => {
+        longPressed.current = true;
+        setShown(true);
+      }, holdFor);
+    },
+    onPointerUp: clearHold,
+    onPointerCancel: clearHold,
+    onPointerMove: clearHold,
+    onContextMenu: (event: ReactMouseEvent) => {
+      if (longPressed.current) event.preventDefault();
+    },
+  };
+
   return (
     <span
-      className={cn(
-        "relative z-10 flex gap-1 px-2.5",
-        props.side === "bot" ? "self-start" : "self-end",
-      )}
+      ref={chipRef}
+      className="relative inline-flex"
+      onMouseEnter={() => setShown(true)}
+      onMouseLeave={() => setShown(false)}
     >
-      {person &&
-        (props.onRemove ? (
-          <button
-            type="button"
-            aria-label={`Remove your ${person} reaction`}
-            onClick={props.onRemove}
-            className={cn(chip, "cursor-pointer focus-ring hover:bg-hover")}
-          >
-            <Emoji emoji={person} className="size-3.5" />
-          </button>
-        ) : (
-          <span aria-label={`You reacted ${person}`} className={chip}>
-            <Emoji emoji={person} className="size-3.5" />
-          </span>
-        ))}
-      {bot && (
-        <span aria-label={`Reacted ${bot}`} className={chip}>
-          <Emoji emoji={bot} className="size-3.5" />
+      {canReact && onToggle ? (
+        <button
+          type="button"
+          aria-label={label}
+          aria-pressed={mine}
+          data-mine={mine || undefined}
+          onFocus={() => setShown(true)}
+          onBlur={() => setShown(false)}
+          onClick={() => {
+            if (longPressed.current) {
+              longPressed.current = false;
+              return;
+            }
+            onToggle(group.emoji, mine);
+          }}
+          {...touchProps}
+          className={chipClass}
+        >
+          {content}
+        </button>
+      ) : (
+        <span
+          tabIndex={0}
+          aria-label={label}
+          data-mine={mine || undefined}
+          onFocus={() => setShown(true)}
+          onBlur={() => setShown(false)}
+          {...touchProps}
+          className={cn(chipClass, "focus-ring")}
+        >
+          {content}
         </span>
+      )}
+      {shown && (
+        <div
+          role="tooltip"
+          className={cn(
+            "pointer-events-none absolute bottom-full z-30 mb-1.5 flex min-w-28 flex-col gap-1 rounded-xl border border-border bg-popover px-2.5 py-2 text-[12px] leading-4 text-popover-foreground shadow-lg whitespace-nowrap",
+            side === "bot" ? "left-0" : "right-0",
+          )}
+        >
+          {reactors.map((reactor) => (
+            <div key={reactor.id} className="flex items-center gap-1.5">
+              {reactor.avatar ? (
+                <SpadeFace avatar={reactor.avatar} size={18} />
+              ) : (
+                <span
+                  aria-hidden
+                  className="inline-flex size-[18px] shrink-0 items-center justify-center rounded-full bg-chat-mine/25 text-[10px] font-semibold text-foreground"
+                >
+                  {reactor.name.slice(0, 1).toUpperCase()}
+                </span>
+              )}
+              <span className={cn("truncate", reactor.id === "person" && "font-medium")}>
+                {reactor.name}
+              </span>
+            </div>
+          ))}
+        </div>
       )}
     </span>
   );
 }
 
-/** Combine reactions across any merged message ids in a coalesced block. */
-function reactionsFor(
-  ids: readonly string[],
-  map: ReadonlyMap<string, SpadeMessageReactions> | undefined,
-): { mark: SpadeMessageReactions | undefined; personId: string | undefined } {
-  if (!map || ids.length === 0) return { mark: undefined, personId: undefined };
-  let person: string | undefined;
-  let personId: string | undefined;
-  let bot: string | undefined;
-  for (const id of ids) {
-    const entry = map.get(id);
-    if (!entry) continue;
-    if (entry.person && !person) {
-      person = entry.person;
-      personId = id;
-    }
-    if (entry.bot && !bot) bot = entry.bot;
-  }
-  if (!person && !bot) return { mark: undefined, personId: undefined };
-  return { mark: { ...(person ? { person } : {}), ...(bot ? { bot } : {}) }, personId };
+/** Under the bubble's corner: one wrapping chip per emoji with count and who-reacted popover. */
+function ReactionChips(props: {
+  groups: readonly SpadeReactionGroup[];
+  side: "bot" | "mine";
+  canReact: boolean;
+  onToggle: ((emoji: string, mine: boolean) => void) | undefined;
+  reactorOf: ((id: string) => SpadeReactor | undefined) | undefined;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Reactions"
+      className={cn(
+        "relative z-20 -mt-2 flex max-w-full flex-wrap gap-1 px-2.5",
+        props.side === "bot" ? "self-start justify-start" : "self-end justify-end",
+      )}
+    >
+      {props.groups.map((group) => (
+        <ReactionChip
+          key={group.emoji}
+          group={group}
+          side={props.side}
+          canReact={props.canReact}
+          onToggle={props.onToggle}
+          reactorOf={props.reactorOf}
+        />
+      ))}
+    </div>
+  );
 }
 
 /**
- * A bubble with its outside hover actions (react, reply, more) and bottom-overlapping reaction
- * chips. Reply quotes live inside the bubble itself (`QuoteInset`). Actions stay vertically
- * centered on the bubble even when reaction chips hang below it.
+ * A bubble with its optional messenger-style ghost reply above it, outside hover actions (react,
+ * reply, more), and bottom-overlapping aggregated reaction chips. Actions stay vertically centered
+ * on the reply bubble itself even when a ghost reply sits above or reaction chips hang below.
  */
 export function BubbleFrame(props: {
   /** The words Copy takes, without their marks; undefined for none. */
@@ -304,9 +435,14 @@ export function BubbleFrame(props: {
   work?: { shown: boolean; toggle(): void } | undefined;
   /** The message as Reply quotes it, once stored (ADR 0212 §4); undefined offers no Reply. */
   reply?: SpadeQuote | undefined;
+  /** The earlier message this bubble replies to, drawn as a faded ghost bubble above it. */
+  quote?: SpadeQuote | undefined;
+  /** Club member name when a club member is replying (for "Flights replied to Inbox"). */
+  replier?: string | undefined;
   /** All message ids merged into this bubble, for jump-to-original and reactions. */
   messageIds?: readonly string[] | undefined;
   side: "bot" | "mine";
+  className?: string | undefined;
   children: ReactNode;
 }) {
   const key = useId();
@@ -341,10 +477,15 @@ export function BubbleFrame(props: {
         ? [props.reply.id]
         : [];
   const primaryId = ids[0];
-  const { mark, personId } = reactionsFor(ids, replies?.reactions);
+  const groups = spadeAggregateReactions(ids.map((id) => replies?.reactions.get(id)));
+  const personId = ids.find((id) => replies?.reactions.get(id)?.person !== undefined);
+  const personEmoji = personId ? replies?.reactions.get(personId)?.person : undefined;
   const react = replies?.react;
-  // The person reacts to the bot's words; the bot's reactions to theirs just show.
-  const canReact = props.side === "bot" && react !== undefined && primaryId !== undefined;
+  // In a bot's own chat the person reacts to the bot's words; in a club they can react to any message.
+  const canReact =
+    (props.side === "bot" || replies?.canReactOwn === true) &&
+    react !== undefined &&
+    primaryId !== undefined;
   const lit = replies?.lit !== undefined && ids.includes(replies.lit);
   const release = () => clearTimeout(timer.current);
   return (
@@ -361,6 +502,7 @@ export function BubbleFrame(props: {
         // Gone to from a quote: lit a moment, then back (`--motion-slow` out).
         "rounded-(--chat-bubble-radius) outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-(--motion-slow) data-lit:outline-ring",
         held && "select-none",
+        props.className,
       )}
       onPointerDown={(event) => {
         if (event.pointerType !== "touch") return;
@@ -375,7 +517,15 @@ export function BubbleFrame(props: {
         if (held) event.preventDefault();
       }}
     >
-      <div className="relative flex w-fit max-w-full min-w-0 items-center">
+      {props.quote && (
+        <ReplyGhost quote={props.quote} side={props.side} replier={props.replier} />
+      )}
+      <div
+        className={cn(
+          "relative z-10 flex w-fit max-w-full min-w-0 items-center",
+          props.quote && "-mt-1.5 [&>*:first-child]:shadow-[0_0_0_2px_var(--background)]",
+        )}
+      >
         {props.children}
         <div
           data-held={held || reading || menu || picking || undefined}
@@ -399,7 +549,7 @@ export function BubbleFrame(props: {
                     aria-label={`React ${emoji}`}
                     className="size-8 justify-center p-0 text-lg"
                     onClick={() =>
-                      react(personId ?? primaryId, mark?.person === emoji ? undefined : emoji)
+                      react(personId ?? primaryId, personEmoji === emoji ? undefined : emoji)
                     }
                   >
                     <Emoji emoji={emoji} className="size-5" />
@@ -455,11 +605,17 @@ export function BubbleFrame(props: {
           </Menu>
         </div>
       </div>
-      {mark && (
+      {groups.length > 0 && (
         <ReactionChips
-          mark={mark}
+          groups={groups}
           side={props.side}
-          onRemove={canReact ? () => react(personId ?? primaryId, undefined) : undefined}
+          canReact={canReact}
+          onToggle={
+            canReact
+              ? (emoji, mine) => react(personId ?? primaryId, mine ? undefined : emoji)
+              : undefined
+          }
+          reactorOf={replies?.reactorOf}
         />
       )}
     </div>

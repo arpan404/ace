@@ -1,5 +1,7 @@
+import { ArrowsOutSimpleIcon, CaretLeftIcon } from "@ace/icons";
 import { useId, type ReactNode } from "react";
 import { SettingCard } from "@/components/setting-row.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
@@ -194,3 +196,42 @@ export const profileWell =
 /** An icon button inside the profile: round, 32px, on the hover wash. */
 export const roundButton =
   "size-(--spade-round-button) rounded-full bg-surface-1 hover:bg-hover active:bg-active aria-expanded:bg-active";
+
+/** Slim 56px header over a surface open inside the side panel: Back, title, optional actions, Full screen. */
+export function PanelSurfaceHeader(props: {
+  title: string;
+  onBack(): void;
+  onExpand(): void;
+  actions?: ReactNode;
+  border?: boolean | undefined;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex h-14 shrink-0 items-center gap-2 px-4",
+        props.border && "border-b border-border-soft",
+      )}
+    >
+      <IconButton
+        icon={CaretLeftIcon}
+        label="Back"
+        tip="Back"
+        size="default"
+        className={roundButton}
+        onClick={props.onBack}
+      />
+      <h3 className="min-w-0 flex-1 truncate text-md font-semibold text-foreground">
+        {props.title}
+      </h3>
+      {props.actions}
+      <IconButton
+        icon={ArrowsOutSimpleIcon}
+        label="Full screen"
+        tip="Full screen"
+        size="default"
+        className={roundButton}
+        onClick={props.onExpand}
+      />
+    </div>
+  );
+}

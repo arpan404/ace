@@ -6,6 +6,7 @@ import {
   fakeBotReactions,
   fakePersonReaction,
   fakeReactionEmoji,
+  fakeReactionsSummary,
   fakeReactionTarget,
 } from "./spade-reactions.ts";
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
@@ -1277,8 +1278,15 @@ export class FakeSpadeApi implements FakeSpadeServer {
       const limit = params.has("limit") ? Math.max(1, Number(params.get("limit"))) : Infinity;
       return reply(list.filter((stored) => stored.seq > after).slice(0, limit));
     }
+    if (sub === "reactions" && !subId && request.method === "GET") {
+      return reply({ reactions: fakeReactionsSummary(list) });
+    }
     // A reaction on a message: stored as it is, and it starts no turn.
     if (sub === "messages" && subId && tail === "reactions") {
+      if (request.method === "GET") {
+        if (!fakeReactionTarget(list, subId)) return problem(404, "No such message.");
+        return reply({ reactions: fakeReactionsSummary(list)[subId] ?? [] });
+      }
       if (request.method !== "POST" && request.method !== "DELETE")
         return problem(405, "Method not allowed.");
       if (!fakeReactionTarget(list, subId)) return problem(404, "No such message.");

@@ -2,6 +2,10 @@
 //! on a message instead of words. One per side per message; a later one replaces the earlier and
 //! a removed one takes it back. Pure: the engine stores what these rules decide.
 
+use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
+
 use crate::chat_markup::{self, Kind};
 use crate::event::{Event, Known, ReactionBy};
 
@@ -9,6 +13,14 @@ use crate::event::{Event, Known, ReactionBy};
 pub const EMOJI_BYTES: usize = 16;
 /// The most reactions one note to the model lists; older ones in the same note are left out.
 pub const NOTED: usize = 10;
+
+/// One emoji on a message and who put it there, in first-reacted order: `"person"`, a club
+/// member's agent id, or `"bot"` in a bot's own chat.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReactionGroup {
+    pub emoji: String,
+    pub by: Vec<String>,
+}
 
 /// Whether `emoji` can be a reaction: not empty, at most [`EMOJI_BYTES`], no spaces or control
 /// characters.
@@ -18,15 +30,28 @@ pub fn fits(emoji: &str) -> bool {
         && !emoji.chars().any(|c| c.is_whitespace() || c.is_control())
 }
 
-/// The reaction `by` has on `message` now, if any.
+/// The reaction `by` has on `message` now, if any (for the person, or the bot in its own chat).
 pub fn standing<'a>(events: &'a [Event], message: &str, by: ReactionBy) -> Option<&'a str> {
+    standing_for(events, message, by, None)
+}
+
+/// The reaction `by` (with optional club member `agent` id) has on `message` now, if any.
+pub fn standing_for<'a>(
+    events: &'a [Event],
+    message: &str,
+    by: ReactionBy,
+    agent: Option<&str>,
+) -> Option<&'a str> {
     events.iter().rev().find_map(|event| match event {
         Event::Known(Known::Reaction {
             message: on,
             emoji,
             by: who,
+            agent: by_agent,
             removed,
-        }) if on == message && *who == by => Some((!removed).then_some(emoji.as_str())),
+        }) if on == message && *who == by && by_agent.as_deref() == agent => {
+            Some((!removed).then_some(emoji.as_str()))
+        }
         _ => None,
     })?
 }
@@ -37,6 +62,18 @@ pub fn reacted(message: &str, emoji: &str, by: ReactionBy) -> Event {
         message: message.to_owned(),
         emoji: emoji.to_owned(),
         by,
+        agent: None,
+        removed: false,
+    })
+}
+
+/// A reaction club member `agent` puts on `message`.
+pub fn reacted_as(message: &str, emoji: &str, agent: &str) -> Event {
+    Event::Known(Known::Reaction {
+        message: message.to_owned(),
+        emoji: emoji.to_owned(),
+        by: ReactionBy::Bot,
+        agent: Some(agent.to_owned()),
         removed: false,
     })
 }
@@ -47,8 +84,65 @@ pub fn taken_back(events: &[Event], message: &str, by: ReactionBy) -> Event {
         message: message.to_owned(),
         emoji: standing(events, message, by).unwrap_or_default().to_owned(),
         by,
+        agent: None,
         removed: true,
     })
+}
+
+/// Standing reactions per message across `events`, grouped as `{ emoji, by[] }` in first-seen
+/// order. Each reactor (`"person"`, a club member's agent id, or `"bot"`) holds at most one
+/// standing emoji per message; a later reaction replaces their earlier one and a removal clears it.
+pub fn summarize(events: &[Event]) -> BTreeMap<String, Vec<ReactionGroup>> {
+    let mut standing_by_message: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+    for event in events {
+        let Event::Known(Known::Reaction {
+            message,
+            emoji,
+            by,
+            agent,
+            removed,
+        }) = event
+        else {
+            continue;
+        };
+        let reactor = match by {
+            ReactionBy::Person => "person",
+            ReactionBy::Bot => agent.as_deref().unwrap_or("bot"),
+        };
+        let entry = standing_by_message.entry(message.clone()).or_default();
+        entry.retain(|(who, _)| who != reactor);
+        if !removed && fits(emoji) {
+            entry.push((reactor.to_owned(), emoji.clone()));
+        }
+    }
+    let mut out = BTreeMap::new();
+    for (message, reactors) in standing_by_message {
+        let groups = group_reactors(reactors);
+        if !groups.is_empty() {
+            out.insert(message, groups);
+        }
+    }
+    out
+}
+
+/// Standing reactions on `message` in `events`, grouped as `{ emoji, by[] }`.
+pub fn for_message(events: &[Event], message: &str) -> Vec<ReactionGroup> {
+    summarize(events).remove(message).unwrap_or_default()
+}
+
+fn group_reactors(reactors: Vec<(String, String)>) -> Vec<ReactionGroup> {
+    let mut groups: Vec<ReactionGroup> = Vec::new();
+    for (who, emoji) in reactors {
+        if let Some(group) = groups.iter_mut().find(|g| g.emoji == emoji) {
+            group.by.push(who);
+        } else {
+            groups.push(ReactionGroup {
+                emoji,
+                by: vec![who],
+            });
+        }
+    }
+    groups
 }
 
 /// The reactions in a bot's words, as `(message, emoji)`: each `<react>` whose emoji fits, the
@@ -85,6 +179,7 @@ impl Notes {
             emoji,
             by,
             removed,
+            ..
         } = event
         else {
             return false;
@@ -148,6 +243,58 @@ mod tests {
         events.push(back);
         assert_eq!(standing(&events, "m3", ReactionBy::Person), None);
         assert_eq!(standing(&events, "m4", ReactionBy::Person), None);
+    }
+
+    #[test]
+    fn club_reactions_group_by_emoji_and_keep_member_identities() {
+        let mut events = vec![
+            reacted_as("m1", "👍", "flights"),
+            reacted_as("m1", "👍", "inbox"),
+            reacted("m1", "❤️", ReactionBy::Person),
+            reacted_as("m5", "❤️", "spade"),
+        ];
+        assert_eq!(
+            for_message(&events, "m1"),
+            vec![
+                ReactionGroup {
+                    emoji: "👍".to_owned(),
+                    by: vec!["flights".to_owned(), "inbox".to_owned()],
+                },
+                ReactionGroup {
+                    emoji: "❤️".to_owned(),
+                    by: vec!["person".to_owned()],
+                },
+            ]
+        );
+        assert_eq!(
+            for_message(&events, "m5"),
+            vec![ReactionGroup {
+                emoji: "❤️".to_owned(),
+                by: vec!["spade".to_owned()],
+            }]
+        );
+        // Changing a member's reaction moves only that member; taking back the person's clears theirs.
+        events.push(reacted_as("m1", "❤️", "flights"));
+        events.push(taken_back(&events, "m1", ReactionBy::Person));
+        assert_eq!(
+            for_message(&events, "m1"),
+            vec![
+                ReactionGroup {
+                    emoji: "👍".to_owned(),
+                    by: vec!["inbox".to_owned()],
+                },
+                ReactionGroup {
+                    emoji: "❤️".to_owned(),
+                    by: vec!["flights".to_owned()],
+                },
+            ]
+        );
+        let summary = summarize(&events);
+        assert_eq!(summary.len(), 2);
+        assert_eq!(
+            reacted_as("m1", "👍", "flights").to_json(),
+            serde_json::json!({"type": "reaction", "message": "m1", "emoji": "👍", "by": "bot", "agent": "flights"})
+        );
     }
 
     #[test]

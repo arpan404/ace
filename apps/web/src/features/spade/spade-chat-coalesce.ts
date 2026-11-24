@@ -25,9 +25,9 @@ export function stackPosition(hasBefore: boolean, hasAfter: boolean): BubbleStac
   return "single";
 }
 
-/** Short one-liners use tighter padding (10px 14px); multi-line/quoted bubbles use 14px 16px. */
-export function isLongBubble(text: string, hasQuote = false, hasExtra = false): boolean {
-  return hasQuote || hasExtra || text.includes("\n") || text.length > 90;
+/** Short one-liners use tighter padding (10px 14px); multi-line bubbles use 14px 16px. */
+export function isLongBubble(text: string, hasExtra = false): boolean {
+  return hasExtra || text.includes("\n") || text.length > 90;
 }
 
 export interface CoalescedRunItem {
@@ -150,14 +150,17 @@ export function coalesceRunItems(
     });
   }
 
+  const hasQuote = (item: SpadeChatItem): boolean =>
+    (item.kind === "bot" || item.kind === "person") && item.quote !== undefined;
+
   for (let index = 0; index < out.length; index++) {
     const entry = out[index];
     if (!entry || !isStackableRunItem(entry.item)) continue;
     const before = out[index - 1];
     const after = out[index + 1];
     entry.stack = stackPosition(
-      before !== undefined && isStackableRunItem(before.item),
-      after !== undefined && isStackableRunItem(after.item),
+      before !== undefined && isStackableRunItem(before.item) && !hasQuote(entry.item),
+      after !== undefined && isStackableRunItem(after.item) && !hasQuote(after.item),
     );
   }
 

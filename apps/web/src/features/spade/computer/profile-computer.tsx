@@ -175,14 +175,16 @@ export function ProfileComputer(props: { bot: RosterBot; place: ProfileComputerP
           </>
         ) : view === "files" ? (
           <div className="-mx-4">
-            <FileManager
-              key={`${bot.machine.key}/${bot.id}`}
-              bot={bot}
-              folder={place.files.folder}
-              file={place.files.file}
-              side={place.side}
-              writable={state.mayAct}
-            />
+            <div className="flex h-[max(26rem,calc(100dvh-24rem))] min-h-0 flex-col">
+              <FileManager
+                key={`${bot.machine.key}/${bot.id}`}
+                bot={bot}
+                folder={place.files.folder}
+                file={place.files.file}
+                side={place.side}
+                writable={state.mayAct}
+              />
+            </div>
             <div className="px-4">
               <DriveLine bot={bot} state={state} what="computer" />
             </div>

@@ -23,12 +23,14 @@ const modes = [
   {
     value: "auto_review",
     label: "Auto-review",
-    summary: "Reviews risky steps automatically and asks you when unsure.",
+    summary:
+      "A reviewer checks each step that changes something and decides for you. You're asked only if it refuses the same step twice, or for the three below.",
   },
   {
     value: "full_access",
     label: "Full access",
-    summary: "Acts without routine checks inside its sandbox; every step still shows in chat.",
+    summary:
+      "Runs every step itself, inside or outside the sandbox, with nothing reviewed. Only the three below come to you.",
   },
 ] as const;
 
@@ -76,10 +78,11 @@ export function AutonomyChoice(props: {
   ) : (
     refusal && <Refusal>{refusal}</Refusal>
   );
+  const selected = modes.find((mode) => mode.value === props.value) ?? modes[0];
   return (
     <>
       {props.variant === "segmented" ? (
-        <div data-setting-slot="" className="flex flex-col gap-3 py-3">
+        <div data-setting-slot="" className="flex flex-col gap-2.5 py-3">
           <SegmentedControl<SpadeAutonomy>
             label={props.title}
             value={props.value}
@@ -90,24 +93,7 @@ export function AutonomyChoice(props: {
               saving && "pointer-events-none opacity-60",
             )}
           />
-          <dl className="flex flex-col gap-2 px-0.5">
-            {modes.map((mode) => {
-              const active = props.value === mode.value;
-              return (
-                <div key={mode.value} className="flex flex-col gap-0.5">
-                  <dt
-                    className={cn(
-                      "text-xs font-medium",
-                      active ? "text-foreground" : "text-muted-foreground",
-                    )}
-                  >
-                    {mode.label}
-                  </dt>
-                  <dd className="text-xs leading-relaxed text-muted-foreground">{mode.summary}</dd>
-                </div>
-              );
-            })}
-          </dl>
+          <p className="px-0.5 text-xs leading-relaxed text-muted-foreground">{selected.summary}</p>
           {feedback && <div className="text-xs">{feedback}</div>}
         </div>
       ) : (

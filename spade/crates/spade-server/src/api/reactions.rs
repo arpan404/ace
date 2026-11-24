@@ -6,6 +6,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
+use serde_json::json;
 
 use super::{AppState, problem};
 use crate::engine::ReactError;
@@ -14,6 +15,32 @@ use crate::engine::ReactError;
 #[derive(Deserialize)]
 pub(super) struct Body {
     emoji: String,
+}
+
+/// `GET /v1/conversations/{id}/reactions`: standing reactions per message as `{ emoji, by[] }`.
+pub(super) async fn list(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    match state.engine.reactions_summary(&id) {
+        Ok(Some(reactions)) => Json(json!({ "reactions": reactions })).into_response(),
+        Ok(None) => problem(StatusCode::NOT_FOUND, "no such conversation"),
+        Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+    }
+}
+
+/// `GET /v1/conversations/{id}/messages/{message}/reactions`: standing reactions on one message.
+pub(super) async fn for_message(
+    State(state): State<AppState>,
+    Path((id, message)): Path<(String, String)>,
+) -> Response {
+    match state.engine.message_reactions(&id, &message) {
+        Ok(reactions) => Json(json!({ "reactions": reactions })).into_response(),
+        Err(error @ (ReactError::NotFound | ReactError::NoMessage)) => {
+            problem(StatusCode::NOT_FOUND, &error.to_string())
+        }
+        Err(error @ ReactError::Emoji) => problem(StatusCode::BAD_REQUEST, &error.to_string()),
+        Err(ReactError::Store(error)) => {
+            problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string())
+        }
+    }
 }
 
 /// `POST /v1/conversations/{id}/messages/{message}/reactions`.

@@ -119,9 +119,10 @@ export function SpadeProfile(props: {
   const [newRoutine, setNewRoutine] = useState(false);
   // A file, the terminal, the screen or the browser, open in the panel in place of its tabs.
   const [surface, setSurface] = useState<PanelSurface>();
-  const expand = (open: PanelSurface) =>
+  const showingSurface = Boolean(surface && !newRoutine && !settings);
+  const expand = (open: PanelSurface, at?: ProfileComputerPlace["files"]) =>
     open.kind === "files"
-      ? props.computer.onView("files", open.at)
+      ? props.computer.onView("files", at ?? open.at)
       : props.computer.onView(open.kind);
   return (
     <section
@@ -153,7 +154,14 @@ export function SpadeProfile(props: {
         </div>
       )}
       {/* Never sideways: what is wider than the panel wraps or scrolls in its own frame. */}
-      <div className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
+      <div
+        className={cn(
+          "relative min-h-0 flex-1 overflow-x-hidden",
+          showingSurface
+            ? "flex flex-col overflow-hidden"
+            : "overflow-y-auto [scrollbar-gutter:stable]",
+        )}
+      >
         {!settings && !newRoutine && !surface && (
           <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
             <IconButton
@@ -167,15 +175,13 @@ export function SpadeProfile(props: {
           </div>
         )}
         {surface && !newRoutine && !settings ? (
-          <div className="flex h-full flex-col">
-            <PanelSurfaceView
-              bot={bot}
-              surface={surface}
-              place={props.computer}
-              onBack={() => setSurface(undefined)}
-              onExpand={() => expand(surface)}
-            />
-          </div>
+          <PanelSurfaceView
+            bot={bot}
+            surface={surface}
+            place={props.computer}
+            onBack={() => setSurface(undefined)}
+            onExpand={(at) => expand(surface, at)}
+          />
         ) : newRoutine ? (
           <div className="px-4 pt-4 pb-8">
             <NewRoutinePage

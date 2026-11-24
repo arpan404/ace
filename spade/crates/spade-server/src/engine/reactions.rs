@@ -2,8 +2,10 @@
 //! bot's from a `<react>` in its words. Each is stored and served like any event; it opens no
 //! reply, steers none and marks nothing unseen. The rules are `spade_core::reaction`.
 
+use std::collections::BTreeMap;
+
 use spade_core::event::ReactionBy;
-use spade_core::reaction;
+use spade_core::reaction::{self, ReactionGroup};
 use spade_store::StoreError;
 
 use super::Engine;
@@ -43,6 +45,30 @@ impl Engine {
         Ok(())
     }
 
+    /// Standing reactions per message in conversation `id`, grouped as `{ emoji, by[] }`.
+    /// `None` when no such conversation exists.
+    pub fn reactions_summary(
+        &self,
+        id: &str,
+    ) -> Result<Option<BTreeMap<String, Vec<ReactionGroup>>>, StoreError> {
+        if !self.reachable(id)? || self.deleting(id) {
+            return Ok(None);
+        }
+        let events = self.load(id)?;
+        Ok(Some(reaction::summarize(&events)))
+    }
+
+    /// Standing reactions on one `message` in conversation `id`, grouped as `{ emoji, by[] }`.
+    pub fn message_reactions(
+        &self,
+        id: &str,
+        message: &str,
+    ) -> Result<Vec<ReactionGroup>, ReactError> {
+        self.reaction_target(id, message)?;
+        let events = self.load(id)?;
+        Ok(reaction::for_message(&events, message))
+    }
+
     /// Stores the reactions in a bot's finished words, each on a message that is there; one on
     /// an id that names nothing is dropped.
     pub(super) fn bot_reactions(&self, id: &str, reactions: &[(String, String)]) {
@@ -53,6 +79,19 @@ impl Engine {
             if let Err(error) = self.record(id, &reaction::reacted(message, emoji, ReactionBy::Bot))
             {
                 tracing::warn!(%error, "the bot's reaction could not be stored");
+            }
+        }
+    }
+
+    /// Stores the reactions from club member `agent` in club transcript `id`, each on a message
+    /// that is there; one on an id that names nothing is dropped.
+    pub(super) fn member_reactions(&self, id: &str, agent: &str, reactions: &[(String, String)]) {
+        for (message, emoji) in reactions {
+            if !self.names_message(id, message) {
+                continue;
+            }
+            if let Err(error) = self.record(id, &reaction::reacted_as(message, emoji, agent)) {
+                tracing::warn!(%error, "a club member's reaction could not be stored");
             }
         }
     }

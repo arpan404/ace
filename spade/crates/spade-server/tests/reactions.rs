@@ -231,3 +231,155 @@ async fn a_bots_react_tag_is_stored_as_its_reaction_on_a_message_that_is_there()
     assert!(!all.contains("[the person reacted"), "{all}");
     Ok(())
 }
+
+async fn own_endpoint(spade: &Spade, name: &str, scripts: Vec<Script>) -> Result<FakeProvider> {
+    let fake = FakeProvider::start_sequence(scripts).await?;
+    let (status, body) = spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": name, "format": "openai-chat", "base_url": fake.root, "needs_key": false }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{body}");
+    Ok(fake)
+}
+
+async fn bot(spade: &Spade, name: &str, scripts: Vec<Script>) -> Result<(Value, FakeProvider)> {
+    let fake = own_endpoint(spade, &format!("{name} Net"), scripts).await?;
+    let model = format!("{}-net/m", name.to_lowercase());
+    let (status, body) = spade
+        .post("/v1/agents", json!({ "name": name, "model": model }))
+        .await?;
+    assert_eq!(status, 201, "{body}");
+    Ok((body["agent"].clone(), fake))
+}
+
+fn text_field(value: &Value) -> String {
+    value.as_str().unwrap_or_default().to_owned()
+}
+
+#[tokio::test]
+async fn club_member_react_tags_store_agent_identity_and_api_serves_grouped_reactions() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let _titles = own_endpoint(
+        &spade,
+        "Titles",
+        vec![Script::reply("").plain(r#"{"title":"T"}"#)],
+    )
+    .await?;
+    spade
+        .put("/v1/settings", json!({ "fast_model": "titles/t" }))
+        .await?;
+    let (flights, _flights_fake) = bot(
+        &spade,
+        "Flights",
+        vec![Script::reply(
+            "<react to=\"m1\">👍</react><msg>Checking TAP fares.</msg>",
+        )],
+    )
+    .await?;
+    let (inbox, _inbox_fake) = bot(
+        &spade,
+        "Inbox",
+        vec![Script::reply("<react to=\"m1\">👍</react>")],
+    )
+    .await?;
+    let flights_id = text_field(&flights["id"]);
+    let inbox_id = text_field(&inbox["id"]);
+    let (status, body) = spade
+        .post(
+            "/v1/groups",
+            json!({
+                "name": "Lisbon trip",
+                "members": [{ "agent": flights_id }, { "agent": inbox_id }]
+            }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{body}");
+    let club = &body["group"];
+    let club_id = text_field(&club["id"]);
+    let transcript = text_field(&club["conversation"]);
+
+    let (status, body) = spade
+        .post(
+            &format!("/v1/groups/{club_id}/messages"),
+            json!({ "text": "@flights @inbox Lisbon dates locked" }),
+        )
+        .await?;
+    assert_eq!(status, 202, "{body}");
+    // Wait until both member asks have finished and both member reactions landed.
+    spade
+        .wait_for_count(&transcript, "group_answered", 2)
+        .await?;
+    spade.wait_for_count(&transcript, "reaction", 2).await?;
+
+    let stored = rows(&spade, &transcript).await?;
+    // Inbox only reacted (no words), so only the person's message and Flights' reply were posted.
+    assert_eq!(count(&stored, "group_message"), 2);
+    let flights_msg = format!("m{}", last_seq(&stored, "group_message"));
+
+    // Both member bots' private chats got no stray reactions from answering the club ask.
+    assert!(reactions(&rows(&spade, &text_field(&flights["conversation"])).await?).is_empty());
+    assert!(reactions(&rows(&spade, &text_field(&inbox["conversation"])).await?).is_empty());
+
+    // The person can react to any club message (their own and a member bot's).
+    let (status, body) = spade
+        .post(
+            &format!("/v1/conversations/{transcript}/messages/m1/reactions"),
+            json!({ "emoji": "❤️" }),
+        )
+        .await?;
+    assert_eq!(status, 202, "{body}");
+    let (status, body) = spade
+        .post(
+            &format!("/v1/conversations/{transcript}/messages/{flights_msg}/reactions"),
+            json!({ "emoji": "🔥" }),
+        )
+        .await?;
+    assert_eq!(status, 202, "{body}");
+
+    // Aggregated summary API serves `{ emoji, by[] }` per message.
+    let (status, summary) = spade
+        .get(&format!("/v1/conversations/{transcript}/reactions"))
+        .await?;
+    assert_eq!(status, 200, "{summary}");
+    let m1 = summary["reactions"]["m1"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(m1.len(), 2, "{summary}");
+    assert_eq!(m1[0]["emoji"], "👍");
+    let mut thumbs_by: Vec<String> = m1[0]["by"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_owned))
+        .collect();
+    thumbs_by.sort();
+    let mut expected_bots = vec![flights_id.clone(), inbox_id.clone()];
+    expected_bots.sort();
+    assert_eq!(thumbs_by, expected_bots);
+    assert_eq!(m1[1], json!({ "emoji": "❤️", "by": ["person"] }));
+    assert_eq!(
+        summary["reactions"][&flights_msg],
+        json!([{ "emoji": "🔥", "by": ["person"] }])
+    );
+
+    // Per-message GET and DELETE keep member reactions intact when the person removes theirs.
+    let (status, _) = spade
+        .delete(&format!(
+            "/v1/conversations/{transcript}/messages/m1/reactions"
+        ))
+        .await?;
+    assert_eq!(status, 202);
+    let (status, one) = spade
+        .get(&format!(
+            "/v1/conversations/{transcript}/messages/m1/reactions"
+        ))
+        .await?;
+    assert_eq!(status, 200, "{one}");
+    let groups = one["reactions"].as_array().cloned().unwrap_or_default();
+    assert_eq!(groups.len(), 1, "{one}");
+    assert_eq!(groups[0]["emoji"], "👍");
+    Ok(())
+}

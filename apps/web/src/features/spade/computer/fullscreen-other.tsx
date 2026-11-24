@@ -28,6 +28,20 @@ export function OtherPane(props: { bot: RosterBot; view: OtherView; place: Profi
     refetchInterval: 5_000,
     enabled: props.view === "services",
   });
+  if (props.view === "files") {
+    return (
+      <div role="tabpanel" aria-label={otherNames.files} className="flex min-h-0 flex-1 flex-col">
+        <FileManager
+          key={`${bot.machine.key}/${bot.id}`}
+          bot={bot}
+          folder={place.files.folder}
+          file={place.files.file}
+          side={place.side}
+          writable={place.state.mayAct}
+        />
+      </div>
+    );
+  }
   return (
     <div
       role="tabpanel"
@@ -35,16 +49,7 @@ export function OtherPane(props: { bot: RosterBot; view: OtherView; place: Profi
       className="min-h-0 flex-1 overflow-y-auto"
     >
       <div className="mx-auto w-full max-w-3xl px-4 pb-10">
-        {props.view === "files" ? (
-          <FileManager
-            key={`${bot.machine.key}/${bot.id}`}
-            bot={bot}
-            folder={place.files.folder}
-            file={place.files.file}
-            side={place.side}
-            writable={place.state.mayAct}
-          />
-        ) : props.view === "services" ? (
+        {props.view === "services" ? (
           <BotServices bot={bot} services={services} />
         ) : (
           <SpadeActivity bot={bot} scope="computer" />

@@ -84,6 +84,13 @@ export function useGroupConversation(group: { id: string; conversation: string }
         throw error;
       }
     },
+    /** The person's reaction to a club message, or taking it back (`emoji` undefined). */
+    async react(message: string, emoji: string | undefined): Promise<void> {
+      const target = `/v1/conversations/${encodeURIComponent(group.conversation)}/messages/${encodeURIComponent(message)}/reactions`;
+      await (emoji === undefined
+        ? spadeHttp(client, "DELETE", target)
+        : spadeHttp(client, "POST", target, { body: { emoji } }));
+    },
     async stop(): Promise<void> {
       try {
         await stopGroup(client, group.id);

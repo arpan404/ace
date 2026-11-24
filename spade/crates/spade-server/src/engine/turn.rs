@@ -599,8 +599,12 @@ async fn model_step(
                     if let Err(error) = engine.record(id, &step) {
                         return Step::Failed(String::new(), error.to_string());
                     }
-                    // Each `<react>` in the step's words lands on its message.
-                    engine.bot_reactions(id, &reactions);
+                    // Each `<react>` in the step's words lands on its message in this chat;
+                    // reactions written while answering a club ask are recorded on the club's
+                    // transcript by `finish_ask` instead.
+                    if !answering_group_only(events) {
+                        engine.bot_reactions(id, &reactions);
+                    }
                     // The ledger gets the same cost the step records.
                     let _ = cost;
                     admitted.settle(&usage);
@@ -620,6 +624,33 @@ async fn model_step(
             }
         }
     }
+}
+
+/// Whether the current open turn is answering only club asks (so `<react>` tags in its words
+/// target the club transcript rather than this bot's own conversation).
+fn answering_group_only(events: &[Event]) -> bool {
+    let (mut inputs, mut only_groups) = (false, true);
+    for event in events {
+        let Event::Known(known) = event else {
+            continue;
+        };
+        match known {
+            Known::UserMessage { from_group, .. } => {
+                inputs = true;
+                only_groups &= from_group.is_some();
+            }
+            Known::JobFinished { .. } => (inputs, only_groups) = (true, false),
+            known if spade_core::wake::is_note(known) => (inputs, only_groups) = (true, false),
+            Known::ReplyFinished { .. }
+            | Known::ReplyStopped { .. }
+            | Known::ReplyFailed { .. }
+            | Known::ReplyInterrupted { .. } => {
+                (inputs, only_groups) = (false, true);
+            }
+            _ => {}
+        }
+    }
+    inputs && only_groups
 }
 
 /// Adds a streamed piece to the open reply's snapshot in place, so each piece costs its own

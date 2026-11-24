@@ -1,11 +1,9 @@
-import { ArrowsOutSimpleIcon, CaretLeftIcon } from "@ace/icons";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import { BotTerminal } from "./computer/bot-terminal.tsx";
 import { DriveLine } from "./computer/drive-line.tsx";
 import { FileManager } from "./computer/file-manager.tsx";
 import type { FilesAt, ProfileComputerPlace } from "./computer/profile-computer.tsx";
 import { SurfacePicture } from "./computer/surface-picture.tsx";
-import { roundButton } from "./spade-profile-parts.tsx";
+import { PanelSurfaceHeader } from "./spade-profile-parts.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
 
 /** What the panel shows in place of its tabs: a file or the files, or one surface of its computer. */
@@ -30,47 +28,31 @@ export function PanelSurfaceView(props: {
   place: ProfileComputerPlace;
   onBack(): void;
   /** Opens the same surface in the full-screen computer. */
-  onExpand(): void;
+  onExpand(at?: FilesAt): void;
 }) {
   const { bot, surface, place } = props;
   const { state } = place;
+  if (surface.kind === "files") {
+    return (
+      <FileManager
+        key={`${bot.machine.key}/${bot.id}`}
+        bot={bot}
+        folder={
+          surface.at.file ? surface.at.file.split("/").slice(0, -1).join("/") : surface.at.folder
+        }
+        file={surface.at.file}
+        side={place.side}
+        writable={state.mayAct}
+        panel={{ onBack: props.onBack, onExpand: (at) => props.onExpand(at) }}
+      />
+    );
+  }
   const title = panelSurfaceTitle(surface);
   return (
-    <section aria-label={title} className="flex min-h-0 flex-1 flex-col">
-      <div className="flex h-14 shrink-0 items-center gap-3 px-4">
-        <IconButton
-          icon={CaretLeftIcon}
-          label="Back"
-          tip="Back"
-          size="default"
-          className={roundButton}
-          onClick={props.onBack}
-        />
-        <h3 className="min-w-0 flex-1 truncate text-md font-semibold text-foreground">{title}</h3>
-        <IconButton
-          icon={ArrowsOutSimpleIcon}
-          label="Full screen"
-          tip="Full screen"
-          size="default"
-          className={roundButton}
-          onClick={props.onExpand}
-        />
-      </div>
+    <section aria-label={title} className="@container/panel flex min-h-0 flex-1 flex-col">
+      <PanelSurfaceHeader title={title} onBack={props.onBack} onExpand={() => props.onExpand()} />
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-8">
-        {surface.kind === "files" ? (
-          <FileManager
-            key={`${bot.machine.key}/${bot.id}`}
-            bot={bot}
-            folder={
-              surface.at.file
-                ? surface.at.file.split("/").slice(0, -1).join("/")
-                : surface.at.folder
-            }
-            file={surface.at.file}
-            side={place.side}
-            writable={state.mayAct}
-          />
-        ) : surface.kind === "terminal" ? (
+        {surface.kind === "terminal" ? (
           <div className="flex flex-col gap-3">
             <div role="tabpanel" aria-label="Terminal" className="-mx-4 -my-4 h-96">
               <BotTerminal bot={bot} mayType={state.mayAct} />
