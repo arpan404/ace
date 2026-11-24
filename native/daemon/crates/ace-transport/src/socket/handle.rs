@@ -6,16 +6,14 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use bytes::Bytes;
-use tokio_tungstenite::tungstenite::protocol::CloseFrame;
-use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
-use tokio_tungstenite::tungstenite::{Message, Utf8Bytes};
 
 use super::drive::Ending;
 use super::events::SendResult;
 use super::{
-    CLOSE_TIMEOUT, CLOSED, CLOSING, MESSAGE_OVERHEAD, OPEN, OUTBOUND_MESSAGES, Outbound, Own,
-    Shared, debit, lock, message,
+    CLOSE_TIMEOUT, CLOSED, CLOSING, MESSAGE_OVERHEAD, OPEN, OUTBOUND_MESSAGES, Own, Queued, Shared,
+    debit, lock, message,
 };
+use crate::frame::{Opcode, Outbound as Frame};
 
 /// One socket. Cheap to clone; it lives until the last clone and the events
 /// receiver are gone.
@@ -70,7 +68,7 @@ impl SocketHandle {
         shared.buffered.fetch_add(length, Ordering::Relaxed);
         shared.pending.fetch_add(1, Ordering::Relaxed);
         let own = Some(Own { id, length });
-        match outbound.send(Outbound { frame, own }) {
+        match outbound.send(Queued { frame, own }) {
             Ok(()) => SendResult::Queued,
             Err(_) => {
                 debit(&shared.buffered, length);
@@ -83,10 +81,18 @@ impl SocketHandle {
     /// `ws`'s `close`: idempotent, and a socket already closing keeps its code.
     /// Its deadline starts here, as `ws`'s close timer does, whatever is queued.
     pub fn close(&self, code: Option<u16>, reason: String) {
-        let frame = Message::Close(code.map(|code| CloseFrame {
-            code: CloseCode::from(code),
-            reason: Utf8Bytes::from(reason),
-        }));
+        // A close with no code writes no payload at all, reason included, as `ws`
+        // does when `close()` is called with no arguments.
+        let mut payload = Vec::with_capacity(2 + reason.len());
+        if let Some(code) = code {
+            payload.extend_from_slice(&code.to_be_bytes());
+            payload.extend_from_slice(reason.as_bytes());
+        }
+        let frame = Frame {
+            opcode: Opcode::Close,
+            rsv1: false,
+            payload: Bytes::from(payload),
+        };
         {
             let mut inner = lock(&self.shared.inner);
             if inner.state != OPEN {
@@ -94,7 +100,7 @@ impl SocketHandle {
             }
             inner.state = CLOSING;
             if let Some(outbound) = inner.outbound.as_ref() {
-                let _ = outbound.send(Outbound { frame, own: None });
+                let _ = outbound.send(Queued { frame, own: None });
             }
         }
         let expired = self.shared.expired.clone();

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The socket and its lifecycle (T1a.4). `tokio-tungstenite` frames the bytes and
-//! answers the protocol's control frames; this module owns what `ws` owns above
-//! that: the ready state, the buffered amount, pause and resume, the bound in front
-//! of JavaScript, and one event per outcome. Nothing here parses an ace message.
+//! The socket and its lifecycle (T1a.4). `frame` puts RFC 6455 on the wire and
+//! assembles what arrives; this module owns what `ws` owns above that: the ready
+//! state, the buffered amount, pause and resume, the bound in front of
+//! JavaScript, and one event per outcome. Nothing here parses an ace message.
 //!
 //! `drive` runs the two tasks, so a slow write never stops a control frame being
 //! read; `events` is what the owner receives. Dropping the handle or the receiver
@@ -15,11 +15,11 @@ use std::time::Duration;
 use bytes::Bytes;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc;
-use tokio_tungstenite::tungstenite::{Message, Utf8Bytes};
 use tokio_util::sync::CancellationToken;
 use zeroize::Zeroize;
 
 use crate::driver::UpgradeIo;
+use crate::frame::{Opcode, Outbound as Frame};
 
 mod drive;
 mod events;
@@ -33,7 +33,7 @@ pub use handle::SocketHandle;
 use drive::Ending;
 
 /// `maxPayload` (`server.ts:252`): one inbound message, after any inflation.
-pub const MAX_MESSAGE_BYTES: usize = 1 << 20;
+pub use crate::frame::MAX_MESSAGE_BYTES;
 /// `socket-input.ts`'s `messageOverhead`: a message is charged its length plus
 /// this, so an empty one still counts, inbound and outbound alike.
 pub const MESSAGE_OVERHEAD: u64 = 256;
@@ -61,8 +61,8 @@ struct Own {
 }
 
 /// One thing for the writer: a frame, and the `send` whose completion it is.
-struct Outbound {
-    frame: Message,
+struct Queued {
+    frame: Frame,
     own: Option<Own>,
 }
 
@@ -72,7 +72,7 @@ struct Outbound {
 struct Inner {
     state: u8,
     /// `None` once the socket is closed: no later `send` can queue anything.
-    outbound: Option<mpsc::UnboundedSender<Outbound>>,
+    outbound: Option<mpsc::UnboundedSender<Queued>>,
     events: Option<mpsc::UnboundedSender<SocketEvent>>,
 }
 
@@ -108,6 +108,22 @@ impl Shared {
 
     fn wake(&self) {
         let _ = self.wake.try_send(());
+    }
+
+    /// Queues one control frame the reader owes (a pong), with no `Sent`: control
+    /// frames answer the peer, they are not one of the owner's sends. Dropped once
+    /// the socket is sealed, as `ws` drops anything after its close.
+    fn control(&self, opcode: Opcode, payload: Vec<u8>) {
+        let inner = lock(&self.inner);
+        let Some(outbound) = inner.outbound.as_ref() else {
+            return;
+        };
+        let frame = Frame {
+            opcode,
+            rsv1: false,
+            payload: Bytes::from(payload),
+        };
+        let _ = outbound.send(Queued { frame, own: None });
     }
 
     fn state(&self) -> u8 {
@@ -226,12 +242,18 @@ pub fn open(stream: Box<dyn UpgradeIo>) -> (SocketHandle, SocketEvents) {
 }
 
 /// The frame for one outbound payload: text only for UTF-8, which TypeScript sends.
-fn message(data: Bytes, binary: bool) -> Result<Message, std::str::Utf8Error> {
-    if binary {
-        Ok(Message::Binary(data))
+fn message(data: Bytes, binary: bool) -> Result<Frame, std::str::Utf8Error> {
+    let opcode = if binary {
+        Opcode::Binary
     } else {
-        Utf8Bytes::try_from(data).map(Message::Text)
-    }
+        std::str::from_utf8(&data)?;
+        Opcode::Text
+    };
+    Ok(Frame {
+        opcode,
+        rsv1: false,
+        payload: data,
+    })
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
