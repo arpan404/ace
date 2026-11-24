@@ -27,7 +27,9 @@ import Testing
         let done = OSCompletion(budget: .seconds(25), now: { 1_000 },
                                 sleep: { _ in for await _ in passed { return } }) { reports.append($0) }
         deadline.yield()
-        while reports.isEmpty { await Task.yield() }
+        // Bounded, so a timer that never reports fails the test instead of hanging the run.
+        for _ in 0..<10_000 where reports.isEmpty { await Task.yield() }
+        #expect(reports == [false])
         // The shared refresh it joined comes back long after iOS was told.
         done.finish(true)
         #expect(reports == [false])
