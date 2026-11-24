@@ -55,10 +55,8 @@ fn fold_vectors_match_typescript() {
             Value::String(text) => Some(text.as_str().to_owned()),
             _ => panic!("payload is text or null"),
         };
-        let payload_value = match payload_text {
-            Some(text) => Some(ace_json::parse(&text).expect("parse payload text")),
-            None => None,
-        };
+        let payload_value =
+            payload_text.map(|text| ace_json::parse(&text).expect("parse payload text"));
         let event = FoldEvent::from_wire(&kind, payload_value.as_ref(), seq).expect("from_wire");
         update_thread(&mut thread_map, event, at).expect("update_thread");
         assert_eq!(
