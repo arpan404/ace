@@ -77,11 +77,23 @@ pub async fn accept(
             .ok()?,
         None => handshake(configs, stream).await,
     }?;
-    let servername = handed.get_ref().1.server_name().map(str::to_owned);
+    let servername = handed.get_ref().1.server_name().and_then(forwardable);
     Some(Accepted {
         stream: handed,
         servername,
     })
+}
+
+/// The name the hop may carry: the guard's alphabet (`[a-z0-9.-]{1,253}`,
+/// as rustls normalises it), so a name it would refuse is treated as no SNI
+/// rather than failing a handshake Node completes with the pinned identity.
+pub(crate) fn forwardable(name: &str) -> Option<String> {
+    let valid = !name.is_empty()
+        && name.len() <= 253
+        && name.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'.' || byte == b'-'
+        });
+    valid.then(|| name.to_owned())
 }
 
 async fn handshake(configs: &Configs, stream: TcpStream) -> Option<TlsStream<TcpStream>> {

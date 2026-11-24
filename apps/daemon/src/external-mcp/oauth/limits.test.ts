@@ -167,3 +167,17 @@ test("on loopback, a web page can't register a client or read the reply", async 
   });
   expect(relayed.headers.get("access-control-allow-origin")).toBe("*");
 });
+
+test("a caller with no address shares its way in's budget", async () => {
+  const f = surface();
+  // OAuth receives no peer for a request the daemon cannot place; the key is the base URL, so
+  // the limit belongs to the way in rather than to a fresh "unknown" caller each time.
+  const register = () =>
+    f.call(relay, "/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ redirect_uris: ["https://app.example/cb"] }),
+    });
+  for (let i = 0; i < callLimits.register; i++) expect((await register()).status).toBe(201);
+  expect((await register()).status).toBe(429);
+});

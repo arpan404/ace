@@ -416,3 +416,22 @@ fn client_hello(legacy: [u8; 2], supported: &[[u8; 2]]) -> Vec<u8> {
     record.extend_from_slice(&handshake);
     record
 }
+
+#[test]
+fn a_name_outside_the_guards_alphabet_is_treated_as_no_sni() {
+    use crate::tls::handshake::forwardable;
+
+    // Node completes a handshake that asks for an underscore name, serving the default
+    // certificate; the hop must not carry a name its guard would refuse.
+    assert_eq!(forwardable("foo_bar.example"), None);
+    assert_eq!(forwardable("Studio.tail1234.ts.net"), None);
+    assert_eq!(forwardable(""), None);
+    assert_eq!(forwardable("é.example"), None);
+    assert_eq!(forwardable(&"x".repeat(254)), None);
+    assert_eq!(
+        forwardable("studio.tail1234.ts.net"),
+        Some("studio.tail1234.ts.net".to_owned())
+    );
+    assert_eq!(forwardable("127.0.0.1"), Some("127.0.0.1".to_owned()));
+    assert_eq!(forwardable("a-b.c"), Some("a-b.c".to_owned()));
+}

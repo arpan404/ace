@@ -15,6 +15,7 @@ use tokio::net::TcpStream;
 
 use crate::accept::{Accepting, Acceptor, Admitted, DEFAULT_MAX_TCP_CONNECTIONS, ErrorSink};
 use crate::conn_io::ConnIo;
+use crate::conn_state::Accepted;
 use crate::driver::UpgradeHandler;
 use crate::error::TransportError;
 use crate::limits::ConnectionLimits;
@@ -149,7 +150,10 @@ impl Acceptor for Tls {
             }
             // The negotiated name reaches the hop in T1b.2; a connection keeps
             // the certificate it shook hands with.
-            Some(Box::new(accepted.stream) as Box<dyn ConnIo>)
+            Some(Accepted::new(
+                Box::new(accepted.stream) as Box<dyn ConnIo>,
+                accepted.servername,
+            ))
         })
     }
 }

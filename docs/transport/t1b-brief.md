@@ -94,10 +94,13 @@ every run-time decision of remote access (`remote-runtime.ts`, `remote-direct.ts
 3. **SNI**: rustls lower-cases the name and drops one trailing dot before the resolver sees it, so
    `x-ace-hop-servername` arrives normalised where Node's `socket.servername` is as sent
    (`reach.ts:91` and `tailscale-certificate.ts:136` normalise anyway, so no decision changes). An IP
-   literal in SNI is treated as no SNI (pinned certificate), as Node serves it. **An SNI that is
-   not a valid DNS name fails the handshake** with `illegal_parameter`
-   (`rustls/src/server/hs.rs:748`–`:754`), where Node serves the pinned certificate; no ace client
-   sends one.
+   literal in SNI is treated as no SNI (pinned certificate), as Node serves it. A name rustls
+   accepts but the guard's alphabet (`[a-z0-9.-]{1,253}`) does not — an underscore, say — completes
+   the handshake with the pinned certificate and arrives as **no SNI**, so no
+   `x-ace-hop-servername` is added; Node accepts such a name and serves its default identity too
+   (`tls/handshake.rs`'s `forwardable`). **An SNI that is not a valid DNS name fails the handshake**
+   with `illegal_parameter` (`rustls/src/server/hs.rs:748`–`:754`), where Node serves the pinned
+   certificate; no ace client sends one.
 4. **TLS alerts and handshake failures** (garbage, plain HTTP to the TLS port, a stalled hello):
    both stacks close; the alert bytes, if any, may differ. Nothing in ace parses them.
 5. **`Connection: keep-alive` is not written** on HTTP/1.1 responses (hyper leaves it implicit, RFC
@@ -534,7 +537,8 @@ move, and every later change to `server.ts` is net zero or negative.
     not come through the hop, and only admits a valid hop") gains rows, both legs: a request-side
     `x-ace-hop-trust` (lower and mixed case); two servername values differing only in case; a
     malformed servername; an absent one (admitted, `peerOf(…).servername === null`); a valid one
-    (admitted, the value recorded, the header gone from `headers` and `rawHeaders`).
+    (admitted, the value recorded, the header gone from `headers` and `rawHeaders`); and a folded
+    header written raw to the native ingress, refused with `400` before any handler.
   - `native-remote.process.test.ts` is new, allowed because nothing drives these through the
     daemon today (its header says so), against a daemon with `remoteConfig` on Tailscale at
     127.0.0.1 (as `tailscale-https.server`'s `tailnetDaemon`), both legs:
@@ -545,7 +549,9 @@ move, and every later change to `server.ts` is net zero or negative.
     - two outside MCP callers' requests from one client, each claiming a different
       `x-ace-outside-peer`, share one per-caller budget (`:300`);
     - a handler's `x-ace-hop-trust` never reaches the client, and a client's never reaches a
-      handler.
+      handler. The static listener has no trusted window, so this file proves the marker is stripped
+      and never promotes; T1b.4 proves the trusted 60-second answer on the SNI listener once it is
+      native.
   - The keep-alive limits through a real paired-machine call stay in
     `machines/keep-alive-test-support.ts`'s `keepAliveCases`, which T1b.4 makes run on the native
     listener; nothing here repeats them.

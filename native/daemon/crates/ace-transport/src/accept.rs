@@ -17,7 +17,7 @@ use tokio::sync::{Semaphore, oneshot};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 
-use crate::conn_io::ConnIo;
+use crate::conn_state::Accepted;
 use crate::driver::{self, Grace, UpgradeHandler};
 use crate::error::TransportError;
 use crate::limits::ConnectionLimits;
@@ -42,9 +42,10 @@ pub type ErrorSink = Arc<dyn Fn(&std::io::Error) + Send + Sync>;
 /// `:393`) and T1a.7's admission decides it.
 pub const DEFAULT_MAX_TCP_CONNECTIONS: usize = 1024;
 
-/// What an acceptor produces for one connection: the stream the driver serves,
-/// or None when the connection must close without a byte.
-pub type Admitted = Pin<Box<dyn Future<Output = Option<Box<dyn ConnIo>>> + Send>>;
+/// What an acceptor produces for one connection: the stream the driver serves
+/// and what its handshake learned, or None when the connection must close
+/// without a byte.
+pub type Admitted = Pin<Box<dyn Future<Output = Option<Accepted>> + Send>>;
 
 /// How one listener turns an accepted TCP connection into the stream the driver
 /// serves, or refuses it: loopback boxes the TCP stream, a remote listener ends
@@ -228,12 +229,12 @@ async fn accept_connections<A: Acceptor>(
                             // a handshake is still running.
                             _ = cancel.cancelled() => {}
                             io = connection_acceptor.admit(stream, peer) => {
-                                if let Some(io) = io {
+                                if let Some(accepted) = io {
                                     tokio::select! {
                                         biased;
                                         _ = cancel.cancelled() => {}
                                         () = driver::serve(
-                                            io,
+                                            accepted,
                                             peer,
                                             connection_target,
                                             connection_upgrades,
