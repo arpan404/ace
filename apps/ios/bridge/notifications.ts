@@ -378,6 +378,9 @@ export class NotificationBridge {
           this.#pushRefused = true;
           return this.#reconcile();
         }
+        // An organization's host refuses a member's registration (ADR 0209) but answers its
+        // feed, filtered to what the member may read: the wake waiting on it can finish.
+        if (want !== "unregistered" && refused(error)) return this.#catchUp();
         return; // The next connection retries; catch-up needs a registered device.
       }
       if (connection !== this.#connection) return;
@@ -627,4 +630,8 @@ function unparsable(error: unknown): boolean {
     error.code === "daemon" &&
     (error.message === "invalid_message" || error.message === "unsupported")
   );
+}
+/** The daemon understood the request and its access policy refused it. */
+function refused(error: unknown): boolean {
+  return error instanceof ClientError && error.code === "daemon" && error.message === "forbidden";
 }

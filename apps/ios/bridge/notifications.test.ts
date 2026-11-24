@@ -235,3 +235,12 @@ it("reconnects from the last cursor Swift applied while a new feed is still outs
   act({ type: "notifications.feedApplied", feedId: outstanding?.feedId });
   await vi.waitFor(() => expect(lastFeed(of)).toMatchObject({ entries: [] }));
 });
+
+it("a member whose registration the org host refuses still catches up, so a wake can finish", async () => {
+  const { daemon, sync, of } = await phone();
+  daemon.notify(alert("n:shared"));
+  // An organization's host keeps phone registration from members (ADR 0209); their feed answers.
+  daemon.refuseRequests("forbidden", "notification.register");
+  sync(true);
+  await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(1));
+});
