@@ -2,50 +2,77 @@
 //! The two tasks that run one socket. The reader delivers what arrives and the
 //! writer flushes what `send` queued; whichever ends the conversation, the
 //! writer ends it, so `Error` and every owed `Sent` are emitted before the one
-//! `Close`.
+//! `Close`. A local close the peer never answers ends at the socket's close
+//! timeout, as `ws`'s does, and every closing write is bounded.
 
 use std::future::Future;
+use std::sync::Arc;
+use std::time::Duration;
 
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
+use tokio::time::Instant;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::{CloseFrame, Role, WebSocketConfig};
 use tokio_tungstenite::tungstenite::{Error as WsError, Message, Utf8Bytes};
 
-use super::{
-    CLOSED, CLOSING, Ending, MAX_MESSAGE_BYTES, OPEN, Outbound, Shared, SocketEvent, Wire, subtract,
-};
+use super::{CLOSED, CLOSING, MAX_MESSAGE_BYTES, OPEN, Outbound, Shared, SocketEvent};
 use crate::driver::UpgradeIo;
+use crate::prefixed::WRITE_TIMEOUT;
 
 type Source = SplitStream<WebSocketStream<Box<dyn UpgradeIo>>>;
 type Sink = SplitSink<WebSocketStream<Box<dyn UpgradeIo>>, Message>;
 
+/// How a socket's conversation ended, and what it still owes the wire.
+pub(super) struct Ending {
+    /// `Close`'s code, and the close frame's when one is sent.
+    code: u16,
+    reason: Vec<u8>,
+    /// The `Error` event to report before `Close`.
+    error: Option<(&'static str, String)>,
+    wire: Wire,
+}
+
+enum Wire {
+    /// The connection is gone: nothing more is written.
+    Nothing,
+    /// The peer closed: flush tungstenite's queued reply.
+    Reply,
+    /// `ws` closes with this code (a violation, or its own local close).
+    Close(u16),
+}
+
 impl Ending {
-    /// A tungstenite error: a size or protocol violation sends `ws`'s close code,
-    /// anything else is a lost connection.
+    /// The connection ended without a close handshake, or `terminate` dropped it.
+    pub(super) fn lost() -> Self {
+        Self {
+            code: 1006,
+            reason: Vec::new(),
+            error: None,
+            wire: Wire::Nothing,
+        }
+    }
+}
+
+impl Ending {
+    /// A tungstenite error. `ws` closes the wire with its code for the violation
+    /// and, having no peer close to report, ends the socket locally with `1006`.
     fn failed(error: WsError) -> Self {
         let message = error.to_string();
-        match &error {
-            WsError::Capacity(_) => Ending {
-                code: 1009,
-                reason: Vec::new(),
-                error: Some(("too_big", message)),
-                wire: Wire::Close(1009),
-            },
-            WsError::Protocol(_) | WsError::Utf8(_) | WsError::AttackAttempt => Ending {
-                code: 1002,
-                reason: Vec::new(),
-                error: Some(("protocol", message)),
-                wire: Wire::Close(1002),
-            },
-            _ => Ending {
-                code: 1006,
-                reason: Vec::new(),
-                error: Some(("io", message)),
-                wire: Wire::Nothing,
-            },
+        let (code, wire) = match &error {
+            WsError::Capacity(_) => ("too_big", Wire::Close(1009)),
+            // Invalid UTF-8 in a text frame is its own code, not a protocol one.
+            WsError::Utf8(_) => ("protocol", Wire::Close(1007)),
+            WsError::Protocol(_) | WsError::AttackAttempt => ("protocol", Wire::Close(1002)),
+            _ => ("io", Wire::Nothing),
+        };
+        Ending {
+            code: 1006,
+            reason: Vec::new(),
+            error: Some((code, message)),
+            wire,
         }
     }
 
@@ -67,14 +94,14 @@ impl Ending {
 
 pub(super) async fn run(
     stream: Box<dyn UpgradeIo>,
-    shared: std::sync::Arc<Shared>,
+    shared: Arc<Shared>,
     queued: mpsc::UnboundedReceiver<Outbound>,
     woken: mpsc::Receiver<()>,
 ) {
     let socket = WebSocketStream::from_raw_socket(stream, Role::Server, Some(config())).await;
     let (sink, source) = socket.split();
-    let reader = tokio::spawn(read(source, std::sync::Arc::clone(&shared), woken));
-    write(sink, std::sync::Arc::clone(&shared), queued).await;
+    let reader = tokio::spawn(read(source, Arc::clone(&shared), woken));
+    write(sink, Arc::clone(&shared), queued).await;
     // The writer has ended the conversation; the reader returns at once.
     let _ = reader.await;
 }
@@ -88,7 +115,7 @@ fn config() -> WebSocketConfig {
 /// Delivers what arrives until the socket ends, and records why. A peer's ping
 /// is answered by tungstenite on the read that follows and never surfaced; a
 /// pong is ignored, as `autoPong` does.
-async fn read(mut source: Source, shared: std::sync::Arc<Shared>, mut woken: mpsc::Receiver<()>) {
+async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver<()>) {
     let ending = loop {
         let readable = shared.readable();
         tokio::select! {
@@ -118,17 +145,19 @@ async fn read(mut source: Source, shared: std::sync::Arc<Shared>, mut woken: mps
     shared.end(ending);
 }
 
-/// Flushes what `send` queued until the conversation ends, then ends it.
-async fn write(
-    mut sink: Sink,
-    shared: std::sync::Arc<Shared>,
-    mut queued: mpsc::UnboundedReceiver<Outbound>,
-) {
+/// Flushes what `send` queued until the conversation ends, then ends it. Once a
+/// local close is on the wire the peer gets the close timeout to answer it; after
+/// that the socket is destroyed, as `ws`'s close timeout does.
+async fn write(mut sink: Sink, shared: Arc<Shared>, mut queued: mpsc::UnboundedReceiver<Outbound>) {
+    let mut awaiting: Option<Instant> = None;
     loop {
         let item = tokio::select! {
             biased;
             _ = shared.over.cancelled() => {
                 return finish(sink, &shared, &mut queued, shared.ended(), None).await;
+            }
+            () = unanswered(awaiting, shared.close_timeout) => {
+                return finish(sink, &shared, &mut queued, Ending::lost(), None).await;
             }
             item = queued.recv() => item,
         };
@@ -136,8 +165,14 @@ async fn write(
             return finish(sink, &shared, &mut queued, Ending::lost(), None).await;
         };
         let owed = item.own.map(|own| own.id);
+        let closes = item.closes;
         match flushed(&shared, sink.send(item.frame)).await {
-            Ok(Ok(())) => shared.complete(item.own, None),
+            Ok(Ok(())) => {
+                shared.complete(item.own, None);
+                if closes {
+                    awaiting = Some(Instant::now());
+                }
+            }
             Ok(Err(error)) => {
                 shared.complete(item.own, Some(not_open(shared.state())));
                 return finish(sink, &shared, &mut queued, Ending::failed(error), None).await;
@@ -145,12 +180,19 @@ async fn write(
             // The frame is owed a `Sent`, which `finish` reports once the state
             // is sealed.
             Err(ending) => {
-                if let Some(own) = item.own {
-                    subtract(&shared.buffered, own.length);
-                }
+                shared.release(item.own);
                 return finish(sink, &shared, &mut queued, ending, owed).await;
             }
         }
+    }
+}
+
+/// Waits out `ws`'s close timeout once our close frame is on the wire, and never
+/// otherwise.
+async fn unanswered(awaiting: Option<Instant>, timeout: Duration) {
+    match awaiting {
+        Some(at) => tokio::time::sleep_until(at + timeout).await,
+        None => std::future::pending().await,
     }
 }
 
@@ -168,9 +210,23 @@ async fn flushed<F: Future<Output = Result<(), WsError>>>(
     }
 }
 
+/// One closing write. It is bounded twice: by the stream's write timeout, and by
+/// `terminate`, which drops the socket at once rather than waiting for a flush
+/// that may never come.
+async fn terminal<F: Future<Output = Result<(), WsError>>>(
+    shared: &Shared,
+    write: F,
+) -> Option<Result<(), WsError>> {
+    tokio::select! {
+        biased;
+        _ = shared.stop.cancelled() => None,
+        outcome = tokio::time::timeout(WRITE_TIMEOUT, write) => outcome.ok(),
+    }
+}
+
 async fn finish(
     mut sink: Sink,
-    shared: &std::sync::Arc<Shared>,
+    shared: &Arc<Shared>,
     queued: &mut mpsc::UnboundedReceiver<Outbound>,
     ending: Ending,
     owed: Option<u64>,
@@ -185,7 +241,7 @@ async fn finish(
         // tungstenite queued the reply as it read the peer's close; flushing it
         // completes the handshake.
         Wire::Reply => {
-            let _ = sink.flush().await;
+            let _ = terminal(shared, sink.flush()).await;
         }
         // `ws`'s answer to a protocol or size violation, before it drops.
         Wire::Close(code) => {
@@ -193,7 +249,7 @@ async fn finish(
                 code: CloseCode::from(code),
                 reason: Utf8Bytes::from_static(""),
             };
-            let _ = sink.send(Message::Close(Some(frame))).await;
+            let _ = terminal(shared, sink.send(Message::Close(Some(frame)))).await;
         }
         Wire::Nothing => {}
     }
