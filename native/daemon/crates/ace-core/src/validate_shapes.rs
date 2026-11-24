@@ -5,10 +5,6 @@
 
 use crate::json_io::{Json, Map, as_count, as_integer};
 
-fn get_str<'a>(map: &'a Map, key: &str) -> Option<&'a str> {
-    map.get(key).and_then(|value| value.as_str())
-}
-
 fn as_map(value: &Json) -> Option<&Map> {
     match value {
         Json::Object(map) => Some(map),
@@ -32,22 +28,8 @@ fn ensure_only(map: &Map, allowed: &[&str]) -> bool {
     map.keys().all(|key| allowed.contains(&key.as_str()))
 }
 
-fn valid_id(value: Option<&Json>, min: usize, max: usize) -> bool {
-    match value {
-        Some(Json::String(text)) => text.len() >= min && text.len() <= max,
-        _ => false,
-    }
-}
-
 pub(crate) fn valid_timestamp(value: Option<&Json>) -> bool {
     matches!(value, Some(Json::Number(_)) if as_count(value).is_some())
-}
-
-fn valid_optional_timestamp(value: Option<&Json>) -> bool {
-    match value {
-        None | Some(Json::Null) => true,
-        Some(_) => valid_timestamp(value),
-    }
 }
 
 /// A thread id: any non-empty string.

@@ -303,11 +303,6 @@ pub fn derive_agent_status(state: &ThreadState, key: &str, now: i64) -> AgentSta
     crate::status_resolve::StatusResolver::new(state, now).resolve(key)
 }
 
-/// Whether an unresponsive agent still holds completion.
-fn completion_holds(resolver: &mut crate::status_resolve::StatusResolver<'_>, key: &str) -> bool {
-    resolver.holds_completion(key, 0)
-}
-
 /// Read completion evidence from an already-derived, persisted agent tree.
 pub fn completion_relevance_reader(state: &ThreadState) -> impl Fn(&str) -> bool + '_ {
     let mut resolver = crate::status_resolve::StatusResolver::persisted(state, 0);

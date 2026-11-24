@@ -118,10 +118,6 @@ fn allowed_fields(fact_type: &str) -> Option<&'static [&'static str]> {
     })
 }
 
-fn is_object(value: &Json) -> bool {
-    matches!(value, Json::Object(_))
-}
-
 fn optional_string(value: Option<&Json>) -> bool {
     matches!(value, None | Some(Json::String(_)))
 }
