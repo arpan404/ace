@@ -151,6 +151,7 @@ export function exitProcess(
     delete record.disconnectedAt;
     delete record.retry;
     delete record.wakeUntil;
+    delete record.steerUntil;
     if (!record.activeRun) {
       if (!isSettled(record.agent.status)) {
         record.processSettledStatus = fact.deliberate

@@ -10,6 +10,7 @@ export {
   completionRelevanceReader,
 } from "./status.ts";
 export { holdsThread, leftRunning } from "./background-hold.ts";
+export { steerHandoffMs } from "./runs.ts";
 export { ownerTurnFinished } from "./status-inputs.ts";
 export { hasUnresponsiveAncestor } from "./liveness.ts";
 export { nextDeadline, DeadlineIndex } from "./deadlines.ts";

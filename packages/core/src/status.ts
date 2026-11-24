@@ -286,6 +286,9 @@ function statusResolver(state: ThreadState, now: number) {
     if (record.wakeUntil !== undefined && now < record.wakeUntil) {
       return { state: "working", activity: "starting_turn" };
     }
+    if (record.steerUntil !== undefined && now < record.steerUntil) {
+      return { state: "working", activity: "starting_turn" };
+    }
     if (record.processSettledStatus) return record.processSettledStatus;
     if (!record.lastRun) {
       if (key === state.rootKey && !state.hasRun && agent.fidelity !== "placeholder")

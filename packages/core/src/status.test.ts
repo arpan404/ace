@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveThreadStatus } from "./index.ts";
+import { deriveThreadStatus, nextDeadline, steerHandoffMs } from "./index.ts";
 import { activeRoot, createdItemId, endedRoot, spawned, status } from "./status-test-helper.ts";
 
 describe("agent statuses through adapter facts", () => {
@@ -164,6 +164,32 @@ describe("agent statuses through adapter facts", () => {
     expect(status(h, 199)).toEqual({ state: "working", activity: "starting_turn" });
     h.send({ type: "tick" }, 200);
     expect(status(h, 200)).toEqual({ state: "idle" });
+  });
+
+  it("a turn a steer ended reads working until the steer's turn starts", () => {
+    const h = activeRoot();
+    h.send({ type: "turn.ended", agent: "root", outcome: "interrupted", endedBy: "steer" }, 150);
+    expect(status(h, 150)).toEqual({ state: "working", activity: "starting_turn" });
+    expect(deriveThreadStatus(h.state).state).toBe("working");
+    h.start("root", "steer-turn");
+    h.end();
+    expect(status(h, 250)).toEqual({ state: "idle" });
+    expect(deriveThreadStatus(h.state).state).toBe("done");
+  });
+
+  it("a steer-ended turn falls back to interrupted once the hand-off window passes", () => {
+    const h = activeRoot();
+    h.send({ type: "turn.ended", agent: "root", outcome: "interrupted", endedBy: "steer" }, 150);
+    expect(nextDeadline(h.state)).toBe(150 + steerHandoffMs);
+    h.send({ type: "tick" }, 150 + steerHandoffMs);
+    expect(status(h, 150 + steerHandoffMs)).toEqual({ state: "interrupted" });
+    expect(h.agent("root")?.status).toEqual({ state: "interrupted" });
+  });
+
+  it("a turn interrupted without a steer still reads interrupted at once", () => {
+    const h = activeRoot();
+    h.end("root", "interrupted");
+    expect(status(h, 150)).toEqual({ state: "interrupted" });
   });
 
   it("a child without its first turn keeps a completed parent waiting", () => {

@@ -57,6 +57,11 @@ export interface AgentRecord {
   limited?: { until?: number; message?: string };
   retry?: Omit<Extract<Fact, { type: "retry" }>, "type" | "agent">;
   wakeUntil?: number;
+  /**
+   * A turn a steer ended hands over to that steer until this time: the agent reads working, not
+   * interrupted, until its next turn starts.
+   */
+  steerUntil?: number;
   parentKey?: Key;
   spawnedByKey?: Key;
 }
