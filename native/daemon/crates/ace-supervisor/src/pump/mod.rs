@@ -126,6 +126,9 @@ pub struct Flow {
     changed: Notify,
     closed: CancellationToken,
     budget: Arc<OutputBudget>,
+    /// A diverted child's consumer hears `end` when the flow closes too, not
+    /// only at EOF; unset for every stream the shell owns.
+    end_on_close: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Default)]
@@ -146,6 +149,7 @@ impl Flow {
             changed: Notify::new(),
             closed: CancellationToken::new(),
             budget,
+            end_on_close: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -179,6 +183,18 @@ impl Flow {
     pub fn close(&self) {
         self.closed.cancel();
         self.give_back();
+    }
+
+    /// A diverted child's consumer keeps hearing `end` when the flow closes:
+    /// `OutputControl::close` sets this before it calls `close` (E3.0b).
+    pub(crate) fn mark_end_on_close(&self) {
+        self.end_on_close
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Whether a closed pump still emits `end` before it returns.
+    fn ends_on_close(&self) -> bool {
+        self.end_on_close.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     pub(crate) fn delivered(&self) {
@@ -262,7 +278,13 @@ pub async fn pump_output<E: EventSink, R: tokio::io::AsyncRead + Unpin + HangUp>
             let at_cap = flow.at_paused_cap();
             tokio::select! {
                 () = flow.changed.notified() => {}
-                () = flow.closed.cancelled() => return,
+                () = flow.closed.cancelled() => {
+                    // A diverted child's consumer still hears `end` (E3.0b).
+                    if flow.ends_on_close() {
+                        sink.end(stream);
+                    }
+                    return;
+                }
                 // At the cap: probe the pipe without consuming. Hung up with
                 // nothing left is EOF; hung up with bytes left drains them
                 // within the budget.
@@ -281,6 +303,9 @@ pub async fn pump_output<E: EventSink, R: tokio::io::AsyncRead + Unpin + HangUp>
             read = reader.read(&mut buffer[..room]) => read,
             () = flow.closed.cancelled() => {
                 flow.read(room, 0, admit);
+                if flow.ends_on_close() {
+                    sink.end(stream);
+                }
                 return;
             }
         };

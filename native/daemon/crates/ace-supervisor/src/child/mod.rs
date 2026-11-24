@@ -7,6 +7,7 @@
 //! (`process-owner.ts`) and this child's handle, which keeps the group id
 //! ace's while anything of the group lives (`leader.rs`).
 
+use crate::divert::{ChildPorts, OutputControl, StdinPort};
 use crate::errors::SupervisorError;
 #[cfg(unix)]
 use crate::leader::GroupSignal;
@@ -280,6 +281,18 @@ use release::release_when_group_empty;
 use release::watch_writers;
 
 impl SupervisedChild {
+    /// The child's controls for a Rust consumer (E3.0b): its stdin queue and
+    /// both output flows, or nothing when stdin or an output isn't piped.
+    pub fn ports(&self) -> Option<ChildPorts> {
+        let (queue, _) = self.stdin.as_ref()?;
+        let stdout = self.stdout.clone()?;
+        let stderr = self.stderr.clone()?;
+        Some(ChildPorts {
+            stdin: StdinPort::new(queue.clone()),
+            output: OutputControl::new(Some(stdout), Some(stderr)),
+        })
+    }
+
     /// The leader's pid.
     pub fn pid(&self) -> u32 {
         self.leader.pid()

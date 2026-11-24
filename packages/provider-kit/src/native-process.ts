@@ -35,6 +35,15 @@ export type SupervisorEventHandler = (
   data: Uint8Array,
 ) => boolean | undefined;
 
+declare const nativeOutputTarget: unique symbol;
+
+/**
+ * A Rust session's consumer and controls for a diverted child (E3.0b): its
+ * pipes are the session's from birth, so JavaScript never reads, writes or
+ * closes them. Only the session bindings make one; this type is opaque.
+ */
+export type NativeOutputTarget = { readonly [nativeOutputTarget]: never };
+
 interface NativeChildHandle {
   pid(): number;
   writeStdin(data: Uint8Array): void;
@@ -80,7 +89,11 @@ interface NativeJournalHandle {
 }
 
 interface SupervisorAddon {
-  supervisorSpawn(specJson: string, events: SupervisorEventHandler): NativeChildHandle;
+  supervisorSpawn(
+    specJson: string,
+    events: SupervisorEventHandler,
+    target?: NativeOutputTarget,
+  ): NativeChildHandle;
   NativeInventory: new (path: string) => NativeInventoryHandle;
   NativeJournal: new (path: string, run: string) => NativeJournalHandle;
   supervisorReadOwnership(path: string, run?: string): string;
@@ -220,6 +233,8 @@ export interface NativeSpawnSpec {
   contain: boolean;
   /** The process's output budget: what the native pumps read ahead never exceeds it. */
   maxOutputBytes?: number;
+  /** A Rust session's consumer for this child's pipes (E3.0b). */
+  nativeOutput?: NativeOutputTarget;
 }
 
 /** A masked (undefined) variable isn't launched, like node's spawn. */
@@ -329,6 +344,7 @@ export class NativeChildProcess
         }),
         // napi calls threadsafe functions error-first: (null, kind, data).
         (_error: unknown, kind, data) => this.onEvent(kind, data),
+        spec.nativeOutput,
       );
     } catch (error) {
       failure = error instanceof Error ? error : new Error(String(error));

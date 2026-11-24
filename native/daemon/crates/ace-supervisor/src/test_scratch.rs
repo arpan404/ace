@@ -145,3 +145,185 @@ pub fn identity(pid: u32, start: &str) -> ProcessIdentity {
         group: pid,
     }
 }
+
+/// One ordered log of sink events, shared by a recording consumer and shell.
+pub type Log = std::sync::Arc<std::sync::Mutex<Vec<String>>>;
+
+fn push(log: &Log, entry: String) {
+    log.lock().expect("the event log locks").push(entry);
+}
+
+/// A Rust consumer that records every event and holds its chunks undelivered.
+#[derive(Default)]
+pub struct RecordingConsumer {
+    pub log: Log,
+    /// Chunks stay delivered until the test ends, so a pump's `in_flight` fills.
+    pub held: std::sync::Mutex<Vec<crate::spawn::Delivered>>,
+}
+
+impl crate::divert::OutputConsumer for RecordingConsumer {
+    fn output(
+        &self,
+        stream: crate::spawn::OutputStream,
+        bytes: Vec<u8>,
+        delivered: crate::spawn::Delivered,
+    ) {
+        push(
+            &self.log,
+            format!(
+                "consumer:output:{}:{}",
+                stream_name(stream),
+                String::from_utf8_lossy(&bytes)
+            ),
+        );
+        self.held.lock().expect("held chunks lock").push(delivered);
+    }
+
+    fn end(&self, stream: crate::spawn::OutputStream) {
+        push(&self.log, format!("consumer:end:{}", stream_name(stream)));
+    }
+
+    fn stdin_written(&self) {
+        push(&self.log, "consumer:stdin-written".to_owned());
+    }
+
+    fn stdin_error(&self, _error: crate::errors::NodeIoError) {
+        push(&self.log, "consumer:stdin-error".to_owned());
+    }
+
+    fn exit(&self, _exit: crate::spawn::RawExit) {
+        push(&self.log, "consumer:exit".to_owned());
+    }
+
+    fn close(&self, _exit: crate::spawn::RawExit) {
+        push(&self.log, "consumer:close".to_owned());
+    }
+}
+
+/// The shell behind a diverted sink: records what reaches JavaScript.
+#[derive(Clone)]
+pub struct RecordingShell {
+    pub log: Log,
+}
+
+impl crate::spawn::EventSink for RecordingShell {
+    fn output(
+        &self,
+        stream: crate::spawn::OutputStream,
+        _bytes: Vec<u8>,
+        delivered: crate::spawn::Delivered,
+    ) {
+        push(&self.log, format!("shell:output:{}", stream_name(stream)));
+        delivered.taken(true);
+    }
+
+    fn end(&self, stream: crate::spawn::OutputStream) {
+        push(&self.log, format!("shell:end:{}", stream_name(stream)));
+    }
+
+    fn exit(&self, _exit: crate::spawn::RawExit) {
+        push(&self.log, "shell:exit".to_owned());
+    }
+
+    fn close(&self, _exit: crate::spawn::RawExit) {
+        push(&self.log, "shell:close".to_owned());
+    }
+
+    fn stdin_written(&self) {
+        push(&self.log, "shell:stdin-written".to_owned());
+    }
+
+    fn stdin_error(&self, _error: crate::errors::NodeIoError) {
+        push(&self.log, "shell:stdin-error".to_owned());
+    }
+
+    fn hold_limit(&self) {
+        push(&self.log, "shell:hold-limit".to_owned());
+    }
+
+    fn held(&self, _message: String) {
+        push(&self.log, "shell:held".to_owned());
+    }
+}
+
+/// A stream's name in the log.
+pub fn stream_name(stream: crate::spawn::OutputStream) -> &'static str {
+    match stream {
+        crate::spawn::OutputStream::Stdout => "stdout",
+        crate::spawn::OutputStream::Stderr => "stderr",
+    }
+}
+
+/// A leader's clean end, as the sink reports one.
+pub fn exit() -> crate::spawn::RawExit {
+    crate::spawn::RawExit {
+        code: Some(0),
+        signal: None,
+    }
+}
+
+/// A failed stdin write, as the pump reports one.
+pub fn failure() -> crate::errors::NodeIoError {
+    crate::errors::NodeIoError::new(
+        "write",
+        &std::io::Error::from(std::io::ErrorKind::BrokenPipe),
+    )
+}
+
+/// A reader that never yields and never ends: a pump waits in `read`.
+pub struct StalledReader {
+    pub polled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl tokio::io::AsyncRead for StalledReader {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+        _buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        self.polled.store(true, std::sync::atomic::Ordering::SeqCst);
+        std::task::Poll::Pending
+    }
+}
+
+impl crate::pump::HangUp for StalledReader {
+    fn hung_up(&self) -> bool {
+        false
+    }
+
+    fn at_eof(&self) -> bool {
+        false
+    }
+}
+
+/// A reader that always has one byte: a pump fills `MAX_IN_FLIGHT` and waits.
+pub struct EndlessReader;
+
+impl tokio::io::AsyncRead for EndlessReader {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        buf.put_slice(b"x");
+        std::task::Poll::Ready(Ok(()))
+    }
+}
+
+impl crate::pump::HangUp for EndlessReader {
+    fn hung_up(&self) -> bool {
+        false
+    }
+
+    fn at_eof(&self) -> bool {
+        false
+    }
+}
+
+/// A current-thread runtime for one pump.
+pub fn runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("the test runtime builds")
+}

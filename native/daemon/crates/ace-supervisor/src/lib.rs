@@ -9,6 +9,7 @@ pub mod budget;
 pub mod child;
 pub mod contain;
 pub mod dir;
+pub mod divert;
 pub mod entries;
 pub mod envutil;
 pub mod errors;
