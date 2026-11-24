@@ -7,7 +7,7 @@ import { z } from "zod";
  * IndexedDB: what the SDK held for the inbox and opened threads paints from disk on the next
  * launch, unconfirmed, while the socket connects. Threads are kept as one row per item, each
  * finished item written once (ADR 0105); `RowSnapshots` decides what to write and what to let
- * go. Each thread's archive is kept here too, until the person clears it (ADR 0149). The native store sits beside this machine's outbox, so it is already scoped to one daemon
+ * go. Each thread's archive is kept here too, until the person clears it (ADR 0225). The native store sits beside this machine's outbox, so it is already scoped to one daemon
  * and device; the SDK files records under the daemon's verified identity on top. A failure of
  * any kind is a miss.
  */

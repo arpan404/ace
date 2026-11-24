@@ -28,7 +28,7 @@ export const snapshotRetention: RetentionPolicy = {
 };
 
 /**
- * The phone's device cache (ADR 0149): what it read stays until the person clears it or removes
+ * The phone's device cache (ADR 0225): what it read stays until the person clears it or removes
  * the app. Only the byte cap lets anything go.
  */
 export const deviceRetention: RetentionPolicy = {

@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import { ThreadArchive, type ArchiveQuery } from "./thread-archive.ts";
 
 /*
- * One thread's archive (ADR 0149). Item n has creation sequence 10n, as host-wide sequences
+ * One thread's archive (ADR 0225). Item n has creation sequence 10n, as host-wide sequences
  * leave gaps. A read of items a..b is merged the way the daemon's window reply claims it.
  */
 

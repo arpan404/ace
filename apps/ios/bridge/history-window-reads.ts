@@ -18,7 +18,7 @@ export class HistoryWindowReads {
   async read(input: ItemsWindowInput, options: RequestOptions = {}) {
     try {
       const reply = await this.#client.itemsWindow(input, options);
-      // Offline, the phone's archive answered: rows as of the last connection (ADR 0149).
+      // Offline, the phone's archive answered: rows as of the last connection (ADR 0225).
       if (this.#client.state !== "ready") this.cached = true;
       return reply;
     } catch (error) {

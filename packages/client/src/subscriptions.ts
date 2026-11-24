@@ -61,7 +61,7 @@ export class Subscriptions {
   /** Bindings of threads already let go whose last checkpoint may still be waiting, by thread. */
   #closing = new Map<string, Set<SnapshotBinding>>();
   #persistence: Persistence | undefined;
-  /** Hears each confirmed checkpoint of a store's content, for its archive (ADR 0149). */
+  /** Hears each confirmed checkpoint of a store's content, for its archive (ADR 0225). */
   #kept: ((threadId: string, exported: ThreadExport) => void) | undefined;
   #starting = new Set<string>();
   #wires = new Map<string, Cached>();

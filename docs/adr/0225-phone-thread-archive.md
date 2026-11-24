@@ -1,4 +1,4 @@
-# 0149: The phone keeps every thread it read: a device cache, a hot archive, a view range
+# 0225: The phone keeps every thread it read: a device cache, a hot archive, a view range
 
 Date: 2026-11-24. Status: accepted. Decided by: the owner. Amends
 [ADR 0062](0062-long-thread-data-apis.md) (phone client), [ADR 0105](0105-phone-chat-cache.md)

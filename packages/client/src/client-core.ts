@@ -1076,7 +1076,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     return this.#threadReply({ type: "turns.page", ...input }, options);
   }
   /**
-   * A history window. With an archive (ADR 0149), one it holds is answered at once, offline too,
+   * A history window. With an archive (ADR 0225), one it holds is answered at once, offline too,
    * and checked against the daemon in the background unless all of it was read this session;
    * every window the daemon answers joins the archive.
    */
@@ -1126,7 +1126,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     return (threadId: string, exported: ThreadExport) =>
       void archives.keep(threadId, exported).catch(() => {});
   }
-  /** Called with a thread whose archived history the daemon corrected (ADR 0149). */
+  /** Called with a thread whose archived history the daemon corrected (ADR 0225). */
   onArchiveRevised(listener: (threadId: string) => void): () => void {
     return this.#archives?.onRevised(listener) ?? (() => {});
   }

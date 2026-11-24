@@ -7,7 +7,7 @@ import type { ThreadExport } from "./api.ts";
 import type { Scheduler } from "./types.ts";
 
 /*
- * The archives a client keeps of the threads it read (ADR 0149): hot in memory, least recently
+ * The archives a client keeps of the threads it read (ADR 0225): hot in memory, least recently
  * used first, under a byte bound, and on disk as one `archive:<threadId>` record each. An archive
  * is always read from disk before it changes, so a write never drops what disk held.
  */

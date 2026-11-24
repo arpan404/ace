@@ -2,7 +2,7 @@ import { Item, ItemsWindowResponse } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { JumpController } from "./jump-controller.ts";
 
-/* An opened history window corrected in place (ADR 0149). Item n has creation sequence 10n. */
+/* An opened history window corrected in place (ADR 0225). Item n has creation sequence 10n. */
 
 const notice = (n: number, text = `notice ${n}`): Item =>
   Item.parse({

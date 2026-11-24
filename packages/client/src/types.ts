@@ -147,7 +147,7 @@ export interface ClientOptions {
   readSnapshots?: import("./read-snapshot-storage.ts").ReadSnapshotStorage;
   /**
    * Keep every thread read as an archive in memory and in `readSnapshots`, and answer history
-   * windows from it (ADR 0149). The phone sets it. None: history windows come from the daemon.
+   * windows from it (ADR 0225). The phone sets it. None: history windows come from the daemon.
    */
   archive?: import("./thread-archives.ts").ArchiveOptions;
   scheduler: Scheduler;

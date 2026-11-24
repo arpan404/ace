@@ -66,7 +66,7 @@ export interface RowSnapshotOptions {
 
 /**
  * A record kept as rows: a thread's live record as the SDK files it (`thread:<id>`, under the
- * daemon's identity), or its archive (`archive:<id>`, ADR 0149).
+ * daemon's identity), or its archive (`archive:<id>`, ADR 0225).
  */
 const threadKey = /(?:^|\/)(?:thread|archive):[^/]+$/;
 /** A thread's live record: what Settings counts as one kept chat. */

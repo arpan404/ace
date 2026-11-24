@@ -133,7 +133,7 @@ export function connect(
   }: {
     items?: number;
     readSnapshots?: ReadSnapshotStorage;
-    /** Keep every thread read in an archive over `readSnapshots`, as the app does (ADR 0149). */
+    /** Keep every thread read in an archive over `readSnapshots`, as the app does (ADR 0225). */
     archive?: boolean;
     held?: Promise<void>;
     /** The small first snapshot a thread opens from, as the app's bridge asks for it. */

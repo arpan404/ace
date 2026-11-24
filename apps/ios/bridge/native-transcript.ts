@@ -277,7 +277,7 @@ export class NativeTranscript {
   }
 
   /**
-   * The daemon corrected archived rows of this thread (ADR 0149): the window takes the range it
+   * The daemon corrected archived rows of this thread (ADR 0225): the window takes the range it
    * holds as the archive now has it, in place.
    */
   #revise(active: Active): void {

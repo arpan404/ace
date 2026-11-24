@@ -3,7 +3,7 @@ import { startsTurn } from "@ace/projection";
 import { itemFinished } from "./item-finished.ts";
 
 /*
- * One thread's archive on the phone (ADR 0149): every item the client has read of it, as disjoint
+ * One thread's archive on the phone (ADR 0225): every item the client has read of it, as disjoint
  * runs. A run holds every item whose creation sequence lies in `[from, through]` (`from` null:
  * since the thread's start), in sequence order, so a window inside a run is answered without the
  * machine. Each run merged in is authoritative for its range. Pure.

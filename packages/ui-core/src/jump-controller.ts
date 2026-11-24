@@ -462,7 +462,7 @@ export class JumpController {
 
   /**
    * The rows the window holds were corrected (an archived copy the daemon has since changed,
-   * ADR 0149): the same range, its items as now read. The reader's place and the cursors stay.
+   * ADR 0225): the same range, its items as now read. The reader's place and the cursors stay.
    */
   revise(items: readonly Item[], seqs: ReadonlyMap<string, number>): void {
     const window = this.state.window;

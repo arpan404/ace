@@ -348,7 +348,7 @@ async function start(json: string): Promise<void> {
       },
     },
     // The inbox and opened threads paint from what this phone read last time (ADR 0030), and
-    // every thread read stays answerable from the phone (ADR 0149).
+    // every thread read stays answerable from the phone (ADR 0225).
     readSnapshots: snapshots,
     archive: {},
     scheduler,

@@ -7,7 +7,7 @@ import { ThreadArchives } from "./thread-archives.ts";
 import type { Scheduler } from "./types.ts";
 
 /*
- * The archives a client keeps (ADR 0149), through the phone's real row storage: kept across a
+ * The archives a client keeps (ADR 0225), through the phone's real row storage: kept across a
  * restart, dropped for another daemon database, and let go from memory only once written.
  */
 
