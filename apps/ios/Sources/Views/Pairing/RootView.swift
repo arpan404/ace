@@ -18,12 +18,18 @@ struct RootView: View {
             if !lock.locked && !machines.loaded { await machines.load() }
         }
         .onChange(of: machines.machines.isEmpty) { _, empty in if !empty { lock.enable() } }
-        .onAppear { if keeper == nil { keeper = BackgroundKeeper.system { [machines] in machines.wake() } } }
+        .onAppear {
+            guard keeper == nil else { return }
+            let made = BackgroundKeeper.system(
+                connections: { [machines] in machines.connectionStates }, wake: { [machines] in machines.wake() })
+            machines.onConnectionChange = { [weak made] in made?.connectionsChanged() }
+            made.observe(.default)
+            keeper = made
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.backgroundRefreshStatusDidChangeNotification)) { _ in
             keeper?.refreshSetting(UIApplication.shared.backgroundRefreshStatus == .available)
         }
         .onChange(of: phase) { _, phase in
-            keeper?.scene(phase == .active ? .active : phase == .background ? .background : .inactive)
             LaunchTrace.mark("scene", "\(phase)")
             if phase == .background { lock.didEnterBackground(); machines.inbox.recordSeen() }
             if phase == .active {
