@@ -19,7 +19,7 @@ function garden(spade: FakeSpadeApi) {
   return spade.addAgent({ id: "garden", name: "Garden" });
 }
 
-test("a turn of several messages shows each as its own bubble, with no tag drawn", async () => {
+test("a turn of several messages coalesces into one block with its paragraphs, with no tag drawn", async () => {
   await spadeApp("/spade/garden", (spade) => {
     const bot = garden(spade);
     spade.store(bot.conversation, { type: "user_message", text: "When do I plant garlic?" });
@@ -31,11 +31,11 @@ test("a turn of several messages shows each as its own bubble, with no tag drawn
   const chat = within(await feed("Garden"));
   await chat.findByText("Want a reminder?");
   const run = chat.getByRole("article", { name: "Garden" });
-  expect(
-    [...run.querySelectorAll("[data-part=spade-message]")].map((bubble) =>
-      bubble.textContent?.trim(),
-    ),
-  ).toEqual(["October.", "Mulch it after.", "Want a reminder?"]);
+  const bubbles = [...run.querySelectorAll("[data-part=spade-message]")];
+  expect(bubbles).toHaveLength(1);
+  expect(bubbles[0]?.textContent).toContain("October.");
+  expect(bubbles[0]?.textContent).toContain("Mulch it after.");
+  expect(bubbles[0]?.textContent).toContain("Want a reminder?");
   expect(chat.queryByText(/<\/?msg/)).toBeNull();
 });
 
@@ -140,10 +140,14 @@ test("Reply on a bot's message shows it above the composer, and the sent message
   await waitFor(() =>
     expect(screen.queryByRole("status", { name: "Replying to Garden" })).toBeNull(),
   );
-  const quote = await chat.findByRole("button", {
+  await chat.findByRole("button", {
     name: "Replying to Garden: Tuesday or Wednesday?. Show the message",
   });
-  expect(quote).toBeTruthy();
+  const quote = chat.getByRole("button", {
+    name: "Replying to Garden: Tuesday or Wednesday?. Show the message",
+  });
+  const pill = chat.getByText("Tuesday").closest("[data-part=spade-message]");
+  expect(pill?.contains(quote)).toBe(true);
   // Spade stored what it quoted with the message, which is what the bot reads.
   const conversation = api?.agents.find((agent) => agent.id === "garden")?.conversation ?? "";
   await waitFor(() =>
@@ -155,7 +159,7 @@ test("Reply on a bot's message shows it above the composer, and the sent message
   );
 });
 
-test("clicking a quote goes to the original and lights it a moment", async () => {
+test("clicking a quote inside a bubble goes to the original and lights it a moment", async () => {
   const scrolled = vi.fn();
   Element.prototype.scrollIntoView = scrolled;
   await spadeApp("/spade/garden", (spade) => {
@@ -167,6 +171,8 @@ test("clicking a quote goes to the original and lights it a moment", async () =>
   const quote = await chat.findByRole("button", {
     name: "Replying to You: Can you book the 9:10?. Show the message",
   });
+  const bubble = chat.getByText("Booked the 9:10.").closest("[data-part=spade-message]");
+  expect(bubble?.contains(quote)).toBe(true);
   await userEvent.click(quote);
   const original = document.querySelector('[data-spade-message="m1"]');
   expect(original?.textContent).toContain("Can you book the 9:10?");

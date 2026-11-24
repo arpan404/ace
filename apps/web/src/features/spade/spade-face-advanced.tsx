@@ -40,15 +40,15 @@ export function FaceAdvanced(props: {
   const { face } = props;
   const random = props.random ?? Math.random;
   return (
-    <div className="flex flex-col gap-2 border-t border-border-soft px-3 py-3">
+    <div className="flex flex-col gap-3.5 border-t border-border-soft px-3.5 py-3.5">
       {botFaceFieldOrder.map((field) => {
         const options = optionsOf(field, face);
         if (options.length < 2) return null;
         const label = botFaceFieldLabels[field];
         return (
-          <div key={field} className="flex min-w-0 flex-col gap-0.5">
+          <div key={field} className="flex min-w-0 flex-col gap-1.5">
             <div className="flex items-center">
-              <span className="text-ui text-muted-foreground">{label}</span>
+              <span className="text-xs font-medium text-muted-foreground">{label}</span>
               <Tip label={`Shuffle ${label.toLowerCase()}`}>
                 <button
                   type="button"
@@ -59,9 +59,9 @@ export function FaceAdvanced(props: {
                       changeFace(face, field, options[at] as BotFaceValue<typeof field>),
                     );
                   }}
-                  className="ml-auto grid size-6 place-items-center rounded-full text-muted-foreground focus-ring hover:bg-hover hover:text-foreground"
+                  className="ml-auto grid size-6 place-items-center rounded-full text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:text-foreground"
                 >
-                  <Icon icon={ArrowsClockwiseIcon} size={14} />
+                  <Icon icon={ArrowsClockwiseIcon} size={13} />
                 </button>
               </Tip>
             </div>
@@ -69,7 +69,7 @@ export function FaceAdvanced(props: {
               role="radiogroup"
               aria-label={label}
               onKeyDown={onRadioKeys}
-              className="-mx-1 flex min-w-0 overflow-x-auto px-1 py-0.5"
+              className="grid grid-cols-6 justify-items-center gap-1.5 py-0.5"
             >
               {options.map((value) => {
                 const option = changeFace(face, field, value as BotFaceValue<typeof field>);
@@ -84,8 +84,8 @@ export function FaceAdvanced(props: {
                     tabIndex={on || (!props.chosen && value === options[0]) ? 0 : -1}
                     onClick={() => props.onChange(option)}
                     className={cn(
-                      "grid size-9 shrink-0 place-items-center rounded-full focus-ring hover:bg-hover",
-                      on && "shadow-[0_0_0_1.5px_var(--foreground)]",
+                      "grid size-10 shrink-0 place-items-center rounded-full transition-colors duration-(--motion-fast) focus-ring hover:bg-hover",
+                      on && "bg-active shadow-[0_0_0_1.5px_var(--foreground)]",
                     )}
                   >
                     {field === "pair" ? (

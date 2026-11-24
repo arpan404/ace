@@ -12,7 +12,7 @@ import { Select } from "@/components/ui/select.tsx";
 import { useCopy } from "@/components/use-copy.ts";
 import { cn } from "@/lib/cn.ts";
 import { fault } from "./spade-profile-actions.ts";
-import { pillButton, rowPill } from "./spade-profile-parts.tsx";
+import { profileWell, rowPill } from "./spade-profile-parts.tsx";
 import { addRoutine, editRoutine, removeRoutine, saveHeartbeat } from "./spade-routines-api.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 
@@ -38,8 +38,7 @@ function Field(props: { label: string; htmlFor?: string; children: ReactNode; st
   );
 }
 
-const well =
-  "min-h-18 w-full resize-none rounded-md bg-chat-well px-3 py-2 text-ui leading-5 text-foreground shadow-[inset_0_0_0_1px_var(--border-strong)] outline-none [field-sizing:content] placeholder:text-subtle-foreground focus-visible:shadow-[inset_0_0_0_1px_var(--foreground)]";
+const well = cn(profileWell, "min-h-18");
 
 type Kind = "schedule" | "event" | "webhook";
 
@@ -247,7 +246,7 @@ export function RoutineEditor(props: {
             <Button
               variant="ghost"
               tone="danger"
-              className={cn(pillButton, "-ml-3.5")}
+              className="-ml-2 h-8 rounded-md px-2.5"
               disabled={saving !== undefined}
               onClick={() => void remove()}
             >
@@ -260,7 +259,7 @@ export function RoutineEditor(props: {
           <Button
             type="submit"
             variant="primary"
-            className={pillButton}
+            className="h-8 rounded-md px-3.5"
             disabled={!ready || saving !== undefined}
           >
             {saving === "save" ? "Saving…" : routine ? "Save" : "Add routine"}
@@ -285,9 +284,9 @@ function Foot(props: {
           {props.problem}
         </p>
       )}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1.5">
         {props.remove}
-        <Button variant="ghost" className={cn(pillButton, "ml-auto")} onClick={props.onCancel}>
+        <Button variant="ghost" className="ml-auto h-8 rounded-md px-3" onClick={props.onCancel}>
           Cancel
         </Button>
         {props.save}
@@ -379,24 +378,25 @@ export function HeartbeatEditor(props: {
           className={well}
         />
       </Field>
-      <div className="flex min-h-12 items-center gap-2 py-2.5 text-ui">
-        <span className="min-w-0 flex-1 font-medium text-foreground">Quiet hours</span>
-        <Input
-          type="time"
-          aria-label="Quiet from"
-          value={start}
-          onChange={(change) => setStart(change.target.value)}
-          className="w-28"
-        />
-        <span className="text-subtle-foreground">to</span>
-        <Input
-          type="time"
-          aria-label="Quiet until"
-          value={end}
-          onChange={(change) => setEnd(change.target.value)}
-          className="w-28"
-        />
-      </div>
+      <Field label="Quiet hours" stacked>
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-xs">
+          <Input
+            type="time"
+            aria-label="Quiet from"
+            value={start}
+            onChange={(change) => setStart(change.target.value)}
+            className="w-full"
+          />
+          <span className="text-muted-foreground">to</span>
+          <Input
+            type="time"
+            aria-label="Quiet until"
+            value={end}
+            onChange={(change) => setEnd(change.target.value)}
+            className="w-full"
+          />
+        </div>
+      </Field>
       <Foot
         problem={problem}
         onCancel={props.onDone}
@@ -404,7 +404,7 @@ export function HeartbeatEditor(props: {
           <Button
             type="submit"
             variant="primary"
-            className={pillButton}
+            className="h-8 rounded-md px-3.5"
             disabled={!ready || saving}
           >
             {saving ? "Saving…" : props.heartbeat.enabled ? "Save" : "Turn on"}

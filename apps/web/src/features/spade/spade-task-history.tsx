@@ -53,43 +53,42 @@ export function TaskHistory(props: { bot: RosterBot }) {
     if (!refused) await cache.invalidateQueries({ queryKey: ["spade", "task-history"] });
   };
   return (
-    <Disclosure
-      summary="Earlier versions"
-      summaryClassName="text-ui"
-      className="mt-2 flex flex-col"
-    >
-      <ol aria-label="Earlier versions" className="mt-1 flex flex-col gap-2">
-        {earlier.map((version) => (
-          <li key={version.seq} className="flex items-start gap-3 rounded-xl px-1 py-1">
-            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <p className="text-ui text-foreground wrap-anywhere">
-                {spadeTaskFirstLine(version.task)}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {[madeBy[version.by], version.why, version.at ? when(version.at) : ""]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </p>
-            </div>
-            {version.task.trim() !== bot.task.trim() && (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={restoring !== undefined}
-                aria-label={`Restore: ${spadeTaskFirstLine(version.task, 60)}`}
-                onClick={() => void restore(version)}
-              >
-                {restoring === version.seq ? "Restoring…" : "Restore"}
-              </Button>
-            )}
-          </li>
-        ))}
-      </ol>
-      {problem && (
-        <p role="alert" className="text-xs text-destructive">
-          {`Couldn't restore it. ${problem}`}
-        </p>
-      )}
-    </Disclosure>
+    <div data-setting-slot="" className="py-2">
+      <Disclosure summary="Earlier versions" summaryClassName="text-xs" className="flex flex-col">
+        <ol aria-label="Earlier versions" className="mt-1.5 flex flex-col divide-y divide-border-soft">
+          {earlier.map((version) => (
+            <li key={version.seq} className="flex items-start gap-3 py-2 first:pt-1 last:pb-1">
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <p className="text-ui text-foreground wrap-anywhere">
+                  {spadeTaskFirstLine(version.task)}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {[madeBy[version.by], version.why, version.at ? when(version.at) : ""]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              </div>
+              {version.task.trim() !== bot.task.trim() && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="-mr-2 shrink-0"
+                  disabled={restoring !== undefined}
+                  aria-label={`Restore: ${spadeTaskFirstLine(version.task, 60)}`}
+                  onClick={() => void restore(version)}
+                >
+                  {restoring === version.seq ? "Restoring…" : "Restore"}
+                </Button>
+              )}
+            </li>
+          ))}
+        </ol>
+        {problem && (
+          <p role="alert" className="mt-1.5 text-xs text-destructive">
+            {`Couldn't restore it. ${problem}`}
+          </p>
+        )}
+      </Disclosure>
+    </div>
   );
 }

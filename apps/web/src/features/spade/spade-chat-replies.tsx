@@ -24,12 +24,13 @@ import {
 } from "@/components/ui/dialog.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { cn } from "@/lib/cn.ts";
+import type { QuoteAccentVariables } from "./spade-accent.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 
 /*
  * Replying to a message and long words in a Spade chat (ADR 0212, docs/design/spade.md §3): the
- * quoted line above a bubble, which takes the person to the original; the composer's strip while
- * they reply; and the document card that holds long words, opened to read all of them.
+ * compact quote inset inside the top of a bubble (jumping to the original on click), the
+ * composer's strip while replying, and the document card for long words.
  */
 
 /** What a chat's bubbles reach to reply to a message and to go to one. */
@@ -46,34 +47,74 @@ export interface SpadeReplyHandlers {
   reactions: ReadonlyMap<string, SpadeMessageReactions>;
   /** React to a message, or take the person's reaction back (undefined); absent offers none. */
   react: ((id: string, emoji: string | undefined) => void) | undefined;
+  /** Accent colour variables for the quoted sender's 2px bar, if that sender has a colour. */
+  accentOf?: ((who: SpadeQuote["who"]) => QuoteAccentVariables | undefined) | undefined;
 }
 
 export const SpadeReplyContext = createContext<SpadeReplyHandlers | undefined>(undefined);
 
 export const useSpadeReplies = () => useContext(SpadeReplyContext);
 
-/** The attribute a bubble carries so a quote can find it. */
+/** The primary attribute a bubble carries so a quote can find it. */
 export const messageAttribute = "data-spade-message";
 
+/** Space-separated list of all merged message ids inside a single coalesced bubble. */
+export const messageIdsAttribute = "data-spade-message-ids";
+
 /**
- * The small quoted line above a bubble: who said it and its first line, on a 2px rule, in the
- * quiet ink. Clicking it goes to the original.
+ * Compact quote inset inside the top of a bubble: a 2px rounded accent bar in the quoted sender's
+ * colour, their name in 12px semibold, and one truncated line of the quoted text in 12px muted.
+ * Clicking anywhere on the inset scrolls to and highlights the original message.
  */
-export function QuoteLine(props: { quote: SpadeQuote; side: "bot" | "mine" }) {
+export function QuoteInset(props: { quote: SpadeQuote; side: "bot" | "mine" }) {
   const replies = useSpadeReplies();
   const name = spadeQuoteName(props.quote.who, replies?.botName ?? "Spade");
+  const accent = replies?.accentOf?.(props.quote.who);
+  const mine = props.side === "mine";
   return (
     <button
       type="button"
       onClick={() => replies?.show(props.quote.id)}
       aria-label={`Replying to ${name}: ${props.quote.text}. Show the message`}
+      style={accent}
       className={cn(
-        "flex max-w-full min-w-0 items-baseline gap-1.5 rounded-xl border-l-[3px] border-chat-mine bg-chat-bubble px-2.5 py-1.5 text-left text-xs leading-4 text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground focus-ring",
-        props.side === "mine" ? "self-end" : "self-start",
+        "mb-2 flex w-full min-w-0 cursor-pointer items-stretch gap-2.5 rounded-[10px] px-2.5 py-1.5 text-left transition-colors duration-(--motion-fast) focus-ring",
+        mine
+          ? "bg-chat-mine-foreground/[0.12] hover:bg-chat-mine-foreground/[0.18]"
+          : "bg-foreground/[0.05] hover:bg-foreground/[0.08]",
       )}
     >
-      <span className="shrink-0 font-medium">{name}</span>
-      <span className="min-w-0 truncate">{props.quote.text}</span>
+      <span
+        aria-hidden
+        className={cn(
+          "w-[2px] shrink-0 self-stretch rounded-full",
+          mine
+            ? accent
+              ? "bg-[oklch(from_var(--quote-accent-light)_0.86_c_h)] dark:bg-[oklch(from_var(--quote-accent-dark)_0.88_c_h)]"
+              : "bg-chat-mine-foreground/75"
+            : accent
+              ? "bg-(--quote-accent-light) dark:bg-(--quote-accent-dark)"
+              : "bg-chat-mine",
+        )}
+      />
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span
+          className={cn(
+            "truncate text-[12px] leading-4 font-semibold",
+            mine ? "text-chat-mine-foreground" : "text-foreground",
+          )}
+        >
+          {name}
+        </span>
+        <span
+          className={cn(
+            "truncate text-[12px] leading-4",
+            mine ? "text-chat-mine-meta" : "text-muted-foreground",
+          )}
+        >
+          {props.quote.text}
+        </span>
+      </span>
     </button>
   );
 }
@@ -112,7 +153,7 @@ export function ReplyStrip(props: { quote: SpadeQuote; botName: string; onClear(
  * Long words as a card on the bot's side (ADR 0212 §5): the document mark, the title, two lines
  * of preview and Open, which shows every word in a sheet over the chat.
  */
-export function DocumentCard(props: { doc: SpadeDocCard }) {
+export function DocumentCard(props: { doc: SpadeDocCard; quote?: SpadeQuote | undefined }) {
   const [open, setOpen] = useState(false);
   const { doc } = props;
   return (
@@ -120,18 +161,21 @@ export function DocumentCard(props: { doc: SpadeDocCard }) {
       <div
         role="group"
         aria-label={doc.title}
-        className="flex w-full max-w-[min(100%,52ch)] min-w-0 items-start gap-3 rounded-(--chat-bubble-radius) bg-chat-bubble py-3 pr-3 pl-4"
+        className="flex w-full max-w-[min(100%,52ch)] min-w-0 flex-col rounded-(--chat-bubble-radius) bg-chat-bubble px-4 py-3.5"
       >
-        <FileTextIcon aria-hidden className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-ui font-medium text-foreground">{doc.title}</p>
-          {doc.preview && (
-            <p className="mt-0.5 line-clamp-2 text-ui text-muted-foreground">{doc.preview}</p>
-          )}
+        {props.quote && <QuoteInset quote={props.quote} side="bot" />}
+        <div className="flex min-w-0 items-start gap-3">
+          <FileTextIcon aria-hidden className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-ui font-medium text-foreground">{doc.title}</p>
+            {doc.preview && (
+              <p className="mt-0.5 line-clamp-2 text-ui text-muted-foreground">{doc.preview}</p>
+            )}
+          </div>
+          <Button size="xs" variant="ghost" className="shrink-0" onClick={() => setOpen(true)}>
+            Open
+          </Button>
         </div>
-        <Button size="xs" variant="ghost" className="shrink-0" onClick={() => setOpen(true)}>
-          Open
-        </Button>
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent size="lg" className="max-h-[min(85vh,900px)]">
@@ -160,6 +204,7 @@ export function useReplies(
   drawAll: () => void,
   reactions: ReadonlyMap<string, SpadeMessageReactions>,
   onReact: ((id: string, emoji: string | undefined) => Promise<boolean>) | undefined,
+  accentOf?: ((who: SpadeQuote["who"]) => QuoteAccentVariables | undefined) | undefined,
 ): SpadeReplyHandlers | undefined {
   const [lit, setLit] = useState<string>();
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -167,7 +212,10 @@ export function useReplies(
   const show = useCallback(
     (id: string) => {
       const go = (tries: number) => {
-        const target = document.querySelector(`[${messageAttribute}="${CSS.escape(id)}"]`);
+        const escaped = CSS.escape(id);
+        const target =
+          document.querySelector(`[${messageAttribute}="${escaped}"]`) ??
+          document.querySelector(`[${messageIdsAttribute}~="${escaped}"]`);
         if (!target) {
           if (tries > 0) {
             drawAll();
@@ -191,7 +239,7 @@ export function useReplies(
     [onReact],
   );
   return useMemo(
-    () => ({ reply: onReply ?? (() => {}), show, lit, botName, reactions, react }),
-    [onReply, show, lit, botName, reactions, react],
+    () => ({ reply: onReply ?? (() => {}), show, lit, botName, reactions, react, accentOf }),
+    [onReply, show, lit, botName, reactions, react, accentOf],
   );
 }

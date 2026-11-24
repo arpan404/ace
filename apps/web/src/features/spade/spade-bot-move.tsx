@@ -130,18 +130,17 @@ export function ProfileMachine(props: { bot: RosterBot }) {
       <SettingRow
         title="Machine"
         description={actions.problem && <span className="text-destructive">{actions.problem}</span>}
+        density="compact"
+        inline
       >
-        <span className="flex min-w-0 items-center gap-1">
+        <span className="flex min-w-0 items-center justify-end gap-1.5">
           <span className="truncate text-ui text-foreground">{bot.machine.name}</span>
           {canMove && !comeHere && (
             <Menu>
               <MenuTrigger
                 aria-label={`Move ${bot.name} to another machine`}
                 disabled={actions.busy}
-                className={cn(
-                  pillButton,
-                  "-mr-3.5 text-ui text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}
+                className="-mr-2 inline-flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:text-foreground active:bg-active"
               >
                 Move to…
               </MenuTrigger>

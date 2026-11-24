@@ -7,13 +7,18 @@ import {
 import { useState, type ReactNode } from "react";
 import { SettingAddRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
 import { part } from "@/lib/suit-part.ts";
 import { fault } from "./spade-profile-actions.ts";
-import { ProfileProblem, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
+import {
+  ProfileCardSkeleton,
+  ProfileEmpty,
+  ProfileProblem,
+  ProfileSection,
+  rowPill,
+} from "./spade-profile-parts.tsx";
 import { HeartbeatEditor, RoutineEditor } from "./spade-routine-editors.tsx";
 import { editRoutine, runRoutine, saveHeartbeat } from "./spade-routines-api.ts";
 import { useSpadeRoutines } from "./use-spade-routines.ts";
@@ -25,8 +30,7 @@ type Editing = { kind: "routine"; id: string } | { kind: "heartbeat" } | { kind:
 /**
  * Routines (ADR 0129), a section of Details: one row each with its name, when it runs in words
  * (or that its last run failed, or that it is paused) and a switch that pauses it; Run now on
- * hover. A row opens to its editor where it is. The heartbeat is a row like the others; Add
- * routine opens a new one at the foot.
+ * hover. A row opens to its editor where it is. Heartbeat sits in its own group below.
  */
 export function ProfileRoutines(props: {
   bot: RosterBot;
@@ -46,83 +50,111 @@ export function ProfileRoutines(props: {
   const done = () => setEditing(undefined);
   const saved = () => void refresh();
   return (
-    <ProfileSection label="Routines">
-      {routines.isPending ? (
-        <ListSkeleton label="routines" shape="row" rows={2} />
-      ) : routines.isError ? (
-        <ProfileProblem
-          text="Couldn't read the routines."
-          onRetry={() => void routines.refetch()}
-        />
+    <>
+      <ProfileSection label="Routines">
+        {routines.isPending ? (
+          <div data-setting-slot="" className="-mx-4">
+            <ProfileCardSkeleton label="routines" rows={2} lines={2} />
+          </div>
+        ) : routines.isError ? (
+          <ProfileProblem
+            text="Couldn't read the routines."
+            onRetry={() => void routines.refetch()}
+          />
+        ) : routines.data.length === 0 ? (
+          <ProfileEmpty>No routines yet.</ProfileEmpty>
+        ) : (
+          routines.data.map((routine) =>
+            editing?.kind === "routine" && editing.id === routine.id ? (
+              <RoutineEditor
+                key={routine.id}
+                agent={bot.id}
+                routine={routine}
+                onDone={done}
+                onSaved={saved}
+              />
+            ) : (
+              <RoutineRow
+                key={routine.id}
+                name={routine.name}
+                line={<RoutineLine routine={routine} now={now} />}
+                on={!routine.paused}
+                onOpen={() => setEditing({ kind: "routine", id: routine.id })}
+                onSwitch={(on) =>
+                  act(
+                    on ? `resume ${routine.name}` : `pause ${routine.name}`,
+                    editRoutine(client, routine.id, { paused: !on }),
+                  )
+                }
+                run={
+                  !routine.paused && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label={`Run ${routine.name} now`}
+                      className={rowPill}
+                      onClick={() => act(`run ${routine.name}`, runRoutine(client, routine.id))}
+                    >
+                      Run now
+                    </Button>
+                  )
+                }
+              />
+            ),
+          )
+        )}
+        {editing?.kind === "new" ? (
+          <RoutineEditor agent={bot.id} routine={undefined} onDone={done} onSaved={saved} />
+        ) : (
+          <SettingAddRow
+            className="-mx-4 w-[calc(100%+2rem)] rounded-b-lg px-4 text-foreground hover:bg-hover active:bg-active"
+            onClick={() => (props.onNew ? props.onNew() : setEditing({ kind: "new" }))}
+          >
+            Add routine
+          </SettingAddRow>
+        )}
+      </ProfileSection>
+      {heartbeat.isPending ? (
+        <ProfileSection label="Heartbeat" flush>
+          <ProfileCardSkeleton label="heartbeat" rows={1} lines={2} />
+        </ProfileSection>
+      ) : heartbeat.isError ? (
+        <ProfileSection label="Heartbeat">
+          <ProfileProblem
+            text="Couldn't read the heartbeat."
+            onRetry={() => void heartbeat.refetch()}
+          />
+        </ProfileSection>
       ) : (
-        routines.data.map((routine) =>
-          editing?.kind === "routine" && editing.id === routine.id ? (
-            <RoutineEditor
-              key={routine.id}
-              agent={bot.id}
-              routine={routine}
-              onDone={done}
-              onSaved={saved}
-            />
-          ) : (
-            <RoutineRow
-              key={routine.id}
-              name={routine.name}
-              line={<RoutineLine routine={routine} now={now} />}
-              on={!routine.paused}
-              onOpen={() => setEditing({ kind: "routine", id: routine.id })}
-              onSwitch={(on) =>
-                act(
-                  on ? `resume ${routine.name}` : `pause ${routine.name}`,
-                  editRoutine(client, routine.id, { paused: !on }),
-                )
-              }
-              run={
-                !routine.paused && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label={`Run ${routine.name} now`}
-                    className={rowPill}
-                    onClick={() => act(`run ${routine.name}`, runRoutine(client, routine.id))}
-                  >
-                    Run now
-                  </Button>
-                )
-              }
-            />
-          ),
+        heartbeat.data && (
+          <ProfileSection
+            label="Heartbeat"
+            note="Wakes on an interval to run a checklist and messages you only when something needs attention."
+          >
+            {editing?.kind === "heartbeat" ? (
+              <HeartbeatEditor
+                agent={bot.id}
+                heartbeat={heartbeat.data}
+                onDone={done}
+                onSaved={saved}
+              />
+            ) : (
+              <HeartbeatRow
+                heartbeat={heartbeat.data}
+                now={now}
+                onOpen={() => setEditing({ kind: "heartbeat" })}
+                onSwitch={(on) =>
+                  act(
+                    on ? "turn the heartbeat on" : "turn the heartbeat off",
+                    saveHeartbeat(client, bot.id, { enabled: on }),
+                  )
+                }
+              />
+            )}
+          </ProfileSection>
         )
       )}
-      {heartbeat.data &&
-        (editing?.kind === "heartbeat" ? (
-          <HeartbeatEditor
-            agent={bot.id}
-            heartbeat={heartbeat.data}
-            onDone={done}
-            onSaved={saved}
-          />
-        ) : (
-          <HeartbeatRow
-            heartbeat={heartbeat.data}
-            now={now}
-            onOpen={() => setEditing({ kind: "heartbeat" })}
-            onSwitch={(on) =>
-              act(
-                on ? "turn the heartbeat on" : "turn the heartbeat off",
-                saveHeartbeat(client, bot.id, { enabled: on }),
-              )
-            }
-          />
-        ))}
-      {editing?.kind === "new" ? (
-        <RoutineEditor agent={bot.id} routine={undefined} onDone={done} onSaved={saved} />
-      ) : (
-        <SettingAddRow onClick={() => (props.onNew ? props.onNew() : setEditing({ kind: "new" }))}>
-          Add routine
-        </SettingAddRow>
-      )}
-    </ProfileSection>
+    </>
   );
 }
 
@@ -139,7 +171,7 @@ function RoutineRow(props: {
     <div
       data-setting-slot=""
       {...part("list-row", props.on && "checked", "routine")}
-      className="group/routine flex min-h-(--setting-row-height) items-center gap-3 py-2"
+      className="group/routine -mx-4 flex min-h-12 items-center gap-3 px-4 py-2 transition-colors duration-(--motion-fast) first:rounded-t-lg last:rounded-b-lg hover:bg-hover/60"
     >
       <button
         type="button"
@@ -148,7 +180,7 @@ function RoutineRow(props: {
         className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-sm text-left focus-ring"
       >
         <span className="truncate text-ui font-medium text-foreground">{props.name}</span>
-        <span className="text-xs text-subtle-foreground">{props.line}</span>
+        <span className="text-xs text-muted-foreground">{props.line}</span>
       </button>
       {props.run && (
         <span className="hidden group-focus-within/routine:flex group-hover/routine:flex pointer-coarse:flex">

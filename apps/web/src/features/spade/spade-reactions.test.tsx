@@ -1,6 +1,6 @@
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { spadeApp, withEndpoint } from "@/test/spade.ts";
 
@@ -8,6 +8,7 @@ import { spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
+afterEach(() => vi.restoreAllMocks());
 
 const feed = () => screen.findByRole("feed", { name: "Conversation with Garden" });
 
@@ -53,7 +54,9 @@ test("a reaction the bot made shows under the person's message, and a person's m
   expect(within(mine as HTMLElement).queryByRole("button", { name: "React" })).toBeNull();
 });
 
-test("the bot's reply to a message quotes it above its bubble, and the quote goes to the original", async () => {
+test("the bot's reply to a message quotes it inside its bubble, and the quote goes to the original", async () => {
+  const scrolled = vi.fn();
+  Element.prototype.scrollIntoView = scrolled;
   await spadeApp("/spade/garden", (api) => {
     const bot = garden(api);
     api.store(bot.conversation, { type: "user_message", text: "When do I plant garlic?" });
@@ -63,7 +66,14 @@ test("the bot's reply to a message quotes it above its bubble, and the quote goe
   const quote = await chat.findByRole("button", {
     name: /Replying to You: When do I plant garlic\?/,
   });
+  const bubble = chat.getByText("In October.").closest("[data-part=spade-message]");
+  expect(bubble?.contains(quote)).toBe(true);
   expect(quote.textContent).toContain("When do I plant garlic?");
+  await userEvent.click(quote);
+  const original = document.querySelector('[data-spade-message="m1"]');
+  expect(scrolled).toHaveBeenCalled();
+  expect(scrolled.mock.contexts[0]).toBe(original);
+  expect(original?.hasAttribute("data-lit")).toBe(true);
 });
 
 test("answers to several messages each quote their own, and the latest answer stays unquoted", async () => {

@@ -13,20 +13,29 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
+import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
+import { cn } from "@/lib/cn.ts";
 import { fault } from "./spade-profile-actions.ts";
 import { Refusal } from "./spade-settings-rows.tsx";
 
 const modes = [
-  { value: "auto_review", label: "Auto-review" },
-  { value: "full_access", label: "Full access" },
+  {
+    value: "auto_review",
+    label: "Auto-review",
+    summary: "Reviews risky steps automatically and asks you when unsure.",
+  },
+  {
+    value: "full_access",
+    label: "Full access",
+    summary: "Acts without routine checks inside its sandbox; every step still shows in chat.",
+  },
 ] as const;
 
 /**
  * How a bot decides (ADR 0163, amendment 2): Auto-review, every bot's default, or Full access.
- * Full access says what still asks under the row while it is on. Turning it on asks first, in
- * words, unless the person already confirmed it for this bot (`confirmed`); the machine's default
- * always asks. Saved as chosen; a refusal says why in the row.
+ * Turning Full access on asks first, in words, unless the person already confirmed it for this bot
+ * (`confirmed`); the machine's default always asks. Saved as chosen; a refusal says why in place.
  */
 export function AutonomyChoice(props: {
   title: string;
@@ -34,6 +43,8 @@ export function AutonomyChoice(props: {
   /** Who gets it, for the confirmation: a bot's name, or "every bot that doesn't set its own". */
   who: string;
   confirmed: boolean;
+  /** Segmented control in a bot's profile; select in Settings › Spade › Security. */
+  variant?: "select" | "segmented";
   save(choice: SpadeAutonomy): Promise<unknown>;
 }) {
   const [saving, setSaving] = useState(false);
@@ -60,33 +71,63 @@ export function AutonomyChoice(props: {
     if (choice === "full_access" && !props.confirmed) setAsking(true);
     else void choose(choice);
   };
+  const feedback = confirmation ? (
+    <ConfirmPerson client={client} onConfirmed={() => void choose(confirmation)} />
+  ) : (
+    refusal && <Refusal>{refusal}</Refusal>
+  );
   return (
     <>
-      <SettingRow
-        title={props.title}
-        description={
-          confirmation ? (
-            <ConfirmPerson client={client} onConfirmed={() => void choose(confirmation)} />
-          ) : (
-            refusal && <Refusal>{refusal}</Refusal>
-          )
-        }
-        density="compact"
-        inline
-      >
-        <Select<SpadeAutonomy>
-          label={props.title}
-          value={props.value}
-          options={modes}
-          disabled={saving}
-          onValueChange={pick}
-        />
-      </SettingRow>
-      {/* What still asks, the row's width: too long for the description beside the choice. */}
-      {props.value === "full_access" && !refusal && !confirmation && (
-        <p data-setting-slot="" className="pb-3 text-xs text-muted-foreground">
-          {spadeFullAccessSentence}
-        </p>
+      {props.variant === "segmented" ? (
+        <div data-setting-slot="" className="flex flex-col gap-3 py-3">
+          <SegmentedControl<SpadeAutonomy>
+            label={props.title}
+            value={props.value}
+            options={modes.map(({ value, label }) => ({ value, label }))}
+            onValueChange={pick}
+            className={cn(
+              "h-8 w-full [&>button]:h-7",
+              saving && "pointer-events-none opacity-60",
+            )}
+          />
+          <dl className="flex flex-col gap-2 px-0.5">
+            {modes.map((mode) => {
+              const active = props.value === mode.value;
+              return (
+                <div key={mode.value} className="flex flex-col gap-0.5">
+                  <dt
+                    className={cn(
+                      "text-xs font-medium",
+                      active ? "text-foreground" : "text-muted-foreground",
+                    )}
+                  >
+                    {mode.label}
+                  </dt>
+                  <dd className="text-xs leading-relaxed text-muted-foreground">{mode.summary}</dd>
+                </div>
+              );
+            })}
+          </dl>
+          {feedback && <div className="text-xs">{feedback}</div>}
+        </div>
+      ) : (
+        <>
+          <SettingRow title={props.title} description={feedback} density="compact" inline>
+            <Select<SpadeAutonomy>
+              label={props.title}
+              value={props.value}
+              options={modes.map(({ value, label }) => ({ value, label }))}
+              disabled={saving}
+              onValueChange={pick}
+            />
+          </SettingRow>
+          {/* What still asks, the row's width: too long for the description beside the choice. */}
+          {props.value === "full_access" && !refusal && !confirmation && (
+            <p data-setting-slot="" className="pb-3 text-xs text-muted-foreground">
+              {spadeFullAccessSentence}
+            </p>
+          )}
+        </>
       )}
       <Dialog open={asking} onOpenChange={(open) => !open && setAsking(false)}>
         <DialogContent>

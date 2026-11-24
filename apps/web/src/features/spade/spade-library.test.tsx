@@ -120,6 +120,13 @@ test("an empty Library says so in one line per section, and Add on a heading wri
   await userEvent.click(pages.getByRole("button", { name: "Cancel" }));
   expect(pages.getByText("No pages yet.")).toBeTruthy();
   expect(pages.queryByRole("textbox", { name: "Title" })).toBeNull();
+
+  const files = await section("Files");
+  await files.findByText("Flights hasn't kept any files yet.");
+  await userEvent.click(files.getByRole("button", { name: "Open files" }));
+  await panel.findByRole("heading", { name: "Files" });
+  await userEvent.click(panel.getByRole("button", { name: "Back" }));
+  await panel.findByRole("heading", { name: "Notes" });
 });
 
 test("Stop ends a running service in place, and a service that ended offers no Stop", async () => {

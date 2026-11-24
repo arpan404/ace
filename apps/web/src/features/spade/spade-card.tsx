@@ -13,16 +13,16 @@ import { SpadeFace } from "./spade-face.tsx";
  * quiet line.
  */
 
-/** A bubble is at most 600px, and never wider than its column however long a word it holds. */
+/** A bubble is at most ~70% of the column on desktop, and never wider than its column. */
 export const botBubble =
-  "min-w-0 max-w-[min(100%,--spacing(150))] rounded-[22px] bg-chat-bubble px-(--chat-bubble-x) py-4 font-prose text-prose leading-[1.5] wrap-anywhere";
+  "min-w-0 max-w-[85%] sm:max-w-[70%] rounded-(--chat-bubble-radius) bg-chat-bubble px-4 py-3.5 font-prose text-prose leading-[1.5] wrap-anywhere";
 
 /** A skill's bubble: the bot's bubble, its words at control size. */
 export const quietBubble =
-  "min-w-0 max-w-[min(100%,--spacing(150))] rounded-lg bg-chat-bubble px-3 py-2 wrap-anywhere";
+  "min-w-0 max-w-[85%] sm:max-w-[70%] rounded-lg bg-chat-bubble px-3 py-2 wrap-anywhere";
 
 export const personBubble =
-  "min-w-0 max-w-[80%] rounded-[22px] bg-chat-mine px-(--chat-bubble-x) text-chat-mine-foreground py-2.5 font-prose text-prose leading-[1.5] wrap-anywhere";
+  "min-w-0 max-w-[85%] sm:max-w-[70%] rounded-(--chat-bubble-radius) bg-chat-mine px-3.5 py-2.5 text-chat-mine-foreground font-prose text-prose leading-[1.5] wrap-anywhere";
 
 /**
  * A card that waits on the person: raised, its parts 16px apart, its actions in a footer. A Suit
@@ -43,7 +43,7 @@ export function RaisedCard(
       className={cn(
         // Focused when the chat opens on it, for screen readers: a target, not a control, so
         // no ring (its own buttons keep theirs).
-        "@container/card my-2 flex w-full max-w-150 min-w-0 flex-col gap-4 rounded-[22px] bg-chat-bubble px-(--chat-bubble-x) py-4 outline-none",
+        "@container/card my-1 flex w-full max-w-[min(100%,--spacing(136))] min-w-0 flex-col gap-3.5 rounded-(--chat-bubble-radius) bg-chat-bubble px-4 py-3.5 outline-none",
         className,
       )}
     >

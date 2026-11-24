@@ -4,12 +4,13 @@ import {
   spadePlainText,
   spadeQuoteLine,
   spadeWorkingPhrase,
+  type SpadeAgentStyle,
   type SpadeAvatar,
   type SpadeQuote,
   type SpadeGroupBot,
   type SpadeGroupView,
 } from "@ace/ui-core/spade-chat";
-import { memo } from "react";
+import { memo, useCallback, useMemo } from "react";
 import { useHeldPhrase } from "./use-held-phrase.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -17,15 +18,23 @@ import { FromThreadLine } from "./from-thread-line.tsx";
 import { part } from "@/lib/suit-part.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { SpadeFold } from "./spade-fold.tsx";
-import { chatBubble, framed, mineBubble } from "./spade-bubble-style.ts";
-import { BubbleFrame, SpeakerLine } from "./spade-chat-parts.tsx";
-import { DocumentCard, SpadeReplyContext, useReplies } from "./spade-chat-replies.tsx";
+import { botMessageBubble, botMinePalette, mineMessageBubble } from "./spade-bubble-style.ts";
+import { BubbleFrame, NewDivider, SpeakerLine } from "./spade-chat-parts.tsx";
+import { DocumentCard, QuoteInset, SpadeReplyContext, useReplies } from "./spade-chat-replies.tsx";
 import { SpadeFace } from "./spade-face.tsx";
+import { useMineAccent, useQuoteAccentResolver } from "./spade-accent.ts";
+import {
+  groupClubRows,
+  isLongBubble,
+  seqOfMessageId,
+  type ClubBlock,
+} from "./spade-chat-coalesce.ts";
 
-/** A member as the chat shows it: its face and name, and its own chat when this window has it. */
+/** A member as the chat shows it: its face, style, name, and its own chat when this window has it. */
 export interface GroupFace {
   name: string;
   avatar: SpadeAvatar;
+  style?: SpadeAgentStyle | undefined;
   /** Opens the member's own chat; undefined when this window can't. */
   open: (() => void) | undefined;
 }
@@ -38,29 +47,52 @@ export const unknownFace = (bot: SpadeGroupBot): GroupFace => ({
 });
 
 /**
- * A group's conversation as a chat (ADR 0132): the person's bubbles on the right in the accent,
- * each member's turn on the left starting with its face and name, a handoff
- * (`Spade asked Research`) and a queued, failed or stopped ask as one short muted line. Never a
- * tool call. While the group works, one line under the last bubble: the answering member's face
- * with moving eyes, the group's few words, `Open <bot>` when that bot waits for the person in
- * its own chat (the member the status names, `spadeGroupWaiting`). Stop is the composer's.
+ * A club's conversation as a chat (ADR 0132): the person's pills on the right in the lead or
+ * club's colour, each member's run on the left under one header (small face and name, with a
+ * quiet `· answering <bot>` suffix on bot-to-bot relays instead of centered handoff lines), and
+ * one reply turn coalesced into one soft block. Queued, failed or stopped asks stay quiet notes.
  */
 export function SpadeGroupChat(props: {
   name: string;
   view: SpadeGroupView;
-  /** The group's members, to find the one that waits for the person. */
+  /** The group's members, to find the one that waits for the person and resolve pill/quote colours. */
   members: readonly SpadeGroupBot[];
   faceOf(bot: SpadeGroupBot): GroupFace;
   /** Reply to a message, the person's or a member's (ADR 0212 §4): the composer shows it. */
   onReply?: ((quote: SpadeQuote) => void) | undefined;
+  /** The last seen event sequence when opening an unread club, to place the NEW divider. */
+  seenSeq?: number | undefined;
 }) {
-  const { view } = props;
+  const { view, members, faceOf } = props;
+  const resolveQuoteAccent = useQuoteAccentResolver();
+  // Pick the lead bot's colour if it has one, else the first coloured member's, for the user pill.
+  const pillBot = useMemo(() => {
+    for (const member of members) {
+      const face = faceOf(member);
+      if (resolveQuoteAccent(face)) return face;
+    }
+    return undefined;
+  }, [members, faceOf, resolveQuoteAccent]);
+  const mine = useMineAccent(pillBot);
+  const accentOf = useCallback(
+    (who: SpadeQuote["who"]) => {
+      if (who.kind !== "member") return undefined;
+      const member = members.find(
+        (candidate) => candidate.name === who.name || faceOf(candidate).name === who.name,
+      );
+      if (!member) return undefined;
+      return resolveQuoteAccent(faceOf(member));
+    },
+    [members, faceOf, resolveQuoteAccent],
+  );
   // A club draws every row, so a quote's original is always on the page.
-  const replies = useReplies(props.name, props.onReply, noop, noReactions, undefined);
+  const replies = useReplies(props.name, props.onReply, noop, noReactions, undefined, accentOf);
+  const blocks = useMemo(() => groupClubRows(view.rows), [view.rows]);
+  const newBefore = useMemo(() => newClubDividerIndex(blocks, props.seenSeq), [blocks, props.seenSeq]);
   const waiting = view.state === "waiting";
-  const waiter = spadeGroupWaiting(view, props.members);
+  const waiter = spadeGroupWaiting(view, members);
   const shown = waiter ?? view.working;
-  const working = shown ? props.faceOf(shown) : undefined;
+  const working = shown ? faceOf(shown) : undefined;
   const phrase = useHeldPhrase(spadeWorkingPhrase(view.status));
   return (
     <SpadeReplyContext value={replies}>
@@ -68,21 +100,32 @@ export function SpadeGroupChat(props: {
         role="feed"
         aria-label={`Conversation in ${props.name}`}
         aria-busy={view.busy}
-        className="flex flex-col"
+        style={mine}
+        className={cn("flex flex-col", mine && botMinePalette)}
       >
-        {view.rows.map((row, index) => (
-          <Row key={row.key} row={row} previous={view.rows[index - 1]} faceOf={props.faceOf} />
-        ))}
+        {blocks.map((block, index) => {
+          const afterNew = newBefore === index;
+          return (
+            <div key={block.key} className="contents">
+              {afterNew && <NewDivider />}
+              <Block
+                block={block}
+                previous={afterNew ? undefined : blocks[index - 1]}
+                faceOf={faceOf}
+              />
+            </div>
+          );
+        })}
         {view.busy && (
-          <div role="status" className="mt-(--chat-turn-gap) flex items-center gap-2.5 first:mt-0">
+          <div role="status" className="mt-(--chat-turn-gap) flex items-center gap-2 first:mt-0">
             {working ? (
               <SpadeFace
                 avatar={working.avatar}
-                size={32}
+                size={24}
                 state={waiting ? "needs-you" : view.status === "Thinking" ? "thinking" : "working"}
               />
             ) : (
-              <span aria-hidden className="size-(--spade-working-face) shrink-0" />
+              <span aria-hidden className="size-6 shrink-0" />
             )}
             <span
               // Each new phrase sweeps once in the step's light, still under reduced motion.
@@ -115,50 +158,80 @@ export function SpadeGroupChat(props: {
 const noop = () => {};
 const noReactions = new Map<string, never>();
 
-type GroupRow = SpadeGroupView["rows"][number];
-
-/** 4px within a run (a member's or the person's), 16px between turns, 20px above a speaker. */
-function spaceAbove(row: GroupRow, previous: GroupRow | undefined): string {
-  if (!previous) return "";
-  if (row.kind === "member" && row.first) return "mt-5";
-  const sameRun =
-    (row.kind === "member" && !row.first) || (row.kind === "person" && previous.kind === "person");
-  return sameRun ? "mt-(--chat-run-gap)" : "mt-(--chat-turn-gap)";
+/** First block strictly newer than `seenSeq`, once at least one older block preceded it. */
+function newClubDividerIndex(blocks: readonly ClubBlock[], seenSeq: number | undefined): number {
+  if (seenSeq === undefined || seenSeq <= 0) return -1;
+  let hadSeen = false;
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
+    if (!block || block.kind === "line") continue;
+    const ids =
+      block.kind === "person"
+        ? block.items.map((entry) => entry.row.id)
+        : block.messages.flatMap((message) => message.ids);
+    for (const id of ids) {
+      const seq = seqOfMessageId(id);
+      if (seq === undefined) continue;
+      if (seq <= seenSeq) hadSeen = true;
+      else if (hadSeen) return i;
+    }
+  }
+  return -1;
 }
 
-const Row = memo(function Row(props: {
-  row: GroupRow;
-  previous: GroupRow | undefined;
+/** 16px between turns, 20px above a new speaker header. */
+function spaceAbove(block: ClubBlock, previous: ClubBlock | undefined): string {
+  if (!previous) return "";
+  if (block.kind === "member") return "mt-5";
+  return "mt-(--chat-turn-gap)";
+}
+
+const Block = memo(function Block(props: {
+  block: ClubBlock;
+  previous: ClubBlock | undefined;
   faceOf(bot: SpadeGroupBot): GroupFace;
 }) {
-  const { row } = props;
-  const space = spaceAbove(row, props.previous);
-  switch (row.kind) {
+  const { block } = props;
+  const space = spaceAbove(block, props.previous);
+  switch (block.kind) {
     case "person":
       return (
         <div
           role="article"
           aria-label="You"
-          aria-busy={row.sending || undefined}
-          className={cn("flex flex-col items-end", row.sending && "opacity-70", space)}
+          className={cn("flex min-w-0 flex-col items-end gap-(--chat-run-gap)", space)}
         >
-          {row.fromThread && <FromThreadLine thread={row.fromThread} />}
-          <BubbleFrame
-            side="mine"
-            when={undefined}
-            copy={spadePlainText(row.text)}
-            speak={undefined}
-            quote={row.quote}
-            reply={
-              row.id && !row.sending
-                ? { id: row.id, who: { kind: "person" }, text: spadeQuoteLine(row.text) }
-                : undefined
-            }
-          >
-            <div {...part("spade-message", undefined, "user")} className={cn(mineBubble, framed)}>
-              <SpadeBubbleText text={row.text} side="mine" />
-            </div>
-          </BubbleFrame>
+          {block.items.map(({ row, stack }) => {
+            const long = isLongBubble(row.text, Boolean(row.quote));
+            return (
+              <div
+                key={row.key}
+                aria-busy={row.sending || undefined}
+                className={cn("flex w-full flex-col items-end", row.sending && "opacity-70")}
+              >
+                {row.fromThread && <FromThreadLine thread={row.fromThread} />}
+                <BubbleFrame
+                  side="mine"
+                  when={undefined}
+                  copy={spadePlainText(row.text)}
+                  speak={undefined}
+                  reply={
+                    row.id && !row.sending
+                      ? { id: row.id, who: { kind: "person" }, text: spadeQuoteLine(row.text) }
+                      : undefined
+                  }
+                >
+                  <div
+                    {...part("spade-message", undefined, "user")}
+                    className={mineMessageBubble(long, stack)}
+                  >
+                    {row.quote && <QuoteInset quote={row.quote} side="mine" />}
+                    <SpadeBubbleText text={row.text} side="mine" />
+                  </div>
+                </BubbleFrame>
+              </div>
+            );
+          })}
         </div>
       );
     case "line":
@@ -167,50 +240,64 @@ const Row = memo(function Row(props: {
           role="note"
           className={cn("text-center text-xs leading-4 text-subtle-foreground", space)}
         >
-          {row.text}
+          {block.text}
         </p>
       );
     case "member": {
-      const face = props.faceOf(row.bot);
+      const face = props.faceOf(block.bot);
       return (
         <div
           role="article"
           aria-label={face.name}
-          className={cn("flex min-w-0 flex-col items-start", space)}
+          className={cn("flex min-w-0 flex-col items-start gap-(--chat-run-gap)", space)}
         >
-          {row.first && <SpeakerLine avatar={face.avatar} name={face.name} />}
-          <BubbleFrame
-            side="bot"
-            when={undefined}
-            copy={row.doc ? row.doc.text : spadePlainText(row.text)}
-            speak={row.text || undefined}
-            quote={row.quote}
-            reply={
-              row.id
-                ? {
-                    id: row.id,
-                    who: { kind: "member", name: face.name },
-                    text: spadeQuoteLine(row.text || row.doc?.title || ""),
-                  }
-                : undefined
-            }
-          >
-            {row.text && (
-              <div
-                {...part(
-                  "spade-message",
-                  undefined,
-                  face.avatar.kind === "spade" ? "spade" : "bot",
-                )}
-                className={cn(chatBubble, framed)}
+          <SpeakerLine
+            avatar={face.avatar}
+            name={face.name}
+            detail={block.relayedBy ? `answering ${block.relayedBy}` : undefined}
+          />
+          {block.messages.map((message) => {
+            const long = isLongBubble(message.text, Boolean(message.quote));
+            const primaryId = message.ids[0];
+            return (
+              <BubbleFrame
+                key={message.key}
+                side="bot"
+                when={undefined}
+                copy={message.doc ? message.doc.text : spadePlainText(message.text)}
+                speak={message.text || undefined}
+                messageIds={message.ids}
+                reply={
+                  primaryId
+                    ? {
+                        id: primaryId,
+                        who: { kind: "member", name: face.name },
+                        text: spadeQuoteLine(message.text || message.doc?.title || ""),
+                      }
+                    : undefined
+                }
               >
-                <SpadeFold fold={row.fold}>
-                  <SpadeBubbleText text={row.text} />
-                </SpadeFold>
-              </div>
-            )}
-            {row.doc && <DocumentCard doc={row.doc} />}
-          </BubbleFrame>
+                {message.text && (
+                  <div
+                    {...part(
+                      "spade-message",
+                      undefined,
+                      face.avatar.kind === "spade" ? "spade" : "bot",
+                    )}
+                    className={botMessageBubble(long, message.stack)}
+                  >
+                    {message.quote && <QuoteInset quote={message.quote} side="bot" />}
+                    <SpadeFold fold={message.fold}>
+                      <SpadeBubbleText text={message.text} />
+                    </SpadeFold>
+                  </div>
+                )}
+                {message.doc && (
+                  <DocumentCard doc={message.doc} quote={!message.text ? message.quote : undefined} />
+                )}
+              </BubbleFrame>
+            );
+          })}
         </div>
       );
     }

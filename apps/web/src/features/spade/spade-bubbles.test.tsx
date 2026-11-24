@@ -31,7 +31,12 @@ test("a bot's bubbles in a row are one run with no face beside them, under one t
   const [run, ...more] = chat.getAllByRole("article", { name: "Garden" });
   if (!run) throw new Error("expected Garden's run");
   expect(more).toEqual([]);
-  expect(within(run).getByText("In October.")).toBeTruthy();
+  // Two separate reply turns stack as separate bubbles inside the single run.
+  expect(
+    [...run.querySelectorAll("[data-part=spade-message]")].map((bubble) =>
+      bubble.textContent?.trim(),
+    ),
+  ).toEqual(["In October.", "Mulch it after."]);
   // A one-to-one chat carries the bot's face in the pill and the working line, never by bubbles.
   expect(run.querySelector("svg.bot-face")).toBeNull();
 });

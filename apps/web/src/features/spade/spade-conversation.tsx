@@ -253,6 +253,8 @@ export function Conversation(props: {
     }),
     [bot, props.roster],
   );
+  // Snapshot seenSeq while unread so the NEW divider stays visible after auto-marking seen.
+  const [unreadFrom] = useState(() => (bot.unseen ? bot.seenSeq : undefined));
   const live = spadeLiveSurfaces(computer.computer);
   const using = live[0];
   // Its package's panels; the one the route names opens beside the chat, one at a time.
@@ -295,6 +297,7 @@ export function Conversation(props: {
             bot={chatBot}
             onReply={setReplying}
             profile={bot.kind === "main" ? undefined : bot}
+            seenSeq={unreadFrom}
             start={<ConversationStart avatar={bot.avatar} name={bot.name} task={bot.task} />}
             view={view}
             // While it uses its computer and Computer isn't showing, Watch opens it there.

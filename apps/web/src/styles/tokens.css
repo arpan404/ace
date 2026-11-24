@@ -56,12 +56,12 @@
    * and Settings keep the square ones.
    */
   --chat-bubble-radius: var(--radius-xl);
-  --chat-bubble-x: 18px;
+  --chat-bubble-x: 16px;
   --chat-bubble-y: 10px;
   --chat-code-inset: 6px;
   --chat-code-radius: var(--radius-lg);
-  /* Between bubbles of one run, and between turns. */
-  --chat-run-gap: 8px;
+  /* Between stacked bubbles of one run, and between turns. */
+  --chat-run-gap: 4px;
   --chat-turn-gap: 16px;
   --spade-round-button: 32px;
   --spade-pill-button: 36px;

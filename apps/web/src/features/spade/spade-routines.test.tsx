@@ -93,11 +93,18 @@ test("the person adds, pauses and edits a bot's routines in its profile, and tur
   await waitFor(() => expect(spade.routines.routines).toEqual([]));
 
   // Turning the heartbeat on asks for its checklist first.
-  await userEvent.click(section.getByRole("switch", { name: "Heartbeat" }));
-  const beat = within(section.getByRole("form", { name: "Edit heartbeat" }));
+  const heartbeatSection = (
+    await within(screen.getByRole("region", { name: "Scout's profile" })).findByRole("heading", {
+      name: "Heartbeat",
+    })
+  ).closest("section");
+  if (!heartbeatSection) throw new Error("no Heartbeat section");
+  const heartbeat = within(heartbeatSection);
+  await userEvent.click(heartbeat.getByRole("switch", { name: "Heartbeat" }));
+  const beat = within(heartbeat.getByRole("form", { name: "Edit heartbeat" }));
   await userEvent.type(beat.getByRole("textbox", { name: "Checklist" }), "Is the build green?");
   await userEvent.click(beat.getByRole("button", { name: "Turn on" }));
-  expect(await section.findByText(/^Every 30 minutes · next (tomorrow |\d)/)).toBeTruthy();
+  expect(await heartbeat.findByText(/^Every 30 minutes · next (tomorrow |\d)/)).toBeTruthy();
   expect(spade.routines.heartbeats.get("scout")?.checklist).toBe("Is the build green?");
 });
 

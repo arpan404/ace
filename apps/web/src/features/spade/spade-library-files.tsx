@@ -1,17 +1,24 @@
 import { formatAge } from "@ace/ui-core/time";
-import { FileIcon, FolderIcon } from "@ace/icons";
+import { CaretRightIcon, FileIcon, FolderIcon } from "@ace/icons";
 import type { SpadeFileEntry } from "@ace/ui-core/spade-chat";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
 import { part } from "@/lib/suit-part.ts";
 import type { FilesAt } from "./computer/profile-computer.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
-import { ProfileNone, ProfileProblem, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
-import { SettingCard } from "@/components/setting-row.tsx";
+import {
+  ProfileCard,
+  ProfileCardSkeleton,
+  ProfileNone,
+  ProfileProblem,
+  ProfileSection,
+  profileRowClass,
+  rowPill,
+} from "./spade-profile-parts.tsx";
 import { downloadFile, readFolder } from "./spade-workspace-api.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
 
@@ -62,7 +69,7 @@ function Thumb(props: { bot: string; entry: SpadeFileEntry }) {
     <img alt="" src={url} className="size-6 shrink-0 rounded-sm object-cover" />
   ) : (
     <span className="grid size-6 shrink-0 place-items-center rounded-sm bg-hover text-muted-foreground">
-      <Icon icon={entry.kind === "folder" ? FolderIcon : FileIcon} size={14} />
+      <Icon icon={entry.kind === "folder" ? FolderIcon : FileIcon} size={16} />
     </span>
   );
 }
@@ -83,11 +90,13 @@ export function LibraryFiles(props: { bot: RosterBot; onOpen(files: FilesAt): vo
   const entries = listing.data?.entries ?? [];
   const groups = filesByAge(entries, now);
   let left = shownFiles;
-  const shown = groups.map((group) => {
-    const take = group.entries.slice(0, Math.max(0, left));
-    left -= take.length;
-    return { label: group.label, entries: take };
-  });
+  const shown = groups
+    .map((group) => {
+      const take = group.entries.slice(0, Math.max(0, left));
+      left -= take.length;
+      return { label: group.label, entries: take };
+    })
+    .filter((group) => group.entries.length > 0);
   return (
     <ProfileSection
       label="Files"
@@ -106,18 +115,36 @@ export function LibraryFiles(props: { bot: RosterBot; onOpen(files: FilesAt): vo
       }
     >
       {listing.isPending ? (
-        <ListSkeleton label="files" shape="row" rows={2} />
+        <ProfileCardSkeleton card label="files" leading="thumb" rows={2} />
       ) : listing.isError ? (
-        <ProfileProblem text="Couldn't read the files." onRetry={() => void listing.refetch()} />
+        <ProfileProblem
+          card
+          text="Couldn't read the files."
+          onRetry={() => void listing.refetch()}
+        />
       ) : entries.length === 0 ? (
-        <ProfileNone>{`${bot.name} hasn't kept any files yet.`}</ProfileNone>
+        <ProfileNone
+          action={
+            <Button
+              size="sm"
+              variant="ghost"
+              className={rowPill}
+              onClick={() => props.onOpen({ folder: "" })}
+            >
+              Open files
+            </Button>
+          }
+        >
+          {`${bot.name} hasn't kept any files yet.`}
+        </ProfileNone>
       ) : (
-        shown
-          .filter((group) => group.entries.length > 0)
-          .map((group) => (
-            <div key={group.label} className="mb-4 flex flex-col">
-              <h4 className="mx-1 mb-1.5 text-ui text-muted-foreground">{group.label}</h4>
-              <SettingCard>
+        <div className="flex flex-col gap-4">
+          {shown.map((group) => (
+            <div key={group.label} className="flex flex-col">
+              <h4 className="mx-1 mb-1.5 text-xs font-medium text-subtle-foreground">
+                {group.label}
+              </h4>
+              <ProfileCard>
                 {group.entries.map((entry) => (
                   <button
                     key={entry.path}
@@ -131,22 +158,28 @@ export function LibraryFiles(props: { bot: RosterBot; onOpen(files: FilesAt): vo
                           : { folder: "", file: entry.path },
                       )
                     }
-                    className="group/file flex min-h-11 min-w-0 items-center gap-3 rounded-sm py-2 text-left text-ui text-foreground focus-ring"
+                    className={cn(profileRowClass, "min-h-11 py-2.5")}
                   >
                     <Thumb bot={bot.id} entry={entry} />
-                    <span className="min-w-0 flex-1 truncate group-hover/file:underline">
+                    <span className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">
                       {entry.name}
                     </span>
                     {entry.modifiedAt !== undefined && (
-                      <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
+                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                         {formatAge(entry.modifiedAt, now)}
                       </span>
                     )}
+                    <Icon
+                      icon={CaretRightIcon}
+                      size={16}
+                      className="shrink-0 text-faint-foreground"
+                    />
                   </button>
                 ))}
-              </SettingCard>
+              </ProfileCard>
             </div>
-          ))
+          ))}
+        </div>
       )}
     </ProfileSection>
   );

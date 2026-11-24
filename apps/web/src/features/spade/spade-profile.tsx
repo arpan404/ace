@@ -29,7 +29,7 @@ export function ProfileShareButton(props: { bot: RosterBot; round?: boolean }) {
       icon={ExportIcon}
       label={`Share ${props.bot.name}`}
       tip="Share"
-      size={props.round ? "panel" : "default"}
+      size="default"
       onClick={() => void share(props.bot)}
       className={props.round ? roundButton : undefined}
     />
@@ -43,7 +43,7 @@ function CloseProfileButton(props: { onClose(): void; round?: boolean }) {
       icon={XIcon}
       label="Close profile"
       tip="Close"
-      size={props.round ? "panel" : "default"}
+      size="default"
       onClick={props.onClose}
       className={props.round ? roundButton : undefined}
     />
@@ -139,12 +139,12 @@ export function SpadeProfile(props: {
       }}
     >
       {props.covering && (
-        <div className="flex h-11 shrink-0 items-center gap-2 px-2">
+        <div className="flex h-12 shrink-0 items-center gap-2 px-4">
           <button
             type="button"
             aria-label="Back to chat"
             onClick={props.onClose}
-            className="mr-auto flex h-8 items-center gap-1 rounded-full pr-3 pl-2 text-ui font-medium text-muted-foreground focus-ring hover:bg-hover hover:text-foreground"
+            className="-ml-2 mr-auto flex h-8 items-center gap-1 rounded-full pr-3 pl-2 text-ui font-medium text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:text-foreground"
           >
             <Icon icon={CaretLeftIcon} size={16} />
             Chat
@@ -155,11 +155,11 @@ export function SpadeProfile(props: {
       {/* Never sideways: what is wider than the panel wraps or scrolls in its own frame. */}
       <div className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
         {!settings && !newRoutine && !surface && (
-          <div className="absolute top-3 right-3 z-10 flex items-center gap-1">
+          <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
             <IconButton
               icon={GearSixIcon}
               label="Settings"
-              size="panel"
+              size="default"
               className={roundButton}
               onClick={() => props.onTab("details")}
             />
@@ -167,7 +167,7 @@ export function SpadeProfile(props: {
           </div>
         )}
         {surface && !newRoutine && !settings ? (
-          <div className="flex h-full flex-col pt-1">
+          <div className="flex h-full flex-col">
             <PanelSurfaceView
               bot={bot}
               surface={surface}
@@ -177,7 +177,7 @@ export function SpadeProfile(props: {
             />
           </div>
         ) : newRoutine ? (
-          <div className="px-4 pt-3 pb-8">
+          <div className="px-4 pt-4 pb-8">
             <NewRoutinePage
               bot={bot}
               onBack={() => setNewRoutine(false)}
@@ -185,7 +185,7 @@ export function SpadeProfile(props: {
             />
           </div>
         ) : settings ? (
-          <div className="px-4 pt-3 pb-8">
+          <div className="px-4 pt-4 pb-8">
             <ProfileSettings
               bot={bot}
               panels={props.panels}
@@ -198,39 +198,41 @@ export function SpadeProfile(props: {
         ) : (
           <>
             <ProfileHead key={`${bot.machine.key}/${bot.id}`} bot={bot} />
-            <div
-              ref={tabs}
-              role="tablist"
-              aria-label="Profile"
-              {...part("segmented", undefined, "profile")}
-              onKeyDown={move}
-              className="mx-4 mb-5 flex justify-center gap-1"
-            >
-              {segments.map((each) => {
-                const selected = each.id === shown;
-                return (
-                  <button
-                    key={each.id}
-                    type="button"
-                    role="tab"
-                    id={ids.tab(each.id)}
-                    data-tab={each.id}
-                    aria-selected={selected}
-                    aria-controls={ids.panel}
-                    {...part("segment", selected && "selected", each.id)}
-                    tabIndex={selected ? 0 : -1}
-                    onClick={() => props.onTab(each.tab)}
-                    className={cn(
-                      "h-8 rounded-full px-3 text-ui whitespace-nowrap transition-colors duration-(--motion-fast) focus-ring",
-                      selected
-                        ? "bg-hover font-medium text-foreground"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {each.name}
-                  </button>
-                );
-              })}
+            <div className="mx-4 mb-6 flex justify-center">
+              <div
+                ref={tabs}
+                role="tablist"
+                aria-label="Profile"
+                {...part("segmented", undefined, "profile")}
+                onKeyDown={move}
+                className="inline-flex items-center gap-1"
+              >
+                {segments.map((each) => {
+                  const selected = each.id === shown;
+                  return (
+                    <button
+                      key={each.id}
+                      type="button"
+                      role="tab"
+                      id={ids.tab(each.id)}
+                      data-tab={each.id}
+                      aria-selected={selected}
+                      aria-controls={ids.panel}
+                      {...part("segment", selected && "selected", each.id)}
+                      tabIndex={selected ? 0 : -1}
+                      onClick={() => props.onTab(each.tab)}
+                      className={cn(
+                        "h-8 rounded-full px-3 text-ui font-medium whitespace-nowrap transition-colors duration-(--motion-fast) focus-ring",
+                        selected
+                          ? "bg-surface-1 text-foreground"
+                          : "text-muted-foreground hover:bg-hover hover:text-foreground",
+                      )}
+                    >
+                      {each.name}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             <div
               role="tabpanel"

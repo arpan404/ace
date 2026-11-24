@@ -44,9 +44,29 @@ import { useSeconds } from "@/lib/time.ts";
 import { useHeldPhrase } from "./use-held-phrase.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { SpadeFold } from "./spade-fold.tsx";
-import { chatBubble, framed, inputBubble, mineBubble } from "./spade-bubble-style.ts";
+import {
+  botMessageBubble,
+  botMinePalette,
+  chatBubble,
+  inputMessageBubble,
+  mineMessageBubble,
+} from "./spade-bubble-style.ts";
 import { InvokedChip } from "./spade-invoked-chip.tsx";
-import { BubbleFrame, Failure, FileChips, SpeakerLine, WorkingLine } from "./spade-chat-parts.tsx";
+import {
+  BubbleFrame,
+  Failure,
+  FileChips,
+  NewDivider,
+  SpeakerLine,
+  WorkingLine,
+} from "./spade-chat-parts.tsx";
+import {
+  coalesceRunItems,
+  isLongBubble,
+  seqOfMessageId,
+  stackPosition,
+  type BubbleStackPosition,
+} from "./spade-chat-coalesce.ts";
 import { useShowWork } from "./spade-show-work.ts";
 import { SkillProposal } from "./spade-skill-bubble.tsx";
 import type { SpadeTalkContext } from "./spade-talk-row.tsx";
@@ -58,7 +78,7 @@ import { SpadeQuestionBubble } from "./spade-question-bubble.tsx";
 import type { QuestionReply } from "./use-spade-conversation.ts";
 import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
 import { QuietLine, RestingLine } from "./spade-quiet-line.tsx";
-import { useCardAccent } from "./spade-accent.ts";
+import { useMineAccent, useQuoteAccentResolver } from "./spade-accent.ts";
 import { SpadeFace } from "./spade-face.tsx";
 import { SpadeBriefBubble } from "./spade-brief-bubble.tsx";
 import { SpadeDigestBubble } from "./spade-digest-bubble.tsx";
@@ -68,7 +88,7 @@ import { SpadeStepsLine } from "./spade-steps-line.tsx";
 import { NamedLine, TaskChangedLine } from "./spade-self-edit-lines.tsx";
 import { ClubAddedLine, MadeLine } from "./spade-made-lines.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
-import { DocumentCard, SpadeReplyContext, useReplies } from "./spade-chat-replies.tsx";
+import { DocumentCard, QuoteInset, SpadeReplyContext, useReplies } from "./spade-chat-replies.tsx";
 
 /** "Inbox wants to email Marta Reyes": the bot's name, then why it needs the person. */
 function needsYouWords(bot: ChatBot): string {
@@ -163,10 +183,28 @@ export function SpadeChat(props: {
   /** Opened to answer what its workers wait on: that shows at the end, brought into view. */
   /** Reply to a message (ADR 0212 §4): the composer shows its strip. Absent offers no Reply. */
   onReply?: ((quote: SpadeQuote) => void) | undefined;
+  /** The last seen event sequence when opening an unread chat, to place the NEW divider. */
+  seenSeq?: number | undefined;
 }) {
   const { view, bot } = props;
-  // The person's bubbles take the bot's colour: its face's, or its chosen accent.
-  const mine = useCardAccent(bot);
+  // The person's pill takes the bot's colour when it has one; monochrome Spade uses the theme's.
+  const mine = useMineAccent(bot);
+  const resolveQuoteAccent = useQuoteAccentResolver();
+  const accentOf = useCallback(
+    (who: SpadeQuote["who"]) => {
+      if (who.kind === "bot") return resolveQuoteAccent(bot);
+      if (who.kind === "member") {
+        for (const [id, name] of bot.names) {
+          if (name === who.name) {
+            const avatar = bot.others.get(id);
+            if (avatar) return resolveQuoteAccent({ avatar });
+          }
+        }
+      }
+      return undefined;
+    },
+    [bot, resolveQuoteAccent],
+  );
   // Days change rarely: the clock as it stands is enough for Today and Yesterday.
   const now = useSeconds(false);
   const client = useSpadeClient();
@@ -183,14 +221,15 @@ export function SpadeChat(props: {
   const workTurns = useMemo(() => spadeTurnsWithWork(bubbles), [bubbles]);
   const rows = useMemo(
     () =>
-      // The notes it saves stay in its Memory dialog, never in the chat.
+      // Notes saved to memory and internal task/worker bookkeeping don't render in chat;
+      // filter them before grouping so consecutive messages from one sender stay stacked.
       spadeChatRows(
         withSpadeDigests(
           withProposals(
             spadeWithoutWork(bubbles, { all: showWork, turns: opened }),
             view.entries,
             proposals ?? [],
-          ).filter((item) => item.kind !== "remembered"),
+          ).filter((item) => !isHiddenChatItem(item)),
           digests ?? [],
         ),
         { now },
@@ -198,7 +237,15 @@ export function SpadeChat(props: {
     [bubbles, showWork, opened, view.entries, proposals, digests, now],
   );
   const [from, drawAll] = useNewestFirst(rows.length);
-  const replies = useReplies(bot.name, props.onReply, drawAll, view.reactions, props.onReact);
+  const replies = useReplies(
+    bot.name,
+    props.onReply,
+    drawAll,
+    view.reactions,
+    props.onReact,
+    accentOf,
+  );
+  const newBefore = useMemo(() => newDividerIndex(rows, props.seenSeq), [rows, props.seenSeq]);
   // Asleep or waiting on a wake: the resting line takes the working line's place (ADR 0160).
   const rest =
     view.resting &&
@@ -284,7 +331,7 @@ export function SpadeChat(props: {
           aria-label={`Conversation with ${bot.name}`}
           aria-busy={view.busy}
           style={mine}
-          className="flex flex-col [--chat-mine-foreground:oklch(from_var(--chat-mine)_clamp(0,calc((0.7-l)*1000),1)_0_0)] [--chat-mine:var(--agent-accent-light)] dark:[--chat-mine:color-mix(in_oklab,var(--agent-accent-dark)_88%,white)]"
+          className={cn("flex flex-col", mine && botMinePalette)}
         >
           <KeepCaseDialog
             bot={{ id: bot.id, name: bot.name }}
@@ -292,15 +339,21 @@ export function SpadeChat(props: {
             onDone={() => setKeeping(undefined)}
           />
           {rows.length === 0 && !lined && !rest && props.start}
-          {rows.slice(from).map((row, index) => (
-            <Row
-              key={row.key}
-              row={row}
-              previous={rows[from + index - 1]}
-              bot={bot}
-              handlers={handlers}
-            />
-          ))}
+          {rows.slice(from).map((row, index) => {
+            const absolute = from + index;
+            const afterNew = newBefore === absolute;
+            return (
+              <div key={row.key} className="contents">
+                {afterNew && <NewDivider />}
+                <Row
+                  row={row}
+                  previous={afterNew ? undefined : rows[absolute - 1]}
+                  bot={bot}
+                  handlers={handlers}
+                />
+              </div>
+            );
+          })}
           {rest && !props.paused && onWake ? (
             <RestingLine
               avatar={bot.avatar}
@@ -354,6 +407,46 @@ export function SpadeChat(props: {
       </SpadeReplyContext>
     </CardFace>
   );
+}
+
+/** Items that render nothing in the chat transcript and must not split a sender's run. */
+function isHiddenChatItem(item: SpadeChatItem): boolean {
+  if (
+    item.kind === "remembered" ||
+    item.kind === "together" ||
+    item.kind === "helper" ||
+    item.kind === "workers"
+  ) {
+    return true;
+  }
+  if (item.kind === "quiet") {
+    const quiet = item.quiet;
+    return (
+      quiet.kind === "lane" ||
+      quiet.kind === "lanes-overlapped" ||
+      (quiet.kind === "worker-reported" && !quiet.ace)
+    );
+  }
+  return false;
+}
+
+/** First row strictly newer than `seenSeq`, once at least one older row preceded it. */
+function newDividerIndex(rows: readonly SpadeChatRow[], seenSeq: number | undefined): number {
+  if (seenSeq === undefined || seenSeq <= 0) return -1;
+  let hadSeen = false;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || row.kind === "time") continue;
+    const items = row.kind === "run" ? row.items : [row.item];
+    for (const item of items) {
+      const id = "id" in item && typeof item.id === "string" ? item.id : undefined;
+      const seq = seqOfMessageId(id);
+      if (seq === undefined) continue;
+      if (seq <= seenSeq) hadSeen = true;
+      else if (hadSeen) return i;
+    }
+  }
+  return -1;
 }
 
 /** Rows a conversation draws at once when it opens; older ones join a batch at a time. */
@@ -475,22 +568,30 @@ const Row = memo(function Row(props: {
         {row.label}
       </div>
     );
-  if (row.kind === "run" && row.sender.kind === "person")
+  if (row.kind === "run" && row.sender.kind === "person") {
+    const people = row.items
+      .map((item, index) => (item.kind === "person" ? { item, when: row.whens[index] } : undefined))
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== undefined);
     return (
       <div
         role="article"
         aria-label="You"
         className={cn("flex min-w-0 flex-col items-end gap-(--chat-run-gap)", space)}
       >
-        {row.items.map((item, index) =>
-          item.kind === "person" ? (
-            <PersonItem key={item.key} item={item} when={row.whens[index]} />
-          ) : null,
-        )}
+        {people.map(({ item, when }, index) => (
+          <PersonItem
+            key={item.key}
+            item={item}
+            when={when}
+            stack={stackPosition(index > 0, index < people.length - 1)}
+          />
+        ))}
       </div>
     );
+  }
   if (row.kind === "run") {
     const other = row.sender.kind === "other" ? row.sender.agent : undefined;
+    const coalesced = coalesceRunItems(row.items, row.whens);
     return (
       <div
         role="article"
@@ -506,19 +607,26 @@ const Row = memo(function Row(props: {
           <SpeakerLine
             avatar={bot.others.get(other.id) ?? parseSpadeAvatar(undefined, other.id)}
             name={other.name}
+            align="end"
           />
         )}
         {/* Open requests one app made together answer on one card (ADR 0202, amendment 5). */}
-        {spadeGroupAppRequests(row.items).map((entry) =>
-          entry.kind === "one" ? (
-            <RunItem
-              key={entry.item.key}
-              item={entry.item}
-              when={row.whens[entry.index]}
-              bot={bot}
-              handlers={props.handlers}
-            />
-          ) : (
+        {spadeGroupAppRequests(coalesced.map((entry) => entry.item)).map((entry) => {
+          if (entry.kind === "one") {
+            const meta = coalesced[entry.index];
+            return (
+              <RunItem
+                key={entry.item.key}
+                item={entry.item}
+                when={meta?.when}
+                ids={meta?.ids ?? []}
+                stack={meta?.stack ?? "single"}
+                bot={bot}
+                handlers={props.handlers}
+              />
+            );
+          }
+          return (
             <SpadeRequestGroup
               key={entry.items[0]?.key ?? entry.connection}
               items={entry.items.filter(
@@ -528,8 +636,8 @@ const Row = memo(function Row(props: {
               botName={bot.name}
               onAnswer={props.handlers.onAnswer}
             />
-          ),
-        )}
+          );
+        })}
       </div>
     );
   }
@@ -545,6 +653,8 @@ const sender = (bot: ChatBot) => (bot.avatar.kind === "spade" ? "spade" : "bot")
 function RunItem(props: {
   item: SpadeChatItem;
   when: string | undefined;
+  ids: readonly string[];
+  stack: BubbleStackPosition;
   bot: ChatBot;
   handlers: Handlers;
 }) {
@@ -594,10 +704,10 @@ function RunItem(props: {
               copy={doc.text}
               speak={undefined}
               reply={reply}
-              quote={item.quote}
+              messageIds={props.ids}
               onKeep={item.keep && !item.live ? () => handlers.onKeep(item.keep ?? "") : undefined}
             >
-              <DocumentCard doc={doc} />
+              <DocumentCard doc={doc} quote={item.quote} />
             </BubbleFrame>
             {media}
             {item.files && <FileChips paths={item.files} onOpen={handlers.onOpenFile} />}
@@ -605,6 +715,7 @@ function RunItem(props: {
             {fromChat}
           </div>
         );
+      const long = isLongBubble(item.text, Boolean(item.quote), Boolean(item.end));
       return (
         <div className="flex w-full min-w-0 flex-col items-start gap-(--chat-run-gap)">
           {/* Its words went back to the bot that wrote, not to the person. */}
@@ -615,7 +726,7 @@ function RunItem(props: {
               copy={doc ? doc.text : said && spadePlainText(said)}
               speak={said}
               reply={reply}
-              quote={item.quote}
+              messageIds={props.ids}
               onKeep={item.keep && !item.live ? () => handlers.onKeep(item.keep ?? "") : undefined}
               work={item.live ? undefined : handlers.work(item.turn)}
             >
@@ -625,8 +736,9 @@ function RunItem(props: {
                   item.live ? "working" : item.end === "failed" && "failed",
                   sender(bot),
                 )}
-                className={cn(chatBubble, framed)}
+                className={botMessageBubble(long, props.stack)}
               >
+                {item.quote && <QuoteInset quote={item.quote} side="bot" />}
                 {item.text && (
                   <SpadeFold fold={item.fold}>
                     <SpadeBubbleText
@@ -681,6 +793,7 @@ function RunItem(props: {
             text: spadeQuoteLine(item.text || item.doc?.title || ""),
           }
         : undefined;
+      const long = isLongBubble(item.text);
       return (
         <BubbleFrame
           side="mine"
@@ -688,9 +801,13 @@ function RunItem(props: {
           copy={item.doc ? item.doc.text : spadePlainText(item.text)}
           speak={undefined}
           reply={reply}
+          messageIds={props.ids}
         >
           {item.text && (
-            <div {...part("spade-message", undefined, "other")} className={cn(inputBubble, framed)}>
+            <div
+              {...part("spade-message", undefined, "other")}
+              className={inputMessageBubble(long, props.stack)}
+            >
               <SpadeFold fold={item.fold}>
                 <SpadeBubbleText text={item.text} />
               </SpadeFold>
@@ -908,17 +1025,19 @@ function Single(props: {
 
 /**
  * One of the person's messages: the line from an ace thread, pictures, files, then the bubble,
- * with the message it replies to quoted above it and Reply once it is stored.
+ * with any reply quote inset inside its top edge and Reply once it is stored.
  */
 function PersonItem(props: {
   item: Extract<SpadeChatItem, { kind: "person" }>;
   when: string | undefined;
+  stack?: BubbleStackPosition;
 }) {
   const { item } = props;
   const reply: SpadeQuote | undefined =
     item.id && !item.sending
       ? { id: item.id, who: { kind: "person" }, text: spadeQuoteLine(item.text) }
       : undefined;
+  const long = isLongBubble(item.text, Boolean(item.quote), Boolean(item.invoke || item.voice));
   return (
     <div
       aria-busy={item.sending || undefined}
@@ -937,9 +1056,12 @@ function PersonItem(props: {
           copy={spadePlainText(item.text)}
           speak={undefined}
           reply={reply}
-          quote={item.quote}
         >
-          <div {...part("spade-message", undefined, "user")} className={cn(mineBubble, framed)}>
+          <div
+            {...part("spade-message", undefined, "user")}
+            className={mineMessageBubble(long, props.stack ?? "single")}
+          >
+            {item.quote && <QuoteInset quote={item.quote} side="mine" />}
             {item.invoke && <InvokedChip invoked={item.invoke} />}
             {item.text && <SpadeBubbleText text={item.text} side="mine" />}
             {/* A voice message: its transcript, and the recording to play. */}

@@ -6,12 +6,18 @@ import { useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { SettingList } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { useNow } from "@/lib/time.ts";
 import { knowledgeKey, readEpisode, readEpisodes } from "./spade-knowledge-api.ts";
 import { DocTop, LibraryRow, dayWords, leading } from "./spade-library-parts.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
-import { ProfileNone, ProfileProblem, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
+import {
+  ProfileCardSkeleton,
+  ProfileNone,
+  ProfileProblem,
+  ProfileSection,
+  rowPill,
+} from "./spade-profile-parts.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
 
 /** Past work shown before Show all. */
@@ -44,10 +50,13 @@ export function LibraryPast(props: { bot: RosterBot; onOpen(id: string): void })
   });
   const episodes = newestClosed(past.data ?? []);
   const shown = all ? episodes : episodes.slice(0, shownEpisodes);
+  const none = past.isSuccess && episodes.length === 0;
+  const failed = past.isError && !past.data;
   return (
     <ProfileSection
       label="Past work"
-      bare={past.isSuccess && episodes.length === 0}
+      bare={none || failed}
+      flush={!none && !failed}
       actions={
         episodes.length > shownEpisodes && (
           <Button size="sm" variant="ghost" className={rowPill} onClick={() => setAll(!all)}>
@@ -57,10 +66,14 @@ export function LibraryPast(props: { bot: RosterBot; onOpen(id: string): void })
       }
     >
       {past.isPending ? (
-        <ListSkeleton label="past work" shape="row" rows={2} />
-      ) : past.isError && !past.data ? (
-        <ProfileProblem text="Couldn't read the past work." onRetry={() => void past.refetch()} />
-      ) : episodes.length === 0 ? (
+        <ProfileCardSkeleton label="past work" lines={2} rows={2} />
+      ) : failed ? (
+        <ProfileProblem
+          card
+          text="Couldn't read the past work."
+          onRetry={() => void past.refetch()}
+        />
+      ) : none ? (
         <ProfileNone>{`Each goal ${bot.name} finishes is kept here.`}</ProfileNone>
       ) : (
         <SettingList aria-label={`${bot.name}'s past work`}>
@@ -106,9 +119,16 @@ export function LibraryEpisode(props: { bot: RosterBot; id: string; onBack(): vo
       <>
         <DocTop onBack={props.onBack} />
         {read.isPending ? (
-          <div aria-hidden className="h-7 w-2/3 rounded-md bg-hover" />
+          <LoadingRegion label="past work" className="flex flex-col gap-3">
+            <Skeleton className="h-6 w-2/3" />
+            <Skeleton className="h-3 w-2/5" />
+            <div className="mt-2 flex flex-col gap-2">
+              <Skeleton className="h-3.5 w-full" />
+              <Skeleton className="h-3.5 w-4/5" />
+            </div>
+          </LoadingRegion>
         ) : (
-          <ProfileProblem text="Couldn't read it." onRetry={() => void read.refetch()} />
+          <ProfileProblem card text="Couldn't read it." onRetry={() => void read.refetch()} />
         )}
       </>
     );
@@ -121,18 +141,20 @@ export function LibraryEpisode(props: { bot: RosterBot; id: string; onBack(): vo
   return (
     <article aria-label={episode.title} className="flex flex-col">
       <DocTop onBack={props.onBack} />
-      <h3 className="text-lg leading-7 font-semibold text-foreground">{episode.title}</h3>
-      <p className="mt-1 text-xs leading-[18px] text-subtle-foreground tabular-nums">
+      <h3 className="text-xl leading-7 font-semibold tracking-title text-foreground">
+        {episode.title}
+      </h3>
+      <p className="mt-1 text-xs leading-4.5 text-muted-foreground tabular-nums">
         {meta}
-        {episode.untrusted && <span className="text-muted-foreground">{" · Untrusted"}</span>}
+        {episode.untrusted && <span className="text-foreground">{" · Untrusted"}</span>}
       </p>
       {episode.text && (
-        <p className="mt-4 text-md leading-[22px] text-foreground">{episode.text}</p>
+        <p className="mt-4 text-ui leading-5.5 text-foreground">{episode.text}</p>
       )}
       {episode.criteria.length > 0 && (
         <Part label="Done when">
           {episode.criteria.map((criterion) => (
-            <li key={criterion.text} className="flex gap-2">
+            <li key={criterion.text} className="flex items-start gap-2.5">
               <span className="mt-0.5 size-4 shrink-0 text-muted-foreground">
                 {criterion.met === true ? (
                   <Icon icon={CheckIcon} size={16} label="Met" />
@@ -140,7 +162,7 @@ export function LibraryEpisode(props: { bot: RosterBot; id: string; onBack(): vo
                   <Icon icon={XIcon} size={16} label="Not met" />
                 ) : null}
               </span>
-              {criterion.text}
+              <span>{criterion.text}</span>
             </li>
           ))}
         </Part>
@@ -182,9 +204,11 @@ export function LibraryEpisode(props: { bot: RosterBot; id: string; onBack(): vo
 
 function Part(props: { label: string; children: ReactNode }) {
   return (
-    <section className="mt-5">
-      <h4 className="mb-1.5 text-ui font-medium text-muted-foreground">{props.label}</h4>
-      <ul className="flex flex-col gap-1.5 text-ui text-foreground">{props.children}</ul>
+    <section className="mt-6">
+      <h4 className="mx-1 mb-2 text-xs font-medium text-muted-foreground">{props.label}</h4>
+      <ul className="flex flex-col gap-2 rounded-lg bg-surface-1 px-4 py-3 text-ui leading-5 text-foreground">
+        {props.children}
+      </ul>
     </section>
   );
 }

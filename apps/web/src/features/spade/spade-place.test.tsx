@@ -196,15 +196,21 @@ test("editing a bot sends only what changed", async () => {
   await feed("Garden");
   await openProfile("Garden");
   await openSettingsPage("Job");
-  await userEvent.click(
-    await screen.findByRole("button", { name: "Edit the task: Keep the garden alive" }),
-  );
-  const task = screen.getByRole("textbox", { name: "Task" });
+  const task = await screen.findByRole("textbox", { name: "Task" });
+  expect((task as HTMLTextAreaElement).value).toBe("Keep the garden alive");
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
   await userEvent.clear(task);
-  await userEvent.type(task, "Keep the tomatoes alive{Meta>}{Enter}{/Meta}");
-  await screen.findByRole("button", { name: "Edit the task: Keep the tomatoes alive" });
+  await userEvent.type(task, "Keep the tomatoes alive");
+  expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+  await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
   await waitFor(() =>
     expect(spade.sent("PATCH", "/v1/agents/garden")).toEqual([{ task: "Keep the tomatoes alive" }]),
+  );
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Save" })).toBeNull());
+  expect((screen.getByRole("textbox", { name: "Task" }) as HTMLTextAreaElement).value).toBe(
+    "Keep the tomatoes alive",
   );
 });
 
@@ -215,13 +221,13 @@ test("Esc puts a task being edited back, and nothing is sent", async () => {
     api.addAgent({ id: "garden", name: "Garden", task: "Keep the garden alive" });
   });
   await openSettingsPage("Job");
-  await userEvent.click(
-    await screen.findByRole("button", { name: "Edit the task: Keep the garden alive" }),
-  );
-  const task = screen.getByRole("textbox", { name: "Task" });
+  const task = await screen.findByRole("textbox", { name: "Task" });
   await userEvent.clear(task);
   await userEvent.type(task, "Something else{Escape}");
-  await screen.findByRole("button", { name: "Edit the task: Keep the garden alive" });
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull());
+  expect((screen.getByRole("textbox", { name: "Task" }) as HTMLTextAreaElement).value).toBe(
+    "Keep the garden alive",
+  );
   expect(spade.sent("PATCH", "/v1/agents/garden")).toEqual([]);
 });
 
@@ -255,7 +261,7 @@ test("Spade itself can be changed in its profile but never deleted, and keeps it
   await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
   await screen.findByRole("button", { name: "Duplicate" });
   await openSettingsPage("Job");
-  expect(screen.getByRole("button", { name: "Write its task" })).toBeTruthy();
+  expect(screen.getByRole("textbox", { name: "Task" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Delete bot…" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Rename Spade" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Change face" })).toBeNull();

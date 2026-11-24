@@ -7,10 +7,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState, useRef } from "react";
 import { SettingRow } from "@/components/setting-row.tsx";
-import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
-import { cn } from "@/lib/cn.ts";
 import { useNativePicker } from "@/lib/native-picker.ts";
 import { AutonomyChoice } from "./spade-autonomy-choice.tsx";
 import { ProfileCheckpoints, ProfileEgress } from "./spade-bot-checkpoints.tsx";
@@ -19,7 +18,13 @@ import { ProfileNetworkRows } from "./spade-bot-network.tsx";
 import { ProfilePackageEffects } from "./spade-bot-package-effects.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { fault } from "./spade-profile-actions.ts";
-import { ProfileEmpty, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
+import {
+  ProfileCardSkeleton,
+  ProfileEmpty,
+  ProfileProblem,
+  ProfileSection,
+  sectionActionClass,
+} from "./spade-profile-parts.tsx";
 import {
   addGrant,
   botSecurityKey,
@@ -31,6 +36,12 @@ import {
 } from "./spade-security-api.ts";
 import { Refusal } from "./spade-settings-rows.tsx";
 import { agentsKey, type RosterBot } from "./use-spade-roster.ts";
+
+const alwaysAsksRows = [
+  { title: "Pay", description: "Purchases, payments and billing changes." },
+  { title: "Send as you", description: "Emails, messages and posts sent under your name." },
+  { title: "Change access", description: "Permissions, connected apps and security rules." },
+] as const;
 
 /**
  * The bot's boundaries (ADR 0167), sections of Details: its folders, its grants, where its
@@ -52,20 +63,49 @@ export function ProfileSecurity(props: { bot: RosterBot }) {
   );
 }
 
-/** How it decides, and where its commands run and what it may reach. */
+/** How it decides, what always asks, and where its commands run and what it may reach. */
 export function ProfileDecides(props: { bot: RosterBot }) {
-  const data = useBotSecurity(props.bot.id).data;
-  return data ? <ProfileBoundaries bot={props.bot} security={data} /> : null;
+  const security = useBotSecurity(props.bot.id);
+  if (security.isPending)
+    return (
+      <ProfileSection label="Decision mode" flush>
+        <ProfileCardSkeleton label="security settings" rows={2} lines={2} />
+      </ProfileSection>
+    );
+  if (security.isError || !security.data)
+    return (
+      <ProfileSection label="Decision mode">
+        <ProfileProblem
+          text="Couldn't read how this bot decides."
+          onRetry={() => void security.refetch()}
+        />
+      </ProfileSection>
+    );
+  return <ProfileBoundaries bot={props.bot} security={security.data} />;
 }
 
 /** Its folders and grants. */
 export function ProfileFilesAndGrants(props: { bot: RosterBot }) {
-  const data = useBotSecurity(props.bot.id).data;
-  if (!data) return null;
+  const security = useBotSecurity(props.bot.id);
+  if (security.isPending)
+    return (
+      <ProfileSection label="Folders" flush>
+        <ProfileCardSkeleton label="folders" rows={2} lines={1} />
+      </ProfileSection>
+    );
+  if (security.isError || !security.data)
+    return (
+      <ProfileSection label="Folders">
+        <ProfileProblem
+          text="Couldn't read its folders and grants."
+          onRetry={() => void security.refetch()}
+        />
+      </ProfileSection>
+    );
   return (
     <>
-      <ProfileFolders bot={props.bot} security={data} />
-      <ProfileGrants bot={props.bot} security={data} />
+      <ProfileFolders bot={props.bot} security={security.data} />
+      <ProfileGrants bot={props.bot} security={security.data} />
     </>
   );
 }
@@ -83,10 +123,8 @@ export function ProfileSafetyLogs(props: { bot: RosterBot }) {
 }
 
 /**
- * How the bot decides (ADR 0163, amendment 2), what its package may do (ADR 0200 §3.4), then
- * where its commands run and what it may reach (ADR 0171). A bot on the machine's settings
- * says so in one line, with the way to them and Set its own; one with its own, or once the
- * person sets its own, shows each choice with the way back to the machine's.
+ * How the bot decides (ADR 0163, amendment 2), what always asks, what its package may do
+ * (ADR 0200 §3.4), then where its commands run and what it may reach (ADR 0171).
  */
 function ProfileBoundaries(props: { bot: RosterBot; security: SpadeBotSecurity }) {
   const client = useSpadeClient();
@@ -97,59 +135,76 @@ function ProfileBoundaries(props: { bot: RosterBot; security: SpadeBotSecurity }
   const { security } = props;
   const own = security.own.commands || security.own.network || security.own.pluginNetwork;
   const settings = (
-    <Link
-      to="/settings/spade/security"
-      className={cn(buttonVariants({ size: "sm", variant: "ghost" }), rowPill)}
-    >
+    <Link to="/settings/spade/security" className={sectionActionClass}>
       Security settings
     </Link>
   );
-  const decides = (
-    <AutonomyChoice
-      title="How it decides"
-      value={security.autonomy}
-      who={props.bot.name}
-      confirmed={security.fullAccessConfirmed}
-      save={async (choice) => {
-        cache.setQueryData(
-          botSecurityKey(machine, props.bot.id, "bot"),
-          await setBotAutonomy(client, props.bot.id, choice),
-        );
-        // The bot's conversation says when it is in Full access: read the bots again.
-        await cache.invalidateQueries({ queryKey: agentsKey });
-      }}
-    />
-  );
-  if (!own && !setting)
-    return (
-      <ProfileSection label="Security" actions={settings}>
-        {decides}
-        <ProfilePackageEffects bot={props.bot} />
-        <SettingRow title={`Same as ${place}`} density="compact" inline>
-          <Button size="sm" variant="ghost" onClick={() => setSetting(true)}>
-            Set its own
-          </Button>
-        </SettingRow>
-      </ProfileSection>
-    );
   return (
-    <ProfileSection label="Security" actions={settings}>
-      {decides}
-      <ProfilePackageEffects bot={props.bot} />
-      <CommandsChoice
-        title="Commands run"
-        value={security.own.commands ? security.commands : "inherit"}
-        effective={security.commands}
-        inherit={`Same as ${place}`}
-        save={async (choice) =>
-          cache.setQueryData(
-            botSecurityKey(machine, props.bot.id, "bot"),
-            await setBotCommands(client, props.bot.id, choice === "inherit" ? null : choice),
-          )
-        }
-      />
-      <ProfileNetworkRows bot={props.bot} security={security} place={place} />
-    </ProfileSection>
+    <>
+      <ProfileSection label="Decision mode">
+        <AutonomyChoice
+          variant="segmented"
+          title="How it decides"
+          value={security.autonomy}
+          who={props.bot.name}
+          confirmed={security.fullAccessConfirmed}
+          save={async (choice) => {
+            cache.setQueryData(
+              botSecurityKey(machine, props.bot.id, "bot"),
+              await setBotAutonomy(client, props.bot.id, choice),
+            );
+            // The bot's conversation says when it is in Full access: read the bots again.
+            await cache.invalidateQueries({ queryKey: agentsKey });
+          }}
+        />
+      </ProfileSection>
+      <ProfileSection
+        label="Always asks you"
+        note="These always need your approval, even in Full access."
+      >
+        {alwaysAsksRows.map((row) => (
+          <SettingRow
+            key={row.title}
+            title={row.title}
+            description={row.description}
+            density="compact"
+            inline
+          />
+        ))}
+      </ProfileSection>
+      <ProfileSection label="Security" actions={settings}>
+        <ProfilePackageEffects bot={props.bot} />
+        {!own && !setting ? (
+          <SettingRow
+            title={`Same as ${place}`}
+            description="Commands and network follow this computer's security settings."
+            density="compact"
+            inline
+          >
+            <Button size="sm" variant="ghost" onClick={() => setSetting(true)}>
+              Set its own
+            </Button>
+          </SettingRow>
+        ) : (
+          <>
+            <CommandsChoice
+              title="Commands run"
+              value={security.own.commands ? security.commands : "inherit"}
+              effective={security.commands}
+              inherit={`Same as ${place}`}
+              compact
+              save={async (choice) =>
+                cache.setQueryData(
+                  botSecurityKey(machine, props.bot.id, "bot"),
+                  await setBotCommands(client, props.bot.id, choice === "inherit" ? null : choice),
+                )
+              }
+            />
+            <ProfileNetworkRows bot={props.bot} security={security} place={place} />
+          </>
+        )}
+      </ProfileSection>
+    </>
   );
 }
 
@@ -203,7 +258,10 @@ function ProfileFolders(props: { bot: RosterBot; security: SpadeBotSecurity }) {
       )
       .then((saved) => saved && setPath(""));
   return (
-    <ProfileSection label="Folders">
+    <ProfileSection
+      label="Folders"
+      note="Folders outside this bot's workspace that it can access inside its sandbox."
+    >
       {props.security.folders.length === 0 && <ProfileEmpty>Only its own workspace.</ProfileEmpty>}
       {props.security.folders.map((folder) => (
         <SettingRow
@@ -235,7 +293,7 @@ function ProfileFolders(props: { bot: RosterBot; security: SpadeBotSecurity }) {
       >
         <Input
           aria-label="Folder path"
-          placeholder="Folder path"
+          placeholder="/path/to/folder"
           value={path}
           disabled={change.saving}
           onChange={(event) => setPath(event.target.value)}
@@ -251,7 +309,7 @@ function ProfileFolders(props: { bot: RosterBot; security: SpadeBotSecurity }) {
           {picker && !typed ? (
             <Button
               variant="secondary"
-              className="h-8 shrink-0"
+              className="h-8 shrink-0 rounded-md"
               disabled={change.saving}
               onClick={() => void picker.choose().then((chosen) => chosen && add(chosen))}
             >
@@ -261,7 +319,7 @@ function ProfileFolders(props: { bot: RosterBot; security: SpadeBotSecurity }) {
             <Button
               type="submit"
               variant="secondary"
-              className="h-8 shrink-0"
+              className="h-8 shrink-0 rounded-md"
               disabled={change.saving || !typed.startsWith("/")}
             >
               Add folder

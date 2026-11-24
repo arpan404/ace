@@ -78,7 +78,7 @@ export type SpadeGroupItem =
       replyTo?: SpadeReplyTo | undefined;
     }
   /** `seq`: the stored event, which names the messages its words hold (ADR 0212 §3). */
-  | { kind: "member"; key: string; bot: SpadeGroupBot; text: string; seq?: number }
+  | { kind: "member"; key: string; bot: SpadeGroupBot; text: string; seq?: number; run?: string }
   /** A handoff, a queued ask, one that failed, Stop: a short muted line. */
   | { kind: "line"; key: string; text: string };
 
@@ -189,7 +189,14 @@ function foldEvent(state: SpadeGroupState, event: GroupEvent, seq: number): bool
   switch (event.type) {
     case "group_message": {
       if (event.from) {
-        state.items.push({ kind: "member", key, bot: event.from, text: event.text, seq });
+        state.items.push({
+          kind: "member",
+          key,
+          bot: event.from,
+          text: event.text,
+          seq,
+          ...(event.run ? { run: event.run } : {}),
+        });
         return true;
       }
       const mine = state.pending.findIndex((message) => message.text === event.text);
@@ -282,6 +289,8 @@ export type SpadeGroupRow =
       doc?: SpadeDocCard;
       /** Long enough to fold past ten lines (ADR 0212 amendment 2, `spadeMayFold`). */
       fold?: true;
+      /** The run this message belongs to, when stored. */
+      run?: string;
       /** First of a run of consecutive messages from this bot: its name shows above. */
       first: boolean;
       /** Last of the run: its face shows beside. */
@@ -331,6 +340,7 @@ export function spadeGroupView(state: SpadeGroupState): SpadeGroupView {
         ...(id ? { id } : {}),
         ...(quote ? { quote } : {}),
         ...(doc ? { doc } : {}),
+        ...(item.run ? { run: item.run } : {}),
         ...(!doc && spadeMayFold(segment.text) ? { fold: true as const } : {}),
       });
       if (id) said.add(id, segment.title ?? segment.text, { kind: "member", name: item.bot.name });

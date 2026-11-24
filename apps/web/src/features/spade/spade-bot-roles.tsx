@@ -55,6 +55,7 @@ function RoleRows(props: { bot: RosterBot }) {
       <SettingRow title="Its own turns" density="compact" inline>
         <EffortSelect
           title="Its own turns"
+          className="w-40"
           value={ownTurns}
           none={effortFollows(ownTurns ? undefined : data.mainEffort)}
           save={(effort) => change({ efforts: { main: effort } })}
@@ -68,18 +69,16 @@ function RoleRows(props: { bot: RosterBot }) {
             key={row.role}
             title={spadeRoleNames[row.role]}
             description={
-              <>
-                <span className="block tabular-nums">{spent}</span>
-                {!own && <span className="block">Follows Settings</span>}
-              </>
+              <span className="tabular-nums">{own ? spent : `${spent} · Follows Settings`}</span>
             }
             value={own}
             none="Follow Settings"
             follows={own ? undefined : row.model}
-            inline
+            stacked
             beside={
               <EffortSelect
                 title={spadeRoleNames[row.role]}
+                className="w-full"
                 value={data.ownEfforts[row.role]}
                 none={effortFollows(data.ownEfforts[row.role] ? undefined : row.effort)}
                 save={(effort) => change({ efforts: { [row.role]: effort } })}

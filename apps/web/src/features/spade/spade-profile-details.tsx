@@ -2,7 +2,7 @@ import { spadeAgentTaskMax, type SpadePanel } from "@ace/ui-core/spade-chat";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
-import { SettingCard, SettingRow } from "@/components/setting-row.tsx";
+import { SettingRow } from "@/components/setting-row.tsx";
 import { Button, buttonLook } from "@/components/ui/button.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -11,7 +11,13 @@ import { ProfilePackageLine } from "./spade-bot-package.tsx";
 import { BotRoles } from "./spade-bot-roles.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { useEditBot } from "./spade-profile-actions.ts";
-import { pillButton, ProfileSection } from "./spade-profile-parts.tsx";
+import {
+  pillButton,
+  ProfileCard,
+  profileRowClass,
+  ProfileSection,
+  profileWell,
+} from "./spade-profile-parts.tsx";
 import { TaskHistory } from "./spade-task-history.tsx";
 import { useDeleteBot, useDuplicateBot, useExportBot } from "./use-bot-actions.ts";
 import { DeleteMakerDialog, type DeletingMaker } from "./spade-delete-maker.tsx";
@@ -21,13 +27,6 @@ import { VoiceRows } from "./spade-voice-settings.tsx";
 import { useSpadeModels } from "./use-spade-models.ts";
 import { voiceKey } from "./use-spoken-replies.ts";
 
-/**
- * Details: what the bot is and how it behaves. A move to another machine, or what needs the
- * person since one, first (ADR 0187). Its task, the model and machine it runs with
- * (and, folded, the models for its other work), how it sounds (Speak replies and its voice, on
- * this device), its routines, the apps and plugins it may use, its boundaries, its spending,
- * then Duplicate, Export and Delete. Everything edits where it shows.
- */
 /** A packaged bot's panels, each opened beside its conversation (ADR 0200 §5.2). */
 export interface ProfilePanels {
   list: readonly SpadePanel[];
@@ -40,14 +39,17 @@ export function ProfileJob(props: { bot: RosterBot; panels?: ProfilePanels | und
   return (
     <>
       <ProfilePackageLine bot={bot} />
-      <ProfileSection label="Task">
+      <ProfileSection
+        label="Task"
+        note="What this bot is for, in your words. It follows this on every turn."
+      >
         <TaskField bot={bot} />
         <TaskHistory bot={bot} />
       </ProfileSection>
       {props.panels && props.panels.list.length > 0 && (
         <ProfileSection label="Panels">
           {props.panels.list.map((panel) => (
-            <SettingRow key={panel.id} title={panel.title} inline>
+            <SettingRow key={panel.id} title={panel.title} density="compact" inline>
               <Button size="sm" variant="ghost" onClick={() => props.panels?.onOpen(panel.id)}>
                 Open
               </Button>
@@ -71,10 +73,13 @@ export function ProfileModel(props: { bot: RosterBot }) {
         <SettingRow
           title="Model"
           description={modelProblem && <span className="text-destructive">{modelProblem}</span>}
+          density="compact"
+          inline
         >
           <SpadeModelPicker
             forBots
             value={bot.model}
+            className="w-44"
             onChange={(model) => {
               if (!/\/./.test(model) || model === bot.model) return;
               void edit({ model }).then(setModelProblem);
@@ -92,7 +97,7 @@ export function ProfileModel(props: { bot: RosterBot }) {
 export function ProfileVoice(props: { bot: RosterBot }) {
   const speechModel = useSpadeModels(true).data?.speechModel;
   return (
-    <ProfileSection label="Voice">
+    <ProfileSection label="Spoken replies">
       <VoiceRows bot={voiceKey(props.bot.machine.key, props.bot.id)} speechModel={speechModel} />
     </ProfileSection>
   );
@@ -107,10 +112,11 @@ export function ProfileRunning() {
     <ProfileSection label="Running">
       <SettingRow
         title="What runs"
+        density="compact"
         inline
         description="Every bot's state, spend and next wake, with Stop, Pause and Resume."
       >
-        <Link to="/spade/running" {...buttonLook({ variant: "ghost" }, pillButton)}>
+        <Link to="/spade/running" {...buttonLook({ variant: "ghost", size: "sm" }, pillButton)}>
           Open
         </Link>
       </SettingRow>
@@ -119,6 +125,11 @@ export function ProfileRunning() {
 }
 
 const mayWords = { yes: "Yes", ask: "Ask me first", no: "No" } as const;
+const mayNotes = {
+  yes: "Can create helper bots and add them to its clubs on its own.",
+  ask: "Asks you before creating a bot or adding one to its clubs.",
+  no: "Never creates bots on its own.",
+} as const;
 
 /**
  * May create bots (ADR 0161, amendment 1): whether the bot makes bots for the person, and adds
@@ -130,9 +141,13 @@ export function ProfileMakesBots(props: { bot: RosterBot }) {
   const edit = useEditBot(bot);
   const [problem, setProblem] = useState<string>();
   return (
-    <ProfileSection label="Making bots">
+    <ProfileSection
+      label="Bot creation"
+      note={`${mayNotes[bot.mayCreateBots]} With untrusted content in view, it always asks first.`}
+    >
       <SettingRow
         title="May create bots"
+        density="compact"
         inline
         description={problem && <span className="text-destructive">{problem}</span>}
       >
@@ -156,87 +171,112 @@ export function ProfileMakesBots(props: { bot: RosterBot }) {
 }
 
 /**
- * The task, as prose; editing turns it into its field in place. ⌘↵ or leaving the field saves,
- * Esc puts it back.
+ * The task as a growing multi-line field: always ready to edit, with Save and Cancel shown only
+ * while editing. ⌘↵ saves, Esc puts it back.
  */
 function TaskField(props: { bot: RosterBot }) {
   const { bot } = props;
   const edit = useEditBot(bot);
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
   const [editing, setEditing] = useState(false);
+  const [syncedTask, setSyncedTask] = useState(bot.task);
   const [text, setText] = useState(bot.task);
   const [problem, setProblem] = useState<string>();
   const [saving, setSaving] = useState(false);
-  // Esc put it back: the blur as the field goes must not save what was dropped.
-  const dropped = useRef(false);
+
+  if (bot.task !== syncedTask) {
+    setSyncedTask(bot.task);
+    if (!editing) setText(bot.task);
+  }
+
+  const dirty = text.trim() !== bot.task.trim();
+
+  const cancel = () => {
+    setText(bot.task);
+    setProblem(undefined);
+    setEditing(false);
+    fieldRef.current?.blur();
+  };
+
   const save = async () => {
-    if (dropped.current) return;
+    if (saving) return;
     const task = text.trim();
     if (task === bot.task.trim()) {
       setEditing(false);
+      fieldRef.current?.blur();
       return;
     }
     setSaving(true);
+    setProblem(undefined);
     const refused = await edit({ task });
     setSaving(false);
     setProblem(refused);
-    if (!refused) setEditing(false);
+    if (!refused) {
+      setText(task);
+      setSyncedTask(task);
+      setEditing(false);
+      fieldRef.current?.blur();
+    }
   };
-  const prose = "text-md leading-[22px]";
-  if (!editing)
-    return (
-      <button
-        type="button"
-        data-setting-slot=""
-        aria-label={bot.task ? `Edit the task: ${bot.task}` : "Write its task"}
-        onClick={() => {
-          dropped.current = false;
-          setText(bot.task);
-          setProblem(undefined);
-          setEditing(true);
-        }}
-        className={cn(
-          "-mx-4 rounded-lg px-4 py-3 text-left whitespace-pre-wrap focus-ring-inset hover:bg-hover",
-          prose,
-          bot.task ? "text-foreground" : "text-subtle-foreground",
-        )}
-      >
-        {bot.task || "What this bot is for, in your words"}
-      </button>
-    );
+
   return (
-    <div data-setting-slot="" className="flex flex-col gap-1.5 py-2">
+    <div data-setting-slot="" className="flex flex-col gap-2.5 py-3">
       <textarea
+        ref={fieldRef}
         aria-label="Task"
         value={text}
-        autoFocus
-        rows={4}
+        rows={3}
         maxLength={spadeAgentTaskMax}
         disabled={saving}
         placeholder="What this bot is for, in your words"
         aria-invalid={problem ? true : undefined}
-        onChange={(event) => setText(event.target.value)}
-        onBlur={() => void save()}
+        onFocus={() => setEditing(true)}
+        onBlur={() => {
+          if (!dirty && !saving && !problem) setEditing(false);
+        }}
+        onChange={(event) => {
+          setText(event.target.value);
+          if (!editing) setEditing(true);
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
             void save();
           } else if (event.key === "Escape") {
             event.stopPropagation();
-            dropped.current = true;
-            setText(bot.task);
-            setProblem(undefined);
-            setEditing(false);
+            cancel();
           }
         }}
-        className={cn(
-          "-mx-2.5 resize-none rounded-md bg-chat-well px-3 py-2.5 text-foreground shadow-[inset_0_0_0_1px_var(--foreground)] outline-none [field-sizing:content] placeholder:text-subtle-foreground",
-          prose,
-        )}
+        className={cn(profileWell, "min-h-20 px-3 py-2.5")}
       />
       {problem && (
         <p role="alert" className="text-xs text-destructive">
           {problem}
         </p>
+      )}
+      {editing && (
+        <div className="flex items-center justify-end gap-1.5">
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-8 rounded-md px-3"
+            disabled={saving}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={cancel}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            className="h-8 rounded-md px-3.5"
+            disabled={saving || !dirty}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => void save()}
+          >
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </div>
       )}
     </div>
   );
@@ -255,15 +295,13 @@ export function ProfileBotActions(props: { bot: RosterBot }) {
   const deleted = (done: boolean) => {
     if (done) void navigate({ to: "/spade", replace: true });
   };
-  const row =
-    "flex min-h-11 w-full items-center text-left text-ui text-foreground focus-ring-inset";
   return (
     <>
-      <SettingCard>
+      <ProfileCard>
         <button
           type="button"
           data-setting-slot=""
-          className={row}
+          className={cn(profileRowClass, "min-h-11 py-2.5 text-ui text-foreground")}
           onClick={() =>
             void duplicate(bot).then((copy) => {
               if (copy)
@@ -283,7 +321,7 @@ export function ProfileBotActions(props: { bot: RosterBot }) {
         <button
           type="button"
           data-setting-slot=""
-          className={row}
+          className={cn(profileRowClass, "min-h-11 py-2.5 text-ui text-foreground")}
           onClick={() => void exportBot(bot)}
         >
           Export
@@ -292,7 +330,10 @@ export function ProfileBotActions(props: { bot: RosterBot }) {
           <button
             type="button"
             data-setting-slot=""
-            className={cn(row, "text-destructive")}
+            className={cn(
+              profileRowClass,
+              "min-h-11 py-2.5 text-ui text-destructive hover:bg-destructive/10 active:bg-destructive/15",
+            )}
             onClick={() =>
               void workersOf().then((made) => {
                 // A bot that made workers asks one thing: stop them, or keep them going.
@@ -314,7 +355,7 @@ export function ProfileBotActions(props: { bot: RosterBot }) {
             Delete bot…
           </button>
         )}
-      </SettingCard>
+      </ProfileCard>
       <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
       <DeleteMakerDialog deleting={deleting} onDone={() => setDeleting(undefined)} />
     </>

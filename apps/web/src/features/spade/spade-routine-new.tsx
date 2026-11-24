@@ -1,12 +1,15 @@
+import { CaretRightIcon, CheckIcon } from "@ace/icons";
 import type { SpadeAceEvent, SpadeTrigger } from "@ace/ui-core/spade-chat";
 import { spadeWhenInSentence } from "@ace/ui-core/spade-chat";
 import { useId, useState } from "react";
+import { Icon } from "@/components/icon.tsx";
 import { SettingCard } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { useNow } from "@/lib/time.ts";
 import { cn } from "@/lib/cn.ts";
 import { ProfilePage } from "./spade-profile-page.tsx";
+import { profileRowClass, profileWell } from "./spade-profile-parts.tsx";
 import { fault } from "./spade-profile-actions.ts";
 import { nextRunOf, routineChips, routineNameOf } from "./spade-routine-preview.ts";
 import { addRoutine, personZone } from "./spade-routines-api.ts";
@@ -22,9 +25,6 @@ const others: { value: Exclude<When, "schedule">; label: string }[] = [
   { value: "thread_needs_you", label: "An ace thread needs you" },
   { value: "webhook", label: "A webhook is called" },
 ];
-
-const well =
-  "min-h-24 w-full resize-none rounded-md bg-chat-well px-3 py-2.5 text-ui leading-5 text-foreground shadow-[inset_0_0_0_1px_var(--border-strong)] outline-none [field-sizing:content] placeholder:text-subtle-foreground focus-visible:shadow-[inset_0_0_0_1px_var(--foreground)]";
 
 const triggerOf = (when: When, schedule: string): SpadeTrigger =>
   when === "schedule"
@@ -71,6 +71,7 @@ export function NewRoutinePage(props: { bot: RosterBot; onBack(): void; onCreate
       setSaving(false);
     }
   };
+  const selectedOther = others.find((each) => each.value === when);
   return (
     <ProfilePage title="New routine" onBack={props.onBack}>
       <form
@@ -79,101 +80,164 @@ export function NewRoutinePage(props: { bot: RosterBot; onBack(): void; onCreate
           event.preventDefault();
           void create();
         }}
-        className="flex flex-col gap-6"
+        className="flex flex-col gap-5"
       >
-        <section className="flex flex-col gap-1.5">
-          <label htmlFor={ids.what} className="mx-1 text-ui text-muted-foreground">
-            What to do
-          </label>
-          <textarea
-            id={ids.what}
-            value={instruction}
-            autoFocus
-            rows={3}
-            placeholder={placeholderOf(bot.task)}
-            onChange={(event) => setInstruction(event.target.value)}
-            className={well}
-          />
-        </section>
-        <section className="flex flex-col gap-1.5">
-          <label htmlFor={ids.when} className="mx-1 text-ui text-muted-foreground">
-            When
-          </label>
-          {when === "schedule" ? (
-            <>
-              <Input
-                id={ids.when}
-                value={schedule}
-                placeholder="weekdays at 9:00"
-                onChange={(event) => setSchedule(event.target.value)}
+        <section className="flex flex-col">
+          <div className="mx-1 mb-1.5 flex min-h-5 items-center">
+            <label htmlFor={ids.what} className="text-xs font-medium text-muted-foreground">
+              What to do
+            </label>
+          </div>
+          <SettingCard>
+            <div data-setting-slot="" className="py-3">
+              <textarea
+                id={ids.what}
+                value={instruction}
+                autoFocus
+                rows={3}
+                maxLength={4000}
+                disabled={saving}
+                placeholder={placeholderOf(bot.task)}
+                onChange={(event) => setInstruction(event.target.value)}
+                className={cn(profileWell, "min-h-24 py-2.5")}
               />
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {routineChips.map((chip) => (
-                  <button
-                    key={chip.label}
-                    type="button"
-                    aria-pressed={schedule === chip.schedule}
-                    onClick={() => setSchedule(chip.schedule)}
-                    className={cn(
-                      "h-7 rounded-full px-3 text-ui focus-ring",
-                      schedule === chip.schedule
-                        ? "bg-active text-foreground"
-                        : "bg-hover text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {chip.label}
-                  </button>
-                ))}
-              </div>
-              {next !== undefined && (
-                <p className="mx-1 pt-1 text-ui text-muted-foreground">
-                  {`Next: ${spadeWhenInSentence(next, now, personZone())}`}
-                </p>
-              )}
-            </>
-          ) : (
-            <p className="mx-1 text-ui text-foreground">
-              {others.find((each) => each.value === when)?.label}
-            </p>
-          )}
-          <button
-            type="button"
-            aria-expanded={more}
-            onClick={() => setMore((open) => !open)}
-            className="mx-1 w-fit rounded-md py-1 text-ui text-muted-foreground focus-ring hover:text-foreground"
-          >
-            Or when…
-          </button>
-          {more && (
-            <SettingCard>
-              <div role="radiogroup" aria-label="Or when" className="flex flex-col">
-                {[{ value: "schedule" as const, label: "On a schedule" }, ...others].map(
-                  (option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      role="radio"
-                      aria-checked={when === option.value}
-                      data-setting-slot=""
-                      onClick={() => setWhen(option.value)}
-                      className="flex min-h-11 items-center gap-3 text-left text-ui text-foreground focus-ring"
-                    >
-                      <span className="flex-1">{option.label}</span>
-                      {when === option.value && <span aria-hidden>✓</span>}
-                    </button>
-                  ),
+            </div>
+          </SettingCard>
+        </section>
+
+        <section className="flex flex-col">
+          <div className="mx-1 mb-1.5 flex min-h-5 items-center">
+            <label htmlFor={ids.when} className="text-xs font-medium text-muted-foreground">
+              When
+            </label>
+          </div>
+          <SettingCard>
+            {when === "schedule" ? (
+              <div data-setting-slot="" className="flex flex-col gap-2.5 py-3">
+                <Input
+                  id={ids.when}
+                  value={schedule}
+                  disabled={saving}
+                  placeholder="weekdays at 9:00"
+                  onChange={(event) => setSchedule(event.target.value)}
+                />
+                <div className="flex flex-wrap gap-1.5">
+                  {routineChips.map((chip) => {
+                    const active = schedule === chip.schedule;
+                    return (
+                      <button
+                        key={chip.label}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => setSchedule(chip.schedule)}
+                        className={cn(
+                          "h-7 rounded-full px-2.5 text-xs font-medium transition-colors duration-(--motion-fast) focus-ring",
+                          active
+                            ? "bg-active text-foreground shadow-[inset_0_0_0_1px_var(--border-strong)]"
+                            : "bg-surface-2 text-muted-foreground shadow-[inset_0_0_0_1px_var(--border-soft)] hover:bg-hover hover:text-foreground",
+                        )}
+                      >
+                        {chip.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {next !== undefined && (
+                  <p className="text-xs text-muted-foreground tabular-nums">
+                    {`Next: ${spadeWhenInSentence(next, now, personZone())}`}
+                  </p>
                 )}
               </div>
-            </SettingCard>
-          )}
+            ) : (
+              <div
+                data-setting-slot=""
+                className="flex min-h-11 items-center justify-between gap-2 py-2"
+              >
+                <span className="truncate text-ui text-foreground">{selectedOther?.label}</span>
+                <button
+                  type="button"
+                  onClick={() => setWhen("schedule")}
+                  className="-mr-2 h-7 shrink-0 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:text-foreground"
+                >
+                  Use schedule
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              data-setting-slot=""
+              aria-expanded={more}
+              onClick={() => setMore((open) => !open)}
+              className={cn(
+                profileRowClass,
+                "-mx-4 min-h-11 w-[calc(100%+2rem)] py-2.5 text-ui text-muted-foreground hover:text-foreground",
+                !more && "rounded-b-lg",
+              )}
+            >
+              <span className="flex-1">Or when…</span>
+              <Icon
+                icon={CaretRightIcon}
+                size={13}
+                className={cn(
+                  "shrink-0 text-subtle-foreground transition-transform duration-(--motion-fast)",
+                  more && "rotate-90",
+                )}
+              />
+            </button>
+            {more && (
+              <div
+                role="radiogroup"
+                aria-label="Or when"
+                data-setting-slot=""
+                className="-mx-4 flex flex-col divide-y divide-border-soft"
+              >
+                {[{ value: "schedule" as const, label: "On a schedule" }, ...others].map(
+                  (option) => {
+                    const checked = when === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={checked}
+                        onClick={() => setWhen(option.value)}
+                        className={cn(
+                          profileRowClass,
+                          "min-h-11 py-2.5 text-ui last:rounded-b-lg",
+                          checked ? "font-medium text-foreground" : "text-muted-foreground",
+                        )}
+                      >
+                        <span className="flex-1">{option.label}</span>
+                        {checked && (
+                          <Icon icon={CheckIcon} size={14} className="shrink-0 text-foreground" />
+                        )}
+                      </button>
+                    );
+                  },
+                )}
+              </div>
+            )}
+          </SettingCard>
+          <p className="mx-1 mt-1.5 text-xs leading-relaxed text-muted-foreground">
+            {when === "schedule"
+              ? "Type any phrase like “every weekday at 9:00” or pick a preset above."
+              : "Runs automatically whenever this trigger fires."}
+          </p>
         </section>
+
         {problem && (
-          <p role="alert" className="mx-1 text-ui text-destructive">
+          <p role="alert" className="mx-1 text-xs text-destructive">
             {problem}
           </p>
         )}
-        <Button type="submit" disabled={!ready || saving} className="h-10 rounded-full">
-          Create
+
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={!ready || saving}
+          className="h-9 w-full rounded-md"
+        >
+          {saving ? "Creating…" : "Create"}
         </Button>
       </form>
     </ProfilePage>

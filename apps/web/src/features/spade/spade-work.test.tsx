@@ -245,3 +245,15 @@ test("deleting a bot that made workers asks whether to stop them or keep them go
   );
   await waitFor(async () => expect((await botRow("Linux repro")).textContent).toBeTruthy());
 });
+
+test("Activity orders Computer, Suggested and Voice chat with surfaces folded inside Computer", async () => {
+  await spadeApp("/spade/watcher?profile=work", seed);
+  const work = within(await screen.findByRole("tabpanel"));
+  const headings = (await work.findAllByRole("heading", { level: 3 })).map((h) => h.textContent);
+  expect(headings.slice(-3)).toEqual(["Computer", "Suggested", "Voice chat"]);
+  const computer = within(work.getByRole("region", { name: "Computer" }));
+  expect(computer.getByRole("button", { name: "Open Watcher's computer" })).toBeTruthy();
+  expect(computer.getByRole("button", { name: "Terminal" })).toBeTruthy();
+  await userEvent.click(work.getByRole("button", { name: "Hide" }));
+  expect(work.queryByRole("region", { name: "Suggested" })).toBeNull();
+});

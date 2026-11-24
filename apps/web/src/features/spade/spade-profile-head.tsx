@@ -14,12 +14,12 @@ import { useSharedIn } from "./spade-shared-lines.tsx";
 import { sentAvatar, useEditBot } from "./spade-profile-actions.ts";
 import { useWornPairs, type RosterBot } from "./use-spade-roster.ts";
 
-/** `--spade-profile-face`. */
-const faceSize = 96;
+/** Centered profile face size, balanced for the 360px side panel. */
+const faceSize = 72;
 
 /**
- * The profile's head: the bot's 96px face (its dot ringed at 14px) and its name in 22/28, both
- * edited where they are. The face opens a popover to change it, saved as the popover closes;
+ * The profile's head: the bot's 72px face (its dot ringed at 14px) and its name in 20px semibold,
+ * both edited where they are. The face opens a popover to change it, saved as the popover closes;
  * the name turns into its field, ↵ or leaving it saves, Esc puts it back. Spade keeps its own
  * face and name.
  */
@@ -48,22 +48,22 @@ export function ProfileHead(props: { bot: RosterBot }) {
   return (
     <div
       {...part("page-header", undefined, "profile")}
-      className="flex flex-col items-center gap-2.5 px-4 pt-5 pb-4 text-center [--row-wash:var(--panel)]"
+      className="flex flex-col items-center gap-3 px-4 pt-6 pb-3 text-center [--row-wash:var(--panel)]"
     >
       {main ? face : <FaceButton bot={bot}>{face}</FaceButton>}
-      {main ? (
-        <h2
-          {...part("page-title")}
-          className="max-w-full truncate px-2 text-2xl font-semibold tracking-title text-foreground"
-        >
-          {bot.name}
-        </h2>
-      ) : (
-        <NameField bot={bot} />
-      )}
-      {quiet.length > 0 && (
-        <p className="-mt-1.5 text-ui text-muted-foreground">{quiet.join(" · ")}</p>
-      )}
+      <div className="flex max-w-full flex-col items-center gap-1">
+        {main ? (
+          <h2
+            {...part("page-title")}
+            className="max-w-full truncate px-2 text-xl font-semibold tracking-title text-foreground"
+          >
+            {bot.name}
+          </h2>
+        ) : (
+          <NameField bot={bot} />
+        )}
+        {quiet.length > 0 && <p className="text-xs text-muted-foreground">{quiet.join(" · ")}</p>}
+      </div>
       {bot.archived && <ProfileArchived bot={bot} />}
     </div>
   );
@@ -157,7 +157,7 @@ function NameField(props: { bot: RosterBot }) {
     setProblem(refused);
     if (!refused) setEditing(false);
   };
-  const type = "text-2xl font-semibold tracking-title text-foreground";
+  const type = "text-xl font-semibold tracking-title text-foreground";
   if (!editing)
     return (
       <button
@@ -171,7 +171,7 @@ function NameField(props: { bot: RosterBot }) {
           setEditing(true);
         }}
         className={cn(
-          "max-w-full truncate rounded-md px-2 transition-colors duration-(--motion-fast) focus-ring hover:bg-hover",
+          "max-w-full truncate rounded-md px-2 py-0.5 transition-colors duration-(--motion-fast) focus-ring hover:bg-hover",
           type,
         )}
       >

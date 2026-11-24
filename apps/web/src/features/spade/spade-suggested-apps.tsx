@@ -38,6 +38,8 @@ export function SuggestedApps(props: {
   onConnected?: ((connector: SpadeConnector) => void) | undefined;
   /** Its heading; "Apps that fit" unless given. */
   title?: string;
+  /** Embedded inside a flush `ProfileCard` (rows own their `px-4`, heading stays screen-reader only). */
+  embedded?: boolean;
   className?: string;
 }) {
   const fit = useAppsFit(props.task);
@@ -68,16 +70,21 @@ export function SuggestedApps(props: {
     )
     .slice(0, MOST);
   if (shown.length === 0) return null;
+  const heading = props.title ?? "Apps that fit";
   return (
     <section
-      aria-label={props.title ?? "Apps that fit"}
+      aria-label={heading}
       data-setting-slot=""
-      className={cn("flex flex-col gap-1", props.className)}
+      className={cn("flex flex-col", !props.embedded && "gap-1 pt-3", props.className)}
     >
-      <h3 className="text-xs font-medium text-subtle-foreground">
-        {props.title ?? "Apps that fit"}
+      <h3
+        className={cn(
+          props.embedded ? "sr-only" : "pb-1 text-xs font-medium text-muted-foreground",
+        )}
+      >
+        {heading}
       </h3>
-      <ul className="flex flex-col">
+      <ul className="flex flex-col divide-y divide-border-soft">
         {shown.map((entry) => (
           <SuggestedApp
             key={entry.id}
@@ -89,6 +96,7 @@ export function SuggestedApps(props: {
                 each.state !== "signing_in",
             )}
             botId={props.botId}
+            embedded={props.embedded ?? false}
             onConnected={props.onConnected}
           />
         ))}
@@ -102,6 +110,7 @@ function SuggestedApp(props: {
   /** The person's connector for it, when it is connected already. */
   connected: SpadeConnector | undefined;
   botId: string | undefined;
+  embedded: boolean;
   onConnected: ((connector: SpadeConnector) => void) | undefined;
 }) {
   const { entry } = props;
@@ -131,19 +140,29 @@ function SuggestedApp(props: {
       ? "Takes a key you make in the app"
       : category;
   return (
-    <li {...part("list-row", undefined, "suggested-app")} className="flex flex-col gap-1.5 py-2">
+    <li
+      {...part("list-row", undefined, "suggested-app")}
+      className={cn(
+        "flex flex-col gap-2 transition-colors duration-(--motion-fast)",
+        props.embedded ? "min-h-13 justify-center px-4 py-2 hover:bg-hover" : "py-2",
+      )}
+    >
       <div className="flex min-h-9 items-center gap-3">
-        <AppMark catalogue={entry.id} name={entry.name} />
+        <AppMark
+          catalogue={entry.id}
+          name={entry.name}
+          className={props.embedded ? "size-5 rounded-xs" : undefined}
+        />
         <div className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-ui font-medium text-foreground">{entry.name}</span>
-          {line && <span className="truncate text-xs text-subtle-foreground">{line}</span>}
+          {line && <span className="truncate text-xs text-muted-foreground">{line}</span>}
         </div>
         {props.connected ? (
           <Button
             size="sm"
             variant="ghost"
-            // The word, not its pill, on the rows' right edge.
-            className="-mr-2.5"
+            // The word, not its pill, aligns with the rows' right edge.
+            className="-mr-2 shrink-0 rounded-full px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
             aria-label={`Use ${entry.name}`}
             onClick={() => props.connected && void give(props.connected)}
           >
@@ -153,8 +172,8 @@ function SuggestedApp(props: {
           <Button
             size="sm"
             variant="ghost"
-            // The word, not its pill, on the rows' right edge.
-            className="-mr-2.5"
+            // The word, not its pill, aligns with the rows' right edge.
+            className="-mr-2 shrink-0 rounded-full px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
             aria-label={`Connect ${entry.name}`}
             disabled={busy}
             onClick={() => void flow.start({ catalogue: entry.id })}
@@ -162,14 +181,19 @@ function SuggestedApp(props: {
             Connect
           </Button>
         ) : entry.ready === "key" && key === undefined ? (
-          <Button size="sm" variant="ghost" className="-mr-2.5" onClick={() => setKey("")}>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="-mr-2 shrink-0 rounded-full px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+            onClick={() => setKey("")}
+          >
             Add a key
           </Button>
         ) : null}
       </div>
       {key !== undefined && !props.connected && (
         <form
-          className="flex flex-col gap-1.5 pl-11"
+          className={cn("flex flex-col gap-2", props.embedded ? "pl-8" : "pl-10")}
           onSubmit={(event) => {
             event.preventDefault();
             if (!key.trim()) return;
@@ -194,7 +218,7 @@ function SuggestedApp(props: {
               `Make a key in ${entry.name}'s settings, then paste it here.`
             )}
           </label>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <Input
               id={field}
               type="password"
@@ -214,10 +238,13 @@ function SuggestedApp(props: {
         phase={flow.phase}
         name={entry.name}
         onCancel={flow.cancel}
-        className="pl-11 text-xs text-foreground"
+        className={cn("text-xs text-foreground", props.embedded ? "pl-8" : "pl-10")}
       />
       {failure && (
-        <p role="alert" className="pl-11 text-xs text-destructive">
+        <p
+          role="alert"
+          className={cn("text-xs text-destructive", props.embedded ? "pl-8" : "pl-10")}
+        >
           {failure}
         </p>
       )}

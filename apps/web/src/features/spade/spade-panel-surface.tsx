@@ -1,11 +1,11 @@
 import { ArrowsOutSimpleIcon, CaretLeftIcon } from "@ace/icons";
-import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { BotTerminal } from "./computer/bot-terminal.tsx";
 import { DriveLine } from "./computer/drive-line.tsx";
 import { FileManager } from "./computer/file-manager.tsx";
 import type { FilesAt, ProfileComputerPlace } from "./computer/profile-computer.tsx";
 import { SurfacePicture } from "./computer/surface-picture.tsx";
+import { roundButton } from "./spade-profile-parts.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
 
 /** What the panel shows in place of its tabs: a file or the files, or one surface of its computer. */
@@ -37,24 +37,26 @@ export function PanelSurfaceView(props: {
   const title = panelSurfaceTitle(surface);
   return (
     <section aria-label={title} className="flex min-h-0 flex-1 flex-col">
-      <div className="flex h-11 shrink-0 items-center gap-1 px-2">
-        <button
-          type="button"
-          aria-label="Back"
+      <div className="flex h-14 shrink-0 items-center gap-3 px-4">
+        <IconButton
+          icon={CaretLeftIcon}
+          label="Back"
+          tip="Back"
+          size="default"
+          className={roundButton}
           onClick={props.onBack}
-          className="flex h-8 items-center rounded-full pr-3 pl-2 text-muted-foreground focus-ring hover:bg-hover hover:text-foreground"
-        >
-          <Icon icon={CaretLeftIcon} size={16} />
-        </button>
-        <h3 className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">{title}</h3>
+        />
+        <h3 className="min-w-0 flex-1 truncate text-md font-semibold text-foreground">{title}</h3>
         <IconButton
           icon={ArrowsOutSimpleIcon}
           label="Full screen"
           tip="Full screen"
+          size="default"
+          className={roundButton}
           onClick={props.onExpand}
         />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-6">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-8">
         {surface.kind === "files" ? (
           <FileManager
             key={`${bot.machine.key}/${bot.id}`}
@@ -69,15 +71,19 @@ export function PanelSurfaceView(props: {
             writable={state.mayAct}
           />
         ) : surface.kind === "terminal" ? (
-          <>
-            <div role="tabpanel" aria-label="Terminal" className="h-96 overflow-hidden rounded-xl">
+          <div className="flex flex-col gap-3">
+            <div role="tabpanel" aria-label="Terminal" className="-mx-4 -my-4 h-96">
               <BotTerminal bot={bot} mayType={state.mayAct} />
             </div>
             <DriveLine bot={bot} state={state} what="terminal" />
-          </>
+          </div>
         ) : (
-          <>
-            <div role="tabpanel" aria-label={names[surface.kind]}>
+          <div className="flex flex-col gap-3">
+            <div
+              role="tabpanel"
+              aria-label={names[surface.kind]}
+              className="overflow-hidden rounded-lg bg-surface-1"
+            >
               <SurfacePicture
                 machine={bot.machine}
                 bot={bot}
@@ -90,7 +96,7 @@ export function PanelSurfaceView(props: {
               />
             </div>
             <DriveLine bot={bot} state={state} what={surface.kind} />
-          </>
+          </div>
         )}
       </div>
     </section>

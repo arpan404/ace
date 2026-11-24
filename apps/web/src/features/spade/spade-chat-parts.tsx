@@ -25,13 +25,17 @@ import {
   type SpeechVoice,
 } from "./spade-speech.ts";
 import { useBotVoiceContext } from "./use-spoken-replies.ts";
-import { messageAttribute, QuoteLine, useSpadeReplies } from "./spade-chat-replies.tsx";
+import {
+  messageAttribute,
+  messageIdsAttribute,
+  useSpadeReplies,
+} from "./spade-chat-replies.tsx";
 
 /** Where no bot sets one (a club, a digest): the system's own default voice. */
 const systemVoice: SpeechVoice = { engine: "system", voice: undefined };
 
 /* What a chat's bubbles carry besides their words: a failure's line, their actions (time, Copy,
- * Read aloud), file chips, a reply's steps and a speaker's name; and the working line. */
+ * Read aloud), file chips, a speaker's header, the NEW divider, and the working line. */
 
 /**
  * A failed reply: what failed and what to do, by its kind, naming the endpoint; Set up a model
@@ -98,9 +102,9 @@ export function Failure(props: {
 }
 
 /**
- * While the bot works, where its next bubble will appear: its 32px face moving, one line of what
- * it is doing and what that touches (the command it runs, in mono), and how long it has been at
- * it; Watch opens the right panel on what it uses.
+ * While the bot works, where its next bubble will appear: its small face moving, one line of what
+ * it is doing and what that touches (the command it runs, in mono); Watch opens the right panel
+ * on what it uses.
  */
 export function WorkingLine(props: {
   avatar: SpadeAvatar;
@@ -115,9 +119,9 @@ export function WorkingLine(props: {
   return (
     <div
       role="status"
-      className="group/work mt-(--chat-turn-gap) flex min-w-0 items-center gap-2.5 px-1 first:mt-0"
+      className="group/work mt-(--chat-turn-gap) flex min-w-0 items-center gap-2 first:mt-0"
     >
-      <SpadeFace avatar={props.avatar} size={28} state={props.state} />
+      <SpadeFace avatar={props.avatar} size={24} state={props.state} />
       {props.onWatch ? (
         <button
           type="button"
@@ -172,12 +176,43 @@ export function WorkingLine(props: {
   );
 }
 
-/** A group member's or another bot's turn: its 24px face and name, above its run. */
-export function SpeakerLine(props: { avatar: SpadeAvatar; name: string }) {
+/**
+ * A club member's or another bot's sender header: small face and name once per run of messages,
+ * aligned flush to the bubble's edge, with optional quiet inline relay context ("answering Spade").
+ */
+export function SpeakerLine(props: {
+  avatar: SpadeAvatar;
+  name: string;
+  detail?: string | undefined;
+  align?: "start" | "end";
+}) {
   return (
-    <div className="mb-1.5 ml-1 flex min-w-0 items-center gap-2 text-ui font-medium text-muted-foreground">
-      <SpadeFace avatar={props.avatar} size={24} />
-      <span className="truncate">{props.name}</span>
+    <div
+      className={cn(
+        "mb-1 flex max-w-full min-w-0 items-center gap-1.5 text-xs leading-4",
+        props.align === "end" ? "justify-end" : "justify-start",
+      )}
+    >
+      <SpadeFace avatar={props.avatar} size={20} />
+      <span className="truncate font-medium text-foreground/85">{props.name}</span>
+      {props.detail && (
+        <span className="truncate text-subtle-foreground">{`· ${props.detail}`}</span>
+      )}
+    </div>
+  );
+}
+
+/** Unread divider between previously seen and newly arrived messages. */
+export function NewDivider(props: { className?: string }) {
+  return (
+    <div
+      role="separator"
+      aria-label="New messages"
+      className={cn("my-5 flex items-center gap-3", props.className)}
+    >
+      <span aria-hidden className="h-px flex-1 bg-link/30" />
+      <span className="text-[11px] font-semibold tracking-wider text-link uppercase">NEW</span>
+      <span aria-hidden className="h-px flex-1 bg-link/30" />
     </div>
   );
 }
@@ -185,11 +220,11 @@ export function SpeakerLine(props: { avatar: SpadeAvatar; name: string }) {
 /** How long a press on touch is held before the bubble's actions come up. */
 const holdFor = 450;
 
-/** A bare action beside a bubble: no fill, muted until hovered. */
+/** A quiet bare icon beside a bubble: no fill until hovered, subtle muted ink. */
 const bare =
-  "size-7 rounded-full bg-transparent text-subtle-foreground hover:bg-transparent hover:text-foreground aria-expanded:bg-transparent [&_svg]:size-5";
+  "size-7 rounded-full bg-transparent text-subtle-foreground hover:bg-hover/60 hover:text-foreground aria-expanded:bg-hover/60 aria-expanded:text-foreground [&_svg]:size-[18px]";
 
-/** Under a bubble's corner: what each side reacted with. The person's own comes off on a click. */
+/** Overlapping the bubble's bottom edge: what each side reacted with. The person's comes off on click. */
 function ReactionChips(props: {
   mark: SpadeMessageReactions;
   side: "bot" | "mine";
@@ -197,11 +232,11 @@ function ReactionChips(props: {
 }) {
   const { person, bot } = props.mark;
   const chip =
-    "-mt-2 rounded-full bg-chat-raised px-1.5 text-sm leading-6 shadow-[0_0_0_2px_var(--background)]";
+    "-mt-2 inline-flex h-6 items-center rounded-full bg-chat-raised px-1.5 text-sm leading-none shadow-[0_0_0_2px_var(--background)]";
   return (
     <span
       className={cn(
-        "relative z-10 flex gap-1 px-3",
+        "relative z-10 flex gap-1 px-2.5",
         props.side === "bot" ? "self-start" : "self-end",
       )}
     >
@@ -213,29 +248,48 @@ function ReactionChips(props: {
             onClick={props.onRemove}
             className={cn(chip, "cursor-pointer focus-ring hover:bg-hover")}
           >
-            <Emoji emoji={person} className="size-4" />
+            <Emoji emoji={person} className="size-3.5" />
           </button>
         ) : (
           <span aria-label={`You reacted ${person}`} className={chip}>
-            <Emoji emoji={person} className="size-4" />
+            <Emoji emoji={person} className="size-3.5" />
           </span>
         ))}
       {bot && (
         <span aria-label={`Reacted ${bot}`} className={chip}>
-          <Emoji emoji={bot} className="size-4" />
+          <Emoji emoji={bot} className="size-3.5" />
         </span>
       )}
     </span>
   );
 }
 
+/** Combine reactions across any merged message ids in a coalesced block. */
+function reactionsFor(
+  ids: readonly string[],
+  map: ReadonlyMap<string, SpadeMessageReactions> | undefined,
+): { mark: SpadeMessageReactions | undefined; personId: string | undefined } {
+  if (!map || ids.length === 0) return { mark: undefined, personId: undefined };
+  let person: string | undefined;
+  let personId: string | undefined;
+  let bot: string | undefined;
+  for (const id of ids) {
+    const entry = map.get(id);
+    if (!entry) continue;
+    if (entry.person && !person) {
+      person = entry.person;
+      personId = id;
+    }
+    if (entry.bot && !bot) bot = entry.bot;
+  }
+  if (!person && !bot) return { mark: undefined, personId: undefined };
+  return { mark: { ...(person ? { person } : {}), ...(bot ? { bot } : {}) }, personId };
+}
+
 /**
- * A bubble with its actions: the exact time, Copy and (for the bot's words, where the system can
- * speak) Read aloud, in a small pill at its foot, in room the frame keeps for it, so it never
- * covers what is under the bubble. They come up on hover and on focus, and on a
- * long press on touch, which a tap elsewhere puts away. Read aloud becomes Stop reading while it
- * speaks, in the bot's own voice, and leaving the chat stops it: the reading belongs to this
- * bubble.
+ * A bubble with its outside hover actions (react, reply, more) and bottom-overlapping reaction
+ * chips. Reply quotes live inside the bubble itself (`QuoteInset`). Actions stay vertically
+ * centered on the bubble even when reaction chips hang below it.
  */
 export function BubbleFrame(props: {
   /** The words Copy takes, without their marks; undefined for none. */
@@ -250,8 +304,8 @@ export function BubbleFrame(props: {
   work?: { shown: boolean; toggle(): void } | undefined;
   /** The message as Reply quotes it, once stored (ADR 0212 §4); undefined offers no Reply. */
   reply?: SpadeQuote | undefined;
-  /** The message it replies to: a quoted line above it. */
-  quote?: SpadeQuote | undefined;
+  /** All message ids merged into this bubble, for jump-to-original and reactions. */
+  messageIds?: readonly string[] | undefined;
   side: "bot" | "mine";
   children: ReactNode;
 }) {
@@ -280,22 +334,28 @@ export function BubbleFrame(props: {
   const work = props.work;
   const [menu, setMenu] = useState(false);
   const [picking, setPicking] = useState(false);
-  const messageId = props.reply?.id;
-  const mark = messageId === undefined ? undefined : replies?.reactions.get(messageId);
+  const ids =
+    props.messageIds && props.messageIds.length > 0
+      ? props.messageIds
+      : props.reply
+        ? [props.reply.id]
+        : [];
+  const primaryId = ids[0];
+  const { mark, personId } = reactionsFor(ids, replies?.reactions);
   const react = replies?.react;
   // The person reacts to the bot's words; the bot's reactions to theirs just show.
-  const canReact = props.side === "bot" && react !== undefined && messageId !== undefined;
-  const any = true;
-  const lit = props.reply !== undefined && replies?.lit === props.reply.id;
+  const canReact = props.side === "bot" && react !== undefined && primaryId !== undefined;
+  const lit = replies?.lit !== undefined && ids.includes(replies.lit);
   const release = () => clearTimeout(timer.current);
   return (
     <div
       ref={frame}
-      {...(props.reply ? { [messageAttribute]: props.reply.id } : {})}
+      {...(primaryId ? { [messageAttribute]: primaryId } : {})}
+      {...(ids.length > 1 ? { [messageIdsAttribute]: ids.join(" ") } : {})}
       data-lit={lit || undefined}
       className={cn(
         // The frame takes the side's width limit; the bubble inside fills it (`framed`).
-        "group/bubble relative flex min-w-0 scroll-my-24 flex-col gap-1",
+        "group/bubble flex min-w-0 scroll-my-24 flex-col",
         props.side === "bot" ? "items-start" : "items-end",
         bubbleWidth[props.side],
         // Gone to from a quote: lit a moment, then back (`--motion-slow` out).
@@ -303,7 +363,7 @@ export function BubbleFrame(props: {
         held && "select-none",
       )}
       onPointerDown={(event) => {
-        if (event.pointerType !== "touch" || !any) return;
+        if (event.pointerType !== "touch") return;
         release();
         timer.current = setTimeout(() => setHeld(true), holdFor);
       }}
@@ -315,16 +375,15 @@ export function BubbleFrame(props: {
         if (held) event.preventDefault();
       }}
     >
-      {props.quote && <QuoteLine quote={props.quote} side={props.side} />}
-      {props.children}
-      {any && (
+      <div className="relative flex w-fit max-w-full min-w-0 items-center">
+        {props.children}
         <div
           data-held={held || reading || menu || picking || undefined}
           className={cn(
             // Bare icons beside the bubble, centred on it: to its right for the bot's words,
             // its left for the person's. The padding (not a margin) keeps the hover unbroken.
-            "absolute top-1/2 z-10 flex -translate-y-1/2 items-center gap-2.5 text-subtle-foreground",
-            props.side === "bot" ? "left-full pl-3" : "right-full pr-3",
+            "absolute top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 text-subtle-foreground",
+            props.side === "bot" ? "left-full pl-2" : "right-full pr-2",
             "pointer-events-none opacity-0 transition-opacity duration-(--motion-fast) group-hover/bubble:pointer-events-auto group-hover/bubble:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 data-held:pointer-events-auto data-held:opacity-100",
           )}
         >
@@ -339,7 +398,9 @@ export function BubbleFrame(props: {
                     key={emoji}
                     aria-label={`React ${emoji}`}
                     className="size-8 justify-center p-0 text-lg"
-                    onClick={() => react(messageId, mark?.person === emoji ? undefined : emoji)}
+                    onClick={() =>
+                      react(personId ?? primaryId, mark?.person === emoji ? undefined : emoji)
+                    }
                   >
                     <Emoji emoji={emoji} className="size-5" />
                   </MenuItem>
@@ -393,12 +454,12 @@ export function BubbleFrame(props: {
             </MenuContent>
           </Menu>
         </div>
-      )}
+      </div>
       {mark && (
         <ReactionChips
           mark={mark}
           side={props.side}
-          onRemove={canReact ? () => react(messageId, undefined) : undefined}
+          onRemove={canReact ? () => react(personId ?? primaryId, undefined) : undefined}
         />
       )}
     </div>
