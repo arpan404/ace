@@ -5,13 +5,18 @@
  * nothing guarded the boot-time rule (ADR 0226 §6) that a phase needing another comes on with it
  * or falls back, and that a phase named explicitly never starts without its needs.
  */
-import { expect, test } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, test, vi } from "vitest";
 import {
+  canonicalWriterParts,
   explicitTransportPhases,
   NativeSwitchConflict,
   resolveSwitches,
   sessionSwitchRefusal,
   type CrossSwitch,
+  type StoreWriterPart,
   type SwitchNeed,
 } from "./native-switches.ts";
 
@@ -192,4 +197,72 @@ test.each<SessionRefusalCase>([
   },
 ])("$name", ({ sessions, store, supervisor, cross, refusal }) => {
   expect(sessionSwitchRefusal({ sessions, store, supervisor, cross })).toBe(refusal);
+});
+
+/** The variables a fresh switch module reads at load: the gate's and the writer's own. */
+const switchKeys = ["ACE_STORE", "ACE_STORE_WRITER", "ACE_STORE_WRITER_CROSS"] as const;
+
+/**
+ * A fresh copy of the module, seen as a sibling process's boot: the cross log already holds
+ * `seen` boots of this root, so this boot is boot `seen`.
+ */
+async function bootAfter(
+  seen: number,
+  env: Partial<Record<(typeof switchKeys)[number], string>>,
+): Promise<typeof import("./native-switches.ts")> {
+  const dir = mkdtempSync(join(tmpdir(), "ace-native-switches-"));
+  const root = join(dir, "home");
+  mkdirSync(root, { recursive: true });
+  const log = join(dir, "boots.jsonl");
+  writeFileSync(
+    log,
+    Array.from({ length: seen }, (_, n) =>
+      JSON.stringify({ root, n, switch: "ACE_STORE_WRITER", backend: "", effective: "", pid: 1 }),
+    )
+      .map((line) => `${line}\n`)
+      .join(""),
+  );
+  const saved = switchKeys.map((key) => [key, process.env[key]] as const);
+  try {
+    for (const key of switchKeys) delete process.env[key];
+    Object.assign(process.env, env, {
+      ACE_NATIVE_CROSS: "ACE_STORE_WRITER",
+      ACE_NATIVE_CROSS_LOG: log,
+    });
+    vi.resetModules();
+    const fresh = await import("./native-switches.ts");
+    fresh.noteDatabaseBoot(join(root, "events.sqlite"));
+    return fresh;
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const sortedParts = (parts: ReadonlySet<StoreWriterPart>) => [...parts].toSorted();
+
+test("the starting-off writer cross run alternates on the starting-on parts, not on fold alone", async () => {
+  const env = { ACE_STORE: "native", ACE_STORE_WRITER_CROSS: "fold,sequences" } as const;
+  expect(sortedParts((await bootAfter(0, env)).storeWriterParts())).toEqual([]);
+  expect(sortedParts((await bootAfter(1, env)).storeWriterParts())).toEqual(["fold", "sequences"]);
+});
+
+test.each([
+  ["bogus", "ACE_STORE_WRITER_CROSS names an unknown part: bogus"],
+  ["sequences", "ACE_STORE_WRITER_CROSS=sequences needs fold"],
+])("ACE_STORE_WRITER_CROSS=%s refuses to start", async (value, message) => {
+  await expect(
+    bootAfter(0, { ACE_STORE: "native", ACE_STORE_WRITER_CROSS: value }),
+  ).rejects.toThrow(message);
+});
+
+test.each([
+  [" events, fold,sequences,fold ", "fold,sequences,events"],
+  ["", ""],
+  [undefined, ""],
+])("writer parts %s are canonical as %s", (value, parts) => {
+  expect(canonicalWriterParts(value)).toBe(parts);
 });
