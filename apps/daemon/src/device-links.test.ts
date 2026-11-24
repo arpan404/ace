@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { pairingLinkProof } from "@ace/client/link-proof";
 import { DeviceId } from "@ace/protocol";
 import { afterEach, expect, it } from "vitest";
+import { linkedLimit } from "@ace/notify";
+import { capLinked } from "./notification-feed-view.ts";
 import { Store } from "./store.ts";
 
 const cleanup: (() => void)[] = [];
@@ -42,4 +44,25 @@ it("a revoked pairing is nobody's other id", async () => {
 
   expect(s.devices.linked(account, 3000)).toEqual([]);
   expect(s.devices.linked(paired.device.id, 3000)).toEqual([]);
+});
+
+it("the pairing a phone used most recently survives the cap on linked ids", async () => {
+  const s = store();
+  const pairings = [];
+  for (let n = 0; n < linkedLimit + 4; n++) {
+    const paired = s.devices.create(`Phone ${n}`, ["read"], 1000 + n);
+    const proof = await pairingLinkProof(paired.token, paired.device.id, account, crypto.subtle);
+    s.devices.link(account, proof, 1000 + n);
+    pairings.push(paired.device.id);
+  }
+  // Sorted by id this one would be cut; it was seen last, so it stays.
+  const lastUsed = pairings.toSorted().at(-1)!;
+  s.devices.touch(lastUsed, 5000);
+
+  const linked = s.devices.linked(pairings[0]!, 6000);
+  expect(linked[0]).toBe(account);
+  const forWorker = capLinked(s.devices.linked(account, 6000), linkedLimit);
+  expect(forWorker.ids).toHaveLength(linkedLimit);
+  expect(forWorker.ids[0]).toBe(lastUsed);
+  expect(forWorker.cut).toBe(4);
 });
