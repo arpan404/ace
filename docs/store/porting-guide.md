@@ -36,8 +36,8 @@ one phase each), the storage format (phase 4) and the writer (phase 5, as ordere
 3. **Rust: idiomatic, safe.** No `unsafe`, no `unwrap`/`expect` (clippy denies them), errors as
    `ace_store::Error` or your own `thiserror`-style enum mapped in the binding. Build with
    `PATH=$HOME/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin:$PATH CARGO_BUILD_JOBS=4
-   cargo build --release -p ace-daemon-node` in `native/daemon`; run `bun run
-   check:daemon-native` before committing. Use crates for available work (`serde_json` with
+cargo build --release -p ace-daemon-node` in `native/daemon`; run `bun run
+check:daemon-native` before committing. Use crates for available work (`serde_json` with
    `raw_value` is already a dependency of `ace-store`); add one only with a reason in its
    `Cargo.toml` comment and check it against `deny.toml`.
 4. **Bindings only translate.** Every `#[napi]` function carries `catch_unwind`. It takes
@@ -229,7 +229,7 @@ These add to the rules for every phase above; where they differ, these win for p
 7. **Errors, not panics.** No `unwrap`, `expect`, `panic!`, `unreachable!`, indexing that can
    panic, or `as` casts that can truncate, outside `#[cfg(test)]`. Every `#[napi]` export keeps
    napi's `catch_unwind`. A TypeScript error message that callers or tests match (`Unknown
-   thread`, `Sequence exhausted`, `workspace_unregistered`, `Store is busy`) is reproduced
+thread`, `Sequence exhausted`, `workspace_unregistered`, `Store is busy`) is reproduced
    byte for byte.
 8. **Placement must not leak into logic** (ADR 0222 §3, ADR 0223 §5). Phase 5 runs on the main
    connection and the thread that owns it: the JS thread while TypeScript calls `Store.atomic`
@@ -332,7 +332,7 @@ reviewer signs every entry off before 4.2 starts.
      `ALTER TABLE <t> ADD COLUMN <c> <type>` for each new column it lacks (so running it twice is
      harmless). If the table does not exist, the step does nothing for it, and the table's
      creator gets the new columns: `history-index.ts`'s `CREATE TABLE IF NOT EXISTS
-     history_item_revisions` lists them last, in the same order the `ALTER`s add them, so both
+history_item_revisions` lists them last, in the same order the `ALTER`s add them, so both
      paths give the same columns in the same order. New tables (`storage_format`,
      `body_dictionaries`, `body_dictionary_sources`) and their indexes are created by the step
      with `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`; they are empty, so this
@@ -387,7 +387,7 @@ reviewer signs every entry off before 4.2 starts.
      `history_completed_revisions` (`history-index.ts:102`, `$.complete`).
    - **A (array walk):** walks one array with `json_each`, reading named paths off each element.
      Known so far: `usage-replay.ts:56` to `:60` (the skill names: `json_each(payload,
-     '$.item.parts')`, reading `$.type`, `$.kind` and `$.name` of each part). An A consumer is
+'$.item.parts')`, reading `$.type`, `$.kind` and `$.name` of each part). An A consumer is
      served by an **array projection** in the stub: the array keeps every element, in order (so
      `json_each`'s keys, the ordinals, are the same), and each element is cut down to the paths
      the consumer reads off `part.value`, a path absent from an element staying absent.
@@ -455,7 +455,7 @@ Rust callers, do all of this in the caller's transaction:
 - (c) trust. `origin` is `"validated"` when `logicalJson` was serialised from a value this
   build parsed or built (trust is unchanged, ADR 0125), and `"raw"` otherwise. For `"raw"`,
   the rewritten row's seq is rejected in two places. Persisted: `INSERT OR IGNORE INTO
-  stored_event_rejected VALUES (?)`, one row per rewritten seq, which commits or rolls back
+stored_event_rejected VALUES (?)`, one row per rewritten seq, which commits or rolls back
   with the rewrite. Live: the store's in-memory `StoredTrust` (`trust.rejected`, the set
   `readStoredTrust` loads, `stored-shape.ts:225` to `:236`) gets the seq at once, so a read
   inside the same transaction validates the row. The store records each live addition in a journal
@@ -919,7 +919,7 @@ TypeScript (it folds the cached status view, which moves with 5.3).
 - `--check` regenerates in memory and fails if the file differs. `scripts/check-daemon-native.ts`
   runs it.
 - `crates/ace-projection/tests/vectors.rs` (`#![allow(clippy::expect_used, clippy::unwrap_used,
-  clippy::panic)]`, as `native/history`'s vector tests do) checks, for every case,
+clippy::panic)]`, as `native/history`'s vector tests do) checks, for every case,
   `is_sidebar_event(kind) == sidebar`; and for every reaching case, that
   `FoldEvent::from_wire` and `update_thread` on the parsed thread give
   `ace_json::to_string(thread) == folded`, byte for byte.
@@ -1034,7 +1034,7 @@ outer transaction rolls back.
       moment, a row with that seq exists in `events`, read on a second read-only connection
       (committed state only).
    4. Runs `store.atomic(() => { store.prepareLiveWrite(bytes); store.bufferLiveWrite(id, twoDeltas,
-      at, unpinned); throw new Error("outer"); })` and expects it to throw `"outer"`.
+at, unpinned); throw new Error("outer"); })` and expects it to throw `"outer"`.
    5. Expects that no delta was published during step 4. Then calls `store.flushLiveWrites()`
       and expects exactly two delta publications, one for each of the two deltas (by their
       `append` text), each published once, and each with its committed row present when it was
@@ -1146,7 +1146,7 @@ behaviour, step for step:
   own.
 - `prepare(events, after)`: `through = reservation(events, after)`; if none, return. Else
   `commit(() => native.reserve(through), { committed: () => { if (native.confirm(through))
-  options.reserved?.(through); }, rolledBack: () => {} })`. `committed` runs after the outermost
+options.reserved?.(through); }, rolledBack: () => {} })`. `committed` runs after the outermost
   `COMMIT` returns; a rollback anywhere around it forgets the pending range. During
   `installHistory`, a `transaction` with an outcome throws `Store is busy` (`store.ts:585`),
   which the live path already treats as "retry later".
@@ -2120,9 +2120,11 @@ Move these into `store-cross-test-support.ts`, exported, with no change to what 
   };
   ```
 
-  `fold` keeps `updateThread` from `@ace/projection` as its reference. `folded` starts from
-  `store.getThread(id)` for each id, which is what `runSeed` does after a direct write. The
-  rng draws keep their order, so seeds 11 to 13 replay the same streams;
+  `fold` keeps `updateThread` from `@ace/projection` as its reference. `folded` starts from the
+  store's threads: `getThread(id)` for each id, which is what `runSeed` does after a direct
+  write, plus every other thread the home holds, so a boot that reopens a home with threads it
+  did not create folds them too. The rng draws stay in `runSeed`'s order, so seeds 11 to 13
+  replay the same streams;
 
 - from `store-live-writes.test.ts`: `answerText` and `snapshotText`, with the item id as a
   parameter (`"answer"` at the existing call sites), and `stream` (`prepareLiveWrite` +
@@ -2131,8 +2133,9 @@ Move these into `store-cross-test-support.ts`, exported, with no change to what 
 
 Add three new helpers beside them: `disk(path): Disk`, `copyHome(home, into)` and
 `diskCopy(into): Disk`. `disk` opens
-its own read-only `node:sqlite` `DatabaseSync`, the same observer in every mode, reads, and
-closes. It is used only while a `Store` holds the home, as
+its own read-only `DatabaseSync` from `@ace/provider-kit/sqlite` — the process's own SQLite
+library (ADR 0222), so a native store's file is never held by two libraries — the same observer
+in every mode, reads, and closes. It is used only while a `Store` holds the home, as
 `engine/live-write-buffer.process.test.ts:269` does. A reader then neither recovers nor
 checkpoints the WAL. The observer never opens a home that no live `Store` holds: a connection
 opened there could recover and checkpoint the WAL, and the next backend would then never see the
@@ -2175,6 +2178,12 @@ itself. Thread ids, item ids and `at` values below are fixed, never drawn from t
    the target backend does its own WAL recovery. Only after that does the child read the copy as
    `preOpen = diskCopy(...)`. The copy is taken before the open and read after it, so `preOpen`
    is what the previous process left, untouched by either the observer or the new backend.
+   Right after the open, before any test write, also compare a full
+   `Store.readEvents({ afterSeq: 0, limit })` of the target Store against that copy's events
+   (`seq`, `id`, `thread_id`, `type`, and the parsed payload)
+   (`store.ts:1174`). `preOpen` comes from the copy, so without this the events the target
+   backend recovered from the WAL are never read through the store that recovered them. The copy
+   stays the source for the pre-open column and trust-stamp checks.
 2. With the store open (`new Store(path)` above; at boot 0, the first open),
    `db = store.atomic((db) => db)`. Record `pid`, `parts` and `backend`, read after the open, since the value is fixed at this boot. Subscribe with
    `store.subscribe` and record every published event's `seq` as `published`.
@@ -2184,7 +2193,7 @@ itself. Thread ids, item ids and `at` values below are fixed, never drawn from t
    - `snapshotText` for each live item.
 
    After a tail crash it also opens a probe on the lost thread: `subscribe(store, "probe",
-   { kind: "thread", threadId }, previous.lostThrough, 1000, push)`, closed at once. The first
+{ kind: "thread", threadId }, previous.lostThrough, 1000, push)`, closed at once. The first
    message type goes in the report as `probeFirst`.
 
 4. **The required writes**, committed, in this order, in every boot. Shrinking the workload never
@@ -2213,8 +2222,16 @@ itself. Thread ids, item ids and `at` values below are fixed, never drawn from t
 6. **The live bursts.** Each burst is one fixed script, the same in every boot, on a fresh message
    item `live-<boot>-<k>`, created and committed before it. Each is issued in one synchronous turn,
    so compaction sees the same input in every mode:
-   1. 40 deltas of 10 to 200 bytes from a fixed list, interleaved with another thread's deltas,
-      so adjacent merges reach and cross the 4096-byte check;
+   1. 40 deltas of 10 to 200 bytes from a fixed list, with another thread's deltas in the same
+      turn, so a row merges many inputs and the batch one flush sees holds two threads. The list
+      is chosen against the buffer's own limit: an event weighs `8 × JSON bytes + 512` and the
+      buffer flushes at 64 KiB (`live-write-buffer.ts:155`), which this batch reaches partway
+      through in every mode. The list makes that flush land on the same append for a three- to
+      six-digit sequence, so the compacted row boundaries don't drift between boots. The
+      4,096-byte merge rule cannot be reached here: 4,096 bytes of appends of 200 bytes or less
+      weigh more than 64 KiB before they can merge, so that rule stays proven by
+      `store-live-write-recovery` and the compaction tests. The other thread's deltas follow
+      burst 1's run, because compaction only merges adjacent events;
    2. a surrogate pair split across two appends (`"\ud83d"` then `"\ude00"`), and a lone
       `"\ud800"`;
    3. the threshold burst, written so its compacted rows are known without recomputing compaction.
@@ -2254,7 +2271,10 @@ itself. Thread ids, item ids and `at` values below are fixed, never drawn from t
      2. Control the WAL, because whether uncommitted pages reach it depends on SQLite's cache and
         on WAL space being reused. On the store connection, run
         `PRAGMA wal_checkpoint(TRUNCATE)` (it must report `busy = 0`), then
-        `PRAGMA cache_size = -256`. Read `walBefore` from `disk`; it must be 0.
+        `PRAGMA cache_size = -256`, then `PRAGMA cache_spill = ON` (node:sqlite's build defaults
+        the spill threshold to 20,000 pages, and the addon's newer SQLite reads `0` as "never
+        spill", so the cache size alone never reaches the WAL). Read `walBefore` from `disk`; it
+        must be 0.
      3. Inside `store.atomic`: create thread `crash-<boot>` in `workspaces[boot % 3]` at
         `6e12 + boot`, append 64 `item.created` events of 64 KiB of text each to thread 3, and a
         `thread.updated` title on thread 4.

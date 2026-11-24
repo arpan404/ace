@@ -11,7 +11,9 @@
  */
 import { copyFileSync, existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+// The process's own SQLite library (ADR 0222): with `ACE_STORE=native` the addon serves reads
+// too, so two libraries never hold one file's WAL locks.
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import {
   Agent,
   AgentId,
@@ -157,8 +159,9 @@ export function threadStream(
   const rng = random(seed);
   const time = () => rng.pick([100, 200, 300, 400, 500]);
   const root = (id: ThreadId) => AgentId.parse(`root-${ids.indexOf(id)}`);
-  // Each thread as folded in memory from the events the store says it stored.
-  const folded = new Map(ids.map((id) => [id, store.getThread(id)]));
+  // Each thread as folded in memory from the events the store says it stored. Every thread the
+  // home holds, not only the seeded ones: a home a later process reopened has boot threads too.
+  const folded = new Map(store.listThreads().map((thread) => [thread.id, thread]));
   const fold = (id: ThreadId, payloads: EventPayload[]) => {
     const thread = folded.get(id);
     if (!thread) throw new Error("Missing thread");
@@ -293,14 +296,10 @@ export function threadStream(
     // And what was stored is what the events folded to.
     for (const thread of fresh.threads)
       assert.equal(persisted(thread), persisted(folded.get(thread.id)), label);
-    const cached = ids
-      .map((id) => store.getThread(id))
-      .toSorted((a, b) => (a?.id ?? "").localeCompare(b?.id ?? ""));
+    const cached = fresh.threads.map((thread) => store.getThread(thread.id));
     assert.strictEqual(cached, fresh.threads, label);
     assert.strictEqual(
-      ids
-        .map((id) => structuredClone(store.readThread(id)))
-        .toSorted((a, b) => (a?.id ?? "").localeCompare(b?.id ?? "")),
+      fresh.threads.map((thread) => structuredClone(store.readThread(thread.id))),
       fresh.threads,
       label,
     );
