@@ -676,6 +676,7 @@ it("a subscribe superseded while it is set up never takes its successor's view",
 async function mediaChannel(
   posters: ("ok" | "fail" | "wait")[],
   overrides: Partial<ReturnType<typeof fakeDelivery>["port"]> = {},
+  options: { local?: boolean } = {},
 ) {
   const f = await fixture();
   await writeFile(f.state, "booted");
@@ -686,6 +687,7 @@ async function mediaChannel(
     authorize: () => true,
     canReadThread: () => true,
     agentExists: () => true,
+    local: options.local === true,
     async send(message) {
       sent.push(message);
     },
@@ -821,4 +823,19 @@ it("a device's view refused at ace-media's viewer limit says so in its reply and
     deviceId,
     undelivered: limit,
   });
+});
+
+it("a channel on this machine asks for the device's view as local, and one over a relay as remote", async () => {
+  // The desktop app on the Mac itself, on the daemon's loopback listener: its Simulator view is
+  // paced at the local rate, so ace-media is told the view is local (never the client's claim).
+  const here = await mediaChannel(["ok"], {}, { local: true });
+  await here.subscribe("here", "mc_aaaaaaaaaaaa");
+  expect(here.answer("here")).toMatchObject({ ok: true });
+  expect([...here.d.views.values()].map((view) => view.local)).toEqual([true]);
+
+  // A phone over the relay: the same view, remote.
+  const away = await mediaChannel(["ok"]);
+  await away.subscribe("away", "mc_bbbbbbbbbbbb");
+  expect(away.answer("away")).toMatchObject({ ok: true });
+  expect([...away.d.views.values()].map((view) => view.local)).toEqual([false]);
 });

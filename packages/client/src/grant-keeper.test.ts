@@ -58,6 +58,7 @@ function keeper(options: { ttlMs?: number; lifetimeMs?: number; fetch?: () => Pr
   const sent: Extract<ClientMessage, { type: "account.grant.refresh" }>[] = [];
   const refused: string[] = [];
   let ids = 0;
+  let now = 0;
   const keeping = keepGrant({
     ttlMs: options.ttlMs ?? 300_000,
     grant: options.fetch ?? (async () => grant(options.lifetimeMs ?? 300_000)),
@@ -65,6 +66,7 @@ function keeper(options: { ttlMs?: number; lifetimeMs?: number; fetch?: () => Pr
       if (message.type === "account.grant.refresh") sent.push(message);
     },
     scheduler,
+    now: () => now,
     id: () => `r${++ids}`,
     refused: (code) => refused.push(code),
   });
@@ -72,10 +74,29 @@ function keeper(options: { ttlMs?: number; lifetimeMs?: number; fetch?: () => Pr
     result: { ok: true; grantTtlMs: number } | { ok: false; code: string; message: string },
     requestId = sent.at(-1)?.requestId ?? "",
   ) => keeping.answered({ type: "account.grant.refresh.result", requestId, result });
-  return { scheduler, sent, refused, keeping, answer };
+  return {
+    scheduler,
+    sent,
+    refused,
+    keeping,
+    answer,
+    elapse: (ms: number) => {
+      now += ms;
+    },
+  };
 }
 
 describe("keeping a socket's grant fresh", () => {
+  it("refreshes an overdue grant on wake even when timers were suspended", async () => {
+    const k = keeper({});
+    k.elapse(250_000);
+    k.keeping.wake();
+    k.keeping.wake();
+    await Promise.resolve();
+    expect(k.sent.map((message) => message.requestId)).toEqual(["r1"]);
+    expect(k.scheduler.live().map((timer) => timer.delayMs)).toEqual([GRANT_RETRY_MS]);
+  });
+
   it("sends a new grant before the welcome's runs out, then times the next from the answer", async () => {
     const k = keeper({ ttlMs: 200_000 });
     expect(k.sent).toEqual([]);

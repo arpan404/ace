@@ -58,6 +58,95 @@ test("a local endpoint can be added without a key", async () => {
   );
 });
 
+test("Azure's template waits for a real resource name before it can be added", async () => {
+  const { spade } = await spadeApp("/settings/spade/models", (api) => {
+    withEndpoint(api);
+    main(api, "openrouter/saved/model");
+  });
+  await userEvent.click(await screen.findByRole("button", { name: "Add a provider" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "Add a provider" }));
+  await userEvent.click(dialog.getByRole("combobox", { name: "From" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Azure OpenAI" }));
+  // The generated URL still holds RESOURCE_NAME, so Add provider stays off and says why.
+  const add = dialog.getByRole("button", { name: "Add provider" });
+  expect((add as HTMLButtonElement).disabled).toBe(true);
+  expect(dialog.getByText("Enter your Azure resource name.")).toBeTruthy();
+  await userEvent.type(dialog.getByRole("textbox", { name: "Azure resource name" }), "contoso-ai");
+  expect((add as HTMLButtonElement).disabled).toBe(false);
+  await userEvent.click(add);
+  await waitFor(() =>
+    expect(spade.sent("POST", "/v1/endpoints")).toEqual([
+      {
+        name: "Azure OpenAI",
+        format: "openai-responses",
+        base_url: "https://contoso-ai.openai.azure.com/openai/v1/",
+      },
+    ]),
+  );
+});
+
+test("a placeholder URL can't be added, and Custom clears an unfinished generated one", async () => {
+  await spadeApp("/settings/spade/models", (api) => {
+    withEndpoint(api);
+    main(api, "openrouter/saved/model");
+  });
+  await userEvent.click(await screen.findByRole("button", { name: "Add a provider" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "Add a provider" }));
+  await userEvent.click(dialog.getByRole("combobox", { name: "From" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Azure OpenAI" }));
+  // Switching to Custom drops the template's unfinished URL instead of submitting it.
+  await userEvent.click(dialog.getByRole("combobox", { name: "From" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Custom" }));
+  const url = dialog.getByRole("textbox", { name: "Base URL" }) as HTMLInputElement;
+  expect(url.value).toBe("");
+  await userEvent.type(url, "https://RESOURCE_NAME.openai.azure.com/openai/v1/");
+  const add = dialog.getByRole("button", { name: "Add provider" }) as HTMLButtonElement;
+  expect(add.disabled).toBe(true);
+  expect(dialog.getByText("Replace the template's placeholder values in the URL.")).toBeTruthy();
+  await userEvent.clear(url);
+  await userEvent.type(url, "https://api.example.com/v1/");
+  expect(add.disabled).toBe(false);
+});
+
+test("a Cloudflare gateway's token is asked for beside the provider's key", async () => {
+  const { spade } = await spadeApp("/settings/spade/models", (api) => {
+    withEndpoint(api);
+    main(api);
+  });
+  await userEvent.click(await screen.findByRole("button", { name: "Add a provider" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "Add a provider" }));
+  await userEvent.click(dialog.getByRole("button", { name: /Cloudflare AI Gateway/ }));
+  await userEvent.type(
+    dialog.getByRole("textbox", { name: "Account ID" }),
+    "0123456789abcdef0123456789abcdef",
+  );
+  await userEvent.type(dialog.getByRole("textbox", { name: "Gateway name" }), "my-gateway");
+  await userEvent.type(dialog.getByLabelText("Gateway token"), "cf-token");
+  await userEvent.click(dialog.getByRole("button", { name: "Add provider" }));
+  const created = await waitFor(() => {
+    const endpoint = spade.endpoints.find((each) => each.name === "Cloudflare AI Gateway");
+    if (!endpoint) throw new Error("the gateway was not added");
+    return endpoint;
+  });
+  expect(created.base_url).toBe(
+    "https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/my-gateway/compat/",
+  );
+  // The token travels in the create itself, so a refusal can never leave an endpoint behind.
+  expect(spade.sent("POST", "/v1/endpoints")).toEqual([
+    {
+      name: "Cloudflare AI Gateway",
+      format: "openai-chat",
+      base_url:
+        "https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/my-gateway/compat/",
+      gateway_token: "cf-token",
+    },
+  ]);
+  expect(spade.sent("PUT", `/v1/keys/${String(created.id)}/gateway`)).toEqual([]);
+  // The token is no stored header: the endpoint carries none.
+  expect(created.header_names).toEqual([]);
+  expect(created.gateway_token_set).toBe(true);
+});
+
 test("on a machine without a keychain, Spade's conversation says which variable to set", async () => {
   await spadeApp("/spade", (api) => {
     api.keychain = false;
@@ -245,11 +334,17 @@ test("Manage lists what the endpoint lists, with facts only where they are known
   await models.findByText("Sonnet");
   // Llama's list gave no tools, so none are claimed.
   const list = within(models.getByRole("list", { name: "Models" }));
-  expect(list.getAllByRole("listitem").map((row) => row.textContent)).toEqual([
+  const items = list.getAllByRole("listitem");
+  expect(items.map((row) => row.textContent)).toEqual([
     "Saved model",
     "Llama128K context",
-    "Sonnet200K context · images, tools",
+    "Sonnet200K context·",
   ]);
+  const [, llama, sonnet] = items;
+  if (!llama || !sonnet) throw new Error("Expected Llama and Sonnet rows");
+  expect(within(sonnet).getByRole("img", { name: "Images" })).toBeTruthy();
+  expect(within(sonnet).getByRole("img", { name: "Tools" })).toBeTruthy();
+  expect(within(llama).queryByRole("img", { name: "Tools" })).toBeNull();
   await userEvent.click(models.getByRole("switch", { name: "Llama on OpenRouter" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/endpoints/openrouter/models")).toEqual([

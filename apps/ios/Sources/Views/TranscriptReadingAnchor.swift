@@ -7,6 +7,8 @@ import SwiftUI
 @MainActor final class TranscriptReadingAnchor {
     /// Where the shown rows sit and where the reader is held (`TranscriptPlaceKeeper`).
     var keeper = TranscriptPlaceKeeper()
+    /// Previous resident blocks, for classifying removals without a fresh service reply.
+    var lastBlockItems: [String: [String]] = [:]
     /// Which stack holds the rows (`TranscriptStackChoice`, ADR 0157).
     var stack = TranscriptStackChoice()
     /// Each row's last measured height, kept while it is off screen, so a row that comes back at

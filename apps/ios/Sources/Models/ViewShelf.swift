@@ -3,7 +3,17 @@ import Foundation
 
 /// The SHA-256 of `text`, hex: what identifies drawn content across row appearances.
 nonisolated func contentKey(_ text: String) -> String {
-    SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+    let digest = SHA256.hash(data: Data(text.utf8))
+    return String(unsafeUninitializedCapacity: SHA256.byteCount * 2) { utf8 in
+        func hex(_ nibble: UInt8) -> UInt8 {
+            nibble < 10 ? 48 + nibble : 87 + nibble
+        }
+        for (index, byte) in digest.enumerated() {
+            utf8[index * 2] = hex(byte >> 4)
+            utf8[index * 2 + 1] = hex(byte & 0x0f)
+        }
+        return SHA256.byteCount * 2
+    }
 }
 
 /// What one thread keeps of the rows it has drawn, so a row scrolled back into view comes back at
@@ -14,7 +24,8 @@ nonisolated func contentKey(_ text: String) -> String {
 @MainActor final class ViewShelf<Kept: AnyObject> {
     private var heights: [String: CGFloat] = [:]
     private var heightOrder: [String] = []
-    private var kept: [(id: String, view: Kept)] = []
+    private var kept: [(id: String, owner: String?, view: Kept)] = []
+    private var owners: Set<String>?
     let maxHeights: Int
     let maxKept: Int
 
@@ -38,10 +49,21 @@ nonisolated func contentKey(_ text: String) -> String {
     }
 
     /// Puts a view that went off screen on the shelf; past the limit the longest kept goes.
-    func put(_ view: Kept, for id: String) {
+    func put(_ view: Kept, for id: String, owner: String? = nil) {
+        if let owner, let owners, !owners.contains(owner) { return }
         kept.removeAll { $0.id == id }
-        kept.append((id, view))
+        kept.append((id, owner, view))
         if kept.count > maxKept { kept.removeFirst(kept.count - maxKept) }
+    }
+
+    /// Views whose rows leave the transcript window cannot be used until another page
+    /// loads them. Drop them now and reject a late dismantle from an already-evicted row.
+    func keepOwners(_ ids: [String]) {
+        let resident = Set(ids)
+        owners = resident
+        kept.removeAll { entry in
+            entry.owner.map { !resident.contains($0) } ?? false
+        }
     }
 
     var keptCount: Int { kept.count }

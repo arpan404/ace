@@ -173,7 +173,7 @@ struct TextEdit: Sendable, Equatable {
 
 struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     let id: String
-    let index: Int?
+    var index: Int?
     /// The daemon's creation sequence for this item, when the bridge sends it.
     /// Nil from older bridges. Viewport uses it with history range metadata to
     /// order rows, detect gaps and distinguish canonical deletion from page
@@ -203,6 +203,12 @@ struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     /// Shared secondary line, such as the visualization fallback; empty when the row has none.
     let detail: String?
     let quiet: Bool?
+
+    func sameExceptPosition(as other: Self) -> Bool {
+        var positioned = self
+        positioned.index = other.index
+        return positioned == other
+    }
 }
 /// The words inside the person's bubble (`@ace/ui-core` `bubbleContent`): prose, code and mention
 /// runs in order, whether it folds behind "Show more", and how it was sent ("steer", "queue").
@@ -322,6 +328,8 @@ struct InboxLayout: Codable, Sendable, Equatable {
     /// A choice of the machine's Sort threads setting, worded by the shared rules.
     struct SortOption: Codable, Sendable, Identifiable, Equatable { let id: String; let label: String }
     let sections: [Section]
+    /// When present, thread ranks omit the machine and row ID suffix. Unsent ranks are complete.
+    var rankMachine: String? = nil
     /// The daemon has older threads beyond the loaded window.
     let more: Bool
     let snooze: [SnoozeOption]

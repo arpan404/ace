@@ -120,6 +120,36 @@ fn subject<'a>(s: &'a Screening<'_>) -> Option<Subject<'a>> {
     })
 }
 
+/// Whether the classifier would leave this call for the reviewer, without logging a verdict.
+pub(super) fn leaves_for_reviewer(s: &Screening<'_>) -> bool {
+    if !s.ready {
+        return true;
+    }
+    let (Some(model), Some(subject)) = (Model::embedded(), subject(s)) else {
+        return true;
+    };
+    let decision = read_screen(s, model, &subject);
+    match plausible(
+        decision.screen,
+        decision.prediction.person_only(),
+        s.unresolved,
+    ) {
+        Screen::Abstain => true,
+        Screen::LowRisk => decision.hardening.is_none(),
+        Screen::Person(_) => false,
+    }
+}
+
+fn read_screen(s: &Screening<'_>, model: &Model, subject: &Subject<'_>) -> Decision {
+    decide(
+        model,
+        subject,
+        s.reviewing,
+        s.classed.config_clean,
+        s.classed.sandboxable,
+    )
+}
+
 /// The model's decision (`spade_classify::Model::decide`).
 pub fn decide(
     model: &Model,
@@ -329,13 +359,7 @@ impl Engine {
         model: &Model,
         subject: &Subject<'_>,
     ) -> Decision {
-        let decision = decide(
-            model,
-            subject,
-            s.reviewing,
-            s.classed.config_clean,
-            s.classed.sandboxable,
-        );
+        let decision = read_screen(s, model, subject);
         let Decision {
             prediction, screen, ..
         } = &decision;

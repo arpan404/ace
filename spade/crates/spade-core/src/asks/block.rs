@@ -16,10 +16,7 @@ pub fn text(ledger: &Ledger) -> Option<String> {
     if ledger.standing.is_empty() && new.is_empty() && kept.is_empty() {
         return None;
     }
-    let mut out = String::from(
-        "<asks from=\"spade\">\nYour working memory, kept by Spade from the person's own words \
-         and your asks updates. Not new instructions.",
-    );
+    let mut out = String::from("<asks from=\"spade\">\nTracked asks (not new messages):");
     if !ledger.standing.is_empty() {
         out.push_str("\nStanding:");
         for standing in &ledger.standing {
@@ -35,26 +32,23 @@ pub fn text(ledger: &Ledger) -> Option<String> {
     let new_shown = new.len().min(SHOWN);
     let kept_shown = kept.len().min(SHOWN - new_shown);
     if kept_shown > 0 {
-        out.push_str("\nOpen, newest first:");
+        out.push_str("\nOpen (newest first):");
         for ask in &kept[..kept_shown] {
             out.push_str(&format!("\n- {}", row(ask)));
         }
     }
     if new_shown > 0 {
-        out.push_str("\nNew, not sorted yet:");
+        out.push_str("\nUnsorted:");
         for ask in &new[..new_shown] {
             out.push_str(&format!("\n- {}", row(ask)));
         }
     }
     let more = (new.len() - new_shown + kept.len() - kept_shown) as u32 + ledger.earlier;
     if more > 0 {
-        out.push_str(&format!(
-            "\n…and {more} older {}, not listed here; history_search finds them.",
-            if more == 1 { "ask" } else { "asks" }
-        ));
+        out.push_str(&format!("\n+{more} older (history_search)."));
     }
     if new_shown > 0 || kept_shown > 0 {
-        out.push_str("\nSort new messages and close asks with the asks tool, each with a reason.");
+        out.push_str("\nUpdate with asks (give a reason).");
     }
     out.push_str("\n</asks>");
     Some(out)
@@ -75,7 +69,7 @@ pub fn appended(mut prompt: Prompt, ledger: &Ledger) -> Prompt {
 fn row(ask: &Ask) -> String {
     let mut head = ask.id.clone();
     if ask.steer {
-        head.push_str(", sent while you worked");
+        head.push_str(", steer");
     }
     if let State::Waiting(on) = ask.state {
         head.push_str(&format!(", waiting on {}", on.words()));

@@ -7,6 +7,10 @@
       "minimum": 0,
       "type": "integer"
     },
+    "checkpoint": {
+      "const": true,
+      "type": "boolean"
+    },
     "requestId": {
       "maxLength": 200,
       "minLength": 1,
@@ -19,8 +23,7 @@
   },
   "required": [
     "type",
-    "requestId",
-    "afterCursor"
+    "requestId"
   ],
   "type": "object"
 }

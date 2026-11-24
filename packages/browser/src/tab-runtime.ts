@@ -28,7 +28,7 @@ import { holdTo } from "./place-guard.ts";
 import { executeBrowserCommand, type TabCommand } from "./session-commands.ts";
 import type { TabView } from "./page-tools.ts";
 import { agentScreenshot, type AgentScreenshot } from "./session-images.ts";
-import { sendHumanInput } from "./session-input.ts";
+import { sendHumanInput, scaleHumanInput } from "./session-input.ts";
 import { dropFiles } from "./file-drop.ts";
 import { TouchPinch } from "./touch-pinch.ts";
 import type { Actor, SessionOptions } from "./session-options.ts";
@@ -52,6 +52,8 @@ export interface TabHost {
   readonly budget: QueueBudget;
   readonly timing: CollaborationTiming;
   page(tabId: string): BrowserBackendPage;
+  /** CSS pixels per fitted video pixel for the person's input; absent: 1. */
+  inputScale?(): number;
   /** Thread-wide facts every check reads. */
   flags(): { closed: boolean; paused: boolean; pageStateLost: boolean };
   dialog(tabId: string): BrowserDialog | undefined;
@@ -704,7 +706,8 @@ export class TabRuntime {
         return;
       }
       await sendHumanInput(
-        input,
+        // The client maps into the fitted page the video shows; Chrome takes CSS pixels.
+        scaleHumanInput(input, this.host.inputScale?.() ?? 1),
         this.page.cdp,
         () => this.check(actor, undefined, generation),
         this.pinch,

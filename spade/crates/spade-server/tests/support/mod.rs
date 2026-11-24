@@ -48,6 +48,7 @@ pub struct FakeTool {
     pub images: Vec<Vec<u8>>,
     pub delay: Duration,
     pub calls: Arc<Mutex<Vec<Value>>>,
+    early_read: bool,
     /// Poses as a tool of one of the person's apps (ADR 0131); `true` when it annotates
     /// itself.
     pub app: Option<bool>,
@@ -86,6 +87,7 @@ impl FakeTool {
             images: Vec::new(),
             delay: Duration::ZERO,
             calls: Arc::default(),
+            early_read: false,
             app: None,
             declared: None,
             unplaced: false,
@@ -181,12 +183,34 @@ impl FakeTool {
         self
     }
 
+    pub fn early_read(mut self) -> Self {
+        self.early_read = true;
+        self
+    }
+
     pub fn calls(&self) -> Arc<Mutex<Vec<Value>>> {
         self.calls.clone()
     }
 }
 
 impl Tool for FakeTool {
+    fn run_early(
+        &self,
+        key: &str,
+        arguments: Value,
+        facts: &spade_server::tools::TurnFacts,
+    ) -> Option<spade_server::tools::EarlyReadFuture> {
+        self.early_read.then(|| {
+            let read = self.run_in(key, arguments, facts);
+            Box::pin(async move {
+                Some(spade_server::tools::EarlyRead {
+                    output: read.await,
+                    current: Box::new(|| true),
+                })
+            }) as spade_server::tools::EarlyReadFuture
+        })
+    }
+
     fn def(&self) -> ToolDef {
         self.def.clone()
     }
@@ -691,6 +715,14 @@ impl Spade {
             ),
             spade_server::home::VERSION,
         )?;
+        // As in Spade: gateway tokens come from the same keychain, by endpoint.
+        let gateway_tokens = keys.clone();
+        models.set_gateway_keys(Keys::new(move |request| {
+            gateway_tokens
+                .gateway_token(request.endpoint)
+                .ok()
+                .flatten()
+        }));
         let store = Store::open(&dir.path().join("spade.sqlite"))?;
         if let Some(seed) = options.seed {
             seed(&store)?;
@@ -830,6 +862,9 @@ impl Spade {
         if let Some(plugins) = plugins {
             engine.set_profile_source(plugins.clone());
             engine.set_plugins(plugins);
+        }
+        if let Some(workspaces) = &options.workspaces {
+            engine.set_workspaces(workspaces.clone());
         }
         let state = AppState {
             engine: engine.clone(),
@@ -1099,10 +1134,18 @@ impl Spade {
 
     /// Makes the keychain's next read or change of `endpoint`'s key fail, once.
     pub fn fail_keychain_once(&self, endpoint: &str) -> Result {
+        self.fail_account_once(&format!("endpoint:{endpoint}"))
+    }
+
+    /// Makes the next read or write of `endpoint`'s gateway token fail, as a locked keychain
+    /// would.
+    pub fn fail_gateway_keychain_once(&self, endpoint: &str) -> Result {
+        self.fail_account_once(&format!("gateway:{endpoint}"))
+    }
+
+    fn fail_account_once(&self, account: &str) -> Result {
         use keyring_core::api::CredentialStoreApi;
-        let entry = self
-            .mock
-            .build(spade_keys::SERVICE, &format!("endpoint:{endpoint}"), None)?;
+        let entry = self.mock.build(spade_keys::SERVICE, account, None)?;
         let cred: &mock::Cred = entry
             .as_any()
             .downcast_ref()

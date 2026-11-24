@@ -44,7 +44,8 @@ impl Tool for CardShow {
             },
             risk: Risk::Read,
             untrusted_output: false,
-            deferred: false,
+            // Rare in a conversation: found with tool_search, and pinned once a bot uses it often.
+            deferred: true,
             background: false,
         }
     }

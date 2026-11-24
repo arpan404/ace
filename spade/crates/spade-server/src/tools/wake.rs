@@ -72,16 +72,16 @@ impl Tool for SleepUntil {
     fn def(&self) -> ToolDef {
         def(
             wake::SLEEP_UNTIL,
-            "Ends your turn and wakes you later: at a time (`at`, RFC 3339 such as \
+            "End your turn and wake later: at a time (`at`, RFC 3339 with its offset, like \
              2026-11-16T09:00:00+01:00) or after a while (`after`: seconds, or 90s, 15m, 2h, 1d, \
-             1h30m). Use it to wait on the outside world without taking steps. You read as \
-             sleeping, with your reason, until then; a <wake> note from Spade wakes you. The \
-             person can wake you early. End your reply right after calling it.",
+             1h30m). Waits on the outside world without steps: you read as sleeping, with your \
+             reason, until a <wake> note wakes you, and the person can wake you early. Call it \
+             last in your reply.",
             json!({ "type": "object",
                     "properties": {
                         "at": { "type": "string", "description": "When to wake, RFC 3339." },
                         "after": { "type": ["string", "integer"], "description": "How long to sleep." },
-                        "reason": { "type": "string", "description": "What you wait for, in a few words; the person sees it." }
+                        "reason": { "type": "string", "description": "What you wait for; the person sees it." }
                     },
                     "required": ["reason"] }),
             false,
@@ -146,15 +146,14 @@ impl Tool for WaitFor {
     fn def(&self) -> ToolDef {
         def(
             wake::WAIT_FOR,
-            "Ends your turn and wakes you when something happens, or at the timeout (seconds, \
-             or 15m, 2h, 1d). The condition's kind: job (a background job ends: job), \
-             service_line (your service prints a line matching a regex: service, pattern), \
-             service_exit (service), file (a path in your workspace changes: path), url (a \
-             localhost URL answers: url), thread (a delegated ace thread is done, failed or \
-             needs the person: thread), bot_message (another bot writes: bot, optional), person \
-             (the person writes), worker (a worker of yours reports: worker, optional). You read \
-             as waiting, with your reason, until then. End your \
-             reply right after calling it.",
+            "End your turn and wake when something happens, or at `timeout` (seconds, or 15m, \
+             2h, 1d). Kinds, and the field each needs: job (a background job ends: job), \
+             service_line (a line of your service matches pattern: service, pattern), \
+             service_exit (service), file (a workspace path changes: path), url (a localhost URL \
+             answers: url), thread (a delegated ace thread is done, failed or needs the person: \
+             thread), bot_message (another bot writes: bot, optional), person (the person \
+             writes), worker (a worker reports: worker, optional). You read as waiting, with your \
+             reason, until a <wake> or the result arrives. Call it last in your reply.",
             json!({ "type": "object",
                     "properties": {
                         "condition": {
@@ -173,7 +172,7 @@ impl Tool for WaitFor {
                             "required": ["kind"]
                         },
                         "timeout": { "type": ["string", "integer"] },
-                        "reason": { "type": "string", "description": "What you wait for, in a few words; the person sees it." }
+                        "reason": { "type": "string", "description": "What you wait for; the person sees it." }
                     },
                     "required": ["condition", "reason"] }),
             false,

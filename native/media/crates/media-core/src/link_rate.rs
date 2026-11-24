@@ -23,6 +23,10 @@ impl Default for Limits {
         }
     }
 }
+/// The rate a view on this machine is driven at: loopback carries more than any picture needs,
+/// so there is nothing to estimate. It is `Limits::default().max`, and the browser's own local
+/// capture path takes the same (`localBitrate`, `packages/browser/src/live-video.ts`).
+pub const LOCAL_RATE: f64 = 16_000_000.0;
 /// What a client says about its link (ADR 0149 §4, K3), already parsed: it only lowers the start.
 #[derive(Clone, Debug, Default)]
 pub struct LinkHint {
@@ -182,6 +186,8 @@ pub struct LinkRate {
     limits: Limits,
     start: f64,
     hinted: bool,
+    /// The view is on this machine: no link to estimate, so losses never move its rate.
+    local: bool,
     rate: f64,
     inflight: VecDeque<Sent>,
     floor: VecDeque<(f64, f64)>,
@@ -209,12 +215,28 @@ impl LinkRate {
     pub fn new(limits: Limits) -> Self {
         Self::with_hint(limits, None)
     }
+    /// A view on this machine (`viewer.open`'s `local`): loopback has no link to estimate, so
+    /// its rate is fixed at `LOCAL_RATE` and a loss, a drop or a late ack never cuts it. Here a
+    /// late ack means a busy renderer, not a link that carries less; ADR 0149's estimator is for
+    /// real links. The round trip is still measured: deadlines and the in-flight bound use it.
+    pub fn local() -> Self {
+        let mut rate = Self::new(Limits {
+            min: LOCAL_RATE,
+            max: LOCAL_RATE,
+            initial: LOCAL_RATE,
+        });
+        rate.local = true;
+        // Nothing to probe up from: the rate is the link's.
+        rate.starting = false;
+        rate
+    }
     pub fn with_hint(limits: Limits, hint: Option<&LinkHint>) -> Self {
         let start = hinted_start(limits, hint);
         Self {
             limits,
             start,
             hinted: start < limits.initial,
+            local: false,
             rate: start,
             inflight: VecDeque::with_capacity(OUTSTANDING_SENDS),
             floor: VecDeque::with_capacity(1024),
@@ -261,9 +283,9 @@ impl LinkRate {
         ((self.rate / 8.0) * ((rtt + BACKLOG_MS.max(rtt + STALL_MS)) / 1000.0)).round() as usize
     }
     /// Chunks went unacked past their deadline (`fanout`): a loss, cut as a drop with a queue,
-    /// once a round trip.
+    /// once a round trip. A local view's losses say nothing about its link.
     pub fn lost(&mut self, at: f64) {
-        if at < self.drop_hold_until {
+        if self.local || at < self.drop_hold_until {
             return;
         }
         self.dropped = true;
@@ -308,9 +330,10 @@ impl LinkRate {
         self.sample(rtt.min(floor.max(rtt - own)).max(0.0), sent_at, at);
         self.step(at, false);
     }
-    /// A chunk didn't fit the viewer's window. One cut a round trip; none during a stall.
+    /// A chunk didn't fit the viewer's window. One cut a round trip; none during a stall. A
+    /// local view's window is not its link's: nothing here cuts it.
     pub fn dropped(&mut self, at: f64) {
-        if at < self.drop_hold_until || at <= self.stall_until {
+        if self.local || at < self.drop_hold_until || at <= self.stall_until {
             return;
         }
         if let Some(age) = self.inflight.front().map(|c| at - c.at) {
@@ -486,5 +509,52 @@ impl LinkRate {
     }
     fn settle(&mut self, rate: f64) {
         self.rate = rate.clamp(self.limits.min, self.limits.max).round();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_local_link_keeps_its_rate_through_losses_drops_and_late_acks_while_a_remote_link_is_cut() {
+        let mut local = LinkRate::local();
+        let mut remote = LinkRate::new(Limits::default());
+        // Twenty chunks a second apart, then the renderer stalls for seconds: every chunk goes
+        // past its deadline and its window refuses what follows.
+        for n in 0..20_u64 {
+            let at = n as f64 * 100.0;
+            for rate in [&mut local, &mut remote] {
+                rate.sent(n, 1_000, at);
+            }
+        }
+        for n in 0..20_u64 {
+            let at = 2_000.0 + n as f64 * 250.0;
+            for rate in [&mut local, &mut remote] {
+                rate.lost(at);
+                rate.dropped(at + 100.0);
+            }
+            assert_eq!(local.rate(), LOCAL_RATE, "after loss {n}");
+        }
+        // The acks come long after every chunk was due: a busy renderer, not congestion.
+        for n in 0..20_u64 {
+            let at = 7_000.0 + n as f64 * 100.0;
+            for rate in [&mut local, &mut remote] {
+                rate.acknowledged(n, at);
+            }
+            assert_eq!(local.rate(), LOCAL_RATE, "after ack {n}");
+        }
+        // Its in-flight bound stays at the local rate's backlog, not a collapsed one's.
+        assert!(
+            local.backlog_bytes() >= 1_000_000,
+            "the local link's budget: {}",
+            local.backlog_bytes()
+        );
+        // The same losses and drops on a view over a real link cut it, as ADR 0149 asks.
+        assert!(
+            remote.rate() < 1_000_000.0,
+            "the remote link's rate: {}",
+            remote.rate()
+        );
     }
 }

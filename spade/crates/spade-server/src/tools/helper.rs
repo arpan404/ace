@@ -15,18 +15,17 @@ impl Tool for HelperTool {
         ToolDef {
             spec: ToolSpec {
                 name: spade_core::helper::TOOL.to_owned(),
-                description: "Hands part of your work to a helper: a short-lived assistant that \
-                              starts fresh with only the task you give it, works through it with \
-                              its own tools, and answers once. Its answer arrives as a \
-                              <job_result>; carry on meanwhile. Use it for reading and searching \
-                              you only need the result of, and to do independent parts side by \
-                              side (at most 4 run at once; more wait their turn). Profiles: \
-                              explore reads only and never needs the person; general (the \
-                              default) has your tools. Its own calls are checked like yours. \
-                              Put everything it needs in the task: it sees nothing else. It \
-                              runs on your helper model, usually a cheaper one; for work that \
-                              needs your judgement pass model main, or another role or model \
-                              the person set up for you."
+                description: "Hand part of your work to a helper: a short-lived assistant that \
+                              starts fresh with only the task you give it, works with its own \
+                              tools and answers once, as a <job_result>; carry on meanwhile. Use \
+                              it for reading and searching whose result is all you need, and for \
+                              independent parts side by side (4 run at once; more wait). \
+                              Profiles: explore reads only and never needs the person; general \
+                              (the default) has your tools. Its calls are checked like yours. \
+                              Put everything it needs in the task: it sees nothing else. It runs \
+                              on your helper model, usually cheaper; for work that needs your \
+                              judgement pass model main, or another role or model the person \
+                              set up for you."
                     .to_owned(),
                 schema: json!({
                     "type": "object",

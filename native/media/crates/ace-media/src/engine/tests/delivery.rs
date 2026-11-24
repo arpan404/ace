@@ -3,6 +3,7 @@
 //! for, and what pausing and the main session's round trip change.
 use super::*;
 use crate::engine::delivery::{MediaOut, VIDEO_SHARE, VIDEO_SHARE_CUT, next_media_id};
+use crate::serve_sim::{Record, Translator};
 use media_core::envelope::Assembler;
 use media_core::headers::decode_picture;
 use media_wire::control::EncodeSpec;
@@ -16,6 +17,12 @@ fn watched(target: Value) -> Engine {
 
 /// `watched`, with a view that decodes `codecs`, best first.
 fn watched_decoding(target: Value, codecs: Value) -> Engine {
+    watched_view(target, codecs, false)
+}
+
+/// `watched_decoding`, with `local`: whether the view is on this machine, as the daemon tells
+/// ace-media for a viewer on its loopback listener (the desktop app).
+fn watched_view(target: Value, codecs: Value, local: bool) -> Engine {
     let mut engine = engine();
     open_tab(&mut engine, "s1", 1, 3);
     hello(&mut engine, 1, 3);
@@ -28,11 +35,33 @@ fn watched_decoding(target: Value, codecs: Value) -> Engine {
                 "owner": owner("phone", pairing(1)), "issued": 2, "source": "s1",
                 "target": target, "codecs": codecs,
                 "viewport": { "width": 390, "height": 844, "dpr": 3, "scale": 1 },
-                "local": false, "audio": false }),
+                "local": local, "audio": false }),
         &[],
         NOW,
     );
     engine
+}
+
+/// The view's client shows everything it has been given: one cumulative ack, numbered far
+/// ahead of the view's own sequence counter.
+fn shown(engine: &mut Engine, now: Now) {
+    engine.media_message(
+        CONNECTION,
+        &json!({ "type": "browser.ack", "threadId": "t1", "sequence": 4_000_000_000_u64,
+                 "video": true })
+        .to_string(),
+        now,
+    );
+}
+
+/// The view's rate and dropped count as `viewer.stats` last reported them.
+fn reported(effects: &[Effect]) -> Option<(f64, u64)> {
+    effects.iter().rev().find_map(|e| match e {
+        Effect::Normal(FromMedia::ViewerStats { rate, dropped, .. }) => {
+            Some((f64::from(*rate), dropped.get()))
+        }
+        _ => None,
+    })
 }
 
 fn binaries(effects: &[Effect]) -> Vec<Vec<u8>> {
@@ -121,6 +150,275 @@ fn a_device_view_gets_annex_b_pictures_with_parameter_sets_on_keyframes() {
     expected.extend_from_slice(&pps);
     expected.extend_from_slice(&[0, 0, 0, 1, 0x65, 7]);
     assert_eq!(payload, expected);
+}
+
+/// One Simulator access unit of two NAL units, each with a 4-byte length; `first` is the leading
+/// NAL's first byte (its type in the low five bits).
+fn sim_unit(first: u8) -> Vec<u8> {
+    let mut out = Vec::new();
+    for nal in [[first, 0x88, 0x84], [0x06, 0x05, 0x01]] {
+        out.extend_from_slice(&(nal.len() as u32).to_be_bytes());
+        out.extend_from_slice(&nal);
+    }
+    out
+}
+
+#[test]
+fn a_simulator_delta_reaches_a_device_view_with_a_codec_its_header_names() {
+    // serve-sim's records, as its reader gives them: the avcC description, a keyframe, a delta.
+    let fixture = include_bytes!("../../../../media-mp4/tests/vectors/h264.bin");
+    let n = u32::from_be_bytes([fixture[0], fixture[1], fixture[2], fixture[3]]) as usize;
+    let mut translate = Translator::default();
+    assert_eq!(
+        translate.frame(Record::Description(fixture[4..4 + n].to_vec())),
+        Ok(None)
+    );
+    let mut engine = watched(json!({ "kind": "device", "deviceId": "android:emulator-5554" }));
+    let Ok(Some(key)) = translate.frame(Record::Key(sim_unit(0x25))) else {
+        panic!("a keyframe after its description is a frame");
+    };
+    assert_eq!(binaries(&ingest(&mut engine, 1, key, NOW)).len(), 1);
+    let Ok(Some(delta)) = translate.frame(Record::Delta(sim_unit(0x21))) else {
+        panic!("a delta is a frame");
+    };
+    let effects = ingest(&mut engine, 1, delta, at(1_100));
+    let pieces = binaries(&effects);
+    let mut assembler = Assembler::new();
+    let codec = pieces.iter().find_map(|piece| {
+        let envelope = assembler.push(piece).ok().flatten()?;
+        let picture = decode_picture(4, envelope.meta, envelope.payload).ok()?;
+        Some(picture.codec.to_owned())
+    });
+    let Some(codec) = codec else {
+        panic!("a delta reached the device view with no header a client can read: {effects:?}");
+    };
+    assert!(
+        codec.starts_with("avc1."),
+        "the delta's header names the codec it carries: {codec:?}"
+    );
+}
+
+fn device_ack(engine: &mut Engine, sequence: u64, keyframe: bool, mono_ms: u64) {
+    let text = if keyframe {
+        json!({ "type": "devices.ack", "deviceId": "ios:03DDE173", "streamId": "s1",
+                "sequence": sequence, "keyframe": true })
+        .to_string()
+    } else {
+        json!({ "type": "devices.ack", "deviceId": "ios:03DDE173", "streamId": "s1",
+                "sequence": sequence })
+        .to_string()
+    };
+    engine.media_message(CONNECTION, &text, at(mono_ms));
+}
+
+/// A device view of `s1`, acknowledged once and then quiet: its window fills and its chunks go
+/// past their deadline (the last ack at 1_010 ms).
+fn quiet_device_view(engine: &mut Engine) {
+    let mut effects = ingest(engine, 1, h264(true, 0, 1, Vec::new()), at(1_000));
+    for n in 1..5 {
+        effects.extend(ingest(engine, 1, h264(false, n, 1, Vec::new()), at(1_000)));
+    }
+    let sent = binaries(&effects).len();
+    device_ack(engine, sent as u64, false, 1_010);
+    engine.effects().for_each(drop);
+    for n in 5..80u8 {
+        ingest(engine, 1, h264(false, n, 1, Vec::new()), at(1_100));
+    }
+    engine.effects().for_each(drop);
+}
+
+#[test]
+fn a_device_view_that_stops_acking_parks_instead_of_asking_for_keyframes_for_ever() {
+    let mut engine = watched(json!({ "kind": "device", "deviceId": "ios:03DDE173" }));
+    quiet_device_view(&mut engine);
+    // Past the chunks' deadline, and past the silence a live view never has: nothing asks the
+    // source for a keyframe the quiet view could never take.
+    engine.tick(at(6_200));
+    let first = keyframes(&engine.effects().collect::<Vec<_>>());
+    assert!(
+        first <= 1,
+        "at most the keyframe it asked for before it parked"
+    );
+    let mut asked = 0;
+    for step in 0..6u64 {
+        engine.tick(at(7_200 + step * 1_000));
+        asked += keyframes(&engine.effects().collect::<Vec<_>>());
+    }
+    assert_eq!(asked, 0, "a parked view asks for no keyframes");
+    assert_eq!(engine.counts().viewers, 1, "parked, not closed");
+    // And its drops stop with it: the window is not refilled only to expire again.
+    let mut stats: Vec<u64> = Vec::new();
+    for step in 0..6u64 {
+        engine.tick(at(13_000 + step * 1_000));
+        for effect in engine.effects() {
+            if let Effect::Normal(FromMedia::ViewerStats { dropped, .. }) = effect {
+                stats.push(dropped.get());
+            }
+        }
+    }
+    assert!(stats.len() >= 5, "{stats:?}");
+    assert_eq!(
+        stats.first(),
+        stats.last(),
+        "a parked view drops nothing more"
+    );
+    // And nothing more goes to it, not even a keyframe.
+    let mut later = ingest(&mut engine, 1, h264(true, 100, 1, Vec::new()), at(19_500));
+    later.extend(engine.effects());
+    assert!(binaries(&later).is_empty(), "a parked view is sent nothing");
+}
+
+#[test]
+fn an_ack_resumes_a_parked_device_view_at_a_fresh_keyframe() {
+    let mut engine = watched(json!({ "kind": "device", "deviceId": "ios:03DDE173" }));
+    quiet_device_view(&mut engine);
+    engine.tick(at(6_200));
+    engine.effects().for_each(drop);
+    // The view came back (its page shown again, a decoder asking for a keyframe): it is owed one.
+    device_ack(&mut engine, 40, true, 6_500);
+    let resumed = engine.effects().collect::<Vec<_>>();
+    assert_eq!(keyframes(&resumed), 1, "a resumed view is owed a keyframe");
+    let mut after = ingest(&mut engine, 1, h264(true, 120, 1, Vec::new()), at(6_600));
+    after.extend(engine.effects());
+    assert_eq!(binaries(&after).len(), 1, "the keyframe reaches it");
+}
+
+#[test]
+fn a_device_view_that_never_acks_is_asked_for_a_few_keyframes_then_left_to_the_source() {
+    let mut engine = watched(json!({ "kind": "device", "deviceId": "ios:03DDE173" }));
+    // It takes pictures and acks none of them: its window fills and its chunks go past their
+    // deadline. Its source is asked a few times, then left to its own cadence.
+    for n in 0..80u8 {
+        ingest(&mut engine, 1, h264(n == 0, n, 1, Vec::new()), at(1_000));
+    }
+    engine.effects().for_each(drop);
+    for step in 0..3u64 {
+        engine.tick(at(6_200 + step * 1_000));
+        engine.effects().for_each(drop);
+    }
+    let mut asked = 0;
+    for step in 0..6u64 {
+        engine.tick(at(9_200 + step * 1_000));
+        asked += keyframes(&engine.effects().collect::<Vec<_>>());
+    }
+    assert_eq!(
+        asked, 0,
+        "a view that takes nothing is asked for nothing more"
+    );
+    assert_eq!(engine.counts().viewers, 1, "not closed either");
+    // A keyframe the source makes on its own still reaches it.
+    let mut later = ingest(&mut engine, 1, h264(true, 200, 1, Vec::new()), at(15_000));
+    later.extend(engine.effects());
+    assert_eq!(binaries(&later).len(), 1, "the source's own keyframe goes");
+}
+
+#[test]
+fn a_parked_view_does_not_hold_another_view_of_its_source_back() {
+    // Two devices are shown on one connection: one stops acking, the other keeps up.
+    let mut engine = watched(json!({ "kind": "device", "deviceId": "ios:03DDE173" }));
+    send(
+        &mut engine,
+        json!({ "type": "viewer.open", "viewer": "v2", "connection": CONNECTION,
+                "owner": owner("phone", pairing(1)), "issued": 3, "source": "s1",
+                "target": { "kind": "device", "deviceId": "android:emulator-5554" },
+                "codecs": ["avc1.42E033"],
+                "viewport": { "width": 402, "height": 874, "dpr": 3, "scale": 1 },
+                "local": true, "audio": false }),
+        &[],
+        NOW,
+    );
+    assert_eq!(engine.counts().viewers, 2);
+    engine.effects().for_each(drop);
+    quiet_device_view(&mut engine);
+    engine.tick(at(6_200));
+    engine.effects().for_each(drop);
+    // The quiet view is parked; the other asks for a keyframe and acks each picture after it.
+    engine.media_message(
+        CONNECTION,
+        &json!({ "type": "devices.ack", "deviceId": "android:emulator-5554",
+                 "streamId": "s1", "sequence": 1, "keyframe": true })
+        .to_string(),
+        at(6_400),
+    );
+    engine.effects().for_each(drop);
+    let mut got = 0;
+    for n in 80..140u8 {
+        let effects = ingest(&mut engine, 1, h264(n == 80, n, 1, Vec::new()), at(6_500));
+        got += binaries(&effects).len();
+        engine.media_message(
+            CONNECTION,
+            &json!({ "type": "devices.ack", "deviceId": "android:emulator-5554",
+                     "streamId": "s1", "sequence": n })
+            .to_string(),
+            at(6_500),
+        );
+        engine.effects().for_each(drop);
+    }
+    assert_eq!(got, 60, "the acking view gets every picture");
+}
+
+/// The encode the first unit plans for the view, as the effects ask the producer for it.
+fn planned_encode(effects: &[Effect]) -> u32 {
+    let Some(plan) = wants(effects).pop() else {
+        panic!("the first unit's size plans the view");
+    };
+    let Some(encode) = plan.first() else {
+        panic!("the view decodes a codec the producer encodes");
+    };
+    encode.id
+}
+
+#[test]
+fn a_device_delta_that_names_no_codec_is_delivered_with_its_encodes_codec() {
+    let mut engine = watched(json!({ "kind": "device", "deviceId": "android:emulator-5554" }));
+    let planned = planned_encode(&ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW));
+    let mut key = h264(true, 1, 1, Vec::new());
+    key.encode = planned;
+    ingest(&mut engine, 1, key, at(1_100));
+    // A producer's re-encoded delta can arrive without naming its codec.
+    let mut delta = h264(false, 2, 1, Vec::new());
+    delta.encode = planned;
+    delta.codec_string = String::new();
+    let pieces = binaries(&ingest(&mut engine, 1, delta, at(1_200)));
+    let mut assembler = Assembler::new();
+    let envelope = pieces.iter().find_map(|p| {
+        assembler
+            .push(p)
+            .ok()
+            .flatten()
+            .map(|e| (e.kind, e.meta.to_vec(), e.payload.to_vec()))
+    });
+    let Some((kind, meta, payload)) = envelope else {
+        panic!("no picture reached the device view");
+    };
+    assert_eq!(kind, 4);
+    let Ok(picture) = decode_picture(4, &meta, &payload) else {
+        panic!("a header the client can't read");
+    };
+    assert_eq!(picture.codec, "avc1.42E033");
+    assert!(!picture.key);
+}
+
+#[test]
+fn a_delta_that_names_no_codec_before_its_encode_did_is_not_sent_as_a_picture() {
+    let mut engine = watched(json!({ "kind": "device", "deviceId": "android:emulator-5554" }));
+    let planned = planned_encode(&ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW));
+    // Nothing named this encode's codec yet: not even its keyframe.
+    let mut key = h264(true, 1, 1, Vec::new());
+    key.encode = planned;
+    key.codec_string = String::new();
+    assert!(binaries(&ingest(&mut engine, 1, key, at(1_100))).is_empty());
+    let mut delta = h264(false, 2, 1, Vec::new());
+    delta.encode = planned;
+    delta.codec_string = String::new();
+    assert!(
+        binaries(&ingest(&mut engine, 1, delta, at(1_200))).is_empty(),
+        "no header the client would reject for a codec it doesn't know"
+    );
+    // The keyframe that names the codec still starts the view.
+    let mut named = h264(true, 3, 1, Vec::new());
+    named.encode = planned;
+    assert_eq!(binaries(&ingest(&mut engine, 1, named, at(1_300))).len(), 1);
 }
 
 #[test]
@@ -341,6 +639,30 @@ fn a_view_takes_the_nearest_encode_a_producer_sends_when_it_doesnt_follow_the_pl
     assert!(binaries(&ingest(&mut engine, 1, small, at(1_100))).is_empty());
     large.flags = 0;
     assert_eq!(binaries(&ingest(&mut engine, 1, large, at(1_100))).len(), 1);
+}
+
+#[test]
+fn a_view_on_a_fallback_encode_keeps_playing_through_deltas_that_carry_no_codec() {
+    let mut engine = watched(json!({ "kind": "screen", "sessionId": "screen-1" }));
+    // The producer ignores the plan: its own encode 4, in an H.264 profile the viewer doesn't
+    // name but its family it decodes.
+    let mut key = h264(true, 1, 1, Vec::new());
+    key.encode = 4;
+    key.codec_string = "avc1.640033".into();
+    assert_eq!(binaries(&ingest(&mut engine, 1, key, NOW)).len(), 1);
+    // serve-sim names the codec only on keyframes: a delta of the same encode carries none.
+    let mut delta = h264(false, 2, 1, Vec::new());
+    delta.encode = 4;
+    delta.codec_string = String::new();
+    let effects = ingest(&mut engine, 1, delta, at(1_100));
+    assert_eq!(binaries(&effects).len(), 1, "the delta reached the view");
+    assert!(
+        !effects.iter().any(|e| matches!(
+            e,
+            Effect::Normal(FromMedia::ViewerPlaying { playing: false, .. })
+        )),
+        "the view was told it stopped: {effects:?}"
+    );
 }
 
 #[test]
@@ -914,6 +1236,339 @@ fn a_views_bytes_in_flight_cover_its_round_trip_and_one_tail_loss_stall() {
     );
 }
 
+/// A browser view's delivered video header: the page size it maps clicks in, beside the
+/// encoded pixels. None when no browser video reached the view, or the client would reject it.
+fn browser_video_header(effects: &[Effect]) -> Option<(u32, u32, u16, u16)> {
+    let mut assembler = Assembler::new();
+    binaries(effects).iter().find_map(|p| {
+        let envelope = assembler.push(p).ok().flatten()?;
+        if envelope.kind != 2 {
+            return None;
+        }
+        media_core::headers::decode_video(envelope.meta, envelope.payload)
+            .ok()
+            .map(|v| (v.width, v.height, v.coded_width, v.coded_height))
+    })
+}
+
+/// A browser keyframe of `coded` encoded pixels with `display` display pixels.
+fn browser_key(n: u8, coded: (u16, u16), display: (u16, u16)) -> MediaFrame {
+    let mut key = h264(true, n, 1, Vec::new());
+    key.width = coded.0;
+    key.height = coded.1;
+    key.display_width = display.0;
+    key.display_height = display.1;
+    key
+}
+
+#[test]
+fn a_browser_view_header_gives_the_page_css_size_beside_the_coded_size() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    // The daemon said the page is 640x400 CSS px at scale 2; the encoder sends 1280x800.
+    send(
+        &mut engine,
+        json!({ "type": "source.page", "source": "s1", "width": 640, "height": 400, "scale": 2 }),
+        &[],
+        NOW,
+    );
+    let effects = ingest(
+        &mut engine,
+        1,
+        browser_key(0, (1280, 800), (1280, 800)),
+        NOW,
+    );
+    let Some((width, height, coded_width, coded_height)) = browser_video_header(&effects) else {
+        panic!("no browser video reached the view");
+    };
+    assert_eq!((width, height), (640, 400));
+    assert_eq!((coded_width, coded_height), (1280, 800));
+}
+
+#[test]
+fn a_browser_view_header_scales_an_oversized_page_to_fit_what_the_client_takes() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    // At 25% zoom the desktop reports 5120x3200; the client rejects sides outside 100..=4096,
+    // so both scale together to fit, keeping the aspect.
+    send(
+        &mut engine,
+        json!({ "type": "source.page", "source": "s1", "width": 5120, "height": 3200, "scale": 1 }),
+        &[],
+        NOW,
+    );
+    let effects = ingest(
+        &mut engine,
+        1,
+        browser_key(0, (1280, 800), (1280, 800)),
+        NOW,
+    );
+    let Some((width, height, coded_width, coded_height)) = browser_video_header(&effects) else {
+        panic!("no browser video reached the view");
+    };
+    assert_eq!((width, height), (4096, 2560));
+    assert_eq!((coded_width, coded_height), (1280, 800));
+}
+
+#[test]
+fn a_browser_view_header_scales_a_tiny_page_up_to_what_the_client_takes() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    // A 40x30 page scales up together until the smaller side clears 100, keeping the 4:3
+    // aspect as far as rounding allows.
+    send(
+        &mut engine,
+        json!({ "type": "source.page", "source": "s1", "width": 40, "height": 30, "scale": 1 }),
+        &[],
+        NOW,
+    );
+    let effects = ingest(
+        &mut engine,
+        1,
+        browser_key(0, (1280, 800), (1280, 800)),
+        NOW,
+    );
+    let Some((width, height, coded_width, coded_height)) = browser_video_header(&effects) else {
+        panic!("no browser video reached the view");
+    };
+    assert_eq!((width, height), (133, 100));
+    assert_eq!((coded_width, coded_height), (1280, 800));
+}
+
+#[test]
+fn a_browser_view_header_keeps_the_display_size_until_the_daemon_announces_the_page() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    // No source.page yet: the first unit's display size seeds planning, but the header keeps
+    // the display size of the unit it carries, even after the encoder's size changed.
+    let first = ingest(
+        &mut engine,
+        1,
+        browser_key(0, (1280, 800), (1280, 800)),
+        NOW,
+    );
+    assert_eq!(browser_video_header(&first), Some((1280, 800, 1280, 800)));
+    let second = ingest(&mut engine, 1, browser_key(1, (640, 400), (640, 400)), NOW);
+    assert_eq!(browser_video_header(&second), Some((640, 400, 640, 400)));
+    // The daemon announces the CSS page: the header uses it beside the coded size.
+    send(
+        &mut engine,
+        json!({ "type": "source.page", "source": "s1", "width": 320, "height": 200, "scale": 1 }),
+        &[],
+        NOW,
+    );
+    let third = ingest(&mut engine, 1, browser_key(2, (640, 400), (640, 400)), NOW);
+    assert_eq!(browser_video_header(&third), Some((320, 200, 640, 400)));
+}
+
+#[test]
+fn a_browser_view_header_uses_an_announced_page_matching_the_seeded_size() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    // The first unit's display size seeds planning at scale 1; the daemon then announces the
+    // same size, so nothing replans.
+    let mut seeded = browser_key(0, (1280, 800), (1280, 800));
+    seeded.scale = 1000;
+    let first = ingest(&mut engine, 1, seeded, NOW);
+    assert_eq!(browser_video_header(&first), Some((1280, 800, 1280, 800)));
+    send(
+        &mut engine,
+        json!({ "type": "source.page", "source": "s1", "width": 1280, "height": 800, "scale": 1 }),
+        &[],
+        NOW,
+    );
+    // The announced page sizes the header even though nothing replanned: the coded size stays
+    // the encoded pixels.
+    let second = ingest(&mut engine, 1, browser_key(1, (640, 400), (640, 400)), NOW);
+    assert_eq!(browser_video_header(&second), Some((1280, 800, 640, 400)));
+}
+
+#[test]
+fn a_browser_view_header_follows_the_announced_page_closest_to_each_frames_shape() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    // A resize from landscape to portrait: frames of both shapes are in flight, and each
+    // keeps the geometry it was captured in.
+    send(
+        &mut engine,
+        json!({ "type": "source.page", "source": "s1", "width": 1280, "height": 800, "scale": 1 }),
+        &[],
+        NOW,
+    );
+    send(
+        &mut engine,
+        json!({ "type": "source.page", "source": "s1", "width": 800, "height": 1280, "scale": 1 }),
+        &[],
+        NOW,
+    );
+    let landscape = ingest(
+        &mut engine,
+        1,
+        browser_key(0, (1280, 800), (1280, 800)),
+        NOW,
+    );
+    assert_eq!(
+        browser_video_header(&landscape),
+        Some((1280, 800, 1280, 800))
+    );
+    let portrait = ingest(
+        &mut engine,
+        1,
+        browser_key(1, (800, 1280), (800, 1280)),
+        NOW,
+    );
+    assert_eq!(
+        browser_video_header(&portrait),
+        Some((800, 1280, 800, 1280))
+    );
+}
+
+/// What one view got through a renderer that keeps up, stalls, and then catches up.
+struct Stalled {
+    /// Its rate as `viewer.stats` last reported it.
+    rate: f64,
+    /// Its losses, as `viewer.stats` counted them.
+    dropped: u64,
+    /// The bit rate of the last encode planned for it.
+    planned: u32,
+    /// Frames of the burst after the stalls that reached its connection, and how many went in.
+    sent: usize,
+    published: usize,
+}
+
+/// Drives one view of `t1` through: a renderer a millisecond behind (so the path's round trip
+/// is 1 ms), five stalls where frames go unacked past their deadline and are let go as losses,
+/// then a burst of a keyframe and twenty deltas with no acks. `local`: the view is on this
+/// machine, as `viewer.open` says for the desktop app.
+fn stalled(local: bool) -> Stalled {
+    let mut engine = watched_view(
+        json!({ "kind": "browser", "threadId": "t1" }),
+        json!(["avc1.42E033"]),
+        local,
+    );
+    let first = ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), at(1_000));
+    let Some(plan) = wants(&first).pop() else {
+        panic!("the first unit plans the view");
+    };
+    let mut planned = plan[0].bitrate;
+    let mut now = 1_100;
+    for n in 1..=10_u8 {
+        // The renderer keeps up: every frame acked a millisecond after it went.
+        ingest(&mut engine, 1, h264(n == 1, n, 1, Vec::new()), at(now));
+        shown(&mut engine, at(now + 1));
+        now += 50;
+    }
+    let mut effects = Vec::new();
+    for cycle in 0..5_u8 {
+        // A stall: a keyframe and five deltas, then nothing until well past the fanout's
+        // deadline (a round trip plus a second's slack), so each tick lets them go as a loss.
+        effects.extend(ingest(
+            &mut engine,
+            1,
+            h264(true, 20 + cycle, 1, Vec::new()),
+            at(now),
+        ));
+        for n in 1..=5_u8 {
+            effects.extend(ingest(
+                &mut engine,
+                1,
+                h264(false, 30 + cycle * 5 + n, 1, Vec::new()),
+                at(now),
+            ));
+        }
+        let stall = now + 3_000;
+        while now < stall {
+            now += 100;
+            engine.tick(at(now));
+        }
+        effects.extend(engine.effects());
+        // The client catches up, long after every chunk was due.
+        shown(&mut engine, at(now));
+        now += 100;
+    }
+    if let Some(last) = wants(&effects).pop() {
+        planned = last[0].bitrate;
+    }
+    // The burst: what a busy renderer's backlog costs the picture.
+    let mut sent = 0;
+    let published = 21_usize;
+    for n in 0..published {
+        let mut unit = h264(n == 0, n as u8, 1, Vec::new());
+        unit.payload.resize(2_000, n as u8);
+        sent += binaries(&ingest(&mut engine, 1, unit, at(now))).len();
+        now += 50;
+    }
+    effects.extend(engine.effects());
+    engine.tick(at(now + 1_000));
+    effects.extend(engine.effects());
+    let (rate, dropped) = reported(&effects).unwrap_or_else(|| panic!("no stats"));
+    Stalled {
+        rate,
+        dropped,
+        planned,
+        sent,
+        published,
+    }
+}
+
+#[test]
+fn a_local_views_late_acks_keep_its_rate_and_every_frame_while_a_remote_views_cut() {
+    let here = stalled(true);
+    let remote = stalled(false);
+    // A view on this machine is paced at the local rate from the first picture, whatever its
+    // renderer does: 16 Mbit/s, which plans an encode at the picture's ceiling (~10.6 Mbit/s
+    // for the test's 1170 x 2532 unit).
+    assert_eq!(here.rate, 16_000_000.0, "the local view's rate");
+    assert!(here.dropped > 0, "the local view lost chunks");
+    assert!(
+        here.planned >= 10_000_000,
+        "the local view's plan: {}",
+        here.planned
+    );
+    // Its bytes in flight stay at the local rate's backlog, so every frame of the burst went.
+    assert_eq!(here.sent, here.published, "the local view got every frame");
+    // The same late acks on a view over a real link cut it to the floor, and the plan shrinks
+    // with it: the behaviour ADR 0149 asks for.
+    assert!(
+        remote.rate <= 300_000.0,
+        "the remote view's rate: {}",
+        remote.rate
+    );
+    assert!(
+        remote.planned <= 500_000,
+        "the remote view's plan: {}",
+        remote.planned
+    );
+    assert!(
+        remote.sent < remote.published,
+        "the remote view's window: {} of {}",
+        remote.sent,
+        remote.published
+    );
+}
+
+#[test]
+fn a_local_views_stats_report_the_fixed_local_rate() {
+    let mut engine = watched_view(
+        json!({ "kind": "browser", "threadId": "t1" }),
+        json!(["avc1.42E033"]),
+        true,
+    );
+    ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), at(1_000));
+    // Ten frames go unacked, then their acks arrive seconds late: on this machine that is a
+    // busy renderer, not a congested link, so the reported rate never moves.
+    for n in 1..=10_u8 {
+        ingest(
+            &mut engine,
+            1,
+            h264(n == 1, n, 1, Vec::new()),
+            at(1_000 + u64::from(n) * 50),
+        );
+    }
+    engine.tick(at(5_000));
+    let mut effects: Vec<Effect> = engine.effects().collect();
+    shown(&mut engine, at(6_000));
+    engine.tick(at(7_000));
+    effects.extend(engine.effects());
+    let (rate, dropped) = reported(&effects).unwrap_or_else(|| panic!("no stats"));
+    assert!(dropped > 0, "the chunks went unacked past their deadline");
+    assert_eq!(rate, 16_000_000.0);
+}
+
 #[test]
 fn a_page_that_changes_size_plans_its_views_again_at_its_new_shape() {
     let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
@@ -984,4 +1639,203 @@ fn a_spaced_keyframe_request_goes_unasked_when_the_producers_own_keyframe_comes_
     );
     engine.tick(at(NOW.mono_ms + 300));
     assert_eq!(keyframes(&engine.effects().collect::<Vec<_>>()), 0);
+}
+
+#[test]
+fn a_local_views_oversized_keyframe_leaves_its_bitrate_alone() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    // A local viewer (loopback carries far more than the 8 Mbit/s estimate): the keyframe
+    // cap, which protects slow links, must not cut its still picture blurry.
+    send(
+        &mut engine,
+        json!({ "type": "viewer.open", "viewer": "v1", "connection": CONNECTION,
+                "owner": owner("phone", pairing(1)), "issued": 3, "source": "s1",
+                "target": { "kind": "browser", "threadId": "t1" }, "codecs": ["avc1.42E033"],
+                "viewport": { "width": 390, "height": 844, "dpr": 3, "scale": 1 },
+                "local": true, "audio": false }),
+        &[],
+        NOW,
+    );
+    let first = ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW);
+    let Some(before) = wants(&first).pop() else {
+        panic!("no plan");
+    };
+    // The first is acked: the window is empty.
+    engine.media_message(
+        CONNECTION,
+        &json!({ "type": "browser.ack", "threadId": "t1", "sequence": 1, "video": true })
+            .to_string(),
+        NOW,
+    );
+    engine.effects().for_each(drop);
+    // A 500 KB keyframe: over half a second even of the local share (5.6 Mbit/s -> ~350 KB
+    // cap), but loopback is not a slow link, so it still goes and the producer is not
+    // asked for less.
+    let mut big = h264(true, 1, 1, Vec::new());
+    big.payload.resize(500_000, 1);
+    let effects = ingest(&mut engine, 1, big, NOW);
+    assert!(!binaries(&effects).is_empty(), "the keyframe still went");
+    let after = wants(&effects).pop();
+    assert!(
+        after
+            .as_ref()
+            .is_none_or(|w| w[0].bitrate == before[0].bitrate),
+        "a local-only encode is not cut: {after:?} vs {before:?}"
+    );
+}
+
+fn device_unit(
+    width: u16,
+    height: u16,
+    display_width: u16,
+    display_height: u16,
+    scale: u16,
+) -> MediaFrame {
+    let mut unit = h264(true, 9, 1, Vec::new());
+    unit.width = width;
+    unit.height = height;
+    unit.display_width = display_width;
+    unit.display_height = display_height;
+    unit.scale = scale;
+    unit
+}
+
+fn device_header(unit: MediaFrame) -> (u16, u16, f64) {
+    let mut engine = watched(json!({ "kind": "device", "deviceId": "android:emulator-5554" }));
+    let effects = ingest(&mut engine, 1, unit, NOW);
+    let pieces = binaries(&effects);
+    let mut assembler = Assembler::new();
+    let Some((kind, meta, payload)) = pieces.iter().find_map(|p| {
+        assembler
+            .push(p)
+            .ok()
+            .flatten()
+            .map(|e| (e.kind, e.meta.to_vec(), e.payload.to_vec()))
+    }) else {
+        panic!("no picture reached the device view");
+    };
+    assert_eq!(kind, 4);
+    let Ok(picture) = decode_picture(4, &meta, &payload) else {
+        panic!("a header the client can't read");
+    };
+    (picture.width, picture.height, picture.scale)
+}
+
+#[test]
+fn a_transcoded_device_frame_keeps_its_source_width_in_its_header_scale() {
+    // A Simulator re-encoded at 824x1792 from a 1206x2622 source at scale 1: the client divides
+    // the encoded width by the header scale to get back the 1206 source points it sends input in.
+    let (width, height, scale) = device_header(device_unit(824, 1792, 1206, 2622, 1000));
+    assert_eq!((width, height), (824, 1792));
+    assert!(
+        (f64::from(width) / scale - 1206.0).abs() < 1.0,
+        "width/scale is the source width, got {width} / {scale}",
+    );
+    assert!(
+        (scale - 824.0 / 1206.0).abs() < 0.002,
+        "scale is encoded px per source point, got {scale}",
+    );
+}
+
+#[test]
+fn a_remote_viewer_leaving_clears_its_shared_encodes_cut_for_the_local_left() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    // The local view alone: planned at its own share.
+    send(
+        &mut engine,
+        json!({ "type": "viewer.open", "viewer": "v1", "connection": CONNECTION,
+                "owner": owner("phone", pairing(1)), "issued": 3, "source": "s1",
+                "target": { "kind": "browser", "threadId": "t1" }, "codecs": ["avc1.42E033"],
+                "viewport": { "width": 390, "height": 844, "dpr": 3, "scale": 1 },
+                "local": true, "audio": false }),
+        &[],
+        NOW,
+    );
+    let first = ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW);
+    let Some(alone) = wants(&first).pop() else {
+        panic!("no plan");
+    };
+    // A remote viewer of the same page shares the encode, paced by its thin link.
+    ticket(&mut engine, "mc_two", owner("phone", pairing(1)), 5, 21);
+    assert!(engine.claim_ticket(&[21; 32], NOW).is_some());
+    send(
+        &mut engine,
+        json!({ "type": "viewer.open", "viewer": "v2", "connection": "mc_two",
+                "owner": owner("phone", pairing(1)), "issued": 6, "source": "s1",
+                "target": { "kind": "browser", "threadId": "t1" }, "codecs": ["avc1.42E033"],
+                "viewport": { "width": 390, "height": 844, "dpr": 3, "scale": 1 },
+                "local": false, "audio": false, "link": { "downlinkKbps": 400 } }),
+        &[],
+        NOW,
+    );
+    // One delta so the remote view takes the shared encode too; a keyframe sized only
+    // against the local view would never cut.
+    let mut bump = h264(false, 9, 1, Vec::new());
+    bump.payload.resize(1_000, 9);
+    engine.effects().for_each(drop);
+    let _ = ingest(&mut engine, 1, bump, NOW);
+    engine.effects().for_each(drop);
+    for (connection, sequence) in [(CONNECTION, 2), ("mc_two", 1)] {
+        engine.media_message(
+            connection,
+            &json!({ "type": "browser.ack", "threadId": "t1", "sequence": sequence, "video": true })
+                .to_string(),
+            NOW,
+        );
+    }
+    engine.effects().for_each(drop);
+    // A 500 KB keyframe: over half a second of the shared encode's (remote-paced) share,
+    // so the producer is asked for less while the remote view shares it.
+    let mut big = h264(true, 1, 1, Vec::new());
+    big.payload.resize(500_000, 1);
+    let cut = ingest(&mut engine, 1, big, NOW);
+    let Some(shared) = wants(&cut).pop() else {
+        panic!("the shared encode was not cut");
+    };
+    assert!(
+        shared[0].bitrate < alone[0].bitrate,
+        "cut while shared: {} vs local-alone {}",
+        shared[0].bitrate,
+        alone[0].bitrate
+    );
+    // The remote viewer leaves: the local survivor's encode is no longer cut.
+    let after = send(
+        &mut engine,
+        json!({ "type": "viewer.close", "viewer": "v2" }),
+        &[],
+        NOW,
+    );
+    let Some(recovered) = wants(&after).pop() else {
+        panic!("closing the remote view replans the survivor");
+    };
+    assert_eq!(
+        recovered[0].bitrate, alone[0].bitrate,
+        "local-only again: {recovered:?} vs {alone:?}"
+    );
+}
+
+#[test]
+fn a_native_size_device_frame_keeps_scale_1() {
+    let (width, height, scale) = device_header(device_unit(1206, 2622, 1206, 2622, 1000));
+    assert_eq!((width, height), (1206, 2622));
+    assert!(
+        (scale - 1.0).abs() < 0.0005,
+        "a native-size frame keeps its scale, got {scale}",
+    );
+}
+
+#[test]
+fn a_downscaled_mac_frame_reports_points_in_its_header_scale() {
+    // 1440x900 encoded from a 2880x1800 source at scale 2: the header scale is 1, so
+    // width/scale is the 1440 points input uses.
+    let (width, height, scale) = device_header(device_unit(1440, 900, 2880, 1800, 2000));
+    assert_eq!((width, height), (1440, 900));
+    assert!(
+        (scale - 1.0).abs() < 0.002,
+        "scale is encoded px per point, got {scale}",
+    );
+    assert!(
+        (f64::from(width) / scale - 1440.0).abs() < 1.0,
+        "width/scale is points"
+    );
 }

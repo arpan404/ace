@@ -2,6 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
+import { formatKeys } from "@/lib/keymap.ts";
 import { openNew, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
@@ -79,6 +80,7 @@ test("the model picker offers a running Ollama's models, and picking one chooses
   await openNew("New bot");
   // A new bot's model is at the top of its page, with how it runs.
   await userEvent.click(await screen.findByRole("button", { name: "Model" }));
+  await userEvent.click(await screen.findByRole("tab", { name: "On this computer" }));
   const local = within(await screen.findByRole("group", { name: "On this computer" }));
   await userEvent.click(local.getByRole("option", { name: /^qwen3:8b/ }));
   await waitFor(() =>
@@ -97,6 +99,7 @@ test("a local model that didn't call tools in Spade's check isn't taken as a bot
   await openNew("New bot");
   // A new bot's model is at the top of its page, with how it runs.
   await userEvent.click(await screen.findByRole("button", { name: "Model" }));
+  await userEvent.click(await screen.findByRole("tab", { name: "On this computer" }));
   const local = within(await screen.findByRole("group", { name: "On this computer" }));
   await userEvent.click(local.getByRole("option", { name: /^gemma3:4b/ }));
   // The checks run, then the picker says why it can't run a bot and keeps the choice as it was.
@@ -111,6 +114,108 @@ test("a local model that didn't call tools in Spade's check isn't taken as a bot
   await userEvent.click(option);
   expect(screen.getByRole("button", { name: "Model" }).textContent).not.toContain("gemma3:4b");
   expect(spade.sent("POST", "/v1/endpoints/local/ollama")).toEqual([{ model: "gemma3:4b" }]);
+});
+
+test("a local model that failed its tool check has no ⌘ number, and ⌘1 picks the next one", async () => {
+  await spadeApp("/spade", (here) => {
+    here.endpoints.push({
+      id: "ollama",
+      name: "Ollama",
+      format: "openai-chat",
+      base_url: "http://127.0.0.1:11434/v1/",
+      local: true,
+      header_names: [],
+      session_header: null,
+      needs_key: false,
+      key_set: false,
+      key_source: null,
+      models: [
+        {
+          id: "gemma3:4b",
+          name: "gemma3:4b",
+          probes: {
+            state: "checked",
+            plain: "passed",
+            tools: "failed",
+            structured: "passed",
+            why: "This model didn't call tools in Spade's check, so it can't run a bot.",
+          },
+        },
+        { id: "qwen3:8b", name: "qwen3:8b" },
+      ],
+    });
+    here.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+  });
+  await openNew("New bot");
+  await userEvent.click(await screen.findByRole("button", { name: "Model" }));
+  await userEvent.click(await screen.findByRole("tab", { name: "Ollama" }));
+  const local = within(await screen.findByRole("group", { name: "Ollama" }));
+  const failed = local.getByRole("option", { name: /^gemma3:4b/ });
+  const usable = local.getByRole("option", { name: /^qwen3:8b/ });
+  // The failed model can't be picked, so it has no slot; qwen3 takes the first one.
+  expect(within(failed).queryByText(formatKeys("mod+1"))).toBeNull();
+  expect(within(usable).getByText(formatKeys("mod+1"))).toBeTruthy();
+  await userEvent.click(screen.getByRole("combobox", { name: "Search models" }));
+  await userEvent.keyboard("{Control>}1{/Control}");
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Model" }).textContent).toContain("qwen3:8b"),
+  );
+});
+
+test("a model on an account that needs a key has no ⌘ number, and ⌘1 picks a ready one", async () => {
+  await spadeApp("/spade", (here) => {
+    here.endpoints.push(
+      {
+        id: "closed",
+        name: "Closed",
+        format: "openai-chat",
+        base_url: "https://closed.example/v1/",
+        header_names: [],
+        session_header: null,
+        needs_key: true,
+        key_set: false,
+        key_source: null,
+        models: [{ id: "closed-model", name: "Closed model" }],
+      },
+      {
+        id: "ready",
+        name: "Ready",
+        format: "openai-chat",
+        base_url: "https://ready.example/v1/",
+        header_names: [],
+        session_header: null,
+        needs_key: false,
+        key_set: false,
+        key_source: null,
+        models: [{ id: "open-model", name: "Open model" }],
+      },
+    );
+    here.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+  });
+  await openNew("New bot");
+  await userEvent.click(await screen.findByRole("button", { name: "Model" }));
+  const search = await screen.findByRole("combobox", { name: "Search models" });
+  await userEvent.type(search, "model");
+  const closed = await screen.findByRole("option", { name: /^Closed model/ });
+  const ready = await screen.findByRole("option", { name: /^Open model/ });
+  expect(within(closed).queryByText(formatKeys("mod+1"))).toBeNull();
+  expect(within(ready).getByText(formatKeys("mod+1"))).toBeTruthy();
+  await userEvent.keyboard("{Control>}1{/Control}");
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Model" }).textContent).toContain("Open model"),
+  );
+});
+
+test("Shift+Tab from the search field still moves focus when there is no model source rail", async () => {
+  await spadeApp("/settings/spade/models", (api) => {
+    api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" }, model: "" });
+  });
+  const roles = within(await screen.findByRole("region", { name: "Roles" }));
+  await userEvent.click(await roles.findByRole("button", { name: "Helpers" }));
+  const search = await screen.findByRole("combobox", { name: "Search models" });
+  expect(document.activeElement).toBe(search);
+  await userEvent.tab({ shift: true });
+  expect(document.activeElement).not.toBe(search);
 });
 
 test("Settings says what Spade's checks found on a local model, and Check again runs them", async () => {

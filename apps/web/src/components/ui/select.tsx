@@ -85,13 +85,20 @@ function Select<T extends string>(props: {
       >
         <span className="inline-flex min-w-0 items-center gap-2">
           {props.options.find((option) => option.value === props.value)?.icon}
-          <SelectPrimitive.Value className="truncate" />
-          {sized && (
-            // The longest option sets the width, so no choice cuts its own words off; the
-            // trigger's max-width keeps it inside the column.
-            <span aria-hidden className="invisible h-0 min-w-max overflow-hidden whitespace-nowrap">
-              {longest}
+          {sized ? (
+            // The longest option sets the width in the same grid cell, so no choice cuts its
+            // own words off and the sizer never pushes the visible label aside.
+            <span className="grid min-w-0 items-center text-left">
+              <SelectPrimitive.Value className="col-start-1 row-start-1 truncate" />
+              <span
+                aria-hidden
+                className="pointer-events-none invisible col-start-1 row-start-1 h-0 overflow-hidden whitespace-nowrap"
+              >
+                {longest}
+              </span>
             </span>
+          ) : (
+            <SelectPrimitive.Value className="truncate" />
           )}
         </span>
         <SelectPrimitive.Icon className="text-subtle-foreground transition-transform duration-(--motion-base) ease-spring in-data-popup-open:rotate-180">

@@ -524,7 +524,12 @@ export function followBlocks(
       answers.delete(block.itemId);
       answering.delete(block.itemId);
     }
-    if (block?.kind === "work") for (const id of workItems(block)) counted.get(id)?.delete(key);
+    if (block?.kind === "work") {
+      for (const id of workItems(block)) {
+        const keys = counted.get(id);
+        if (keys?.delete(key) && keys.size === 0) counted.delete(id);
+      }
+    }
   };
   const remember = (block: Block) => {
     if (block.kind === "subagents" || block.kind === "live" || block.kind === "question")

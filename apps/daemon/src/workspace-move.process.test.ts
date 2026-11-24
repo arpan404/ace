@@ -1,8 +1,9 @@
+import { execFileSync } from "node:child_process";
 import { realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { Thread } from "@ace/protocol";
-import { GitService } from "@ace/git";
+import { GitService, spawnGitProcess } from "@ace/git";
 import { fixture, git } from "./workspace-move-test-support.ts";
 
 test("move to worktree from a branch makes its own branch, fences no shared root and ignores busy siblings", async () => {
@@ -349,21 +350,34 @@ test("a workspace change a restart cut off while preparing is settled by the sta
 });
 
 /**
- * Git whose file list waits until the reviewer hook check has started, so a status that read
- * them one after the other never finishes; a terminal commit lands just after the file list.
+ * Git that lands a terminal commit after the real `git diff --numstat` behind a git.status file
+ * read has finished, but before its output reaches the reader. It only arms once the reviewer hook
+ * check has started, so the hook check is read beside the file list rather than after it.
  */
 class GatedGit extends GitService {
-  private readonly hooksStarted = Promise.withResolvers<void>();
-  afterFiles: (() => Promise<void>) | undefined;
-  override async reviewerHooks(worktree: string) {
-    this.hooksStarted.resolve();
-    return super.reviewerHooks(worktree);
+  private readonly state: { hooksStarted: boolean; landed: boolean };
+  constructor() {
+    const state = { hooksStarted: false, landed: false };
+    super({
+      processRuntime: {
+        spawn: (command, args, options) => {
+          const child = spawnGitProcess(command, args, options);
+          if (state.hooksStarted && !state.landed && args.includes("--numstat"))
+            child.once("close", () => {
+              state.landed = true;
+              execFileSync("git", ["commit", "--allow-empty", "-m", "Terminal commit"], {
+                cwd: options.cwd,
+              });
+            });
+          return child;
+        },
+      },
+    });
+    this.state = state;
   }
-  override async changedFiles(worktree: string, limit?: number) {
-    await this.hooksStarted.promise;
-    const listed = await super.changedFiles(worktree, limit);
-    await this.afterFiles?.();
-    return listed;
+  override reviewerHooks(worktree: string) {
+    this.state.hooksStarted = true;
+    return super.reviewerHooks(worktree);
   }
 }
 
@@ -374,6 +388,8 @@ test("a pull request review's git.status checks its hooks beside the file list a
     const thread = f.local();
     await f.h.engine.flush();
     const head = await git(f.h.home, "rev-parse", "HEAD");
+    // A tracked edit makes the file read run its real `git diff --numstat` against HEAD.
+    await writeFile(join(f.h.home, "file.txt"), "edited\n");
     const details = f.h.store.getThread(thread)?.details ?? {};
     f.h.store.appendEvents(
       thread,
@@ -403,10 +419,6 @@ test("a pull request review's git.status checks its hooks beside the file list a
       ],
       1000,
     );
-    gated.afterFiles = async () => {
-      gated.afterFiles = undefined;
-      await git(f.h.home, "commit", "--allow-empty", "-m", "Terminal commit");
-    };
     const result = await f.runtime.read({
       type: "workspace.request",
       requestId: "status",

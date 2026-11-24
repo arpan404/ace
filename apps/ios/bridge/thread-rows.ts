@@ -13,7 +13,7 @@ import {
 import { preview } from "./presentation.ts";
 import { stepDetail } from "./step-detail.ts";
 import { bubbleOf } from "./thread-messages.ts";
-import { pictureLine } from "./attachment-picture.ts";
+import { originalOpenLimit, pictureLine } from "./attachment-picture.ts";
 
 /*
  * What a transcript row shows beyond its text: a step's one-line wording (shared with the web's
@@ -159,7 +159,7 @@ function attachmentsOf(item: Item) {
       width: attachment.width ?? 0,
       height: attachment.height ?? 0,
       thumbnail: line.drawn,
-      opens: true,
+      opens: attachment.bytes <= originalOpenLimit,
     });
   }
   return {

@@ -1,13 +1,13 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { GRANT_LIFETIME_MS } from "@ace/account-grant";
 import { Client, relayRoute } from "@ace/client";
 import { aceAccountClient } from "@ace/client/ace-account";
 import { DeviceId, type ServerMessage } from "@ace/protocol";
-import { startRelay } from "@ace/relay";
+import { connectClientViaRelay, startRelay } from "@ace/relay";
 import { NK_STREAM_PROLOGUE, PAIRED_MARKER } from "@ace/relay/wire";
 import { address, initiate, openPeer, STREAM } from "@ace/relay/testing";
 import { NoiseNK, keyPair, type SessionKeys } from "@ace/secure-channel";
@@ -27,9 +27,8 @@ afterEach(async () => {
 
 /** A daemon on an ace account behind the self-hosted relay; its grants live `grantLeftMs`. */
 async function accountDaemon(grantLeftMs = GRANT_LIFETIME_MS) {
-  const backend = await startFakeAccountBackend(
-    () => Date.now() - (GRANT_LIFETIME_MS - grantLeftMs),
-  );
+  let remaining = grantLeftMs;
+  const backend = await startFakeAccountBackend(() => Date.now() - (GRANT_LIFETIME_MS - remaining));
   cleanup.push(() => backend.close());
   const root = await mkdtemp(join(tmpdir(), "ace-nk-account-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
@@ -68,7 +67,18 @@ async function accountDaemon(grantLeftMs = GRANT_LIFETIME_MS) {
   const paired = f.store.devices.create("Phone", ["read", "operate"], Date.now());
   /** Device grants the backend issued: one per connect, and one per keeper refresh. */
   const deviceGrants = () => backend.grantRequests.filter((body) => body.kind === "device").length;
-  return { f, relay, hostId: f.server.relayHostId ?? "", hostKey, grant, paired, deviceGrants };
+  return {
+    f,
+    relay,
+    hostId: f.server.relayHostId ?? "",
+    hostKey,
+    grant,
+    paired,
+    deviceGrants,
+    grantLifetime: (ms: number) => {
+      remaining = ms;
+    },
+  };
 }
 
 type Daemon = Awaited<ReturnType<typeof accountDaemon>>;
@@ -213,3 +223,86 @@ it("an account device's NK connection is carried past its grant's lifetime by it
   expect(client.state).toBe("ready");
   expect(d.deviceGrants() - connected).toBeGreaterThanOrEqual(4);
 }, 30_000);
+
+it("a phone whose cached grant expired can open a fresh relay connection and read", async () => {
+  const d = await accountDaemon();
+  d.grantLifetime(0);
+  const expired = await d.grant("phone");
+  const open = async (grant: string) => {
+    const channel = await connectClientViaRelay({
+      relayUrl: d.relay.url,
+      hostId: d.hostId,
+      pinnedFingerprint: d.hostId,
+      grant,
+    });
+    cleanup.push(() => channel.close());
+    await channel.send({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: DeviceId.parse("phone"),
+      grant,
+    });
+    return channel;
+  };
+  const refused = await open(expired);
+  expect(await refused.receive()).toMatchObject({ type: "error", code: "unauthorized" });
+  refused.close();
+
+  d.grantLifetime(GRANT_LIFETIME_MS);
+  const current = await open(await d.grant("phone"));
+  expect(await current.receive()).toMatchObject({ type: "welcome" });
+  await current.send({ type: "notification.config", requestId: "wake" });
+  for await (const frame of current) {
+    if (frame.type === "notification.config.result") {
+      expect(frame.requestId).toBe("wake");
+      return;
+    }
+    if (frame.type === "error") throw new Error(frame.code);
+  }
+  throw new Error("Relay closed before the follow-up read");
+});
+
+it("waking a kept account relay refreshes its overdue grant before its timer runs", async () => {
+  const d = await accountDaemon();
+  const sockets = recordedSockets();
+  const route = relayRoute({
+    relayUrl: d.relay.url,
+    hostId: d.hostId,
+    credential: async () => ({ grant: await d.grant("phone") }),
+    socket: sockets.socket,
+    schedule: (callback, ms) => {
+      const timer = setTimeout(callback, ms);
+      return () => clearTimeout(timer);
+    },
+  });
+  let elapsed = 0;
+  const client = new Client({
+    deviceId: DeviceId.parse("phone"),
+    transport: route.transport,
+    credential: route.credential,
+    grant: () => d.grant("phone"),
+    storage: { load: async () => null, save: async () => {} },
+    scheduler: {
+      set(ms, callback) {
+        // iOS stopped running the keeper's four-minute timer while the phone was suspended.
+        if (ms > 200_000) return () => {};
+        const timer = setTimeout(callback, ms);
+        return () => clearTimeout(timer);
+      },
+    },
+    now: () => Date.now() + elapsed,
+    random: () => 0.5,
+    id: randomUUID,
+  });
+  cleanup.push(() => client.close());
+  await client.start();
+  await vi.waitFor(() => expect(client.state).toBe("ready"));
+  const issued = d.deviceGrants();
+  elapsed = 250_000;
+  client.wake();
+  await vi.waitFor(() => expect(d.deviceGrants()).toBe(issued + 1));
+  await expect(client.request({ type: "notification.config" })).resolves.toMatchObject({
+    type: "notification.config.result",
+  });
+  expect(sockets.dials).toHaveLength(1);
+});

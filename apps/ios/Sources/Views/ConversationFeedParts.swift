@@ -11,10 +11,12 @@ enum TranscriptEnd {
 }
 
 /// Gesture intent is consumed once per page; layout changes and programmatic scrolls never page.
-/// Follow mode and scroll direction live in the viewport controller; intent
-/// tracks only the in-flight gesture and paging consumption.
-final class TranscriptScrollIntent {
+/// Movement belongs to the gesture rather than the observed viewport state.
+@MainActor final class TranscriptScrollIntent {
     var active = false
+    var direction = 0
+    let flingProbe = TranscriptFlingProbe()
+    var isolatingFling = false
     var consumed = false
     /// The person opened something in place: the next change of height is theirs, not the end's.
     var opened = false
@@ -23,7 +25,7 @@ final class TranscriptScrollIntent {
         let y: CGFloat; let top: CGFloat; let bottom: CGFloat; let viewport: CGFloat; let topInset: CGFloat; let bottomInset: CGFloat; let height: CGFloat
         /// How far the end the feed can reach is below the bottom edge: negative only when the
         /// feed sits past it. A feed shorter than the screen starts at its top, which is its end.
-        var toEnd: CGFloat { max(height + bottomInset - viewport, -topInset) - y }
+        var toEnd: CGFloat { bottom }
         static func strandedPastEnd(old: Metrics, new: Metrics, moving: Bool) -> Bool {
             TranscriptEnd.stranded(oldHeight: Double(old.height), newHeight: Double(new.height), toEnd: Double(new.toEnd), moving: moving)
         }
@@ -32,7 +34,10 @@ final class TranscriptScrollIntent {
     var animating = false
     /// An older page was asked for and hasn't joined yet: its rows are held still as they land.
     var olderPage = false
-    func begin() { active = true; consumed = false }
+    var appendedRevision: Int?
+    /// A page can rearm the current gesture once scroll geometry reports further upward motion.
+    var rearmAfterAppend = false
+    func begin() { active = true; consumed = false; rearmAfterAppend = false }
 }
 
 /// While the keyboard is up, a tap on the conversation only puts it away: the tap takes priority
@@ -50,31 +55,34 @@ struct TapPutsKeyboardAway: ViewModifier {
     }
 }
 
-/// Fixture builds count the spacers' changes (`PerfCounters`); elsewhere it adds nothing.
-struct SpacerCounts: ViewModifier {
-    let before: Double
-    let after: Double
-    func body(content: Content) -> some View {
-        #if ACE_FIXTURE
-        content
-            .onChange(of: before) { _, _ in PerfCounters.bump("extent.spacers") }
-            .onChange(of: after) { _, _ in PerfCounters.bump("extent.spacers") }
-        #else
-        content
-        #endif
+/// A height correction invalidates the affected spacer independently of the row list.
+struct TranscriptSpacer: View {
+    let extent: TranscriptExtent
+    let height: KeyPath<TranscriptExtent, Double>
+
+    var body: some View {
+        let value = extent[keyPath: height]
+        Color.clear.frame(height: value).accessibilityHidden(true)
+            .onChange(of: value) { old, new in
+                PerfCounters.bump("extent.spacers")
+                #if ACE_FIXTURE
+                TranscriptJumpHooks.note("\(height == \TranscriptExtent.before ? "before" : "after") \(Int(old))>\(Int(new))")
+                #endif
+            }
     }
 }
 
-/// The header over the transcript: on iOS 26 and later the bar draws nothing of its own and the
-/// thread's header bar sets the system's scroll-edge effect (`ThreadHeaderBar`). Before, the bar is
-/// opaque in the page colour.
+/// The flipped scroll view stays inside the header. An edge effect tied to its physical
+/// top would be drawn at the opposite end of the visible feed.
 struct TranscriptTopEdge: ViewModifier {
-    func body(content: Content) -> some View {
+    @ViewBuilder func body(content: Content) -> some View {
+        let backed = content
+            .toolbarBackground(AceTheme.Colours.background, for: .navigationBar)
+            .toolbarBackgroundVisibility(.visible, for: .navigationBar)
         if #available(iOS 26, *) {
-            content
+            backed.scrollEdgeEffectHidden(true, for: .vertical)
         } else {
-            content.toolbarBackground(AceTheme.Colours.background, for: .navigationBar)
-                .toolbarBackgroundVisibility(.visible, for: .navigationBar)
+            backed
         }
     }
 }

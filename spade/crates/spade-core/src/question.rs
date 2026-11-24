@@ -35,12 +35,12 @@ pub const ANSWER_CHARS: usize = 4_000;
 pub const ANSWERED_BY_MESSAGE: &str = crate::context::ANSWERED;
 
 /// What a waiting call reads when the person chose to answer later.
-pub const DEFERRED: &str = "The person will answer later. Go on without it where you can, or end \
-your reply saying what waits on it. Their answer will arrive as a <question_answer>.";
+pub const DEFERRED: &str = "Deferred by the person. Continue without it or end your reply; answer \
+arrives as <question_answer>.";
 
 /// What a call with `wait: false` reads at once.
-pub const ASKED_FOR_LATER: &str = "Asked without waiting. The person answers when they like; go \
-on with your work. Their answer will arrive as a <question_answer>.";
+pub const ASKED_FOR_LATER: &str =
+    "Asked without waiting; continue working. Answer arrives as <question_answer>.";
 
 /// What the bot reads for a dismissed question.
 pub const DISMISSED: &str = "The person dismissed this question.";

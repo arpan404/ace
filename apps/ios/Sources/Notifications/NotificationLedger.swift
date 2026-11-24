@@ -7,6 +7,8 @@ struct NotificationLedger: Codable, Equatable, Sendable {
     private(set) var cursor = 0
     private(set) var shown: [String] = []
 
+    func contains(_ id: String) -> Bool { shown.contains(id) }
+
     /// True the first time an id is seen. Bounded: the oldest ids age out.
     mutating func admit(_ id: String) -> Bool {
         guard !shown.contains(id) else { return false }

@@ -4,9 +4,9 @@ import { sidebarColumnsReadable } from "./sidebar-columns.ts";
 import { sidebarFactColumns } from "./sidebar-facts.ts";
 
 const fromColumns =
-  "SELECT sidebar.thread_id AS id, COALESCE(revisions.revision, 0) AS revision, sidebar.workspace_id AS workspace_id, sidebar.deleted AS deleted, sidebar.archived AS archived, sidebar.settled AS settled, sidebar.counted AS counted, sidebar.activity AS activity, sidebar.archived_at AS archived_at";
+  "SELECT sidebar.thread_id AS id, COALESCE(revisions.revision, 0) AS revision, sidebar.workspace_id AS workspace_id, sidebar.deleted AS deleted, sidebar.archived AS archived, sidebar.settled AS settled, sidebar.counted AS counted, sidebar.activity AS activity, sidebar.archived_at AS archived_at, EXISTS (SELECT 1 FROM workspace_metadata AS meta WHERE meta.workspace_id = sidebar.workspace_id AND meta.kind = 'chat') AS chat";
 // The same facts evaluated from threads, while a row's JSON keeps them out of the table.
-const fromThreads = `SELECT threads.id AS id, COALESCE(revisions.revision, 0) AS revision, ${sidebarFactColumns}`;
+const fromThreads = `SELECT threads.id AS id, COALESCE(revisions.revision, 0) AS revision, ${sidebarFactColumns}, EXISTS (SELECT 1 FROM workspace_metadata AS meta WHERE meta.workspace_id = threads.workspace_id AND meta.kind = 'chat') AS chat`;
 
 /**
  * The sidebar index kept current from the threads table itself. Each sync reads only rows
@@ -102,6 +102,7 @@ function decodeFacts(row: Record<string, SQLOutputValue>): SidebarFacts {
     workspace: row.workspace_id ?? null,
     deleted: row.deleted === 1,
     archived: row.archived === 1,
+    chat: row.chat === 1,
     settled: row.settled === 1 ? true : row.settled === 0 ? false : null,
     counted: row.counted === 1,
     activity: row.activity ?? null,

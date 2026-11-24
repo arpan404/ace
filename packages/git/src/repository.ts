@@ -129,6 +129,17 @@ export class Repository {
     );
   }
 
+  /** HEAD, or null on a branch that has no commit yet. */
+  async head(root: string, signal?: AbortSignal): Promise<string | null> {
+    try {
+      return await this.commit(root, "HEAD", signal);
+    } catch (error) {
+      // HEAD naming a branch with no commit yet is an empty repository, not a bad ref.
+      if (error instanceof GitError && error.code === "unborn_head") return null;
+      throw error;
+    }
+  }
+
   async info(root: string): Promise<RepositoryInfo> {
     const { branch } = await this.state(root);
     return { root, ...branch, remotes: await this.remotes(root) };

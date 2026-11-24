@@ -360,16 +360,11 @@ pub fn nudge_tail(events: &[Event]) -> String {
     if sent_back_in(&task)
         && let Some(verdict) = &task.verdict
     {
-        out.push_str(
-            "\n<check>A separate check of your evidence against the goal's criteria says it is \
-             not done yet. Missing:\n",
-        );
+        out.push_str("\n<check>Verification failed. Missing:\n");
         for m in &verdict.missing {
             out.push_str(&format!("- {}\n", quoted(m, 1_000)));
         }
-        out.push_str(
-            "Fix these, close the items with evidence, then set task_status done again.</check>",
-        );
+        out.push_str("Fix these, close items with evidence, and set task_status done.</check>");
     }
     let next = task
         .leaves()
@@ -377,7 +372,7 @@ pub fn nudge_tail(events: &[Event]) -> String {
         .or_else(|| task.leaves().find(|i| i.status == ItemStatus::Open));
     if let Some(next) = next {
         out.push_str(&format!(
-            "\n<plan_next>Resume from your plan: item {} ({}).</plan_next>",
+            "\n<plan_next>Next item: {} ({}).</plan_next>",
             next.id,
             quoted(&next.text, 300)
         ));

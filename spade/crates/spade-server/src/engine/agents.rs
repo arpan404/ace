@@ -369,6 +369,21 @@ impl Engine {
             let (security, id) = (security.clone(), id.to_owned());
             let _ = tokio::task::spawn_blocking(move || security.forget(&id)).await;
         }
+        // Prune the bot's main, lane and helper conversations from its `web_fetch` snapshot index.
+        if matches!(deleted, Ok(true))
+            && let Some(workspaces) = self.workspaces().cloned()
+        {
+            let bot = id.to_owned();
+            let mut pruned = Vec::with_capacity(1 + helpers.len());
+            pruned.push(conversation.clone());
+            pruned.extend(helpers.iter().cloned());
+            let _ = tokio::task::spawn_blocking(move || {
+                if let Err(error) = workspaces.prune_web_fetch_conversations(&bot, &pruned) {
+                    tracing::warn!(%error, %bot, "web_fetch snapshot index was not pruned for deleted conversations");
+                }
+            })
+            .await;
+        }
         // Its code worker ends, and its folder goes.
         if matches!(deleted, Ok(true))
             && let Some(code) = self.code()

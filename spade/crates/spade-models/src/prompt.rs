@@ -214,7 +214,9 @@ pub enum Delta {
     Text(String),
     /// The model's visible reasoning, when the provider streams it.
     Reasoning(String),
-    /// A complete tool call, sent once its arguments have fully arrived.
+    /// A provider closed this call. The final call list still arrives as `Call` deltas.
+    CallClosed(ToolCall),
+    /// One call from the final call list, in provider order.
     Call(ToolCall),
     /// The reply is complete. `thoughts` go back with this turn (see [`Message::Spade`]).
     Done {

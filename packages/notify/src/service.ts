@@ -4,12 +4,12 @@ import type {
   Event,
   Notification,
   NotificationDevice,
-  NotificationFeed,
   PresenceUpdate,
   ThreadId,
 } from "@ace/protocol";
 import { metadata, type MetadataEvent } from "./metadata.ts";
 import { NotificationDatabase } from "./database.ts";
+import type { InboxFeed } from "./inbox.ts";
 import { PresenceIndex } from "./presence.ts";
 import { isQuiet, maxRetries, retryDelay } from "./policy.ts";
 import type { NoticeWindow } from "./sleep-boundary.ts";
@@ -195,10 +195,18 @@ export class NotificationService {
   snooze(thread: ThreadId, until: number): void {
     this.database.snooze(thread, until);
   }
-  /** This device's alerts after its cursor, rechecked against canonical state now. */
-  feed(device: DeviceId, afterCursor: number): NotificationFeed {
+  /**
+   * This device's alerts after its cursor, rechecked against canonical state now, with those of
+   * the `linked` ids the daemon proved are the same install.
+   */
+  feed(
+    device: DeviceId,
+    afterCursor?: number,
+    checkpoint?: true,
+    linked?: readonly DeviceId[],
+  ): InboxFeed {
     if (!this.database.device(device)) throw new Error("Device unavailable");
-    return this.database.feed(device, afterCursor, this.options.now());
+    return this.database.feed(device, afterCursor, this.options.now(), checkpoint, linked);
   }
   updatePresence(session: string, device: DeviceId, update: PresenceUpdate): void {
     if (!this.database.device(device)) throw new Error("Device unavailable");

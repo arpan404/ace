@@ -135,6 +135,136 @@ async fn the_model_list_answers_at_once_while_the_keychain_waits_on_a_prompt() -
     Ok(())
 }
 
+/// A gateway's token (Cloudflare AI Gateway's `cf-aig-authorization`) is a second secret kept in
+/// the keychain: it goes out with every call, never into the endpoint's stored headers, and it
+/// goes when the endpoint or the token does.
+#[tokio::test]
+async fn a_gateway_token_stays_in_the_keychain_and_rides_every_call() -> Result {
+    let spade = Spade::start(vec![Script::reply("through the gateway")], Vec::new()).await?;
+    let (status, body) = spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": "Gateway", "format": "openai-chat", "base_url": spade.fake.root }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{body}");
+    spade
+        .put("/v1/keys/gateway", json!({ "key": "sk-upstream" }))
+        .await?;
+    let (status, body) = spade
+        .put(
+            "/v1/keys/gateway/gateway",
+            json!({ "token": "cf-token-123" }),
+        )
+        .await?;
+    assert_eq!(status, 204, "{body}");
+    assert_eq!(
+        spade.keys.gateway_token("gateway")?,
+        Some("cf-token-123".to_owned()),
+        "the token is in the keychain"
+    );
+    let (_, shown) = spade.get("/v1/models").await?;
+    let gateway = shown["endpoints"]
+        .as_array()
+        .and_then(|all| all.iter().find(|e| e["id"] == "gateway"))
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        gateway["gateway_token_set"], true,
+        "the app can show, replace and remove it: {gateway}"
+    );
+    // Nowhere else: the endpoint keeps its key's place, not the token.
+    let (_, models) = spade.get("/v1/models").await?;
+    let shown = models["endpoints"]
+        .as_array()
+        .and_then(|all| all.iter().find(|e| e["id"] == "gateway"))
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(shown["header_names"], json!([]), "{shown}");
+    assert!(!models.to_string().contains("cf-token-123"), "{models}");
+
+    let (status, body) = spade
+        .post(
+            "/v1/endpoints/gateway/models",
+            json!({ "id": "m", "name": "M" }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    let (status, bot) = spade
+        .post(
+            "/v1/agents",
+            json!({ "name": "Caller", "model": "gateway/m" }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{bot}");
+    let conversation = bot["agent"]["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    spade.say(&conversation, "Hi").await?;
+    spade.wait_for(&conversation, "reply_finished").await?;
+    let call = spade
+        .fake
+        .seen()
+        .into_iter()
+        .find(|s| s.path.ends_with("/chat/completions"))
+        .ok_or("no call reached the gateway")?;
+    assert_eq!(call.key.as_deref(), Some("Bearer sk-upstream"));
+    let header = call
+        .headers
+        .iter()
+        .find(|(name, _)| name == "cf-aig-authorization")
+        .map(|(_, value)| value.clone());
+    assert_eq!(header.as_deref(), Some("Bearer cf-token-123"));
+
+    // A token belongs to the gateway it was set for: the host cannot change under it.
+    let (status, body) = spade
+        .patch(
+            "/v1/endpoints/gateway",
+            json!({ "base_url": "https://elsewhere.example/v1/" }),
+        )
+        .await?;
+    assert_eq!(status, 409, "{body}");
+
+    // Removing the token stops the header; removing the endpoint takes the token with it.
+    let (status, _) = spade.delete("/v1/keys/gateway/gateway").await?;
+    assert_eq!(status, 204);
+    assert_eq!(spade.keys.gateway_token("gateway")?, None);
+    let (_, shown) = spade.get("/v1/models").await?;
+    let gateway = shown["endpoints"]
+        .as_array()
+        .and_then(|all| all.iter().find(|e| e["id"] == "gateway"))
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(gateway["gateway_token_set"], false);
+    let (status, body) = spade
+        .put("/v1/keys/openrouter/gateway", json!({ "token": "unused" }))
+        .await?;
+    assert_eq!(
+        status, 404,
+        "a token is only for an endpoint that exists: {body}"
+    );
+    // An endpoint's token goes with the endpoint.
+    let (status, body) = spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": "Spare", "format": "openai-chat", "base_url": spade.fake.root }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{body}");
+    spade
+        .put("/v1/keys/spare/gateway", json!({ "token": "cf-spare" }))
+        .await?;
+    assert_eq!(
+        spade.keys.gateway_token("spare")?,
+        Some("cf-spare".to_owned())
+    );
+    let (status, body) = spade.delete("/v1/endpoints/spare").await?;
+    assert_eq!(status, 204, "{body}");
+    assert_eq!(spade.keys.gateway_token("spare")?, None);
+    Ok(())
+}
+
 struct OpenOnDrop(Gate);
 
 impl Drop for OpenOnDrop {

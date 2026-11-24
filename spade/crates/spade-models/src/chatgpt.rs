@@ -11,9 +11,10 @@ pub const ACCOUNT_HEADER: &str = "chatgpt-account-id";
 /// the same in the sign-in). Spade says it is Spade; it never claims to be another client.
 pub const ORIGINATOR: &str = "spade";
 
-/// The client version the model list is asked for (`?client_version=`): the backend lists the
-/// models a client of that version can use.
-pub const CLIENT_VERSION: &str = "0.100.0";
+/// The client version the model list is asked for (`?client_version=`): the backend hides models
+/// whose `minimal_client_version` is newer than this, returning an empty list for stale `0.x`
+/// values. Asking as `1.0.0` clears `0.x` client gates without tracking each Codex CLI release.
+pub const CLIENT_VERSION: &str = "1.0.0";
 
 /// How an account signs in, when not with a key.
 #[derive(Debug, Clone, PartialEq, Eq)]

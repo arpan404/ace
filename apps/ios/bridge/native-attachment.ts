@@ -6,6 +6,7 @@ import {
   drawnAsPicture,
   heicOriginalLimit,
   originalDrawsIn,
+  originalOpenLimit,
   originalStandsIn,
   pictureBytes,
 } from "./attachment-picture.ts";
@@ -31,8 +32,6 @@ export const NativeAttachmentRequest = z.object({
 });
 export type NativeAttachmentRequest = z.infer<typeof NativeAttachmentRequest>;
 
-/** The most of one file the phone fetches to open it (the SDK's own ceiling). */
-const originalLimit = 32 * 1024 * 1024;
 /** The most a daemon preview holds (`@ace/context`'s preview limit). */
 const previewBytes = 512 * 1024;
 /** Inline image data a message part may carry: base64 of an image type the phone decodes. */
@@ -105,7 +104,7 @@ async function readStored(
   // the daemon couldn't preview, which the phone decodes itself (`attachment-picture.ts`).
   const standIn = thumbnail && originalStandsIn(attachment);
   if (thumbnail && !attachment.thumbnailAvailable && !standIn) throw new Error("No preview");
-  if (!thumbnail && attachment.bytes > originalLimit) throw new Error("Too large to open here");
+  if (!thumbnail && attachment.bytes > originalOpenLimit) throw new Error("Too large to open here");
   const read = (variant: "thumbnail" | "original", maxBytes: number | undefined) =>
     attachmentBytes(
       owner,
@@ -117,7 +116,7 @@ async function readStored(
       },
       { signal },
     );
-  const original = () => read("original", thumbnail ? heicOriginalLimit : originalLimit);
+  const original = () => read("original", thumbnail ? heicOriginalLimit : originalOpenLimit);
   // The daemon refused the preview outright (no decoder for it). A busy, offline or aborted
   // read never turns into a read of the whole original: the tile tries the preview again.
   const refused = (error: unknown) =>
