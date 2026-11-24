@@ -118,7 +118,8 @@ fn a_simulator_is_re_encoded_at_the_viewers_size_on_videotoolbox_without_a_copy(
             continue;
         };
         sent += 1;
-        transcode.push(&unit, &mut frames)?;
+        // Moving pictures 16 ms apart: never still long enough to refresh.
+        transcode.push(&unit, index as u64 * 16, &mut frames)?;
     }
     transcode.flush(&mut frames)?;
     assert_eq!(sent, 12);
@@ -192,7 +193,7 @@ fn a_re_encode_that_starts_mid_stream_waits_for_the_next_keyframe() -> TestResul
             seen_key = true;
             continue;
         }
-        transcode.push(&unit, &mut frames)?;
+        transcode.push(&unit, index as u64 * 16, &mut frames)?;
     }
     transcode.flush(&mut frames)?;
     assert!(
@@ -201,5 +202,135 @@ fn a_re_encode_that_starts_mid_stream_waits_for_the_next_keyframe() -> TestResul
     );
     assert_eq!(frames[0].flags & 1, 1);
     assert!(frames.len() <= 6);
+    Ok(())
+}
+
+/// A still Simulator picture, re-encoded at the starved bitrate, gets one sharp keyframe
+/// once it has been still ~300 ms: the refreshed keyframe is bigger (a lower quantizer)
+/// than the first bitrate-starved one.
+#[test]
+fn a_still_pictures_refreshed_keyframe_is_sharper_than_its_first_starved_one() -> TestResult {
+    let size = Size {
+        width: 1206,
+        height: 2622,
+    };
+    // Still serve-sim stream: the same picture, so every delta after the key is tiny.
+    let pool = PixelPool::new(size, VtFormat::Nv12, 4)?;
+    let still = picture(size, 0)?;
+    let uploaded = pool.upload(&still)?;
+    let surface = VtSurface::of(&uploaded).ok_or(CodecError::NotConfigured)?;
+    let mut source = VtEncoder::new();
+    source.configure(&Spec {
+        codec: Codec::H264,
+        size,
+        fps: 5,
+        rate: RateControl::Bitrate(12_000_000),
+    })?;
+    let mut units = Vec::new();
+    for index in 0..6u32 {
+        loop {
+            match source.encode(
+                surface.share().into_picture(u64::from(index) * 200_000)?,
+                index == 0,
+            ) {
+                Err(CodecError::Backpressure) => {
+                    while let Some(unit) = source.poll_result()? {
+                        units.push(unit);
+                    }
+                    std::thread::yield_now();
+                }
+                other => break other?,
+            }
+        }
+        while let Some(unit) = source.poll_result()? {
+            units.push(unit);
+        }
+    }
+    source.flush()?;
+    while let Some(unit) = source.poll_result()? {
+        units.push(unit);
+    }
+    assert!(
+        units.iter().any(|u| u.key),
+        "serve-sim starts at a keyframe"
+    );
+
+    let wire = EncodeSpec {
+        id: 7,
+        codec: "avc1.640033".into(),
+        width: 588,
+        height: 1280,
+        fps: 60,
+        bitrate: 4_000_000,
+        quantizer: None,
+    };
+    let mut transcode = Transcode::new(&wire)?;
+    let mut translator = Translator::default();
+    let mut frames: Vec<MediaFrame> = Vec::new();
+    // Feed at serve-sim's 5/s: keyframe + tiny deltas, 200 ms apart.
+    let mut now_ms = 0u64;
+    for (index, unit) in units.iter().enumerate() {
+        let record = if unit.key {
+            Record::Key(unit.data.clone())
+        } else {
+            Record::Delta(unit.data.clone())
+        };
+        if index == 0 {
+            // Prime the translator with the description first.
+            if let Some(description) = unit.description.clone() {
+                let _ = translator.frame(Record::Description(description));
+            }
+        }
+        let Some(source) = translator.source(&record, now_ms * 1_000) else {
+            continue;
+        };
+        transcode.push(&source, now_ms, &mut frames)?;
+        now_ms += 200;
+    }
+    let first_keys: Vec<usize> = frames
+        .iter()
+        .filter(|f| f.flags & 1 != 0)
+        .map(|f| f.payload.len())
+        .collect();
+    assert!(
+        !first_keys.is_empty(),
+        "the starved first keyframe came out"
+    );
+    let first = first_keys[0];
+    // Still for 400 ms more: one sharp refresh, then nothing further. VideoToolbox
+    // encodes on its own threads, so the test pumps wall time until the keyframe lands.
+    for _ in 0..2 {
+        transcode.poll(now_ms, &mut frames)?;
+        now_ms += 200;
+    }
+    let end = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while frames.iter().filter(|f| f.flags & 1 != 0).count() < 2 && std::time::Instant::now() < end
+    {
+        transcode.poll(now_ms, &mut frames)?;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let keys: Vec<usize> = frames
+        .iter()
+        .filter(|f| f.flags & 1 != 0)
+        .map(|f| f.payload.len())
+        .collect();
+    assert!(
+        keys.len() >= 2,
+        "a still picture is refreshed with another keyframe, got {}",
+        keys.len()
+    );
+    assert!(
+        keys[1] > first,
+        "the refreshed keyframe ({} B) is bigger than the starved first ({} B)",
+        keys[1],
+        first
+    );
+    let before = keys.len();
+    transcode.poll(now_ms + 1_000, &mut frames)?;
+    assert_eq!(
+        frames.iter().filter(|f| f.flags & 1 != 0).count(),
+        before,
+        "no second refresh without a new change"
+    );
     Ok(())
 }
