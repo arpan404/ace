@@ -19,7 +19,10 @@
  *
  * The switch's starting-on value comes from this environment (set
  * `ACE_TRANSLATORS=pi`, `ACE_ENGINE=native`, … before calling); the
- * starting-off run unsets it. Each run gets a fresh `ACE_NATIVE_CROSS_LOG`;
+ * starting-off run unsets it. For `ACE_STORE_WRITER` that run keeps the
+ * starting-on parts in `ACE_STORE_WRITER_CROSS`, so the off boots alternate
+ * with the same parts the on boots used instead of `fold` alone. Each run gets
+ * a fresh `ACE_NATIVE_CROSS_LOG`;
  * after a green run this asserts, per run, that every root (event database
  * or process journal) that booted more than once alternated the backend it
  * actually ran from its first boot, and that some root booted twice. The log
@@ -227,7 +230,12 @@ if (name === "ACE_GIT") {
     const log = join(dir, "boots.jsonl");
     try {
       const env = { ...process.env, ACE_NATIVE_CROSS: name, ACE_NATIVE_CROSS_LOG: log };
-      if (off) delete env[name];
+      if (off) {
+        // The writer's parts are prefix-closed, so its off side can't be a
+        // complement: keep the starting-on parts for the odd boots.
+        if (name === "ACE_STORE_WRITER") env.ACE_STORE_WRITER_CROSS = process.env[name];
+        delete env[name];
+      }
       const run = spawnSync("bun", ["--bun", "x", "vitest", "run", file, "--maxWorkers=4"], {
         cwd: root,
         env,

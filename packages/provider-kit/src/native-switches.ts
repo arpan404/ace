@@ -127,26 +127,45 @@ const writerPartsOrder: readonly StoreWriterPart[] = [
   "transactions",
 ];
 
-function parseWriterParts(value: string | undefined): ReadonlySet<StoreWriterPart> {
+function parseWriterParts(
+  value: string | undefined,
+  name = "ACE_STORE_WRITER",
+): ReadonlySet<StoreWriterPart> {
   const asked = new Set<StoreWriterPart>();
   for (const part of (value ?? "").split(",")) {
-    const name = part.trim();
-    if (!name) continue;
-    if (!(writerPartsOrder as readonly string[]).includes(name))
-      throw new Error(`ACE_STORE_WRITER names an unknown part: ${name}`);
-    asked.add(name as StoreWriterPart);
+    const partName = part.trim();
+    if (!partName) continue;
+    if (!(writerPartsOrder as readonly string[]).includes(partName))
+      throw new Error(`${name} names an unknown part: ${partName}`);
+    asked.add(partName as StoreWriterPart);
   }
   return asked;
 }
 
+/** Refuses a part without the parts before it in `writerPartsOrder`, naming both. */
+function checkWriterPrefixes(parts: ReadonlySet<StoreWriterPart>, name: string): void {
+  for (let index = 1; index < writerPartsOrder.length; index++) {
+    const part = writerPartsOrder[index] as StoreWriterPart;
+    const need = writerPartsOrder[index - 1] as StoreWriterPart;
+    if (parts.has(part) && !parts.has(need)) throw new Error(`${name}=${part} needs ${need}`);
+  }
+}
+
 const writerPartsValue = parseWriterParts(process.env.ACE_STORE_WRITER);
 if (writerPartsValue.size > 0 && !store) throw new Error("ACE_STORE_WRITER needs ACE_STORE=native");
-for (let index = 1; index < writerPartsOrder.length; index++) {
-  const part = writerPartsOrder[index] as StoreWriterPart;
-  const need = writerPartsOrder[index - 1] as StoreWriterPart;
-  if (writerPartsValue.has(part) && !writerPartsValue.has(need))
-    throw new Error(`ACE_STORE_WRITER=${part} needs ${need}`);
-}
+checkWriterPrefixes(writerPartsValue, "ACE_STORE_WRITER");
+/**
+ * The parts a starting-off cross run alternates on with (`scripts/native-cross.ts`), checked
+ * like `ACE_STORE_WRITER` itself: it is read when the switch is off, so it names a boot's
+ * off-side value rather than a second live switch.
+ */
+const writerCrossValue = parseWriterParts(
+  process.env.ACE_STORE_WRITER_CROSS,
+  "ACE_STORE_WRITER_CROSS",
+);
+if (writerCrossValue.size > 0 && !store)
+  throw new Error("ACE_STORE_WRITER_CROSS needs ACE_STORE=native");
+checkWriterPrefixes(writerCrossValue, "ACE_STORE_WRITER_CROSS");
 const offender =
   crossSwitch === "ACE_SUPERVISOR" || crossSwitch === "ACE_SESSIONS" || crossSwitch === "ACE_ENGINE"
     ? crossSwitch
@@ -369,10 +388,12 @@ function opposite(name: CrossSwitch, backend: string): string {
       return gitPartsOrder.filter((part) => !backend.split(",").includes(part)).join(",");
     case "ACE_STORE_WRITER":
       // The writer's parts are prefix-closed, so a complement would refuse to
-      // start. Alternation is on versus off: a set run goes off, an empty run
-      // takes the smallest part, so both boots stay valid.
+      // start. Alternation is on versus off: a set run goes off, and an empty
+      // run takes `ACE_STORE_WRITER_CROSS` (the starting-on run's value, from
+      // `scripts/native-cross.ts`) or the smallest part on its own, so the
+      // starting-off run alternates with the same parts the other run used.
       if (backend.length > 0) return "";
-      return "fold";
+      return process.env.ACE_STORE_WRITER_CROSS ?? "fold";
     default:
       return backend === "native" ? "typescript" : "native";
   }
@@ -540,6 +561,15 @@ export function storeWriterParts(): ReadonlySet<StoreWriterPart> {
 /** Whether new `EventWriter` folds serve `part` natively. */
 export function storeWriterOn(part: StoreWriterPart): boolean {
   return currentWriterParts().has(part);
+}
+
+/**
+ * A writer part list as the log and a report write it: `parseWriterParts`'s rules, then
+ * canonical order, without repeats. `undefined` and `""` are the empty list.
+ */
+export function canonicalWriterParts(value: string | undefined): string {
+  const asked = parseWriterParts(value);
+  return writerPartsOrder.filter((part) => asked.has(part)).join(",");
 }
 
 /**
