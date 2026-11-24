@@ -148,9 +148,13 @@ export class NativeSocket extends EventEmitter implements MainSocket {
     }
   }
 
-  /** After a refused enqueue: CLOSED if the close event came, else CLOSING; never OPEN. */
+  /**
+   * After a refused enqueue: CLOSING until the close event publishes CLOSED. Rust may already
+   * have sealed (the peer's close frame arrived between the state check and the enqueue), and
+   * `ws` still reports CLOSING there; CLOSED is the event's alone.
+   */
   #mirrorNativeState(): void {
-    this.#state = this.#handle.readyState() === CLOSED ? CLOSED : CLOSING;
+    if (this.#state !== CLOSED) this.#state = CLOSING;
   }
 
   /** A send that queued nothing: its callback fails on the next tick, as ws's does. */

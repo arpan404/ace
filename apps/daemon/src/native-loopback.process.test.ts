@@ -22,7 +22,7 @@ import { pathToFileURL } from "node:url";
 import { afterEach, expect, it } from "vitest";
 import { WebSocket, WebSocketServer } from "ws";
 import { transportParts } from "@ace/provider-kit/native-switches";
-import { transportAddon } from "@ace/provider-kit/native-transport";
+import { transportAddon, type NativeSocketHandle } from "@ace/provider-kit/native-transport";
 import { systemListing } from "@ace/provider-kit/process-listing";
 import { peerOf } from "./http-peer.ts";
 import type { MainSocket } from "./main-socket.ts";
@@ -373,6 +373,79 @@ it("a send while closing reports CLOSING, as ws does", async () => {
   });
   expect(message).toBe("WebSocket is not open: readyState 2 (CLOSING)");
 });
+
+it.runIf(transportParts().has("loopback"))(
+  "a send after the peer's close frame, before its close event, sees CLOSING",
+  async () => {
+    const addon = transportAddon();
+    const opened = Promise.withResolvers<NativeSocketHandle>();
+    const listener = await addon.NativeLoopback.start(
+      {
+        port: 0,
+        targetPort: 9,
+        secretHex: addon.NativeLoopback.generateSecret(),
+        admitTimeoutMs: 1_000,
+      },
+      async () => ({ decision: "accept", reservation: 1 }),
+      () => {},
+      (handle) => opened.resolve(handle),
+    );
+    cleanups.push(() => listener.close(0));
+    const client = new WebSocket(`ws://127.0.0.1:${listener.port()}/`);
+    cleanups.push(() => client.terminate());
+    await once(client, "open");
+    const handle = await opened.promise;
+    const peerGone = once(client, "close");
+    client.send("message before the close");
+    client.close();
+    // Nothing listens yet, so Rust queues both frames and has sealed by the time the client
+    // sees its close. Wrapping now delivers the queued message first: the send there happens
+    // after the peer's close frame and before this socket's `close` event.
+    await peerGone;
+    const server = new NativeSocket(handle);
+    const order: string[] = [];
+    const failure = new Promise<string>((resolve) => {
+      server.on("message", () => {
+        order.push("message");
+        server.send("reply", (error) => {
+          order.push("callback");
+          resolve(error?.message ?? "");
+        });
+      });
+      server.once("close", () => order.push("close"));
+    });
+    expect(await failure).toBe("WebSocket is not open: readyState 2 (CLOSING)");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(order).toEqual(["message", "callback", "close"]);
+  },
+);
+
+it.runIf(transportParts().has("loopback"))(
+  "a refused enqueue while Rust has closed reports CLOSING, never CLOSED",
+  async () => {
+    let native = 1;
+    const handle: NativeSocketHandle = {
+      listen: () => {},
+      send: () => {
+        // Rust seals between the state check and the enqueue.
+        native = 3;
+        return "not-open";
+      },
+      close: () => {},
+      terminate: () => {},
+      pause: () => {},
+      resume: () => {},
+      isPaused: () => false,
+      bufferedAmount: () => 0,
+      readyState: () => native,
+    };
+    const socket = new NativeSocket(handle);
+    const message = await new Promise<string>((resolve) => {
+      socket.send("during the seal", (error) => resolve(error?.message ?? ""));
+    });
+    expect(message).toBe("WebSocket is not open: readyState 2 (CLOSING)");
+  },
+);
 
 it("a send after close calls back once with an error on the next tick, through both overloads", async () => {
   const { server, client } = await socketPair();

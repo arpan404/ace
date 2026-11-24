@@ -344,18 +344,28 @@ function main(): number {
     return args.slice(at + 1).filter((value) => !value.startsWith("--"));
   })();
   if (merge !== undefined) {
-    const runs = mergeRuns(merge);
+    const { runs, duplicates, refused } = mergeRuns(merge);
     report(runs);
     const failed = failures(runs);
     const uncovered = uncoveredFiles(runs);
+    if (duplicates.length) {
+      console.log(`\n=== duplicate results (${duplicates.length}) ===`);
+      for (const file of duplicates) console.log(`  ${file}: kept the worse result`);
+    }
+    if (refused.length) {
+      console.log(`\n=== refused logs (${refused.length}) ===`);
+      for (const path of refused)
+        console.log(`  ${path}: no per-test statuses (an older runner's log)`);
+    }
     if (uncovered.length) {
       console.log(`\n=== merge is incomplete (${uncovered.length}) ===`);
       for (const file of uncovered) console.log(`  missing: ${file}`);
     }
-    return failed || uncovered.length ? 1 : 0;
+    return failed || uncovered.length || refused.length ? 1 : 0;
   }
   const files = listServerTests();
   const from = Math.max(1, Number(flag("--from") ?? "1"));
+  const to = Math.min(files.length, Number(flag("--to") ?? String(files.length)));
   const shard = flag("--shard");
   const [shardIndex, shardCount] =
     shard === undefined ? [0, 1] : shard.split("/").map((value) => Number(value));
@@ -372,6 +382,7 @@ function main(): number {
   for (const [index, file] of files.entries())
     if (
       index + 1 >= from &&
+      index + 1 <= to &&
       index % shardCount === shardIndex &&
       (only === undefined || file.includes(only))
     )
@@ -398,9 +409,6 @@ function main(): number {
 /** The current progress line: state, per-status counts, the Vitest exit, rerun, file. */
 const MODERN_LINE =
   /^\[\s*\d+\/\d+\]\s+off\s+(ran|skipped|missing|unparsable|empty)(?:\s+\(([^)]*)\))?(?:\s+pass=(\d+)\s+fail=(\d+)\s+skip=(\d+)\s+exit=(\S+))?\s+on\s+(\S+)(?:\s+pass=(\d+)\s+fail=(\d+)\s+skip=(\d+)\s+exit=(\S+))?(?:\s+\(rerun\s+([^)]*)\))?\s{2,}(.+)$/;
-/** A log from before the counts: `PASS 5/6` only, so a non-passed test could be a failure. */
-const LEGACY_LINE =
-  /^\[\s*\d+\/\d+\]\s+off\s+(PASS|skipped|missing|unparsable|empty)(?:\s+\(([^)]*)\))?\s+(\d+)\/(\d+)\s+on\s+(\S+)\s+(\d+)\/(\d+)(?:\s+\(rerun\s+([^)]*)\))?\s{2,}(.+)$/;
 
 /** A leg from a log line: placeholders keep the status, no test names to recover. */
 function legFromLog(
@@ -464,42 +472,17 @@ function runsFromLog(path: string): FileRun[] {
         platformGuard: false,
         switchGuard: false,
       });
-      continue;
     }
-    const legacy = LEGACY_LINE.exec(line);
-    if (legacy === null) continue;
-    const [, state, , passedOff, totalOff, stateOn, passedOn, totalOn, rerun, file] = legacy;
-    const off = legFromLog(
-      state ?? "",
-      Number(passedOff),
-      Number(totalOff) - Number(passedOff),
-      0,
-      0,
-      "off",
-    );
-    const onIsEvidence =
-      stateOn === "native" || stateOn === "NONE" || stateOn === "platform-skipped";
-    const onLeg = legFromLog(
-      onIsEvidence ? "ran" : (stateOn ?? ""),
-      Number(passedOn),
-      onIsEvidence ? Number(totalOn) - Number(passedOn) : 0,
-      0,
-      0,
-      "on",
-    );
-    const evidence: FileRun["evidence"] = onIsEvidence ? (stateOn ?? "no-report") : "no-report";
-    const rerunFlags = rerun ?? "";
-    runs.push({
-      file: file ?? "",
-      off,
-      on: onLeg,
-      evidence,
-      rerun: { off: rerunFlags.includes("off"), on: rerunFlags.includes("on") },
-      platformGuard: false,
-      switchGuard: false,
-    });
   }
   return runs;
+}
+
+/** A log this script can read: one whose every row is the modern counted form. */
+function isModernLog(path: string): boolean {
+  const lines = readFileSync(path, "utf8")
+    .split("\n")
+    .filter((line) => line.startsWith("["));
+  return lines.length > 0 && lines.every((line) => MODERN_LINE.test(line));
 }
 
 /** The discovered files a merge does not cover. */
@@ -508,24 +491,58 @@ function uncoveredFiles(runs: readonly FileRun[]): string[] {
   return listServerTests().filter((file) => !present.has(file));
 }
 
-/** JSON results and logs, deduped by file: a JSON result wins over a log line. */
-function mergeRuns(paths: readonly string[]): FileRun[] {
+/** How bad a result is: failed legs first, then failed tests. Higher is worse. */
+function severity(run: FileRun): number {
+  const legs = (legFailed(run.off) ? 1 : 0) + (legFailed(run.on) ? 1 : 0);
+  const tests = [...run.off.results, ...run.on.results].filter(
+    (result) => result.status === "failed",
+  ).length;
+  return legs * 1_000 + tests;
+}
+
+/**
+ * JSON results and modern logs, deduped by file. On a duplicate the worse result is kept, so a
+ * later pass can never hide an earlier failure; the file is named in the report. A log without
+ * per-test statuses is refused rather than guessed.
+ */
+function mergeRuns(paths: readonly string[]): {
+  runs: FileRun[];
+  duplicates: string[];
+  refused: string[];
+} {
   const merged = new Map<string, FileRun>();
+  const duplicates = new Set<string>();
+  const refused: string[] = [];
+  const add = (run: FileRun) => {
+    // A report written by an older runner may spell "no failure" as null.
+    for (const leg of [run.off, run.on])
+      if ((leg.noReport as unknown) === null) leg.noReport = undefined;
+    const existing = merged.get(run.file);
+    if (existing === undefined) {
+      merged.set(run.file, run);
+      return;
+    }
+    duplicates.add(run.file);
+    if (severity(run) > severity(existing)) merged.set(run.file, run);
+  };
   const json = paths.filter((path) => path.endsWith(".json"));
-  for (const path of paths) {
-    if (path.endsWith(".json")) continue;
-    for (const run of runsFromLog(path)) if (!merged.has(run.file)) merged.set(run.file, run);
-  }
+  const logs = paths.filter((path) => !path.endsWith(".json"));
   for (const path of json) {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as { files?: FileRun[] };
-    for (const run of parsed.files ?? []) {
-      // A report written by an older runner may spell "no failure" as null.
-      for (const leg of [run.off, run.on])
-        if ((leg.noReport as unknown) === null) leg.noReport = undefined;
-      merged.set(run.file, run);
-    }
+    for (const run of parsed.files ?? []) add(run);
   }
-  return [...merged.values()].toSorted((left, right) => left.file.localeCompare(right.file));
+  for (const path of logs) {
+    if (!isModernLog(path)) {
+      refused.push(path);
+      continue;
+    }
+    for (const run of runsFromLog(path)) add(run);
+  }
+  return {
+    runs: [...merged.values()].toSorted((left, right) => left.file.localeCompare(right.file)),
+    duplicates: [...duplicates].toSorted(),
+    refused,
+  };
 }
 
 /** Counts as a failed leg: a failed test, a missing report, or a non-zero Vitest exit. */
