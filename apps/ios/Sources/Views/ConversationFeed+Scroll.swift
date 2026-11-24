@@ -87,12 +87,14 @@ extension ConversationFeed {
             keep(.phase(.gesture), proxy: proxy)
         case .decelerating:
             intent.active = true
+            intent.flingReach = TranscriptExtent.flingReach(velocity: velocity ?? 0)
             keep(.phase(.gesture), proxy: proxy)
         case .idle:
             // Only the person's own scroll decides whether the feed follows the end; the
             // feed's animated scrolls (the keyboard, the composer) settle while text streams.
             let touched = intent.active
             intent.active = false
+            intent.flingReach = 0
             model.endReadingScroll()
             // A tap moved nothing: whether the feed follows stays as it was. The window held
             // under it has landed and reported its geometry by now, so a focus still landing

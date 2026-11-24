@@ -146,9 +146,20 @@ struct BlockSeqSpan: Decodable, Equatable, Sendable {
         (before > 0 && top < before) || (after > 0 && bottom < after)
     }
 
-    func edge(top: Double, bottom: Double, viewport: Double, minimumAhead: Double, direction: Int) -> Movement? {
+    /// How far a fling released at `velocity` points a second travels before it rests, at
+    /// UIKit's normal deceleration (0.998 of the speed kept each millisecond).
+    static func flingReach(velocity: Double) -> Double {
+        let kept = 0.998
+        return abs(velocity) / 1000 * kept / (1 - kept)
+    }
+
+    /// The page to ask for now, if any. `flingReach` is how far the reader's fling still
+    /// carries (`flingReach(velocity:)`): a fast fling asks while the loaded edge is still
+    /// screens away, so the page is in flight before the fling reaches the spacer past it.
+    func edge(top: Double, bottom: Double, viewport: Double, minimumAhead: Double, direction: Int,
+              flingReach: Double = 0) -> Movement? {
         // The upstream read should be in flight before an upward fling reaches the first row.
-        let ahead = max(minimumAhead, viewport * (direction < 0 ? 2.5 : 1.5))
+        let ahead = max(minimumAhead, viewport * (direction < 0 ? 2.5 : 1.5), flingReach + viewport)
         if direction < 0, top - before < ahead { return .older }
         if direction > 0, bottom - after < ahead { return .newer }
         return nil

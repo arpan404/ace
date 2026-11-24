@@ -28,6 +28,23 @@ import Testing
         #expect(extent.edge(top: 2_600, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: 0) == nil)
     }
 
+    @Test func aFastFlingAsksForTheOlderPageAsSoonAsItsTravelWouldReachTheLoadedEdge() {
+        let extent = TranscriptExtent()
+        extent.update(["a"], movement: .replace)
+        extent.measure("a", height: 1_000)
+        extent.update(["b"], movement: .newer)
+        // The loaded edge is 4,000 pt (five screens) above the screen's top.
+        let fast = TranscriptExtent.flingReach(velocity: 8_000)
+        let slow = TranscriptExtent.flingReach(velocity: 500)
+
+        #expect(fast > 3_900 && fast < 4_100)
+        #expect(extent.edge(top: 5_000, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: -1,
+                            flingReach: fast) == .older)
+        #expect(extent.edge(top: 5_000, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: -1,
+                            flingReach: slow) == nil)
+        #expect(extent.edge(top: 5_000, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: -1) == nil)
+    }
+
     @Test func pagingOlderKeepsTheHeightOfNewerRowsOutsideTheResidentWindow() {
         let extent = TranscriptExtent()
         extent.update(["b", "c", "d"], movement: .replace)
