@@ -295,6 +295,16 @@ Existing per-IP and per-daemon limits apply to every kind.
 4. The ADR 0106 deploy checklist still applies; nothing works on a shipped build until the
    gateway runs at `push.acehq.dev` and Release builds carry `aps-environment`.
 
+## Work
+
+1. #2758: gateway handle kinds, capabilities and the Live Activity route.
+2. #2759: daemon stores and registers the phone's tokens (after #2758).
+3. #2760: daemon pushes updates and ends the activity (after #2759).
+4. #2761: iOS per-machine activity, tokens and pushed content-state (after #2758, #2759; parallel
+   with #2760).
+5. #2762: push-to-start from the daemon (after #2760, #2761).
+6. #2763: alerts on shipped builds, gateway deploy and Release entitlement (independent).
+
 ## Out of scope
 
 - Thread titles or any text in pushes (ADR 0145, decision 1, owner decision).
