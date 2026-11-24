@@ -34,11 +34,9 @@ impl Response {
         let id = field(raw, "id")?.into_owned();
         let command = field(raw, "command")?.into_owned();
         let success = raw.get("success")?.as_bool()?;
-        let data = raw.get("data").map(|value| {
-            let mut text = String::new();
-            value.write_to(&mut text);
-            text
-        });
+        // The raw JSON text, not a decoded tree: `data` may be nested past any
+        // typed decoder's depth limit and still settle as what Pi sent.
+        let data = raw.get("data").map(|value| value.text().to_owned());
         let error = match raw.get("error") {
             Some(value) => Some(value.as_str()?.into_owned()),
             None => None,

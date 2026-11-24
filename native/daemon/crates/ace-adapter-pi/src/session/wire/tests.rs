@@ -153,10 +153,12 @@ fn frame_and_queue_bounds_are_exact() {
     assert_eq!(names(&refused), vec!["settle:3"]);
     assert_eq!(wire.writes.len(), 2);
     wire.stdin_written();
-    assert!(
-        wire.write(&padded(MAX_QUEUED_BYTES / 2 - 1), 4, false)
-            .is_ok()
-    );
+    let readmitted = wire
+        .write(&padded(MAX_QUEUED_BYTES / 2 - 1), 4, false)
+        .expect("the freed charge admits the write");
+    assert_eq!(names(&readmitted), vec!["write"]);
+    assert_eq!(wire.queued_bytes, MAX_QUEUED_BYTES);
+    assert_eq!(wire.writes.len(), 2);
 }
 
 #[test]
@@ -361,8 +363,14 @@ fn stderr_frames_on_bare_cr_and_flushes_its_tail_at_drain() {
         ]
     );
     assert!(frames(&wire.stderr_bytes(b"tail")).is_empty());
+    let finished = wire.finish();
     assert_eq!(
-        frames(&wire.finish()),
+        names(&finished),
+        vec!["frame:Stderr", "cancel:notes", "drained"],
+        "the tail frame comes before Drained"
+    );
+    assert_eq!(
+        frames(&finished),
         vec![(FrameDir::Stderr, "\"tail\"".to_owned())]
     );
 }
@@ -471,6 +479,77 @@ fn payload_admission_counts_nodes_exactly() {
             );
         }
     }
+}
+
+fn nested(depth: usize) -> String {
+    format!("{}1{}", "[".repeat(depth), "]".repeat(depth))
+}
+
+#[test]
+fn a_30_000_deep_payload_is_admitted_in_one_linear_pass() {
+    let depth = 30_000usize;
+    let payload = nested(depth);
+    let mut wire = new_wire();
+    let line = format!(r#"{{"type":"future","v":{payload}}}"#);
+    let start = std::time::Instant::now();
+    assert_eq!(names(&wire.stdout_line(&line)), vec!["frame:Recv"]);
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_millis(1000),
+        "admission must not rescan subtrees: {elapsed:?}"
+    );
+}
+
+#[test]
+fn a_deep_dialog_keeps_its_raw_json_for_peek() {
+    let depth = 30_000usize;
+    let mut wire = new_wire();
+    let line = format!(
+        r#"{{"type":"extension_ui_request","id":"d1","method":"select","deep":{}}}"#,
+        nested(depth)
+    );
+    assert_eq!(names(&wire.stdout_line(&line)), vec!["frame:Recv"]);
+    let peeked = wire.peek_dialog(&JsString::from("d1")).expect("pending");
+    let value = ace_json::parse(&peeked).expect("raw text is valid JSON");
+    let map = value.as_object().expect("an object");
+    assert!(
+        matches!(map.get("deep"), Some(Value::Array(_))),
+        "the deep field is not null"
+    );
+}
+
+#[test]
+fn deep_response_data_settles_as_its_raw_json() {
+    let depth = 30_000usize;
+    let mut wire = new_wire();
+    wire.request("x", &Map::new(), 1).expect("request");
+    let response = format!(
+        r#"{{"type":"response","id":"ace-1","command":"x","success":true,"data":{}}}"#,
+        nested(depth)
+    );
+    let effects = wire.stdout_line(&response);
+    let (_, result) = settles(&effects).pop().expect("settled");
+    let text = result.expect("deep data settles");
+    let value = ace_json::parse(&text).expect("raw text is valid JSON");
+    assert!(matches!(value, Value::Array(_)), "data is not null");
+}
+
+#[test]
+fn admission_counts_only_object_members_json_parse_keeps() {
+    // 33,000 raw values, but JSON.parse keeps one member: 33,001 nodes raw,
+    // seven after the duplicate key collapses.
+    let duplicates = format!("{{{}}}", vec![r#""k":1"#; 33_000].join(","));
+    let mut wire = new_wire();
+    wire.request("x", &Map::new(), 1).expect("request");
+    let response = format!(
+        r#"{{"type":"response","id":"ace-1","command":"x","success":true,"data":{duplicates}}}"#
+    );
+    let effects = wire.stdout_line(&response);
+    assert_eq!(
+        settles(&effects).len(),
+        1,
+        "the frame is admitted and settles"
+    );
 }
 
 #[test]

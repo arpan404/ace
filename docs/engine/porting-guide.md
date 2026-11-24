@@ -768,8 +768,8 @@ Steps, in order:
 3. Define `PiWire`, with this state: `pending: IndexMap<String, Pending>` (at most 64);
    `seq: u64` (the `ace-<n>` counter); `writes: VecDeque<WriteRecord>` (each write handed to
    stdin and not yet acknowledged, in order: the redacted send text, the facade's promise id, the
-   correlation id if any, and `resume_deadlines_after: bool`); `dialogs: IndexMap<String, (Value, Option<String>)>`
-   (the dialog and its timer key); `waiting_on_human: bool`; `rollback: Option<(String, Option<bool>)>`;
+   correlation id if any, and `resume_deadlines_after: bool`); `dialogs: IndexMap<JsString, (String, Option<String>)>`
+   (the dialog's raw JSON text, an exact JavaScript string id, and its timer key); `waiting_on_human: bool`; `rollback: Option<(String, Option<bool>)>`;
    `closed: bool`; `stdin_failed: Option<String>`; the stderr `DroppedNotes`; and
    `queued_bytes: usize`, the write budget. The limit is `2 * 1024 * 1024`, Pi's today
    (`new RpcWriter(proc.stdin, 2 * 1024 * 1024)`, `rpc.ts:43`; the check is
@@ -823,11 +823,11 @@ Steps, in order:
        pub fn stderr_dropped(&mut self, line: DroppedLine) -> Vec<Effect>;
        pub fn timer(&mut self, key: &str) -> Vec<Effect>;         // "deadline:<id>", "dialog:<id>", "notes"
        pub fn note(&mut self, json: &str) -> Vec<Effect>;         // the facade's lifecycle notes
-       /// The dialog as received, without consuming it (resolve() validates it first).
-       pub fn peek_dialog(&self, id: &str) -> Option<ace_json::Value>;
+       /// The dialog's raw JSON text as received, without consuming it (resolve() validates it first).
+       pub fn peek_dialog(&self, id: &JsString) -> Option<String>;
        /// resolve()'s reservation (session.ts:435-436): remove the dialog and CancelTimer its
        /// expiry. False when it is no longer pending.
-       pub fn take_dialog(&mut self, id: &str) -> (bool, Vec<Effect>);
+       pub fn take_dialog(&mut self, id: &JsString) -> (bool, Vec<Effect>);
        pub fn dialog_count(&self) -> usize;                       // for idle(), session.ts:328
        pub fn expect_rollback(&mut self, id: String);
        pub fn rollback_result(&self) -> Option<bool>;
@@ -842,8 +842,9 @@ Steps, in order:
    `stdout_line` and `stderr_line` would), flushes the stderr drop notes, then `close`s, and ends
    with `Drained`.
 6. Keep these orders, statement by statement:
-   - in `stdout_line`: redact, then the `recv` frame, then correlation and settling
-     (`rpc.ts:49`–`:62`), then the session's inspection (rollback acknowledgement, dialog, fatal);
+   - in `stdout_line`: redact, then `ProviderPayload`'s admission, then the `recv` frame, then
+     correlation and settling (`rpc.ts:49`–`:62`), then the session's inspection (rollback
+     acknowledgement, dialog, fatal);
    - the mismatch message (`:59`);
    - a new dialog cancels every pending deadline (`pauseDeadlines`, `:95`–`:98`); deadlines are
      re-armed only after a successful answer write, and only when no dialog is left
@@ -856,6 +857,11 @@ Steps, in order:
    `ace_supervisor::budget::DroppingGate::new(1 MiB)`. Lines split on CR and LF, as `lineReader`
    does. These are today's numbers (rule 10).
 
+- **Raw fields, not a decoded tree.** `stdout_line` admits like `ProviderPayload` (the 1 MiB byte
+  bound, `JSON.parse`, then 32,768 nodes counted over the parsed tree in one linear pass, so
+  duplicate keys collapse as JavaScript does). The frame is the redacted line as received, a
+  response's `data` settles as its raw JSON text, and a dialog is stored as its raw text keyed by
+  its exact JavaScript id. No typed or depth-limited decode runs in the wire.
 - **Byte feeds and framing.** `PiWire::stdout_bytes` and `stderr_bytes` own both framers (elision
   then `JsonLines` on LF/CRLF for stdout; `DroppingGate` on CR/LF for stderr) and return the
   resulting effects; `finish` is the only place the framers end. E3-pi.2's

@@ -13,7 +13,7 @@
 use std::collections::VecDeque;
 
 use ace_adapter_api::util::{ElisionLimits, JsonElider};
-use ace_json::{JsString, Kind, Map, RawRef, Value};
+use ace_json::{JsString, Map, RawRef, Value};
 use ace_supervisor::budget::{DroppedLine, DroppingGate, Framed, NoteStep};
 use ace_supervisor::jsonl::JsonLines;
 use ace_supervisor::lines::{FramedLines, Utf8Decoder};
@@ -120,9 +120,10 @@ pub struct PiWire {
     pending: IndexMap<String, Pending>,
     seq: u64,
     writes: VecDeque<WriteRecord>,
-    /// The dialog as received, and its timer key when it has a timeout. The key
-    /// is the id's exact JavaScript string, so lone surrogates stay distinct.
-    dialogs: IndexMap<JsString, (Value, Option<String>)>,
+    /// The dialog's raw JSON text, and its timer key when it has a timeout. The
+    /// key is the id's exact JavaScript string, so lone surrogates stay distinct;
+    /// the text is kept raw so a deep dialog survives peek unchanged.
+    dialogs: IndexMap<JsString, (String, Option<String>)>,
     waiting_on_human: bool,
     rollback: Option<(String, Option<bool>)>,
     closed: bool,
@@ -460,8 +461,8 @@ impl PiWire {
         }]
     }
 
-    /// The dialog as received, without consuming it.
-    pub fn peek_dialog(&self, id: &JsString) -> Option<Value> {
+    /// The dialog's raw JSON text as received, without consuming it.
+    pub fn peek_dialog(&self, id: &JsString) -> Option<String> {
         self.dialogs.get(id).map(|(dialog, _)| dialog.clone())
     }
 
@@ -611,7 +612,7 @@ impl PiWire {
                 key
             });
             self.dialogs
-                .insert(dialog.id.clone(), (raw.to_value(), timer));
+                .insert(dialog.id.clone(), (raw.text().to_owned(), timer));
             self.pause_deadlines(effects);
             return;
         }
@@ -731,23 +732,23 @@ fn wire_bytes(line: String) -> Vec<u8> {
 }
 
 /// `new ProviderPayload(text)`'s admission (`payload.ts:14`–`:40`), in the same
-/// order: the byte bound, then `JSON.parse`, then the structural bound. No typed
-/// decode and no depth limit; the traversal is iterative.
+/// order: the byte bound, then `JSON.parse`, then the structural bound. The tree
+/// `ace_json::parse` builds is only counted and dropped, so duplicate object keys
+/// collapse as JavaScript's `JSON.parse` does; the raw view is what the wire reads.
 fn admit_payload(text: &str) -> Result<RawRef<'_>, &'static str> {
     if text.len() > MAX_PAYLOAD_BYTES {
         return Err("Provider payload exceeds byte limit");
     }
-    let raw = ace_json::parse_raw(text).map_err(|_| "Invalid Pi frame")?;
-    if !within_structural_limit(raw) {
+    let value = ace_json::parse(text).map_err(|_| "Invalid Pi frame")?;
+    if !within_structural_limit(&value) {
         return Err("Provider payload exceeds structural limit");
     }
-    Ok(raw)
+    ace_json::parse_raw(text).map_err(|_| "Invalid Pi frame")
 }
 
-/// `ProviderPayload`'s node count: every value counts, objects and arrays are
-/// walked iteratively, so a valid frame deeper than any call stack is bounded by
-/// nodes alone.
-fn within_structural_limit(root: RawRef<'_>) -> bool {
+/// `ProviderPayload`'s node count over the parsed tree: one linear pass, every
+/// surviving value counts, and no call stack is used.
+fn within_structural_limit(root: &Value) -> bool {
     let mut pending = vec![root];
     let mut nodes = 0usize;
     while let Some(value) = pending.pop() {
@@ -755,9 +756,9 @@ fn within_structural_limit(root: RawRef<'_>) -> bool {
         if nodes > MAX_PAYLOAD_NODES {
             return false;
         }
-        match value.kind() {
-            Kind::Array => pending.extend(value.items()),
-            Kind::Object => pending.extend(value.entries().map(|(_, child)| child)),
+        match value {
+            Value::Array(items) => pending.extend(items.iter()),
+            Value::Object(map) => pending.extend(map.values()),
             _ => {}
         }
     }
