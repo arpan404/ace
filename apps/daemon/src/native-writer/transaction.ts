@@ -160,14 +160,10 @@ export class NativeTransactions {
       threw = true;
       thrown = error;
     }
-    let failure: Error | undefined;
-    try {
-      this.close(frame, threw ? { threw: true, error: thrown } : { threw: false });
-    } catch (error) {
-      failure = error as Error;
-    }
+    // Exactly the TypeScript's precedence: `finishTop`/`finishNested` run before the body's
+    // error is rethrown, so a rollback handling failure is what escapes.
+    this.close(frame, threw ? { threw: true, error: thrown } : { threw: false });
     if (threw) throw thrown;
-    if (failure !== undefined) throw failure;
     return value as T;
   }
 
@@ -178,15 +174,17 @@ export class NativeTransactions {
   open(outcome?: TransactionOutcome): OpenFrame {
     this.host.flush();
     if (this.host.installingHistory()) {
-      // installHistory drains the buffer before it begins; a live write retries after it.
+      // installHistory drains the buffer before it begins; a live write retries after it. The
+      // bypass opens no frame and remembers nothing, so no map entry can outlive it.
       if (outcome) throw new Error("Store is busy");
-      return this.remember({
+      return {
+        token: 0,
         frame: null,
         context: null,
         own: undefined,
         outcome: undefined,
         top: false,
-      });
+      };
     }
     const top = this.contexts.length === 0;
     if (top) this.contexts.push({ events: [], outcomes: new Map() });
