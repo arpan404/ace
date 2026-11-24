@@ -1,5 +1,7 @@
 # 0152: A Spade bot hands part of its work to helpers
 
+Helper questions go to their parent. The ADR also sets the direction for approval routing. See [ADR 0229](0229-spade-parents-own-child-requests.md).
+
 Status: accepted. Date: 2026-11-14. Decided by: the owner (2026-11-14, with
 [ADR 0151](0151-spade-skills-and-plugins.md)). Builds on [spade/docs/harness.md](../../spade/docs/harness.md)
 (turns, background jobs), [ADR 0132](0132-spade-teams.md) (teams),

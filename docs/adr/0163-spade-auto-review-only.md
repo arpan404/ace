@@ -1,5 +1,7 @@
 # 0163: Spade has one access level, the auto-review
 
+A parent deciding a child request uses the same effect gate and review rules. See [ADR 0229](0229-spade-parents-own-child-requests.md).
+
 Status: accepted. Date: 2026-11-15. Decided by: the owner (2026-11-15: Spade has only one access
 mode, auto-review; Ask and Full access go). Amends [ADR 0144](0144-spade-autonomous-bots.md)
 decisions 1–5, 7 and 8; amended by its own amendment 1 (payments and sends go to the person),

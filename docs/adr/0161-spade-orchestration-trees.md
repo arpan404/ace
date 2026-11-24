@@ -1,5 +1,7 @@
 # 0161: A Spade bot runs a tree of workers
 
+A worker bot created for a task answers to its parent. See the decision for request routing and state. See [ADR 0229](0229-spade-parents-own-child-requests.md).
+
 Status: accepted. Date: 2026-11-15. Decided by: the owner (2026-11-15, Spade capability work
 wave B: "a bot can create, run and coordinate other workers (bots, helpers and ace's coding
 agents) for multi-day, multi-agent work"). Builds on [ADR 0126](0126-spade-agents.md) (agents),

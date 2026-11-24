@@ -574,6 +574,13 @@ When a sandboxed command fails and its output shows the sandbox stopped it (`eff
 the result ends with a line telling the bot it may call `shell` again with
 `outside_sandbox: true`.
 
+## Authority on delegated work
+
+The decision in [ADR 0229](../../docs/adr/0229-spade-parents-own-child-requests.md) requires
+the intersection of child and parent authority. A parent's approval must use its current
+permissions, grants, mode and trust state. Credentials remain refused. The approval path
+is pending.
+
 ## Checkpoints
 
 `security/checkpoints.rs`. A copy of the bot's workspace at `<data>/checkpoints/<bot>/<id>/`

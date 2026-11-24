@@ -183,6 +183,12 @@ own work never moves, and `task::next` never carries a moved task on in main.
 Each step of main's ends with a `<tasks>` block after the `<asks>` block while lanes haven't
 ended: one line each with its id, state, title and the asks it owns, read from the events.
 
+## Internal questions
+
+A helper's `ask_user` stores its wait and a `child_asked` event in the parent atomically.
+Pending child questions appear after the parent's usual prompt tail. `child_answer` validates
+the reply and closes both sides in one write. A pending question is offered again on restart.
+
 ## Tools
 
 Every tool definition is paid for on every model call of every bot, so Spade offers up front only

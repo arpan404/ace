@@ -146,7 +146,7 @@ As built for [ADR 0217](../../docs/adr/0217-spade-runs-each-task-in-its-own-lane
 rules are `spade_core::lane`; the engine side is `engine/lanes/` (`start`, `talk`, `view`), with
 hooks in `engine/turn.rs` (the move, a lane's end), `engine/workers/` (roll-up, reports),
 `engine/calls.rs` and `engine/helpers.rs` (requests asked in main), `engine/control.rs` (Stop),
-`engine/media.rs` (routing a reply) and `engine/routing.rs` (the `task` role).
+`engine/media.rs` (main chat messages) and `engine/routing.rs` (the `task` role).
 
 A lane is one task the person asked for, run by the bot in a hidden conversation of its own. It is
 stored as a helper is (a `helpers` row with profile `lane`, so it shares the bot's workspace,
@@ -164,16 +164,14 @@ check of done and asks, takes the person's messages, and reports back to main.
   | `tasks`        | `task?`                    | each lane's row, its goal, plan, last words |
 
   `task` is a lane's id or its title. `asks` names main's asks (`m12`) the lane takes; with none,
-  `task_start` takes the newest open one. `task_stop` is refused unless `because` names the
-  person's own reply to that task (routed to it by their `reply_to`, `ask_routed`) with no newer
-  reply of theirs to it and no restart of it since; main forwarding a message never authorizes a
-  stop. `task_message`
+  `task_start` takes the newest open one. To stop a task on the person's request, main uses
+  `task_stop` with the id of the person's message quoting its report. A newer steer makes
+  that request stale. `task_message`
   stores main's words as `lane_message {text, untrusted}` in the lane (the bot's, never the
   person's, tainting when main wrote them with untrusted content in view) and `lane_messaged
 {lane, title, asks}` in main every time; the person's own words for the asks it names go
-  verbatim as theirs. It and a routed reply store both sides in one write. A reply a lane's
-  report opened records the lane on its `reply_started` (`lane`), which is what routes a reply
-  to its words.
+  verbatim as theirs. It stores both sides in one write. When a lane's report opens a reply,
+  `reply_started.lane` identifies the task for a later stop request quoting that reply.
 
 - **First events.** `lane_of {parent_conversation, call, title, asks, untrusted, moved_from?}`,
   then one message from the person quoting their asks verbatim, with Spade's note on the task and
@@ -183,13 +181,9 @@ check of done and asks, takes the person's messages, and reports back to main.
 - **Prompt.** A lane's system prompt and offered tools are main's byte for byte, so the provider's
   cache serves both; what it is told about its task sits in its first message.
 - **Asks.** Asks a lane takes leave main's ledger (`lane_started.asks`, `reply_moved.asks`, an
-  `ask_routed` message), so main's stop check skips them; the lane's own messages open its own.
-- **Routing a reply.** A person's message to main whose `reply_to` names a lane's line, its report,
-  the bot's words in the reply its report opened, or a message already routed there goes to that
-  lane with no model call: main stores the person's message and `ask_routed {lane, title,
-message}` together and opens no reply; the lane gets the person's words (trusted). Main's prompt
-  reads a `<routed>` note there. A message written in a lane's own conversation (`POST
-/v1/conversations/{lane}/messages`, `202`) steers it, or opens its next reply once it ended.
+  `lane_messaged.asks`), so main's stop check skips them. The lane checks its own asks.
+- **Routing a reply.** Main reads every message, including quoted replies to its task reports.
+  It forwards any change with `task_message`. Direct posts to a lane are refused.
 - **Main's long work** moves to a lane by itself ([harness.md](harness.md), "Task lanes"); main
   stores `reply_moved {reply, lane, title, asks, jobs, kept_jobs, wakes}` and the app writes
   Spade's plain line for it. The reply's background jobs (a helper's row with them) and its
@@ -236,7 +230,7 @@ message}` together and opens no reply; the lane gets the person's words (trusted
 - **Trust.** `lane_of.untrusted` is read by the trust fold: a lane started or moved while main had
   untrusted content in view asks where main would.
 - **Writes in pairs.** A lane's request and its copy in main, an answer and every copy it closes
-  (with its audit entry), a routed reply on both sides: each is one write (`Store::append_across`).
+  (with its audit entry), and a forwarded message on both sides: each is one write (`Store::append_across`).
 - **What is read.** `lanes_live` lists the lanes that haven't ended (a lane goes on it before any
   write that opens a reply of it), and `lane_copies` the lanes whose requests have copies in main
   (listed in the write that copies one, cleared at open once nothing of it is left open there);
@@ -252,7 +246,7 @@ message}` together and opens no reply; the lane gets the person's words (trusted
 needs_you, progress: {done, total, verified} | null, plan_step, started_ms, ended_ms,
 cost_micros, asks, moved, model, report}]}`, ordered needs you, running, ended, queued (oldest
   first in each): every lane that hasn't ended, and the N (20 by default) that ended last.
-- A lane's conversation is read with `/events` and `/live`, written to with `/messages`, stopped
+- A lane's conversation is still read with `/events` and `/live`, stopped
   with `/stop` and tried again with `/retry`, like any.
 - `GET /v1/conversations/{lane}/task` → the lane's `{task}`, as `GET /v1/agents/{id}/task`
   answers a bot's; `404` for a conversation that is no lane.

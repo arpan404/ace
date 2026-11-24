@@ -486,6 +486,12 @@ least the bot's price (as `verify`), else the bot's own. Typed output:
   error, with model and type names, goes to the logs only. An unreviewed call never runs.
 - Status line while it reads: `Checking a step`.
 
+### Decisions on child requests
+
+[ADR 0229](../../docs/adr/0229-spade-parents-own-child-requests.md) requires a parent's allow
+decision to pass its own gate and review for the child's exact call. The full approval path
+is pending. Helper questions already reach their parent.
+
 ### When the person is asked
 
 When one of Spade's automated judges says a call is unsafe, the call isn't refused: it waits on the

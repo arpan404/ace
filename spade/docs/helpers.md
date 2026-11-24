@@ -103,7 +103,7 @@ What the result says, from `helper::ended`:
 | `explore` | find and read what the task needs; report it with its sources | risk `read` only            |
 | `general` | do the task; report what it did and found                     | the bot's, less those below |
 
-Every profile leaves out `helper`, `ask_user`, `memory_save`, `memory_update`, `memory_forget`
+Every profile leaves out `helper`, `memory_save`, `memory_update`, `memory_forget`
 (and any tool of risk `memory`), `skill_propose`, `task_status`, `bot_message`, `group_ask`, and
 every background tool (`research`, ace's `wait`): a helper's answer is its last message, and a
 background result would arrive after it. Deferred tools (ace's, connectors') are narrowed the
@@ -112,8 +112,7 @@ same way, so `explore` keeps read-only ace and connector tools.
 A profile narrows what a helper may run, not what the model is offered: every helper is offered
 its bot's tool list, so the tool list and Spade's rules are the same bytes as its bot's. A call to
 a tool the profile leaves out is answered with a refusal and never run, checked before anything
-the turn loop answers itself (a helper's `ask_user` would wait on a question nobody sees), and the
-same holds for a call made through `call_tool`. It reads "Refused: a helper cannot use _name_.
+the turn loop answers itself. The same holds for a call made through `call_tool`. It reads "Refused: a helper cannot use _name_.
 Finish the task with your tools and answer." when its bot has the tool or no helper may have it,
 and "There is no tool named _name_." otherwise. `tool_search` searches what the profile allows, so
 a deferred tool outside it is never found. Nothing a helper could not do is possible because the
@@ -129,6 +128,13 @@ text without frontmatter the instructions, its description the `about`, its fron
 (`a, b`, `[a, b]` or one `- a` a line) the tool list, and its `model` (not `inherit`) the model.
 Turned off for the bot or in ace, the plugin's profiles go; a helper already made keeps the
 profile it was made with.
+
+## Questions for the parent
+
+`ask_user` pauses the helper and adds a `child_ask` to its parent's prompt. The parent can
+call `child_answer {ask, answer}` with one value per question. This uses the same answer
+validation as a card. The helper's wait and the parent's request share one durable write,
+as do the answer and the delivery. See [ADR 0229](../../docs/adr/0229-spade-parents-own-child-requests.md).
 
 ## The gate
 

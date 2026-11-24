@@ -87,6 +87,11 @@ A late answer lands once: it is stored only while the card is still deferred, ch
 lock every answer and message is stored under. After a restart a stored late answer opens its
 reply like any job result (`needs_reply`), and nothing is delivered again.
 
+## Helper questions
+
+A helper's `ask_user` goes to its parent bot and always waits. The parent can answer it with
+`child_answer {ask, answer}`. The public question endpoints expose cards for the person.
+
 ## Typed messages
 
 A message the person types (not another bot's, a routine's or a club's) while a card waits

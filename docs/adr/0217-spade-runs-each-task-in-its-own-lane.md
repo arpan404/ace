@@ -1,5 +1,7 @@
 # 0217: A Spade bot runs each task in its own lane
 
+The person-facing lane routing, request cards and endpoints are superseded. See [ADR 0229](0229-spade-parents-own-child-requests.md).
+
 Status: accepted (2026-11-23, built on `ace/spade-lanes`; see "As built"). Date: 2026-11-22.
 Asked for by the owner (2026-11-22: "multitasking and many others are fucked"; bots forget earlier
 asks when given new ones). The owner answered the first
