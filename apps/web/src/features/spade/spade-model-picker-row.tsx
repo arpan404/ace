@@ -142,23 +142,23 @@ export function SpadePickerRow(props: {
           )}
         </span>
         {props.chosen && <CheckIcon aria-hidden size={12} weight="bold" className="shrink-0" />}
+        {props.number !== undefined && (
+          <span
+            aria-hidden
+            className={cn(
+              "pointer-events-none absolute top-1/2 -translate-y-1/2 opacity-0 transition-opacity duration-(--motion-fast) group-hover/row:opacity-100",
+              canStar ? (props.chosen ? "right-12" : "right-8") : "right-2.5",
+              revealed && "opacity-100",
+            )}
+          >
+            <Kbd
+              keys={`mod+${props.number}`}
+              variant="bare"
+              className="bg-transparent tabular-nums"
+            />
+          </span>
+        )}
       </div>
-      {props.number !== undefined && (
-        <span
-          aria-hidden
-          className={cn(
-            "pointer-events-none absolute top-1/2 -translate-y-1/2 opacity-0 transition-opacity duration-(--motion-fast) group-hover/row:opacity-100",
-            canStar ? (props.chosen ? "right-12" : "right-8") : "right-2.5",
-            revealed && "opacity-100",
-          )}
-        >
-          <Kbd
-            keys={`mod+${props.number}`}
-            variant="bare"
-            className="bg-transparent tabular-nums"
-          />
-        </span>
-      )}
       {canStar && (
         <Tip label={`${props.starred ? "Remove from" : "Add to"} favorites`}>
           <button

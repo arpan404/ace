@@ -83,7 +83,7 @@ export function SpadeModelPickerPanel(props: {
   onClose?(): void;
 }) {
   const machine = useSpadeMachine().key;
-  const { values: favoriteValues, isFavorite, toggle: toggleFavorite } = useSpadeFavorites(machine);
+  const { favorites, isFavorite, toggle: toggleFavorite } = useSpadeFavorites(machine);
   const orderedEndpoints = useMemo(
     () => spadeLocalFirst(props.sources.endpoints, (each) => each.endpoint.local),
     [props.sources.endpoints],
@@ -103,6 +103,18 @@ export function SpadeModelPickerPanel(props: {
   const endpointById = useMemo(
     () => new Map(orderedEndpoints.map(({ endpoint }) => [endpoint.id, endpoint])),
     [orderedEndpoints],
+  );
+  const readyEndpoints = useMemo(
+    () =>
+      new Set(
+        orderedEndpoints
+          .filter(
+            ({ endpoint }) =>
+              spadeAccountState(endpoint, props.keychain, props.now).tone === "ready",
+          )
+          .map(({ endpoint }) => endpoint.id),
+      ),
+    [orderedEndpoints, props.keychain, props.now],
   );
   const modelInfoByValue = useMemo(() => {
     const map = new Map<string, SpadeModelInfo>();
@@ -155,14 +167,14 @@ export function SpadeModelPickerPanel(props: {
     if (currentEndpointId && tabs.some((tab) => tab.id === currentEndpointId)) {
       return currentEndpointId;
     }
-    if (favoriteValues.length > 0 && tabs.some((tab) => tab.id === favoritesTabId)) {
+    if (favorites.length > 0 && tabs.some((tab) => tab.id === favoritesTabId)) {
       return favoritesTabId;
     }
     const firstReady = tabs.find((tab) => tab.kind === "endpoint" && !tab.reason);
     if (firstReady) return firstReady.id;
     const firstSource = tabs.find((tab) => tab.kind !== "favorites");
     return firstSource?.id ?? favoritesTabId;
-  }, [props.only, orderedEndpoints, currentEndpointId, tabs, favoriteValues.length]);
+  }, [props.only, orderedEndpoints, currentEndpointId, tabs, favorites.length]);
 
   const [chosenTab, setChosenTab] = useState<string>();
   const [followTab, setFollowTab] = useState<string>();
@@ -189,11 +201,15 @@ export function SpadeModelPickerPanel(props: {
     if (props.only || searching) return allGroups;
     const emptyGroup = allGroups.find((group) => group.label === undefined);
     if (isFavorites) {
-      const favSet = new Set(favoriteValues);
       const favOptions = allGroups
         .filter((group) => group.label !== undefined)
         .flatMap((group) => group.options)
-        .filter((option) => !option.typed && favSet.has(option.value));
+        .filter(
+          (option) =>
+            option.value !== "" &&
+            !option.typed &&
+            isFavorite(option.value.split("/")[0] ?? "", option.value),
+        );
       return [
         ...(emptyGroup ? [emptyGroup] : []),
         ...(favOptions.length ? [{ label: "Favorites", options: favOptions }] : []),
@@ -206,7 +222,7 @@ export function SpadeModelPickerPanel(props: {
     const targetLabel = labels.get(activeTabId);
     const matching = targetLabel ? allGroups.filter((group) => group.label === targetLabel) : [];
     return [...(emptyGroup ? [emptyGroup] : []), ...matching];
-  }, [props.only, searching, allGroups, isFavorites, favoriteValues, activeTabId, labels]);
+  }, [props.only, searching, allGroups, isFavorites, isFavorite, activeTabId, labels]);
 
   const flat = useMemo(() => visibleGroups.flatMap((group) => group.options), [visibleGroups]);
   const starts = useMemo(
@@ -298,11 +314,13 @@ export function SpadeModelPickerPanel(props: {
   };
 
   const nothing = props.sources.endpoints.length === 0 && !props.sources.adds?.length;
-  // Rows a key or a number can act on: the empty choice, typed ids and models that can't run
-  // here have no slot. Badges and ⌘1–9 both read this one list.
-  const usableModels = flat.filter(
-    (option) => option.value !== "" && !option.typed && !option.cant,
-  );
+  // Rows a key or a number can act on: the empty choice, typed ids, models that can't run here,
+  // and accounts that need a key or sign-in have no slot. Badges and ⌘1–9 read this one list.
+  const usableModels = flat.filter((option) => {
+    if (option.value === "" || option.typed || option.cant) return false;
+    if (option.adds) return true;
+    return readyEndpoints.has(option.value.split("/")[0] ?? "");
+  });
   const modelNumber = new Map(usableModels.map((option, idx) => [option.value, idx + 1]));
 
   return (

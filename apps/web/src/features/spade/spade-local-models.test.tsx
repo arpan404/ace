@@ -150,9 +150,8 @@ test("a local model that failed its tool check has no ⌘ number, and ⌘1 picks
   await userEvent.click(await screen.findByRole("button", { name: "Model" }));
   await userEvent.click(await screen.findByRole("tab", { name: "Ollama" }));
   const local = within(await screen.findByRole("group", { name: "Ollama" }));
-  const failed = local.getByRole("option", { name: /^gemma3:4b/ }).parentElement;
-  const usable = local.getByRole("option", { name: /^qwen3:8b/ }).parentElement;
-  if (!failed || !usable) throw new Error("Expected the picker's rows");
+  const failed = local.getByRole("option", { name: /^gemma3:4b/ });
+  const usable = local.getByRole("option", { name: /^qwen3:8b/ });
   // The failed model can't be picked, so it has no slot; qwen3 takes the first one.
   expect(within(failed).queryByText(formatKeys("mod+1"))).toBeNull();
   expect(within(usable).getByText(formatKeys("mod+1"))).toBeTruthy();
@@ -160,6 +159,50 @@ test("a local model that failed its tool check has no ⌘ number, and ⌘1 picks
   await userEvent.keyboard("{Control>}1{/Control}");
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "Model" }).textContent).toContain("qwen3:8b"),
+  );
+});
+
+test("a model on an account that needs a key has no ⌘ number, and ⌘1 picks a ready one", async () => {
+  await spadeApp("/spade", (here) => {
+    here.endpoints.push(
+      {
+        id: "closed",
+        name: "Closed",
+        format: "openai-chat",
+        base_url: "https://closed.example/v1/",
+        header_names: [],
+        session_header: null,
+        needs_key: true,
+        key_set: false,
+        key_source: null,
+        models: [{ id: "closed-model", name: "Closed model" }],
+      },
+      {
+        id: "ready",
+        name: "Ready",
+        format: "openai-chat",
+        base_url: "https://ready.example/v1/",
+        header_names: [],
+        session_header: null,
+        needs_key: false,
+        key_set: false,
+        key_source: null,
+        models: [{ id: "open-model", name: "Open model" }],
+      },
+    );
+    here.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+  });
+  await openNew("New bot");
+  await userEvent.click(await screen.findByRole("button", { name: "Model" }));
+  const search = await screen.findByRole("combobox", { name: "Search models" });
+  await userEvent.type(search, "model");
+  const closed = await screen.findByRole("option", { name: /^Closed model/ });
+  const ready = await screen.findByRole("option", { name: /^Open model/ });
+  expect(within(closed).queryByText(formatKeys("mod+1"))).toBeNull();
+  expect(within(ready).getByText(formatKeys("mod+1"))).toBeTruthy();
+  await userEvent.keyboard("{Control>}1{/Control}");
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Model" }).textContent).toContain("Open model"),
   );
 });
 
