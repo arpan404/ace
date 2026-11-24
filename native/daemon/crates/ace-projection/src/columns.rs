@@ -4,12 +4,11 @@
 //! built with `ace-json`, so key order, number printing and lone surrogates are JavaScript's.
 //!
 //! Zod validation stays TypeScript: a value the table can't shape is written unchanged, and
-//! `rebuildThread` rejects it inside the same transaction as today. The one exception is the
-//! previous details a cold upsert rebinds, which the TypeScript parses itself: see `cold_value`.
+//! `rebuildThread` rejects it inside the same transaction as today.
 
 use std::fmt;
 
-use crate::strip::{conform, strip};
+use crate::strip::strip;
 use ace_json::{JsString, Map};
 use ace_protocol::shapes::{THREAD_CLIENT_COLUMN, THREAD_DETAILS, THREAD_PROVIDER_METADATA};
 
@@ -168,14 +167,10 @@ pub enum ColumnValue {
     Null,
 }
 
-/// A column value the write can't store.
+/// A column that SQLite could not bind: the TypeScript fails at the bind instead.
 #[derive(Debug, PartialEq)]
 pub enum ColumnError {
-    /// SQLite refuses the value: the TypeScript fails at the bind instead.
     NotStorable(Column),
-    /// A stored value the schema rejects, where the TypeScript parses it again to bind it
-    /// (`ThreadDetails.parse` on the previous details of a cold upsert).
-    Invalid { column: Column, problem: String },
 }
 
 impl fmt::Display for ColumnError {
@@ -185,13 +180,6 @@ impl fmt::Display for ColumnError {
                 write!(
                     formatter,
                     "thread column {} cannot be stored",
-                    column.name()
-                )
-            }
-            ColumnError::Invalid { column, problem } => {
-                write!(
-                    formatter,
-                    "thread column {} is not a valid value: {problem}",
                     column.name()
                 )
             }
@@ -336,20 +324,7 @@ fn cold_value(
         return Ok(value.clone());
     }
     match previous {
-        Some(previous) => {
-            // The TypeScript encodes the previous value of the cold column that did not change,
-            // and `ThreadDetails.parse` runs on the way (thread-columns.ts:33): a stored value
-            // it rejects throws there, so this write fails instead of binding a stripped copy.
-            if column == Column::Details
-                && let Some(value) = previous.get("details")
-            {
-                conform(&THREAD_DETAILS, value).map_err(|problem| ColumnError::Invalid {
-                    column,
-                    problem: problem.to_string(),
-                })?;
-            }
-            column_value(previous, column)
-        }
+        Some(previous) => column_value(previous, column),
         None => Ok(ColumnValue::Null),
     }
 }

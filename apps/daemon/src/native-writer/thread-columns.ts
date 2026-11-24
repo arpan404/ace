@@ -2,11 +2,15 @@
 //! The thread column writes behind `ACE_STORE_WRITER=columns` (task 5.3b-2): `writeThread`
 //! through its revision read, one `nativeCall` into `ace_store::writer::thread_columns`.
 //! `rebuildThread`, the trust stamp and the `remember*` calls stay in `event-writer.ts`.
+//!
+//! Zod's parse of the previous details a cold upsert rebinds runs here, with the schema the
+//! TypeScript path uses (`ThreadDetails.parse`), never a Rust copy of it: that value leaves
+//! the shape table's reach, and two validators would drift apart.
 
 import { appendFileSync } from "node:fs";
+import { ThreadDetails, type Thread } from "@ace/protocol";
 import { nativeCall, nativeHandle } from "@ace/provider-kit/sqlite";
 import type { DatabaseSync } from "@ace/provider-kit/sqlite";
-import type { Thread } from "@ace/protocol";
 import type { ColumnValue, ThreadColumn } from "../thread-columns.ts";
 import type { ThreadPart } from "../thread-row.ts";
 import type { FrozenThread } from "../thread-cache.ts";
@@ -82,9 +86,18 @@ export function writeThreadColumns(
   recordEvidence();
   if (result === null) return undefined;
   const stored = JSON.parse(result) as StoredColumns;
+  const parts = new Set(stored.parts);
+  // `writeColumns` builds the cold upsert's bind values with `coldRowValues`, which parses the
+  // previous details it rebinds: a stored value Zod rejects throws there and the append rolls
+  // back. The upsert ran with `previous`'s details exactly when `capabilities` changed and
+  // `details` did not, so the same parse runs here, in the caller's transaction. The writer
+  // already reports the changed parts, so no comparison is repeated, and `previous` holds the
+  // details it read (no statement).
+  if (previous?.details !== undefined && parts.has("capabilities") && !parts.has("details"))
+    ThreadDetails.parse(previous.details);
   return {
     row: stored.row,
-    parts: new Set(stored.parts),
+    parts,
     confirmed: stored.confirmed,
     revision: stored.revision ?? undefined,
   };
