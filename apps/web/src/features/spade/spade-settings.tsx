@@ -6,7 +6,12 @@ import {
 } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useId, type ReactNode } from "react";
-import { SettingCard, SettingRow, settingsGroup } from "@/components/setting-row.tsx";
+import {
+  SettingCard,
+  SettingRow,
+  SettingSection,
+  settingsGroup,
+} from "@/components/setting-row.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import {
   setFastModel,
@@ -16,7 +21,7 @@ import {
 } from "./spade-api.ts";
 import { VoiceRows } from "./spade-voice-settings.tsx";
 import { ReviewRows, SpendingSection, useOversightSettings } from "./spade-oversight-settings.tsx";
-import { ReachSection } from "./spade-reach-settings.tsx";
+import { ReachSection, SpendAlertRow } from "./spade-reach-settings.tsx";
 import { SearchUsageLine } from "./spade-search-usage.tsx";
 import { LoadingRows, SwitchSkeleton } from "./spade-settings-loading.tsx";
 import { setShowWork, useShowWork } from "./spade-show-work.ts";
@@ -25,14 +30,17 @@ import { modelsKey, useSpadeModels } from "./use-spade-models.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 
 /**
- * Settings › Spade › General: Spade on or off on this machine; the models it starts new bots
- * on and uses for small jobs, transcription and speech, and how replies sound; whether every
- * bot's writes are reviewed (ADR 0135); how Spade reaches the person (ADR 0195); then what every
- * bot spent, and this month's ace searches (ADR 0210). While the setting or Spade's state is
- * still being read, the rows hold their place, and the switch shows neither on nor off.
+ * Settings › Spade › General:
+ * 1. Top card: Run Spade on this machine + Show work in chat
+ * 2. Defaults: Model for new bots, Fast model, Review every bot's writes
+ * 3. Voice: Speak replies, Voice, Transcription, Speech
+ * 4. Notifications & Morning brief (ADR 0195)
+ * 5. Spending & ace web search usage (ADR 0166, ADR 0210)
  */
 export function SpadeSettings() {
-  const id = useId();
+  const runId = useId();
+  const workId = useId();
+  const showWork = useShowWork();
   const { status, enabled, setEnabled, saving, line, reading } = useSpadeRunning();
   const models = useSpadeModels(line.ready);
   const oversight = useOversightSettings(line.ready);
@@ -50,7 +58,7 @@ export function SpadeSettings() {
           <SettingRow
             title="Run Spade on this machine"
             description={sentence}
-            htmlFor={id}
+            htmlFor={runId}
             density="compact"
             inline
           >
@@ -58,70 +66,112 @@ export function SpadeSettings() {
               <SwitchSkeleton />
             ) : (
               <Switch
-                id={id}
+                id={runId}
                 checked={enabled}
                 disabled={saving}
                 onCheckedChange={(checked) => void setEnabled(checked)}
               />
             )}
           </SettingRow>
-          {loading && <LoadingRows label="Spade's models" rows={4} />}
-          {line.ready && models.isError && (
-            <CouldNotRead
-              what="Spade's models"
-              error={models.error}
-              retry={() => void models.refetch()}
-            />
-          )}
-          {line.ready && !loading && models.data && (
-            <ModelRows models={models.data} review={<ReviewRows settings={oversight} />} />
-          )}
-          {line.ready && oversight.oversight.isError && (
-            <CouldNotRead
-              what="the review settings"
-              error={oversight.oversight.error}
-              retry={() => void oversight.oversight.refetch()}
-            />
-          )}
+          <SettingRow
+            title="Show work in chat"
+            description="Show each reply's steps and notes inline under the message"
+            htmlFor={workId}
+            density="compact"
+            inline
+          >
+            <Switch id={workId} checked={showWork} onCheckedChange={setShowWork} />
+          </SettingRow>
         </SettingCard>
       </div>
-      <ChatSection />
+
+      {(line.ready || loading) && (
+        <DefaultsSection
+          loading={loading}
+          models={models}
+          oversight={oversight}
+          review={<ReviewRows settings={oversight} />}
+        />
+      )}
+
+      {line.ready && !loading && models.data && <VoiceSection models={models.data} />}
+
       {line.ready && <ReachSection ready={line.ready} />}
-      {(line.ready || reading) && <SpendingSection settings={oversight} />}
-      <SearchUsageLine ready={line.ready} />
+
+      {(line.ready || reading) && (
+        <SpendingSection
+          settings={oversight}
+          footer={
+            <>
+              <SearchUsageLine ready={line.ready} />
+              <SpendAlertRow ready={line.ready} />
+            </>
+          }
+        />
+      )}
     </>
   );
 }
 
-/**
- * How Spade's chats read, on this device: Show work in chat puts each reply's steps and the notes
- * it had in mind back under it. Off, a reply's More menu shows them for that reply.
- */
-function ChatSection() {
-  const id = useId();
-  const on = useShowWork();
+function DefaultsSection(props: {
+  loading: boolean;
+  models: ReturnType<typeof useSpadeModels>;
+  oversight: ReturnType<typeof useOversightSettings>;
+  review: ReactNode;
+}) {
+  const client = useSpadeClient();
+  const cache = useQueryClient();
+  const refresh = () => cache.invalidateQueries({ queryKey: modelsKey });
+  const saved = (put: (model: string | null) => Promise<void>) => async (model: string | null) => {
+    try {
+      await put(model);
+    } finally {
+      await refresh();
+    }
+  };
   return (
-    <div className={settingsGroup}>
-      <SettingCard>
-        <SettingRow
-          title="Show work in chat"
-          description="Each reply's steps and the notes it had in mind, under it."
-          htmlFor={id}
-          density="compact"
-          inline
-        >
-          <Switch id={id} checked={on} onCheckedChange={setShowWork} />
-        </SettingRow>
-      </SettingCard>
-    </div>
+    <SettingSection label="Defaults" anchor="defaults">
+      {props.loading && <LoadingRows label="Spade's models" rows={3} />}
+      {!props.loading && props.models.isError && (
+        <CouldNotRead
+          what="Spade's models"
+          error={props.models.error}
+          retry={() => void props.models.refetch()}
+        />
+      )}
+      {!props.loading && props.models.data && (
+        <>
+          <ModelSettingRow
+            title="Model for new bots"
+            description="Default model used when you create a new bot"
+            value={props.models.data.newBotModel}
+            none={spadeFirstUsableWords(spadeFirstUsableModel(props.models.data.endpoints))}
+            follows={spadeFirstUsableModel(props.models.data.endpoints)}
+            forBots
+            save={saved((model) => setNewBotModel(client, model))}
+          />
+          <ModelSettingRow
+            title="Fast model"
+            description="Titles and other small jobs"
+            value={props.models.data.fastModel}
+            none="Each bot's own"
+            save={saved((model) => setFastModel(client, model))}
+          />
+          {props.review}
+        </>
+      )}
+      {props.oversight.oversight.isError && (
+        <CouldNotRead
+          what="the review settings"
+          error={props.oversight.oversight.error}
+          retry={() => void props.oversight.oversight.refetch()}
+        />
+      )}
+    </SettingSection>
   );
 }
 
-/**
- * The model new bots start on, the fast model, the review switch (`review`), the transcription
- * and speech models, each model one picker, then Speak replies and the voice.
- */
-function ModelRows(props: { models: SpadeModels; review: ReactNode }) {
+function VoiceSection(props: { models: SpadeModels }) {
   const client = useSpadeClient();
   const cache = useQueryClient();
   const refresh = () => cache.invalidateQueries({ queryKey: modelsKey });
@@ -134,23 +184,8 @@ function ModelRows(props: { models: SpadeModels; review: ReactNode }) {
   };
   const { models } = props;
   return (
-    <>
-      <ModelSettingRow
-        title="Model for new bots"
-        value={models.newBotModel}
-        none={spadeFirstUsableWords(spadeFirstUsableModel(models.endpoints))}
-        follows={spadeFirstUsableModel(models.endpoints)}
-        forBots
-        save={saved((model) => setNewBotModel(client, model))}
-      />
-      <ModelSettingRow
-        title="Fast model"
-        description="Titles and other small jobs"
-        value={models.fastModel}
-        none="Each bot's own"
-        save={saved((model) => setFastModel(client, model))}
-      />
-      {props.review}
+    <SettingSection label="Voice" anchor="voice">
+      <VoiceRows speechModel={models.speechModel} />
       <ModelSettingRow
         title="Transcription"
         description="Dictation and voice, when this device can't"
@@ -160,12 +195,11 @@ function ModelRows(props: { models: SpadeModels; review: ReactNode }) {
       />
       <ModelSettingRow
         title="Speech"
-        description="Reads replies aloud; the system's voices when off"
+        description="Reads replies aloud; uses system voices when off"
         value={models.speechModel}
         none="System voices"
         save={saved((model) => setSpeechModel(client, model))}
       />
-      <VoiceRows speechModel={models.speechModel} />
-    </>
+    </SettingSection>
   );
 }

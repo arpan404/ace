@@ -146,7 +146,7 @@ impl Engine {
     }
 
     /// The tools `id` may use: a helper's are its bot's, narrowed by its profile. This is what a
-    /// call is checked against, not what the model is offered (see [`Engine::offered_tools`]).
+    /// call is checked against, not what the model is offered (see `engine/offer.rs`).
     pub(super) fn registry_for(&self, id: &str) -> Registry {
         // A worker's tools are never more than its parent's (ADR 0161).
         let registry = self.narrow_registry(id, self.tools.registry_for(id));
@@ -160,17 +160,10 @@ impl Engine {
         }
     }
 
-    /// The tools the model is offered in any conversation: the same list for every bot, lane and
-    /// helper, so the provider's cache serves them all (docs/design.md, Caching). What a
-    /// conversation may run is narrowed where its calls are handled (ADR 0152, ADR 0161).
-    pub(super) fn offered_tools(&self) -> Vec<spade_models::ToolSpec> {
-        self.tools.registry().offered()
-    }
-
     /// The standing instructions for `id`. Every conversation starts from Spade's own, so a bot's,
-    /// a lane's and a helper's prompt top begins with the same bytes. A helper stored before
-    /// helpers shared their bot's prompt keeps the text its row pinned: its conversation cannot be
-    /// rewritten.
+    /// a lane's and a helper's prompt top begins with the same bytes. A helper goes on with what
+    /// makes it a helper, pinned in its row when it was made (an old one with its old text, which
+    /// had no shared top): a restart rebuilds the same bytes either way.
     pub(super) fn system_for(&self, id: &str) -> String {
         match self.helper_of(id) {
             Some(helper) if !helper.system.is_empty() => helper.system,
@@ -328,12 +321,9 @@ impl Engine {
         let events = self.load(bot).unwrap_or_default();
         let tainted =
             authored || !context::untrusted_in_view(&events, &self.registry_for(bot)).is_empty();
-        // What makes it a helper rides in its first message: its system prompt and offered tools
-        // are its bot's, so the provider's cache serves both (docs/helpers.md).
+        // The task alone is its first message: what makes it a helper is in its system prompt,
+        // after Spade's own rules, which outlives every compaction (docs/helpers.md).
         let mut message = Event::user_message(task);
-        if let Event::Known(Known::UserMessage { context, .. }) = &mut message {
-            *context = Some(profile.told());
-        }
         if tainted {
             let agent = match self.store.agent_for_conversation(bot) {
                 Ok(Some(agent)) => agent,
@@ -370,8 +360,8 @@ impl Engine {
             job: job.to_owned(),
             reply,
             profile: profile.name.clone(),
-            // No pinned system text: the prompt is the bot's, which the build fixes.
-            system: String::new(),
+            // Pinned, so a restart rebuilds the same bytes even if the profile changes.
+            system: profile.system(),
             reads_only: profile.reads_only,
             tools: profile.tools.clone(),
             model,
@@ -725,12 +715,25 @@ impl Engine {
         self.helpers.changed.notify_waiters();
     }
 
-    /// The helpers' conversations of a bot being deleted, so nothing is delivered to them.
+    /// The helpers' and lanes' conversations of a bot being deleted (including any helpers
+    /// nested under a lane), so nothing is delivered to them and their `web_fetch` index entries
+    /// are pruned together.
     pub(super) fn helper_conversations(&self, bot: &str) -> Vec<String> {
-        self.store
-            .helpers_of(bot)
-            .map(|helpers| helpers.into_iter().map(|h| h.conversation).collect())
-            .unwrap_or_default()
+        let mut all = Vec::new();
+        let mut queue = std::collections::VecDeque::from([bot.to_owned()]);
+        let mut seen = std::collections::HashSet::from([bot.to_owned()]);
+        while let Some(parent) = queue.pop_front() {
+            let Ok(helpers) = self.store.helpers_of(&parent) else {
+                continue;
+            };
+            for helper in helpers {
+                if seen.insert(helper.conversation.clone()) {
+                    all.push(helper.conversation.clone());
+                    queue.push_back(helper.conversation);
+                }
+            }
+        }
+        all
     }
 
     /// Asks the person about a helper's call: stored in the helper's conversation (where its

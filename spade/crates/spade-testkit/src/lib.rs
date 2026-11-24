@@ -54,6 +54,13 @@ pub enum FakeThought {
     Redacted { data: String },
 }
 
+#[derive(Debug, Clone)]
+enum StreamTail {
+    Hold(Arc<tokio::sync::Notify>),
+    Cut(Arc<tokio::sync::Notify>),
+    Eof,
+}
+
 /// How the fake answers one request.
 #[derive(Debug, Clone)]
 pub struct Script {
@@ -82,6 +89,8 @@ pub struct Script {
     pub thoughts: Vec<FakeThought>,
     /// Holds this answer before its first frame until the gate opens.
     pub gate: Option<Gate>,
+    tail: Option<StreamTail>,
+    chat_argument_suffix: Option<String>,
 }
 
 /// A gate a scripted answer waits behind, so a test can hold a stream open and know exactly what
@@ -149,6 +158,8 @@ impl Script {
             calls: Vec::new(),
             thoughts: Vec::new(),
             gate: None,
+            tail: None,
+            chat_argument_suffix: None,
         }
     }
 
@@ -156,6 +167,30 @@ impl Script {
     /// world while a stream has begun but its words have not arrived.
     pub fn gated(mut self, gate: Gate) -> Self {
         self.gate = Some(gate);
+        self
+    }
+
+    /// Waits before the last stream frame until the test releases it.
+    pub fn hold_stream_end(mut self, release: Arc<tokio::sync::Notify>) -> Self {
+        self.tail = Some(StreamTail::Hold(release));
+        self
+    }
+
+    /// Waits at the end, then drops the transport before the last frame.
+    pub fn cut_stream_end(mut self, release: Arc<tokio::sync::Notify>) -> Self {
+        self.tail = Some(StreamTail::Cut(release));
+        self
+    }
+
+    /// Closes the HTTP body normally, with the last SSE frame missing.
+    pub fn omit_stream_end(mut self) -> Self {
+        self.tail = Some(StreamTail::Eof);
+        self
+    }
+
+    /// Appends to the first Chat Completions call after its finish reason.
+    pub fn late_chat_arguments(mut self, suffix: &str) -> Self {
+        self.chat_argument_suffix = Some(suffix.to_owned());
         self
     }
 
@@ -454,11 +489,23 @@ async fn answer(
     };
     match (anthropic, responses, streamed) {
         (true, _, false) => json_response(anthropic::reply(script, tokens)),
-        (true, _, true) => sse(anthropic::stream(script, tokens), script.delay),
+        (true, _, true) => sse(
+            anthropic::stream(script, tokens),
+            script.delay,
+            script.tail.clone(),
+        ),
         (false, true, false) => json_response(responses::reply(script, tokens)),
-        (false, true, true) => sse(responses::stream(script, tokens), script.delay),
+        (false, true, true) => sse(
+            responses::stream(script, tokens),
+            script.delay,
+            script.tail.clone(),
+        ),
         (false, false, false) => json_response(openai::reply(script, tokens)),
-        (false, false, true) => sse(openai::stream(script, tokens), script.delay),
+        (false, false, true) => sse(
+            openai::stream(script, tokens),
+            script.delay,
+            script.tail.clone(),
+        ),
     }
 }
 
@@ -478,14 +525,31 @@ pub(crate) struct Frame {
 }
 
 /// Sends `frames` as a server-sent event stream, pausing `delay` before each piece of text.
-fn sse(frames: Vec<Frame>, delay: Duration) -> Response {
-    let body = stream::unfold(frames.into_iter(), move |mut frames| async move {
-        let frame = frames.next()?;
-        if frame.text && !delay.is_zero() {
-            tokio::time::sleep(delay).await;
-        }
-        Some((Ok::<_, std::convert::Infallible>(frame.data), frames))
-    });
+fn sse(frames: Vec<Frame>, delay: Duration, tail: Option<StreamTail>) -> Response {
+    let body = stream::unfold(
+        (frames.into_iter(), tail),
+        move |(mut frames, tail)| async move {
+            let frame = frames.next()?;
+            if frames.len() == 0 {
+                match &tail {
+                    Some(StreamTail::Hold(release)) => release.notified().await,
+                    Some(StreamTail::Cut(release)) => {
+                        release.notified().await;
+                        return Some((
+                            Err(std::io::Error::other("scripted stream cut")),
+                            (frames, tail),
+                        ));
+                    }
+                    Some(StreamTail::Eof) => return None,
+                    None => {}
+                }
+            }
+            if frame.text && !delay.is_zero() {
+                tokio::time::sleep(delay).await;
+            }
+            Some((Ok(frame.data), (frames, tail)))
+        },
+    );
     (
         StatusCode::OK,
         [("content-type", "text/event-stream")],

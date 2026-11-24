@@ -8,6 +8,7 @@
 //! place, and a file with more than one hard link is never written.
 
 mod ambient;
+mod early_read;
 mod edits;
 mod files;
 mod identity;
@@ -27,6 +28,7 @@ mod shell_tool;
 mod tools;
 pub mod trust;
 mod walk;
+pub(crate) mod web_fetch_index;
 
 pub use identity::Identity;
 pub use installed::SKILLS_FOLDER;
@@ -54,6 +56,9 @@ pub const OUTPUTS: &str = ".spade/outputs";
 /// Where each bot's trust record is kept, inside the workspaces' root (outside every bot's own
 /// folder; bot ids never start with a dot).
 pub const TRUST_DIR: &str = ".trust";
+/// Where each bot's persisted `web_fetch` conversation-to-snapshot index is kept, outside every
+/// bot's own folder so workspace tools and shell commands cannot tamper with it.
+const WEB_INDEX_DIR: &str = ".web-fetch";
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum PathError {
@@ -125,6 +130,8 @@ pub struct Workspaces {
     /// files (ADR 0143), so neither lands between the other's check and its write.
     mutations: Locks,
     hook: std::sync::Arc<std::sync::Mutex<Hook>>,
+    #[cfg(feature = "test-hooks")]
+    early_read_hook: std::sync::Arc<std::sync::Mutex<Hook>>,
 }
 
 impl Workspaces {
@@ -134,6 +141,8 @@ impl Workspaces {
             trust_lock: std::sync::Arc::default(),
             mutations: Locks::default(),
             hook: std::sync::Arc::default(),
+            #[cfg(feature = "test-hooks")]
+            early_read_hook: std::sync::Arc::default(),
         }
     }
 
@@ -143,6 +152,15 @@ impl Workspaces {
     pub fn before_bot_commit(&self, hook: impl Fn(&str) + Send + Sync + 'static) {
         *self.hook.lock().unwrap_or_else(|p| p.into_inner()) =
             Hook(Some(std::sync::Arc::new(hook)));
+    }
+
+    /// Runs after an early read samples the file and trust, on the blocking worker.
+    #[cfg(feature = "test-hooks")]
+    pub fn after_early_read(&self, hook: impl Fn(&str) + Send + Sync + 'static) {
+        *self
+            .early_read_hook
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Hook(Some(std::sync::Arc::new(hook)));
     }
 
     /// The bot's workspace. Its folder is created on first use; `bot` must be an id Spade made.
@@ -165,7 +183,14 @@ impl Workspaces {
             root: self.root.clone(),
             mutation,
             hook: self.hook.lock().unwrap_or_else(|p| p.into_inner()).clone(),
+            #[cfg(feature = "test-hooks")]
+            early_read_hook: self
+                .early_read_hook
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone(),
             bot: bot.to_owned(),
+            create: true,
             trust: Trust::new(
                 self.root.join(TRUST_DIR).join(format!("{bot}.json")),
                 self.trust_lock.clone(),
@@ -185,25 +210,63 @@ impl Workspaces {
         Ok(python::runtime_of(&self.root, bot))
     }
 
-    /// Deletes the bot's workspace, everything in it, its trust record and its Python runtime.
+    /// Opens `<workspaces>/.web-fetch` through a no-follow `cap-std` directory handle (creating
+    /// it if missing). Refuses a symlinked `.web-fetch` as [`PathError::Outside`].
+    pub fn web_fetch_dir(&self) -> Result<Dir, PathError> {
+        web_fetch_index::open_dir(&self.root)
+    }
+
+    /// Prunes `web_fetch` snapshot index entries for `conversations` (main, lanes, or helpers)
+    /// belonging to `bot`, deleting any unreferenced snapshots under the bot's workspace lock.
+    pub fn prune_web_fetch_conversations(
+        &self,
+        bot: &str,
+        conversations: &[String],
+    ) -> Result<(), PathError> {
+        self.of(bot)?.prune_web_fetch_conversations(conversations)
+    }
+
+    /// Deletes the bot's workspace, everything in it, its trust record, its `web_fetch` index
+    /// and its Python runtime, serialized with concurrent writers under the bot's workspace lock.
     pub fn remove(&self, bot: &str) -> Result<(), PathError> {
         let workspace = self.of(bot)?;
-        workspace.trust.forget();
-        match std::fs::remove_dir_all(python::runtime_of(&self.root, bot)) {
-            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
-            _ => {}
-        }
-        let root = match Dir::open_ambient_dir(&self.root, ambient_authority()) {
-            Ok(root) => root,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(error.into()),
-        };
-        match root.symlink_metadata(bot) {
-            Ok(meta) if meta.is_dir() => Ok(root.remove_dir_all(bot)?),
-            Ok(_) => Ok(root.remove_file(bot)?),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error.into()),
-        }
+        workspace.changing(|| {
+            workspace.trust.forget();
+            let index_error = match web_fetch_index::remove_bot_index_unlocked(&self.root, bot) {
+                Ok(()) => None,
+                Err(error) => {
+                    tracing::warn!(%error, %bot, "web_fetch snapshot index could not be removed");
+                    Some(error)
+                }
+            };
+            match std::fs::remove_dir_all(python::runtime_of(&self.root, bot)) {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(error.into());
+                }
+                _ => {}
+            }
+            let root = match Dir::open_ambient_dir(&self.root, ambient_authority()) {
+                Ok(root) => root,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return match index_error {
+                        Some(error) => Err(error),
+                        None => Ok(()),
+                    };
+                }
+                Err(error) => return Err(error.into()),
+            };
+            let folder_result = match root.symlink_metadata(bot) {
+                Ok(meta) if meta.is_dir() => root.remove_dir_all(bot).map_err(PathError::from),
+                Ok(_) => root.remove_file(bot).map_err(PathError::from),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(error) => Err(error.into()),
+            };
+            folder_result?;
+            match index_error {
+                Some(error) => Err(error),
+                None => Ok(()),
+            }
+        })
     }
 }
 
@@ -214,20 +277,33 @@ pub struct Workspace {
     /// This bot's lock for changing its files (see [`Workspaces`]).
     mutation: std::sync::Arc<std::sync::Mutex<()>>,
     hook: Hook,
+    #[cfg(feature = "test-hooks")]
+    early_read_hook: Hook,
     bot: String,
+    create: bool,
     trust: Trust,
 }
 
 impl Workspace {
+    /// A read during an unfinished step may only open a workspace that already exists.
+    fn existing(mut self) -> Self {
+        self.create = false;
+        self
+    }
+
     /// The folder, opened as a handle every operation is relative to; created if missing. A
     /// symlink in the folder's own place is refused.
     pub fn dir(&self) -> Result<Dir, PathError> {
-        std::fs::create_dir_all(&self.root)?;
+        if self.create {
+            std::fs::create_dir_all(&self.root)?;
+        }
         let root = Dir::open_ambient_dir(&self.root, ambient_authority())?;
-        match root.create_dir(&self.bot) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.into()),
+        if self.create {
+            match root.create_dir(&self.bot) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error.into()),
+            }
         }
         root.open_dir_nofollow(&self.bot)
             .map_err(|_| PathError::Outside(self.bot.clone()))
@@ -262,6 +338,12 @@ impl Workspace {
     /// Which of this bot's files are trusted.
     pub fn trust(&self) -> &Trust {
         &self.trust
+    }
+
+    /// Prunes `web_fetch` snapshot index entries for `conversations` and removes any unreferenced
+    /// immutable snapshots they pointed to.
+    pub fn prune_web_fetch_conversations(&self, conversations: &[String]) -> Result<(), PathError> {
+        self.changing(|| web_fetch_index::prune_unlocked(self, conversations))
     }
 
     /// Keeps a long result as a file and answers what the model is shown instead: the head, the

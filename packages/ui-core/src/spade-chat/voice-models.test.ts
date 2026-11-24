@@ -25,6 +25,7 @@ const endpoint = (
   local: false,
   keySet: true,
   keySource: "keychain",
+  gatewayTokenSet: false,
   models,
   provider: undefined,
   auth: "key",

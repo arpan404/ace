@@ -234,6 +234,13 @@ const MIGRATIONS: &[Migration] = &[
               WITHOUT ROWID;",
         backfill: None,
     },
+    Migration {
+        // An authenticated gateway (Cloudflare AI Gateway) asks for a second token with every
+        // call: whether one is in the keychain, never the token (ADR 0119). One column with a
+        // default: nothing is rewritten.
+        sql: "ALTER TABLE endpoints ADD COLUMN gateway_token INTEGER NOT NULL DEFAULT 0;",
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.

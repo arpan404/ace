@@ -1,28 +1,30 @@
 use super::*;
 
 #[test]
-fn save_path_is_deterministic_portable_and_ignores_fragments() {
-    let a = save_path("https://docs.rust-lang.org/book/ch04.html#ownership");
-    let b = save_path("https://docs.rust-lang.org/book/ch04.html#scope");
-    let c = save_path("https://docs.rust-lang.org/book/ch05.html");
-    let d = save_path("https://docs.rust-lang.org/book/ch04.html?v=2");
+fn snapshot_path_is_immutable_portable_and_distinguishes_content_versions() {
+    let url_a = "https://docs.rust-lang.org/book/ch04.html#ownership";
+    let url_b = "https://docs.rust-lang.org/book/ch04.html#scope";
+    let v1 = snapshot_path(url_a, b"version one", 1);
+    let v1_frag = snapshot_path(url_b, b"version one", 1);
+    let v2 = snapshot_path(url_a, b"version two", 1);
+    let alt = snapshot_path(url_a, b"version one", 2);
 
-    assert_eq!(a, b);
-    assert_ne!(a, c);
-    assert_ne!(a, d);
-    assert!(a.starts_with("web/docs-rust-lang-org-"), "{a}");
-    assert!(a.ends_with(".md"), "{a}");
-    // Only safe ASCII path characters.
+    assert_eq!(v1, v1_frag);
+    assert_ne!(v1, v2);
+    assert_ne!(v1, alt);
+    assert!(v1.starts_with("web/docs-rust-lang-org-"), "{v1}");
+    assert!(v1.ends_with(".md"), "{v1}");
+    assert!(alt.ends_with("-2.md"), "{alt}");
     assert!(
-        a.chars().all(|ch| ch.is_ascii_lowercase()
+        v1.chars().all(|ch| ch.is_ascii_lowercase()
             || ch.is_ascii_digit()
             || matches!(ch, '/' | '-' | '.')),
-        "{a}"
+        "{v1}"
     );
 }
 
 #[test]
-fn saved_page_round_trips_including_body_with_horizontal_rules_and_unicode() {
+fn saved_page_round_trips_and_rejects_unmarked_markdown_files() {
     let page = SavedPage {
         url: "https://example.com/guide.pdf".to_owned(),
         title: Some("Line 1\nLine 2".to_owned()),
@@ -34,6 +36,7 @@ fn saved_page_round_trips_including_body_with_horizontal_rules_and_unicode() {
 
     let (formatted, capped) = format_saved(&page, 64 * 1024);
     assert!(!capped);
+    assert!(is_matching_artifact(&formatted, &page.url, &formatted));
     let parsed = parse_saved(&formatted).unwrap_or_else(|| panic!("should parse:\n{formatted}"));
     assert_eq!(parsed.url, page.url);
     assert_eq!(parsed.title.as_deref(), Some("Line 1 Line 2"));
@@ -41,14 +44,20 @@ fn saved_page_round_trips_including_body_with_horizontal_rules_and_unicode() {
     assert_eq!(parsed.pages, Some(14));
     assert!(!parsed.truncated);
     assert_eq!(parsed.text, page.text);
+
+    // A user-written Markdown file with YAML frontmatter lacking `spade_web_fetch: 1` is NOT
+    // mistaken for a fetch artifact.
+    let user_file = "---\nurl: https://example.com/guide.pdf\ntitle: Mine\n---\n\nPersonal notes.";
+    assert_eq!(parse_saved(user_file), None);
+    assert!(!is_matching_artifact(user_file, &page.url, &formatted));
 }
 
 #[test]
-fn format_saved_caps_body_on_utf8_boundary_and_marks_truncated() {
+fn format_saved_caps_body_and_huge_metadata_within_max_bytes() {
     let page = SavedPage {
-        url: "https://example.com/big".to_owned(),
-        title: Some("Big".to_owned()),
-        content_type: "text/plain".to_owned(),
+        url: format!("https://example.com/{}", "u".repeat(50_000)),
+        title: Some("Title ".repeat(10_000)),
+        content_type: format!("text/{}", "x".repeat(5_000)),
         pages: None,
         truncated: false,
         text: "é".repeat(500),
@@ -56,10 +65,51 @@ fn format_saved_caps_body_on_utf8_boundary_and_marks_truncated() {
 
     let (formatted, capped) = format_saved(&page, 200);
     assert!(capped);
-    assert!(formatted.len() <= 200);
-    let parsed = parse_saved(&formatted).unwrap_or_else(|| panic!("should parse:\n{formatted}"));
-    assert!(parsed.truncated);
-    assert!(parsed.text.len() < page.text.len());
+    assert!(formatted.len() <= 200, "len was {}", formatted.len());
+
+    let (larger, capped_larger) = format_saved(&page, 8_192);
+    assert!(!capped_larger);
+    assert!(larger.len() <= 8_192);
+    let parsed = parse_saved(&larger).unwrap_or_else(|| panic!("should parse:\n{larger}"));
+    assert!(parsed.url.chars().count() <= MAX_URL_CHARS);
+    assert!(parsed.title.as_deref().unwrap_or_default().chars().count() <= MAX_TITLE_CHARS);
+    assert!(parsed.content_type.chars().count() <= MAX_CONTENT_TYPE_CHARS);
+}
+
+#[test]
+fn render_window_and_query_bound_huge_titles_urls_and_total_response() {
+    let page = SavedPage {
+        url: format!("https://example.com/{}", "q".repeat(50_000)),
+        title: Some("HugeTitle ".repeat(10_000)),
+        content_type: "text/html".to_owned(),
+        pages: None,
+        truncated: false,
+        text: format!("# Heading\n\n{}", "body content ".repeat(1_000)),
+    };
+
+    let win = render_window(
+        &page,
+        Some("web/example-com-12345678-87654321.md"),
+        0,
+        DEFAULT_WINDOW_CHARS,
+    );
+    assert!(
+        win.chars().count() <= MAX_RESPONSE_CHARS,
+        "window response was {} chars",
+        win.chars().count()
+    );
+
+    let big_query = "body ".repeat(5_000);
+    let q = render_query(
+        &page,
+        Some("web/example-com-12345678-87654321.md"),
+        &big_query,
+    );
+    assert!(
+        q.chars().count() <= MAX_RESPONSE_CHARS,
+        "query response was {} chars",
+        q.chars().count()
+    );
 }
 
 #[test]
@@ -91,7 +141,6 @@ All done.";
     assert_eq!(headings[2].level, 3);
     assert_eq!(headings[2].text, "Post-install steps");
 
-    // Every reported character offset points directly at its heading line in `text`.
     for (heading, expected_prefix) in headings.iter().zip([
         "# Café Guide",
         "## [Installation]",
@@ -154,13 +203,42 @@ Invoices are issued monthly on the first business day.";
     );
     assert_eq!(results[0].section.as_deref(), Some("## Rate Limits"));
 
-    // Offset points directly to the returned passage in the original text.
     let at_offset: String = text
         .chars()
         .skip(results[0].offset)
-        .take(results[0].text.chars().count())
+        .take(results[0].end_offset - results[0].offset)
         .collect();
     assert_eq!(at_offset, results[0].text);
+}
+
+#[test]
+fn merged_heading_passage_preserves_exact_crlf_and_extra_blank_lines_range() {
+    let text = "# Intro\r\n\r\nOverview.\r\n\r\n\r\n## Rate Limits\r\n\r\n\r\nExceeding the quota returns HTTP 429.\r\n";
+    let results = search_passages(text, "rate limits quota 429", 3, 2_000);
+    assert_eq!(results.len(), 1);
+    let p = &results[0];
+    let exact_slice: String = text
+        .chars()
+        .skip(p.offset)
+        .take(p.end_offset - p.offset)
+        .collect();
+    assert_eq!(p.text, exact_slice);
+    assert_eq!(p.text.chars().count(), p.end_offset - p.offset);
+    assert!(p.text.contains("\r\n\r\n\r\n"), "{:?}", p.text);
+}
+
+#[test]
+fn heading_heavy_page_searches_in_linear_time() {
+    let mut text = String::new();
+    for i in 0..2_000 {
+        text.push_str(&format!("## Heading {i}\n\nShort body {i}.\n\n"));
+    }
+    text.push_str("## Target Section\n\nNeedle value aurora_991 lives here.\n");
+
+    let results = search_passages(&text, "aurora_991 target", 3, 2_000);
+    assert!(!results.is_empty());
+    assert!(results[0].text.contains("aurora_991"));
+    assert_eq!(results[0].section.as_deref(), Some("## Target Section"));
 }
 
 #[test]
@@ -189,7 +267,8 @@ fn render_window_keeps_large_pages_compact_with_outline_and_saved_path() {
         truncated: false,
         text: body.clone(),
     };
-    let path = save_path(&page.url);
+    let (formatted, _) = format_saved(&page, 1024 * 1024);
+    let path = snapshot_path(&page.url, formatted.as_bytes(), 1);
     let first = render_window(&page, Some(&path), 0, DEFAULT_WINDOW_CHARS);
 
     assert!(page.text.chars().count() > 15_000);
@@ -205,7 +284,6 @@ fn render_window_keeps_large_pages_compact_with_outline_and_saved_path() {
     assert!(first.contains("## Chapter 6"));
     assert!(first.contains("offset=4000"));
 
-    // Jumping directly to Chapter 6's offset starts at `## Chapter 6` and omits the outline.
     let headings = outline(&page.text);
     let ch6 = headings
         .iter()
@@ -226,7 +304,8 @@ fn render_query_returns_passages_or_outline_when_nothing_matches() {
         truncated: false,
         text: "# Safety\n\nKeep away from water.\n\n# Warranty\n\nValid for two years.".to_owned(),
     };
-    let path = save_path(&page.url);
+    let (formatted, _) = format_saved(&page, 1024 * 1024);
+    let path = snapshot_path(&page.url, formatted.as_bytes(), 1);
 
     let hit = render_query(&page, Some(&path), "warranty years");
     assert!(hit.contains("(8 pages, PDF)"));

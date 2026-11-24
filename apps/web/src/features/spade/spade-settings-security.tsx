@@ -3,14 +3,9 @@ import {
   type SpadeNetworkPolicy,
   type SpadeSecurityMachine,
 } from "@ace/ui-core/spade-chat";
+import { ShieldCheckIcon, ShieldWarningIcon } from "@ace/icons";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  SettingCard,
-  SettingDisclosure,
-  SettingList,
-  SettingRow,
-  SettingSection,
-} from "@/components/setting-row.tsx";
+import { SettingCard, SettingDisclosure, SettingSection } from "@/components/setting-row.tsx";
 import { AutonomyChoice } from "./spade-autonomy-choice.tsx";
 import { PolicyRows } from "./spade-bot-network.tsx";
 import { CommandsChoice } from "./spade-commands-choice.tsx";
@@ -74,11 +69,23 @@ export function SpadeSecuritySettings() {
       save={async (next) => show(await setMachineNetwork(client, which, next))}
     />
   );
+  const sealed = status.contained;
   return (
     <>
-      <p className="mb-6 text-ui text-muted-foreground">
-        {spadeSandboxSentence(status)} Every bot uses these unless it sets its own.
-      </p>
+      <div className="mb-6 flex items-start gap-2.5 rounded-lg border border-border-soft bg-surface-1 px-3.5 py-2.5 text-ui text-muted-foreground">
+        {sealed ? (
+          <ShieldCheckIcon aria-hidden size={16} className="mt-0.5 shrink-0 text-status-ready" />
+        ) : (
+          <ShieldWarningIcon
+            aria-hidden
+            size={16}
+            className="mt-0.5 shrink-0 text-status-needs-you"
+          />
+        )}
+        <p className="min-w-0 leading-relaxed">
+          {spadeSandboxSentence(status)} Every bot uses these unless it sets its own.
+        </p>
+      </div>
       {status.permissions && (
         <SettingSection label="Permissions" anchor="permissions">
           <PermissionRows
@@ -125,13 +132,20 @@ export function SpadeSecuritySettings() {
           <SettingDisclosure
             title={`${status.defaults.length} ${status.defaults.length === 1 ? "site" : "sites"}`}
           >
-            <SettingList aria-label="Sites listed by default">
+            <ul
+              data-setting-slot=""
+              aria-label="Sites listed by default"
+              className="flex flex-wrap gap-1.5 py-2"
+            >
               {status.defaults.map((host) => (
-                <li key={host}>
-                  <SettingRow title={host} density="compact" />
+                <li
+                  key={host}
+                  className="rounded-md border border-border-soft bg-secondary/50 px-2.5 py-1 font-mono text-xs text-foreground"
+                >
+                  {host}
                 </li>
               ))}
-            </SettingList>
+            </ul>
           </SettingDisclosure>
         </SettingSection>
       )}

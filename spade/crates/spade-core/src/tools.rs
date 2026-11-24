@@ -7,6 +7,9 @@ use std::collections::BTreeMap;
 use serde_json::{Value, json};
 use spade_models::ToolSpec;
 
+pub mod pinning;
+pub mod snapshot;
+
 /// How much a tool call can change in the world, which decides whether the gate asks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -83,6 +86,18 @@ impl Registry {
         self
     }
 
+    /// The same registry with `names` offered up front, as core tools: a bot's learned pins
+    /// (docs/harness.md, Tools). Names it has no deferred tool for are ignored.
+    #[must_use]
+    pub fn pin(mut self, names: &[String]) -> Self {
+        for name in names {
+            if let Some(tool) = self.tools.get_mut(name) {
+                tool.deferred = false;
+            }
+        }
+        self
+    }
+
     /// What the model is sent: core tools sorted by name, then `tool_search` and `call_tool` when
     /// any tool is deferred. Same input, same bytes.
     pub fn offered(&self) -> Vec<ToolSpec> {
@@ -149,6 +164,58 @@ pub fn describe(found: &[&ToolDef]) -> String {
         ));
     }
     out
+}
+
+/// What one tool costs in the offered list: its definition as the provider receives it, in
+/// characters, and a rough token count (a token per four characters).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolSize {
+    pub name: String,
+    pub chars: usize,
+    pub tokens: usize,
+}
+
+/// Every tool's cost, largest first (ties by name), and their total. The fixed prompt every
+/// call carries is mostly these definitions, so this is where a smaller prompt starts
+/// (spade/docs/harness.md, Tools).
+pub fn sizes(offered: &[ToolSpec]) -> (Vec<ToolSize>, ToolSize) {
+    let mut rows: Vec<ToolSize> = offered.iter().map(size_of).collect();
+    rows.sort_by(|a, b| b.chars.cmp(&a.chars).then_with(|| a.name.cmp(&b.name)));
+    let total = ToolSize {
+        name: format!("{} tools", rows.len()),
+        chars: rows.iter().map(|row| row.chars).sum(),
+        tokens: rows.iter().map(|row| row.tokens).sum(),
+    };
+    (rows, total)
+}
+
+/// The table `spade --tool-tokens` prints.
+pub fn size_report(offered: &[ToolSpec]) -> String {
+    let (rows, total) = sizes(offered);
+    let mut out = String::from("  chars  tokens  tool\n");
+    for row in rows.iter().chain(std::iter::once(&total)) {
+        out.push_str(&format!("{:7} {:7}  {}\n", row.chars, row.tokens, row.name));
+    }
+    out
+}
+
+fn size_of(spec: &ToolSpec) -> ToolSize {
+    // The shape a provider is sent (OpenAI's function tool; the others carry the same three
+    // fields), so the count is the bytes the model actually pays for.
+    let definition = json!({
+        "type": "function",
+        "function": {
+            "name": &spec.name,
+            "description": &spec.description,
+            "parameters": &spec.schema,
+        },
+    });
+    let chars = definition.to_string().chars().count();
+    ToolSize {
+        name: spec.name.clone(),
+        chars,
+        tokens: chars / 4,
+    }
 }
 
 /// Reads a `call_tool` call's arguments: the tool to run and its own arguments.
@@ -238,6 +305,22 @@ mod tests {
     }
 
     #[test]
+    fn a_pinned_deferred_tool_is_offered_up_front_in_name_order() {
+        let registry = registry().pin(&["thread_start".to_owned(), "no_such_tool".to_owned()]);
+        let names: Vec<String> = registry.offered().into_iter().map(|s| s.name).collect();
+        assert_eq!(
+            names,
+            vec![
+                "ask_user",
+                "thread_start",
+                "web_search",
+                "tool_search",
+                "call_tool"
+            ]
+        );
+    }
+
+    #[test]
     fn without_deferred_tools_there_is_no_search_or_call() {
         let names: Vec<String> = Registry::new([tool("web_search", "Search the web", false)])
             .offered()
@@ -266,6 +349,44 @@ mod tests {
             .map(|t| t.spec.name.as_str())
             .collect();
         assert_eq!(calendar, vec!["calendar_events"]);
+    }
+
+    #[test]
+    fn a_tools_size_counts_its_whole_definition_largest_first() {
+        let (rows, total) = sizes(&[
+            tool("brief", "Short", false).spec,
+            tool(
+                "long",
+                "A much longer description of what it does and when to use it",
+                false,
+            )
+            .spec,
+            tool("mid", "Middle length", false).spec,
+        ]);
+        let names: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
+        assert_eq!(names, vec!["long", "mid", "brief"]);
+        assert!(
+            rows[0].chars > rows[1].chars && rows[1].chars > rows[2].chars,
+            "a longer definition must count more: {rows:?}"
+        );
+        assert_eq!(total.chars, rows.iter().map(|row| row.chars).sum::<usize>());
+        assert_eq!(
+            total.tokens,
+            rows.iter().map(|row| row.tokens).sum::<usize>()
+        );
+        assert_eq!(total.name, "3 tools");
+        // The name and schema count too, not just the description.
+        let bare = tool("brief", "", false).spec;
+        assert!(rows[2].chars > size_of(&bare).chars);
+    }
+
+    #[test]
+    fn the_report_lists_every_tool_and_the_total() {
+        let offered = [tool("web_search", "Search the web", false).spec];
+        let report = size_report(&offered);
+        assert!(report.starts_with("  chars  tokens  tool\n"));
+        assert!(report.contains("web_search"));
+        assert!(report.trim_end().ends_with("1 tools"));
     }
 
     #[test]

@@ -96,7 +96,7 @@ async fn run(
     let images = engine.images_for(model);
     let system = engine.system_for(id);
     let mut prompt =
-        context::prompt_with(&system, engine.offered_tools(), events, &images).session(id);
+        context::prompt_with(&system, engine.offered_for(id), events, &images).session(id);
     let mut ledger = compaction::ledger(events, plan.keep_from, &engine.registry_for(id));
     // Nobody but the bot writes in a helper's conversation: its brief is the bot's words, never
     // kept as the person's (ADR 0216).
@@ -156,7 +156,11 @@ async fn run(
         // The person's asks as they stand, so a fold after this starts here (ADR 0215).
         asks: Some(Box::new(engine.asks_of(id, events))),
     });
-    match engine.record(id, &event) {
+    // The prompt's top may change here, so the list the conversation is offered is worked out
+    // again and published with the compaction, both or neither (docs/design.md, Caching;
+    // docs/harness.md, Tools).
+    let offer = engine.offer_for_compaction(id);
+    match engine.record_with_offer(id, &event, &offer) {
         Ok(_) => true,
         Err(error) => {
             tracing::error!(%error, "could not store a compaction");

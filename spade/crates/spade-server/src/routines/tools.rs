@@ -36,7 +36,7 @@ fn def(name: &str, description: &str, schema: Value, risk: Risk) -> ToolDef {
         },
         risk,
         untrusted_output: false,
-        deferred: false,
+        deferred: true,
         background: false,
     }
 }

@@ -459,12 +459,24 @@ async fn research_runs_explore_helpers_side_by_side_and_reports_what_they_cited(
     // The others asked only after the first had begun answering.
     let seen = setup.spade.fake.seen();
     let first = |words: &str| seen.iter().find(|s| s.body.to_string().contains(words));
+    let one = first(RUNTIMES).ok_or("the first helper never asked")?;
     let two = first(USED).ok_or("the second helper never asked")?;
     let three = first(SMALL).ok_or("the third helper never asked")?;
     assert!(
         two.at >= released && three.at >= released,
         "a helper started before the first streamed"
     );
+    // Its parts are offered the bot's stored list, byte for byte, like any helper.
+    let bot = seen
+        .iter()
+        .find(|s| s.body.to_string().contains(MESSAGE) && s.body["stream"] == true)
+        .ok_or("the bot made no request")?;
+    for part in [one, two, three] {
+        assert_eq!(
+            part.body["tools"], bot.body["tools"],
+            "the same tools, in order"
+        );
+    }
 
     // The helper that tried to write was refused, and nothing was written.
     let writable = helpers

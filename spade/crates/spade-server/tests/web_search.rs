@@ -609,3 +609,119 @@ async fn an_endpoint_search_failure_logs_its_status_and_never_the_query() -> Res
     assert!(!text.contains("zq-4417"), "the query reached the logs");
     Ok(())
 }
+
+/// A bot on a Cloudflare AI Gateway endpoint: the gateway's `/compat/` layer is the endpoint's
+/// address, as the Cloudflare template in Add a provider builds it.
+async fn gateway_bot(spade: &Spade, format: &str, model: &str) -> Result<String> {
+    let (status, body) = spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": "Gateway", "format": format,
+                    "base_url": format!("{}v1/acct-1/gw/compat/", spade.fake.root),
+                    "needs_key": false }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{body}");
+    let endpoint = body["endpoint"]["id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let (status, body) = spade
+        .post(
+            &format!("/v1/endpoints/{endpoint}/models"),
+            json!({ "id": model, "name": "GPT-6 Sol" }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    let (status, agent) = spade
+        .post(
+            "/v1/agents",
+            json!({ "name": "Finder", "model": format!("{endpoint}/{model}") }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{agent}");
+    Ok(agent["agent"]["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned())
+}
+
+#[tokio::test]
+async fn a_gateway_model_is_offered_web_search_and_ace_answers_it() -> Result {
+    let (root, cloud) = fake_cloud(200, None, tokio_page()).await?;
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("").call("w1", "web_search", json!({ "query": "tokio" })),
+            Script::reply("Tokio is a runtime."),
+            title(),
+        ],
+        Vec::new(),
+        with_search(ace_search(&root, true, &Hands::new())?),
+    )
+    .await?;
+    // A model the gateway lists, named like a shipped OpenAI one: tools, and web search among
+    // its facts. Its endpoint is the gateway's chat-completions compatibility layer.
+    let chat = gateway_bot(&spade, "openai-chat", "gpt-6-sol").await?;
+    spade.say(&chat, "Search for tokio").await?;
+    let events = spade.wait_for(&chat, "reply_finished").await?;
+    let result = search_result(&events);
+    assert_eq!(result["is_error"], false, "{result}");
+    let text = content(&result);
+    assert!(
+        text.contains("1. Tokio\nhttps://tokio.rs/\nAn async runtime")
+            && text.contains("https://docs.rs/tokio"),
+        "{text}"
+    );
+    assert_eq!(cloud.hits(), 1, "ace answered the gateway's bot");
+    let seen = spade.fake.seen();
+    let step = seen
+        .iter()
+        .find(|s| s.path.ends_with("/chat/completions") && s.body["tools"].is_array())
+        .ok_or("no model step with tools reached the gateway")?;
+    let offered = step.body["tools"].to_string();
+    assert!(offered.contains("\"web_search\""), "{offered}");
+    assert!(
+        !seen
+            .iter()
+            .any(|s| s.path.ends_with("/responses") || s.path.ends_with("/messages")),
+        "the gateway was asked for a search of its own"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_gateway_never_claims_a_native_search_even_for_a_model_that_has_one() -> Result {
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("").call("w1", "web_search", json!({ "query": "tokio" })),
+            Script::reply("Sign in to ace."),
+            title(),
+        ],
+        Vec::new(),
+        signed_out(&Hands::new())?.0,
+    )
+    .await?;
+    // The same model, its endpoint's format changed to OpenAI Responses: the gateway's compat
+    // layer still has no search tool of its own.
+    let chat = gateway_bot(&spade, "openai-responses", "gpt-6-sol").await?;
+    spade.say(&chat, "Search for tokio").await?;
+    let events = spade.wait_for(&chat, "reply_finished").await?;
+    let result = search_result(&events);
+    assert_eq!(
+        (result["is_error"].clone(), content(&result)),
+        (json!(true), SIGN_IN.to_owned())
+    );
+    // No search was asked of the gateway: the tool's one clean sentence was the answer.
+    let asked: Vec<String> = spade
+        .fake
+        .seen()
+        .into_iter()
+        .filter(|s| s.body.to_string().contains("Search the web for:"))
+        .map(|s| s.path)
+        .collect();
+    assert!(
+        asked.is_empty(),
+        "a native search was sent to the gateway: {asked:?}"
+    );
+    Ok(())
+}

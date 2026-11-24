@@ -33,6 +33,8 @@ pub struct Models {
     catalog: Arc<Catalog>,
     endpoints: Arc<RwLock<Arc<Vec<Endpoint>>>>,
     keys: Keys,
+    /// The tokens authenticated gateways ask for, kept apart from the endpoints' keys.
+    gateway_keys: Arc<RwLock<Keys>>,
     /// `spade/<version>`, sent as every request's User-Agent.
     user_agent: String,
     pub(crate) http: reqwest::Client,
@@ -49,6 +51,10 @@ pub(crate) type Deltas = Pin<Box<dyn Stream<Item = Result<Delta, ModelError>> + 
 
 /// Sent to an endpoint that needs no key (a local server), which ignores it.
 pub const KEYLESS: &str = "no-key";
+
+/// The header an authenticated gateway asks for its own token in, beside the endpoint's key:
+/// Cloudflare AI Gateway's `cf-aig-authorization`.
+pub const GATEWAY_HEADER: &str = "cf-aig-authorization";
 
 /// A model resolved for one call.
 struct Call {
@@ -83,8 +89,10 @@ struct Resolved {
     streamed_only: bool,
     /// For a signed-in account: it, and the credential this call carries.
     signed: Option<Signed>,
-    /// Every token this call sent so far (the first, and one a refresh gave).
-    sent: Vec<String>,
+    /// Every secret this call sends and what came back must not repeat: its key or gateway token
+    /// (bare and as `Bearer <token>`), and an account's tokens so far (the first, and one a
+    /// refresh gave).
+    secrets: Vec<String>,
 }
 
 impl Resolved {
@@ -110,7 +118,7 @@ impl Resolved {
             streamed_only: self.streamed_only,
             signed: self.signed.clone(),
             held: None,
-            secrets: self.sent.clone(),
+            secrets: self.secrets.clone(),
         }
     }
 }
@@ -137,6 +145,7 @@ impl Models {
             catalog: Arc::new(catalog),
             endpoints,
             keys,
+            gateway_keys: Arc::new(RwLock::new(Keys::new(|_| None))),
             user_agent,
             http,
             listing: ListBounds::default(),
@@ -144,6 +153,12 @@ impl Models {
             waits: Arc::default(),
             bearers: Arc::default(),
         })
+    }
+
+    /// Where an endpoint's gateway token comes from (ADR 0119): the server's keychain, looked up
+    /// by endpoint id, for endpoints marked as sending one.
+    pub fn set_gateway_keys(&self, keys: Keys) {
+        *self.gateway_keys.write().unwrap_or_else(|p| p.into_inner()) = keys;
     }
 
     /// How long a signed-in account's stream may take (ADR 0214).
@@ -239,6 +254,28 @@ impl Models {
         self.key_for_call(endpoint).await
     }
 
+    /// The endpoint as a call sends it: with its gateway token, when one waits in the keychain
+    /// for it, as `cf-aig-authorization: Bearer <token>`. The token is never stored with the
+    /// endpoint (ADR 0119). Both the header's value and the bare token are taken out of what a
+    /// listing, media, search or chat error says, alongside the key.
+    pub(crate) async fn sending(&self, endpoint: Endpoint) -> Endpoint {
+        if !endpoint.gateway_token {
+            return endpoint;
+        }
+        let keys = {
+            let keys = self.gateway_keys.read().unwrap_or_else(|p| p.into_inner());
+            keys.clone()
+        };
+        let Some(token) = keys.find(&endpoint.id, None).await else {
+            return endpoint;
+        };
+        let mut sending = endpoint;
+        sending
+            .headers
+            .push((GATEWAY_HEADER.to_owned(), format!("Bearer {token}")));
+        sending
+    }
+
     /// The HTTP client every call goes through (no redirects followed).
     pub(crate) fn http(&self) -> &reqwest::Client {
         &self.http
@@ -256,9 +293,10 @@ impl Models {
         let endpoint = self
             .endpoint(endpoint_id)
             .ok_or_else(|| ModelError::UnknownModel(format!("{endpoint_id}/")))?;
-        if let Some(SignIn::ChatGpt { account_id }) = &endpoint.sign_in {
-            return self.list_signed(&endpoint, account_id).await;
+        if let Some(SignIn::ChatGpt { account_id }) = endpoint.sign_in.clone() {
+            return self.list_signed(&endpoint, &account_id).await;
         }
+        let endpoint = self.sending(endpoint).await;
         let key = if endpoint.needs_key {
             Some(
                 self.key_for_call(&endpoint)
@@ -339,7 +377,7 @@ impl Models {
                         return Err(error);
                     }
                     resolved.target.auth = AuthData::from_single(credential.token.clone());
-                    resolved.sent.push(credential.token.clone());
+                    resolved.secrets.push(credential.token.clone());
                     resolved.signed = Some(Signed {
                         credential,
                         ..signed
@@ -377,7 +415,9 @@ impl Models {
             .client
             .exec_chat(call.target, request(prompt, false), Some(&call.options))
             .await
-            .map_err(|error| failure::read(&call.reference, &error, false))?;
+            .map_err(|error| {
+                failure::read_scrubbed(&call.reference, &error, false, &call.secrets)
+            })?;
         let usage = usage(&response.usage);
         let calls: Vec<ToolCall> = response
             .content
@@ -447,7 +487,9 @@ impl Models {
             .client
             .exec_chat(call.target, request(prompt, false), Some(&options))
             .await
-            .map_err(|error| failure::read(&call.reference, &error, false))?;
+            .map_err(|error| {
+                failure::read_scrubbed(&call.reference, &error, false, &call.secrets)
+            })?;
         let cost = usage(&response.usage);
         let text = response.first_text().ok_or_else(|| ModelError::Empty {
             model: call.reference.clone(),
@@ -487,7 +529,7 @@ impl Models {
             let tap = activity.clone();
             call.options = call.options.with_raw_frame_fn(move |_, _| tap.touch());
             let model = call.reference.clone();
-            let secrets = std::mem::take(&mut call.secrets);
+            let secrets = call.secrets.clone();
             let raw = Box::pin(self.open_stream(call, prompt, format).await?);
             // The call's own tokens never get out, whatever the backend echoes.
             let stream: Deltas = Box::pin(crate::scrub::stream(raw, secrets));
@@ -509,6 +551,7 @@ impl Models {
         format: Option<genai::chat::ChatResponseFormat>,
     ) -> Result<impl Stream<Item = Result<Delta, ModelError>> + Send + use<>, ModelError> {
         let signed = call.signed.is_some();
+        let secrets = call.secrets.clone();
         let mut options = call.options;
         if let Some(format) = format {
             options = options.with_response_format(format);
@@ -518,6 +561,7 @@ impl Models {
             .with_capture_tool_calls(true)
             .with_capture_content(true)
             .with_capture_reasoning_content(true);
+        let (options, closed) = crate::closed_calls::tap(options);
         let response = self
             .client
             .exec_chat_stream(
@@ -526,12 +570,14 @@ impl Models {
                 Some(&options),
             )
             .await
-            .map_err(|error| failure::read_as(&call.reference, &error, false, signed))?;
+            .map_err(|error| {
+                failure::read_scrubbed_as(&call.reference, &error, false, signed, &secrets)
+            })?;
         let reference = call.reference;
         // Whether the endpoint began a successful answer: a failure before that never reached a
         // model and may be sent again; one after it is the model's.
         let mut answered = false;
-        Ok(response
+        let stream = response
             .stream
             .filter_map(move |event| {
                 // The SDK starts every stream with `Start` before the request is even sent, so
@@ -545,7 +591,7 @@ impl Models {
                         Some(vec![Ok(Delta::Reasoning(chunk.content))])
                     }
                     Ok(ChatStreamEvent::End(end)) => {
-                        // Complete tool calls are only known at the end, once arguments are whole.
+                        // Only the final call list can be stored.
                         let mut out: Vec<Result<Delta, ModelError>> = end
                             .captured_tool_calls()
                             .unwrap_or_default()
@@ -563,13 +609,39 @@ impl Models {
                     }
                     // Start, heartbeats and partial tool-call chunks carry nothing the caller needs.
                     Ok(_) => None,
-                    Err(error) => Some(vec![Err(failure::read_as(
-                        &reference, &error, answered, signed,
+                    Err(error) => Some(vec![Err(failure::read_scrubbed_as(
+                        &reference, &error, answered, signed, &secrets,
                     ))]),
                 };
                 std::future::ready(delta)
             })
-            .flat_map(futures_util::stream::iter))
+            .flat_map(futures_util::stream::iter);
+        Ok(futures_util::stream::unfold(
+            (Box::pin(stream), closed, None),
+            |(mut stream, mut closed, mut buffered)| async move {
+                let item = if let Ok(call) = closed.try_recv() {
+                    Some(Ok(Delta::CallClosed(call)))
+                } else if buffered.is_some() {
+                    buffered.take()
+                } else {
+                    tokio::select! {
+                        biased;
+                        Some(call) = closed.recv() => Some(Ok(Delta::CallClosed(call))),
+                        item = stream.next() => {
+                            // One SDK poll can consume a close frame and return the final
+                            // reply. Deliver that close before the final call list.
+                            if let Ok(call) = closed.try_recv() {
+                                buffered = item;
+                                Some(Ok(Delta::CallClosed(call)))
+                            } else {
+                                item
+                            }
+                        }
+                    }
+                };
+                item.map(|item| (item, (stream, closed, buffered)))
+            },
+        ))
     }
 
     /// `reference` resolved for a call of `prompt`.
@@ -584,6 +656,11 @@ impl Models {
             )),
             None => None,
         };
+        let endpoint = self.sending(endpoint).await;
+        let mut secrets: Vec<String> = crate::scrub::header_secrets(&endpoint)
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
         let auth = if let Some((credential, _)) = &signed {
             AuthData::from_single(credential.token.clone())
         } else if endpoint.needs_key {
@@ -594,6 +671,9 @@ impl Models {
                     endpoint: endpoint.id.clone(),
                     var: endpoint.key_env.clone(),
                 })?;
+            // The key itself, not only the `Bearer` a request carries it as: an endpoint can echo
+            // either.
+            secrets.push(key.clone());
             AuthData::from_single(key)
         } else {
             // The SDK's OpenAI path needs some key; local servers ignore this one.
@@ -618,7 +698,8 @@ impl Models {
             endpoint: endpoint.clone(),
             credential: credential.clone(),
         });
-        if let Some((_, extra)) = signed {
+        if let Some((credential, extra)) = signed {
+            secrets.push(credential.token.clone());
             headers.extend(extra);
         }
         options = options.with_extra_headers(Headers::from(headers));
@@ -640,10 +721,7 @@ impl Models {
             ),
             effort,
             streamed_only,
-            sent: token
-                .iter()
-                .map(|signed| signed.credential.token.clone())
-                .collect(),
+            secrets,
             signed: token,
         })
     }
@@ -688,7 +766,7 @@ async fn fold(
                 reply.usage = usage;
                 reply.thoughts = thoughts;
             }
-            Delta::Reasoning(_) => {}
+            Delta::Reasoning(_) | Delta::CallClosed(_) => {}
         }
     }
     if reply.text.is_empty() && reply.calls.is_empty() {

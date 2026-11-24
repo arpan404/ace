@@ -1,6 +1,6 @@
-//! Pure decision logic for `web_fetch` handles: deterministic workspace save paths, saved file
-//! formatting/parsing, heading outlines with character offsets, lexical passage search, and
-//! compact tool-result rendering. No I/O.
+//! Pure decision logic for `web_fetch` handles: immutable content-addressed workspace snapshot
+//! paths, verified fetch-artifact serialization/parsing, heading outlines with character offsets,
+//! lexical passage search, and bounded compact tool-result rendering. No I/O.
 
 mod outline;
 mod search;
@@ -12,21 +12,39 @@ use sha2::{Digest, Sha256};
 pub use outline::{Heading, outline, select_outline};
 pub use search::{Passage, search_passages};
 
-/// Workspace folder where `web_fetch` saves full readable page text.
+/// Workspace folder where `web_fetch` saves immutable full readable page snapshots.
 pub const WEB_DIR: &str = "web";
 /// Default window size returned in a `web_fetch` tool result, in characters.
 pub const DEFAULT_WINDOW_CHARS: usize = 4_000;
 /// Most headings shown in one `web_fetch` outline.
 pub const MAX_OUTLINE_ENTRIES: usize = 30;
+/// Maximum total characters spent on the outline block in one tool result.
+pub const MAX_OUTLINE_CHARS: usize = 1_500;
 /// Most passages returned for a `web_fetch` query.
 pub const MAX_QUERY_PASSAGES: usize = 5;
 /// Maximum total characters of passage text returned for a `web_fetch` query.
 pub const MAX_QUERY_CHARS: usize = DEFAULT_WINDOW_CHARS;
+/// Maximum characters kept for a title in frontmatter or rendered output.
+pub const MAX_TITLE_CHARS: usize = 200;
+/// Maximum characters kept for a URL in saved frontmatter.
+pub const MAX_URL_CHARS: usize = 2_048;
+/// Maximum characters shown for a URL in a rendered tool result header.
+pub const MAX_DISPLAY_URL_CHARS: usize = 1_024;
+/// Maximum characters kept for `content_type` in frontmatter.
+pub const MAX_CONTENT_TYPE_CHARS: usize = 128;
+/// Maximum characters shown for the echoed query in a query result header.
+pub const MAX_DISPLAY_QUERY_CHARS: usize = 200;
+/// Hard ceiling on the entire rendered `web_fetch` tool response, in characters.
+pub const MAX_RESPONSE_CHARS: usize = 8_000;
 
-const MAX_HOST_CHARS: usize = 48;
+const MAX_HOST_CHARS: usize = 40;
 const FRONTMATTER_DELIM: &str = "---";
+const ARTIFACT_MARKER_KEY: &str = "spade_web_fetch";
+const ARTIFACT_MARKER_VALUE: &str = "1";
+const RESPONSE_CAP_NOTE: &str = "\n[Response truncated to fit size limit.]";
 
-/// Metadata and full readable text of a fetched page, as saved to `web/<host>-<hash>.md`.
+/// Metadata and full readable text of a fetched page, as saved to an immutable snapshot under
+/// `web/`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavedPage {
     pub url: String,
@@ -37,8 +55,8 @@ pub struct SavedPage {
     pub text: String,
 }
 
-/// Normalizes a URL for predictable save-path hashing and conversation cache lookup: trims
-/// whitespace and drops any `#fragment` (which HTTP never sends to the server).
+/// Normalizes a URL for snapshot path hashing and per-conversation index lookup: trims whitespace
+/// and drops any `#fragment` (which HTTP never sends to the server).
 #[must_use]
 pub fn canonical_url(raw: &str) -> String {
     let trimmed = raw.trim();
@@ -51,19 +69,58 @@ pub fn canonical_url(raw: &str) -> String {
     }
 }
 
-/// Deterministic workspace path for a fetched URL: `web/<host>-<12-hex-sha256>.md`.
-/// Safe on macOS, Linux and Windows (lowercase ASCII, digits and hyphens only).
+/// Immutable, content-addressed workspace path for a fetched snapshot:
+/// `web/<host>-<url-hash8>-<content-hash8>.md` (or `-<attempt>.md` for `attempt >= 2` when an
+/// unrelated file occupies the first candidate). Safe on macOS, Linux and Windows.
 #[must_use]
-pub fn save_path(raw_url: &str) -> String {
+pub fn snapshot_path(raw_url: &str, snapshot_bytes: &[u8], attempt: usize) -> String {
+    let prefix = snapshot_prefix(raw_url);
+    let content_hash = short_hex(snapshot_bytes, 4);
+    if attempt <= 1 {
+        format!("{prefix}{content_hash}.md")
+    } else {
+        format!("{prefix}{content_hash}-{attempt}.md")
+    }
+}
+
+/// Whether `path` names a snapshot `web_fetch` could have saved for `raw_url`:
+/// `web/<host>-<url-hash8>-<content-hash8>[-<attempt>].md`. The content's digest is the
+/// writer's, so a reader checks everything else: a path from another page, or made up, fails.
+#[must_use]
+pub fn is_snapshot_of(raw_url: &str, path: &str) -> bool {
+    let Some(rest) = path.strip_prefix(&snapshot_prefix(raw_url)) else {
+        return false;
+    };
+    let Some(rest) = rest.strip_suffix(".md") else {
+        return false;
+    };
+    let (content, attempt) = match rest.split_once('-') {
+        Some((content, attempt)) => (content, Some(attempt)),
+        None => (rest, None),
+    };
+    let hex8 = |text: &str| text.len() == 8 && text.bytes().all(|b| b.is_ascii_hexdigit());
+    hex8(content) && attempt.is_none_or(|attempt| attempt.parse::<usize>().is_ok_and(|n| n >= 2))
+}
+
+/// `web/<host>-<url-hash8>-`, the part of a snapshot's path that names the page and not its text.
+fn snapshot_prefix(raw_url: &str) -> String {
     let canonical = canonical_url(raw_url);
     let host = url::Url::parse(&canonical)
         .ok()
         .and_then(|u| u.host_str().map(sanitize_host))
         .filter(|h| !h.is_empty())
         .unwrap_or_else(|| "page".to_owned());
-    let digest = Sha256::digest(canonical.as_bytes());
-    let short_hash: String = digest.iter().take(6).map(|b| format!("{b:02x}")).collect();
-    format!("{WEB_DIR}/{host}-{short_hash}.md")
+    let url_hash = short_hex(canonical.as_bytes(), 4);
+    format!("{WEB_DIR}/{host}-{url_hash}-")
+}
+
+fn short_hex(bytes: &[u8], num_bytes: usize) -> String {
+    let digest = Sha256::digest(bytes);
+    digest
+        .iter()
+        .take(num_bytes)
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 fn sanitize_host(host: &str) -> String {
@@ -84,41 +141,75 @@ fn sanitize_host(host: &str) -> String {
     out.trim_end_matches('-').to_owned()
 }
 
-/// Serializes `page` as Markdown with a short frontmatter header for saving into the workspace,
-/// capping total UTF-8 size at `max_bytes` so `workspace_read` can always open it.
+/// Serializes `page` as Markdown with a verified `spade_web_fetch` frontmatter header for saving
+/// into the workspace. Bounds metadata fields and caps total UTF-8 bytes at `max_bytes` so
+/// `workspace_read` can always open it and oversized metadata can never fail the save.
 /// Returns `(content, body_was_capped)`.
 #[must_use]
 pub fn format_saved(page: &SavedPage, max_bytes: usize) -> (String, bool) {
-    let mut header = String::new();
-    header.push_str(FRONTMATTER_DELIM);
-    header.push('\n');
-    header.push_str("url: ");
-    header.push_str(&single_line(&page.url));
-    header.push('\n');
-    if let Some(title) = &page.title {
-        let clean = single_line(title);
-        if !clean.is_empty() {
-            header.push_str("title: ");
-            header.push_str(&clean);
-            header.push('\n');
-        }
-    }
-    header.push_str("content_type: ");
-    header.push_str(&single_line(&page.content_type));
-    header.push('\n');
-    if let Some(pages) = page.pages {
-        header.push_str(&format!("pages: {pages}\n"));
-    }
-    let body_budget = max_bytes.saturating_sub(header.len() + 32);
-    let capped = page.text.len() > body_budget;
-    if page.truncated || capped {
-        header.push_str("truncated: true\n");
-    }
-    header.push_str(FRONTMATTER_DELIM);
-    header.push_str("\n\n");
+    let url = bound_single_line(&page.url, MAX_URL_CHARS);
+    let title = page
+        .title
+        .as_deref()
+        .map(|t| bound_single_line(t, MAX_TITLE_CHARS))
+        .filter(|t| !t.is_empty());
+    let content_type = bound_single_line(&page.content_type, MAX_CONTENT_TYPE_CHARS);
 
-    let body = if capped {
-        truncate_utf8(&page.text, max_bytes.saturating_sub(header.len()))
+    let build_header = |truncated: bool| -> String {
+        let mut h = String::new();
+        h.push_str(FRONTMATTER_DELIM);
+        h.push('\n');
+        h.push_str(ARTIFACT_MARKER_KEY);
+        h.push_str(": ");
+        h.push_str(ARTIFACT_MARKER_VALUE);
+        h.push('\n');
+        h.push_str("url: ");
+        h.push_str(&url);
+        h.push('\n');
+        if let Some(title) = &title {
+            h.push_str("title: ");
+            h.push_str(title);
+            h.push('\n');
+        }
+        h.push_str("content_type: ");
+        h.push_str(&content_type);
+        h.push('\n');
+        if let Some(pages) = page.pages {
+            h.push_str(&format!("pages: {pages}\n"));
+        }
+        if truncated {
+            h.push_str("truncated: true\n");
+        }
+        h.push_str(FRONTMATTER_DELIM);
+        h.push_str("\n\n");
+        h
+    };
+
+    let base_header = build_header(page.truncated);
+    let capped = base_header.len().saturating_add(page.text.len()) > max_bytes;
+    let mut header = if capped && !page.truncated {
+        build_header(true)
+    } else {
+        base_header
+    };
+
+    // Even if `max_bytes` is tiny (e.g. unit test), never exceed `max_bytes`.
+    if header.len() > max_bytes {
+        // Shrink URL/title proportionally to guarantee the artifact header still fits if possible.
+        let minimal = format!(
+            "{FRONTMATTER_DELIM}\n{ARTIFACT_MARKER_KEY}: {ARTIFACT_MARKER_VALUE}\nurl: {}\ntruncated: true\n{FRONTMATTER_DELIM}\n\n",
+            bound_single_line(&url, max_bytes.saturating_sub(64).min(MAX_URL_CHARS))
+        );
+        header = if minimal.len() <= max_bytes {
+            minimal
+        } else {
+            truncate_utf8(&minimal, max_bytes).to_owned()
+        };
+    }
+
+    let body_budget = max_bytes.saturating_sub(header.len());
+    let body = if page.text.len() > body_budget {
+        truncate_utf8(&page.text, body_budget)
     } else {
         page.text.as_str()
     };
@@ -128,13 +219,15 @@ pub fn format_saved(page: &SavedPage, max_bytes: usize) -> (String, bool) {
     (out, capped)
 }
 
-/// Parses a file written by [`format_saved`] back into a [`SavedPage`].
+/// Parses a verified `web_fetch` snapshot written by [`format_saved`] back into a [`SavedPage`].
+/// Refuses files that do not carry the `spade_web_fetch: 1` frontmatter marker.
 #[must_use]
 pub fn parse_saved(raw: &str) -> Option<SavedPage> {
     let rest = raw.strip_prefix("---\n")?;
     let (front, after) = rest.split_once("\n---\n")?;
     let body = after.strip_prefix('\n').unwrap_or(after);
 
+    let mut is_artifact = false;
     let mut url = None;
     let mut title = None;
     let mut content_type = None;
@@ -147,6 +240,7 @@ pub fn parse_saved(raw: &str) -> Option<SavedPage> {
         };
         let value = value.trim();
         match key.trim() {
+            ARTIFACT_MARKER_KEY => is_artifact = value == ARTIFACT_MARKER_VALUE,
             "url" if !value.is_empty() => url = Some(value.to_owned()),
             "title" if !value.is_empty() => title = Some(value.to_owned()),
             "content_type" if !value.is_empty() => content_type = Some(value.to_owned()),
@@ -154,6 +248,10 @@ pub fn parse_saved(raw: &str) -> Option<SavedPage> {
             "truncated" => truncated = value == "true",
             _ => {}
         }
+    }
+
+    if !is_artifact {
+        return None;
     }
 
     Some(SavedPage {
@@ -166,9 +264,24 @@ pub fn parse_saved(raw: &str) -> Option<SavedPage> {
     })
 }
 
-/// Renders a compact window view of `page` starting at character `offset` (at most `window_chars`).
-/// Includes title, URL, total length, saved workspace path (when available), heading outline on
-/// the initial `offset == 0` call, and continuation instructions when more text remains.
+/// Whether `existing` is an exact verified `web_fetch` artifact for `expected_url` matching
+/// `expected_formatted`.
+#[must_use]
+pub fn is_matching_artifact(existing: &str, expected_url: &str, expected_formatted: &str) -> bool {
+    if existing != expected_formatted {
+        return false;
+    }
+    let Some(parsed) = parse_saved(existing) else {
+        return false;
+    };
+    let expected_bounded = bound_single_line(expected_url, MAX_URL_CHARS);
+    canonical_url(&parsed.url) == canonical_url(&expected_bounded)
+}
+
+/// Renders a compact, size-bounded window view of `page` starting at character `offset`
+/// (at most `window_chars`). Includes title, URL, total length, saved workspace path (when
+/// available), heading outline on `offset == 0`, and continuation instructions when more text
+/// remains.
 #[must_use]
 pub fn render_window(
     page: &SavedPage,
@@ -218,20 +331,22 @@ pub fn render_window(
         out.push_str("\n\n[The page was too large to read whole; this is its start.]");
     }
 
-    out
+    cap_response(out, MAX_RESPONSE_CHARS)
 }
 
-/// Renders the top lexical-search passages of `page` matching `query`.
+/// Renders the top lexical-search passages of `page` matching `query`, size-bounded to
+/// [`MAX_RESPONSE_CHARS`].
 #[must_use]
 pub fn render_query(page: &SavedPage, saved_path: Option<&str>, query: &str) -> String {
     let total_chars = page.text.chars().count();
     let trimmed = query.trim();
+    let shown_query = bound_single_line(trimmed, MAX_DISPLAY_QUERY_CHARS);
     let passages = search_passages(&page.text, trimmed, MAX_QUERY_PASSAGES, MAX_QUERY_CHARS);
 
     let mut out = render_header(page, total_chars, saved_path);
     out.push_str(&format!(
         "Query: {:?} ({} matching {})\n",
-        trimmed,
+        shown_query,
         passages.len(),
         if passages.len() == 1 {
             "passage"
@@ -243,7 +358,7 @@ pub fn render_query(page: &SavedPage, saved_path: Option<&str>, query: &str) -> 
     if passages.is_empty() {
         out.push_str(&format!(
             "\nNo passages matched {:?}. Try different keywords, pass an offset{}",
-            trimmed,
+            shown_query,
             workspace_hint(saved_path)
         ));
         out.push('.');
@@ -280,17 +395,19 @@ pub fn render_query(page: &SavedPage, saved_path: Option<&str>, query: &str) -> 
         out.push_str("\n\n[The page was too large to read whole; this is its start.]");
     }
 
-    out
+    cap_response(out, MAX_RESPONSE_CHARS)
 }
 
 fn render_header(page: &SavedPage, total_chars: usize, saved_path: Option<&str>) -> String {
     let mut out = String::new();
-    if let Some(title) = &page.title
-        && !title.trim().is_empty()
-    {
-        out.push_str(&format!("# {}\n", single_line(title)));
+    if let Some(title) = &page.title {
+        let clean = bound_single_line(title, MAX_TITLE_CHARS);
+        if !clean.is_empty() {
+            out.push_str(&format!("# {clean}\n"));
+        }
     }
-    out.push_str(&format!("URL: {}\n", page.url));
+    let display_url = bound_single_line(&page.url, MAX_DISPLAY_URL_CHARS);
+    out.push_str(&format!("URL: {display_url}\n"));
     let mut meta = format!("Length: {total_chars} chars");
     if let Some(pages) = page.pages {
         let unit = if pages == 1 { "page" } else { "pages" };
@@ -307,21 +424,27 @@ fn render_header(page: &SavedPage, total_chars: usize, saved_path: Option<&str>)
 }
 
 fn append_outline(out: &mut String, headings: &[Heading]) {
-    let (selected, omitted) = select_outline(headings, MAX_OUTLINE_ENTRIES);
-    out.push_str("Outline (char offsets):\n");
-    for heading in selected {
-        out.push_str(&format!(
+    let (selected, mut omitted) = select_outline(headings, MAX_OUTLINE_ENTRIES);
+    let mut block = String::from("Outline (char offsets):\n");
+    for (shown, heading) in selected.iter().enumerate() {
+        let line = format!(
             "- [{}] {} {}\n",
             heading.offset,
             "#".repeat(usize::from(heading.level)),
             heading.text
-        ));
+        );
+        if shown > 0 && block.chars().count() + line.chars().count() > MAX_OUTLINE_CHARS {
+            omitted += selected.len() - shown;
+            break;
+        }
+        block.push_str(&line);
     }
     if omitted > 0 {
-        out.push_str(&format!(
+        block.push_str(&format!(
             "({omitted} more headings omitted; use query or workspace_search)\n"
         ));
     }
+    out.push_str(&block);
 }
 
 fn workspace_hint(saved_path: Option<&str>) -> String {
@@ -331,8 +454,52 @@ fn workspace_hint(saved_path: Option<&str>) -> String {
     }
 }
 
-fn single_line(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
+fn bound_single_line(text: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    let mut out = String::new();
+    let mut count = 0usize;
+    let mut truncated = false;
+    for word in text.split_whitespace() {
+        let sep = usize::from(!out.is_empty());
+        let word_len = word.chars().count();
+        if count + sep + word_len <= max_chars {
+            if sep == 1 {
+                out.push(' ');
+            }
+            out.push_str(word);
+            count += sep + word_len;
+        } else {
+            let room = max_chars.saturating_sub(count + sep + 1);
+            if room > 0 {
+                if sep == 1 {
+                    out.push(' ');
+                }
+                out.extend(word.chars().take(room));
+            }
+            truncated = true;
+            break;
+        }
+    }
+    if truncated {
+        if out.chars().count() >= max_chars {
+            out = out.chars().take(max_chars.saturating_sub(1)).collect();
+        }
+        out.push('…');
+    }
+    out
+}
+
+fn cap_response(out: String, max_chars: usize) -> String {
+    if out.chars().count() <= max_chars {
+        return out;
+    }
+    let note_len = RESPONSE_CAP_NOTE.chars().count();
+    let keep = max_chars.saturating_sub(note_len);
+    let mut capped: String = out.chars().take(keep).collect();
+    capped.push_str(RESPONSE_CAP_NOTE);
+    capped
 }
 
 fn truncate_utf8(text: &str, max_bytes: usize) -> &str {

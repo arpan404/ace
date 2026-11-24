@@ -537,16 +537,14 @@ pub fn index(topics: &[TopicLine], episodes: usize) -> String {
         return String::new();
     }
     let mut out = String::from(
-        "Knowledge you keep, by topic (yours and your makers'; the person can see and edit it). \
-Read entries with knowledge_search before redoing work, and keep findings and decisions with \
-knowledge_write:\n<knowledge>\n",
+        "Knowledge by topic (read with knowledge_search, record with knowledge_write):\n\
+<knowledge>\n",
     );
     out.push_str(&lines);
     out.push_str("</knowledge>");
     if episodes > 0 {
         out.push_str(&format!(
-            "\nYou have {episodes} past task episodes (what worked, what failed, what it cost); \
-episode_search finds ones like the task at hand."
+            "\n{episodes} past task episodes available via episode_search."
         ));
     }
     out

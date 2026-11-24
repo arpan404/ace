@@ -11,6 +11,7 @@ type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
 fn endpoint(id: &str) -> StoredEndpoint {
     StoredEndpoint {
+        gateway_token: false,
         id: id.to_owned(),
         name: id.to_owned(),
         format: "openai-chat".to_owned(),

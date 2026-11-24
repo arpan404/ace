@@ -1,5 +1,6 @@
 import {
   spadeAccountState,
+  spadeIsGatewayCompat,
   spadeUsedByWords,
   type SpadeAccountFix,
   type SpadeEndpoint,
@@ -14,8 +15,13 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { AccountKeyMark } from "@/features/account-management/index.ts";
 import { AccountRowFrame, AccountStateWords } from "@/features/settings/index.ts";
 import { signOutAccount } from "./spade-accounts-api.ts";
-import { KeyDialog, RemoveDialog, RenameDialog } from "./spade-account-dialogs.tsx";
-import { removeKey } from "./spade-api.ts";
+import {
+  GatewayTokenDialog,
+  KeyDialog,
+  RemoveDialog,
+  RenameDialog,
+} from "./spade-account-dialogs.tsx";
+import { removeGatewayToken, removeKey } from "./spade-api.ts";
 import { ChatgptSignInDialog } from "./spade-chatgpt-sign-in.tsx";
 import { useSpadeClient } from "./spade-machine.tsx";
 import { SpadeProviderMark } from "./spade-marks.tsx";
@@ -55,7 +61,7 @@ export function SpadeAccountRow(props: {
   const client = useSpadeClient();
   const cache = useQueryClient();
   const toast = useToast();
-  const [open, setOpen] = useState<"key" | "sign_in" | "rename" | "remove">();
+  const [open, setOpen] = useState<"gateway" | "key" | "sign_in" | "rename" | "remove">();
   const showing = open ?? props.fixing;
   const close = () => {
     setOpen(undefined);
@@ -69,11 +75,22 @@ export function SpadeAccountRow(props: {
   );
   const signedIn = account.auth === "chatgpt" && account.account?.signedIn === true;
   const keyed = account.auth === "key" && account.needsKey && props.keychain;
+  // A gateway's own token is a second secret, kept beside the key (ADR 0119).
+  const gateway = spadeIsGatewayCompat(account.baseUrl);
   const signOut = () =>
     void signOutAccount(client, account.id)
       .then(() => cache.invalidateQueries({ queryKey: modelsKey }))
       .catch((error: unknown) =>
         toast.error({ title: `Couldn't sign out ${account.name}`, description: fault(error) }),
+      );
+  const dropGateway = () =>
+    void removeGatewayToken(client, account.id)
+      .then(() => cache.invalidateQueries({ queryKey: modelsKey }))
+      .catch((error: unknown) =>
+        toast.error({
+          title: `Couldn't remove the gateway token for ${account.name}`,
+          description: fault(error),
+        }),
       );
   const dropKey = () =>
     void removeKey(client, account.id)
@@ -123,11 +140,19 @@ export function SpadeAccountRow(props: {
               {keyed && account.keySet === true && (
                 <MenuItem onClick={() => setOpen("key")}>Replace key</MenuItem>
               )}
+              {gateway && (
+                <MenuItem onClick={() => setOpen("gateway")}>
+                  {account.gatewayTokenSet ? "Replace gateway token…" : "Set gateway token…"}
+                </MenuItem>
+              )}
               <MenuItem onClick={() => setOpen("rename")}>Rename</MenuItem>
               {(signedIn || (keyed && account.keySource === "keychain")) && <MenuSeparator />}
               {signedIn && <MenuItem onClick={signOut}>Sign out</MenuItem>}
               {keyed && account.keySource === "keychain" && (
                 <MenuItem onClick={dropKey}>Remove key</MenuItem>
+              )}
+              {gateway && account.gatewayTokenSet && (
+                <MenuItem onClick={dropGateway}>Remove gateway token</MenuItem>
               )}
               <MenuSeparator />
               <MenuItem danger onClick={() => setOpen("remove")}>
@@ -140,6 +165,9 @@ export function SpadeAccountRow(props: {
     >
       {showing === "key" && (
         <KeyDialog account={account} provider={props.provider} onClose={close} />
+      )}
+      {showing === "gateway" && (
+        <GatewayTokenDialog account={account} provider={props.provider} onClose={close} />
       )}
       {showing === "sign_in" && (
         // A signed-out account is named; a signed-in one is renewed by signing in as it again.

@@ -11,3 +11,6 @@ export { useRefreshModels, type RefreshModels } from "./use-refresh-models.ts";
 
 export { useFavoriteModels } from "./favorites.ts";
 export { GroupProblem, isSignInProblem } from "./model-picker-rows.tsx";
+/** The rail both pickers share, and the keyboard arithmetic behind their ⌘ numbers. */
+export { PickerRail, type PickerRailEntry } from "./picker-rail.tsx";
+export { numberedChoice } from "./picker-keys.ts";

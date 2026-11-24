@@ -38,20 +38,19 @@ impl Tool for ShellTool {
     fn def(&self) -> ToolDef {
         shown_def(
             "shell",
-            "Runs a shell command in your workspace folder (sh on macOS and Linux, cmd on \
-             Windows) and answers its output. Stops it after timeout_s seconds (60 unless given; \
-             give a longer one for long builds and test runs, as long as the work needs). A \
-             command still running after 30 seconds moves to the background: the call answers \
-             at once with its job id and the output arrives later as a <job_result>. Where \
-             Spade's sandbox holds commands, they run without a review: they can write only in \
-             your folder and folders the person granted, can't read the person's files or \
-             sign-ins, can't drive other apps, and reach the network only through hosts your \
-             network policy allows (a refused host answers 403 from Spade's proxy). When the \
-             sandbox stops a command the step truly needs, call it again with \
+            "Run a shell command in your workspace folder (sh on macOS and Linux, cmd on \
+             Windows) and answer its output. Stops it after timeout_s seconds (60 unless given; \
+             longer for builds and test runs). A command still running after 30 seconds moves to \
+             the background: the call answers at once with its job id, and the output arrives \
+             later as a <job_result>. Where Spade's sandbox holds commands they run without a \
+             review: they can write only in your folder and folders the person granted, can't \
+             read the person's files or sign-ins, can't drive other apps, and reach the network \
+             only through hosts your policy allows (a refused host answers 403 from Spade's \
+             proxy). When the sandbox stops a command the step needs, call it again with \
              outside_sandbox: true and the person decides. Elsewhere each command is reviewed. \
-             To push, comment or send a message, use git_push, pr_comment, issue_comment or \
-             send_message: commands never hold the person's sign-ins. To read files, use \
-             workspace_read and workspace_search instead.",
+             To push, comment or send, use git_push, pr_comment, issue_comment or send_message: \
+             commands never hold the person's sign-ins. To read files, use workspace_read and \
+             workspace_search.",
             json!({ "type": "object",
                     "properties": { "command": { "type": "string" },
                                     "timeout_s": { "type": "integer", "minimum": 1 },

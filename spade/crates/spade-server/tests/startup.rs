@@ -319,6 +319,7 @@ fn seed_keyed_endpoint(store: &spade_store::Store) -> spade_store::Result<()> {
     // Stored, but its key is not set: the database alone cannot tell, so Spade's first model
     // (picked before keys can be read) lands here and setup must correct it.
     store.insert_endpoint(&spade_store::StoredEndpoint {
+        gateway_token: false,
         id: "keyed".into(),
         name: "Keyed".into(),
         format: "openai-chat".into(),

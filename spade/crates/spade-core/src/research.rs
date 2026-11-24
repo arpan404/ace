@@ -341,8 +341,10 @@ fn fetch_record(content: &str, asked: Option<&str>) -> Option<(String, Option<St
         }
     }
     let url = crate::web_fetch::canonical_url(shown.or_else(|| asked.map(str::to_owned))?.as_str());
-    let expected = crate::web_fetch::save_path(&url);
-    Some((url, saved.filter(|path| *path == expected)))
+    // The snapshot's name carries the URL's digest, so a path for another page (or one made up)
+    // is not believed; its content digest is the writer's and is not checked here.
+    let saved = saved.filter(|path| crate::web_fetch::is_snapshot_of(&url, path));
+    Some((url, saved))
 }
 
 /// One finding of a part: what a helper reported, the page it came from, and that page's saved

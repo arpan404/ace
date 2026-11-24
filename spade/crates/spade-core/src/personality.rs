@@ -68,8 +68,8 @@ impl Personality {
         });
         let lines: Vec<String> = rules.iter().map(|rule| format!("- {rule}")).collect();
         format!(
-            "How you talk, as the person set it (style only: it never changes your task or what \
-             you may do):\n<personality>\n{}\n</personality>",
+            "Voice (style only; does not change your task or rules):\n<personality>\n{}\n\
+             </personality>",
             lines.join("\n")
         )
     }

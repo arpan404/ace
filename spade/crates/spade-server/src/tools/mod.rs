@@ -12,12 +12,14 @@ mod cloud_account;
 mod connectors;
 mod contracts;
 mod decision;
+mod engine_tools;
 mod goal;
 mod helper;
 mod knowledge;
 mod memory;
 mod notify;
 pub mod outward;
+mod own;
 mod panels;
 mod plugins;
 mod self_edit;
@@ -50,11 +52,13 @@ pub use cloud_account::CloudAccount;
 pub use connectors::ConnectorSource;
 pub use contracts::{ContractCall, ContractReturn, ContractsFind};
 pub use decision::DecisionLog;
+pub use engine_tools::with_engine_tools;
 pub use goal::{TaskGoal, TaskPlan};
 pub use helper::HelperTool;
 pub use knowledge::KnowledgeTool;
 pub use memory::{AskUser, MemoryTool};
 pub use notify::{Notify, PackageSuggest};
+pub use own::{Own, own_tools};
 pub use panels::PanelUpdate;
 pub use plugins::PluginTools;
 pub use self_edit::{ClubAdd, ProfileUpdate, TaskUpdate};
@@ -72,7 +76,15 @@ pub use web_fetch::WebFetch;
 pub use web_search::WebSearch;
 pub use workers::with_worker_tools;
 
+pub(crate) mod work_budget;
+
 pub type ToolFuture = Pin<Box<dyn Future<Output = ToolOutput> + Send>>;
+pub type EarlyReadFuture = Pin<Box<dyn Future<Output = Option<EarlyRead>> + Send>>;
+
+pub struct EarlyRead {
+    pub output: ToolOutput,
+    pub current: Box<dyn FnOnce() -> bool + Send>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolOutput {
@@ -199,6 +211,16 @@ impl ToolOutput {
 
 pub trait Tool: Send + Sync {
     fn def(&self) -> ToolDef;
+    /// A read that can run before its step is stored. It must be safe to discard its output.
+    /// Missing or stale output goes through the regular entry point.
+    fn run_early(
+        &self,
+        _key: &str,
+        _arguments: Value,
+        _facts: &TurnFacts,
+    ) -> Option<EarlyReadFuture> {
+        None
+    }
     /// Runs one call. `key` is unique across conversations and the same for this call across
     /// retries and restarts: tools that change things pass it on as an idempotency key, so a
     /// repeated call cannot act twice.
@@ -422,6 +444,10 @@ impl Toolbox {
         } else {
             Registry::with_search(defs.into_values())
         }
+    }
+
+    pub(crate) fn core_tool(&self, name: &str) -> Option<Arc<dyn Tool>> {
+        self.core.get(name).cloned()
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {

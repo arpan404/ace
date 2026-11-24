@@ -278,22 +278,35 @@ present becomes one of the person's endpoints with the same id, so existing keys
 each carries a key or the person's headers; a redirect answers as an error. A base URL is read with
 the HTTP client's own URL parser: only `http` and `https`, no user name or password, no backslash,
 no query or fragment. Changing an endpoint's `base_url` to another origin (scheme, host and port as
-that parser reads them) is refused with `409` while a key is stored for it in the keychain or found
-in its environment variable, whatever `needs_key` says (remove it with `DELETE /v1/keys/{id}`
-first), while it takes its key from an environment variable (add a new endpoint for the other host),
+that parser reads them) is refused with `409` while a key or a gateway token is stored for it in the
+keychain or found in its environment variable, whatever `needs_key` says (remove the key with
+`DELETE /v1/keys/{id}` and the token with `DELETE /v1/keys/{id}/gateway` first), while it takes its
+key from an environment variable (add a new endpoint for the other host),
 or while it has extra headers (send `"headers": {}` with the new URL). An endpoint made from a
 preset but pointing at another origin than the preset's keeps neither the preset's key variable nor
 its headers. If the keychain cannot be read, the change is refused (`503`) rather than taken as "no
 key".
 
-**Deleting an endpoint** removes its keychain key first. If the keychain cannot do that, the delete
+**Deleting an endpoint** removes its keychain key and its gateway token first. If the keychain cannot do that, the delete
 is refused (`503`) and the endpoint keeps its id. A new endpoint never takes an id that still has a
 key in the keychain: it gets the next free one (`gate-2`). An endpoint is in use, and cannot be
 deleted (`409` naming the agents), while an agent's model is on it or an agent's open or paused
 reply still runs on one of its models. Headers that carry credentials
-(`authorization`, `proxy-authorization`, `x-api-key`, `api-key`, `x-goog-api-key`, `cookie`,
-`set-cookie`, any case) are refused as extra headers and as the session header: keys go to the
-keychain. Listing errors hide the key and every configured header value.
+(`authorization`, `proxy-authorization`, `cf-aig-authorization`, `x-api-key`, `api-key`,
+`x-goog-api-key`, `cookie`, `set-cookie`, any case) are refused as extra headers and as the session
+header: keys go to the keychain. Listing errors hide the key and every configured header value.
+
+**An authenticated gateway's token** (Cloudflare AI Gateway's `cf-aig-authorization`) is a second
+secret, kept in its own keychain entry beside the endpoint's key (ADR 0119). `POST /v1/endpoints`
+takes `"gateway_token"` with the rest, atomically: an endpoint whose token the keychain refuses is
+not made at all, so a retry takes the same id instead of adding `-2`. Later, `PUT
+/v1/keys/{endpoint}/gateway` with `{"token": "..."}` replaces it and `DELETE` on the same path
+forgets it (a change through the endpoint routes refuses the field and names that path). Every
+call, model list and media call on that endpoint sends it as `cf-aig-authorization: Bearer
+<token>` beside the endpoint's own key. The endpoint keeps only whether the token is there
+(`gateway_token_set`), so it never reaches the database or an API answer. A credential header an
+older build stored as plain config is never sent or answered, and its row is cleaned in a bounded
+pass after Spade listens (ADR 0170).
 
 **Presets are inherited, not copied.** An endpoint made from a preset remembers it. Only what the
 person chose is stored; the preset's models and their facts (context, capabilities, price) are
@@ -629,6 +642,7 @@ then.
 | `POST /endpoints/{id}/sign-out`               |                                                                                                           | `200 {"endpoint"}`                                         |
 | `PUT /settings`                               | any of `fast_model`, `new_bot_model`: `"endpoint/model" \| null`                                          | `204`                                                      |
 | `PUT`/`DELETE /keys/{endpoint}`               | `{key}`                                                                                                   | as before (ADR 0119)                                       |
+| `PUT`/`DELETE /keys/{endpoint}/gateway`       | `{token}`                                                                                                 | `204`                                                      |
 | `POST /conversations`                         |                                                                                                           | `410`: create an agent instead                             |
 
 - A new bot's `model`, when the body names none: `new_bot_model` (the person's choice in Settings,
@@ -647,8 +661,9 @@ then.
   `{"kind":"generated"}` from an older client (its colour ignored), gets a face Spade picks (see
   Faces).
 - **Endpoint** = `{"id", "name", "format", "base_url", "session_header", "header_names",
-"needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
-"context"|null, "capabilities"|null, "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
+"needs_key", "key_set", "key_source": "keychain"|"environment"|null, "gateway_token_set",
+"models": [{"id", "name", "context"|null, "capabilities"|null, "source":
+"listed"|"typed"|"preset"}]}`. Header values and keys are
   never answered. The id is a slug of the name, unique (`-2`, `-3`, …). `format` is `openai-chat`,
   `openai-responses` or `anthropic`; `needs_key` defaults to true (false for a local server).
   With `preset`, missing fields come from that preset, its key variable and models included.

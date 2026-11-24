@@ -47,7 +47,7 @@ impl Tool for Notify {
             },
             risk: Risk::Memory,
             untrusted_output: false,
-            deferred: false,
+            deferred: true,
             background: false,
         }
     }
@@ -87,7 +87,7 @@ impl Tool for PackageSuggest {
             },
             risk: Risk::Read,
             untrusted_output: false,
-            deferred: false,
+            deferred: true,
             background: false,
         }
     }
