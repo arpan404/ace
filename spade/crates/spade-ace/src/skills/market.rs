@@ -145,9 +145,10 @@ impl AceSkills {
     /// The Store picker's privacy pass over proposed text on this machine.
     pub async fn market_privacy(&self, texts: &[&str]) -> Result<bool, SkillsError> {
         let result = self
-            .market(json!({ "op": "privacyCheck", "texts": texts }))
+            .market(json!({ "op": "privacyCheck", "texts": texts, "requireIdentity": true }))
             .await?;
         if result["op"] == "privacyCheck"
+            && result["identityChecked"] == true
             && let Some(spans) = result["spans"].as_array()
             && spans.len() == texts.len()
             && spans.iter().all(Value::is_array)

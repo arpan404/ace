@@ -15,18 +15,9 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet.tsx";
 
-type Extra =
-  | "knowledge"
-  | "include_heartbeat"
-  | "surfaces"
-  | "contracts"
-  | "plugins"
-  | "event_routines";
-type Edits = Omit<ShareTemplateReview, "visibility" | Extra> & {
-  [Key in Extra]-?: NonNullable<ShareTemplateReview[Key]>;
-};
+import { reviewItems, type TemplateEdits } from "./spade-template-review.ts";
 
-function editsOf(details: ShareTemplateDetails): Edits {
+function editsOf(details: ShareTemplateDetails): TemplateEdits {
   const { recipe } = details.draft;
   return {
     revision: details.revision,
@@ -88,10 +79,13 @@ export function TemplateDetailsSheet(props: SheetProps) {
 
 function ReviewFields(props: SheetProps & { details: ShareTemplateDetails }) {
   const [edits, setEdits] = useState(() => editsOf(props.details));
+  const [reviewed, setReviewed] = useState<ReadonlySet<string>>(new Set());
+  const items = reviewItems(props.details.draft, edits);
+  const allReviewed = items.every(({ key }) => reviewed.has(key));
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
   const readOnly = pending || props.details.visibility !== null;
-  const set = <K extends keyof Edits>(key: K, value: Edits[K]) =>
+  const set = <K extends keyof TemplateEdits>(key: K, value: TemplateEdits[K]) =>
     setEdits((previous) => ({ ...previous, [key]: value }));
   const remove = (
     key:
@@ -108,10 +102,11 @@ function ReviewFields(props: SheetProps & { details: ShareTemplateDetails }) {
   ) =>
     setEdits((previous) => ({ ...previous, [key]: previous[key].filter((_, i) => i !== index) }));
   const submit = async () => {
+    if (pending || !allReviewed) return;
     setPending(true);
     setError(undefined);
     try {
-      await props.publish({ ...edits, visibility: props.destination });
+      await props.publish({ ...edits, reviewed: true, visibility: props.destination });
       props.close();
     } catch (error) {
       setError(error instanceof Error ? error.message : "Couldn't publish the template.");
@@ -267,6 +262,34 @@ function ReviewFields(props: SheetProps & { details: ShareTemplateDetails }) {
             </div>
           ))}
         </div>
+        {props.details.visibility === null && (
+          <section aria-label="Required review" className="space-y-2">
+            <h3 className="font-medium">Review each item</h3>
+            {items.map(({ key, label, text }) => (
+              <details key={label}>
+                <summary>{label}</summary>
+                <pre className="text-xs wrap-anywhere whitespace-pre-wrap">{text}</pre>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    aria-label={`Reviewed ${label}`}
+                    disabled={pending}
+                    checked={reviewed.has(key)}
+                    onChange={({ currentTarget: { checked } }) => {
+                      setReviewed((previous) => {
+                        const next = new Set(previous);
+                        if (checked) next.add(key);
+                        else next.delete(key);
+                        return next;
+                      });
+                    }}
+                  />
+                  Reviewed
+                </label>
+              </details>
+            ))}
+          </section>
+        )}
         <div>
           <h3 className="font-medium">Left out</h3>
           <ul className="list-inside list-disc text-muted-foreground">
@@ -302,7 +325,7 @@ function ReviewFields(props: SheetProps & { details: ShareTemplateDetails }) {
             The Store reviews and signs the template before anyone can install it.
           </p>
           {error && <p role="alert">{error}</p>}
-          <Button disabled={pending} onClick={() => void submit()}>
+          <Button disabled={pending || !allReviewed} onClick={() => void submit()}>
             {pending
               ? "Submitting…"
               : props.destination === "listed"
@@ -356,7 +379,7 @@ function Contents(props: { name: string; text: string }) {
 
 function WorkingSetup(props: {
   draft: ShareTemplateDraft;
-  edits: Edits;
+  edits: TemplateEdits;
   readOnly: boolean;
   remove(key: "surfaces" | "contracts" | "plugins" | "event_routines", index: number): void;
   removeHeartbeat(): void;

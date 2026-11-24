@@ -9,7 +9,11 @@ export function templatePort(input: {
   key(): Uint8Array | undefined;
   now(): number;
 }): TemplatePort {
-  async function stamped(id: string, operation: "authorize" | "published", data: unknown) {
+  async function stamped(
+    id: string,
+    operation: "authorize" | "begin" | "published",
+    data: unknown,
+  ) {
     const connection = input.connection();
     const key = input.key();
     if (!connection || !key) throw new Error("Spade isn't ready to share templates.");
@@ -41,8 +45,11 @@ export function templatePort(input: {
     async authorize(id, review) {
       return ShareTemplateDraft.parse(await stamped(id, "authorize", review));
     },
-    async published(id, { visibility }, draft) {
-      await stamped(id, "published", { visibility, draft });
+    async begin(id, review, draft, binding) {
+      await stamped(id, "begin", { review, draft, binding });
+    },
+    async published(id, binding) {
+      await stamped(id, "published", binding);
     },
   };
 }

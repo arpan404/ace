@@ -1,12 +1,12 @@
 import { z } from "zod";
-import { MarketHash } from "./marketplace-base.ts";
+import { MarketEntryName, MarketHash } from "./marketplace-base.ts";
 import {
   PackageHeartbeat,
   PackageKnowledgePage,
   PackageModelRoles,
   PackagePluginCommands,
 } from "./marketplace-package.ts";
-import { MarketVisibility } from "./marketplace-publisher.ts";
+import { MarketDraftId, MarketVisibility } from "./marketplace-publisher.ts";
 
 export const ShareTemplateId = z.string().regex(/^template_[a-z0-9_]{1,64}$/);
 const Schedule = z.object({
@@ -30,7 +30,18 @@ const File = z.object({
 const References = z.array(z.string().max(120)).max(32);
 const Knowledge = z.array(PackageKnowledgePage).max(32);
 
+export const TemplateGrantTarget = z.strictObject({
+  draft: MarketDraftId,
+  publisher: z.string().min(1).max(64),
+  name: MarketEntryName,
+  hash: MarketHash,
+  version: z.literal("1.0.0"),
+  visibility: MarketVisibility,
+});
+export type TemplateGrantTarget = z.infer<typeof TemplateGrantTarget>;
+
 export const ShareTemplateReview = z.strictObject({
+  reviewed: z.literal(true),
   revision: MarketHash,
   visibility: MarketVisibility,
   knowledge: Knowledge.optional(),

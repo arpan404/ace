@@ -34,7 +34,13 @@ test.each([
         draft: {
           bot: "benchmarks",
           left_out: ["Conversation history stays here."],
-          skills: [],
+          skills: [
+            {
+              reference: "skills/measure-renderer",
+              text: "Record a baseline.",
+              files: [{ path: "checks.md", text: "Compare GPU timings.", executable: false }],
+            },
+          ],
           recipe: {
             format: "spade-bot",
             version: 3,
@@ -57,7 +63,7 @@ test.each([
                 body: "Compare cold and warm runs separately.",
               },
             ],
-            skills: ["spade-skill/measure-renderer"],
+            skills: ["skills/measure-renderer"],
             triggers: [{ kind: "message" }],
             needs: { connectors: [] },
           },
@@ -71,7 +77,7 @@ test.each([
     expect(card.getByText("1 skill · 1 playbook · 1 lesson")).toBeTruthy();
     await userEvent.click(card.getByRole("button", { name: "View Details" }));
     const details = within(await screen.findByRole("dialog", { name: "Template details" }));
-    expect(details.getByText("Use the same workload.")).toBeTruthy();
+    expect(details.getByDisplayValue("Use the same workload.")).toBeTruthy();
     expect(details.getByText("Conversation history stays here.")).toBeTruthy();
     await userEvent.click(details.getByRole("button", { name: "Close" }));
     await userEvent.click(card.getByRole("button", { name: button }));
@@ -81,7 +87,25 @@ test.each([
     await userEvent.click(review.getByRole("button", { name: "Remove note 1" }));
     await userEvent.click(review.getByRole("button", { name: "Remove Warm caches" }));
     expect(app.daemon.marketplace.templatePublications).toEqual([]);
-    await userEvent.click(review.getByRole("button", { name: confirm }));
+    const confirmation = review.getByRole<HTMLButtonElement>("button", { name: confirm });
+    expect(confirmation.disabled).toBe(true);
+    const checklist = within(review.getByRole("region", { name: "Required review" }));
+    const rows = checklist.getAllByText(/.+/, { selector: "summary" });
+    for (const row of rows) {
+      await userEvent.click(row);
+      const item = row.closest("details");
+      if (!item) throw new Error("Missing review item.");
+      if (row.textContent?.endsWith("checks.md")) {
+        expect(within(item).getByText("Compare GPU timings.")).toBeTruthy();
+        expect(confirmation.disabled).toBe(true);
+      }
+      await userEvent.click(within(item).getByRole("checkbox"));
+    }
+    expect(confirmation.disabled).toBe(false);
+    await userEvent.type(review.getByRole("textbox", { name: "Task" }), " Review variance.");
+    expect(confirmation.disabled).toBe(true);
+    await userEvent.click(checklist.getByRole("checkbox", { name: "Reviewed Task" }));
+    await userEvent.click(confirmation);
     await waitFor(() =>
       expect(app.daemon.marketplace.templatePublications).toEqual([
         expect.objectContaining({
@@ -90,7 +114,8 @@ test.each([
           review: expect.objectContaining({
             revision: "a".repeat(64),
             visibility,
-            task: "Compare medians.",
+            task: "Compare medians. Review variance.",
+            reviewed: true,
             notes: [],
             knowledge: [expect.objectContaining({ title: "Profile in stages" })],
           }),

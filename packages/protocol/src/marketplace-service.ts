@@ -46,6 +46,7 @@ export const PublishAccepted = z.object({
   name: MarketEntryName,
   version: MarketVersion,
   hash: MarketHash,
+  visibility: z.enum(["listed", "unlisted"]).optional(),
   /** Held for a maintainer rather than waiting only for the signer (ADR 0174 §9). */
   held: z.boolean().optional(),
   scan: MarketScanReport.optional(),

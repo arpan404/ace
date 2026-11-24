@@ -9,27 +9,38 @@ use super::{AceLink, EngineHandle, Tool, ToolFuture, ToolOutput, TurnFacts};
 use crate::skill_store::SkillStore;
 use crate::teams::share_template;
 
+/// Checks candidate text with the local daemon's signed-in identity.
+pub trait TemplatePrivacy: Send + Sync {
+    fn scan<'a>(&'a self, texts: &'a [&'a str]) -> crate::teams::BoxFuture<'a, Option<bool>>;
+}
+
+impl TemplatePrivacy for AceLink {
+    fn scan<'a>(&'a self, texts: &'a [&'a str]) -> crate::teams::BoxFuture<'a, Option<bool>> {
+        Box::pin(self.template_is_private(texts))
+    }
+}
+
 pub struct TemplateDraft {
     engine: EngineHandle,
     connectors: Option<Arc<Connectors>>,
     skills: Option<Arc<SkillStore>>,
     private_words: Vec<String>,
-    ace: Option<Arc<AceLink>>,
+    privacy: Option<Arc<dyn TemplatePrivacy>>,
 }
 
 impl TemplateDraft {
     pub fn new(
         engine: EngineHandle,
-        connectors: Arc<Connectors>,
-        skills: Arc<SkillStore>,
-        ace: Option<Arc<AceLink>>,
+        connectors: Option<Arc<Connectors>>,
+        skills: Option<Arc<SkillStore>>,
+        privacy: Option<Arc<dyn TemplatePrivacy>>,
     ) -> Self {
         Self {
             engine,
-            connectors: Some(connectors),
-            skills: Some(skills),
+            connectors,
+            skills,
             private_words: share_template::system_words(),
-            ace,
+            privacy,
         }
     }
 
@@ -39,7 +50,7 @@ impl TemplateDraft {
             connectors: None,
             skills: None,
             private_words: Vec::new(),
-            ace: None,
+            privacy: None,
         }
     }
 }
@@ -99,7 +110,7 @@ impl Tool for TemplateDraft {
         let connectors = self.connectors.clone();
         let skills = self.skills.clone();
         let names = self.private_words.clone();
-        let ace = self.ace.clone();
+        let privacy = self.privacy.clone();
         let untrusted = turn.untrusted.is_some();
         Box::pin(async move {
             let (Some(engine), Some(bot)) = (engine, bot) else {
@@ -133,16 +144,24 @@ impl Tool for TemplateDraft {
                 Ok(draft) => draft,
                 Err(error) => return ToolOutput::error(error),
             };
-            if let Some(ace) = ace {
-                let texts = share_template::privacy_text(&draft);
-                let scanned = tokio::time::timeout(
-                    std::time::Duration::from_secs(2),
-                    ace.template_is_private(&texts),
-                )
-                .await;
-                if matches!(scanned, Ok(Some(true))) {
+            let Some(privacy) = privacy else {
+                return ToolOutput::error(
+                    "Sign in to ace and reconnect to check the draft's privacy.",
+                );
+            };
+            let texts = share_template::privacy_text(&draft);
+            match tokio::time::timeout(std::time::Duration::from_secs(2), privacy.scan(&texts))
+                .await
+            {
+                Ok(Some(false)) => {}
+                Ok(Some(true)) => {
                     return ToolOutput::error(
                         "The proposal contains private text. Generalize it and try again.",
+                    );
+                }
+                _ => {
+                    return ToolOutput::error(
+                        "The signed-in privacy check did not complete. Try again before drafting.",
                     );
                 }
             }

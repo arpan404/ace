@@ -109,7 +109,7 @@ export class MarketAgent {
     return this.deps.marketplace.request(
       operation,
       operation.op === "publishTemplate"
-        ? { grant, names, withoutPerson: by !== "person" }
+        ? { grant, names, personGrant, withoutPerson: by !== "person" }
         : operation.op === "publish"
           ? { grant, names, personGrant }
           : {

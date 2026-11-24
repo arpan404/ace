@@ -47,7 +47,7 @@ pub(crate) struct Schedule {
     schedule: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq)]
 pub(crate) struct SkillFile {
     pub reference: String,
     pub text: String,
@@ -55,7 +55,7 @@ pub(crate) struct SkillFile {
     pub files: Vec<share_contents::TextFile>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq)]
 pub(crate) struct Draft {
     pub recipe: Value,
     pub skills: Vec<SkillFile>,

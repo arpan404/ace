@@ -1,4 +1,4 @@
-import type { MarketPublishAction } from "@ace/protocol/marketplace";
+import type { MarketPublishAction, TemplateGrantTarget } from "@ace/protocol/marketplace";
 import { sha256 } from "@ace/secure-channel";
 
 /*
@@ -105,4 +105,16 @@ export function marketActionOrg(action: MarketPublishAction): string | undefined
   return action.action === "registry" || action.action === "registryWithdraw"
     ? action.org
     : undefined;
+}
+
+/** The one Store write a template confirmation authorizes. */
+export function templateMarketCall(target: TemplateGrantTarget): PersonMarketCall {
+  const query = new URLSearchParams({
+    publisher: target.publisher,
+    template: target.name,
+    version: target.version,
+    reviewed: target.hash,
+    visibility: target.visibility,
+  });
+  return { method: "POST", path: `/v1/me/drafts/${segment(target.draft)}/publish?${query}` };
 }

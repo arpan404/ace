@@ -476,7 +476,7 @@ export class MarketplaceService {
         return this.#serial(() =>
           publishTemplate(
             templates,
-            { http: this.#http(), grant: ports.grant },
+            { http: this.#http(), grant: ports.grant, personGrant: ports.personGrant },
             operation,
             ports.names ?? [],
           ),
@@ -502,10 +502,16 @@ export class MarketplaceService {
         return listPublishables(pick, operation.type);
       }
       case "privacyCheck": {
+        if (
+          operation.requireIdentity &&
+          (!ports.names?.[0]?.trim() || !ports.names[1]?.includes("@"))
+        )
+          return error("signed_out", "Sign in to ace before checking a template.");
         const pick = this.#pick(ports.names);
-        const names = pick ? await pick.names() : [];
+        const names = pick ? await pick.names() : (ports.names ?? []);
         return {
           op: "privacyCheck",
+          ...(operation.requireIdentity ? { identityChecked: true as const } : {}),
           spans: operation.texts.map((text) =>
             withSentences(privacySpans(text, { names }).slice(0, 200)),
           ),

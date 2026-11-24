@@ -17,6 +17,60 @@ static PERSONAL: LazyLock<Result<Regex, regex::Error>> = LazyLock::new(|| {
 static PHONE: LazyLock<Result<Regex, regex::Error>> =
     LazyLock::new(|| Regex::new(r"\+?\(?[0-9][0-9(). -]{7,}[0-9]"));
 
+// Compare normalized phrases as well as literal strings. Matching most of a short window
+// catches excerpts and light rewrites without treating a shared technical word as private.
+fn phrase_words(text: &str) -> Vec<&str> {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|word| {
+            word.chars().count() > 2
+                && !matches!(
+                    *word,
+                    "the"
+                        | "and"
+                        | "that"
+                        | "this"
+                        | "with"
+                        | "from"
+                        | "for"
+                        | "have"
+                        | "your"
+                        | "they"
+                        | "were"
+                        | "when"
+                )
+        })
+        .collect()
+}
+
+fn overlaps(text: &str, private: &[&str]) -> bool {
+    let candidate = phrase_words(text);
+    if candidate.len() < 4 || private.len() < 4 {
+        return false;
+    }
+    let vocabulary: std::collections::HashSet<_> = candidate.iter().copied().collect();
+    private.windows(5.min(private.len())).any(|phrase| {
+        // Match four distinct terms, allowing a replacement and a few inserted or reordered words.
+        if phrase
+            .iter()
+            .enumerate()
+            .any(|(i, word)| phrase[..i].contains(word))
+        {
+            return false;
+        }
+        if phrase
+            .iter()
+            .filter(|word| vocabulary.contains(**word))
+            .count()
+            < 4
+        {
+            return false;
+        }
+        candidate
+            .windows(7.min(candidate.len()))
+            .any(|window| phrase.iter().filter(|word| window.contains(word)).count() >= 4)
+    })
+}
+
 /// Refuse recognizable personal data or credentials, including the caller's known private
 /// names, paths and verbatim notes. The package's own secret rules apply to all fields.
 pub fn contains_private_text(value: &Value, private: &[String]) -> bool {
@@ -33,7 +87,7 @@ pub fn contains_private_text(value: &Value, private: &[String]) -> bool {
             || private.iter().any(|word| {
                 let word = word.trim().to_lowercase();
                 word.chars().count() >= 2
-                    && lower.match_indices(&word).any(|(start, _)| {
+                    && (lower.match_indices(&word).any(|(start, _)| {
                         !lower[..start]
                             .chars()
                             .next_back()
@@ -42,7 +96,7 @@ pub fn contains_private_text(value: &Value, private: &[String]) -> bool {
                                 .chars()
                                 .next()
                                 .is_some_and(char::is_alphanumeric)
-                    })
+                    }) || overlaps(&lower, &phrase_words(&word)))
             })
     }
 
@@ -91,5 +145,16 @@ mod tests {
             &json!({"task": "Measure a baseline and compare it with the next run."}),
             &private
         ));
+        let memory = vec!["Send the monthly rendering metrics from the cedar repository to our staging dashboard after release.".to_owned()];
+        for text in [
+            "Use the cedar repository for monthly rendering metrics.",
+            "Report the monthly renderer metrics from the cedar repository.",
+            "Monthly rendering metrics, cedar.",
+        ] {
+            assert!(contains_private_text(
+                &json!({"knowledge": [{"body":text}]}),
+                &memory
+            ));
+        }
     }
 }

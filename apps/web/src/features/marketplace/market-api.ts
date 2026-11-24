@@ -6,6 +6,7 @@ import {
   marketCallBody,
   marketIntent,
   personMarketCall,
+  templateMarketCall,
 } from "@ace/client/market-intent";
 import type {
   MarketInstallChoices,
@@ -104,6 +105,25 @@ export async function market<T extends MarketResult["op"]>(
   if (result.op === "error" && result.code === "person_grant" && personGrant && !first) {
     const grant = await grantFor(operation, personGrant);
     if (grant) result = (await ask(grant)).result;
+  }
+  if (result.op === "templateGrant" && operation.op === "publishTemplate") {
+    const { target } = result;
+    if (
+      target.name !== operation.id.replaceAll("_", "-") ||
+      target.visibility !== operation.review.visibility ||
+      target.version !== "1.0.0"
+    )
+      throw new MarketFailure("conflict");
+    const call = templateMarketCall(target);
+    const intent = await marketIntent({ ...call, body: undefined });
+    const grant = await personGrant?.(intent);
+    if (!grant)
+      throw new MarketFailure(
+        "person_grant",
+        undefined,
+        "Sign in to ace to confirm this publication.",
+      );
+    result = (await ask(grant)).result;
   }
   if (result.op === "error") throw new MarketFailure(result.code, result.scan, result.message);
   if (!answers(result, expected)) throw new MarketFailure("failed");

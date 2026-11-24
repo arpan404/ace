@@ -16,6 +16,9 @@ impl Engine {
     ) -> Result<String, String> {
         let id = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            if !self.share_source_live(&draft.bot) {
+                return Err("The source bot was deleted.".to_owned());
+            }
             let events = self.load(conversation).map_err(|e| e.to_string())?;
             if let Some(shown) = card::shown_by(&events, call) {
                 return Ok(shown.card.clone());
@@ -68,6 +71,17 @@ impl Engine {
         };
         self.announce(conversation);
         Ok(id)
+    }
+
+    pub(crate) fn share_source_live(&self, id: &str) -> bool {
+        self.store()
+            .agent(id)
+            .is_ok_and(|agent| agent.is_some_and(|agent| !self.deleting(&agent.conversation)))
+    }
+
+    pub(crate) fn share_template_write<T>(&self, write: impl FnOnce() -> T) -> T {
+        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+        write()
     }
 
     pub(crate) fn share_template(&self, id: &str) -> Result<Option<Draft>, String> {

@@ -388,7 +388,6 @@ export async function publishAction(
     personGrant?: string | undefined;
     /** A draft's archive already read and checked on this machine (`check.ts`). */
     archive?: Uint8Array | undefined;
-    templateReviewHash?: string | undefined;
   },
   action: MarketPublishAction,
 ): Promise<MarketResult> {
@@ -425,9 +424,7 @@ export async function publishAction(
   let answer: MarketPublishAnswer | undefined;
   let draftId: string | undefined;
   for (const call of calls) {
-    let path = call.path.replace("{id}", draftId ?? "");
-    if (action.action === "draftPublish" && ports.templateReviewHash)
-      path += `${path.includes("?") ? "&" : "?"}reviewed=${encodeURIComponent(ports.templateReviewHash)}`;
+    const path = call.path.replace("{id}", draftId ?? "");
     const headers: Record<string, string> = { authorization: `Bearer ${grant}` };
     let body: Uint8Array | string | undefined;
     if (call.bytes) {

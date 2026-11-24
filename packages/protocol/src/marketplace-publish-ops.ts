@@ -42,7 +42,11 @@ import {
   marketPrivacyResults,
 } from "./marketplace-publish-pick.ts";
 import { RegistryAdmin } from "./marketplace-registry.ts";
-import { ShareTemplateId, ShareTemplateReview } from "./marketplace-template.ts";
+import {
+  ShareTemplateId,
+  ShareTemplateReview,
+  TemplateGrantTarget,
+} from "./marketplace-template.ts";
 import { MarketScanReport } from "./marketplace-scan.ts";
 import { MarketOrgId } from "./marketplace-signed.ts";
 import { SuitId } from "./suits.ts";
@@ -264,6 +268,7 @@ export const marketPublishOperations = [
 ] as const;
 
 export const marketPublishResults = [
+  z.strictObject({ op: z.literal("templateGrant"), target: TemplateGrantTarget }),
   z.strictObject({
     op: z.literal("publishedTemplate"),
     name: MarketEntryName,

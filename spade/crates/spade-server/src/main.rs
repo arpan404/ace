@@ -505,9 +505,10 @@ async fn run() -> Result<(), Failure> {
     ));
     tools = tools.with_tool(Arc::new(spade_server::tools::TemplateDraft::new(
         bots.clone(),
-        connectors.clone(),
-        skill_store.clone(),
-        ace.clone(),
+        Some(connectors.clone()),
+        Some(skill_store.clone()),
+        ace.clone()
+            .map(|link| link as Arc<dyn spade_server::tools::TemplatePrivacy>),
     )));
     // The person's outside A2A agents (ADR 0202 §5): each skill a tool, every call theirs.
     let outside_agents = spade_server::a2a::OutsideAgents::open(

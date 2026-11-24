@@ -9,7 +9,7 @@ mod asks;
 mod bots;
 mod cards;
 mod share_template;
-pub use share_template::TemplateDraft;
+pub use share_template::{TemplateDraft, TemplatePrivacy};
 mod cloud_account;
 mod connectors;
 mod contracts;

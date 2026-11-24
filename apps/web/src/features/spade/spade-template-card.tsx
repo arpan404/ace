@@ -13,7 +13,7 @@ import {
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
-import { market } from "@/features/marketplace/index.ts";
+import { market, usePersonGrant } from "@/features/marketplace/index.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { spadeHttp } from "./spade-requests.ts";
 import { useCardAccent } from "./spade-accent.ts";
@@ -26,6 +26,7 @@ export function SpadeTemplateCard(props: {
   style?: SpadeAgentStyle | undefined;
 }) {
   const client = useSpadeClient();
+  const personGrant = usePersonGrant();
   const machine = useSpadeMachine();
   const { cardId: id, card } = props.item;
   return (
@@ -42,7 +43,13 @@ export function SpadeTemplateCard(props: {
         )
       }
       publish={async (review) => {
-        await market(client, { op: "publishTemplate", id, review }, "publishedTemplate");
+        await market(
+          client,
+          { op: "publishTemplate", id, review },
+          "publishedTemplate",
+          undefined,
+          personGrant,
+        );
       }}
       live={async (signal) => {
         const { entry } = await market(

@@ -193,15 +193,18 @@ function serviceAlone(
   const { marketplace, machineAccount: account } = options;
   const grant = account ? () => account.marketGrant() : undefined;
   const withoutPerson = by === "without-person";
+  const signedIn = account?.account();
+  const names = signedIn ? [signedIn.name, signedIn.email, signedIn.email.split("@")[0] ?? ""] : [];
   return (
     marketplace?.request(
       operation,
       operation.op === "publishTemplate"
-        ? { grant, withoutPerson }
+        ? { grant, personGrant, names, withoutPerson }
         : operation.op === "publish"
           ? { grant, personGrant }
           : {
               withoutPerson,
+              names,
               ...(orgGrant ? { orgGrant } : {}),
               ...(account ? { membership: () => membershipOf(account) } : {}),
             },

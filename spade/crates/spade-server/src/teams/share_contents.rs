@@ -14,7 +14,7 @@ use spade_core::{
 use super::share_template::SkillFile;
 use crate::{engine::Engine, skill_store::SkillStore, tools::SkillLibrary};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq)]
 pub(crate) struct TextFile {
     pub path: String,
     pub text: String,

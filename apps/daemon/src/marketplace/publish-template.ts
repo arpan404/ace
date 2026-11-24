@@ -1,20 +1,34 @@
 import { credentialFile, privacySpans, writeArchive, type ArchiveFile } from "@ace/marketplace";
 import { checkFiles } from "@ace/marketplace/checks";
+import { PublishAccepted } from "@ace/protocol/marketplace";
+import { templateMarketCall } from "@ace/client/market-intent";
 import type {
+  TemplateGrantTarget,
   MarketOperation,
+  MarketOwnEntry,
   MarketResult,
   ShareTemplateDraft,
   ShareTemplateReview,
 } from "@ace/protocol/marketplace";
-import { publishAction } from "./publish.ts";
+import { publishAction, workerError } from "./publish.ts";
 import { marketError } from "./market-error.ts";
 import { hiddenFileFindings } from "@ace/marketplace/scan";
 
 type Operation = Extract<MarketOperation, { op: "publishTemplate" }>;
 
+export type TemplateBinding = Pick<TemplateGrantTarget, "hash" | "visibility" | "publisher"> & {
+  revision: string;
+};
+
 export interface TemplatePort {
   authorize(id: string, review: ShareTemplateReview): Promise<ShareTemplateDraft>;
-  published(id: string, review: ShareTemplateReview, draft: ShareTemplateDraft): Promise<void>;
+  begin(
+    id: string,
+    review: ShareTemplateReview,
+    draft: ShareTemplateDraft,
+    binding: TemplateBinding,
+  ): Promise<void>;
+  published(id: string, binding: TemplateBinding): Promise<void>;
 }
 
 function templateFiles(draft: ShareTemplateDraft): ArchiveFile[] {
@@ -46,6 +60,26 @@ function privateText(value: unknown, names: readonly string[]): boolean {
     : false;
 }
 
+function matchesListing(
+  entry: MarketOwnEntry,
+  name: string,
+  version: string,
+  { hash, visibility }: TemplateBinding,
+): boolean {
+  return (
+    entry.summary.type === "spade-bot" &&
+    entry.summary.name === name &&
+    entry.summary.visibility === visibility &&
+    entry.versions.some(
+      (row) =>
+        row.version === version &&
+        row.hash === hash &&
+        row.status !== "blocked" &&
+        row.status !== "withdrawn",
+    )
+  );
+}
+
 export async function publishTemplate(
   port: TemplatePort,
   market: Parameters<typeof publishAction>[0],
@@ -53,6 +87,8 @@ export async function publishTemplate(
   names: readonly string[],
 ): Promise<MarketResult> {
   const { id, review } = operation;
+  if (!market.http || !names[0]?.trim() || !names[1]?.includes("@"))
+    return marketError("signed_out", "Sign in to ace to check the template against your identity.");
   if (
     privateText(
       [
@@ -98,19 +134,21 @@ export async function publishTemplate(
     );
   const { hash } = checked;
   const request = (action: Parameters<typeof publishAction>[1]) => publishAction(market, action);
+  const mine = await request({ action: "me" });
+  if (mine.op !== "publish" || mine.answer.kind !== "me") return mine;
+  const publisher = mine.answer.me.profile?.id;
+  if (!publisher) return marketError("conflict", "Make your publisher profile before you publish.");
+  const binding = { revision: review.revision, hash, visibility: review.visibility, publisher };
+  await port.begin(id, review, draft, binding);
   const recover = await request({ action: "entry", type, name });
   if (recover.op === "publish" && recover.answer.kind === "entry") {
-    const { entry } = recover.answer;
-    const prior = entry.versions.find((item) => item.version === version);
-    if (prior?.hash !== hash || entry.summary.visibility !== review.visibility)
+    if (!matchesListing(recover.answer.entry, name, version, binding))
       return marketError("conflict", "This template already has a different publication.");
-    await port.published(id, review, draft);
+    await port.published(id, binding);
     return { op: "publishedTemplate", name, visibility: review.visibility };
   }
   if (recover.op === "error" && recover.code !== "not_found") return recover;
 
-  const mine = await request({ action: "me" });
-  if (mine.op !== "publish" || mine.answer.kind !== "me") return mine;
   const existing = mine.answer.me.drafts.find(
     (item) => item.type === type && item.name === name && item.version === version,
   );
@@ -131,21 +169,44 @@ export async function publishTemplate(
     return marketError("conflict", "The reviewed package changed before publishing.");
   if (uploaded.scan.state === "scanning")
     return marketError("conflict", "The Store is still scanning the template. Try again shortly.");
-  const result = await publishAction(
-    { ...market, templateReviewHash: hash },
-    {
-      action: "draftPublish",
-      id: uploaded.id,
-      ...(review.visibility === "unlisted" ? { visibility: "unlisted" } : {}),
-    },
-  );
-  if (result.op !== "publish" || result.answer.kind !== "published") return result;
+  const target = {
+    draft: uploaded.id,
+    name,
+    version,
+    hash,
+    publisher,
+    visibility: review.visibility,
+  } as const;
+  if (!market.personGrant) return { op: "templateGrant", target };
+  // Check the source bot and its current private data again at handoff, including after a restart.
+  await port.begin(id, review, draft, binding);
+  const call = templateMarketCall(target);
+  const response = await market.http.send(call.method, call.path, {
+    headers: { authorization: `Bearer ${market.personGrant}` },
+  });
+  if (response.status < 200 || response.status >= 300)
+    return workerError(response.status, response.body);
+  const result = PublishAccepted.safeParse(response.body);
   if (
-    result.answer.type !== type ||
-    result.answer.name !== name ||
-    result.answer.version !== version
+    !result.success ||
+    result.data.type !== type ||
+    result.data.name !== name ||
+    result.data.version !== version ||
+    result.data.hash !== hash ||
+    result.data.visibility !== review.visibility
   )
-    return marketError("conflict", "The Store answered for a different template version.");
-  await port.published(id, review, draft);
+    return marketError(
+      "conflict",
+      "The Store answered for a different template version or visibility.",
+    );
+  // Read the durable Store row too. A lost or misleading receipt cannot mark the card published.
+  const confirmed = await request({ action: "entry", type, name });
+  if (
+    confirmed.op !== "publish" ||
+    confirmed.answer.kind !== "entry" ||
+    !matchesListing(confirmed.answer.entry, name, version, binding)
+  )
+    return marketError("conflict", "The Store has not confirmed the reviewed publication.");
+  await port.published(id, binding);
   return { op: "publishedTemplate", name, visibility: review.visibility };
 }

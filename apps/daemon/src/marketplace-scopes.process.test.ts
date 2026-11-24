@@ -239,6 +239,26 @@ test("a phone paired again with a standing key installs a plugin, and one paired
     };
     const before = await connect(f, sockets, ["admin"], "keyless");
     expect(await install(before, "before")).toMatchObject({ op: "error", code: "reauth" });
+    const template = {
+      op: "publishTemplate",
+      id: `template_${"a".repeat(32)}`,
+      review: {
+        revision: "a".repeat(64),
+        reviewed: true,
+        visibility: "listed",
+        name: "Benchmarks",
+        description: "Measure rendering speed.",
+        task: "Measure a baseline.",
+        notes: [],
+        skills: [],
+        routines: [],
+        connectors: [],
+      },
+    };
+    expect(await before.ask("publish-template", template)).toMatchObject({
+      op: "error",
+      code: "reauth",
+    });
     const again = await connect(f, sockets, ["admin"], "keyed");
     expect(await install(again, "again")).toMatchObject({ op: "done" });
   } finally {

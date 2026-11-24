@@ -3,7 +3,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use spade_core::package::playbooks::Page;
@@ -15,6 +15,7 @@ use crate::teams::share_template::{self, Draft, Schedule};
 #[serde(deny_unknown_fields)]
 struct Review {
     revision: String,
+    reviewed: bool,
     name: String,
     description: String,
     task: String,
@@ -29,6 +30,39 @@ struct Review {
     surfaces: Option<Vec<String>>,
     contracts: Option<Vec<String>>,
     plugins: Option<Vec<String>>,
+}
+
+fn attempt_key(id: &str) -> String {
+    format!("template-attempt:{id}")
+}
+
+fn published_key(id: &str) -> String {
+    format!("template-published:{id}")
+}
+
+#[derive(Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct Binding {
+    revision: String,
+    hash: String,
+    visibility: String,
+    publisher: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Attempt {
+    binding: Binding,
+    draft: Draft,
+}
+
+fn attempt(state: &AppState, id: &str) -> Result<Option<Attempt>, String> {
+    state
+        .engine
+        .store()
+        .setting(&attempt_key(id))
+        .map_err(|e| e.to_string())?
+        .map(|data| serde_json::from_str(&data).map_err(|e| e.to_string()))
+        .transpose()
 }
 
 fn revision(draft: &Draft) -> String {
@@ -52,7 +86,17 @@ fn load(state: &AppState, id: &str) -> Result<Draft, Box<Response>> {
         )));
     }
     match state.engine.share_template(id) {
-        Ok(Some(draft)) => Ok(draft),
+        Ok(Some(draft)) => {
+            if state.engine.share_source_live(&draft.bot) {
+                Ok(draft)
+            } else {
+                let _ = state.engine.store().set_setting(&attempt_key(id), None);
+                Err(Box::new(problem(
+                    StatusCode::GONE,
+                    "The source bot was deleted. Publication was cancelled.",
+                )))
+            }
+        }
         Ok(None) => Err(Box::new(problem(
             StatusCode::NOT_FOUND,
             "No such template.",
@@ -75,23 +119,33 @@ fn stamped(state: &AppState, id: &str, operation: &str, headers: &HeaderMap, byt
 }
 
 pub(super) async fn read(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    match load(&state, &id) {
-        Ok(draft) => {
-            let status = state
-                .engine
-                .store()
-                .setting(&format!("template-published:{id}"));
-            let Ok(status) = status else {
-                return problem(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Couldn't read the template's publication.",
-                );
-            };
-            Json(json!({"revision": revision(&draft), "draft": draft, "visibility": status}))
-                .into_response()
-        }
-        Err(response) => *response,
-    }
+    state
+        .engine
+        .share_template_write(|| match load(&state, &id) {
+            Ok(draft) => {
+                let status = state.engine.store().setting(&published_key(&id));
+                let Ok(status) = status else {
+                    return problem(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Couldn't read the template's publication.",
+                    );
+                };
+                let revision = revision(&draft);
+                let draft = match attempt(&state, &id) {
+                    Ok(Some(pending)) if pending.binding.revision == revision => pending.draft,
+                    Ok(_) => draft,
+                    Err(_) => {
+                        return problem(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "Couldn't read the publication attempt.",
+                        );
+                    }
+                };
+                Json(json!({"revision": revision, "draft": draft, "visibility": status}))
+                    .into_response()
+            }
+            Err(response) => *response,
+        })
 }
 
 pub(super) async fn authorize(
@@ -110,55 +164,137 @@ pub(super) async fn authorize(
         Ok(draft) => draft,
         Err(response) => return *response,
     };
-    let current = revision(&draft);
-    let same_revision = review.revision == current;
-    if !matches!(review.visibility.as_str(), "listed" | "unlisted") {
-        return problem(
-            StatusCode::BAD_REQUEST,
-            "Choose where to share the template.",
-        );
+    if let Err(response) = validate_review(&state, &id, &mut draft, review) {
+        return *response;
     }
-    let status = state
-        .engine
-        .store()
-        .setting(&format!("template-published:{id}"));
-    match status {
-        Ok(Some(_)) => return problem(StatusCode::CONFLICT, "This template is already published."),
+    Json(draft).into_response()
+}
+
+fn validate_review(
+    state: &AppState,
+    id: &str,
+    draft: &mut Draft,
+    review: Review,
+) -> Result<(), Box<Response>> {
+    let refused = |status, message| Box::new(problem(status, message));
+    if review.revision != revision(draft) {
+        return Err(refused(
+            StatusCode::CONFLICT,
+            "The template changed. Open its details again.",
+        ));
+    }
+    if !review.reviewed || !matches!(review.visibility.as_str(), "listed" | "unlisted") {
+        return Err(refused(
+            StatusCode::BAD_REQUEST,
+            "Review every item and choose where to share the template.",
+        ));
+    }
+    match state.engine.store().setting(&published_key(id)) {
+        Ok(Some(_)) => {
+            return Err(refused(
+                StatusCode::CONFLICT,
+                "This template is already published.",
+            ));
+        }
         Ok(None) => {}
         Err(_) => {
-            return problem(
+            return Err(refused(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Couldn't read the publication status.",
-            );
+            ));
         }
     }
-    if let Err(message) = apply_review(&state, &mut draft, review) {
-        return problem(StatusCode::UNPROCESSABLE_ENTITY, &message);
+    apply_review(state, draft, review)
+        .map_err(|message| Box::new(problem(StatusCode::UNPROCESSABLE_ENTITY, &message)))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Begin {
+    binding: Binding,
+    review: Review,
+    draft: Draft,
+}
+
+/// Keeps only the candidate that passed the daemon's final scan. Its source and revision are
+/// checked again under the lock that marks a bot as deleting.
+pub(super) async fn begin(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    bytes: Bytes,
+) -> Response {
+    if !stamped(&state, &id, "begin", &headers, &bytes) {
+        return problem(StatusCode::FORBIDDEN, crate::security::attest::CONFIRM);
     }
-    if current != revision(&draft) {
-        if !same_revision {
+    let Ok(Begin {
+        binding,
+        review,
+        draft: scanned,
+    }) = serde_json::from_slice::<Begin>(&bytes)
+    else {
+        return problem(StatusCode::BAD_REQUEST, "That isn't a publication attempt.");
+    };
+    if binding.revision != review.revision
+        || binding.visibility != review.visibility
+        || binding.publisher.is_empty()
+        || binding.hash.len() != 64
+        || !binding.hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return problem(
+            StatusCode::BAD_REQUEST,
+            "The publication binding doesn't match the review.",
+        );
+    }
+    state.engine.share_template_write(|| {
+        let mut draft = match load(&state, &id) {
+            Ok(draft) => draft,
+            Err(response) => return *response,
+        };
+        if let Err(response) = validate_review(&state, &id, &mut draft, review) {
+            return *response;
+        }
+        if draft != scanned {
             return problem(
                 StatusCode::CONFLICT,
-                "The template changed. Open its details again.",
+                "The package changed after its privacy check.",
             );
         }
-        // Keep the approved bytes before any network call, so the same review can be retried.
-        let saved = serde_json::to_string(&draft).is_ok_and(|data| {
-            data.len() <= 512 * 1024
+        match attempt(&state, &id) {
+            Ok(Some(previous)) if previous.binding == binding && previous.draft == draft => {
+                return Json(json!({"ok": true})).into_response();
+            }
+            Ok(Some(_)) => {
+                return problem(
+                    StatusCode::CONFLICT,
+                    "Finish the existing publication attempt or draft a new template.",
+                );
+            }
+            Ok(None) => {}
+            Err(_) => {
+                return problem(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Couldn't read the publication attempt.",
+                );
+            }
+        }
+        let saved = serde_json::to_string(&Attempt { binding, draft }).is_ok_and(|data| {
+            data.len() <= 540 * 1024
                 && state
                     .engine
                     .store()
-                    .set_setting(&Draft::key(&id), Some(&data))
+                    .set_setting(&attempt_key(&id), Some(&data))
                     .is_ok()
         });
-        if !saved {
-            return problem(
+        if saved {
+            Json(json!({"ok": true})).into_response()
+        } else {
+            problem(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Couldn't keep the reviewed draft.",
-            );
+                "Couldn't keep the reviewed publication attempt.",
+            )
         }
-    }
-    Json(draft).into_response()
+    })
 }
 
 fn apply_review(state: &AppState, draft: &mut Draft, review: Review) -> Result<(), String> {
@@ -272,13 +408,6 @@ fn retain_items(value: Option<&mut Value>, selected: Option<&[String]>, field: &
     }
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Receipt {
-    visibility: String,
-    draft: Draft,
-}
-
 pub(super) async fn published(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -288,29 +417,45 @@ pub(super) async fn published(
     if !stamped(&state, &id, "published", &headers, &bytes) {
         return problem(StatusCode::FORBIDDEN, crate::security::attest::CONFIRM);
     }
-    let Ok(receipt) = serde_json::from_slice::<Receipt>(&bytes) else {
+    let Ok(binding) = serde_json::from_slice::<Binding>(&bytes) else {
         return problem(StatusCode::BAD_REQUEST, "That isn't a publication receipt.");
     };
-    if !valid_id(&id) || !matches!(receipt.visibility.as_str(), "listed" | "unlisted") {
-        return problem(StatusCode::BAD_REQUEST, "Invalid publication receipt.");
-    }
-    let Ok(draft) = serde_json::to_string(&receipt.draft) else {
-        return problem(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Couldn't keep the published template.",
-        );
-    };
-    match state.engine.store().set_settings(&[
-        (&Draft::key(&id), Some(&draft)),
-        (
-            &format!("template-published:{id}"),
-            Some(&receipt.visibility),
-        ),
-    ]) {
-        Ok(()) => Json(json!({ "ok": true })).into_response(),
-        Err(_) => problem(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Couldn't keep the published template.",
-        ),
-    }
+    state.engine.share_template_write(|| {
+        let draft = match load(&state, &id) {
+            Ok(draft) => draft,
+            Err(response) => return *response,
+        };
+        let Ok(Some(pending)) = attempt(&state, &id) else {
+            return problem(
+                StatusCode::CONFLICT,
+                "There's no matching publication attempt.",
+            );
+        };
+        if pending.binding != binding
+            || revision(&draft) != binding.revision
+            || draft.bot != pending.draft.bot
+        {
+            return problem(
+                StatusCode::CONFLICT,
+                "The receipt doesn't match the reviewed publication.",
+            );
+        }
+        let Ok(data) = serde_json::to_string(&pending.draft) else {
+            return problem(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Couldn't keep the published template.",
+            );
+        };
+        match state.engine.store().set_settings(&[
+            (&Draft::key(&id), Some(&data)),
+            (&published_key(&id), Some(&binding.visibility)),
+            (&attempt_key(&id), None),
+        ]) {
+            Ok(()) => Json(json!({ "ok": true })).into_response(),
+            Err(_) => problem(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Couldn't keep the published template.",
+            ),
+        }
+    })
 }

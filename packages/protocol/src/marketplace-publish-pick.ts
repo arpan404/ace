@@ -173,11 +173,13 @@ export const marketPrivacyOperations = [
   z.strictObject({
     op: z.literal("privacyCheck"),
     texts: z.array(z.string().max(8000)).max(40),
+    requireIdentity: z.literal(true).optional(),
   }),
 ] as const;
 export const marketPrivacyResults = [
   z.strictObject({
     op: z.literal("privacyCheck"),
     spans: z.array(z.array(MarketPrivacySpan).max(200)).max(40),
+    identityChecked: z.literal(true).optional(),
   }),
 ] as const;

@@ -98,6 +98,7 @@ pub fn router(state: AppState) -> Router {
             "/share-templates/{id}/authorize",
             post(share_templates::authorize),
         )
+        .route("/share-templates/{id}/begin", post(share_templates::begin))
         .route(
             "/share-templates/{id}/published",
             post(share_templates::published),

@@ -1,9 +1,131 @@
 mod support;
 
+use std::sync::Arc;
+
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use spade_server::tools::{EngineHandle, TemplateDraft, TemplatePrivacy};
 use spade_testkit::Script;
-use support::{Result, TOKEN, person_stamp};
+use support::{Result, Spade, TOKEN, person_stamp};
+
+struct IdentityScan;
+
+impl TemplatePrivacy for IdentityScan {
+    fn scan<'a>(
+        &'a self,
+        texts: &'a [&'a str],
+    ) -> spade_server::teams::BoxFuture<'a, Option<bool>> {
+        Box::pin(async move {
+            if texts.contains(&"Identity unavailable") {
+                None
+            } else {
+                Some(false)
+            }
+        })
+    }
+}
+
+async fn signed(
+    spade: &Spade,
+    id: &str,
+    operation: &str,
+    body: &Value,
+) -> Result<(u16, Value, String)> {
+    let bytes = serde_json::to_vec(body)?;
+    let hash = Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    let target = format!("template:{id}");
+    let value = format!("{operation}:{hash}");
+    if std::env::var_os("SPADE_TEST_DAEMON_STAMPS").is_some() {
+        // Keep Cargo-only runs independent of the JS workspace. The cross-language run uses the
+        // production daemon port and records one real stamp so the test can replay it.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let result = tokio::process::Command::new("bun")
+            .current_dir(root)
+            .args([
+                "-e",
+                r#"import { templatePort } from "./apps/daemon/src/marketplace/template-port.ts";
+                import { readFileSync } from "node:fs";
+                const [base, token, key, id, operation, data] = process.argv.slice(1);
+                const body = JSON.parse(data);
+                let captured;
+                const proxy = Bun.serve({
+                    hostname: "127.0.0.1", port: 0,
+                    async fetch(req) {
+                        const headers = new Headers(req.headers);
+                        headers.delete("host");
+                        const reply = await fetch(base + new URL(req.url).pathname, {
+                            method: req.method, body: await req.arrayBuffer(), headers,
+                        });
+                        captured = [reply.status, await reply.clone().json(), headers.get("x-ace-person")];
+                        return reply;
+                    }
+                });
+                const port = templatePort({
+                    connection: () => ({ host: "127.0.0.1", port: proxy.port, token }),
+                    key: () => Buffer.from(readFileSync(key, "utf8").trim(), "hex"),
+                    now: Date.now,
+                });
+                try {
+                    if (operation === "authorize") {
+                        const draft = await port.authorize(id, body);
+                        captured[1] = draft;
+                    }
+                    if (operation === "begin") await port.begin(id, body.review, body.draft, body.binding);
+                    if (operation === "published") await port.published(id, body);
+                } catch (error) {
+                    if (!captured || captured[0] < 400) throw error;
+                } finally {
+                    proxy.stop(true);
+                }
+                console.log(JSON.stringify(captured));"#,
+                &spade.base,
+                TOKEN,
+            ])
+            .arg(&spade.person_key_path)
+            .arg(id)
+            .arg(operation)
+            .arg(String::from_utf8(bytes)?)
+            .output()
+            .await?;
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        return Ok(serde_json::from_slice(&result.stdout)?);
+    }
+    let stamp = person_stamp(&spade.person_key_path, &target, &value)?;
+    let response = spade
+        .http
+        .post(format!(
+            "{}/v1/share-templates/{id}/{operation}",
+            spade.base
+        ))
+        .bearer_auth(TOKEN)
+        .header(spade_server::security::attest::HEADER, &stamp)
+        .body(bytes)
+        .send()
+        .await?;
+    Ok((response.status().as_u16(), response.json().await?, stamp))
+}
+
+async fn restart(spade: Spade) -> Result<Spade> {
+    let spade = spade
+        .restart_with(
+            vec![],
+            vec![Script::reply("unused")],
+            support::Options {
+                ids: Some(Arc::new(spade_server::clock::SystemIds)),
+                ..support::Options::default()
+            },
+        )
+        .await?;
+    support::packaged::secure(&spade).await?;
+    Ok(spade)
+}
 
 #[tokio::test]
 async fn template_draft_refuses_personal_data_and_bearer_cannot_publish() -> Result {
@@ -32,16 +154,32 @@ async fn template_draft_refuses_personal_data_and_bearer_cannot_publish() -> Res
     let mut copied = proposal.clone();
     copied["knowledge"][0]["body"] =
         json!("Open the archived results from my private benchmark run.");
+    let engine = EngineHandle::default();
     let spade = support::packaged::secured(
         vec![
             Script::reply("").call("private", "template_draft", private),
             Script::reply("").call("copied", "template_draft", copied),
-            Script::reply("").call("clean", "template_draft", proposal),
+            Script::reply("").call(
+                "offline",
+                "template_draft",
+                json!({
+                    "description": "Identity unavailable",
+                    "task": "Measure the baseline."
+                }),
+            ),
+            Script::reply("").call("clean", "template_draft", proposal.clone()),
+            Script::reply("").call("other", "template_draft", proposal),
             Script::reply("The template is unpublished."),
         ],
-        Vec::new(),
+        vec![Arc::new(TemplateDraft::new(
+            engine.clone(),
+            None,
+            None,
+            Some(Arc::new(IdentityScan)),
+        ))],
     )
     .await?;
+    engine.set(&spade.engine);
     let agent = spade
         .new_agent("Render benchmarks", "Work in /Users/test/private.")
         .await?;
@@ -57,7 +195,8 @@ async fn template_draft_refuses_personal_data_and_bearer_cannot_publish() -> Res
         .iter()
         .filter(|event| event["type"] == "card_shown")
         .collect();
-    assert_eq!(cards.len(), 1, "{events:?}");
+    assert_eq!(cards.len(), 2, "{events:?}");
+    let other_id = cards[1]["card"].as_str().ok_or("missing second draft")?;
     let id = cards[0]["card"].as_str().unwrap_or_default();
     let (status, details) = spade.get(&format!("/v1/share-templates/{id}")).await?;
     assert_eq!(status, 200);
@@ -95,6 +234,7 @@ async fn template_draft_refuses_personal_data_and_bearer_cannot_publish() -> Res
     let review = json!({
         "revision": details["revision"],
         "visibility": "unlisted",
+        "reviewed": true,
         "name": "Render benchmarks",
         "description": "Measure rendering performance.",
         "task": "Compare median run times.",
@@ -109,26 +249,18 @@ async fn template_draft_refuses_personal_data_and_bearer_cannot_publish() -> Res
     let (status, _) = spade.post_unstamped(&path, review.clone()).await?;
     assert_eq!(status, 403);
 
-    let bytes = serde_json::to_vec(&review)?;
-    let hash: String = Sha256::digest(&bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
-    let stamp = person_stamp(
-        &spade.person_key_path,
-        &format!("template:{id}"),
-        &format!("authorize:{hash}"),
-    )?;
-    let response = spade
-        .http
-        .post(format!("{}{path}", spade.base))
-        .bearer_auth(TOKEN)
-        .header(spade_server::security::attest::HEADER, &stamp)
-        .body(bytes.clone())
-        .send()
-        .await?;
-    assert_eq!(response.status().as_u16(), 200);
-    let authorized: Value = response.json().await?;
+    let (status, _) = spade.post(&format!("/v1/agents/{bot}/knowledge"), json!({
+        "topic":"reviews","title":"Internal status update",
+        "body":"Send quarterly visualization metrics from the walnut repository to the internal dashboard."
+    })).await?;
+    assert_eq!(status, 201);
+    let mut refused = review.clone();
+    refused["knowledge"][0]["body"] =
+        json!("Report quarterly visualization measurements from the walnut repository.");
+    let (status, _, _) = signed(&spade, id, "authorize", &refused).await?;
+    assert_eq!(status, 422);
+    let (status, authorized, stamp) = signed(&spade, id, "authorize", &review).await?;
+    assert_eq!(status, 200, "{authorized}");
     assert_eq!(authorized["recipe"]["task"], "Compare median run times.");
     assert_eq!(authorized["recipe"]["notes"], json!([]));
     assert_eq!(
@@ -143,15 +275,68 @@ async fn template_draft_refuses_personal_data_and_bearer_cannot_publish() -> Res
         .post(format!("{}{path}", spade.base))
         .bearer_auth(TOKEN)
         .header(spade_server::security::attest::HEADER, stamp)
-        .body(bytes)
+        .body(serde_json::to_vec(&review)?)
         .send()
         .await?;
     assert_eq!(replay.status().as_u16(), 403);
 
-    let (_, still) = spade.get(&format!("/v1/share-templates/{id}")).await?;
-    assert_ne!(still["revision"], details["revision"]);
-    assert_eq!(still["visibility"], Value::Null);
-    assert_eq!(still["draft"], authorized);
+    let path = format!("/v1/share-templates/{id}");
+    let (_, still) = spade.get(&path).await?;
+    assert_eq!(
+        still, details,
+        "an authorization alone must leave the draft unchanged"
+    );
+    let binding = json!({
+        "revision": review["revision"], "visibility": "unlisted",
+        "hash": "4".repeat(64), "publisher": "pub_example",
+    });
+    let attempt = json!({ "binding": binding, "review": review, "draft": authorized });
+    let (status, body, _) = signed(&spade, id, "begin", &attempt).await?;
+    assert_eq!(status, 200, "{body}");
+    let mut other_review = review.clone();
+    let (_, other) = spade
+        .get(&format!("/v1/share-templates/{other_id}"))
+        .await?;
+    other_review["revision"] = other["revision"].clone();
+    let mut other_binding = binding.clone();
+    other_binding["revision"] = other["revision"].clone();
+    let (status, other_draft, _) = signed(&spade, other_id, "authorize", &other_review).await?;
+    assert_eq!(status, 200);
+    let other_attempt = json!({
+        "binding": other_binding, "review": other_review, "draft": other_draft
+    });
+    let (status, _, _) = signed(&spade, other_id, "begin", &other_attempt).await?;
+    assert_eq!(status, 200);
+    let spade = restart(spade).await?;
+    let (_, pending) = spade.get(&path).await?;
+    assert_eq!(pending["revision"], details["revision"]);
+    assert_eq!(pending["visibility"], Value::Null);
+    assert_eq!(pending["draft"], authorized);
+    let mut wrong = binding.clone();
+    wrong["visibility"] = json!("listed");
+    let (status, _, _) = signed(&spade, id, "published", &wrong).await?;
+    assert_eq!(status, 409);
+    let (status, _, receipt_stamp) = signed(&spade, id, "published", &binding).await?;
+    assert_eq!(status, 200);
+    let spade = restart(spade).await?;
+    let response = spade
+        .http
+        .post(format!("{}{path}/published", spade.base))
+        .bearer_auth(TOKEN)
+        .header(spade_server::security::attest::HEADER, receipt_stamp)
+        .body(serde_json::to_vec(&binding)?)
+        .send()
+        .await?;
+    assert_eq!(response.status().as_u16(), 403);
+    let (status, _, _) = signed(&spade, id, "published", &binding).await?;
+    assert_eq!(status, 409);
+    let (_, published) = spade.get(&path).await?;
+    assert_eq!(published["visibility"], "unlisted");
+    assert_ne!(published["revision"], details["revision"]);
+    let (status, deleted) = spade.delete(&format!("/v1/agents/{bot}")).await?;
+    assert!(matches!(status, 200 | 204), "{status} {deleted}");
+    let (status, _, _) = signed(&spade, other_id, "published", &other_binding).await?;
+    assert_eq!(status, 410);
     let (status, installed) = spade
         .post(
             "/v1/agents",
