@@ -28,9 +28,9 @@ test("the model picker lists what each endpoint serves with its facts, and takes
   const options = models.getAllByRole("option");
   expect(options.map((option) => option.textContent)).toEqual([
     "First usable modelSaved model",
-    "Saved model",
-    "Llama128K context",
-    "Sonnet200K context·",
+    "Saved modelCtrl+1",
+    "Llama128K contextCtrl+2",
+    "Sonnet200K context·Ctrl+3",
   ]);
   const sonnet = options[3];
   if (!sonnet) throw new Error("Expected Sonnet option");

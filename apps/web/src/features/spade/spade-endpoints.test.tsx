@@ -116,7 +116,10 @@ test("a Cloudflare gateway's token is asked for beside the provider's key", asyn
   await userEvent.click(await screen.findByRole("button", { name: "Add a provider" }));
   const dialog = within(await screen.findByRole("dialog", { name: "Add a provider" }));
   await userEvent.click(dialog.getByRole("button", { name: /Cloudflare AI Gateway/ }));
-  await userEvent.type(dialog.getByRole("textbox", { name: "Account ID" }), "acct-1");
+  await userEvent.type(
+    dialog.getByRole("textbox", { name: "Account ID" }),
+    "0123456789abcdef0123456789abcdef",
+  );
   await userEvent.type(dialog.getByRole("textbox", { name: "Gateway name" }), "my-gateway");
   await userEvent.type(dialog.getByLabelText("Gateway token"), "cf-token");
   await userEvent.click(dialog.getByRole("button", { name: "Add provider" }));
@@ -125,13 +128,16 @@ test("a Cloudflare gateway's token is asked for beside the provider's key", asyn
     if (!endpoint) throw new Error("the gateway was not added");
     return endpoint;
   });
-  expect(created.base_url).toBe("https://gateway.ai.cloudflare.com/v1/acct-1/my-gateway/compat/");
+  expect(created.base_url).toBe(
+    "https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/my-gateway/compat/",
+  );
   // The token travels in the create itself, so a refusal can never leave an endpoint behind.
   expect(spade.sent("POST", "/v1/endpoints")).toEqual([
     {
       name: "Cloudflare AI Gateway",
       format: "openai-chat",
-      base_url: "https://gateway.ai.cloudflare.com/v1/acct-1/my-gateway/compat/",
+      base_url:
+        "https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/my-gateway/compat/",
       gateway_token: "cf-token",
     },
   ]);
