@@ -244,6 +244,13 @@ function bindFailureFields(value: unknown): BindFailureFields | undefined {
   };
 }
 
+/** The OS code a failed bind or start carries, or `unknown` when it names none. */
+export function transportFailureCode(error: unknown): string {
+  if (typeof error !== "object" || error === null) return "unknown";
+  const code = Reflect.get(error, "code");
+  return typeof code === "string" ? code : "unknown";
+}
+
 /**
  * A listener start's failure as node's `listen` reports it. The binding writes the errno's name
  * (`EADDRINUSE`, `EACCES`, `EADDRNOTAVAIL`, ...), node's `errno`, the call and the address as JSON

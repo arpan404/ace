@@ -47,6 +47,41 @@ export interface NativeUpgrade {
   ): void;
 }
 
+/** One listener's view of the reservations it admitted: nobody else's are released at its close. */
+export interface OwnedUpgrade extends NativeUpgrade {
+  /** Releases every reservation this listener still holds, and only those. */
+  releaseHeld(): void;
+}
+
+/**
+ * The reservations one listener admitted, kept apart from every other listener's. TypeScript takes a
+ * pre-auth slot at `admit` and gives it up at `release` or `opened`; whatever is still held when the
+ * listener closes is released here, so a closing loopback never drops a remote upgrade's charge.
+ */
+export function ownReservations(upgrade: NativeUpgrade): OwnedUpgrade {
+  const held = new Set<number>();
+  return {
+    async admit(request) {
+      const answer = await upgrade.admit(request);
+      if (answer.decision === "accept") held.add(answer.reservation);
+      return answer;
+    },
+    release(reservation) {
+      held.delete(reservation);
+      upgrade.release(reservation);
+    },
+    opened(handle, reservation, userAgent) {
+      // The registration consumes the reservation, exactly as a `ws` upgrade's does.
+      held.delete(reservation);
+      upgrade.opened(handle, reservation, userAgent);
+    },
+    releaseHeld() {
+      for (const reservation of held) upgrade.release(reservation);
+      held.clear();
+    },
+  };
+}
+
 /**
  * The native listener asks TypeScript; this module answers and registers. It decides nothing
  * itself: `upgradeDecision` is the same function the `ws` listeners use, `preAuth` the same

@@ -1,8 +1,9 @@
 import { once } from "node:events";
 import { createHash } from "node:crypto";
+import { get as httpsGet } from "node:https";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir, networkInterfaces } from "node:os";
-import { connect as connectTcp } from "node:net";
+import { connect as connectTcp, createServer as createNetServer } from "node:net";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
@@ -14,6 +15,33 @@ import { Client, fixture, token } from "./socket-test-support.ts";
 
 import { cleanups, identity, setup } from "./remote-test-support.ts";
 import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
+
+/** A GET over TLS with the pin, succeeding on the handshake whatever the status. */
+function pinnedGet(port: number, fingerprint: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = httpsGet(
+      { host: "127.0.0.1", port, path: "/v1/devices", agent: pinnedAgent(fingerprint) },
+      (response) => {
+        response.resume();
+        response.once("end", () => resolve());
+      },
+    );
+    request.once("error", reject);
+  });
+}
+
+/** A free port, held only for the moment it takes to read it. */
+async function freePort(): Promise<number> {
+  const server = createNetServer();
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("No port");
+  const port = address.port;
+  server.close();
+  await once(server, "close");
+  return port;
+}
 describe("remote access", () => {
   it("carries the pin and one-time code only in the URL fragment and consumes the code once", async () => {
     const f = await setup();
@@ -281,6 +309,30 @@ describe("remote access", () => {
     expect(paired.device).toMatchObject({ name: "Phone", scopes: ["read", "operate"] });
     await expect(redeemPairing(link.toString(), "Second phone")).rejects.toThrow("HTTP 401");
   });
+  it("serves the same pinned identity when the static listener restarts on the same port", async () => {
+    const port = await freePort();
+    const remote = {
+      host: "127.0.0.1",
+      advertisedHost: "127.0.0.1",
+      port,
+      identity,
+    };
+    const first = await fixture({ remote });
+    const fingerprint = first.server.fingerprint;
+    if (!fingerprint) throw new Error("Remote listener missing");
+    await pinnedGet(port, fingerprint);
+    await first.close();
+    const second = await fixture({ remote });
+    try {
+      const restarted = second.server.fingerprint;
+      expect(restarted).toBe(fingerprint);
+      if (!restarted) throw new Error("Remote listener missing");
+      expect(restarted).toBe(identity.fingerprint);
+      await pinnedGet(port, restarted);
+    } finally {
+      await second.close();
+    }
+  }, 30_000);
   it("persists device credentials and the private TLS identity across daemon restarts in LAN mode", async () => {
     const home = mkdtempSync(join(tmpdir(), "ace-remote-restart-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));

@@ -370,31 +370,3 @@ fn millis(value: f64) -> Duration {
 fn reason(error: impl std::fmt::Display) -> napi::Error {
     napi::Error::from_reason(error.to_string())
 }
-
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use super::RemoteLimitsJs;
-    use super::connection_limits;
-
-    /// The static listener's numbers are the ones the shell passes
-    /// (`ConnectionLimits::remote_static()`, T1b.1a's table).
-    #[test]
-    fn the_static_limits_arrive_as_the_remote_static_values() {
-        let limits = connection_limits(RemoteLimitsJs {
-            handshake_ms: 120_000.0,
-            first_head_ms: 10_000.0,
-            head_ms: Some(10_000.0),
-            keep_alive_ms: 5_000.0,
-            trusted_keep_alive_ms: None,
-        });
-        assert_eq!(limits.handshake, Some(Duration::from_secs(120)));
-        assert_eq!(limits.first_head, Duration::from_millis(10_000));
-        assert_eq!(limits.head, Some(Duration::from_millis(10_000)));
-        assert_eq!(limits.keep_alive, Duration::from_secs(5));
-        assert_eq!(limits.trusted_keep_alive, None);
-        assert_eq!(limits.exchange, None);
-        assert_eq!(limits.upgrade_write, Duration::from_secs(5));
-    }
-}

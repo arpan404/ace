@@ -4,21 +4,15 @@ import {
   noteTransportEvent,
   noteTransportStart,
   registerTransportListener,
+  transportFailureCode,
   type NativeHandled,
   type NativeRemoteHandle,
   type NativeRemoteLimits,
 } from "@ace/provider-kit/native-transport";
-import type { NativeUpgrade } from "./native-upgrade.ts";
+import { ownReservations, type NativeUpgrade } from "./native-upgrade.ts";
 
 /** How long admission may take when the caller names none: the hello window. */
 const ADMIT_TIMEOUT_MS = 5_000;
-
-/** The OS code a failed bind carries, or `unknown` when it names none. */
-function bindFailureCode(error: unknown): string {
-  if (typeof error !== "object" || error === null) return "unknown";
-  const code = Reflect.get(error, "code");
-  return typeof code === "string" ? code : "unknown";
-}
 
 /** What a native remote listener needs from the daemon it opens sockets into. */
 export interface NativeRemoteOptions {
@@ -58,12 +52,13 @@ export interface NativeRemoteListener {
  * carries what the listener, on that port, handled.
  *
  * The reservations admitted through this listener are held here and released when `close`
- * resolves; never `preAuth.releaseAll()`, which would drop the loopback listener's as well.
+ * resolves: only this listener's, never the loopback's or another remote listener's.
  */
 export async function startNativeRemote(
   options: NativeRemoteOptions,
 ): Promise<NativeRemoteListener> {
-  const reservations = new Set<number>();
+  // This listener's own reservations: its close releases what it admitted, and nothing else.
+  const upgrade = ownReservations(options.upgrade);
   let handle: NativeRemoteHandle;
   try {
     handle = await nativeRemoteClass().start(
@@ -82,20 +77,9 @@ export async function startNativeRemote(
           trustedKeepAliveMs: options.limits.trustedKeepAliveMs ?? undefined,
         },
       },
-      async (request) => {
-        const answer = await options.upgrade.admit(request);
-        if (answer.decision === "accept") reservations.add(answer.reservation);
-        return answer;
-      },
-      (reservation) => {
-        reservations.delete(reservation);
-        options.upgrade.release(reservation);
-      },
-      (socket, reservation, userAgent) => {
-        // The reservation is consumed by the registration, exactly as a `ws` upgrade's is.
-        reservations.delete(reservation);
-        options.upgrade.opened(socket, reservation, userAgent);
-      },
+      upgrade.admit,
+      upgrade.release,
+      upgrade.opened,
       (code, message, repeated) => {
         const failure = new Error(message);
         Object.assign(failure, { code, repeated });
@@ -105,7 +89,9 @@ export async function startNativeRemote(
   } catch (error) {
     // The bind never landed: the requested port is the only port to name. `code` is the OS's
     // (`EADDRINUSE`, `EADDRNOTAVAIL`), as `bindListener`'s failure carries it.
-    noteTransportEvent("remote", options.port, "bind-failed", { code: bindFailureCode(error) });
+    noteTransportEvent("remote", options.port, "bind-failed", {
+      code: transportFailureCode(error),
+    });
     throw error;
   }
   const port = handle.port();
@@ -120,16 +106,20 @@ export async function startNativeRemote(
     close(deadlineMs) {
       closing ??= (async () => {
         noteTransportEvent("remote", port, "close-requested", { bound: true });
+        let closed = false;
         try {
           await handle.close(deadlineMs);
+          closed = true;
         } finally {
+          unregister();
+          releasePort();
+          // Only this listener's reservations; the loopback's are the loopback's.
+          upgrade.releaseHeld();
+        }
+        if (closed) {
           const counts: NativeHandled = handle.handled();
           // What this listener, on this port, handled: a bind line only proves a bind.
           noteTransportEvent("remote", port, "close", counts);
-          unregister();
-          releasePort();
-          for (const reservation of reservations) options.upgrade.release(reservation);
-          reservations.clear();
         }
       })();
       return closing;

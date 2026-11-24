@@ -1379,9 +1379,8 @@ export async function startServer(options: ServerOptions): Promise<{
       // Native first: 1001 and bounded terminate, then drain, then the internal servers (T1a.7).
       await unwindNativeListeners(
         listeners,
-        [nativeSockets, remoteSockets],
+        { loopback: nativeSockets, remote: remoteSockets },
         (socket) => closer.gracefulClose(socket, 1001, "Daemon shutdown"),
-        () => preAuth.releaseAll(),
       );
     }
     await closeListener(local);
@@ -1444,8 +1443,10 @@ export async function startServer(options: ServerOptions): Promise<{
         machineUpdates?.close();
         for (const cleanup of cleanups.values()) cleanup();
         for (const socket of relaySockets) closer.gracefulClose(socket, 1001, "Daemon shutdown");
-        closeNativeSockets([nativeSockets, remoteSockets], (socket) =>
-          closer.gracefulClose(socket, 1001, "Daemon shutdown"),
+        closeNativeSockets(
+          listeners ?? {},
+          { loopback: nativeSockets, remote: remoteSockets },
+          (socket) => closer.gracefulClose(socket, 1001, "Daemon shutdown"),
         );
         for (const server of servers)
           for (const socket of server.clients) {
@@ -1455,7 +1456,6 @@ export async function startServer(options: ServerOptions): Promise<{
         const nativeClosing = shutdownNativeListeners(
           { loopback: listeners?.loopback, remote: listeners?.remote },
           TRANSPORT_CLOSE_DEADLINE_MS,
-          () => preAuth.releaseAll(),
         );
         void Promise.all([
           ...nativeListenerStages(

@@ -6,12 +6,19 @@ import {
   noteTransportStart,
   registerTransportListener,
   transportAddon,
+  transportFailureCode,
+  type NativeLoopbackHandle,
   type NativeRemoteLimits,
 } from "@ace/provider-kit/native-transport";
 import { bindListener as bind, closeListener } from "./listener.ts";
 import type { MainSocket } from "./main-socket.ts";
 import { startNativeRemote, type NativeRemoteListener } from "./native-remote.ts";
-import { nativeUpgrade, type NativeUpgrade, type NativeUpgradeWiring } from "./native-upgrade.ts";
+import {
+  nativeUpgrade,
+  ownReservations,
+  type NativeUpgrade,
+  type NativeUpgradeWiring,
+} from "./native-upgrade.ts";
 import { urlHost } from "./network.ts";
 import { proxyGuard } from "./proxy-guard.ts";
 
@@ -56,6 +63,8 @@ export interface NativeLoopbackStart {
   upgrades: NativeUpgrade;
   /** Holds a port as ace's (ADR 0194); the returned function releases it. */
   holdPort(port: number): () => void;
+  /** Records the bound public port before any upgrade can be admitted. */
+  publicPort?(port: number): void;
 }
 
 /**
@@ -68,20 +77,21 @@ export async function startNativeLoopback(
 ): Promise<StartedNativeLoopback> {
   const internalPort = await options.bindInternal();
   const internalHttpUrl = `http://127.0.0.1:${internalPort}`;
-  const native = await transportAddon().NativeLoopback.start(
-    {
-      port: options.port,
-      targetPort: internalPort,
-      secretHex: options.hopSecret,
-      admitTimeoutMs: ADMIT_TIMEOUT_MS,
-    },
-    options.upgrades.admit,
-    options.upgrades.release,
-    options.upgrades.opened,
-  );
+  // The listener's own reservations: its close releases what it admitted, and nothing else.
+  const upgrades = ownReservations(options.upgrades);
+  let native: NativeLoopbackHandle;
+  try {
+    native = await startLoopback(options, internalPort, upgrades);
+  } catch (error) {
+    // A start that never bound names the failure, and has no close.
+    noteTransportEvent("loopback", options.port, "bind-failed", {
+      code: transportFailureCode(error),
+    });
+    throw error;
+  }
   const port = native.port();
-  // Both ports are ace's from the bind (ADR 0194): the internal one through `attach`'s
-  // `tunnel.track`, the public one here.
+  // The own-Origin check needs the port Rust chose before an upgrade can consult it (T1a.7).
+  options.publicPort?.(port);
   const releasePort = options.holdPort(port);
   noteTransportStart("loopback", port);
   const unregister = registerTransportListener("loopback", port, () => native.handled());
@@ -90,15 +100,38 @@ export async function startNativeLoopback(
     internalHttpUrl,
     async close(deadlineMs) {
       noteTransportEvent("loopback", port, "close-requested", { bound: true });
+      let closed = false;
       try {
         await native.close(deadlineMs);
+        closed = true;
       } finally {
-        noteTransportEvent("loopback", port, "close", native.handled());
+        // The port first, then the reservations it still holds, as T1a.7's close had it.
         unregister();
         releasePort();
+        upgrades.releaseHeld();
       }
+      if (closed) noteTransportEvent("loopback", port, "close", native.handled());
     },
   };
+}
+
+/** The native loopback's own start, so the shell can name a refusal and add its bookkeeping. */
+async function startLoopback(
+  options: NativeLoopbackStart,
+  internalPort: number,
+  upgrades: NativeUpgrade,
+): Promise<NativeLoopbackHandle> {
+  return transportAddon().NativeLoopback.start(
+    {
+      port: options.port,
+      targetPort: internalPort,
+      secretHex: options.hopSecret,
+      admitTimeoutMs: ADMIT_TIMEOUT_MS,
+    },
+    upgrades.admit,
+    upgrades.release,
+    upgrades.opened,
+  );
 }
 
 /** What the static remote listener needs: its identity, its hop target, and the tunnel. */
@@ -170,7 +203,7 @@ export async function startNativeStaticRemote(
   };
 }
 
-/** The two native listeners as one shutdown: the loopback's close releases its reservations. */
+/** The two native listeners as one shutdown, each releasing only its own reservations. */
 export interface NativeListeners {
   loopback?: StartedNativeLoopback | undefined;
   remote?: StartedNativeRemote | undefined;
@@ -227,61 +260,70 @@ export interface StartedNativeListeners extends NativeListeners {
 export async function startNativeListeners(
   options: NativeListenersStart,
 ): Promise<StartedNativeListeners> {
-  let port: number;
-  let internalHttpUrl: string | undefined;
   let loopback: StartedNativeLoopback | undefined;
-  if (options.hopSecret === undefined) {
-    port = await options.bindLocal(options.port);
-  } else {
-    // Known before Rust accepts; a `0` port is refused until recorded below (T1a.7).
-    options.publicPort(options.port);
-    loopback = await startNativeLoopback({
-      port: options.port,
-      bindInternal: () => options.bindLocal(0),
-      hopSecret: options.hopSecret,
-      upgrades: options.loopbackUpgrades,
-      holdPort: (bound) => options.tunnel.hold(bound),
-    });
-    port = loopback.port;
-    internalHttpUrl = loopback.internalHttpUrl;
-    options.publicPort(port);
-  }
   let remote: StartedNativeRemote | undefined;
-  let remoteOrigin: string | undefined;
-  const remoteConfig = options.remote;
-  if (remoteConfig) {
-    let remotePort: number;
-    if (remoteConfig.native) {
-      if (options.hopSecret === undefined)
-        throw new Error("ACE_TRANSPORT=native,remote needs the loopback listener's hop secret");
-      remote = await startNativeStaticRemote({
-        host: remoteConfig.host,
-        port: remoteConfig.port,
-        identity: remoteConfig.identity,
-        hopSecret: options.hopSecret,
-        requests: remoteConfig.requests,
-        admission: remoteConfig.admission,
-        wss: remoteConfig.wss,
-        sockets: options.sockets,
-        holdPort: (bound) => options.tunnel.hold(bound),
-        track: (server) => options.tunnel.track(server),
-        log: remoteConfig.log,
-      });
-      remotePort = remote.port;
-    } else if (remoteConfig.bind !== undefined) {
-      remotePort = await remoteConfig.bind();
+  try {
+    let port: number;
+    let internalHttpUrl: string | undefined;
+    if (options.hopSecret === undefined) {
+      port = await options.bindLocal(options.port);
     } else {
-      throw new Error("The remote listener has no bind");
+      const internalPort = await options.bindLocal(0);
+      internalHttpUrl = `http://127.0.0.1:${internalPort}`;
+      // Known before Rust accepts; a `0` port is refused until recorded below (T1a.7).
+      options.publicPort(options.port);
+      loopback = await startNativeLoopback({
+        port: options.port,
+        bindInternal: async () => internalPort,
+        hopSecret: options.hopSecret,
+        upgrades: options.loopbackUpgrades,
+        holdPort: (bound) => options.tunnel.hold(bound),
+        publicPort: (bound) => options.publicPort(bound),
+      });
+      port = loopback.port;
+      internalHttpUrl = loopback.internalHttpUrl;
     }
-    remoteOrigin = `https://${urlHost(remoteConfig.advertisedHost)}:${remotePort}`;
+    let remoteOrigin: string | undefined;
+    const remoteConfig = options.remote;
+    if (remoteConfig) {
+      let remotePort: number;
+      if (remoteConfig.native) {
+        if (options.hopSecret === undefined)
+          throw new Error("ACE_TRANSPORT=native,remote needs the loopback listener's hop secret");
+        remote = await startNativeStaticRemote({
+          host: remoteConfig.host,
+          port: remoteConfig.port,
+          identity: remoteConfig.identity,
+          hopSecret: options.hopSecret,
+          requests: remoteConfig.requests,
+          admission: remoteConfig.admission,
+          wss: remoteConfig.wss,
+          sockets: options.sockets,
+          holdPort: (bound) => options.tunnel.hold(bound),
+          track: (server) => options.tunnel.track(server),
+          log: remoteConfig.log,
+        });
+        remotePort = remote.port;
+      } else if (remoteConfig.bind !== undefined) {
+        remotePort = await remoteConfig.bind();
+      } else {
+        throw new Error("The remote listener has no bind");
+      }
+      remoteOrigin = `https://${urlHost(remoteConfig.advertisedHost)}:${remotePort}`;
+    }
+    return {
+      port,
+      ...(internalHttpUrl === undefined ? {} : { internalHttpUrl }),
+      ...(remoteOrigin === undefined ? {} : { remoteOrigin }),
+      ...(loopback === undefined ? {} : { loopback }),
+      ...(remote === undefined ? {} : { remote }),
+    };
+  } catch (error) {
+    // Transactional start: a later bind's failure unwinds what this call already started, so its
+    // port and reservations are never left behind for the process's next attempt.
+    await Promise.allSettled([remote?.close(0), loopback?.close(0)]);
+    throw error;
   }
-  return {
-    port,
-    ...(internalHttpUrl === undefined ? {} : { internalHttpUrl }),
-    ...(remoteOrigin === undefined ? {} : { remoteOrigin }),
-    ...(loopback === undefined ? {} : { loopback }),
-    ...(remote === undefined ? {} : { remote }),
-  };
 }
 
 /**
@@ -291,10 +333,12 @@ export async function startNativeListeners(
 export function shutdownNativeListeners(
   listeners: NativeListeners,
   deadlineMs: number,
-  releaseReservations: () => void,
 ): { loopback: Promise<void> | undefined; remote: Promise<void> | undefined } {
-  const loopback = listeners.loopback?.close(deadlineMs).finally(releaseReservations);
-  return { loopback, remote: listeners.remote?.close(deadlineMs) };
+  // Each listener releases only its own reservations when its close resolves.
+  return {
+    loopback: listeners.loopback?.close(deadlineMs),
+    remote: listeners.remote?.close(deadlineMs),
+  };
 }
 
 /**
@@ -319,12 +363,14 @@ export function nativeListenerStages(
   ];
 }
 
-/** Gives every socket a native listener opened the shutdown close, with the other sockets. */
+/** Gives every socket a native listener opened the shutdown close, and only those. */
 export function closeNativeSockets(
-  sockets: readonly ReadonlySet<MainSocket>[],
+  listeners: NativeListeners,
+  sockets: { loopback: ReadonlySet<MainSocket>; remote: ReadonlySet<MainSocket> },
   close: (socket: MainSocket) => void,
 ): void {
-  for (const set of sockets) for (const socket of set) close(socket);
+  if (listeners.loopback !== undefined) for (const socket of sockets.loopback) close(socket);
+  if (listeners.remote !== undefined) for (const socket of sockets.remote) close(socket);
 }
 
 /**
@@ -334,14 +380,12 @@ export function closeNativeSockets(
  */
 export async function unwindNativeListeners(
   listeners: NativeListeners,
-  sockets: readonly ReadonlySet<MainSocket>[],
+  sockets: { loopback: ReadonlySet<MainSocket>; remote: ReadonlySet<MainSocket> },
   closeSocket: (socket: MainSocket) => void,
-  releaseReservations: () => void,
 ): Promise<void> {
   if (listeners.loopback === undefined && listeners.remote === undefined) return;
-  for (const set of sockets) for (const socket of set) closeSocket(socket);
+  closeNativeSockets(listeners, sockets, closeSocket);
   await listeners.loopback?.close(0);
   // The static remote listener's internal server closes with it.
   await listeners.remote?.close(0);
-  releaseReservations();
 }
