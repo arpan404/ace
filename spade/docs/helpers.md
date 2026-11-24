@@ -78,10 +78,11 @@ time limit (ADR 0158).
   jobs it names (every running job): a running helper is stopped like any reply
   (`stop_requested`, then `reply_stopped`), a queued one gets a `stop_requested` with no reply and
   never starts. A job that starts helpers of its own (research does: one per part, stored as
-  `<research job>/<n>`) stops them with it. The job ends "Stopped by the person…", which opens no reply. A helper is stored
-  under the lock Stop stores its marker under, and not at all once a stored stop names its job
-  or reply, so Stop either finds it or it is never made. After a restart, a helper job a stored
-  stop names is not run again: its helper is closed as stopped and the job ends stopped.
+  `<research job>/<n>`) stops them with it. The job ends "Stopped by the person…", which opens no
+  reply. A helper is stored under the lock Stop stores its marker under, and not at all once a
+  stored stop names its job or reply, so Stop either finds it or it is never made. After a
+  restart, a helper job a stored stop names is not run again: its helper is closed as stopped and
+  the job ends stopped.
 
 What the result says, from `helper::ended`:
 

@@ -31,13 +31,13 @@ I/O, and the helpers' own machinery is `engine/helpers.rs` (helpers.md).
    has finished), so its request writes the provider's cache for the system prompt and tool list
    every helper shares. Helpers run side by side, and more than a bot's slots wait for one
    (`helper::MOST_RUNNING`, 16).
-3. **Read lean.** A helper gets its part, its starting queries and the most pages it may read. It searches
-   with `web_search`, opens only the few most promising results with `web_fetch`, and reads the
-   outline and the passages its query needs (`query` or `offset`) instead of whole pages; every
-   page it fetches is saved under `web/` in the bot's workspace (`web_fetch`, media.md). It
-   answers with a short paragraph, one finding per line naming the page's URL, then its
-   `Gaps:` and `Disagreements:`. A finding naming a page the helper did not fetch is left out, and
-   counted.
+3. **Read lean.** A helper gets its part, its starting queries and the most pages it may read.
+   It searches with `web_search`, opens only the few most promising results with `web_fetch`, and
+   reads the outline and the passages its query needs (`query` or `offset`) instead of whole
+   pages; every page it fetches is saved under `web/` in the bot's workspace (`web_fetch`,
+   media.md). It answers with a short paragraph, one finding per line naming the page's URL, then
+   its `Gaps:` and `Disagreements:`. A finding naming a page the helper did not fetch is left out,
+   and counted.
 4. **Write.** One typed call on the `helper` model: the answer (Markdown, at most 900 characters)
    and where the helpers disagreed or found nothing, from their reports only.
 5. **Assemble.** From the helpers' answers, empty ones included: `## Answer`, `## Findings` (a
@@ -60,7 +60,6 @@ calls are recorded in the ledger under the bot's conversation, its helpers' as `
 A run never reads the pages itself (its helpers do), never saves a report it could not write, and
 never shows a finding without the page behind it. Its helpers are read-only, so a page that tells
 them to write something gets a refusal, never a write.
-
 
 ## Spending
 
