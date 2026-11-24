@@ -67,7 +67,7 @@ it("an expired agent delegation resumes but an explicit handback cannot resume",
   lease.claim(human);
   expect(lease.resume(agent)).toBe(false);
 });
-it("identical stream budgets preserve the native capture and an unwatched recording bounds its traffic", async () => {
+it("identical stream budgets preserve the native capture and an unwatched recording streams video at its budget", async () => {
   const effects: string[] = [];
   const control = new DeviceStreamControl(async (settings) => {
     effects.push(`${settings.codec}:${settings.maxWidth}x${settings.maxHeight}:${settings.fps}`);
@@ -94,7 +94,7 @@ it("identical stream budgets preserve the native capture and an unwatched record
   expect(effects).toEqual([
     "h264:1920x2160:60",
     "jpeg:1920x2160:30",
-    "jpeg:1280x720:15",
+    "h264:1280x2560:30",
     "jpeg:1920x2160:30",
   ]);
   await control.close();
