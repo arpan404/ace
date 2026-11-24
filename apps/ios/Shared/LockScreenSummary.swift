@@ -66,12 +66,14 @@ struct LockSummary: Codable, Hashable, Sendable {
     var busy: Bool
     /// When the counts were last confirmed by a connected machine.
     var updatedAt: Date
+    var completed: Int?
 
     init(needsYou: Int, working: Int, failed: Int = 0, waiting: Int = 0, limited: Int = 0, background: Int = 0,
          rows: [LockRow], request: LockRequest? = nil, current: Bool, live: Bool? = nil, offline: Int = 0,
-         busy: Bool, updatedAt: Date) {
+         busy: Bool, updatedAt: Date, completed: Int? = nil) {
         self.needsYou = needsYou; self.working = working; self.failed = failed; self.waiting = waiting
         self.limited = limited; self.background = background; self.rows = rows; self.request = request
+        self.completed = completed
         self.current = current; self.live = live ?? current; self.offline = offline; self.busy = busy; self.updatedAt = updatedAt
     }
 
@@ -93,6 +95,10 @@ struct LockSummary: Codable, Hashable, Sendable {
     /// The parts joined; with nothing to count, "Nothing needs you" only when every machine is
     /// confirmed, the machines out of reach when some others answered, else a nudge to open ace.
     var headline: String {
+        if let completed {
+            let results = [(completed, "done"), (failed, "failed")].filter { $0.0 > 0 }
+            if !results.isEmpty { return results.map { "\($0.0) \($0.1)" }.joined(separator: " · ") }
+        }
         let parts = parts
         if !parts.isEmpty { return parts.joined(separator: " · ") }
         if current { return "Nothing needs you" }
@@ -130,7 +136,7 @@ struct LockSummary: Codable, Hashable, Sendable {
     }
 
     private enum Keys: String, CodingKey {
-        case needsYou, working, failed, waiting, limited, background, rows, request, current, live, offline, busy, updatedAt
+        case needsYou, working, failed, waiting, limited, background, rows, request, current, live, offline, busy, updatedAt, completed
     }
     /// Activities and snapshots from earlier builds lack the newer counts; they decode as zero,
     /// and their content as live only if it was current.
@@ -149,11 +155,11 @@ struct LockSummary: Codable, Hashable, Sendable {
         offline = try box.decodeIfPresent(Int.self, forKey: .offline) ?? 0
         busy = try box.decode(Bool.self, forKey: .busy)
         updatedAt = try box.decode(Date.self, forKey: .updatedAt)
+        completed = try box.decodeIfPresent(Int.self, forKey: .completed)
     }
 }
 
-/// The one Live Activity for all of the person's agents. Its content is a `LockSummary` with up
-/// to three rows: plain JSON, so a push sent through ace's gateway can carry the same shape.
+/// Kept so the app can end the previous all-machines activity on upgrade.
 struct AgentsActivityAttributes: ActivityAttributes {
     typealias ContentState = LockSummary
     /// Activities have to carry something fixed; it records which build started it.

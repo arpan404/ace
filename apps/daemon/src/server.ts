@@ -339,7 +339,14 @@ export async function startServer(options: ServerOptions): Promise<{
   // An organization's host keeps no paired device (ADR 0209 §4.2): its bearer would be nobody
   // there, and pairing is refused, so every older credential is revoked once the machine is one.
   const revokePairedOnOrgHost = () => {
-    if (options.machineAccount?.accessOrg() !== undefined) auth.revokeOthers(undefined);
+    if (options.machineAccount?.accessOrg() === undefined) return;
+    auth.revokeOthers(undefined);
+    // An account-only phone from before the enrollment has no paired record to revoke. Its Live
+    // Activity tokens would push the host's whole counts, so they go with the enrollment; alerts
+    // keep working exactly as they did.
+    void options.notifications
+      ?.clearLiveActivity?.()
+      .catch((error: unknown) => options.log?.(error));
   };
   revokePairedOnOrgHost();
   const stopAccountChange = options.machineAccount?.onChange(() => {

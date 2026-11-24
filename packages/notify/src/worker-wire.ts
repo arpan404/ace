@@ -6,11 +6,18 @@ import {
   NotificationAddress,
   NotificationPreferences,
   PresenceUpdate,
+  LiveActivitySync,
 } from "@ace/protocol/notifications";
 import { DeviceId, ThreadId } from "@ace/protocol/ids";
 
 import { MetadataEvent } from "./metadata.ts";
 import { InboxFeed } from "./inbox.ts";
+import {
+  LiveActivityEnvironment,
+  LiveActivityKind,
+  LiveActivityTarget,
+  liveActivityLimit,
+} from "./live-activity.ts";
 
 const seq = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 /** Most other ids one device reads its feed with: an install's account device and its pairings. */
@@ -69,6 +76,20 @@ export const WorkerCall = z.discriminatedUnion("method", [
       .max(linkedLimit)
       .optional(),
   }),
+  z.object({
+    method: z.literal("syncLiveActivity"),
+    device: DeviceId.and(z.string().max(200)),
+    linked: z.array(DeviceId.and(z.string().max(200))).max(linkedLimit),
+    liveActivity: LiveActivitySync.optional(),
+  }),
+  z.object({ method: z.literal("liveActivityTargets") }),
+  z.object({ method: z.literal("clearLiveActivity") }),
+  z.object({
+    method: z.literal("dropLiveActivityToken"),
+    token: z.string().min(16).max(400),
+    environment: LiveActivityEnvironment,
+    kind: LiveActivityKind,
+  }),
 ]);
 export type WorkerCall = z.infer<typeof WorkerCall>;
 const ToWorker = z.discriminatedUnion("type", [
@@ -105,6 +126,8 @@ const FromWorker = z.discriminatedUnion("type", [
         NotificationPreferences,
         /** `pushAddresses`: devices with a push address that may be alerted now. */
         z.array(NotificationDevice).max(128),
+        /** `liveActivityTargets`: one token per kind per paired device, at most twice 128. */
+        z.array(LiveActivityTarget).max(liveActivityLimit),
         /** `closeSleep`: the spans in which queued agent notices are too old to send. */
         z.array(z.object({ after: seq, before: seq }).strict()).max(64),
       ])

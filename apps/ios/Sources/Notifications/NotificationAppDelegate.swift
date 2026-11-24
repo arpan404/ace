@@ -31,6 +31,8 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
         center.setNotificationCategories(NotificationCategories.remember(nil, defaults: .standard))
         BackgroundRefresh.register(coordinator)
         coordinator.requestPushToken = { application.registerForRemoteNotifications() }
+        if application.applicationState == .background { coordinator.scene(active: false) }
+        coordinator.lockScreen.observeActivities()
         return true
     }
     // Remote push (ADR 0106). iOS gives a token on every registration and it can change; each

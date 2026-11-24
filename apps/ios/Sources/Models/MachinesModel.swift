@@ -69,6 +69,8 @@ import Observation
     @ObservationIgnored var beforeConnect: ((ClientModel, ConnectionTarget) async -> Void)?
     /// Runs once a removed machine's runtime has stopped, so nothing keeps routing to it.
     @ObservationIgnored var afterRemove: ((ClientModel, String) -> Void)?
+    /// Runs when a machine is removed on purpose, so its Live Activity slot is given up.
+    @ObservationIgnored var afterForget: ((String) -> Void)?
     /// Runs after any machine's connection state changes, or a machine's runtime is added.
     @ObservationIgnored var onConnectionChange: (() -> Void)?
     /// Runs once every listed machine has its runtime.
@@ -321,6 +323,7 @@ import Observation
         }
         dropPlan(hostId)
         if let client = inbox.detach(hostId) { afterRemove?(client, hostId) }
+        afterForget?(hostId)
         adoptions.forget(hostId)
         if !off.isDisjoint(with: known) { off.subtract(known); saveOff() }
         // Removed on purpose: what this phone remembers of the machine goes too. A machine that

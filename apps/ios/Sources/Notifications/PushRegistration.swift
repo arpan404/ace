@@ -28,11 +28,12 @@ struct PushRegistration: Equatable, Sendable {
     let auth: String
 
     init(token: Data, environment: Environment, key: PushKey) {
-        self.token = token.map { String(format: "%02x", $0) }.joined()
+        self.token = Self.hex(token)
         self.environment = environment
         p256dh = key.p256dh
         auth = key.authSecret
     }
+    static func hex(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }
     var json: [String: String] { ["token": token, "environment": environment.rawValue, "p256dh": p256dh, "auth": auth] }
 }
 

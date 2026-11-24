@@ -249,7 +249,19 @@ export interface ServerOptions {
     NotificationWorker,
     "connectDevice" | "disconnect" | "updatePresence" | "register" | "preferences" | "snooze"
   > &
-    Partial<Pick<NotificationWorker, "revoke" | "getPreferences" | "feed" | "unregister">> & {
+    Partial<
+      Pick<
+        NotificationWorker,
+        | "revoke"
+        | "getPreferences"
+        | "feed"
+        | "unregister"
+        | "syncLiveActivity"
+        | "liveActivityTargets"
+        | "clearLiveActivity"
+        | "dropLiveActivityToken"
+      >
+    > & {
       /** A phone took a live `notification` frame; waiting deliveries may skip the push. */
       acknowledge?(device: DeviceId, id: string): void;
     };
