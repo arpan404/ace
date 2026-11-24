@@ -36,6 +36,9 @@ struct TranscriptCollectionEvents {
     var rowLaidOut: (_ id: String, _ frame: CGRect) -> Void = { _, _ in }
     var rowAppeared: (_ id: String) -> Void = { _ in }
     var rowGone: (_ id: String) -> Void = { _ in }
+    /// An assistive swipe pages toward older rows or newer, moving the feed or not (at the
+    /// loaded edge). True when more rows were asked for.
+    var assistivePage: (_ older: Bool, _ moves: Bool) -> Bool = { _, _ in false }
     /// A window change moved the offset to keep the reader's entry on screen.
     var placeKept: (_ by: CGFloat) -> Void = { _ in }
 }
@@ -146,10 +149,12 @@ struct TranscriptCollection: UIViewRepresentable {
             touches.landed = { [weak self] in self?.touchLanded() }
             touches.lifted = { [weak self] in self?.touchLifted() }
             view.addGestureRecognizer(touches)
-            view.assistiveScrolled = { [weak self] in
-                self?.move(to: .animating)
-                self?.move(to: .idle)
+            view.assistiveBegan = { [weak self] older, moves in
+                guard let self else { return false }
+                move(to: .interacting)
+                return events.assistivePage(older, moves)
             }
+            view.assistiveEnded = { [weak self] in self?.move(to: .idle) }
             surface.attach(view, locate: { [weak layout] id in
                 guard let layout, let index = layout.geometry.position(of: id) else { return nil }
                 return CGRect(x: 0, y: layout.geometry.top(at: index), width: view.bounds.width,

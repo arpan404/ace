@@ -141,8 +141,12 @@ final class TranscriptCell: UICollectionViewCell {
 /// The flipped collection view. VoiceOver reads the cells on screen top to bottom, oldest first,
 /// and its three-finger swipes page in the direction they read on screen.
 final class TranscriptCollectionView: UICollectionView {
-    /// An assistive scroll moved the feed (`accessibilityScroll`).
-    var assistiveScrolled: (() -> Void)?
+    /// An assistive swipe (VoiceOver, Switch Control) starts, as the reader's own scroll: toward
+    /// older rows or newer, and whether it can move the feed. True when the feed asked for more
+    /// rows in that direction.
+    var assistiveBegan: ((_ older: Bool, _ moves: Bool) -> Bool)?
+    /// The assistive swipe has moved the feed, or found it couldn't.
+    var assistiveEnded: (() -> Void)?
 
     override var accessibilityElements: [Any]? {
         get { visibleCells.sorted { $0.frame.minY > $1.frame.minY } }
@@ -160,9 +164,13 @@ final class TranscriptCollectionView: UICollectionView {
         let lowest = -adjustedContentInset.top
         let highest = max(lowest, contentSize.height + adjustedContentInset.bottom - bounds.height)
         let target = min(max(contentOffset.y + move, lowest), highest)
-        guard target != contentOffset.y else { return false }
-        setContentOffset(CGPoint(x: contentOffset.x, y: target), animated: false)
-        assistiveScrolled?()
+        let moves = target != contentOffset.y
+        // The feed hears the reader's intent before anything moves: it leaves the live end, so a
+        // growing reply can't pull them back, and at the loaded edge it asks for older rows.
+        let paging = assistiveBegan?(move > 0, moves) ?? false
+        if moves { setContentOffset(CGPoint(x: contentOffset.x, y: target), animated: false) }
+        assistiveEnded?()
+        guard moves || paging else { return false }
         UIAccessibility.post(notification: .pageScrolled, argument: nil)
         return true
     }

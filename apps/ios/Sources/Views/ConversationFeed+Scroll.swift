@@ -12,7 +12,21 @@ extension ConversationFeed {
                 if !rowsPainted { rowsPainted = true }
             },
             rowGone: { id in keep(.gone(id), proxy: proxy); PerfCounters.bump("row.disappear") },
+            assistivePage: { older, moves in assistivelyPaged(older: older, moves: moves, proxy: proxy) },
             placeKept: { by in TranscriptJumpHooks.note("join kept \(Int(by))") })
+    }
+
+    /// VoiceOver's three-finger swipe or Switch Control pages the feed, as the reader's own
+    /// scroll (the collection reports it as a drag): toward older rows it leaves the live end at
+    /// once, though a page is less than the screen the end's distance would need, and at the
+    /// loaded edge, where the swipe can't move, it asks for the next page. True when one is on
+    /// its way.
+    func assistivelyPaged(older: Bool, moves: Bool, proxy: TranscriptSurface) -> Bool {
+        intent.direction = older ? -1 : 1
+        if older, following { setFollowing(false) }
+        guard !moves else { return false }
+        pageIfNeeded(proxy)
+        return intent.consumed || (older && reading.loading)
     }
 
     /// The scroll's physical geometry in the feed's terms: `y` and the distances in screen order.
