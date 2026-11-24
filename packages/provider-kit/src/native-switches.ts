@@ -36,7 +36,7 @@ export interface SwitchNeed {
   needs: readonly string[];
 }
 
-/** The seven switches the cross-mode gate can name. */
+/** The eight switches the cross-mode gate can name. */
 export type CrossSwitch =
   | "ACE_STORE"
   | "ACE_TRANSLATORS"
@@ -44,7 +44,8 @@ export type CrossSwitch =
   | "ACE_SUPERVISOR"
   | "ACE_CORE"
   | "ACE_ENGINE"
-  | "ACE_GIT";
+  | "ACE_GIT"
+  | "ACE_STORE_WRITER";
 
 const switches: readonly CrossSwitch[] = [
   "ACE_STORE",
@@ -54,6 +55,7 @@ const switches: readonly CrossSwitch[] = [
   "ACE_CORE",
   "ACE_ENGINE",
   "ACE_GIT",
+  "ACE_STORE_WRITER",
 ];
 
 /** The providers `ACE_TRANSLATORS` and `ACE_SESSIONS` name, in canonical log order. */
@@ -102,6 +104,45 @@ if (crossSwitch !== undefined && !crossLog)
  * SQLite, and one SQLite library per file is the rule (ADR 0222).
  */
 const store = process.env.ACE_STORE === "native";
+
+/**
+ * `ACE_STORE_WRITER`, a comma list of `fold`, `sequences`, `events`, `live`,
+ * `transactions` (porting guide rule 9). Off by default. It needs
+ * `ACE_STORE=native` and refuses to start without it, and each part refuses
+ * to start without the parts before it in that list.
+ */
+export type StoreWriterPart = "fold" | "sequences" | "events" | "live" | "transactions";
+
+/** The writer parts in canonical log order. */
+const writerPartsOrder: readonly StoreWriterPart[] = [
+  "fold",
+  "sequences",
+  "events",
+  "live",
+  "transactions",
+];
+
+function parseWriterParts(value: string | undefined): ReadonlySet<StoreWriterPart> {
+  const asked = new Set<StoreWriterPart>();
+  for (const part of (value ?? "").split(",")) {
+    const name = part.trim();
+    if (!name) continue;
+    if (!(writerPartsOrder as readonly string[]).includes(name))
+      throw new Error(`ACE_STORE_WRITER names an unknown part: ${name}`);
+    asked.add(name as StoreWriterPart);
+  }
+  return asked;
+}
+
+const writerPartsValue = parseWriterParts(process.env.ACE_STORE_WRITER);
+if (writerPartsValue.size > 0 && !store)
+  throw new Error("ACE_STORE_WRITER needs ACE_STORE=native");
+for (let index = 1; index < writerPartsOrder.length; index++) {
+  const part = writerPartsOrder[index] as StoreWriterPart;
+  const need = writerPartsOrder[index - 1] as StoreWriterPart;
+  if (writerPartsValue.has(part) && !writerPartsValue.has(need))
+    throw new Error(`ACE_STORE_WRITER=${part} needs ${need}`);
+}
 const offender =
   crossSwitch === "ACE_SUPERVISOR" || crossSwitch === "ACE_SESSIONS" || crossSwitch === "ACE_ENGINE"
     ? crossSwitch
@@ -269,6 +310,8 @@ function envBackend(name: CrossSwitch): string {
     case "ACE_GIT":
       // Unused: git alternates per call, never per boot. The canonical part list.
       return gitPartsOrder.filter((part) => gitPartsValue.has(part)).join(",");
+    case "ACE_STORE_WRITER":
+      return writerPartsOrder.filter((part) => writerPartsValue.has(part)).join(",");
   }
 }
 
@@ -285,6 +328,12 @@ function opposite(name: CrossSwitch, backend: string): string {
     case "ACE_GIT":
       // Unused: git alternates per call, never per boot. The complement list.
       return gitPartsOrder.filter((part) => !backend.split(",").includes(part)).join(",");
+    case "ACE_STORE_WRITER":
+      // The writer's parts are prefix-closed, so a complement would refuse to
+      // start. Alternation is on versus off: a set run goes off, an empty run
+      // takes the smallest part, so both boots stay valid.
+      if (backend.length > 0) return "";
+      return "fold";
     default:
       return backend === "native" ? "typescript" : "native";
   }
@@ -303,7 +352,8 @@ function noteBoot(root: string, kinds: readonly CrossSwitch[]): void {
       crossLog,
       `${JSON.stringify({ root, n, switch: name, backend, pid: process.pid })}\n`,
     );
-    if (name === "ACE_STORE" || name === "ACE_SUPERVISOR") processBoot[name] ??= backend;
+    if (name === "ACE_STORE" || name === "ACE_SUPERVISOR" || name === "ACE_STORE_WRITER")
+      processBoot[name] ??= backend;
     else bootBackend[name] = backend;
   });
 }
@@ -326,7 +376,7 @@ function bootRoot(path: string): string | undefined {
 export function noteDatabaseBoot(path: string): void {
   const root = bootRoot(path);
   if (root === undefined) return;
-  noteBoot(root, ["ACE_STORE", "ACE_TRANSLATORS", "ACE_SESSIONS", "ACE_ENGINE"]);
+  noteBoot(root, ["ACE_STORE", "ACE_TRANSLATORS", "ACE_SESSIONS", "ACE_ENGINE", "ACE_STORE_WRITER"]);
 }
 
 /** `ProcessInventory`'s constructor calls this once per journal open. */
@@ -388,6 +438,22 @@ export function coreBackend(): CoreBackend {
 /** The store's backend: fixed at this process's first database boot, else the switch's. */
 export function storeBackend(): NativeBackend {
   return currentScalar("ACE_STORE", store ? "native" : "typescript");
+}
+
+function currentWriterParts(): ReadonlySet<StoreWriterPart> {
+  const backend = processBoot["ACE_STORE_WRITER"] ?? bootBackend["ACE_STORE_WRITER"];
+  if (crossSwitch !== "ACE_STORE_WRITER" || backend === undefined) return writerPartsValue;
+  return parseWriterParts(backend);
+}
+
+/** The writer parts served natively, resolved once per process at the first database boot. */
+export function storeWriterParts(): ReadonlySet<StoreWriterPart> {
+  return currentWriterParts();
+}
+
+/** Whether new `EventWriter` folds serve `part` natively. */
+export function storeWriterOn(part: StoreWriterPart): boolean {
+  return currentWriterParts().has(part);
 }
 
 /**
