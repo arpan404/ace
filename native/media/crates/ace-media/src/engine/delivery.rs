@@ -227,13 +227,14 @@ impl Delivery {
     /// A granted view. Replacing one with the same id starts it over.
     /// Returns the views it replaced (another view of the same target on the same connection).
     pub fn open(&mut self, open: Open, now_ms: u64, out: &mut Vec<Effect>) -> Vec<String> {
-        let limits = if open.local {
-            Limits {
-                initial: 8_000_000.0,
-                ..Limits::default()
-            }
+        // A view on this machine is not paced by the estimator: loopback has no link to
+        // estimate, and a late ack means a busy renderer. Its rate is fixed at `LOCAL_RATE`, so
+        // losses never collapse it (ADR 0149's floor is for real links), and the client's hint
+        // says nothing about loopback.
+        let (rate, hint_bps) = if open.local {
+            (LinkRate::local(), None)
         } else {
-            Limits::default()
+            (LinkRate::new(Limits::default()), open.hint_bps)
         };
         let source = open.source.clone();
         // One view per connection and target: the client can't tell two apart (their pieces
@@ -281,8 +282,8 @@ impl Delivery {
                 audio: open.audio,
                 paused: false,
                 fanout: Fanout::new(Window::default()),
-                rate: LinkRate::new(limits),
-                hint_bps: open.hint_bps,
+                rate,
+                hint_bps,
                 encode: None,
                 taking: None,
                 sequence: start,
