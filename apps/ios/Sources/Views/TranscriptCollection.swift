@@ -15,6 +15,9 @@ struct TranscriptEntry {
 /// What the scroll view is doing, as SwiftUI's `ScrollPhase` names it.
 enum TranscriptScrollPhase: Sendable {
     case idle, tracking, interacting, decelerating, animating
+
+    /// A finger is down or a fling it started is running: the reader's own motion.
+    var isReaders: Bool { self == .tracking || self == .interacting || self == .decelerating }
 }
 
 /// The scroll view's geometry in its own (physical) coordinates.
@@ -122,6 +125,8 @@ struct TranscriptCollection: UIViewRepresentable {
         private var reportedFrames: [String: CGRect] = [:]
         private var flushQueued = false
         private var updating = false
+        /// A window change that would move the offset, held while the reader scrolls.
+        private var waiting: (entries: [TranscriptEntry], estimate: (String) -> CGFloat?, style: AnyHashable)?
 
         func attach(_ view: TranscriptCollectionView, layout: TranscriptCollectionLayout, surface: TranscriptSurface) {
             self.view = view
@@ -171,26 +176,32 @@ struct TranscriptCollection: UIViewRepresentable {
             defer { updating = false; queueFlush() }
             var ids: [String] = []
             ids.reserveCapacity(next.count)
-            var changed: [String] = []
             var byID: [String: TranscriptEntry] = [:]
             for entry in next where byID[entry.id] == nil {
                 ids.append(entry.id)
                 byID[entry.id] = entry
-                if let key = keys[entry.id], key != entry.key { changed.append(entry.id) }
             }
-            entries = byID
-            keys = byID.mapValues(\.key)
             let restyled = self.style != nil && self.style != style
             self.style = style
             if ids == order {
-                if restyled { changed = ids.filter { visible($0) } }
-                guard !changed.isEmpty else { return }
-                var snapshot = source.snapshot()
-                snapshot.reconfigureItems(changed)
-                source.apply(snapshot, animatingDifferences: false)
+                waiting = nil
+                let changed = adopt(byID)
+                reconfigure(restyled ? ids.filter { visible($0) } : changed)
                 return
             }
             let anchor = anchorEntry(keeping: Set(ids))
+            // An offset write can't land under a finger or a fling (ADR 0222): a window change
+            // that would need one waits for the scroll to come to rest. The rows laid out now
+            // still show what they hold now.
+            if phase.isReaders, layout.offsetChange(laying: ids, estimate: estimate, anchor: anchor) != 0 {
+                PerfCounters.bump("window.held")
+                waiting = (next, estimate, style)
+                let changed = refresh(byID)
+                reconfigure(restyled ? order.filter { visible($0) } : changed)
+                return
+            }
+            waiting = nil
+            let changed = adopt(byID)
             layout.stage(ids, estimate: estimate, anchor: anchor)
             order = ids
             var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
@@ -206,6 +217,34 @@ struct TranscriptCollection: UIViewRepresentable {
                 view.contentOffset.y += owed
                 events.placeKept(owed)
             }
+        }
+
+        /// Takes `byID` as the whole window. Returns the ids already here whose key changed.
+        private func adopt(_ byID: [String: TranscriptEntry]) -> [String] {
+            let changed = byID.compactMap { id, entry in keys[id].flatMap { $0 != entry.key ? id : nil } }
+            entries = byID
+            keys = byID.mapValues(\.key)
+            return changed
+        }
+
+        /// Takes `byID`'s entries for the ids laid out now, while a window change waits. Returns
+        /// those whose key changed.
+        private func refresh(_ byID: [String: TranscriptEntry]) -> [String] {
+            var changed: [String] = []
+            for id in order {
+                guard let entry = byID[id] else { continue }
+                if keys[id] != entry.key { changed.append(id) }
+                entries[id] = entry
+                keys[id] = entry.key
+            }
+            return changed
+        }
+
+        private func reconfigure(_ ids: [String]) {
+            guard let source, !ids.isEmpty else { return }
+            var snapshot = source.snapshot()
+            snapshot.reconfigureItems(ids)
+            source.apply(snapshot, animatingDifferences: false)
         }
 
         /// The entry at the viewport's physical top still laid out after the change: the reader's.
@@ -309,6 +348,12 @@ struct TranscriptCollection: UIViewRepresentable {
             phase = next
             let velocity = next == .decelerating ? releaseVelocity : nil
             if next == .idle || next == .interacting { releaseVelocity = nil }
+            // A window change held for the scroll lands as it comes to rest, before the feed
+            // hears it has.
+            if !next.isReaders, let held = waiting {
+                waiting = nil
+                update(held.entries, estimate: held.estimate, style: held.style)
+            }
             events.phase(old, next, reported, velocity)
         }
 

@@ -32,6 +32,14 @@ import UIKit
         pending = (ids, estimate, anchor)
     }
 
+    /// How far laying out `ids` would move the offset to keep `anchor` where it is on screen,
+    /// without laying them out.
+    func offsetChange(laying ids: [String], estimate: (String) -> CGFloat?, anchor: String?) -> CGFloat {
+        guard keepsPlace else { return 0 }
+        var probe = geometry
+        return probe.replace(ids, estimate: estimate, keeping: anchor)
+    }
+
     /// The offset change a window change still owes, taken once.
     func takeAdjustment() -> CGFloat {
         defer { adjustment = 0 }
