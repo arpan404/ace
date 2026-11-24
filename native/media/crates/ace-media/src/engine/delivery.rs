@@ -359,11 +359,13 @@ impl Delivery {
     ) {
         let facts = self.sources.entry(source.to_owned()).or_default();
         let page = Some((f64::from(width), f64::from(height), scale.max(0.1)));
+        // The announcement is the page even when it changes nothing planned: a unit's display
+        // size may already have seeded the same size, and the header takes only this.
+        facts.daemon_page = page;
         if facts.page == page {
             return;
         }
         facts.page = page;
-        facts.daemon_page = page;
         self.replan(source, now_ms, out);
     }
 

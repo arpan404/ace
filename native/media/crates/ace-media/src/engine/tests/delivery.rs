@@ -1036,6 +1036,27 @@ fn a_browser_view_header_keeps_the_display_size_until_the_daemon_announces_the_p
 }
 
 #[test]
+fn a_browser_view_header_uses_an_announced_page_matching_the_seeded_size() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    // The first unit's display size seeds planning at scale 1; the daemon then announces the
+    // same size, so nothing replans.
+    let mut seeded = browser_key(0, (1280, 800), (1280, 800));
+    seeded.scale = 1000;
+    let first = ingest(&mut engine, 1, seeded, NOW);
+    assert_eq!(browser_video_header(&first), Some((1280, 800, 1280, 800)));
+    send(
+        &mut engine,
+        json!({ "type": "source.page", "source": "s1", "width": 1280, "height": 800, "scale": 1 }),
+        &[],
+        NOW,
+    );
+    // The announced page sizes the header even though nothing replanned: the coded size stays
+    // the encoded pixels.
+    let second = ingest(&mut engine, 1, browser_key(1, (640, 400), (640, 400)), NOW);
+    assert_eq!(browser_video_header(&second), Some((1280, 800, 640, 400)));
+}
+
+#[test]
 fn a_page_that_changes_size_plans_its_views_again_at_its_new_shape() {
     let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
     // Planned at the first unit's size: a phone-shaped page.
