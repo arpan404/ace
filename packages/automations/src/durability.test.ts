@@ -212,6 +212,53 @@ it("an occurrence held for discovery is released after its bounded wait and neve
   expect(h.service.inbox().runs).toHaveLength(1);
 });
 
+it("an unrelated discovery never extends a held occurrence's wait", async () => {
+  const h = harness();
+  h.service.stop();
+  const auto = scheduled("run_once");
+  if (auto.trigger.kind !== "schedule") throw new Error("Invalid test definition");
+  auto.trigger.schedule.expression = "FREQ=MINUTELY;COUNT=1";
+  h.service.put(auto);
+  h.deps.modelLoading = () => true;
+  h.deps.modelHoldMs = 30_000;
+  h.deps.modelRetryMs = 1_000;
+  h.now = start;
+  h.service.start();
+  await h.timer.fire();
+  expect(h.inputs).toEqual([]);
+  // Halfway through the wait, a discovery for something else settles and the scheduler re-arms.
+  h.now = start + 15_000;
+  h.service.modelsReady();
+  await h.timer.fire();
+  expect(h.inputs).toEqual([]);
+  // The occurrence still fails at its own 30 s bound, not 30 s after the unrelated discovery.
+  h.now = start + 30_000;
+  await h.timer.fire();
+  expect(h.inputs).toHaveLength(1);
+  await h.finish(0);
+});
+
+it("re-arming the scheduler mid-hold does not reset the occurrence's wait", async () => {
+  const h = harness();
+  h.service.stop();
+  const auto = scheduled("run_once");
+  if (auto.trigger.kind !== "schedule") throw new Error("Invalid test definition");
+  auto.trigger.schedule.expression = "FREQ=MINUTELY;COUNT=1";
+  h.service.put(auto);
+  h.deps.modelLoading = () => true;
+  h.deps.modelHoldMs = 30_000;
+  h.now = start;
+  h.service.start();
+  await h.timer.fire();
+  expect(h.inputs).toEqual([]);
+  // `modelsReady()` re-arms, so its next-job look sees the expired hold before tick() does.
+  h.now = start + 30_000;
+  h.service.modelsReady();
+  await h.timer.fire();
+  expect(h.inputs).toHaveLength(1);
+  await h.finish(0);
+});
+
 it("a GitHub poll keeps its deadline while a due schedule waits for model lists", async () => {
   let polls = 0;
   const h = harness({

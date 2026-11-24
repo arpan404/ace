@@ -112,7 +112,6 @@ export class AutomationService {
     if (!this.lifecycle.beginStart()) return;
     this.generation++;
     const generation = this.generation;
-    this.held.clear();
     this.controller = new AbortController();
     // Runs that waited while new work was paused start once it is resumed.
     this.stopReopen = this.deps.admission?.onReopen(() => this.drainWaiting());
@@ -549,10 +548,19 @@ export class AutomationService {
       return operation;
     });
   }
-  /** Discovery settled: a due occurrence kept for it fires now. */
+  /** Discovery settled: a due occurrence kept for it fires now. Holds belong to occurrences, so
+   * an unrelated provider's result never extends or clears another occurrence's wait. */
   modelsReady(): void {
-    this.held.clear();
     this.arm();
+  }
+  /** Holds are per occurrence: `null` nominal (an exhausted cursor) has its own key. */
+  private holdKey(id: string, nominal: number | null): string {
+    return `${id}\0${nominal ?? 0}`;
+  }
+  /** The occurrence was consumed (a run recorded) or replaced: its wait is over. */
+  private clearHolds(id: string): void {
+    const prefix = `${id}\0`;
+    for (const key of this.held.keys()) if (key.startsWith(prefix)) this.held.delete(key);
   }
   private nextJob(): JobMetadata | undefined {
     const skip = new Set(this.polling);
@@ -568,19 +576,22 @@ export class AutomationService {
       // A scheduled run needs its automation's model. While discovery for it runs, hold the
       // occurrence: it keeps its place and is never spent on a thread the engine would refuse.
       if (job.automation.trigger.kind !== "schedule" || !this.deps.modelLoading) return job;
+      const id = job.automation.id;
+      const key = this.holdKey(id, job.nominal);
+      // A newer occurrence replaces an older one's hold; its wait starts over only then.
+      const prefix = `${id}\0`;
+      for (const existing of this.held.keys())
+        if (existing.startsWith(prefix) && existing !== key) this.held.delete(existing);
       if (this.deps.modelLoading(job.automation) !== true) {
-        this.held.delete(job.automation.id);
+        this.held.delete(key);
         return job;
       }
-      const since = this.held.get(job.automation.id);
-      if (since !== undefined && now - since >= holdMs) {
-        // Discovery has had its bounded wait. Admit the run: its model_unavailable refusal is
-        // recorded and visible instead of the occurrence being held forever.
-        this.held.delete(job.automation.id);
-        return job;
-      }
-      if (since === undefined) this.held.set(job.automation.id, now);
-      skip.add(job.automation.id);
+      const since = this.held.get(key);
+      // Expiry is not consumed here: `arm()` also asks for the next job, and deleting the stamp
+      // would let the following tick start the same occurrence's wait over.
+      if (since !== undefined && now - since >= holdMs) return job;
+      if (since === undefined) this.held.set(key, now);
+      skip.add(id);
     }
   }
   private async tick(): Promise<void> {
@@ -663,7 +674,7 @@ export class AutomationService {
       this.deps.random(),
     );
     if (late) {
-      this.held.delete(job.automation.id);
+      this.clearHolds(job.automation.id);
       this.store.transaction(() => {
         this.store.advance(job.automation.id, nominal, due);
         this.store.savePoll(job.automation.id, occurrence ?? {});
@@ -672,7 +683,7 @@ export class AutomationService {
     }
     // `nextJob` holds a schedule whose discovery is still running, and releases it once the
     // bounded wait passes; either way the occurrence is only advanced by this admission.
-    this.held.delete(job.automation.id);
+    this.clearHolds(job.automation.id);
     const admission = this.store.transaction(() => {
       const result = this.admit(
         job.automation,
