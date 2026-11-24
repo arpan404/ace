@@ -1,6 +1,6 @@
 ---
 name: ace-computer-use
-description: Drive a native app, iOS simulator or Android device the person names. Use before screen_*.
+description: Drive a native app, iOS simulator or Android emulator the person names. Use before screen_*, sim_*.
 ---
 
 # Native apps and simulators in ace
