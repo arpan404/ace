@@ -827,6 +827,10 @@ pub enum Known {
     },
     /// This conversation is one of its bot's task lanes (ADR 0217): the first event of it.
     LaneOf(crate::lane::Link),
+    /// In a moved lane: the framing note Spade places after the prefix copied from main
+    /// (ADR 0217 amendment), so the lane's first prompt matches main's byte for byte up to the
+    /// tail before telling the model it now runs as its own task.
+    LaneMoved(crate::lane::MovedIn),
     /// The bot started a task lane (ADR 0217), by `task_start` or by moving main's long work.
     LaneStarted(crate::lane::Started),
     /// Spade moved this reply's work to a lane (ADR 0217 §2a); the reply's close follows it in

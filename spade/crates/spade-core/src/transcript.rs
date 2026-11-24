@@ -372,6 +372,7 @@ impl Transcript {
             | Known::WorkerReported(_)
             | Known::WorkerDetached { .. }
             | Known::LaneOf(_)
+            | Known::LaneMoved(_)
             | Known::LaneStarted(_)
             | Known::AskRouted(_)
             | Known::LaneTitled(_)

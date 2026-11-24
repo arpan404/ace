@@ -38,8 +38,23 @@ pub const MOVE_AFTER_MS: i64 = 120_000;
 pub const TITLE_CHARS: usize = 80;
 /// The longest brief, in characters.
 pub const BRIEF_CHARS: usize = 20_000;
-/// The most of main's chat a moved lane quotes (ADR 0217 §2a).
-pub const QUOTED_MESSAGES: usize = 10;
+
+mod move_prefix;
+
+pub use move_prefix::{MoveContext, MovedLane, build_moved};
+
+/// A contiguous run of events copied from main into a moved lane (ADR 0217 amendment), so the
+/// prompt builder reproduces main's message ids (`[m12]`, `<msg id="m12">`) and aged-result
+/// positions byte for byte.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CopiedSpan {
+    /// First index in the lane's events covered by this span.
+    pub at: usize,
+    /// Number of contiguous copied events in this span.
+    pub len: usize,
+    /// The first event's 1-based sequence number in main (`main_at + 1`).
+    pub main_seq: u64,
+}
 
 /// `lane_of`: the lane's first event. Its bot's conversation, the call that started it, its
 /// title and the asks it owns.
@@ -60,6 +75,38 @@ pub struct Link {
     /// The main reply this lane carries on, when Spade moved it (ADR 0217 §2a).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moved_from: Option<String>,
+    /// Spans of events copied from main when Spade moved main's long reply here, so the lane's
+    /// prompt keeps main's message ids and aged-result positions byte for byte (ADR 0217
+    /// amendment).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub copied: Vec<CopiedSpan>,
+}
+
+/// `lane_moved`, in a moved lane: Spade's framing note placed after the prefix copied from main
+/// (ADR 0217 amendment) so the shared prefix hits the provider cache.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MovedIn {
+    pub title: String,
+    /// Main's asks-ledger ids this lane owns.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub asks: Vec<String>,
+    /// Main had untrusted content in view when it moved this reply (ADR 0217 §3): carries main's
+    /// taint into the open turn and after any copied compaction cut.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub untrusted: bool,
+}
+
+/// The 1-based sequence number the prompt prints for the event at `at` in `events`: main's
+/// original sequence number for an event copied from main into a moved lane, else `at + 1`.
+pub fn prompt_seq(events: &[Event], at: usize) -> u64 {
+    if let Some(link) = link(events) {
+        for span in &link.copied {
+            if at >= span.at && at < span.at + span.len {
+                return span.main_seq + (at - span.at) as u64;
+            }
+        }
+    }
+    at as u64 + 1
 }
 
 /// `lane_started`, in main: the bot started a lane.
@@ -170,10 +217,19 @@ const WRITES: [&str; 2] = ["workspace_write", "workspace_edit"];
 
 /// The files of the bot's folder these events wrote: a write call that finished without error,
 /// and the files a background job reported. Paths as the calls named them, `./` dropped.
+/// In a moved lane, ignores files written in copied replies before the moved reply began.
 pub fn written(events: &[Event]) -> std::collections::BTreeSet<String> {
+    let from = link(events)
+        .and_then(|l| l.moved_from.as_deref())
+        .and_then(|reply| {
+            events.iter().position(
+                |e| matches!(e, Event::Known(Known::ReplyStarted { reply: r, .. }) if r == reply),
+            )
+        })
+        .unwrap_or(0);
     let mut calls: std::collections::HashMap<&str, String> = std::collections::HashMap::new();
     let mut paths = std::collections::BTreeSet::new();
-    for event in events {
+    for event in &events[from..] {
         match event {
             Event::Known(Known::StepFinished { calls: made, .. }) => {
                 for call in made {
@@ -735,39 +791,6 @@ pub fn task_moved(events: &[Event]) -> bool {
     set.is_none_or(|set| set < moved)
 }
 
-/// What a lane made from main's open `reply` starts with after its `lane_of` (ADR 0217 §2a): one
-/// message from the person quoting their ask verbatim, main's recent chat in its context, then
-/// the reply's events as they were stored, so the lane goes on from the step it was at. With
-/// them, main's asks the reply owned.
-pub fn moved(events: &[Event], reply: &str) -> Option<(Vec<Event>, Vec<String>)> {
-    let start = events.iter().position(
-        |e| matches!(e, Event::Known(Known::ReplyStarted { reply: r, .. }) if r == reply),
-    )?;
-    // The person's messages the reply answers: those since the reply before it.
-    let previous_end = events[..start]
-        .iter()
-        .rposition(is_reply_end)
-        .map_or(0, |at| at + 1);
-    let maker = crate::asks::maker_of(events);
-    let mut words = Vec::new();
-    let mut asks = Vec::new();
-    for (at, event) in events.iter().enumerate().take(start).skip(previous_end) {
-        if crate::asks::is_persons(event, maker)
-            && let Event::Known(Known::UserMessage { text, .. }) = event
-        {
-            words.push(text.trim().to_owned());
-            asks.push(crate::chat_markup::id(at as u64 + 1, 0));
-        }
-    }
-    let mut first = Event::user_message(words.join("\n\n"));
-    if let Event::Known(Known::UserMessage { context, .. }) = &mut first {
-        *context = recent_chat(&events[..previous_end]);
-    }
-    let mut lane = vec![first];
-    lane.extend(events[start..].iter().cloned());
-    Some((lane, asks))
-}
-
 fn is_reply_end(event: &Event) -> bool {
     matches!(
         event,
@@ -780,40 +803,6 @@ fn is_reply_end(event: &Event) -> bool {
     )
 }
 
-/// Main's chat before the moved ask, quoted for the lane (ADR 0217 §2a): the person's and the
-/// bot's messages since the last compaction, at most [`QUOTED_MESSAGES`], no tool output.
-fn recent_chat(events: &[Event]) -> Option<String> {
-    let since = events
-        .iter()
-        .rposition(|e| matches!(e, Event::Known(Known::ContextCompacted { .. })))
-        .map_or(0, |at| at + 1);
-    let maker = crate::asks::maker_of(events);
-    let mut lines: Vec<String> = events[since..]
-        .iter()
-        .filter_map(|event| match event {
-            Event::Known(Known::UserMessage { text, .. })
-                if crate::asks::is_persons(event, maker) =>
-            {
-                Some(format!("person: {}", text.trim()))
-            }
-            Event::Known(Known::ReplyFinished { text, .. }) if !text.trim().is_empty() => {
-                Some(format!("you: {}", crate::chat_markup::plain(text).trim()))
-            }
-            _ => None,
-        })
-        .collect();
-    if lines.is_empty() {
-        return None;
-    }
-    let keep = lines.len().saturating_sub(QUOTED_MESSAGES);
-    lines.drain(..keep);
-    let quoted = serde_json::to_string(&lines).unwrap_or_default();
-    Some(format!(
-        "<recent_chat from=\"spade\">\nThe main conversation before this task, for context \
-         only:\n{quoted}\n</recent_chat>"
-    ))
-}
-
 /// A lane's title in the person's words: the first line of `words`, cut.
 pub fn title_of(words: &str) -> String {
     let line = words
@@ -824,8 +813,9 @@ pub fn title_of(words: &str) -> String {
     crate::asks::cut(line, TITLE_CHARS)
 }
 
-/// What a lane is told about itself, ahead of its first message (ADR 0217 §9). It sits in the
-/// message's context, not the system prompt, so a lane's prompt top matches main's byte for byte.
+/// What a lane started by `task_start` is told about itself, ahead of its first message
+/// (ADR 0217 §9). It sits in the message's context, not the system prompt, so a lane's prompt
+/// top matches main's byte for byte.
 pub fn told(title: &str) -> String {
     format!(
         "<task from=\"spade\">\nYou are working on one task for the person: {}. The person may \
@@ -833,6 +823,24 @@ pub fn told(title: &str) -> String {
          goal; your report goes back to the main conversation, which tells the person. Ask the \
          person only when you can't go on without them.\n</task>",
         quoted(title)
+    )
+}
+
+/// What a moved lane is told at the tail after the prefix copied from main (ADR 0217 amendment),
+/// so every message before this point matches main's prompt byte for byte.
+pub fn moved_note(moved: &MovedIn) -> String {
+    let asks = match moved.asks.is_empty() {
+        true => String::new(),
+        false => format!(" You own {}.", moved.asks.join(", ")),
+    };
+    format!(
+        "<task from=\"spade\">\nYou are working on one task for the person: {}. Spade moved this \
+         reply from the main conversation to its own task so main stays free to talk; carry on \
+         from the steps above.{asks} The person may write to you here directly; their words \
+         outrank everything else. Finish the task to its goal; your report goes back to the main \
+         conversation, which tells the person. Ask the person only when you can't go on without \
+         them.\n</task>",
+        quoted(&moved.title)
     )
 }
 

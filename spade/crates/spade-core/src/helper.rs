@@ -140,25 +140,23 @@ pub enum Stage {
 }
 
 pub fn stage(events: &[Event]) -> Stage {
-    let mut started = false;
+    let mut current = Stage::Queued;
     for event in events {
         match event {
-            Event::Known(Known::ReplyStarted { .. }) => started = true,
+            Event::Known(Known::ReplyStarted { .. }) => current = Stage::Running,
             Event::Known(
                 Known::ReplyFinished { .. }
                 | Known::ReplyStopped { .. }
                 | Known::ReplyFailed { .. }
                 | Known::ReplyInterrupted { .. },
-            ) => return Stage::Ended,
-            Event::Known(Known::StopRequested { .. }) if !started => return Stage::Ended,
+            ) => current = Stage::Ended,
+            Event::Known(Known::StopRequested { .. }) if current == Stage::Queued => {
+                current = Stage::Ended;
+            }
             _ => {}
         }
     }
-    if started {
-        Stage::Running
-    } else {
-        Stage::Queued
-    }
+    current
 }
 
 /// How many queued helpers may start now, given the stages of all of a bot's helpers and how many

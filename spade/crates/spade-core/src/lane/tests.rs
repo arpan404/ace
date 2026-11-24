@@ -306,33 +306,148 @@ fn mains_reply_moves_after_eight_steps_or_two_minutes_at_a_quiet_boundary() {
 }
 
 #[test]
-fn a_moved_lane_starts_from_the_persons_words_the_recent_chat_and_the_reply_so_far() {
-    let mut events = vec![
+fn a_moved_lanes_first_prompt_is_a_byte_for_byte_prefix_extension_of_mains() {
+    let mut main = vec![
         person("Hi"),
         started("r0"),
         finished("r0", "Hello!"),
         person("Draft the quarterly note."), // m4
         started("r1"),
-        step("r1", "Reading Q3.xlsx"),
+        e(json!({
+            "type": "step_finished",
+            "reply": "r1",
+            "text": "Reading Q3.xlsx",
+            "calls": [{ "id": "t1", "name": "workspace_read", "arguments": { "path": "Q3.xlsx" } }],
+            "seen": 5
+        })),
+        e(json!({
+            "type": "tool_finished",
+            "reply": "r1",
+            "call_id": "t1",
+            "name": "workspace_read",
+            "content": "Q3 revenue: $1.2M",
+            "is_error": false
+        })),
+        person("Use March, not February."), // m8 (mid-turn steer)
+        e(json!({
+            "type": "step_finished",
+            "reply": "r1",
+            "text": "Using March",
+            "calls": [{ "id": "t2", "name": "workspace_read", "arguments": { "path": "March.csv" } }],
+            "seen": 8
+        })),
+        e(json!({
+            "type": "tool_finished",
+            "reply": "r1",
+            "call_id": "t2",
+            "name": "workspace_read",
+            "content": "March rows",
+            "is_error": false
+        })),
     ];
-    events.push(person("Use March, not February.")); // a steer while it ran
-    events.push(step("r1", "Using March"));
-    let Some((lane, asks)) = moved(&events, "r1") else {
+    let Some(moved) = build_moved(
+        &main,
+        MoveContext {
+            main: "c1",
+            call: "moved.r1",
+            reply: "r1",
+            moved_jobs: &[],
+            kept_jobs: &[],
+            moved_wakes: &[],
+            untrusted: false,
+        },
+    ) else {
         panic!("the reply is there");
     };
-    assert_eq!(asks, ["m4"]);
-    let Event::Known(Known::UserMessage { text, context, .. }) = &lane[0] else {
-        panic!("the person's message comes first");
-    };
-    assert_eq!(text, "Draft the quarterly note.");
-    let context = context.as_deref().unwrap_or_default();
-    assert!(context.contains("person: Hi") && context.contains("you: Hello!"));
+    assert_eq!(moved.title, "Draft the quarterly note.");
+    assert_eq!(moved.words, "Draft the quarterly note.");
+    assert_eq!(moved.asks, ["m4", "m8"]);
     assert!(
-        !context.contains("quarterly"),
-        "the ask itself is the message"
+        build_moved(
+            &main,
+            MoveContext {
+                main: "c1",
+                call: "moved.r9",
+                reply: "r9",
+                moved_jobs: &[],
+                kept_jobs: &[],
+                moved_wakes: &[],
+                untrusted: false,
+            },
+        )
+        .is_none()
     );
-    assert_eq!(&lane[1..], &events[4..], "the reply's events, as stored");
-    assert!(moved(&events, "r9").is_none());
+
+    // Main's prompt just before the move (before ephemeral tail blocks) vs the lane's first prompt.
+    let tools = vec![spade_models::ToolSpec {
+        name: "workspace_read".to_owned(),
+        description: "Read a file".to_owned(),
+        schema: json!({ "type": "object" }),
+    }];
+    let main_prompt = crate::context::prompt(crate::context::SYSTEM, tools.clone(), &main);
+    let lane_prompt = crate::asks::block::appended(
+        crate::context::prompt(crate::context::SYSTEM, tools, &moved.events),
+        &crate::asks::Ledger::of(&moved.events),
+    );
+    assert_eq!(
+        lane_prompt.system, main_prompt.system,
+        "system prompt must match main byte for byte"
+    );
+    assert_eq!(
+        lane_prompt.tools, main_prompt.tools,
+        "offered tools must match main byte for byte"
+    );
+    assert!(
+        lane_prompt.messages.len() > main_prompt.messages.len(),
+        "lane prompt extends main's with tail framing"
+    );
+    assert_eq!(
+        &lane_prompt.messages[..main_prompt.messages.len()],
+        main_prompt.messages.as_slice(),
+        "every message up to the divergence point must match main byte for byte"
+    );
+    // Tail after the shared prefix: `<task from="spade">`, then `<asks>`.
+    let tail = &lane_prompt.messages[main_prompt.messages.len()..];
+    assert_eq!(tail.len(), 2);
+    let spade_models::Message::Person { text: framing, .. } = &tail[0] else {
+        panic!("tail framing must be a person message");
+    };
+    assert!(framing.contains("one task for the person: Draft the quarterly note."));
+    assert!(framing.contains("You own m4, m8."));
+    let spade_models::Message::Person {
+        text: asks_block, ..
+    } = &tail[1]
+    else {
+        panic!("asks block must follow tail framing");
+    };
+    assert!(asks_block.contains("<asks from=\"spade\">"));
+    assert!(asks_block.contains("m4:"));
+    assert!(asks_block.contains("m8, sent while you worked:"));
+
+    // Even when main ended on a mid-turn steer (Message::Person), `LaneMoved` is pushed as its
+    // own message so main's final message is untouched.
+    main.push(person("Also include Europe."));
+    let Some(moved_after_steer) = build_moved(
+        &main,
+        MoveContext {
+            main: "c1",
+            call: "moved.r1",
+            reply: "r1",
+            moved_jobs: &[],
+            kept_jobs: &[],
+            moved_wakes: &[],
+            untrusted: false,
+        },
+    ) else {
+        panic!("reply open");
+    };
+    let main_p = crate::context::prompt(crate::context::SYSTEM, vec![], &main);
+    let lane_p = crate::context::prompt(crate::context::SYSTEM, vec![], &moved_after_steer.events);
+    assert_eq!(
+        &lane_p.messages[..main_p.messages.len()],
+        main_p.messages.as_slice(),
+        "trailing steer in main must remain byte-for-byte identical before LaneMoved"
+    );
 }
 
 #[test]
@@ -422,7 +537,9 @@ fn a_title_is_the_first_line_of_the_persons_words_cut() {
 fn lane_events_round_trip_through_json() {
     for raw in [
         json!({ "type": "lane_of", "parent_conversation": "c1", "call": "c1.t1",
-                "title": "T", "asks": ["m1"], "untrusted": true, "moved_from": "r1" }),
+                "title": "T", "asks": ["m1"], "untrusted": true, "moved_from": "r1",
+                "copied": [{ "at": 1, "len": 5, "main_seq": 1 }] }),
+        json!({ "type": "lane_moved", "title": "T", "asks": ["m1"], "untrusted": true }),
         json!({ "type": "lane_started", "lane": "l1", "conversation": "l1", "title": "T",
                 "call": "c1.t1", "asks": ["m1"], "queued": true }),
         json!({ "type": "reply_moved", "reply": "r1", "lane": "l1", "title": "T",
@@ -681,4 +798,419 @@ fn a_runs_end_closes_only_that_runs_copies_and_a_stale_end_does_not_stand() {
         &[lane_of("T"), person("Do it.")],
         "queued"
     ));
+}
+
+#[test]
+fn a_moved_lane_after_compaction_and_aging_matches_mains_prompt_byte_for_byte() {
+    let main = vec![
+        // Pre-compaction top state (index 0..8)
+        e(json!({
+            "type": "agent_configured",
+            "task": "Sort my invoices",
+            "model": "e/m",
+            "change": { "by": "bot", "reason": "person asked" }
+        })),
+        e(json!({
+            "type": "agent_configured",
+            "task": "Sort my invoices",
+            "model": "e/m",
+            "personality": { "tone": "concise" }
+        })),
+        e(json!({ "type": "naming_opened" })),
+        e(json!({ "type": "skills_indexed", "text": "Skills: pdf, csv" })),
+        e(json!({ "type": "plugins_started", "rules": "Be brief.", "added": "" })),
+        e(json!({ "type": "memory_indexed", "text": "Notes: Q3" })),
+        e(json!({ "type": "knowledge_indexed", "text": "Topics: billing" })),
+        e(json!({
+            "type": "goal_set",
+            "goal": "g1",
+            "title": "Close March books",
+            "text": "Reconcile all March invoices",
+            "criteria": [{ "id": "c1", "text": "Totals match" }],
+            "by": "person"
+        })),
+        e(json!({
+            "type": "question_asked",
+            "reply": "r0",
+            "call_id": "q_old",
+            "question": "Which currency?"
+        })),
+        e(json!({ "type": "question_deferred", "call_id": "q_old", "by_bot": true })),
+        // Kept window starts at index 10 (keep_from = 10)
+        person("Old kept ask"), // idx 10 -> m11
+        started("r1"),          // idx 11
+        e(json!({
+            "type": "step_finished",
+            "reply": "r1",
+            "text": "Checking",
+            "calls": [{ "id": "c_aged", "name": "workspace_read", "arguments": { "path": "big.csv" } }],
+            "seen": 11
+        })),
+        e(json!({
+            "type": "tool_finished",
+            "reply": "r1",
+            "call_id": "c_aged",
+            "name": "workspace_read",
+            "content": "a very long csv payload",
+            "is_error": false
+        })),
+        // Operational events from main that must be skipped in the lane without shifting prompt seqs
+        e(json!({ "type": "job_started", "job": "j_other", "reply": "r1", "name": "shell" })),
+        approval("r1", "a_other"),
+        e(
+            json!({ "type": "lane_started", "lane": "l0", "conversation": "l0", "title": "Other", "call": "c1.other", "asks": [] }),
+        ),
+        finished("r1", "Checked."),
+        e(json!({
+            "type": "context_compacted",
+            "summary": "Earlier turns summarised.",
+            "keep_from": 10,
+            "tokens_before": 90000
+        })),
+        e(json!({ "type": "results_aged", "before": 14 })),
+        e(
+            json!({ "type": "question_answered", "call_id": "q_old", "answers": ["EUR"], "late": true }),
+        ),
+        person("Finish the March reconciliation"), // idx 21 -> m22
+        started("r2"),
+        e(json!({
+            "type": "step_finished",
+            "reply": "r2",
+            "text": "Reading ledger",
+            "calls": [{ "id": "c_now", "name": "workspace_read", "arguments": { "path": "march.csv" } }],
+            "seen": 22
+        })),
+        e(json!({
+            "type": "tool_finished",
+            "reply": "r2",
+            "call_id": "c_now",
+            "name": "workspace_read",
+            "content": "EUR 500",
+            "is_error": false
+        })),
+    ];
+
+    let Some(moved) = build_moved(
+        &main,
+        MoveContext {
+            main: "c1",
+            call: "moved.r2",
+            reply: "r2",
+            moved_jobs: &[],
+            kept_jobs: &[],
+            moved_wakes: &[],
+            untrusted: false,
+        },
+    ) else {
+        panic!("r2 is open");
+    };
+
+    let main_prompt = crate::context::prompt(crate::context::SYSTEM, vec![], &main);
+    let lane_prompt = crate::context::prompt(crate::context::SYSTEM, vec![], &moved.events);
+
+    assert_eq!(
+        lane_prompt.system, main_prompt.system,
+        "compacted system prompt (task/by_bot, personality, indexes, pinned goal) must match byte for byte"
+    );
+    assert_eq!(
+        &lane_prompt.messages[..main_prompt.messages.len()],
+        main_prompt.messages.as_slice(),
+        "compacted + aged + late-answer messages must match main byte for byte despite skipped operational events"
+    );
+    // Main's unrelated open job must NOT leak into the lane's transcript.
+    assert!(
+        Transcript::fold(&moved.events).jobs.is_empty(),
+        "unrelated jobs from main must not stay open in the lane"
+    );
+    assert!(
+        Transcript::fold(&moved.events).awaiting.is_empty(),
+        "unrelated approvals from main must not stay open in the lane"
+    );
+}
+
+#[test]
+fn a_moved_lane_preserves_taint_across_turns_and_compaction_and_keeps_clean_lanes_clean() {
+    use crate::tools::{Registry, Risk, ToolDef};
+
+    let make_registry = |with_lane_tools: bool| {
+        let mut defs = vec![
+            ToolDef {
+                spec: spade_models::ToolSpec {
+                    name: "workspace_read".to_owned(),
+                    description: String::new(),
+                    schema: json!({}),
+                },
+                risk: Risk::Read,
+                untrusted_output: false,
+                deferred: false,
+                background: false,
+            },
+            ToolDef {
+                spec: spade_models::ToolSpec {
+                    name: "web_fetch".to_owned(),
+                    description: String::new(),
+                    schema: json!({}),
+                },
+                risk: Risk::Read,
+                untrusted_output: true,
+                deferred: false,
+                background: false,
+            },
+        ];
+        if with_lane_tools {
+            for name in TOOLS {
+                defs.push(ToolDef {
+                    spec: spade_models::ToolSpec {
+                        name: name.to_owned(),
+                        description: String::new(),
+                        schema: json!({}),
+                    },
+                    risk: Risk::Read,
+                    untrusted_output: false,
+                    deferred: false,
+                    background: false,
+                });
+            }
+        }
+        Registry::new(defs)
+    };
+    let main_reg = make_registry(true);
+    let lane_reg = make_registry(false);
+
+    // Case 1: main read untrusted output in an earlier reply r0, then r1 runs clean and moves.
+    let tainted_main = vec![
+        person("Check that URL"),
+        started("r0"),
+        e(json!({
+            "type": "step_finished",
+            "reply": "r0",
+            "text": "",
+            "calls": [{ "id": "w1", "name": "web_fetch", "arguments": { "url": "https://example.com" } }]
+        })),
+        e(json!({
+            "type": "tool_finished",
+            "reply": "r0",
+            "call_id": "w1",
+            "name": "web_fetch",
+            "content": "untrusted page",
+            "is_error": false
+        })),
+        finished("r0", "Read it."),
+        person("Now write the summary"),
+        started("r1"),
+        step("r1", "Working"),
+    ];
+    let main_tainted = !crate::context::untrusted_in_view(&tainted_main, &main_reg).is_empty();
+    assert!(main_tainted);
+    let Some(moved_tainted) = build_moved(
+        &tainted_main,
+        MoveContext {
+            main: "c1",
+            call: "moved.r1",
+            reply: "r1",
+            moved_jobs: &[],
+            kept_jobs: &[],
+            moved_wakes: &[],
+            untrusted: main_tainted,
+        },
+    ) else {
+        panic!("r1 open");
+    };
+    assert!(link(&moved_tainted.events).is_some_and(|l| l.untrusted));
+    assert!(
+        crate::context::untrusted_turn(&moved_tainted.events, &lane_reg),
+        "lane_moved carries main's taint into the open turn even when taint came from an earlier reply"
+    );
+    assert!(
+        !crate::context::untrusted_in_view(&moved_tainted.events, &lane_reg).is_empty(),
+        "untrusted_in_view stays tainted in the moved lane"
+    );
+
+    // Case 2: main compacted with a tainted summary; kept window is clean, then r1 moves.
+    let tainted_compacted = vec![
+        person("Old"),
+        started("r0"),
+        finished("r0", "Done"),
+        e(json!({
+            "type": "context_compacted",
+            "summary": "Read an untrusted page.",
+            "keep_from": 3,
+            "tokens_before": 50000,
+            "untrusted": true
+        })),
+        person("Do clean follow-up"),
+        started("r1"),
+        step("r1", "Working"),
+    ];
+    let Some(moved_summary) = build_moved(
+        &tainted_compacted,
+        MoveContext {
+            main: "c1",
+            call: "moved.r1",
+            reply: "r1",
+            moved_jobs: &[],
+            kept_jobs: &[],
+            moved_wakes: &[],
+            untrusted: !crate::context::untrusted_in_view(&tainted_compacted, &main_reg).is_empty(),
+        },
+    ) else {
+        panic!("r1 open");
+    };
+    assert!(crate::context::untrusted_turn(
+        &moved_summary.events,
+        &lane_reg
+    ));
+    assert!(
+        !crate::context::untrusted_events_in_view(&moved_summary.events, &lane_reg).is_empty(),
+        "lane_moved sits after keep_from so untrusted_events_in_view also sees main's taint"
+    );
+
+    // Case 3: clean main that called `task_start` earlier stays clean under the lane's narrower registry.
+    let clean_main = vec![
+        person("Start a side task"),
+        started("r0"),
+        e(json!({
+            "type": "step_finished",
+            "reply": "r0",
+            "text": "",
+            "calls": [{ "id": "ts1", "name": "task_start", "arguments": { "title": "Side" } }]
+        })),
+        e(json!({
+            "type": "tool_finished",
+            "reply": "r0",
+            "call_id": "ts1",
+            "name": "task_start",
+            "content": "{\"task\":\"l0\"}",
+            "is_error": false
+        })),
+        finished("r0", "Started it."),
+        person("Work on the main task"),
+        started("r1"),
+        step("r1", "Working"),
+    ];
+    assert!(crate::context::untrusted_in_view(&clean_main, &main_reg).is_empty());
+    let Some(moved_clean) = build_moved(
+        &clean_main,
+        MoveContext {
+            main: "c1",
+            call: "moved.r1",
+            reply: "r1",
+            moved_jobs: &[],
+            kept_jobs: &[],
+            moved_wakes: &[],
+            untrusted: false,
+        },
+    ) else {
+        panic!("r1 open");
+    };
+    assert!(
+        !crate::context::untrusted_turn(&moved_clean.events, &lane_reg),
+        "clean moved lane must not be tainted by copied task_start calls"
+    );
+    assert!(
+        crate::context::untrusted_in_view(&moved_clean.events, &lane_reg).is_empty(),
+        "clean moved lane stays untainted in view"
+    );
+}
+
+#[test]
+fn a_moved_lane_slices_only_its_asks_and_preserves_stage_and_written() {
+    let mut main = vec![
+        person("Keep track of Berlin weather"), // m1 — earlier open ask, stays in main
+        started("r0"),
+        e(json!({
+            "type": "step_finished",
+            "reply": "r0",
+            "text": "",
+            "calls": [{ "id": "w0", "name": "workspace_write", "arguments": { "path": "old.txt", "content": "hi" } }]
+        })),
+        e(json!({
+            "type": "tool_finished",
+            "reply": "r0",
+            "call_id": "w0",
+            "name": "workspace_write",
+            "content": "ok",
+            "is_error": false
+        })),
+        finished("r0", "Noted."),
+        person("Audit Q3 numbers"), // m6 — moved ask
+        started("r1"),
+        e(json!({
+            "type": "step_finished",
+            "reply": "r1",
+            "text": "",
+            "calls": [{ "id": "w1", "name": "workspace_write", "arguments": { "path": "q3.md", "content": "draft" } }]
+        })),
+        e(json!({
+            "type": "tool_finished",
+            "reply": "r1",
+            "call_id": "w1",
+            "name": "workspace_write",
+            "content": "ok",
+            "is_error": false
+        })),
+        e(json!({
+            "type": "asks_updated",
+            "call_id": "a1",
+            "changes": [{
+                "op": "standing",
+                "id": "s1",
+                "from": "m6",
+                "words": "Always cite page numbers"
+            }]
+        })),
+    ];
+
+    let Some(moved) = build_moved(
+        &main,
+        MoveContext {
+            main: "c1",
+            call: "moved.r1",
+            reply: "r1",
+            moved_jobs: &[],
+            kept_jobs: &[],
+            moved_wakes: &[],
+            untrusted: false,
+        },
+    ) else {
+        panic!("r1 open");
+    };
+
+    assert_eq!(moved.asks, ["m6"]);
+    let lane_ledger = crate::asks::Ledger::of(&moved.events);
+    let lane_open: Vec<&str> = lane_ledger.open_asks().map(|a| a.id.as_str()).collect();
+    assert_eq!(lane_open, ["m6"], "lane owns only the moved ask, not m1");
+    assert_eq!(
+        lane_ledger.standing.len(),
+        1,
+        "standing rules carry over into the moved lane"
+    );
+
+    // Main hands m6 over via reply_moved and keeps m1.
+    main.push(Event::Known(Known::ReplyMoved(Moved {
+        reply: "r1".to_owned(),
+        lane: "l1".to_owned(),
+        title: moved.title.clone(),
+        asks: moved.asks.clone(),
+        jobs: Vec::new(),
+        kept_jobs: Vec::new(),
+        wakes: Vec::new(),
+    })));
+    let main_ledger = crate::asks::Ledger::of(&main);
+    let main_open: Vec<&str> = main_ledger.open_asks().map(|a| a.id.as_str()).collect();
+    assert_eq!(main_open, ["m1"], "main keeps m1 and hands m6 to the lane");
+
+    // helper::stage tracks the latest reply (r1 running, not r0 finished).
+    assert_eq!(helper::stage(&moved.events), Stage::Running);
+    let mut finished_lane = moved.events.clone();
+    finished_lane.push(finished("r1", "Audit complete."));
+    assert_eq!(helper::stage(&finished_lane), Stage::Ended);
+
+    // lane::written includes q3.md (written in r1) and excludes old.txt (written in r0).
+    let wrote = written(&moved.events);
+    assert!(wrote.contains("q3.md"));
+    assert!(
+        !wrote.contains("old.txt"),
+        "files written in earlier copied replies are not this lane's writes"
+    );
 }

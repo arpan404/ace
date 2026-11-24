@@ -683,7 +683,7 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
     let mut last_words: Option<(usize, String)> = None;
     for (at, event) in events {
         let Event::Known(event) = event else { continue };
-        let seq = at as u64 + 1;
+        let seq = crate::lane::prompt_seq(all, at);
         match event {
             Known::UserMessage {
                 images: attached,
@@ -801,6 +801,20 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                 let text = crate::lane::note(event);
                 if pending.is_empty() {
                     push_person(&mut out, text, Vec::new());
+                } else {
+                    held.push((text, Vec::new()));
+                }
+            }
+            // Framing at the tail of a moved lane (ADR 0217 amendment): pushed as its own
+            // message (never joined to main's last message) so every message before this point
+            // matches main's prompt byte for byte.
+            Known::LaneMoved(moved) => {
+                let text = crate::lane::moved_note(moved);
+                if pending.is_empty() {
+                    out.push(Message::Person {
+                        text,
+                        images: Vec::new(),
+                    });
                 } else {
                     held.push((text, Vec::new()));
                 }
@@ -1209,8 +1223,11 @@ pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
             | Known::LaneMessage(_)),
         ) => crate::wake::untrusted(known),
         // A lane started while main had untrusted content in view carries that taint
-        // (ADR 0217 §3): its gate is never weaker than main's was.
+        // (ADR 0217 §3): its gate is never weaker than main's was. For a moved lane, `lane_moved`
+        // sits inside the moving reply and after any copied compaction cut, so the turn and view
+        // folds both see main's taint.
         Event::Known(Known::LaneOf(link)) => link.untrusted,
+        Event::Known(Known::LaneMoved(moved)) => moved.untrusted,
         // Names of files and pages from the person's turn at the computer (ADR 0142).
         Event::Known(
             Known::ComputerHandedBack { data, .. } | Known::PersonActivity { data, .. },
@@ -1222,10 +1239,15 @@ pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
         }
         Event::Known(Known::ToolFinished { name, .. } | Known::JobFinished { name, .. }) => {
             // A tool no longer listed (ace switched it off, or its list is not back yet after a
-            // restart) cannot vouch for its output.
+            // restart) cannot vouch for its output. Spade's own lane tools (hidden from lanes'
+            // registries, ADR 0217 §3) remain trusted when copied from main into a moved lane.
             match registry.get(name) {
                 Some(tool) => tool.untrusted_output,
-                None => name != TOOL_SEARCH && name != CALL_TOOL,
+                None => {
+                    name != TOOL_SEARCH
+                        && name != CALL_TOOL
+                        && !crate::lane::TOOLS.contains(&name.as_str())
+                }
             }
         }
         _ => false,
@@ -1243,7 +1265,7 @@ fn describe_event(before: &[Event], event: &Event) -> String {
         Event::Known(Known::PanelAction { surface, .. }) => {
             format!("an action from the page of the panel {surface}")
         }
-        Event::Known(Known::LaneOf(_)) => {
+        Event::Known(Known::LaneOf(_) | Known::LaneMoved(_)) => {
             "untrusted content the main conversation had in view when this task began".to_owned()
         }
         Event::Known(Known::LaneMessage(_)) => {
