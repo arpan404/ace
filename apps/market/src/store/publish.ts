@@ -180,7 +180,9 @@ export async function storePending(
             verdict, block_reason, scanned, changelog)
           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?9, ?10, ?11, ?12, ?13
           WHERE EXISTS (SELECT 1 FROM entries WHERE type = ?1 AND name = ?2 AND publisher = ?8
-            AND (?14 IS NULL OR visibility = ?14))
+            AND (?14 IS NULL OR visibility = ?14)
+            AND (type != 'spade-skill' OR visibility != 'unlisted' OR audience != 'public'
+              OR ?14 IS 'unlisted'))
           ON CONFLICT (type, name, version) DO UPDATE SET hash = excluded.hash,
             size = excluded.size, published = excluded.published, listing = excluded.listing,
             state = excluded.state, verdict = excluded.verdict,

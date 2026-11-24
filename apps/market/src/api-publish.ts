@@ -218,6 +218,8 @@ export async function publish(
   const storedAs = { ...key, name: storedName(key.name, authed.org) };
   const owner = await ownerOf(db, storedAs.type, storedAs.name);
   if (owner !== undefined && owner !== publisher?.id) return notYours();
+  if (key.type === "spade-skill" && authed.org === undefined && (await isUnlisted(db, storedAs)))
+    return failure(403, "forbidden", "Share this skill from its review.");
   // A registry's entry is the organization's from its first version on: unlisted and read by
   // its members only.
   if (authed.org !== undefined && publisher && owner === undefined) {
@@ -593,7 +595,13 @@ export async function draftRoute(
       if (url.searchParams.has("visibility") && !visibility)
         return failure(400, "invalid", "Visibility is listed or unlisted.");
       const reviewed = MarketHash.safeParse(url.searchParams.get("reviewed")).data;
-      if (isShareTemplate(draft) || (draft.type === "spade-skill" && visibility === "unlisted")) {
+      const skill = draft.type === "spade-skill";
+      const catalogue = skill ? context.dbs.catalogue(draft.type) : undefined;
+      if (
+        isShareTemplate(draft) ||
+        (skill &&
+          (visibility === "unlisted" || (catalogue && (await isUnlisted(catalogue, draft)))))
+      ) {
         if (!authed.personAction) return personGrantNeeded();
         if (context.now - authed.claims.authAt > reauthMs)
           return failure(401, "reauth", "Sign in again to do this.");
