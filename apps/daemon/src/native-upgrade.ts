@@ -48,6 +48,11 @@ export interface NativeUpgrade {
  */
 export function nativeUpgrade(wiring: NativeUpgradeWiring): NativeUpgrade {
   const admit = async (request: TransportAdmitRequest): Promise<TransportAdmitAnswer> => {
+    // The listener binds before JavaScript records its port; until then an
+    // own-Origin check would compare against 0 and refuse a page that is ours.
+    // Refuse the upgrade instead, and the client retries once the port is known.
+    const port = wiring.publicPort();
+    if (port === 0) return { decision: "unavailable", reservation: 0 };
     const decision = upgradeDecision({
       url: request.target,
       origin: request.origin ?? undefined,
@@ -55,7 +60,7 @@ export function nativeUpgrade(wiring: NativeUpgradeWiring): NativeUpgrade {
       address: request.address,
       servesRenderer: wiring.servesRenderer,
       // The public (native) port, not the internal server's: the page reaches that one.
-      ownOrigin: (origin) => ownLoopbackOrigin(origin, wiring.publicPort()),
+      ownOrigin: (origin) => ownLoopbackOrigin(origin, port),
       allowedOrigins: wiring.allowedOrigins,
       full: wiring.full,
       preAuth: wiring.preAuth,

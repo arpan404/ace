@@ -105,6 +105,10 @@ export async function startServer(options: ServerOptions): Promise<{
   notificationDevices(): readonly DeviceId[];
   preview?: DaemonPreview;
   httpUrl: string;
+  /**
+   * The internal hop server's URL while the native loopback runs (T1a.7); never in discovery.
+   */
+  internalHttpUrl?: string | undefined;
   diagnosticsQueues(): { socketInput: number; healthRequests: number };
   remoteUrl?: string | undefined;
   fingerprint?: string | undefined;
@@ -305,6 +309,12 @@ export async function startServer(options: ServerOptions): Promise<{
   options.machineTunnel = tunnel;
   const attach = (listener: Server, isLocal: boolean) => {
     tunnel.track(listener);
+    // Native mode's internal server is a hop target, not a public listener: upgrades come only
+    // through Rust's public listener, so one sent straight here is destroyed, never admitted.
+    if (isLocal && nativeLoopback) {
+      listener.on("upgrade", (_request, socket) => socket.destroy());
+      return listener;
+    }
     return admitUpgrades(listener, isLocal, {
       wss: isLocal ? wss : remoteWss,
       allowedOrigins: access.allowedOrigins,
@@ -1280,6 +1290,7 @@ export async function startServer(options: ServerOptions): Promise<{
   let port: number;
   let native: NativeLoopbackHandle | undefined;
   let releaseNativePort: (() => void) | undefined;
+  let internalHttpUrl: string | undefined;
   let transports: Awaited<ReturnType<typeof startTransports>> | undefined;
   let remoteStarted = { direct: Promise.resolve(), networks: Promise.resolve() };
   try {
@@ -1288,6 +1299,10 @@ export async function startServer(options: ServerOptions): Promise<{
       port = await bind(local, "127.0.0.1", options.port);
     } else {
       const internalPort = await bind(local, "127.0.0.1", 0);
+      internalHttpUrl = `http://127.0.0.1:${internalPort}`;
+      // A fixed public port is known before Rust starts accepting; a `0` request is not, so
+      // admission refuses until it is recorded below (T1a.7).
+      nativePublicPort = options.port;
       native = await transportAddon().NativeLoopback.start(
         {
           port: options.port,
@@ -1359,12 +1374,16 @@ export async function startServer(options: ServerOptions): Promise<{
     stopAccountChange?.();
     void orgHost?.close();
     registrySigner?.stop();
-    // Native first: its sockets get today's 1001 and bounded terminate, then the listener drains,
-    // and only then the internal server closes, where `local` closes today.
-    nativeDraining = true;
-    for (const socket of nativeSockets) closer.gracefulClose(socket, 1001, "Daemon shutdown");
-    await native?.close(0);
-    releaseNativePort?.();
+    if (native !== undefined) {
+      // Native first: its sockets get today's 1001 and bounded terminate, then the listener
+      // drains, and only then the internal server closes, where `local` closes today.
+      nativeDraining = true;
+      for (const socket of nativeSockets) closer.gracefulClose(socket, 1001, "Daemon shutdown");
+      await native.close(0);
+      // The listener stopped watching its admissions: nothing it promised stays charged.
+      preAuth.releaseAll();
+      releaseNativePort?.();
+    }
     await closeListener(local);
     if (remote) await closeListener(remote);
     await closeServers();
@@ -1385,6 +1404,7 @@ export async function startServer(options: ServerOptions): Promise<{
     maintenance,
     url: `ws://127.0.0.1:${port}`,
     httpUrl: `http://127.0.0.1:${port}`,
+    ...(internalHttpUrl === undefined ? {} : { internalHttpUrl }),
     diagnosticsQueues: () => ({
       socketInput: input.depth(),
       healthRequests: [...serviceSessions.values()].reduce(
@@ -1433,6 +1453,9 @@ export async function startServer(options: ServerOptions): Promise<{
         const nativeDone = nativeClosing?.finally(() => {
           releaseNativePort?.();
           releaseNativePort = undefined;
+          // A late acceptance that reached Rust after it stopped watching is still ours:
+          // nothing stays charged through teardown.
+          preAuth.releaseAll();
         });
         void Promise.all([
           stage("native listener", nativeDone),

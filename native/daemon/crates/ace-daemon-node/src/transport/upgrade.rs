@@ -191,10 +191,11 @@ async fn resolve(
     let mut stop = shared.stop.subscribe();
     let answer = tokio::select! {
         biased;
-        // The listener closed: TypeScript drops what it holds, and this task
-        // ends rather than waiting out a promise nobody will act on.
+        // The listener closed: the answer is abandoned, never opened, and this
+        // task ends rather than waiting out a promise nobody will act on.
+        // TypeScript drops every hold it made at close.
         _ = stop.wait_for(|closed| *closed) => {
-            shared.admission.settled(id);
+            shared.admission.abandoned(id);
             return;
         }
         answer = &mut asking => Some(answer),
@@ -207,7 +208,10 @@ async fn resolve(
         }
         let late = tokio::select! {
             biased;
-            _ = stop.wait_for(|closed| *closed) => None,
+            _ = stop.wait_for(|closed| *closed) => {
+                shared.admission.abandoned(id);
+                return;
+            }
             answer = &mut asking => Some(answer),
         };
         if let Some(Ok(answer)) = late

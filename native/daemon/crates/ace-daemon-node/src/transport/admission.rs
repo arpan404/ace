@@ -287,6 +287,14 @@ impl Admission {
     pub fn settled(&self, id: u64) {
         self.rows().by_id.remove(&id);
     }
+
+    /// Shutdown ended this upgrade's decision task while it still waited: a
+    /// still-pending acceptance is abandoned, never opened, and the row goes.
+    /// A reservation the task never received is TypeScript's to drop at close.
+    pub fn abandoned(&self, id: u64) {
+        let _ = self.take(id, Phase::Pending, Phase::Abandoned);
+        self.rows().by_id.remove(&id);
+    }
 }
 
 #[cfg(test)]

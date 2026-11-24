@@ -88,6 +88,13 @@ export class PreAuthAdmission {
     increment(this.listeners, held.listener, -1);
     if (held.listener === "remote") increment(this.addresses, held.address, -1);
   }
+  /**
+   * Drops every reservation still promised. A closing listener opens nothing more, so a hold the
+   * Rust side stopped watching must not stay charged through teardown.
+   */
+  releaseAll(): void {
+    for (const reservation of this.held.keys()) this.release(reservation);
+  }
   track(socket: MainSocket, listener: Listener, address: string, reservation?: number): void {
     let entry: Held | undefined;
     if (reservation !== undefined) {
