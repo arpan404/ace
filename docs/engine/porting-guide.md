@@ -458,7 +458,9 @@ Steps, in order:
    #[derive(Clone)] pub struct OutputControl { stdout: Option<Arc<Flow>>, stderr: Option<Arc<Flow>> }
    impl OutputControl {
        pub fn resume(&self, stream: OutputStream); // Flow::resume (pump/mod.rs:161)
-       pub fn close(&self, stream: OutputStream);  // Flow::close (pump/mod.rs:179): the pump stops and closes its end
+       /// Flow::close (pump/mod.rs:179) after marking the flow `end_on_close`: the pump stops,
+       /// closes its end, and still emits `end` (step 2b).
+       pub fn close(&self, stream: OutputStream);
    }
    /// The sink a diverted child is spawned with.
    pub struct Diverted<E: EventSink> { shell: E, consumer: Arc<dyn OutputConsumer> }
@@ -474,29 +476,33 @@ Steps, in order:
    | `stdin_written`, `stdin_error` | yes                          | no                                    |
    | `hold_limit`, `held`           | no                           | yes                                   |
 
-3. In `child/mod.rs`, add `pub fn ports(&self) -> Option<ChildPorts>`. It returns the stdin
-   sender as a `StdinPort` and the stdout and stderr `Flow`s as an `OutputControl`, and returns
-   `None` when stdin or an output isn't piped.
-4. In `ace-daemon-node/src/supervisor/child.rs`, add `#[napi] pub struct NativeOutputTarget`
-   holding a `DivertTarget`. It has no constructor reachable from JS; only the session bindings
-   (E3-pi.2 and later) make one. Change `supervisor_spawn` (`:146`) to
-   `supervisor_spawn(spec_json, events, target: Option<&NativeOutputTarget>)`. With a target, it
-   spawns with `Diverted { shell: TsfnSink, consumer }` and sets `target.ports` from
-   `child.ports()` before it returns. Without a target, nothing changes.
-5. On a diverted `NativeChild`: `writeStdin` throws `"stdin is owned by the native session"`, and
-   so do `resumeOutput` and `closeOutput`. `endStdin`, `abortStdin`, `kill`, `signalGroup` and
-   the rest work as before. The Windows stop ends stdin (`adapter-pi/src/session.ts:61`–`:67`),
-   and TypeScript still stops the process.
-6. In `packages/provider-kit/src/native-process.ts`, export the opaque type
-   `NativeOutputTarget`, and pass it from `nativeSpawnChild`'s spec to `supervisorSpawn`.
-7. In `packages/provider-kit/src/process.ts`, add `nativeOutput?: NativeOutputTarget` to
-   `SpawnOptions` (`:85`) and pass it in the native branch of `spawnOwned` (`:185`–`:197`). If
-   `nativeOutput` is set and the backend is TypeScript, throw
-   `"nativeOutput needs ACE_SUPERVISOR=native"` before spawning. Nothing else in `spawnOwned`
-   changes. The diverted child's `stdout` and `stderr` Readables carry no data and end on their
-   `*-end` events.
-8. Add a `#[cfg(test)]` table in `divert.rs` over step 2's routing, with a recording consumer
-   and a recording shell. It is new behaviour, so the commit says so.
+2b. **`end` on every close path.** Today `Flow::close` cancels the pump, which returns without
+`sink.end` at both of its cancel points (`pump/mod.rs:265`, the wait for room, and `:282`, the
+read). A diverted child's JS readables would then never end. So add
+`end_on_close: AtomicBool` to `Flow` (false by default), set by `OutputControl::close` before
+it calls `Flow::close`. At both cancel points of `pump_output`, call `sink.end(stream)` before
+returning when the flag is set. With the flag unset (every undiverted child, and JS's own
+`closeOutput`), the pump returns as today. The pump emits `end` at most once on every path, and
+always before the child's `close` (`child/mod.rs:269`–`:273` awaits the pumps first). 3. In `child/mod.rs`, add `pub fn ports(&self) -> Option<ChildPorts>`. It returns the stdin
+sender as a `StdinPort` and the stdout and stderr `Flow`s as an `OutputControl`, and returns
+`None` when stdin or an output isn't piped. 4. In `ace-daemon-node/src/supervisor/child.rs`, add `#[napi] pub struct NativeOutputTarget`
+holding a `DivertTarget`. It has no constructor reachable from JS; only the session bindings
+(E3-pi.2 and later) make one. Change `supervisor_spawn` (`:146`) to
+`supervisor_spawn(spec_json, events, target: Option<&NativeOutputTarget>)`. With a target, it
+spawns with `Diverted { shell: TsfnSink, consumer }` and sets `target.ports` from
+`child.ports()` before it returns. Without a target, nothing changes. 5. On a diverted `NativeChild`: `writeStdin` throws `"stdin is owned by the native session"`, and
+so do `resumeOutput` and `closeOutput`. `endStdin`, `abortStdin`, `kill`, `signalGroup` and
+the rest work as before. The Windows stop ends stdin (`adapter-pi/src/session.ts:61`–`:67`),
+and TypeScript still stops the process. 6. In `packages/provider-kit/src/native-process.ts`, export the opaque type
+`NativeOutputTarget`, and pass it from `nativeSpawnChild`'s spec to `supervisorSpawn`. 7. In `packages/provider-kit/src/process.ts`, add `nativeOutput?: NativeOutputTarget` to
+`SpawnOptions` (`:85`) and pass it in the native branch of `spawnOwned` (`:185`–`:197`). If
+`nativeOutput` is set and the backend is TypeScript, throw
+`"nativeOutput needs ACE_SUPERVISOR=native"` before spawning. Nothing else in `spawnOwned`
+changes. The diverted child's `stdout` and `stderr` Readables carry no data and end on their
+`*-end` events. 8. Add a `#[cfg(test)]` table in `divert.rs` over step 2's routing, with a recording consumer
+and a recording shell, plus one case per cancel point of step 2b (a closed flow with
+`end_on_close` emits exactly one `end`, then `close`). It is new behaviour, so the commit says
+so.
 
 - **Run**, off and with `ACE_SUPERVISOR=native`, each alone:
   `packages/provider-kit/src/process.process.test.ts`, `fast-exit.process.test.ts`,
@@ -551,19 +557,30 @@ Steps, in order:
 
    ```rust
    pub enum GateState { Open, Paused, Failed, Draining }
-   pub struct ReadGate { /* Mutex<GateState> plus the OutputControl, once known */ }
+   pub struct ReadGate { /* Mutex<Inner { state: GateState, exited: bool, output: Option<OutputControl> }> */ }
    impl ReadGate {
        pub fn attach(&self, output: OutputControl);
-       /// The answer for one delivered chunk: `more` for `Delivered::taken`.
-       pub fn more(&self) -> bool;          // true for Open and Draining; false for Paused and Failed
-       pub fn set_paused(&self, paused: bool); // Paused→Open resumes both streams
+       /// Answers one delivered chunk under the gate's lock: `delivered.taken(false)` for Paused
+       /// and Failed, `taken(true)` for Open and Draining. Never read the state and answer later.
+       pub fn answer(&self, delivered: Delivered);
+       pub fn set_paused(&self, paused: bool); // under the lock; Paused→Open resumes both streams
        pub fn fail(&self);                  // →Failed from any state but Draining: no resume ever
        pub fn drain(&self);                 // →Draining, resumes both streams
+       pub fn exited(&self);                // sets `exited`, then drain()
+       /// A close whose stop failed: Draining→Open (the bridge re-mirrors outputFlow at the next
+       /// frame). A no-op once `exited` is set.
+       pub fn undrain(&self);
    }
    ```
 
-   The facade calls `drain` on cancellation (a close starts), and the session calls it on the
-   leader's `exit`. From then on the gate no longer pauses: everything the child wrote reaches
+   **The check and the pause are one step.** `answer` holds the gate's lock while it reads the
+   state and calls `taken(false)` (which pauses the pump's `Flow`), and `set_paused(false)` holds
+   the same lock while it moves to Open and calls `OutputControl::resume`. So a resume can't land
+   between the check and the pause: either the pause comes first and the resume undoes it, or
+   the resume comes first and the chunk is answered `taken(true)`. There is no `more()` accessor.
+
+   The facade calls `drain` on cancellation (a close starts), and the session calls `exited` on
+   the leader's `exit`. From then on the gate no longer pauses: everything the child wrote reaches
    the queue, bounded by the process's output budget. The queue to JS always drains, so nothing
    read is dropped.
 
@@ -637,7 +654,11 @@ Steps, in order:
 Steps, in order:
 
 1. The fake answers the open handshake as `packages/adapter-pi/src/testing/fake-pi.ts` does (copy
-   its `get_commands` and `get_state` replies). On each `prompt`, it prints a turn: 2,000
+   its `get_commands` and `get_state` replies). Pi's open checks the saved history's header
+   (`checkedSessionReference`, `session-header.ts:58`–`:66`, which reads the first line of
+   `sessionFile`). So before the run the bench writes a valid history file with
+   `sessionFixture(home, "bench", 3)` from `packages/adapter-pi/src/testing/native-history.ts`,
+   and the fake's `get_state` returns that file's path and id. On each `prompt`, it prints a turn: 2,000
    `message_update` lines, one `message_end` and one `agent_end` (the shapes
    `translator.ts:162`–`:205` reads). The bench sends ten prompts, one after another.
 2. The bench opens the session through `createPiAdapter().openSession(ctx)`, with an `io.spawn`
@@ -702,9 +723,11 @@ Steps, in order:
    // Display: "Pi RPC closed", "Pi command capacity exceeded",
    //          "Pi command exceeds frame limit", the string Pi sent or "Pi command rejected".
    /// The command may have run. Maps to ACE_PI_UNCERTAIN (a plain Error in the facade).
-   pub enum Uncertain { TimedOut, Mismatch, StdinFailed(String), Closed }
+   pub enum Uncertain { TimedOut, Mismatch, StdinFailed(String), Closed, WriteQueueFull, StdinClosed }
    // Display: "Pi command timed out; execution uncertain", "Pi response command mismatch",
-   //          the stdin error's node message (e.g. "write EPIPE"), "Pi RPC closed".
+   //          the stdin error's node message (e.g. "write EPIPE"), "Pi RPC closed",
+   //          "JSON-RPC write queue exceeded limit" (rpc-writer.ts:37),
+   //          "JSON-RPC stdin closed" (rpc-writer.ts:88).
    pub enum PiError { Refused(Refused), Uncertain(Uncertain) }
    ```
 
@@ -712,6 +735,9 @@ Steps, in order:
    closed. One closed before its write is `Refused::Closed`, as today: `PiRpc.close` rejects
    pending requests with the plain `Error("Pi RPC closed")` (`rpc.ts:113`–`:123`), which
    `send` treats as uncertain once `requested` is set (`session.ts:413`–`:421`).
+   `WriteQueueFull` and `StdinClosed` are plain `Error`s today too (`RpcWriter` rejects with
+   them after the request was reserved), so they stay on the uncertain side. Don't "fix" that
+   here.
 
 2. In `wire.rs`, define the effects of one input:
 
@@ -731,7 +757,11 @@ Steps, in order:
    stdin and not yet acknowledged, in order: the redacted send text, the facade's promise id, the
    correlation id if any, and `resume_deadlines_after: bool`); `dialogs: IndexMap<String, (Value, Option<String>)>`
    (the dialog and its timer key); `waiting_on_human: bool`; `rollback: Option<(String, Option<bool>)>`;
-   `closed: bool`; `stdin_failed: Option<String>`; the stderr `DroppedNotes`.
+   `closed: bool`; `stdin_failed: Option<String>`; the stderr `DroppedNotes`; and
+   `budget: ace_supervisor::jsonrpc::WriterQueue` built with `WriterQueue::new(2 * 1024 * 1024)`.
+   That is Pi's write budget today (`new RpcWriter(proc.stdin, 2 * 1024 * 1024)`, `rpc.ts:43`;
+   the check is `rpc-writer.ts:36`–`:37`). Each write is charged its line's UTF-8 bytes plus one
+   for the newline, from the moment it is queued until its `stdin_written`.
 4. Implement its methods. Every method returns its effects in the order the state changed:
 
    ```rust
@@ -742,13 +772,24 @@ Steps, in order:
        /// 2. seq += 1, id = "ace-<seq>" (as today: an oversized command still uses up its number);
        /// 3. encode {type, ...params, id}; over 1 MiB → Err(Refused::FrameLimit), with no pending
        ///    entry, no timer and no frame left behind;
-       /// 4. only then insert the pending entry, ArmTimer("deadline:<id>", 30000) unless
-       ///    waiting_on_human, push the WriteRecord, and return [ArmTimer?, Write].
+       /// 4. charge the budget (`budget.enqueue(bytes + 1)`). If it is full, return
+       ///    Ok([Settle { id, Err(Uncertain::WriteQueueFull) }]): no pending entry, no timer, no
+       ///    frame. The promise settles through the queue, never as a throw, because today it
+       ///    rejects asynchronously with a plain Error;
+       /// 5. only then insert the pending entry, ArmTimer("deadline:<id>", 30000) unless
+       ///    waiting_on_human, push the WriteRecord (with its budget ticket), and return
+       ///    [ArmTimer?, Write].
        pub fn request(&mut self, command: &str, params: &ace_json::Map, id: u64) -> Result<Vec<Effect>, PiError>;
-       /// rpc.write (rpc.ts:70-79) for a dialog answer: steps 1 and 3 without correlation.
+       /// rpc.write (rpc.ts:70-79) for a dialog answer: steps 1, 3 and 4 without correlation.
        /// With `resume_after`, a successful acknowledgement resumes deadlines if no dialog is left.
        pub fn write(&mut self, data: &ace_json::Map, id: u64, resume_after: bool) -> Result<Vec<Effect>, PiError>;
-       /// One stdin write reached the pipe: pop the oldest WriteRecord and emit its send Frame
+       /// The stdin port refused the Write just returned (the pump has ended: `StdinPort::write`
+       /// gave Err). Called by the I/O shell under the same lock (E3-pi.2, step 2). Undo the newest
+       /// WriteRecord: release its budget ticket, remove its pending entry, CancelTimer its
+       /// deadline, Settle it with Uncertain::StdinClosed, mark stdin_failed, then Fatal. No
+       /// reservation is ever left without a settlement.
+       pub fn write_refused(&mut self) -> Vec<Effect>;
+       /// One stdin write reached the pipe: release its budget ticket, pop the oldest WriteRecord and emit its send Frame
        /// (rpc.ts:78). For a write() record, Settle Ok; then, if resume_after and dialogs is
        /// empty, resume deadlines (rpc.ts:99-103).
        pub fn stdin_written(&mut self) -> Vec<Effect>;
@@ -762,9 +803,11 @@ Steps, in order:
        pub fn stderr_dropped(&mut self, line: DroppedLine) -> Vec<Effect>;
        pub fn timer(&mut self, key: &str) -> Vec<Effect>;         // "deadline:<id>", "dialog:<id>", "notes"
        pub fn note(&mut self, json: &str) -> Vec<Effect>;         // the facade's lifecycle notes
-       /// resolve()'s reservation (session.ts:432-436): remove the dialog and CancelTimer its
-       /// expiry. None when it is no longer pending.
-       pub fn take_dialog(&mut self, id: &str) -> (Option<ace_json::Value>, Vec<Effect>);
+       /// The dialog as received, without consuming it (resolve() validates it first).
+       pub fn peek_dialog(&self, id: &str) -> Option<ace_json::Value>;
+       /// resolve()'s reservation (session.ts:435-436): remove the dialog and CancelTimer its
+       /// expiry. False when it is no longer pending.
+       pub fn take_dialog(&mut self, id: &str) -> (bool, Vec<Effect>);
        pub fn dialog_count(&self) -> usize;                       // for idle(), session.ts:328
        pub fn expect_rollback(&mut self, id: String);
        pub fn rollback_result(&self) -> Option<bool>;
@@ -813,14 +856,17 @@ Steps, in order:
 2. **One input, one lock.** Every input, whether it comes from tokio (`OutputConsumer` calls) or
    from JS (binding calls), runs as: lock `wire`; call the one `PiWire` method; hand each `Write`
    effect to `ports.stdin.write` in order; convert the other effects to `SessionEvent`s and
-   `queue.publish` them; unlock. Nothing else touches `wire`.
+   `queue.publish` them; unlock. Nothing else touches `wire`. If `ports` isn't set yet or
+   `ports.stdin.write` returns `Err`, call `wire.write_refused()` before unlocking and publish its
+   effects with the rest, so the request settles through the queue and the binding call still
+   returns normally.
 3. **`OutputConsumer` for `PiSessionCore`**:
    - `output(Stdout | Stderr, bytes, delivered)`: run the bytes through that stream's framer,
      feed each finished line to `stdout_line` or `stderr_line` (one input per line, step 2), then
-     answer `delivered.taken(gate.more())`. When the gate later opens, it resumes the stream
-     (E3.0c, step 2).
+     call `gate.answer(delivered)`, which checks and pauses in one step (E3.0c, step 2). When the
+     gate later opens, it resumes the stream.
    - `stdin_written()` → `wire.stdin_written()`; `stdin_error(e)` → `wire.stdin_error(&e.message)`.
-   - `exit(_)`: call `gate.drain()`, then publish `ArmTimer { key: "cutoff", ms: 1000 }`.
+   - `exit(_)`: call `gate.exited()`, then publish `ArmTimer { key: "cutoff", ms: 1000 }`.
    - `end(_)`: nothing; an end is not the barrier.
    - `close(_)`: `wire.finish()`, the terminal barrier. It ends with `Drained`.
 4. **The terminal barrier and the inherited-pipe cutoff.** Only the supervisor's `close` ends
@@ -830,8 +876,8 @@ Steps, in order:
    `onExit` (behaviour.md §8, `:296`–`:300`). If a descendant keeps a pipe open, `close` never
    comes on its own. When the `cutoff` timer fires (1,000 ms after the leader's exit, today's
    drain, `session.ts:272`–`:283`), `timer("cutoff")` calls `ports.output.close` on both
-   streams. The pumps then stop, and `close` follows with whatever was read; nothing already
-   read is dropped. If `close` came first, `CancelTimer { key: "cutoff" }` is part of
+   streams. Each pump stops, emits `end` (E3.0b, step 2b, so the JS readables end too), and
+   `close` follows with whatever was read; nothing already read is dropped. If `close` came first, `CancelTimer { key: "cutoff" }` is part of
    `finish`'s effects.
 5. **Binding** (`session_pi.rs`):
 
@@ -845,7 +891,8 @@ Steps, in order:
        #[napi] pub fn write(&self, data_json: String, id: u32, resume_after: bool) -> napi::Result<()>;
        #[napi] pub fn note(&self, json: String);
        #[napi] pub fn timer(&self, key: String);
-       #[napi] pub fn take_dialog(&self, id: String) -> Option<String>;
+       #[napi] pub fn peek_dialog(&self, id: String) -> Option<String>;
+       #[napi] pub fn take_dialog(&self, id: String) -> bool;
        #[napi] pub fn dialog_count(&self) -> u32;
        #[napi] pub fn expect_rollback(&self, id: String);
        #[napi] pub fn rollback_result(&self) -> Option<bool>;
@@ -853,6 +900,9 @@ Steps, in order:
        #[napi] pub fn set_paused(&self, paused: bool);
        #[napi] pub fn fail(&self);
        #[napi] pub fn drain(&self);
+       #[napi] pub fn undrain(&self);
+       /// No child will ever report (the spawn threw): close the wire and publish Drained now.
+       #[napi] pub fn abandon(&self);
    }
    ```
 
@@ -866,16 +916,28 @@ Steps, in order:
       and returns `bridge.expect(id)`. `write(data)` does the same with `resume_after: false`.
    2. `io.spawn({...same options..., nativeOutput: handle.outputTarget()})`. Leave `maxLineBytes`,
       `elideStdout` and `onStderrLineDropped` in the call: they take no effect on a diverted
-      child, and the Rust framers apply the same numbers.
+      child, and the Rust framers apply the same numbers. **If `io.spawn` throws** (the catch at
+      `:153`–`:158`), no child will report, and whether or not the native child briefly existed
+      only JS saw its end. So call `handle.abandon()` (the wire closes and `Drained` is published
+      at once; any late consumer event after it is dropped by `publish`), run today's cleanup
+      (`configuration.remove()`, `lifetime.abort()`, `lease?.end()`) and rethrow. Nothing on this
+      path awaits `drainedPromise`.
    3. `emit` and `note` call `handle.note(JSON.stringify(...))`. The facade never calls
       `ctx.onFrame`; the bridge does.
    4. Delete the `PiRpc` frame callback (`:217`–`:259`), `stderrLines` (`:261`–`:265`) and the
       drain (`:266`–`:283`); Rust does all three.
-   5. `dialogs.size` becomes `handle.dialogCount()` (in `idle`, `:328`). In `resolve`
-      (`:430`–`:445`), `dialogs.get` and `dialogs.delete` plus `entry.cancel()` become one
-      `handle.takeDialog(id)`, and `rpc.write(response)` followed by `resumeDeadlines` becomes
-      `handle.write(JSON.stringify(response), id, true)` and `await bridge.expect(id)`. On
-      failure it calls `fatal()` and rethrows, as today.
+   5. `dialogs.size` becomes `handle.dialogCount()` (in `idle`, `:328`). `resolve`
+      (`:430`–`:445`) keeps today's order (validate, then consume, then write):
+      1. `const dialog = handle.peekDialog(id)`; if it is `undefined`, throw
+         `Error("Pi dialog is no longer pending")` (`:432`–`:433`);
+      2. `const response = dialogResponse(JSON.parse(dialog), resolution)`. If this throws, the
+         dialog stays pending and untouched, as today (`:434`);
+      3. `if (!handle.takeDialog(id))`, throw the same "no longer pending" error. This is the
+         reservation (`:435`–`:436`): of two devices answering at once, only one gets it;
+      4. `handle.write(JSON.stringify(response), writeId, true)`, then
+         `await bridge.expect(writeId)`. Deadlines resume inside the wire, only after the
+         successful write and only when no dialog is left. On failure, call `fatal()` and
+         rethrow, as today (`:441`–`:444`).
    6. `rollbackAck` becomes `handle.expectRollback(id)` and `handle.rollbackResult()`, and the
       `finally` (`:499`–`:502`) calls `handle.clearRollback()`.
    7. Register `{ ACE_PI_COMMAND_REFUSED: PiCommandRefused, ACE_PI_UNCERTAIN: Error }` with the
@@ -896,8 +958,11 @@ Steps, in order:
       cancellation of ADR 0223 §7 rule 4). Do not call `release()`, `rpc.close()` or detach
       anything yet.
    3. Stop: `windows ? stopTree() : proc.stop({ graceMs: 1000 })`.
-   4. If the stop rejects: clear the in-flight promise, restore `closing` and `deliberate`, and
-      reject with the stop's error. The handle, its queue, the dialogs and the child are untouched,
+   4. If the stop rejects: clear the in-flight promise, restore `closing` and `deliberate`, call
+      `handle.undrain()` (the gate goes back to following `outputFlow`; a no-op if the leader has
+      exited), set `treeStop = undefined` so the next Windows close calls `stopTreeAfterEof`
+      again instead of returning the cached rejection (`:65`–`:68`), and reject with the stop's
+      error. The handle, its queue, the dialogs and the child are untouched,
       so the engine can give the session back (`engine/sessions.ts:1064`–`:1069`) and a later
       `close` tries again.
    5. If the stop resolves: `await bridge.drainedPromise` (every frame the child produced has been
@@ -905,7 +970,8 @@ Steps, in order:
       The `proc.exited` handler (`:304`–`:310`) keeps `closed = true` and `release()`, because a
       process that exits on its own is gone either way.
 8. Write the open's error path (`:360`–`:371`) the same way: stop, `await bridge.drainedPromise`,
-   then close and rethrow.
+   then close and rethrow. This path exists only after `io.spawn` returned, so a child exists and
+   its `close` (or the cutoff) brings `Drained`. A spawn that threw is step 6.2's path.
 9. The switch, the one line in `session.ts`, as the first statement of `openPiSession`:
    `if (sessionBackend("pi") === "native") return (await import("./native-session.ts")).openNativePiSession(ctx, options);`
 
@@ -939,15 +1005,24 @@ No test reboots a home with a Pi thread, so the owner allows one new test for it
 1. Create `apps/daemon/src/engine/pi-restart-resume.process.test.ts`. Its header says why: no
    test covered a Pi thread resumed across boots of one home, so the E3 cross-mode gate had
    nothing to run for Pi.
-2. Build it the way `codex-admission-restart.process.test.ts` builds its engine (`harness` from
-   `./test-support.ts`, `fixture` and `restart` from `./recovery-test-support.ts:16`, `:48`). Use
+2. Build it the way `codex-admission-restart.process.test.ts` does (`harness` from
+   `./test-support.ts`). **Do not use `restart()`** from `recovery-test-support.ts:48`: it reuses
+   `h.store`, so the event database never reopens, no boot is recorded and the backend never
+   switches. For each reboot, do what `codex-admission-restart.process.test.ts:60`–`:62` does:
+   `await engine.close()`, close the store, then `store = new Store(h.path)` and
+   `engine = new Engine(store, { registry: h.registry, clock: h.clock })`. Opening the store is
+   the boot (`noteDatabaseBoot`). Close the last engine and store in `finally`. Use
    `createPiAdapter` with a `runtime.spawn` that runs `packages/adapter-pi/src/testing/fake-pi.ts`,
    as `testing/harness.ts:120`–`:128` does, and give the fake its home through `FAKE_PI_HOME`.
 3. The test: boot 0 starts a Pi thread and completes one turn, then records the thread's stored
    native session id. Then **two** restarts, boots 1 and 2. After each one:
    1. the thread's stored native session id is unchanged;
-   2. the reopened session resumed it: the fake's `get_state` reports the same `sessionFile` and
-      `sessionId` as boot 0 (read through the frames the engine stored);
+   2. the reopened session resumed it. The fake loads `source.jsonl` at every start
+      (`testing/fake-pi.ts:18`), so matching ids alone prove nothing. Assert, from the frames
+      the engine stored for this boot, a `send` frame `{ type: "switch_session", sessionPath }`
+      whose `sessionPath` is boot 0's `sessionFile`, answered `{ cancelled: false }`, followed by
+      a `get_state` reply with the same `sessionFile` and `sessionId` as boot 0 (the restore of
+      `session.ts:332`–`:341`);
    3. a new message to the thread produces a reply and the thread settles, so the continuation
       works.
       Under `ACE_NATIVE_CROSS=ACE_SESSIONS`, boots 0, 1 and 2 alternate backends, so both swaps
@@ -956,6 +1031,9 @@ No test reboots a home with a Pi thread, so the owner allows one new test for it
    list names it. Don't edit either list. If it goes over the 30 s process budget, add it to
    `scripts/test-budgets.json` with this reason.
 
+- **Boots**: the test itself asserts three boots of its root. When `ACE_NATIVE_CROSS_LOG` is
+  set, it reads the log and expects three lines for the home, with `n` 0, 1 and 2 and
+  alternating backends.
 - **Run**: alone, off and in the three modes, then
   `ACE_STORE=native ACE_SUPERVISOR=native ACE_STORE_ADDON=$A ACE_SUPERVISOR_ADDON=$A ACE_SESSIONS_ADDON=$A bun scripts/native-cross.ts ACE_SESSIONS apps/daemon/src/engine/pi-restart-resume.process.test.ts`
   with `ACE_SESSIONS=pi`. The gate asserts that one root booted three times with alternating
@@ -1093,6 +1171,11 @@ fakes, and everything the E1 translator owns. Five tasks, in order.
   4. otherwise, detach the tenant.
      `close` resolves only when its branch is confirmed. On failure the tenant stays attached and
      whole (rule 5).
+- **Open conflict, to fix when Codex is scheduled.** Branches 2 and 3 call `cleanup()` (pending
+  rejected, maps cleared, timers cancelled) before `retire()` is confirmed, as the TypeScript
+  does (`session-lifetime.ts:61`–`:73`). That contradicts keeping the tenant whole when the
+  retirement fails. Re-brief the order (clean up after confirmed retirement) before E3-codex is
+  built.
 - **Proof** (alone, three modes): the 27 Codex session files of behaviour.md §19 (including
   `steer-race.process`, `shutdown-drain.process`, `oversized-lines.process`,
   `inherited-pipes.process`); `apps/daemon/src/engine/` `codex-exit-log.process`,
