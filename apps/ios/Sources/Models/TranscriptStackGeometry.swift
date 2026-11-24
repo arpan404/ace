@@ -47,6 +47,20 @@ struct TranscriptStackGeometry: Equatable, Sendable {
         return after - before
     }
 
+    /// Lays out blank rooms whose `declared` heights changed while the entries stayed (a Dynamic
+    /// Type change re-estimates a spacer, the keyboard's room grows), as a window change would.
+    /// Returns how far the offset must move so `anchor` stays where it was on screen; nil when
+    /// every declared height is already laid out.
+    mutating func resize(declared: [String: CGFloat], keeping anchor: String?) -> CGFloat? {
+        guard !laysOut(declared) else { return nil }
+        return replace(ids, declared: declared, keeping: anchor)
+    }
+
+    /// Every entry laid out now that has a `declared` height is laid out at it.
+    func laysOut(_ declared: [String: CGFloat]) -> Bool {
+        !declared.contains { id, height in positions[id].map { heights[$0] != height } ?? false }
+    }
+
     /// The entry a window change keeps where it is on screen, among `kept` entries meeting
     /// `minY..<maxY`. Following the end, the first of them: the end's entries hold still. Away
     /// from it, the first row on screen, then the first entry that draws something. A screen of

@@ -45,6 +45,26 @@ import UIKit
         return probe.replace(ids, declared: declared, estimate: estimate, keeping: anchor)
     }
 
+    /// Blank rooms whose declared heights changed while the entries stayed: laid out now,
+    /// keeping `anchor` where it is on screen. Like a measurement, the offset moves with the
+    /// layout's own invalidation, so a fling keeps going (`TranscriptStackGeometry.resize`).
+    func resize(declared: [String: CGFloat], anchor: () -> String?) {
+        guard let collectionView, !geometry.laysOut(declared) else { return }
+        let height = geometry.contentHeight
+        guard let move = geometry.resize(declared: declared, keeping: anchor()) else { return }
+        let context = UICollectionViewLayoutInvalidationContext()
+        if keepsPlace, move != 0 {
+            context.contentOffsetAdjustment = CGPoint(x: 0, y: move)
+            PerfCounters.bump("offset.declared")
+        }
+        context.contentSizeAdjustment = CGSize(width: 0, height: geometry.contentHeight - height)
+        let bounds = collectionView.bounds
+        let reach = geometry.indices(from: bounds.minY - bounds.height * 3, to: bounds.maxY + bounds.height * 3)
+        context.invalidateItems(at: reach.map { IndexPath(item: $0, section: 0) })
+        invalidateLayout(with: context)
+        changed?()
+    }
+
     /// The offset change a window change still owes, taken once.
     func takeAdjustment() -> CGFloat {
         defer { adjustment = 0 }

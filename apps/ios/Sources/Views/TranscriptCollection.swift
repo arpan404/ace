@@ -152,6 +152,9 @@ struct TranscriptCollection: UIViewRepresentable {
             if ids == order {
                 _ = sequence.windowChange(movesOffset: { false })
                 waiting = nil
+                // A spacer re-estimated in place (Dynamic Type, a layout revision) takes its new
+                // height now, wherever it is, not when its cell next sizes itself on screen.
+                layout.resize(declared: declared, anchor: { self.anchorEntry(keeping: Set(ids), in: byID) })
                 let changed = adopt(byID)
                 reconfigure(restyled ? ids.filter { visible($0) } : changed)
                 return

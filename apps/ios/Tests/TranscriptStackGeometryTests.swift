@@ -159,4 +159,26 @@ import Testing
         #expect(anchor(geometry, from: 500, to: 1400, keeping: geometry.ids, followsEnd: true) == "b")
         #expect(anchor(geometry, from: 700, to: 1400, keeping: geometry.ids, followsEnd: true) == "spacer.before")
     }
+
+    @Test func aSpacerResizedInPlaceKeepsTheReadersRowStill() {
+        // A Dynamic Type change re-estimates the far spacer while the same entries stay laid out.
+        var geometry = flingingThroughHistory()
+        let held = anchor(geometry, from: 600, to: 1400, keeping: geometry.ids)
+        let move = geometry.resize(declared: ["spacer.before": 6200, "room.edge": 8], keeping: held)
+
+        #expect(move == 0)
+        #expect(geometry.top(of: "b") == 301)
+        #expect(geometry.contentHeight == 7009)
+        // Heights already laid out change nothing.
+        #expect(geometry.resize(declared: ["spacer.before": 6200, "room.edge": 8], keeping: held) == nil)
+    }
+
+    @Test func aRoomResizedInPlaceBeforeTheReaderMovesTheOffsetByItsChange() {
+        var geometry = measured([("room.keyboard", 0), ("tail", 1), ("b", 500), ("a", 200)])
+        let held = anchor(geometry, from: 300, to: 700, keeping: geometry.ids)
+        let move = geometry.resize(declared: ["room.keyboard": 320], keeping: held)
+
+        #expect(held == "b")
+        #expect(move == 320)
+    }
 }
