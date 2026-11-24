@@ -47,6 +47,15 @@ impl PiSessionCore {
         }
     }
 
+    /// The gate resumes the child's pumps, which exist once the spawn has filled
+    /// the ports. Every consumer input attaches them first, so a pause answered
+    /// before a resume has the control that resume needs (E3.0c, step 2).
+    fn attach_gate(&self) {
+        if let Some(ports) = self.ports.get() {
+            self.gate.attach(ports.output.clone());
+        }
+    }
+
     pub fn queue(&self) -> &EventQueue {
         &self.queue
     }
@@ -134,9 +143,11 @@ impl PiSessionCore {
     /// so the request settles through the queue and the call still returns.
     ///
     /// A `Fatal` is today's `PiRpc.fail` (`rpc.ts:62`–`:64`): the shell's close
-    /// ran `rpc.close()` synchronously, so the wire closes here, its pending
-    /// requests settle uncertain before the failure, and nothing later in the
-    /// same chunk is read.
+    /// ran `rpc.close()` synchronously, so the wire closes here and its pending
+    /// requests settle uncertain. Every effect of the input is still applied in
+    /// order: an unterminated record at EOF emits its `Fatal` before the stderr
+    /// tail, the settlements and `Drained` (`wire.rs:502`–`:529`), and dropping
+    /// those would leave `close()` waiting forever.
     fn commit(&self, wire: &mut PiWire, effects: Vec<Effect>) {
         let mut events = Vec::with_capacity(effects.len());
         for effect in effects {
@@ -153,7 +164,6 @@ impl PiSessionCore {
                 Effect::Fatal { message } => {
                     events.push(SessionEvent::Fatal { message });
                     push_events(&mut events, wire.close());
-                    break;
                 }
                 other => push_events(&mut events, std::iter::once(other)),
             }
@@ -178,6 +188,7 @@ impl PiSessionCore {
 
 impl OutputConsumer for PiSessionCore {
     fn output(&self, stream: OutputStream, bytes: Vec<u8>, delivered: Delivered) {
+        self.attach_gate();
         match stream {
             OutputStream::Stdout => self.input(|wire| wire.stdout_bytes(&bytes)),
             OutputStream::Stderr => self.input(|wire| wire.stderr_bytes(&bytes)),
@@ -192,15 +203,18 @@ impl OutputConsumer for PiSessionCore {
     }
 
     fn stdin_written(&self) {
+        self.attach_gate();
         self.input(PiWire::stdin_written);
     }
 
     fn stdin_error(&self, error: NodeIoError) {
+        self.attach_gate();
         let message = stdin_message(&error);
         self.input(|wire| wire.stdin_error(&message));
     }
 
     fn exit(&self, _exit: RawExit) {
+        self.attach_gate();
         self.gate.exited();
         self.queue.publish(vec![SessionEvent::ArmTimer {
             key: CUTOFF.to_owned(),
@@ -209,6 +223,7 @@ impl OutputConsumer for PiSessionCore {
     }
 
     fn close(&self, _exit: RawExit) {
+        self.attach_gate();
         // The terminal barrier. A child that ends before the cutoff cancels it.
         self.input(|wire| {
             let mut effects = vec![Effect::CancelTimer {
@@ -274,5 +289,41 @@ fn settle_error(error: PiError) -> SessionErrorWire {
             code: UNCERTAIN,
             message: kind.to_string(),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn core() -> PiSessionCore {
+        PiSessionCore::new(PiWireConfig {
+            control_secret: "a".repeat(64),
+            lease_bearer: None,
+        })
+    }
+
+    fn clean_exit() -> RawExit {
+        RawExit {
+            code: Some(0),
+            signal: None,
+        }
+    }
+
+    /// An unterminated stdout record at EOF fails the framer first, then the
+    /// stderr tail and `Drained` follow; dropping what comes after the failure
+    /// leaves a close waiting forever.
+    #[test]
+    fn an_unterminated_record_at_eof_still_publishes_drained() {
+        let core = core();
+        core.input(|wire| wire.stdout_bytes(b"{\"a\":1"));
+        core.close(clean_exit());
+        let events = core.queue().take_batch(256, 256 * 1024);
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, SessionEvent::Fatal { .. }))
+        );
+        assert!(matches!(events.last(), Some(SessionEvent::Drained)));
     }
 }

@@ -300,6 +300,27 @@ fn an_unparseable_blocking_dialog_is_fatal_after_its_frame() {
 }
 
 #[test]
+fn a_failing_stdout_line_stops_the_lines_after_it_in_one_chunk() {
+    let mut wire = new_wire();
+    wire.request("get_state", &Map::new(), 1).expect("request");
+    let dialogue = r#"{"type":"extension_ui_request","id":5,"method":"select"}"#;
+    let reply =
+        r#"{"type":"response","id":"ace-1","command":"get_state","success":true,"data":{}}"#;
+    let effects = wire.stdout_bytes(format!("{dialogue}\n{reply}\n").as_bytes());
+    assert_eq!(names(&effects), vec!["frame:Recv", "fatal:Pi RPC closed"]);
+    // The reply was never read: the request settles once, uncertain, at the close.
+    assert_eq!(
+        names(&wire.finish()),
+        vec![
+            "cancel:notes",
+            "cancel:deadline:ace-1",
+            "settle:1",
+            "drained"
+        ]
+    );
+}
+
+#[test]
 fn a_duplicate_dialog_id_is_not_added_twice() {
     let mut wire = new_wire();
     let line = r#"{"type":"extension_ui_request","id":"d1","method":"select"}"#;
