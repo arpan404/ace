@@ -16,11 +16,7 @@ it("a paused session resumes when a person opens a tab", async () => {
   await f.disconnect();
   expect(f.service.state("thread")).toMatchObject({ status: "paused" });
   // Person opens a new tab: resumes headlessly instead of throwing paused.
-  const opened = await f.service.execute(
-    "thread",
-    { action: "tabs", operation: "open" },
-    human,
-  );
+  const opened = await f.service.execute("thread", { action: "tabs", operation: "open" }, human);
   expect(f.service.state("thread")).toMatchObject({ backend: "headless", status: "ready" });
   expect(opened).toMatchObject({ activeTabId: expect.any(String) });
 });

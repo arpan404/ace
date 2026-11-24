@@ -123,10 +123,7 @@ describe.skipIf(!executablePath)("idle tabs in ace's Chrome", () => {
     const { f, tab, lifecycle, idleFor } = await idleTabs();
     await f.execute({ action: "navigate", url: f.url, tabId: tab });
     await f.execute({ action: "evaluate", tabId: tab, expression: tone });
-    const save = ref(
-      await f.execute({ action: "snapshot", tabId: tab }),
-      "Save",
-    );
+    const save = ref(await f.execute({ action: "snapshot", tabId: tab }), "Save");
     await f.execute({ action: "click", tabId: tab, ref: save });
     await expect
       .poll(() =>

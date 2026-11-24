@@ -27,9 +27,7 @@ interface VideoChrome {
     get(tabId: number): Promise<ChromeTab>;
     update(tabId: number, properties: { muted: boolean }): Promise<ChromeTab>;
     onUpdated: {
-      addListener(
-        listener: (tabId: number, changeInfo: TabChange, tab: ChromeTab) => void,
-      ): void;
+      addListener(listener: (tabId: number, changeInfo: TabChange, tab: ChromeTab) => void): void;
     };
   };
   tabCapture: { getMediaStreamId(options: { targetTabId: number }): Promise<string> };

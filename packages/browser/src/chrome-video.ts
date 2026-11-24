@@ -300,10 +300,7 @@ export class ChromeVideo implements VideoHost {
     return this.install({ worker: attached.targetId, document: opened.targetId }, true);
   }
   /** The exports of `workerExports` and `documentExports` their `aceVideo` does not define. */
-  private async missingExports(
-    worker: BrowserCdp,
-    document: BrowserCdp,
-  ): Promise<string[]> {
+  private async missingExports(worker: BrowserCdp, document: BrowserCdp): Promise<string[]> {
     const missing = [
       ...(await absentExports(worker, workerExports)),
       ...(await absentExports(document, documentExports)),
@@ -320,12 +317,22 @@ export class ChromeVideo implements VideoHost {
       const target = targetInfos.find((info) => info.url === url && info.targetId !== not);
       if (target) {
         this.targets.keep(target.targetId);
-        const { sessionId } = Attached.parse(
-          await this.connection.send("Target.attachToTarget", {
+        let attached: unknown;
+        try {
+          attached = await this.connection.send("Target.attachToTarget", {
             targetId: target.targetId,
             flatten: true,
-          }),
-        );
+          });
+        } catch (error) {
+          // The target went away between the listing and the attach (an old worker a reinstall
+          // just ended): look again for the one that replaces it.
+          if (error instanceof Error && error.message.includes("No target with given id")) {
+            await this.delay(100);
+            continue;
+          }
+          throw error;
+        }
+        const { sessionId } = Attached.parse(attached);
         this.sessions.add(sessionId);
         return {
           session: this.connection.session(sessionId),
@@ -387,8 +394,7 @@ export class ChromeVideo implements VideoHost {
       if (audio.muted) this.mutedTabs.add(tabId);
       else this.mutedTabs.delete(tabId);
       // The tab's mute is for everyone: its captures stop or resume their sound with it.
-      for (const sound of this.captureAudio.values())
-        if (sound.tabId === tabId) sound.apply();
+      for (const sound of this.captureAudio.values()) if (sound.tabId === tabId) sound.apply();
     }
     for (const listener of this.tabAudioListeners) listener(tabId, audio);
   }

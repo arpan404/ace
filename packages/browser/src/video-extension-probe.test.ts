@@ -9,7 +9,12 @@ import { refreshPictureMs } from "./video-pacing.ts";
 test("the manifest version changes with the bundle and is a Chrome version", () => {
   const version = videoExtensionVersion(videoExtensionFiles);
   expect(version).toMatch(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/);
-  expect(version.split(".").map(Number).every((part) => part <= 65_535)).toBe(true);
+  expect(
+    version
+      .split(".")
+      .map(Number)
+      .every((part) => part <= 65_535),
+  ).toBe(true);
   expect(videoExtensionManifest().version).toBe(version);
   const changed = {
     ...videoExtensionFiles,

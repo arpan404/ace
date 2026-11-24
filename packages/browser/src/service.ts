@@ -806,7 +806,9 @@ export class BrowserService {
     if (actor?.kind !== "human") return;
     const session = this.sessions.get(threadId);
     if (!session || session.state.closed || session.state.status !== "paused") return;
-    await this.resumable.get(threadId)?.().catch(() => {});
+    await this.resumable
+      .get(threadId)?.()
+      .catch(() => {});
     await this.recoveries.get(threadId)?.catch(() => {});
   }
   /** A viewer arrived: a paused session it may see starts coming back, without waiting for it. */

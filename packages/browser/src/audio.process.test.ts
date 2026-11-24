@@ -306,7 +306,10 @@ describe.skipIf(!executablePath)("page audio from ace's Chrome", () => {
       const f = await fixture({ media: m.browser });
       await f.navigate();
       await f.evaluate(tone);
-      await f.execute({ action: "click", ref: ref(await f.execute({ action: "snapshot" }), "Save") });
+      await f.execute({
+        action: "click",
+        ref: ref(await f.execute({ action: "snapshot" }), "Save"),
+      });
       await until(async () => (await f.evaluate("window.audioContext?.state")) === "running");
       const listener = mediaViewer(f, {
         connectionId: "listener",
@@ -337,6 +340,7 @@ describe.skipIf(!executablePath)("page audio from ace's Chrome", () => {
       );
       expect(nearest).toBeLessThan(250);
       // The other viewer plays the same video, muted: not one audio byte.
+      await until(() => muted.video().length > 0);
       expect(muted.video().length).toBeGreaterThan(0);
       expect(muted.audio()).toEqual([]);
       expect(muted.audioBytes()).toBe(0);
@@ -399,7 +403,10 @@ describe.skipIf(!executablePath)("page audio from ace's Chrome", () => {
       const f = await fixture({ media: m.browser });
       await f.navigate();
       await f.evaluate(tone);
-      await f.execute({ action: "click", ref: ref(await f.execute({ action: "snapshot" }), "Save") });
+      await f.execute({
+        action: "click",
+        ref: ref(await f.execute({ action: "snapshot" }), "Save"),
+      });
       await until(async () => (await f.evaluate("window.audioContext?.state")) === "running");
       const listener = mediaViewer(f, { connectionId: "listener", runtime: m.runtime });
       await listener.subscribe();
@@ -577,12 +584,11 @@ Object.assign(globalThis, {
         directory: extensionDir,
         delay: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
       });
-      const handle = await video.open(
-        instance.connection.session(target.sessionId),
-        640,
-        400,
-        { chunk: () => {}, failed: () => {}, ended: () => {} },
-      );
+      const handle = await video.open(instance.connection.session(target.sessionId), 640, 400, {
+        chunk: () => {},
+        failed: () => {},
+        ended: () => {},
+      });
       expect(handle).toBeDefined();
       handle.close();
       await instance.targets.close(target.targetId).catch(() => {});
@@ -593,4 +599,3 @@ Object.assign(globalThis, {
     }
   }, 120_000);
 });
-
