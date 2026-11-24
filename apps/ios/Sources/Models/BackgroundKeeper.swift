@@ -36,6 +36,8 @@ import UIKit
     func resignActive() { run(hold.resignActive(connections: connections())) }
     func enteredBackground() { run(hold.enteredBackground()) }
     func becameActive() { run(hold.becameActive()) }
+    /// A machine's connection state changed (`MachinesModel.onConnectionChange`).
+    func connectionsChanged() { run(hold.connectionsChanged(connections())) }
     func refreshSetting(_ on: Bool) { run(hold.setEnabled(on)) }
 
     private func run(_ effects: [BackgroundHold.Effect]) {

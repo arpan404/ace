@@ -32,6 +32,10 @@ struct BackgroundHold: Equatable {
     private(set) var holding = false
     /// The app reached the background since it was last active.
     private(set) var away = false
+    /// Off the active state since `willResignActive`, so a socket that starts can still be kept.
+    private(set) var resigned = false
+    /// iOS took this absence's grace period back; it gives no more until the app returns.
+    private(set) var spent = false
 
     init(enabled: Bool) { self.enabled = enabled }
 
@@ -40,7 +44,19 @@ struct BackgroundHold: Equatable {
     /// still being opened; with none (the pairing screen of a fresh install, every machine
     /// offline or refused) there is nothing to keep.
     mutating func resignActive(connections: [String]) -> [Effect] {
-        guard enabled, connections.contains(where: Self.socketWorking), !holding else { return [] }
+        resigned = true
+        return hold(connections)
+    }
+
+    /// A machine's connection state changed. While the app is off the active state and holds
+    /// nothing, a socket that has started since it resigned takes the hold now.
+    mutating func connectionsChanged(_ connections: [String]) -> [Effect] {
+        guard resigned else { return [] }
+        return hold(connections)
+    }
+
+    private mutating func hold(_ connections: [String]) -> [Effect] {
+        guard enabled, !holding, !spent, connections.contains(where: Self.socketWorking) else { return [] }
         holding = true
         return [.beginTask]
     }
@@ -59,6 +75,8 @@ struct BackgroundHold: Equatable {
 
     /// `didBecomeActive`: back on screen.
     mutating func becameActive() -> [Effect] {
+        resigned = false
+        spent = false
         var effects: [Effect] = []
         if holding { holding = false; effects.append(.endTask) }
         if away { away = false; effects.append(.wake) }
@@ -68,6 +86,7 @@ struct BackgroundHold: Equatable {
     /// iOS is taking the grace period back. The assertion must be ended in the handler, or iOS
     /// kills the app; the sockets are then left to die and are checked on return.
     mutating func expired() -> [Effect] {
+        spent = true
         guard holding else { return [] }
         holding = false
         return [.endTask]

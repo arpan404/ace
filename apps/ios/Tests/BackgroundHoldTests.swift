@@ -53,6 +53,30 @@ import Testing
         var hold = BackgroundHold(enabled: true)
         #expect(hold.resignActive(connections: ["offline", "fatal"]) == [])
     }
+    @Test func aSocketThatStartsAfterTheAppResignsTakesTheHoldThen() {
+        var hold = BackgroundHold(enabled: true)
+        #expect(hold.resignActive(connections: []) == [])
+        #expect(hold.connectionsChanged(["offline"]) == [])
+        #expect(hold.connectionsChanged(["connecting"]) == [.beginTask])
+        #expect(hold.connectionsChanged(["ready"]) == [])
+        #expect(hold.becameActive() == [.endTask])
+    }
+    @Test func aConnectionChangeWhileOnScreenHoldsNothing() {
+        var hold = BackgroundHold(enabled: true)
+        #expect(hold.connectionsChanged(["connecting"]) == [])
+        _ = hold.resignActive(connections: [])
+        _ = hold.becameActive()
+        #expect(hold.connectionsChanged(["ready"]) == [])
+    }
+    @Test func afterIOSTakesTheGraceBackALaterConnectionDoesNotAskAgain() {
+        var hold = BackgroundHold(enabled: true)
+        _ = hold.resignActive(connections: ["ready"])
+        _ = hold.enteredBackground()
+        _ = hold.expired()
+        #expect(hold.connectionsChanged(["reconnecting"]) == [])
+        #expect(hold.becameActive() == [.wake])
+        #expect(hold.resignActive(connections: ["ready"]) == [.beginTask])
+    }
     @Test func repeatedResignsHoldOneTask() {
         var hold = BackgroundHold(enabled: true)
         #expect(hold.resignActive(connections: ["ready"]) == [.beginTask])
@@ -78,6 +102,16 @@ import Testing
         #expect(began == 1)
         #expect(ended == [7])
         #expect(woke == 1)
+    }
+    @Test func theKeeperTakesTheHoldWhenAMachineStartsConnectingAfterTheAppResigns() {
+        var began = 0
+        var states: [String] = []
+        let keeper = BackgroundKeeper(enabled: true, connections: { states },
+            begin: { _ in began += 1; return 7 }, end: { _ in }, wake: {})
+        keeper.resignActive()
+        states = ["connecting"]
+        keeper.connectionsChanged()
+        #expect(began == 1)
     }
     @Test func theKeeperAsksForNothingWhileNoMachineSocketIsWorking() {
         var began = 0

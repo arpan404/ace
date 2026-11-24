@@ -20,8 +20,10 @@ struct RootView: View {
         .onChange(of: machines.machines.isEmpty) { _, empty in if !empty { lock.enable() } }
         .onAppear {
             guard keeper == nil else { return }
-            keeper = BackgroundKeeper.system(
+            let made = BackgroundKeeper.system(
                 connections: { [machines] in machines.connectionStates }, wake: { [machines] in machines.wake() })
+            machines.onConnectionChange = { [weak made] in made?.connectionsChanged() }
+            keeper = made
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.backgroundRefreshStatusDidChangeNotification)) { _ in
             keeper?.refreshSetting(UIApplication.shared.backgroundRefreshStatus == .available)
