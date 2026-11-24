@@ -160,7 +160,7 @@ pub struct Executor {
     control_streak: Cell<u8>,
     /// Set by `close_admission`; the pump signals `drained` at the end of the first turn that
     /// finds the inbox and both run queues empty and the join predicate the close task passed
-    /// (no admitted batch unacknowledged) true. The close task's 5 s deadline cuts it short.
+    /// (no admitted batch unacknowledged) true. Close's overall 15 s deadline cuts it short.
     draining: Cell<Option<oneshot::Sender<()>>>,
 }
 
@@ -429,15 +429,36 @@ The skeleton's own flow, with where each unported step fails:
   as `:1436` does, so its result is that error, but every shutdown step below still runs, so a
   failed start never leaks the threadsafe function or a timer.
 - **`close()`** runs as one engine task, spawned once; its promise is the cached `closePromise`.
-  The order is: module steps, close admission, a bounded join, then cancellation. Nothing in it
-  waits for a worker to go idle, so a port that never settles cannot stop close from finishing.
+  The order is: the readiness wait and module steps, close admission, a bounded join, then
+  cancellation. Nothing in it waits for a worker to go idle, and the **whole sequence runs under
+  one overall deadline of 15 s** on the injected clock (`clock.setTimer`, so a `ManualClock` test
+  advances it), so a port that never settles, wherever it is awaited, cannot stop close from
+  finishing.
+  - **The deadline** is armed as close's first action, before the readiness wait, and is the one
+    timer step 2 does not cancel. 15 s covers the longest bounded step inside close, a session's
+    stop plan (3 s/3 s/2 s), with margin. Its callback completes the close task's deadline oneshot
+    and wakes the close task through its own task waker (a runnable, not an inbox item), so closed
+    admission never refuses it.
+  - **Everything awaitable counts against it**: the readiness wait (`:1436`), the module steps of
+    step 1 and the join of step 3. The close task races that part (`futures::select` over the
+    sequence and the deadline). When the deadline passes first, the sequence future is dropped
+    where it stands, which cancels the readiness wait or the module step it was in, and close goes
+    straight to step 2 if admission is still open, skips the join, and runs steps 4 to 6.
+    Admission closing and steps 4 to 6 never await, so they finish within the turn the deadline
+    fired in, and close settles inside the deadline plus that one turn.
+  - A phase the deadline cut is reported once through `onError` as
+    `Engine close passed its 15 s deadline during <phase>` (`readiness`, `<module> close`,
+    `join`). Work it cut is handled as step 5 says. A session whose close was cut is dropped,
+    which ends its process through the supervisor (kill-on-drop, ADR 0223 §2's `process-wrap`),
+    and restart evidence it had not captured is treated by the next boot as a crash's (E5.8).
   1. **Module steps.** `Closing` (new facade calls get `Closing`, commands
      `daemon_shutting_down`); cancel the sweep; the module close steps in
      `index.ts:1428`–`:1466`'s order, each a declared function (E5.2, E5.6, E5.8 fill them): flush
      and capture restart evidence, then close sessions, whose frames still arrive (ADR 0223 §7
-     rule 5) and whose stop plan bounds them (3 s/3 s/2 s). The TypeScript's final `flush()`
-     (`:1465`) is **not** run here; step 3 replaces it.
-  2. **Close admission.** Cancel every timer the engine armed, unsubscribe from the registry
+     rule 5) and whose stop plan bounds them (3 s/3 s/2 s). Before them, close awaits the ready
+     promise as `:1436` does. All of this is under the overall deadline. The TypeScript's final
+     `flush()` (`:1465`) is **not** run here; step 3 replaces it.
+  2. **Close admission.** Cancel every timer the engine armed except close's deadline, unsubscribe from the registry
      (step 7), and call `executor.close_admission()`. From here no external producer can enqueue:
      a session event, I/O completion, timer firing or after-commit release that races it gets
      `Refused` and is dropped (it arrived after shutdown began, as an item arriving after
@@ -454,11 +475,9 @@ The skeleton's own flow, with where each unported step fails:
      re-arms), with the same budget and fairness, never called from inside the close task, so it
      is never re-entrant. It ends at the end of the first turn that finds the inbox and both run
      queues empty and no admitted batch unacknowledged. Tasks parked on a port, a timer or a
-     promise are not runnable and do not hold it. It has a **deadline of 5 s** on the injected
-     clock (`clock.setTimer`, so a `ManualClock` test advances it), armed after step 2; its
-     callback completes the close task's oneshot and wakes the close task through its own task
-     waker (a runnable, not an inbox item), so closed admission never refuses it. At the deadline
-     the join stops; whatever it had not finished is cancelled in step 4 with the rest.
+     promise are not runnable and do not hold it. It has no deadline of its own: it ends when the
+     overall deadline passes, and whatever it had not finished is cancelled in step 4 with the
+     rest.
 
   4. **Cancel the rest.** Detach the after-commit sink, then `executor.shut()`: `closed` is set,
      the run queues close, queued runnables are dropped, and every task still alive is cancelled.
@@ -473,8 +492,10 @@ The skeleton's own flow, with where each unported step fails:
      (an intent mid-delivery, a queued input) stays as committed, held or uncertain, and the next
      boot's restart recovery (E5.8, behaviour.md §13) decides it, as after a crash today.
   6. **Settle the close promise** from its own result alone: the readiness error (`:1436` awaits
-     the ready promise), else a module step's error, else success. A join that hit its deadline is
-     not an error of close: it resolves, and step 5's reports say what was cut. Then zero the
+     the ready promise), else a module step's error, else success. A sequence the deadline cut is
+     not an error of close: it resolves, and the deadline report and step 5's reports say what was
+     cut. A ready promise still pending when the deadline cut the readiness wait is one of step 5's
+     pending promises and rejects with `ACE_ENGINE_CLOSED`. Then zero the
      process-reference count and release the threadsafe function (step 6). The close task
      returns; its pump turn returns `Done` and nothing re-arms.
 
@@ -482,9 +503,18 @@ The skeleton's own flow, with where each unported step fails:
   task's waits exclude the calling task, which is cancelled in step 4.
 
 - **Tests** (seam):
+  - "close finishes inside its deadline when a port stalls before admission closes", in two cases:
+    `providersActivated` is a JS promise that never settles, so the readiness wait stalls; and a
+    probe close step (`probe.stallCloseStep(port)`, declared in E5.1, which adds a module close
+    step awaiting a never-settling port) stalls the module steps. In each, `close()`, then advance
+    the `ManualClock`: close is still pending at 14.9 s and settles at 15 s within the turn the
+    deadline fired in; admission was closed and the threadsafe function released; `onError` got
+    one deadline report naming the phase (`readiness`, or the probe step); in the first case
+    `ready()` rejects with `ACE_ENGINE_CLOSED`. A close whose readiness wait or module steps sit
+    outside the deadline hangs this test.
   - "close finishes within its deadline when a worker waits on a port that never settles": the
     probe runs a worker task awaiting a port whose JS promise never settles, plus a facade call
-    tied to it; `close()`, then advance the `ManualClock` 5 s; close resolves, the facade call
+    tied to it; `close()`, then advance the `ManualClock` 15 s; close resolves, the facade call
     rejects with `ACE_ENGINE_CLOSED`, `onError` got one report naming the worker and the port, and
     resolving that JS promise afterwards changes nothing. A close that awaits worker idleness
     hangs this test.
@@ -801,7 +831,8 @@ export function engineSeam(input?: {
   packaging never sets) exposes executor and store hooks with no thread behaviour:
   `spawn(lane, script)` runs a scripted task (await a timer, call a port, write events in a
   transaction, defer a wake, flush from inside); `defer(threadId)`; `claim()`; `turns()` (polls per
-  turn, longest poll); `woken()` (wakes released, in order); and, until E5.3 lands,
+  turn, longest poll); `woken()` (wakes released, in order); `stallCloseStep(port)` (a close step that awaits a
+  port, for the deadline test); and, until E5.3 lands,
   `emptyCandidates()`, which answers the recovery-candidate scan with no rows so `ready()` can
   resolve. That is the probe's one stub, and E5.3 deletes it. E5.1 also **declares** the hook
   E5.2 needs, so E5.2 does not edit `testing.ts`:
@@ -990,8 +1021,9 @@ test -f "$f" && bun --bun x vitest run "$f" --maxWorkers=4
 - The registry class is unchanged in behaviour; each native view subscribes and unsubscribes.
 - Wake lists are keyed by top frame and each is released after its own publication.
 - `control_streak` lives in the executor, survives a turn's end and saturates at 8.
-- Close runs module steps, closes admission, joins only admitted commits and acknowledgements on
-  scheduled macrotasks under a 5 s deadline, then cancels and rejects the rest with
+- Close arms one 15 s deadline first, and the readiness wait, the module steps, admission
+  closing, the join and cancellation all fall under it; it joins only admitted commits and
+  acknowledgements on scheduled macrotasks, then cancels and rejects the rest with
   `ACE_ENGINE_CLOSED`; the close promise settles from its own result, apart from cancelled work.
 - `with_state`'s closure type admits no port, executor or store; no `&mut self` on `NativeEngine`.
 - A token is released or dropped exactly once; a rolled-back receipt's wake never runs (make one
