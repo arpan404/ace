@@ -1,6 +1,6 @@
 //! Pure lexical passage search over a fetched page's saved text. No model calls, no I/O.
 
-use super::outline::outline;
+use super::outline::{Heading, outline};
 
 /// Target maximum length of one returned passage, in characters.
 const MAX_PASSAGE_CHARS: usize = 900;
@@ -237,30 +237,39 @@ fn tokenize(text: &str) -> Vec<String> {
 }
 
 /// Splits `text` into paragraph-aligned chunks with exact 0-based character offsets and their
-/// nearest enclosing heading.
+/// nearest enclosing heading, walking sorted block and heading offsets once in O(B + H).
 fn build_chunks(text: &str) -> Vec<Chunk> {
     let headings = outline(text);
     let blocks = split_blocks(text);
-    let merged = merge_heading_blocks(blocks, &headings);
+    let merged = merge_heading_blocks(text, blocks, &headings);
 
     let mut chunks = Vec::new();
-    for block in merged {
-        let section = headings
-            .iter()
-            .rev()
-            .find(|h| h.offset <= block.offset)
-            .map(|h| format!("{} {}", "#".repeat(usize::from(h.level)), h.text));
+    let mut next_heading = 0usize;
+    let mut current_section: Option<String> = None;
 
-        if block.text.chars().count() <= MAX_PASSAGE_CHARS {
+    for block in merged {
+        while next_heading < headings.len() && headings[next_heading].offset <= block.offset {
+            let h = &headings[next_heading];
+            current_section = Some(format!("{} {}", "#".repeat(usize::from(h.level)), h.text));
+            next_heading += 1;
+        }
+
+        let block_text = &text[block.start_byte..block.end_byte];
+        if block.end_offset - block.offset <= MAX_PASSAGE_CHARS {
             chunks.push(make_chunk(
                 block.offset,
                 block.end_offset,
-                section,
-                block.text,
+                current_section.clone(),
+                block_text.to_owned(),
             ));
         } else {
-            for (sub_offset, sub_end, sub_text) in split_long_block(&block.text, block.offset) {
-                chunks.push(make_chunk(sub_offset, sub_end, section.clone(), sub_text));
+            for (sub_offset, sub_end, sub_text) in split_long_block(block_text, block.offset) {
+                chunks.push(make_chunk(
+                    sub_offset,
+                    sub_end,
+                    current_section.clone(),
+                    sub_text,
+                ));
             }
         }
     }
@@ -285,10 +294,11 @@ fn make_chunk(offset: usize, end_offset: usize, section: Option<String>, text: S
 struct Block {
     offset: usize,
     end_offset: usize,
-    text: String,
+    start_byte: usize,
+    end_byte: usize,
 }
 
-/// Splits `text` on blank lines into non-empty blocks with exact character offsets.
+/// Splits `text` on blank lines into non-empty blocks with exact character and byte boundaries.
 fn split_blocks(text: &str) -> Vec<Block> {
     let mut blocks = Vec::new();
     let mut char_pos = 0usize;
@@ -307,7 +317,8 @@ fn split_blocks(text: &str) -> Vec<Block> {
                 blocks.push(Block {
                     offset: start,
                     end_offset: last_non_blank_end_char,
-                    text: text[start_byte..last_non_blank_end_byte].to_owned(),
+                    start_byte,
+                    end_byte: last_non_blank_end_byte,
                 });
             }
         } else {
@@ -327,36 +338,48 @@ fn split_blocks(text: &str) -> Vec<Block> {
         blocks.push(Block {
             offset: start,
             end_offset: last_non_blank_end_char,
-            text: text[start_byte..last_non_blank_end_byte].to_owned(),
+            start_byte,
+            end_byte: last_non_blank_end_byte,
         });
     }
 
     blocks
 }
 
-/// Attaches a bare heading block to its immediately following body block when both fit inside
-/// [`MAX_PASSAGE_CHARS`], so querying a heading term also returns its opening paragraph.
-fn merge_heading_blocks(blocks: Vec<Block>, headings: &[super::outline::Heading]) -> Vec<Block> {
+/// Advances cursor `idx` through sorted `headings` to check whether `offset` starts a heading.
+fn is_heading_at(headings: &[Heading], idx: &mut usize, offset: usize) -> bool {
+    while *idx < headings.len() && headings[*idx].offset < offset {
+        *idx += 1;
+    }
+    *idx < headings.len() && headings[*idx].offset == offset
+}
+
+/// Attaches a bare heading block to its immediately following body block when both (including the
+/// exact original gap between them) fit inside [`MAX_PASSAGE_CHARS`]. Walks sorted heading offsets
+/// once in O(B + H) and preserves exact source boundaries so `text[start_byte..end_byte]` always
+/// matches `[offset..end_offset]`.
+fn merge_heading_blocks(text: &str, blocks: Vec<Block>, headings: &[Heading]) -> Vec<Block> {
     let mut out: Vec<Block> = Vec::with_capacity(blocks.len());
     let mut iter = blocks.into_iter().peekable();
+    let mut h_idx = 0usize;
+
     while let Some(block) = iter.next() {
+        let slice = &text[block.start_byte..block.end_byte];
         let is_heading_only =
-            !block.text.contains('\n') && headings.iter().any(|h| h.offset == block.offset);
-        if is_heading_only
-            && let Some(next) = iter.peek()
-            && !headings.iter().any(|h| h.offset == next.offset)
-        {
-            let combined_chars = block.text.chars().count() + 2 + next.text.chars().count();
-            if combined_chars <= MAX_PASSAGE_CHARS
+            !slice.contains('\n') && is_heading_at(headings, &mut h_idx, block.offset);
+        if is_heading_only && let Some(next) = iter.peek() {
+            let mut lookahead = h_idx;
+            let next_is_heading = is_heading_at(headings, &mut lookahead, next.offset);
+            let combined_chars = next.end_offset - block.offset;
+            if !next_is_heading
+                && combined_chars <= MAX_PASSAGE_CHARS
                 && let Some(next) = iter.next()
             {
-                let mut combined = block.text;
-                combined.push_str("\n\n");
-                combined.push_str(&next.text);
                 out.push(Block {
                     offset: block.offset,
                     end_offset: next.end_offset,
-                    text: combined,
+                    start_byte: block.start_byte,
+                    end_byte: next.end_byte,
                 });
                 continue;
             }
