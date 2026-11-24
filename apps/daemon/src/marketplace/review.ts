@@ -231,6 +231,9 @@ function body(entry: PreparedReview): MarketReviewBody {
         routines: recipe.routines,
         ...(recipe.needs.tools ? { tools: recipe.needs.tools } : {}),
         notes: recipe.notes,
+        ...(recipe.knowledge ? { knowledge: recipe.knowledge } : {}),
+        ...(recipe.heartbeat ? { heartbeat: recipe.heartbeat } : {}),
+        ...(recipe.model_roles ? { modelRoles: recipe.model_roles } : {}),
         ...(recipe.personality ? { personality: recipe.personality } : {}),
         brings: recipeEntries(recipe).map((brought) => ({
           type: brought.type,

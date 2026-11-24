@@ -43,6 +43,20 @@ test.each([
             blurb: "Measure rendering speed.",
             task: "Measure a baseline.",
             notes: ["Use the same workload."],
+            knowledge: [
+              {
+                kind: "playbook",
+                title: "Profile in stages",
+                topic: "rendering",
+                body: "Separate parse time from rendering.",
+              },
+              {
+                kind: "lesson",
+                title: "Warm caches",
+                topic: "rendering",
+                body: "Compare cold and warm runs separately.",
+              },
+            ],
             skills: ["spade-skill/measure-renderer"],
             triggers: [{ kind: "message" }],
             needs: { connectors: [] },
@@ -54,6 +68,7 @@ test.each([
     expect(card.getByText("Unpublished")).toBeTruthy();
     expect(card.getByText("Measure rendering speed.")).toBeTruthy();
     expect(await card.findByText("measure-renderer")).toBeTruthy();
+    expect(card.getByText("1 skill · 1 playbook · 1 lesson")).toBeTruthy();
     await userEvent.click(card.getByRole("button", { name: "View Details" }));
     const details = within(await screen.findByRole("dialog", { name: "Template details" }));
     expect(details.getByText("Use the same workload.")).toBeTruthy();
@@ -64,6 +79,7 @@ test.each([
     await userEvent.clear(review.getByRole("textbox", { name: "Task" }));
     await userEvent.type(review.getByRole("textbox", { name: "Task" }), "Compare medians.");
     await userEvent.click(review.getByRole("button", { name: "Remove note 1" }));
+    await userEvent.click(review.getByRole("button", { name: "Remove Warm caches" }));
     expect(app.daemon.marketplace.templatePublications).toEqual([]);
     await userEvent.click(review.getByRole("button", { name: confirm }));
     await waitFor(() =>
@@ -76,6 +92,7 @@ test.each([
             visibility,
             task: "Compare medians.",
             notes: [],
+            knowledge: [expect.objectContaining({ title: "Profile in stages" })],
           }),
         }),
       ]),

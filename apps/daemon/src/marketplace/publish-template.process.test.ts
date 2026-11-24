@@ -34,7 +34,16 @@ beforeEach(async () => {
     templates: {
       authorize: async (_id, review) => ({
         bot: "a_local",
-        skills: [],
+        surface_files: [],
+        skills: [
+          {
+            reference: "skills/measure",
+            text: "---\nname: measure\ndescription: Measure rendering performance.\n---\nUse the procedure in baseline.md.",
+            files: [
+              { path: "baseline.md", text: "Capture cold and warm timings.", executable: false },
+            ],
+          },
+        ],
         left_out: ["Conversation history stays here."],
         recipe: {
           format: "spade-bot",
@@ -44,7 +53,8 @@ beforeEach(async () => {
           model: "capable",
           task: review.task,
           notes: review.notes,
-          skills: [],
+          ...(review.knowledge ? { knowledge: review.knowledge } : {}),
+          skills: ["skills/measure"],
           requires: { runtime: "1" },
           pricing: { kind: "free" },
           triggers: [{ kind: "message" }],
@@ -135,6 +145,14 @@ const operation = (visibility: "listed" | "unlisted"): MarketOperation => ({
     description: "Measure rendering speed.",
     task: "Measure a baseline.",
     notes: ["Compare medians."],
+    knowledge: [
+      {
+        kind: "lesson",
+        title: "Calibrate",
+        topic: "rendering",
+        body: "Compare runs at one resolution.",
+      },
+    ],
     routines: [],
     skills: [],
     connectors: [],
@@ -168,7 +186,14 @@ test("an agent and an unproven caller cannot publish a template", async () => {
 test("the signed-in person's name is refused before a reviewed draft uploads", async () => {
   const request = operation("listed");
   if (request.op !== "publishTemplate") throw new Error("Expected a template publication.");
-  request.review.task = "Send the summary to Ada Example.";
+  request.review.knowledge = [
+    {
+      kind: "lesson",
+      title: "Calibrate",
+      topic: "rendering",
+      body: "Send the summary to Ada Example.",
+    },
+  ];
   expect(
     await harness.service.request(request, {
       withoutPerson: false,
@@ -188,7 +213,21 @@ test.each(["listed", "unlisted"] as const)(
         grant: async () => "test-market-grant",
       }),
     ).toEqual({ op: "publishedTemplate", name, visibility });
+    const uploaded = market.seen.find(
+      ({ method, path }) => method === "POST" && path.startsWith("/v1/me/drafts?"),
+    );
+    if (!uploaded) throw new Error("Expected the template archive.");
+    const archive = readArchive(new Uint8Array(uploaded.body), typeLimits[type]);
+    expect(archive.map(({ path }) => path)).toContain("skills/measure/baseline.md");
     expect(receipt?.recipe.notes).toEqual(["Compare medians."]);
+    expect(receipt?.recipe.knowledge).toEqual([
+      {
+        kind: "lesson",
+        title: "Calibrate",
+        topic: "rendering",
+        body: "Compare runs at one resolution.",
+      },
+    ]);
     await harness.ask({ op: "refresh" }, "sources");
     const search = await harness.ask(
       { op: "search", query: "Render", limit: 20, offset: 0 },
@@ -210,7 +249,11 @@ test.each(["listed", "unlisted"] as const)(
     );
     expect(spade.made).toContainEqual(
       expect.objectContaining({
-        recipe: expect.objectContaining({ notes: ["Compare medians."], version: 3 }),
+        recipe: expect.objectContaining({
+          notes: ["Compare medians."],
+          version: 3,
+          knowledge: [expect.objectContaining({ title: "Calibrate", kind: "lesson" })],
+        }),
       }),
     );
   },

@@ -90,9 +90,32 @@ export function TemplateCard(props: {
   });
   const recipe = details.data?.draft.recipe;
   const avatar = recipe ? parseSpadeAvatar(recipe.face, props.item.cardId) : props.avatar;
-  const accent = useCardAccent({ avatar, style: props.style });
+  const storedStyle = recipe?.style ? { accent: recipe.style.accent, chosen: false } : undefined;
+  const accent = useCardAccent({ avatar, style: recipe ? storedStyle : props.style });
   const description = props.item.card.blocks.find((block) => block.kind === "fields")?.rows[0]
     ?.value;
+  const count = (n: number, singular: string, plural = `${singular}s`) =>
+    n ? `${n} ${n === 1 ? singular : plural}` : "";
+  const summary = recipe
+    ? [
+        count(recipe.skills.length, "skill"),
+        count(recipe.knowledge?.filter(({ kind }) => kind === "playbook").length ?? 0, "playbook"),
+        count(recipe.knowledge?.filter(({ kind }) => kind === "lesson").length ?? 0, "lesson"),
+        count(
+          recipe.triggers.filter(({ kind }) => kind !== "message").length +
+            (recipe.heartbeat ? 1 : 0),
+          "routine",
+        ),
+        ...[
+          ...recipe.needs.connectors.map(({ id }) => id),
+          ...(recipe.plugins ?? []).map((id) => id.split("/").at(-1)),
+        ]
+          .filter(Boolean)
+          .map((id) => `needs ${id}`),
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
   const status =
     visibility == null
       ? "Unpublished"
@@ -124,6 +147,7 @@ export function TemplateCard(props: {
         <SpadeFace avatar={avatar} size={64} />
       </div>
       <p className="text-ui text-muted-foreground">{recipe?.blurb ?? description}</p>
+      {summary && <p className="text-xs text-muted-foreground">{summary}</p>}
       {recipe && recipe.skills.length > 0 && (
         <ul aria-label="Skills" className="flex flex-wrap gap-1">
           {recipe.skills.map((skill) => (

@@ -166,6 +166,9 @@ export function RecipeChoices(props: {
   const routines = [
     ...recipe.routines.map((routine) => ({ name: routine.name, when: routine.schedule })),
     ...triggered,
+    ...(recipe.heartbeat
+      ? [{ name: "Heartbeat", when: `Every ${recipe.heartbeat.every_minutes} minutes` }]
+      : []),
   ];
   return (
     <>
@@ -173,6 +176,17 @@ export function RecipeChoices(props: {
         <p role="note" className="mk-withdrawn-line">
           {recipe.modelWarning}
         </p>
+      )}
+      {recipe.knowledge && recipe.knowledge.length > 0 && (
+        <>
+          <Head>Playbooks and lessons</Head>
+          {recipe.knowledge.map((page) => (
+            <details key={`${page.topic}/${page.title}`}>
+              <summary>{page.title}</summary>
+              <p className="whitespace-pre-wrap">{page.body}</p>
+            </details>
+          ))}
+        </>
       )}
       <EffectChoices
         recipe={recipe}

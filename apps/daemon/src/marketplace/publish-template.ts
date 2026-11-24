@@ -1,4 +1,4 @@
-import { privacySpans, writeArchive, type ArchiveFile } from "@ace/marketplace";
+import { credentialFile, privacySpans, writeArchive, type ArchiveFile } from "@ace/marketplace";
 import { checkFiles } from "@ace/marketplace/checks";
 import type {
   MarketOperation,
@@ -21,10 +21,18 @@ function templateFiles(draft: ShareTemplateDraft): ArchiveFile[] {
   const encoder = new TextEncoder();
   return [
     { path: "bot.json", content: encoder.encode(JSON.stringify(draft.recipe)), executable: false },
-    ...draft.skills.map(({ reference, text }) => ({
-      path: `${reference}/SKILL.md`,
+    ...draft.skills.flatMap(({ reference, text, files }) => [
+      { path: `${reference}/SKILL.md`, content: encoder.encode(text), executable: false },
+      ...files.map((file) => ({
+        path: `${reference}/${file.path}`,
+        content: encoder.encode(file.text),
+        executable: file.executable,
+      })),
+    ]),
+    ...draft.surface_files.map(({ path, text, executable }) => ({
+      path,
       content: encoder.encode(text),
-      executable: false,
+      executable,
     })),
   ];
 }
@@ -32,7 +40,9 @@ function templateFiles(draft: ShareTemplateDraft): ArchiveFile[] {
 function privateText(value: unknown, names: readonly string[]): boolean {
   if (typeof value === "string") return privacySpans(value, { names }).length > 0;
   return value !== null && typeof value === "object"
-    ? Object.values(value).some((child) => privateText(child, names))
+    ? Object.entries(value).some(
+        ([key, child]) => privateText(key, names) || privateText(child, names),
+      )
     : false;
 }
 
@@ -45,26 +55,38 @@ export async function publishTemplate(
   const { id, review } = operation;
   if (
     privateText(
-      [review.name, review.description, review.task, review.routines, review.notes],
+      [
+        review.name,
+        review.description,
+        review.task,
+        review.routines,
+        review.notes,
+        review.knowledge,
+      ],
       names,
     )
   )
     return marketError("invalid", "The template contains private text. Remove it before sharing.");
   const draft = await port.authorize(id, review);
+  const files = templateFiles(draft);
   if (
     privateText(draft.recipe, names) ||
-    draft.skills.some(
-      ({ reference, text }) =>
-        privateText([reference, text], names) ||
-        hiddenFileFindings(`${reference}/SKILL.md`, text).some(({ level }) => level === "block"),
-    )
+    files.some(({ path, content }) => {
+      const filename = path.split("/").at(-1) ?? "";
+      const text = new TextDecoder().decode(content);
+      return (
+        credentialFile(filename) ||
+        privateText(path, names) ||
+        (path !== "bot.json" && privateText(text, names)) ||
+        hiddenFileFindings(path, text).some(({ level }) => level === "block")
+      );
+    })
   )
     return marketError(
       "invalid",
       "The template contains private or hidden text. Remove it before sharing.",
     );
 
-  const files = templateFiles(draft);
   const name = id.replaceAll("_", "-");
   const type = "spade-bot";
   const version = "1.0.0";
