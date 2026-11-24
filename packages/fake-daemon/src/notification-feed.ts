@@ -1,6 +1,7 @@
 import type {
   ClientMessage,
   Notification,
+  LiveActivitySync,
   NotificationAddress,
   ServerMessage,
 } from "@ace/protocol";
@@ -8,7 +9,7 @@ import type {
 /** What tests read and set on the feed through `FakeDaemon.notifications`. */
 export type FakeNotificationControls = Pick<
   FakeNotificationFeed,
-  "address" | "acknowledged" | "refusePush" | "rejectRegistrations"
+  "address" | "liveActivity" | "acknowledged" | "refusePush" | "rejectRegistrations"
 >;
 
 /**
@@ -22,6 +23,7 @@ export class FakeNotificationFeed {
   private unregistered = new Set<string>();
   private head = 0;
   private addresses = new Map<string, NotificationAddress>();
+  private activities = new Map<string, LiveActivitySync>();
   private checkpoints = new Map<string, number>();
   private acks: { device: string; id: string }[] = [];
   private pushRefused: "invalid_message" | "unsupported" | false = false;
@@ -29,6 +31,9 @@ export class FakeNotificationFeed {
   /** The address `device` registered last; none once it unregisters. */
   address(device: string): NotificationAddress | undefined {
     return this.addresses.get(device);
+  }
+  liveActivity(device: string): LiveActivitySync | undefined {
+    return this.activities.get(device);
   }
   /** The alert ids `device` acknowledged (`notification.ack`), oldest first. */
   acknowledged(device: string): string[] {
@@ -84,6 +89,8 @@ export class FakeNotificationFeed {
       }
       this.unregistered.delete(device);
       this.addresses.set(device, message.device);
+      if (message.liveActivity) this.activities.set(device, message.liveActivity);
+      else this.activities.delete(device);
       if (message.requestId)
         emit({ type: "notification.register.result", requestId: message.requestId });
       return true;
@@ -91,6 +98,7 @@ export class FakeNotificationFeed {
     if (message.type === "notification.unregister") {
       this.unregistered.add(device);
       this.addresses.delete(device);
+      this.activities.delete(device);
       if (message.requestId)
         emit({ type: "notification.unregister.result", requestId: message.requestId });
       return true;

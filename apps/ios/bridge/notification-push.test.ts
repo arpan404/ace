@@ -154,3 +154,54 @@ it("a wake can read the missed feed while UIKit has yet to return its push token
   await vi.waitFor(() => expect(of("notifications.feedComplete").length).toBeGreaterThan(1));
   expect(daemon.notifications.address(device)?.channel).toBe("push");
 });
+
+it("registers rotated Live Activity tokens and clears omitted tokens without changing the alert address", async () => {
+  const { daemon, act } = await phone();
+  const push = pushKey("ab".repeat(32));
+  const start = {
+    slot: 3,
+    environment: "production",
+    frequentUpdates: true,
+    startToken: "12".repeat(32),
+  };
+  const sync = (liveActivity?: object) =>
+    act({
+      type: "notifications.sync",
+      enabled: true,
+      appState: "foreground",
+      cursor: 0,
+      push,
+      liveActivity,
+    });
+  const both = { ...start, activityToken: "34".repeat(32) };
+  sync(both);
+  await vi.waitFor(() => expect(daemon.notifications.liveActivity(device)).toEqual(both));
+  const rotated = { ...both, activityToken: "56".repeat(32), frequentUpdates: false };
+  sync(rotated);
+  await vi.waitFor(() => expect(daemon.notifications.liveActivity(device)).toEqual(rotated));
+  sync(start);
+  await vi.waitFor(() => expect(daemon.notifications.liveActivity(device)).toEqual(start));
+  sync();
+  await vi.waitFor(() => expect(daemon.notifications.liveActivity(device)).toBeUndefined());
+  expect(daemon.notifications.address(device)).toMatchObject(push);
+});
+
+it("a background wake can register a push-started activity before UIKit returns the alert token", async () => {
+  const { daemon, act } = await phone();
+  const liveActivity = {
+    slot: 1,
+    environment: "sandbox",
+    frequentUpdates: false,
+    activityToken: "78".repeat(32),
+  };
+  act({
+    type: "notifications.sync",
+    enabled: true,
+    appState: "background",
+    cursor: 0,
+    liveActivity,
+  });
+  await vi.waitFor(() => expect(daemon.notifications.liveActivity(device)).toEqual(liveActivity));
+  act({ type: "notifications.sync", enabled: true, appState: "background", cursor: 0 });
+  await vi.waitFor(() => expect(daemon.notifications.liveActivity(device)).toBeUndefined());
+});
