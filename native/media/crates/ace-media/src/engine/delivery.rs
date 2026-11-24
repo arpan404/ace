@@ -760,6 +760,10 @@ impl Delivery {
             let Some(view) = self.views.get_mut(key) else {
                 return;
             };
+            // A view that stopped acking is parked: its source is read for the others only.
+            if view.fanout.parked() {
+                return;
+            }
             view.sequence += 1;
             let sequence = view.sequence;
             let Some(built) = build(
