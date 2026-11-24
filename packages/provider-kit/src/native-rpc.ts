@@ -163,7 +163,7 @@ export type NativeInspected =
   | { kind: "malformed"; raw: unknown }
   | { kind: "request"; raw: unknown; id: RpcIdValue; method: string; params: unknown }
   | { kind: "notification"; raw: unknown; method: string; params: unknown }
-  | { kind: "response"; raw: unknown; id: RpcIdValue; result: unknown; error: string | undefined };
+  | { kind: "response"; raw: unknown; id: RpcIdValue; result: unknown; error: unknown };
 
 function isId(value: unknown): value is RpcIdValue {
   return typeof value === "string" || (typeof value === "number" && Number.isFinite(value));
@@ -198,7 +198,7 @@ export function nativeInspect(line: string): NativeInspected {
     raw,
     id,
     result: message["result"],
-    error: error === undefined ? undefined : JSON.stringify(error),
+    error,
   };
 }
 

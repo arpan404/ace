@@ -13,7 +13,7 @@ export class NativeSseParser {
   retryMs: number | undefined;
   readonly #handle: {
     feed(text: string): {
-      events: { data: string; event: string; id: string; retryMs?: number | null }[];
+      events: { data: string; event: string; id?: string | null; retryMs?: number | null }[];
       error?: string | null;
     };
     lastEventId(): string;
@@ -40,10 +40,11 @@ export class NativeSseParser {
     const outcome = this.#handle.feed(text);
     for (const event of outcome.events) {
       // A `retry:` line before the event is visible to its listener, and the
-      // dispatched id is already the last one, as the TypeScript set them.
+      // dispatched id is already the last one, as the TypeScript set them. An
+      // event without an id repeats the last one, which this parser holds.
       this.retryMs = event.retryMs ?? undefined;
-      this.lastEventId = event.id;
-      this.#emit({ data: event.data, event: event.event, id: event.id });
+      if (event.id != null) this.lastEventId = event.id;
+      this.#emit({ data: event.data, event: event.event, id: this.lastEventId });
     }
     this.lastEventId = this.#handle.lastEventId();
     this.retryMs = this.#handle.retryMs() ?? undefined;

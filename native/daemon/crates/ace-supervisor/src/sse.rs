@@ -12,12 +12,16 @@
 /// Largest integer a JavaScript number holds exactly.
 const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 
+use std::sync::Arc;
+
 /// One dispatched event (`SseEvent`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SseEvent {
     pub data: String,
     pub event: String,
-    pub id: String,
+    /// Shared with the parser and every event dispatched under it: a long id
+    /// costs one allocation, not one per event.
+    pub id: Arc<str>,
     /// The retry interval in force when this event dispatched, so a listener
     /// reading it sees the `retry:` line that preceded the event.
     pub retry_ms: Option<f64>,
@@ -27,7 +31,9 @@ pub struct SseEvent {
 /// the line and event accumulators.
 #[derive(Debug)]
 pub struct SseParser {
-    last_event_id: String,
+    last_event_id: Arc<str>,
+    /// An `id:` line read since the last dispatch.
+    pending_id: Option<Arc<str>>,
     retry_ms: Option<f64>,
     line: String,
     line_bytes: usize,
@@ -37,7 +43,6 @@ pub struct SseParser {
     skip_lf: bool,
     data: Vec<String>,
     event: String,
-    id: String,
 }
 
 /// What one `feed` produced: the events to dispatch, in order, then the refusal
@@ -51,7 +56,8 @@ pub struct SseFeed {
 impl SseParser {
     pub fn new(max_line_bytes: usize, max_event_bytes: usize, last_event_id: String) -> SseParser {
         SseParser {
-            last_event_id: last_event_id.clone(),
+            last_event_id: Arc::from(last_event_id),
+            pending_id: None,
             retry_ms: None,
             line: String::new(),
             line_bytes: 0,
@@ -61,7 +67,6 @@ impl SseParser {
             skip_lf: false,
             data: Vec::new(),
             event: String::new(),
-            id: last_event_id,
         }
     }
 
@@ -124,7 +129,9 @@ impl SseParser {
 
     fn accept(&mut self, line: &str, events: &mut Vec<SseEvent>) -> Result<(), String> {
         if line.is_empty() {
-            self.last_event_id.clone_from(&self.id);
+            if let Some(id) = self.pending_id.take() {
+                self.last_event_id = id;
+            }
             if !self.data.is_empty() {
                 events.push(SseEvent {
                     data: self.data.join("\n"),
@@ -133,7 +140,7 @@ impl SseParser {
                     } else {
                         self.event.clone()
                     },
-                    id: self.last_event_id.clone(),
+                    id: Arc::clone(&self.last_event_id),
                     retry_ms: self.retry_ms,
                 });
             }
@@ -159,7 +166,7 @@ impl SseParser {
                 self.data.push(value.to_owned());
             }
             "event" => self.event = value.to_owned(),
-            "id" if !value.contains('\0') => self.id = value.to_owned(),
+            "id" if !value.contains('\0') => self.pending_id = Some(Arc::from(value)),
             "retry" => {
                 if let Some(retry) = parse_retry(value) {
                     self.retry_ms = Some(retry);

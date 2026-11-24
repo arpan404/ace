@@ -36,7 +36,8 @@ export interface NativeNoteStep {
 export interface NativeSseEvent {
   data: string;
   event: string;
-  id: string;
+  /** Absent when it repeats the previous event's id, which the parser holds. */
+  id?: string | null;
   retryMs?: number | null;
 }
 

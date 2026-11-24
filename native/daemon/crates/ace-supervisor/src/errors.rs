@@ -43,75 +43,109 @@ impl From<SupervisorError> for String {
 }
 
 /// A failed I/O call in the shape node's streams report it: the errno's name
-/// (`EPIPE`), the raw `errno`, and the message a stream write carries
-/// (`write EPIPE`). The shell sets the JS error's `code` and `errno` from it.
+/// (`EPIPE`), node's `errno`, and the message a stream write carries
+/// (`write EPIPE`). The shell sets the JS error's fields from it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodeIoError {
     syscall: &'static str,
-    code: Option<&'static str>,
-    errno: Option<i32>,
+    code: &'static str,
+    errno: i32,
     message: String,
 }
 
+/// `UV__UNKNOWN`: node's errno for a failure that has no name.
+const UNKNOWN_ERRNO: i32 = -4094;
+
 impl NodeIoError {
-    /// `syscall` failed with `error`: node's name for the errno and the text
-    /// node's own write reports, or today's OS text when no name is known.
+    /// `syscall` failed with `error`: node's name for the errno, node's `errno`
+    /// value and the text node's own write reports.
     pub fn new(syscall: &'static str, error: &std::io::Error) -> Self {
         let code = errno_name(error);
-        let message = match code {
-            Some(code) => format!("{syscall} {code}"),
-            None => error.to_string(),
-        };
+        let message = format!("{syscall} {code}");
         Self {
             syscall,
             code,
-            errno: error.raw_os_error(),
+            errno: node_errno(error),
             message,
         }
     }
 
-    /// The JSON the shell parses; a field that is unknown stays out.
+    /// The JSON the shell parses.
     pub fn to_json(&self) -> String {
         let mut fields = serde_json::Map::new();
         fields.insert("syscall".to_owned(), self.syscall.into());
         fields.insert("message".to_owned(), self.message.clone().into());
-        if let Some(code) = self.code {
-            fields.insert("code".to_owned(), code.into());
-        }
-        if let Some(errno) = self.errno {
-            fields.insert("errno".to_owned(), errno.into());
-        }
+        fields.insert("code".to_owned(), self.code.into());
+        fields.insert("errno".to_owned(), self.errno.into());
         serde_json::Value::Object(fields).to_string()
     }
 }
 
 /// Node's errno name for an I/O failure: the standard library's kind first
 /// (it is the portable classification), then the raw errno for the errors it
-/// leaves unclassified.
-fn errno_name(error: &std::io::Error) -> Option<&'static str> {
+/// leaves unclassified, then `UNKNOWN`, as node names the rest.
+fn errno_name(error: &std::io::Error) -> &'static str {
     match error.kind() {
-        std::io::ErrorKind::PermissionDenied => Some("EACCES"),
-        std::io::ErrorKind::NotFound => Some("ENOENT"),
-        std::io::ErrorKind::Interrupted => Some("EINTR"),
-        std::io::ErrorKind::WouldBlock => Some("EAGAIN"),
-        std::io::ErrorKind::AlreadyExists => Some("EEXIST"),
-        std::io::ErrorKind::BrokenPipe => Some("EPIPE"),
-        std::io::ErrorKind::InvalidInput => Some("EINVAL"),
-        std::io::ErrorKind::InvalidData => Some("EINVAL"),
-        std::io::ErrorKind::TimedOut => Some("ETIMEDOUT"),
-        std::io::ErrorKind::WriteZero => Some("EIO"),
-        std::io::ErrorKind::OutOfMemory => Some("ENOMEM"),
-        std::io::ErrorKind::StorageFull => Some("ENOSPC"),
-        std::io::ErrorKind::ConnectionAborted => Some("ECONNABORTED"),
-        std::io::ErrorKind::ConnectionReset => Some("ECONNRESET"),
-        std::io::ErrorKind::ConnectionRefused => Some("ECONNREFUSED"),
-        std::io::ErrorKind::NotConnected => Some("ENOTCONN"),
-        std::io::ErrorKind::AddrInUse => Some("EADDRINUSE"),
-        std::io::ErrorKind::AddrNotAvailable => Some("EADDRNOTAVAIL"),
-        std::io::ErrorKind::NetworkDown => Some("ENETDOWN"),
-        std::io::ErrorKind::NetworkUnreachable => Some("ENETUNREACH"),
-        std::io::ErrorKind::HostUnreachable => Some("EHOSTUNREACH"),
-        _ => raw_errno_name(error.raw_os_error()?),
+        std::io::ErrorKind::PermissionDenied => "EACCES",
+        std::io::ErrorKind::NotFound => "ENOENT",
+        std::io::ErrorKind::Interrupted => "EINTR",
+        std::io::ErrorKind::WouldBlock => "EAGAIN",
+        std::io::ErrorKind::AlreadyExists => "EEXIST",
+        std::io::ErrorKind::BrokenPipe => "EPIPE",
+        std::io::ErrorKind::InvalidInput => "EINVAL",
+        std::io::ErrorKind::InvalidData => "EINVAL",
+        std::io::ErrorKind::TimedOut => "ETIMEDOUT",
+        std::io::ErrorKind::WriteZero => "EIO",
+        std::io::ErrorKind::OutOfMemory => "ENOMEM",
+        std::io::ErrorKind::StorageFull => "ENOSPC",
+        std::io::ErrorKind::ConnectionAborted => "ECONNABORTED",
+        std::io::ErrorKind::ConnectionReset => "ECONNRESET",
+        std::io::ErrorKind::ConnectionRefused => "ECONNREFUSED",
+        std::io::ErrorKind::NotConnected => "ENOTCONN",
+        std::io::ErrorKind::AddrInUse => "EADDRINUSE",
+        std::io::ErrorKind::AddrNotAvailable => "EADDRNOTAVAIL",
+        std::io::ErrorKind::NetworkDown => "ENETDOWN",
+        std::io::ErrorKind::NetworkUnreachable => "ENETUNREACH",
+        std::io::ErrorKind::HostUnreachable => "EHOSTUNREACH",
+        _ => error
+            .raw_os_error()
+            .and_then(raw_errno_name)
+            .unwrap_or("UNKNOWN"),
+    }
+}
+
+/// Node's `errno` for a failure: the negated errno, as libuv reports it.
+#[cfg(not(windows))]
+fn node_errno(error: &std::io::Error) -> i32 {
+    error.raw_os_error().map_or(UNKNOWN_ERRNO, |errno| -errno)
+}
+
+/// Node's `errno` for a failure: libuv's Windows value for the Win32 error the
+/// standard library classified (`uv/errno.h`), else `UV__UNKNOWN`.
+#[cfg(windows)]
+fn node_errno(error: &std::io::Error) -> i32 {
+    match error.kind() {
+        std::io::ErrorKind::PermissionDenied => -4092, // UV__EACCES
+        std::io::ErrorKind::NotFound => -4058,         // UV__ENOENT
+        std::io::ErrorKind::Interrupted => -4072,      // UV__EINTR
+        std::io::ErrorKind::WouldBlock => -4088,       // UV__EAGAIN
+        std::io::ErrorKind::AlreadyExists => -4075,    // UV__EEXIST
+        std::io::ErrorKind::BrokenPipe => -4047,       // UV__EPIPE
+        std::io::ErrorKind::InvalidInput | std::io::ErrorKind::InvalidData => -4071, // UV__EINVAL
+        std::io::ErrorKind::TimedOut => -4039,         // UV__ETIMEDOUT
+        std::io::ErrorKind::WriteZero => -4070,        // UV__EIO
+        std::io::ErrorKind::OutOfMemory => -4057,      // UV__ENOMEM
+        std::io::ErrorKind::StorageFull => -4055,      // UV__ENOSPC
+        std::io::ErrorKind::ConnectionAborted => -4079, // UV__ECONNABORTED
+        std::io::ErrorKind::ConnectionReset => -4077,  // UV__ECONNRESET
+        std::io::ErrorKind::ConnectionRefused => -4078, // UV__ECONNREFUSED
+        std::io::ErrorKind::NotConnected => -4053,     // UV__ENOTCONN
+        std::io::ErrorKind::AddrInUse => -4091,        // UV__EADDRINUSE
+        std::io::ErrorKind::AddrNotAvailable => -4090, // UV__EADDRNOTAVAIL
+        std::io::ErrorKind::NetworkDown => -4063,      // UV__ENETDOWN
+        std::io::ErrorKind::NetworkUnreachable => -4062, // UV__ENETUNREACH
+        std::io::ErrorKind::HostUnreachable => -4073,  // UV__EHOSTUNREACH
+        _ => UNKNOWN_ERRNO,
     }
 }
 

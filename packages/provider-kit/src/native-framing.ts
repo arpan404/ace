@@ -23,6 +23,14 @@ function splitLines(out: FramedLines): string[] | undefined {
 }
 
 /**
+ * Appends a crossing's lines one at a time: spreading a batch of 200,000 short
+ * lines into `push` exceeds the argument limit and reads as a framing failure.
+ */
+function appendLines(target: string[], batch: string[]): void {
+  for (const line of batch) target.push(line);
+}
+
+/**
  * `lineReader`: one native framer per pipe, readline still delivering the lines
  * (pause, resume and async iteration stay node's). The input is resumed only when
  * no line is held and the flow guard is clear, so neither a paused consumer nor a
@@ -99,7 +107,7 @@ export function nativeLineReader(
     ending = true;
     try {
       const batch = splitLines(framer.finish());
-      if (batch !== undefined) pending.push(...batch);
+      if (batch !== undefined) appendLines(pending, batch);
     } catch (error) {
       failed(error);
       return;
@@ -111,7 +119,7 @@ export function nativeLineReader(
     const bytes = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
     try {
       const batch = splitLines(framer.push(bytes));
-      if (batch !== undefined) pending.push(...batch);
+      if (batch !== undefined) appendLines(pending, batch);
     } catch (error) {
       failed(limitError(asError(error).message));
       return;
@@ -336,7 +344,7 @@ export function nativeReadJsonLines(
   const push = (bytes: Uint8Array) => {
     const outcome = framer.push(bytes);
     const lines = splitLines(outcome.lines);
-    if (lines !== undefined) pending.push(...lines);
+    if (lines !== undefined) appendLines(pending, lines);
     if (outcome.error != null) pendingError = outcome.error;
     drain();
   };

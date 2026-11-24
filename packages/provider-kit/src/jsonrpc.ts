@@ -66,9 +66,21 @@ type Inspected =
   | { kind: "malformed"; raw: unknown }
   | { kind: "request"; raw: unknown; id: RpcId; method: string; params: unknown }
   | { kind: "notification"; raw: unknown; method: string; params: unknown }
-  | { kind: "response"; raw: unknown; id: RpcId; result: unknown; error: string | undefined };
+  | { kind: "response"; raw: unknown; id: RpcId; result: unknown; error: unknown };
 /** One received line's shape; the native one classifies, then this parses once. */
 type RpcInspector = (line: string) => Inspected;
+
+/**
+ * The peer's error as the rejection's message. The raw frame is already with
+ * the observer, so a reply too deep to serialize only fails its own request.
+ */
+function rpcErrorMessage(error: unknown): string {
+  try {
+    return JSON.stringify(error) ?? String(error);
+  } catch {
+    return "JSON-RPC error response could not be serialized";
+  }
+}
 
 /** Today's parse and classification, kept for the switch's off side. */
 function typeScriptInspect(line: string): Inspected {
@@ -92,7 +104,7 @@ function typeScriptInspect(line: string): Inspected {
       raw,
       id,
       result: message["result"],
-      error: message["error"] === undefined ? undefined : JSON.stringify(message["error"]),
+      error: message["error"],
     };
   return { kind: "malformed", raw };
 }
@@ -306,7 +318,7 @@ export class JsonRpcPeer {
     } else {
       this.#settle(
         inspected.id,
-        inspected.error === undefined ? undefined : new Error(inspected.error),
+        inspected.error === undefined ? undefined : new Error(rpcErrorMessage(inspected.error)),
         inspected.result,
       );
     }

@@ -14,6 +14,7 @@ use ace_supervisor::{flow, jsonl, lines, sse};
 use napi::bindgen_prelude::Uint8Array;
 use napi::{Env, Status};
 use napi_derive::napi;
+use std::sync::Arc;
 
 /// Map a refusal: `Invalid <limit>` is the `RangeError` `byteLimit` threw.
 fn bind(env: &Env, error: StreamError) -> napi::Error {
@@ -321,7 +322,9 @@ impl JsonLinesNative {
 pub struct SseEventJs {
     pub data: String,
     pub event: String,
-    pub id: String,
+    /// Absent when it repeats the previous event's id, which the shell already
+    /// holds: a long id crosses once per run of events, not once per event.
+    pub id: Option<String>,
     pub retry_ms: Option<f64>,
 }
 
@@ -359,15 +362,25 @@ impl SseParserNative {
     #[napi(catch_unwind)]
     pub fn feed(&mut self, text: String) -> SseFeedJs {
         let feed = self.inner.feed(&text);
+        let mut previous: Option<Arc<str>> = None;
         SseFeedJs {
             events: feed
                 .events
                 .into_iter()
-                .map(|event| SseEventJs {
-                    data: event.data,
-                    event: event.event,
-                    id: event.id,
-                    retry_ms: event.retry_ms,
+                .map(|event| {
+                    let id = match &previous {
+                        Some(previous) if *previous == event.id => None,
+                        _ => {
+                            previous = Some(Arc::clone(&event.id));
+                            Some(event.id.to_string())
+                        }
+                    };
+                    SseEventJs {
+                        data: event.data,
+                        event: event.event,
+                        id,
+                        retry_ms: event.retry_ms,
+                    }
                 })
                 .collect(),
             error: feed.error,
