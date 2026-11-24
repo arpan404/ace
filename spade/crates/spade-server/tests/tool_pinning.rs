@@ -371,7 +371,7 @@ async fn a_helpers_compaction_leaves_its_bots_offered_tools_alone() -> Result {
     // Only a helper's prompt carries Spade's rules for helpers, so its route never catches the
     // bot's own calls.
     let routes = vec![Route::when(
-        "You are a helper Spade started",
+        spade_core::helper::RULES,
         vec![
             // Past 90% of the window: the helper compacts before its next step.
             Script::reply("Working.")

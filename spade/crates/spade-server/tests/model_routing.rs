@@ -251,7 +251,7 @@ async fn failed_helper_work_reruns_once_on_the_bots_own_model_when_escalation_is
         .seen()
         .into_iter()
         .map(|seen| seen.body)
-        .filter(|body| body.to_string().contains("You are a helper Spade started"))
+        .filter(|body| body.to_string().contains(spade_core::helper::RULES))
         .collect();
     assert_eq!(asked.len(), 3, "two tries, then the rerun");
     assert_eq!(asked[0]["model"], "cheap");

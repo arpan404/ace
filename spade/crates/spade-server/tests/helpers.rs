@@ -514,7 +514,7 @@ async fn a_helpers_request_shares_its_bots_tool_list_and_spades_rules_prefix() -
         .into_iter()
         .map(|seen| seen.body)
         .filter(|body| body["stream"] == true)
-        .rfind(|body| !body.to_string().contains("You are a helper Spade started"))
+        .rfind(|body| !body.to_string().contains(spade_core::helper::RULES))
         .ok_or("the bot made no request")?;
     // The serialized tool list is the bot's: the same tools, in the same order.
     assert_eq!(helper["tools"], bot["tools"], "the same tools, in order");
@@ -532,13 +532,13 @@ async fn a_helpers_request_shares_its_bots_tool_list_and_spades_rules_prefix() -
         "{own}"
     );
     assert!(
-        system[shared.len()..].contains("You are a helper Spade started"),
+        system[shared.len()..].contains(spade_core::helper::RULES),
         "{system}"
     );
     // Its first message is the task alone.
     let first = helper["messages"][1].to_string();
     assert!(first.contains("Read the build log"), "{first}");
-    assert!(!first.contains("You are a helper Spade started"), "{first}");
+    assert!(!first.contains(spade_core::helper::RULES), "{first}");
     Ok(())
 }
 
@@ -663,15 +663,12 @@ async fn a_task_written_with_untrusted_content_in_view_is_the_bots_and_the_rules
     assert_eq!(result["untrusted"], true, "{result}");
     let helper = helper_request(&spade).ok_or("the helper made no request")?;
     let system = helper["messages"][0]["content"].as_str().unwrap_or("");
-    assert!(
-        system.contains("You are a helper Spade started"),
-        "{system}"
-    );
+    assert!(system.contains(spade_core::helper::RULES), "{system}");
     let first = helper["messages"][1]["content"].as_str().unwrap_or("");
     assert!(first.contains("<bot_message from=\"Logs\""), "{first}");
     assert!(first.contains("Summarise the page"), "{first}");
     assert!(
-        !first.contains("You are a helper Spade started"),
+        !first.contains(spade_core::helper::RULES),
         "the rules ride above the task, not in it: {first}"
     );
     Ok(())
@@ -723,15 +720,12 @@ async fn a_helper_compacted_past_its_first_message_still_carries_its_rules() -> 
         .into_iter()
         .map(|seen| seen.body)
         .filter(|body| body["stream"] == true)
-        .rfind(|body| body.to_string().contains("You are a helper Spade started"))
+        .rfind(|body| body.to_string().contains(spade_core::helper::RULES))
         .ok_or("the helper made no request")?;
     let system = after["messages"][0]["content"].as_str().unwrap_or("");
+    assert!(system.contains(spade_core::helper::RULES), "{system}");
     assert!(
-        system.contains("You are a helper Spade started"),
-        "{system}"
-    );
-    assert!(
-        system.contains("You can only read"),
+        system.contains(spade_core::helper::Profile::explore().instructions.trim()),
         "its profile's instructions: {system}"
     );
     let shown = after["messages"][1]["content"].as_str().unwrap_or("");
