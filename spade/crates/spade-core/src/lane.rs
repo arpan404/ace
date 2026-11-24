@@ -777,7 +777,19 @@ pub fn moved(events: &[Event], reply: &str) -> Option<(Vec<Event>, Vec<String>)>
         *context = recent_chat(&events[..previous_end]);
     }
     let mut lane = vec![first];
-    lane.extend(events[start..].iter().cloned());
+    // A move starts at a quiet boundary. The calls and their results carry on,
+    // but the request cards were shown in main and keep their original owner.
+    lane.extend(
+        events[start..]
+            .iter()
+            .filter(|event| {
+                !matches!(
+                    event,
+                    Event::Known(Known::ApprovalRequested { .. } | Known::QuestionAsked { .. })
+                )
+            })
+            .cloned(),
+    );
     Some((lane, asks))
 }
 

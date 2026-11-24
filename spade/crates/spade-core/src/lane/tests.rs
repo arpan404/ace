@@ -698,3 +698,27 @@ fn a_runs_end_closes_only_that_runs_copies_and_a_stale_end_does_not_stand() {
         "queued"
     ));
 }
+
+#[test]
+fn moving_main_does_not_republish_cards_owned_by_another_conversation()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut events = long_reply(9);
+    let other = json!({"task":"other","conversation":"other","call_id":"k1","title":"Other task"});
+    events.push(e(json!({
+        "type":"approval_requested", "reply":"r1", "call_id":"other.k1",
+        "name":"publish", "arguments":{}, "lane":other
+    })));
+    events.push(e(json!({
+        "type":"question_asked", "reply":"r1", "call_id":"other.q1",
+        "question":"Which version?", "lane":other
+    })));
+    let (lane, _) = moved(&events, "r1").ok_or("open reply did not move")?;
+    assert!(Transcript::fold(&lane).helper_awaiting.is_empty());
+    assert!(
+        !lane
+            .iter()
+            .any(|event| matches!(event, Event::Known(Known::QuestionAsked { .. })))
+    );
+    assert!(!Transcript::fold(&events).helper_awaiting.is_empty());
+    Ok(())
+}
