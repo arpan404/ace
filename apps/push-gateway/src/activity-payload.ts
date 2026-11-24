@@ -17,23 +17,25 @@ const state = z.strictObject({
 });
 const common = {
   v: z.literal(1),
-  timestamp: z
-    .int()
-    .nonnegative()
-    .max(Number.MAX_SAFE_INTEGER - maxDismissAfter),
+  timestamp: z.int().nonnegative(),
   priority: z.literal([5, 10]),
   staleAfter: z.int().min(60).max(3600),
   state,
 };
-export const ActivityBody = z.discriminatedUnion("event", [
-  z.strictObject({ ...common, event: z.literal("start"), slot: z.int().min(0).max(15) }),
-  z.strictObject({ ...common, event: z.literal("update") }),
-  z.strictObject({
-    ...common,
-    event: z.literal("end"),
-    dismissAfter: z.int().min(0).max(maxDismissAfter),
-  }),
-]);
+export const ActivityBody = z
+  .discriminatedUnion("event", [
+    z.strictObject({ ...common, event: z.literal("start"), slot: z.int().min(0).max(15) }),
+    z.strictObject({ ...common, event: z.literal("update") }),
+    z.strictObject({
+      ...common,
+      event: z.literal("end"),
+      dismissAfter: z.int().min(0).max(maxDismissAfter),
+    }),
+  ])
+  .refine((body) => {
+    const dismissal = body.event === "end" ? body.dismissAfter : 0;
+    return Number.isSafeInteger(body.timestamp + Math.max(body.staleAfter, dismissal));
+  });
 
 export function activityPush(body: z.infer<typeof ActivityBody>) {
   const expiration = body.timestamp + body.staleAfter;

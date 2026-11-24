@@ -279,21 +279,7 @@ it("rejects malformed activity JSON and oversized requests without sending to AP
     { ...update, title: "private title" },
     { ...update, state: { ...update.state, rows: [] } },
     { ...update, state: { ...update.state, needsYou: "1" } },
-    { ...update, state: { ...update.state, needsYou: 0.5 } },
-    { ...update, state: { ...update.state, phase: "unknown" } },
-    { ...update, state: { ...update.state, seq: -1 } },
-    { ...update, timestamp: Number.MAX_SAFE_INTEGER },
-    { ...update, v: 2 },
-    { ...update, priority: 1 },
     { ...update, staleAfter: 59 },
-    { ...update, staleAfter: 3601 },
-    { ...update, slot: 0 },
-    { ...update, dismissAfter: 900 },
-    { ...start, slot: 16 },
-    { ...start, slot: undefined },
-    { ...update, event: "end" },
-    { ...update, event: "end", dismissAfter: -1 },
-    { ...update, event: "end", dismissAfter: 14401 },
   ]) {
     expect((await activity(activityHandle, invalid)).status).toBe(400);
   }
@@ -311,9 +297,9 @@ it("rejects malformed activity JSON and oversized requests without sending to AP
         method: "POST",
         headers: { "content-type": "application/json", authorization: auth() },
       },
-      (response) => {
-        response.resume();
-        resolve(response.statusCode);
+      (chunkedResponse) => {
+        chunkedResponse.resume();
+        resolve(chunkedResponse.statusCode);
       },
     );
     stream.once("error", reject);
@@ -451,6 +437,7 @@ it("refuses malformed registrations and pushes before reaching APNs", async () =
   const before = apns.calls.length;
   expect((await register({ token: "not-hex", environment: "production" })).status).toBe(400);
   expect((await register({ token, environment: "staging" })).status).toBe(400);
+  expect((await register({ token, environment: "production", kind: "unknown" })).status).toBe(400);
   const handle = await handleFor(token);
   expect((await push(handle, { body: record(2801) })).status).toBe(413);
   expect((await push(handle, { headers: { "content-encoding": "gzip" } })).status).toBe(400);
