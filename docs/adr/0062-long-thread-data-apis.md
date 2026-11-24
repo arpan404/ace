@@ -241,9 +241,11 @@ opens its thread at the hit through the window.
 - **One change per page.** A read ends with `reading.settled`, queued after its rows. Swift holds
   a requested page's reading patches until then and applies them together, so a page is one
   layout and one keep-place scroll rather than one per 32-patch frame.
-- **Bounds.** The phone's window holds 400 items and 2 MiB (`phoneWindow`), as the web's agent
-  transcript does. Each change re-lays out the rows the feed holds, so the bound is also the
-  main-thread cost of a page.
+- **Bounds.** The phone's window is unbounded (`phoneWindow`): every page the reader loaded stays
+  until the app quits. It was 400 items and 2 MiB, but an evicted page left blank room the reader
+  could scroll back into before its rows were read again, and that showed as a black screen
+  (2026-11-24). The trade: memory and a page's layout work now grow with how far the reader has
+  read back in this visit, measured against the README's footprint budget.
 - **List.** The feed stays a `LazyVStack` in a `ScrollView`: with the window bounded, footprint
   stays flat while reading thousands of items back and forth (README "Performance budgets"), so
   a UIKit list was not needed. Inline media rows (WKWebView) are not on main yet and still need

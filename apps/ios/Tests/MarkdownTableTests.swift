@@ -30,10 +30,15 @@ import UIKit
         #expect(MarkdownTableColumns.widths(natural: [50, 200], minimum: [10, 60], available: 100) == [40, 60])
     }
 
-    @Test func wordsWiderThanTheRoomStillFitItSharedByTheirWidth() {
+    @Test func wordsWiderThanTheRoomStillFitItSharedByTheirText() {
         let widths = MarkdownTableColumns.widths(natural: [300, 300, 600], minimum: [100, 100, 400], available: 400)
-        #expect(widths.reduce(0, +) == 400)
-        #expect(widths == [66, 66, 268])
+        #expect(widths == [100, 100, 200])
+    }
+
+    @Test func aLongNameInOneColumnLeavesTheProseColumnRoomToRead() {
+        // | Fix-ios-black-screen-fling-sol-high | gpt-6.2-sol, high | the black screen on fling (your priority) |
+        let widths = MarkdownTableColumns.widths(natural: [290, 160, 320], minimum: [290, 70, 85], available: 340)
+        #expect(widths == [128, 70, 142])
     }
 
     @Test func inlineCodeInACellBreaksAfterItsSeparatorsAndProseIsLeftAlone() {
