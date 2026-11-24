@@ -123,6 +123,165 @@ fn a_device_view_gets_annex_b_pictures_with_parameter_sets_on_keyframes() {
     assert_eq!(payload, expected);
 }
 
+fn device_ack(engine: &mut Engine, sequence: u64, keyframe: bool, mono_ms: u64) {
+    let text = if keyframe {
+        json!({ "type": "devices.ack", "deviceId": "ios:03DDE173", "streamId": "s1",
+                "sequence": sequence, "keyframe": true })
+        .to_string()
+    } else {
+        json!({ "type": "devices.ack", "deviceId": "ios:03DDE173", "streamId": "s1",
+                "sequence": sequence })
+        .to_string()
+    };
+    engine.media_message(CONNECTION, &text, at(mono_ms));
+}
+
+/// A device view of `s1`, acknowledged once and then quiet: its window fills and its chunks go
+/// past their deadline (the last ack at 1_010 ms).
+fn quiet_device_view(engine: &mut Engine) {
+    let mut effects = ingest(engine, 1, h264(true, 0, 1, Vec::new()), at(1_000));
+    for n in 1..5 {
+        effects.extend(ingest(engine, 1, h264(false, n, 1, Vec::new()), at(1_000)));
+    }
+    let sent = binaries(&effects).len();
+    device_ack(engine, sent as u64, false, 1_010);
+    engine.effects().for_each(drop);
+    for n in 5..80u8 {
+        ingest(engine, 1, h264(false, n, 1, Vec::new()), at(1_100));
+    }
+    engine.effects().for_each(drop);
+}
+
+#[test]
+fn a_device_view_that_stops_acking_parks_instead_of_asking_for_keyframes_for_ever() {
+    let mut engine = watched(json!({ "kind": "device", "deviceId": "ios:03DDE173" }));
+    quiet_device_view(&mut engine);
+    // Past the chunks' deadline, and past the silence a live view never has: nothing asks the
+    // source for a keyframe the quiet view could never take.
+    engine.tick(at(6_200));
+    let first = keyframes(&engine.effects().collect::<Vec<_>>());
+    assert!(
+        first <= 1,
+        "at most the keyframe it asked for before it parked"
+    );
+    let mut asked = 0;
+    for step in 0..6u64 {
+        engine.tick(at(7_200 + step * 1_000));
+        asked += keyframes(&engine.effects().collect::<Vec<_>>());
+    }
+    assert_eq!(asked, 0, "a parked view asks for no keyframes");
+    assert_eq!(engine.counts().viewers, 1, "parked, not closed");
+    // And its drops stop with it: the window is not refilled only to expire again.
+    let mut stats: Vec<u64> = Vec::new();
+    for step in 0..6u64 {
+        engine.tick(at(13_000 + step * 1_000));
+        for effect in engine.effects() {
+            if let Effect::Normal(FromMedia::ViewerStats { dropped, .. }) = effect {
+                stats.push(dropped.get());
+            }
+        }
+    }
+    assert!(stats.len() >= 5, "{stats:?}");
+    assert_eq!(
+        stats.first(),
+        stats.last(),
+        "a parked view drops nothing more"
+    );
+    // And nothing more goes to it, not even a keyframe.
+    let mut later = ingest(&mut engine, 1, h264(true, 100, 1, Vec::new()), at(19_500));
+    later.extend(engine.effects());
+    assert!(binaries(&later).is_empty(), "a parked view is sent nothing");
+}
+
+#[test]
+fn an_ack_resumes_a_parked_device_view_at_a_fresh_keyframe() {
+    let mut engine = watched(json!({ "kind": "device", "deviceId": "ios:03DDE173" }));
+    quiet_device_view(&mut engine);
+    engine.tick(at(6_200));
+    engine.effects().for_each(drop);
+    // The view came back (its page shown again, a decoder asking for a keyframe): it is owed one.
+    device_ack(&mut engine, 40, true, 6_500);
+    let resumed = engine.effects().collect::<Vec<_>>();
+    assert_eq!(keyframes(&resumed), 1, "a resumed view is owed a keyframe");
+    let mut after = ingest(&mut engine, 1, h264(true, 120, 1, Vec::new()), at(6_600));
+    after.extend(engine.effects());
+    assert_eq!(binaries(&after).len(), 1, "the keyframe reaches it");
+}
+
+#[test]
+fn a_device_view_that_never_acks_is_asked_for_a_few_keyframes_then_left_to_the_source() {
+    let mut engine = watched(json!({ "kind": "device", "deviceId": "ios:03DDE173" }));
+    // It takes pictures and acks none of them: its window fills and its chunks go past their
+    // deadline. Its source is asked a few times, then left to its own cadence.
+    for n in 0..80u8 {
+        ingest(&mut engine, 1, h264(n == 0, n, 1, Vec::new()), at(1_000));
+    }
+    engine.effects().for_each(drop);
+    for step in 0..3u64 {
+        engine.tick(at(6_200 + step * 1_000));
+        engine.effects().for_each(drop);
+    }
+    let mut asked = 0;
+    for step in 0..6u64 {
+        engine.tick(at(9_200 + step * 1_000));
+        asked += keyframes(&engine.effects().collect::<Vec<_>>());
+    }
+    assert_eq!(
+        asked, 0,
+        "a view that takes nothing is asked for nothing more"
+    );
+    assert_eq!(engine.counts().viewers, 1, "not closed either");
+    // A keyframe the source makes on its own still reaches it.
+    let mut later = ingest(&mut engine, 1, h264(true, 200, 1, Vec::new()), at(15_000));
+    later.extend(engine.effects());
+    assert_eq!(binaries(&later).len(), 1, "the source's own keyframe goes");
+}
+
+#[test]
+fn a_parked_view_does_not_hold_another_view_of_its_source_back() {
+    // Two devices are shown on one connection: one stops acking, the other keeps up.
+    let mut engine = watched(json!({ "kind": "device", "deviceId": "ios:03DDE173" }));
+    send(
+        &mut engine,
+        json!({ "type": "viewer.open", "viewer": "v2", "connection": CONNECTION,
+                "owner": owner("phone", pairing(1)), "issued": 3, "source": "s1",
+                "target": { "kind": "device", "deviceId": "android:emulator-5554" },
+                "codecs": ["avc1.42E033"],
+                "viewport": { "width": 402, "height": 874, "dpr": 3, "scale": 1 },
+                "local": true, "audio": false }),
+        &[],
+        NOW,
+    );
+    assert_eq!(engine.counts().viewers, 2);
+    engine.effects().for_each(drop);
+    quiet_device_view(&mut engine);
+    engine.tick(at(6_200));
+    engine.effects().for_each(drop);
+    // The quiet view is parked; the other asks for a keyframe and acks each picture after it.
+    engine.media_message(
+        CONNECTION,
+        &json!({ "type": "devices.ack", "deviceId": "android:emulator-5554",
+                 "streamId": "s1", "sequence": 1, "keyframe": true })
+        .to_string(),
+        at(6_400),
+    );
+    engine.effects().for_each(drop);
+    let mut got = 0;
+    for n in 80..140u8 {
+        let effects = ingest(&mut engine, 1, h264(n == 80, n, 1, Vec::new()), at(6_500));
+        got += binaries(&effects).len();
+        engine.media_message(
+            CONNECTION,
+            &json!({ "type": "devices.ack", "deviceId": "android:emulator-5554",
+                     "streamId": "s1", "sequence": n })
+            .to_string(),
+            at(6_500),
+        );
+        engine.effects().for_each(drop);
+    }
+    assert_eq!(got, 60, "the acking view gets every picture");
+}
+
 #[test]
 fn a_paused_view_gets_no_bytes_and_starts_again_at_a_keyframe() {
     let mut engine = watched(json!({ "kind": "screen", "sessionId": "screen-1" }));
