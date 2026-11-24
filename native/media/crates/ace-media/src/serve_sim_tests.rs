@@ -137,7 +137,12 @@ fn units_become_the_frames_the_daemon_publishes_with_parameter_sets_before_each_
         delta.payload,
         [0, 0, 0, 1, 0x21, 0x88, 0x84, 0, 0, 0, 1, 0x06, 0x05, 0x01]
     );
-    assert_eq!((delta.flags & 1, delta.codec_string.as_str()), (0, ""));
+    // A delta carries the codec of the description it came from too: every frame the reader
+    // publishes names it, so a delta's picture header can.
+    assert_eq!(
+        (delta.flags & 1, delta.codec_string.as_str()),
+        (0, key.codec_string.as_str())
+    );
 }
 
 #[test]

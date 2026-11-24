@@ -183,11 +183,18 @@ export function seedFakeAccounts(here: FakeSpadeApi, now: number): void {
     model("mistralai/devstral-3", "Devstral 3", 256_000, ["tools"]),
     model("minimax/minimax-m3", "MiniMax M3", 1_000_000, ["tools", "reasoning"]),
   ]);
-  here.liveModels.set("openai", [
-    gpt62,
-    gpt62Mini,
-    model("gpt-5.5", "GPT-5.5", 400_000, ["images", "tools"]),
-  ]);
+  const chatgptLive = [
+    model("gpt-6.2-sol", "GPT-6.2-Sol", 500_000, ["images", "tools", "reasoning"]),
+    model("gpt-6.2-astra", "GPT-6.2-Astra", 272_000, ["images", "tools", "reasoning"]),
+    model("gpt-6.1-terra", "GPT-6.1 Terra", 500_000, ["images", "tools", "reasoning"]),
+    model("gpt-6.1-sol", "GPT-6.1-Sol", 500_000, ["images", "tools", "reasoning"]),
+    model("gpt-6-astra", "GPT-6-Astra", 272_000, ["images", "tools", "reasoning"]),
+    model("gpt-6-sol", "GPT-6-Sol", 272_000, ["images", "tools", "reasoning"]),
+    model("gpt-6-luna", "GPT-6-Luna", 272_000, ["images", "tools", "reasoning"]),
+  ];
+  here.liveModels.set("openai", [...chatgptLive]);
+  here.liveModels.set("chatgpt", chatgptLive);
+  here.liveModels.set("chatgpt-2", chatgptLive);
   here.liveModels.set("anthropic", [
     model("claude-opus-5-5", "Claude Opus 5.5", 1_000_000, ["images", "tools"]),
     model("claude-sonnet-5-5", "Claude Sonnet 5.5", 1_000_000, ["images", "tools"]),

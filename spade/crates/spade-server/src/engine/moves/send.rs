@@ -565,6 +565,12 @@ impl Engine {
             if let Some(security) = self.security() {
                 security.forget(agent);
             }
+            if let Some(workspaces) = self.workspaces()
+                && let Err(error) =
+                    workspaces.prune_web_fetch_conversations(agent, &selection.conversations)
+            {
+                tracing::warn!(%error, %agent, "web_fetch snapshot index was not pruned for moved bot");
+            }
         }
         Ok(())
     }

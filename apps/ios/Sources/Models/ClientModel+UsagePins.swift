@@ -11,8 +11,13 @@ extension ClientModel {
         sendUsagePins()
     }
 
-    /// Sent at every runtime start too: the bridge holds the choice only while it runs.
     func sendUsagePins() {
         inboxRequest(["kind": "usagePins", "ids": usagePins])
+    }
+
+    /// At every runtime start: the bridge holds the choice only while it runs. A new runtime
+    /// starts on the default, so with nothing chosen there is nothing to tell it.
+    func resumeUsagePins() {
+        if !usagePins.isEmpty { sendUsagePins() }
     }
 }

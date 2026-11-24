@@ -9,7 +9,7 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-open", "ios-reading", "--perf-probe"]
         app.launchWithArguments()
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 30))
         expectation(for: NSPredicate(format: "value == 'Ready'"), evaluatedWith: transcript)
         waitForExpectations(timeout: 30)
@@ -29,7 +29,7 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-open", "ios-reading", "--perf-probe"]
         app.launchWithArguments()
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 30))
         expectation(for: NSPredicate(format: "value == 'Ready'"), evaluatedWith: transcript)
         waitForExpectations(timeout: 30)

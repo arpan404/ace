@@ -18,7 +18,7 @@ extension ThreadModel {
             // by the ledger, so seed the staging copy from the visible state first.
             // Row and block models are new objects holding copied value rows, so later
             // staging patches never mutate what is on screen.
-            for (id, item) in items { incoming.items[id] = ItemModel(item.row) }
+            for (id, item) in items.entries { incoming.items[id] = ItemModel(item.row) }
             incoming.positions = positions
             incoming.order = order
             incoming.interactions = interactions
@@ -83,10 +83,13 @@ extension ThreadModel {
             cancelSnapshot()
             return false
         }
-        for (id, item) in incoming.items {
-            if let kept = items[id] { kept.row = item.row; incoming.items[id] = kept }
+        for (id, item) in incoming.items.entries {
+            if let kept = items[id] {
+                if kept.row != item.row { kept.row = item.row }
+                incoming.items[id] = kept
+            }
         }
-        items = incoming.items
+        items.replace(with: incoming.items)
         positions = incoming.positions
         order = incoming.order
         interactions = incoming.interactions
@@ -107,10 +110,13 @@ extension ThreadModel {
         guard let incoming = refresh else { return }
         // Legacy path without an explicit fence: preserve the previous unconditional
         // publish for recorded tests that stage without a count.
-        for (id, item) in incoming.items {
-            if let kept = items[id] { kept.row = item.row; incoming.items[id] = kept }
+        for (id, item) in incoming.items.entries {
+            if let kept = items[id] {
+                if kept.row != item.row { kept.row = item.row }
+                incoming.items[id] = kept
+            }
         }
-        items = incoming.items
+        items.replace(with: incoming.items)
         positions = incoming.positions
         incoming.reorder()
         order = incoming.order

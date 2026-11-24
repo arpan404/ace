@@ -244,6 +244,22 @@ async fn failed_helper_work_reruns_once_on_the_bots_own_model_when_escalation_is
         vec![(json!(1), json!("fake/cheap")), (json!(2), json!("fake/m"))]
     );
     assert_eq!(count(&events, "job_finished"), 1, "one result for the job");
+    // The rerun on the bot's model reads the same prompt top as the tries before it: the helper's
+    // rules and its bot's tool list are pinned, not rebuilt for the model that runs it.
+    let asked: Vec<Value> = spade
+        .fake
+        .seen()
+        .into_iter()
+        .map(|seen| seen.body)
+        .filter(|body| body.to_string().contains(spade_core::helper::RULES))
+        .collect();
+    assert_eq!(asked.len(), 3, "two tries, then the rerun");
+    assert_eq!(asked[0]["model"], "cheap");
+    assert_eq!(asked[2]["model"], "m", "the rerun is on the bot's model");
+    for request in &asked {
+        assert_eq!(request["messages"][0], asked[0]["messages"][0], "{request}");
+        assert_eq!(request["tools"], asked[0]["tools"], "{request}");
+    }
     Ok(())
 }
 

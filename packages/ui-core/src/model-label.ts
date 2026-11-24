@@ -52,6 +52,22 @@ export function modelLine(
     .join(separator);
 }
 
+/**
+ * The composer chip's model name, beside the provider's mark: Codex's "GPT-6.2 Sol" reads
+ * "6.2 Sol" and Antigravity's "Gemini 4 Argon" reads "4 Argon", the way Claude Code's models
+ * read "Opus 4.1". Only the chip's text drops the brand; its tooltip and every list keep it.
+ */
+export function chipModelName(provider: ProviderKind | undefined, label: string): string {
+  const brand = provider && chipBrands[provider];
+  const rest = brand ? label.replace(brand, "") : label;
+  return rest.trim() ? rest : label;
+}
+
+const chipBrands: Partial<Record<ProviderKind, RegExp>> = {
+  codex: /^(?:chat)?gpt[- ]+/i,
+  antigravity: /^gemini[- ]+/i,
+};
+
 /** Catalog names by every native alias, with the same formatter for historical models. */
 export function catalogModelNames(models: readonly CatalogModel[]) {
   const canonical = catalogModelIds(models);

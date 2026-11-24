@@ -16,7 +16,11 @@ use spade_core::maintenance::{Pause, Point, halts};
 use spade_core::tools::{Risk, TOOL_SEARCH, describe};
 use tokio::sync::watch;
 
-use super::super::{Engine, jobs, roster, trim, turn};
+use super::super::{
+    Engine, jobs, roster,
+    stream_calls::{Prepared, StreamCalls},
+    trim, turn,
+};
 use super::again::{self, Again, Held, ask_again};
 use super::{Handled, ceiling, classify};
 use crate::tools::{ToolOutput, TurnFacts};
@@ -38,9 +42,11 @@ pub(super) async fn run_tools(
     facts: &TurnFacts,
     stop: &mut watch::Receiver<bool>,
     pause: &mut watch::Receiver<Pause>,
+    prepared: &mut StreamCalls,
 ) -> Handled {
     let limit = engine.limits.max_parallel_tools.max(1);
     let mut queue = calls.into_iter();
+    let mut earlier_effect = false;
     let mut running = FuturesUnordered::new();
     // Results that came back and wait to be stored, oldest first, and the one being stored now.
     // Storing runs alongside the tools, so a write that keeps failing never stops Stop or a
@@ -93,8 +99,8 @@ pub(super) async fn run_tools(
                     continue;
                 }
             };
-            // A tool runs only once its start is stored, so a restart can never mistake a call
-            // that ran for one that did not.
+            // Record the start before any effectful launch or use of a prepared read, so a
+            // restart never mistakes a call without a result for a call it can safely repeat.
             // What the tool is now is stored with its start, so compaction reads a write as one
             // even once the tool is gone or reclassified.
             let def = engine.registry_for(id).get(&name).cloned();
@@ -142,6 +148,10 @@ pub(super) async fn run_tools(
                 .tools
                 .get_for(id, &name)
                 .and_then(|tool| tool.effect(&arguments));
+            // A prepared read predates this step's writes. Let the normal queue read afresh
+            // when an earlier call can change what it sees.
+            let reuse_read = !earlier_effect && effect == Some(effect::Effect::Read);
+            earlier_effect |= effect != Some(effect::Effect::Read);
             let started = Event::Known(Known::ToolStarted {
                 reply: reply.to_owned(),
                 call_id: call.id.clone(),
@@ -150,20 +160,12 @@ pub(super) async fn run_tools(
                 background,
                 effect,
             });
-            // A shared bot's outward step is on the host's audit log with who allowed it,
-            // written with its start, so no step runs without its entry (ADR 0206 §4.2).
-            let entry = engine.effect_entry(id, &call.id, &name, &arguments, effect);
-            if let Err(error) = engine.record_audited(id, &started, entry) {
-                return Handled::Failed(error.to_string());
-            }
-            engine.computer_tool_started(id, &name);
-            let bot = (name == "bot_message")
-                .then(|| arguments.get("bot").and_then(Value::as_str))
-                .flatten()
-                .and_then(|reference| engine.bot_name(id, reference));
-            let phrase = roster::tool_status(&name, &arguments, bot.as_deref());
-            engine.tool_started_status(id, &name, &arguments, phrase);
             if background {
+                if let Err(error) =
+                    start_tool(engine, id, &call, &name, &arguments, &started, effect)
+                {
+                    return Handled::Failed(error.to_string());
+                }
                 match jobs::start(engine, id, reply, &call.id, &name, arguments, stop) {
                     Ok(jobs::Started::Running) => {}
                     Ok(jobs::Started::Stopped) => {
@@ -181,8 +183,48 @@ pub(super) async fn run_tools(
             }
             let (engine, id, facts) = (engine.clone(), id.to_owned(), facts.clone());
             let gate = reading.map(|reading| (reading, raised));
+            let early = prepared.take_task(&call.id).filter(|_| reuse_read);
+            let stop = stop.clone();
             running.push(async move {
-                let output = run_one(&engine, &id, &call.id, &name, arguments, &facts, gate).await;
+                let sampled = match early {
+                    Some(early) if gate.is_none() => early.result().await,
+                    _ => None,
+                };
+                let Some(permit) = crate::tools::work_budget::acquire(&engine.work_budget).await
+                else {
+                    return (call, name, Ran::Stopped);
+                };
+                let mut reused = None;
+                if let Some(Prepared::Read(tool, read)) = sampled
+                    && engine
+                        .tools
+                        .get_for(&id, &name)
+                        .is_some_and(|now| Arc::ptr_eq(&tool, &now))
+                {
+                    let current = crate::tools::work_budget::with(permit.clone(), async {
+                        crate::tools::work_budget::blocking(read.current)
+                            .await
+                            .unwrap_or(false)
+                    })
+                    .await;
+                    if current {
+                        reused = Some(read.output);
+                    }
+                }
+                let output = if *stop.borrow() {
+                    Ran::Stopped
+                } else if let Err(error) =
+                    start_tool(&engine, &id, &call, &name, &arguments, &started, effect)
+                {
+                    Ran::Failed(error.to_string())
+                } else if let Some(output) = reused {
+                    Ran::Done(output)
+                } else {
+                    run_one(
+                        &engine, &id, &call.id, &name, arguments, &facts, gate, permit,
+                    )
+                    .await
+                };
                 (call, name, output)
             });
         }
@@ -234,6 +276,28 @@ pub(super) async fn run_tools(
     }
 }
 
+/// A shared bot's start and audit entry are stored together before the call runs.
+fn start_tool(
+    engine: &Engine,
+    id: &str,
+    call: &Call,
+    name: &str,
+    arguments: &Value,
+    started: &Event,
+    effect: Option<effect::Effect>,
+) -> Result<(), spade_store::StoreError> {
+    let entry = engine.effect_entry(id, &call.id, name, arguments, effect);
+    engine.record_audited(id, started, entry)?;
+    engine.computer_tool_started(id, name);
+    let bot = (name == "bot_message")
+        .then(|| arguments.get("bot").and_then(Value::as_str))
+        .flatten()
+        .and_then(|reference| engine.bot_name(id, reference));
+    let phrase = roster::tool_status(name, arguments, bot.as_deref());
+    engine.tool_started_status(id, name, arguments, phrase);
+    Ok(())
+}
+
 /// A result being stored (see `finish_tool`).
 type Storing<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>;
 
@@ -248,12 +312,15 @@ async fn stored(storing: &mut Option<Storing<'_>>) {
 /// How a call came back from the foreground.
 enum Ran {
     Done(ToolOutput),
+    Failed(String),
+    Stopped,
     /// Still running when the foreground window closed: the run itself, to carry on as a job.
     Outlived(crate::tools::ToolFuture),
 }
 
 /// Runs a call for as long as the turn's foreground window (ADR 0158). No call is ever timed out
 /// here: one still running then comes back as [`Ran::Outlived`] and runs on in the background.
+#[allow(clippy::too_many_arguments)]
 async fn run_one(
     engine: &Arc<Engine>,
     id: &str,
@@ -262,6 +329,7 @@ async fn run_one(
     arguments: Value,
     facts: &TurnFacts,
     gate: Option<(ceiling::Reading, Option<effect::Effect>)>,
+    permit: Arc<tokio::sync::OwnedSemaphorePermit>,
 ) -> Ran {
     // Started with the packaged bots over it held, the ceiling checked once more: a call queued
     // behind others is first polled only now.
@@ -284,9 +352,21 @@ async fn run_one(
     let Some(tool) = engine.tools.get_for(id, name) else {
         return Ran::Done(ToolOutput::error(format!("There is no tool named {name}.")));
     };
+    // A deferred tool the bot reached for (through `call_tool` or a pin) is one it may want up
+    // front next time (docs/harness.md, Tools). Recorded before it runs, so a failed call counts
+    // too: the bot still had to find it.
+    if engine
+        .registry_for(id)
+        .get(name)
+        .is_some_and(|def| def.deferred)
+    {
+        engine.note_tool_use(id, name);
+    }
     // Unique across conversations, and the same on every retry of this call.
     let key = format!("{id}.{call_id}");
-    let mut work = crate::tools::marked(tool.as_ref(), tool.run_in(&key, arguments, facts));
+    let work = crate::tools::marked(tool.as_ref(), tool.run_in(&key, arguments, facts));
+    let mut work: crate::tools::ToolFuture =
+        Box::pin(crate::tools::work_budget::with(permit, work));
     // Its start, the first poll, still under the hold.
     let first = std::future::poll_fn(|cx| std::task::Poll::Ready(work.as_mut().poll(cx))).await;
     drop(held);
@@ -313,6 +393,8 @@ fn settle(
 ) -> Result<Option<ToolOutput>, String> {
     let work = match ran {
         Ran::Done(output) => return Ok(Some(output)),
+        Ran::Failed(error) => return Err(error),
+        Ran::Stopped => return Ok(None),
         Ran::Outlived(work) => work,
     };
     match jobs::adopt(engine, id, reply, &call.id, name, work, stop) {

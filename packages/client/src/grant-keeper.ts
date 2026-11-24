@@ -42,6 +42,8 @@ export function refreshRefusalIsFinal(code: string, previous?: string): boolean 
 }
 
 export interface GrantKeeper {
+  /** Catch up an overdue refresh when the app runs again after suspension. */
+  wake(): void;
   /** The daemon answered a refresh sent on this socket; others' answers are ignored. */
   answered(message: GrantRefreshResult): void;
   /** The socket ended: send nothing more. */
@@ -63,22 +65,27 @@ export function keepGrant(options: {
   grant(): Promise<string>;
   send(message: ClientMessage): void;
   scheduler: Scheduler;
+  now(): number;
   id(): string;
   /** A refresh was refused for good (`code`): hand the socket to the normal refusal flow. */
   refused?(code: string): void;
 }): GrantKeeper {
   let stopped = false;
   let cancel: () => void = noop;
+  let due: number | undefined;
   /** The refresh waiting for its answer, and the lifetime of the grant it carried. */
   let pending: { id: string; lifetimeMs: number | undefined } | undefined;
   /** Why the last answered refresh was refused, if it was. */
   let lastRefusal: string | undefined;
   const schedule = (delayMs: number) => {
     cancel();
+    due = options.now() + delayMs;
     cancel = options.scheduler.set(delayMs, refresh);
   };
   const refresh = () => {
-    if (stopped) return;
+    if (stopped || due === undefined) return;
+    cancel();
+    due = undefined;
     pending = undefined;
     options.grant().then(
       (grant) => {
@@ -101,6 +108,9 @@ export function keepGrant(options: {
   };
   schedule(grantRefreshDelay(options.ttlMs));
   return {
+    wake() {
+      if (due !== undefined && options.now() >= due) refresh();
+    },
     answered(message) {
       if (stopped || message.requestId !== pending?.id) return;
       const { lifetimeMs } = pending;

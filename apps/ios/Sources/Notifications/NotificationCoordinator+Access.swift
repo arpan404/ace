@@ -13,11 +13,13 @@ extension NotificationCoordinator {
         // Gone from the machine: whatever names it is out of date. A push for it shares the id.
         let gone = known.subtracting(pending)
         if !gone.isEmpty { desk.withdraw(gone.sorted().map { AccessAlert.identifier($0, hostId: hostId) }) }
+        let daemon = desk.pushHost(hostId) ?? hostId
+        if daemon != hostId, !gone.isEmpty { desk.withdraw(gone.sorted().map { AccessAlert.identifier($0, hostId: daemon) }) }
         for request in access where !known.contains(request.requestId) {
             // In the foreground the sheet opens by itself.
             guard !foreground, delivering(hostId) else { continue }
             // Already shown from the daemon's push: once is enough.
-            guard !desk.pushed.contains(AccessAlert.identifier(request.requestId, hostId: hostId)) else { continue }
+            guard !desk.pushed.contains(AccessAlert.identifier(request.requestId, hostId: daemon)) else { continue }
             desk.post(.access(request.alert, hostId: hostId, machine: machineName(hostId)))
         }
         accessSeen[hostId] = pending
@@ -34,12 +36,12 @@ extension NotificationCoordinator {
     }
     /// The machine connected: a tap that waited for it goes now.
     func connectedForAccess(_ model: ClientModel, hostId: String) {
-        guard let (alert, wanted) = pendingAccess, wanted == nil || wanted == hostId else { return }
+        guard let (alert, wanted) = pendingAccess, wanted == nil || localNotificationHost(wanted) == hostId else { return }
         if model.action(alert.openAction) { pendingAccess = nil }
     }
     /// No banner over the sign-in sheet that is already showing the same request.
     func accessPresentation(_ requestId: String, hostId: String?) -> UNNotificationPresentationOptions {
-        if let hostId, MachinesModel.turnedOff(in: defaults).contains(hostId) { return [] }
+        if let hostId = localNotificationHost(hostId), MachinesModel.turnedOff(in: defaults).contains(hostId) { return [] }
         if foreground, client(hostId)?.outside.access.contains(where: { $0.requestId == requestId }) == true { return [] }
         return [.banner, .list, .sound]
     }

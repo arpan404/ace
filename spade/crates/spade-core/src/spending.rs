@@ -4,10 +4,13 @@ use spade_models::{Price, Usage};
 
 /// The cost of `usage` at `price`, in millionths of a US dollar. No price (a flat-rate plan or a
 /// local server) costs nothing. Input read from the cache is charged at the cache-read price and
-/// input written to it at the cache-write price; each falls back to the input price.
+/// input written to it at the cache-write price; each falls back to the input price. A request
+/// with more input than the price's long-context threshold is billed at the long-context rates
+/// on all of it.
 pub fn cost_micros(price: Option<Price>, usage: &Usage) -> u64 {
     let Some(price) = price else { return 0 };
     let count = |value: Option<u32>| f64::from(value.unwrap_or(0));
+    let price = price.at(u64::from(usage.input_tokens.unwrap_or(0)));
     let read = count(usage.cache_read_tokens);
     let write = count(usage.cache_write_tokens);
     let plain_input = (count(usage.input_tokens) - read - write).max(0.0);
@@ -56,6 +59,7 @@ pub fn day_start_ms(now_ms: i64, offset_seconds: i32) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use spade_models::LongContext;
 
     #[test]
     fn a_reply_costs_its_tokens_at_the_route_price() {
@@ -66,6 +70,48 @@ mod tests {
         };
         // 1,000 × $2/M + 500 × $10/M = $0.002 + $0.005 = 7,000 micros.
         assert_eq!(cost_micros(Some(sonnet()), &usage), 7_000);
+    }
+
+    #[test]
+    fn a_prompt_over_the_long_context_threshold_is_billed_at_the_higher_rate_on_all_of_it() {
+        // GPT-6 Astra's listed price: $10/M in, $50/M out, and above 272,000 input tokens twice
+        // the input and cache rates and one and a half times the output.
+        let astra = Price {
+            input: 10.0,
+            output: 50.0,
+            cache_read: Some(1.0),
+            cache_write: Some(12.5),
+            per_call: None,
+            per_search: None,
+            long_context: Some(LongContext {
+                above: 272_000,
+                input: 20.0,
+                output: 75.0,
+                cache_read: Some(2.0),
+                cache_write: Some(25.0),
+            }),
+        };
+        let usage = Usage {
+            input_tokens: Some(300_000),
+            output_tokens: Some(1_000),
+            ..Usage::default()
+        };
+        // 300,000 × $20/M + 1,000 × $75/M = $6.00 + $0.075 = 6,075,000 micros.
+        assert_eq!(cost_micros(Some(astra), &usage), 6_075_000);
+        // At the threshold itself (not more than 272,000) the standard rates apply.
+        let at_threshold = Usage {
+            input_tokens: Some(272_000),
+            ..Usage::default()
+        };
+        assert_eq!(cost_micros(Some(astra), &at_threshold), 2_720_000);
+        // Cached input over the threshold is billed at the long-context cache rate.
+        let cached = Usage {
+            input_tokens: Some(300_000),
+            cache_read_tokens: Some(200_000),
+            ..Usage::default()
+        };
+        // 100,000 × 20 + 200,000 × 2 = 2,400,000 micros.
+        assert_eq!(cost_micros(Some(astra), &cached), 2_400_000);
     }
 
     #[test]
@@ -88,6 +134,7 @@ mod tests {
             cache_write: Some(2.5),
             per_call: None,
             per_search: None,
+            long_context: None,
         }
     }
 
@@ -147,6 +194,7 @@ mod tests {
             cache_write: None,
             per_call: None,
             per_search: None,
+            long_context: None,
         };
         let usage = Usage {
             input_tokens: Some(1_000),

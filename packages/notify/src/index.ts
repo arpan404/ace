@@ -7,6 +7,8 @@ export type {
   NotificationState,
 } from "./service.ts";
 export { notificationsRetained } from "./retained.ts";
+export type { InboxFeed } from "./inbox.ts";
+export { linkedLimit } from "./worker-wire.ts";
 export { deliverableFor } from "./policy.ts";
 export type { NoticeWindow } from "./sleep-boundary.ts";
 export { createNotificationRouter } from "./router.ts";

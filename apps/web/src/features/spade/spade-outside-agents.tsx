@@ -3,6 +3,7 @@ import {
   readSpadeOutsideAgents,
   type SpadeOutsideAgent,
 } from "@ace/ui-core/spade-chat";
+import { GlobeIcon } from "@ace/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { SettingAddRow, SettingRow, SettingSection } from "@/components/setting-row.tsx";
@@ -74,11 +75,23 @@ export function OutsideAgentSettings() {
     await refresh();
   };
   return (
-    <SettingSection label="Outside agents" anchor="outside-agents">
+    <SettingSection
+      label="Outside agents"
+      anchor="outside-agents"
+      note="External A2A agents your bots can call. Every call asks you first."
+    >
       {(listed.data ?? []).map((agent) => (
         <SettingRow
           key={agent.id}
           title={agent.name}
+          leading={
+            <span
+              aria-hidden
+              className="grid size-7 shrink-0 place-items-center rounded-md bg-secondary/70 text-muted-foreground"
+            >
+              <GlobeIcon size={15} />
+            </span>
+          }
           description={
             <>
               <span title={agent.unsignedBecause}>{agent.signature}</span>
@@ -102,7 +115,12 @@ export function OutsideAgentSettings() {
           }
           density="compact"
         >
-          <Button size="sm" variant="ghost" onClick={() => void remove(agent)}>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-muted-foreground hover:text-destructive"
+            onClick={() => void remove(agent)}
+          >
             Remove
           </Button>
         </SettingRow>
@@ -110,52 +128,59 @@ export function OutsideAgentSettings() {
       {address === undefined ? (
         <SettingAddRow onClick={() => setAddress("")}>Add an agent</SettingAddRow>
       ) : (
-        <SettingRow
-          title="Agent address"
-          description={
-            refusal ? (
-              <Refusal>{refusal}</Refusal>
-            ) : (
-              "Spade reads its Agent Card there and checks who signed it."
-            )
-          }
-          htmlFor={field}
-          density="compact"
+        <form
+          className="flex flex-col gap-3 py-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (address.trim()) void add(address.trim());
+          }}
         >
-          <form
-            className="flex items-center gap-1.5"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (address.trim()) void add(address.trim());
-            }}
-          >
+          <div className="flex flex-col gap-1">
+            <label htmlFor={field} className="text-ui font-medium text-foreground">
+              Agent address
+            </label>
+            <p className="text-xs text-subtle-foreground">
+              {refusal ? (
+                <Refusal>{refusal}</Refusal>
+              ) : (
+                "Spade reads its Agent Card there and checks who signed it."
+              )}
+            </p>
             <Input
               id={field}
+              className="mt-1 w-full"
               value={address}
               placeholder="https://agents.example.com"
               onChange={(event) => setAddress(event.target.value)}
               autoFocus
             />
-            <label htmlFor={localField} className="shrink-0 text-ui text-foreground">
-              On my own machine or network
-            </label>
-            <Switch id={localField} checked={local} onCheckedChange={setLocal} />
-            <Button size="sm" type="submit" disabled={busy || !address.trim()}>
-              Add
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              type="button"
-              onClick={() => {
-                setAddress(undefined);
-                setLocal(false);
-              }}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label
+              htmlFor={localField}
+              className="inline-flex items-center gap-2 text-ui text-muted-foreground"
             >
-              Cancel
-            </Button>
-          </form>
-        </SettingRow>
+              <Switch id={localField} checked={local} onCheckedChange={setLocal} />
+              <span>On my own machine or network</span>
+            </label>
+            <div className="flex items-center gap-1.5">
+              <Button
+                size="sm"
+                variant="ghost"
+                type="button"
+                onClick={() => {
+                  setAddress(undefined);
+                  setLocal(false);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button size="sm" variant="primary" type="submit" disabled={busy || !address.trim()}>
+                Add
+              </Button>
+            </div>
+          </div>
+        </form>
       )}
     </SettingSection>
   );

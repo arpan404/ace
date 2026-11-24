@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { z } from "zod";
+import { Thread, ThreadId } from "@ace/protocol";
 import { daemonFixture } from "../agent-control/daemon-test-support.ts";
 import { fakeHeadlessBackend } from "../browser-mcp-test-support.ts";
 import { invoke } from "../cli-test-support.ts";
@@ -149,6 +150,88 @@ test("a grant limited to one project neither sees nor starts work in another", a
   expect(toolResult(listing).isError).not.toBe(true);
   expect(listing.body).not.toContain(other);
   expect(listing.body).not.toContain(String(elsewhere.threadId));
+});
+
+test("ace_threads_list asked for one project never lists or points its cursor at a chat", async () => {
+  const f = await fixture();
+  // A chat with the newest settled thread, so a window merged with chats would put it first.
+  const chat = f.daemon.store.createWorkspace(join(f.h.home, "chat-grant"), "Chat");
+  f.daemon.store.atomic((db) =>
+    db.prepare("INSERT INTO workspace_metadata(workspace_id,kind) VALUES (?,'chat')").run(chat),
+  );
+  const chatThread = ThreadId.parse("chat-grant-newest");
+  f.daemon.store.appendEvents(
+    chatThread,
+    [
+      {
+        type: "thread.created",
+        thread: Thread.parse({
+          id: chatThread,
+          workspaceId: chat,
+          title: "Chat",
+          provider: "codex",
+          status: { state: "done" },
+          createdAt: 1,
+          updatedAt: 9_000_000,
+          activityAt: 9_000_000,
+          settledAt: 9_100_000,
+          hasSentMessage: true,
+        }),
+      },
+    ],
+    9_000_000,
+  );
+  // Two settled threads of the project asked for, so a page and its cursor both exist.
+  ["grant-project-new", "grant-project-old"].forEach((id, index) => {
+    const threadId = ThreadId.parse(id);
+    f.daemon.store.appendEvents(
+      threadId,
+      [
+        {
+          type: "thread.created",
+          thread: Thread.parse({
+            id: threadId,
+            workspaceId: f.workspace,
+            title: id,
+            provider: "codex",
+            status: { state: "done" },
+            createdAt: 1,
+            updatedAt: 800 + index,
+            activityAt: 800 + index,
+            settledAt: 5000,
+            hasSentMessage: true,
+          }),
+        },
+      ],
+      800 + index,
+    );
+  });
+  const listing = z.object({
+    ok: z.literal(true),
+    data: z.object({
+      threads: z.array(z.object({ id: z.string(), workspaceId: z.string() })),
+      before: z.object({ at: z.number(), id: z.string() }).nullable(),
+    }),
+  });
+  for (const args of [
+    // An all-projects grant that explicitly asks for one project.
+    ["--scope", "read"],
+    // A grant limited to that one project.
+    ["--scope", "read", "--project", f.workspace],
+  ]) {
+    const lease = await enroll(f, args);
+    const page = listing.parse(
+      toolResult(await call(lease, "ace_threads_list", { limit: 1, project: f.workspace }))
+        .structuredContent,
+    );
+    expect(page.data.threads.length, args.join(" ")).toBeGreaterThan(0);
+    expect(page.data.threads.every((thread) => thread.workspaceId === f.workspace)).toBe(true);
+    // The cursor names the page's own last thread, never another workspace's chat.
+    expect(page.data.before?.id, args.join(" ")).toBe(page.data.threads.at(-1)?.id);
+    const body = JSON.stringify(page);
+    expect(body, args.join(" ")).not.toContain(chatThread);
+    expect(body, args.join(" ")).not.toContain(chat);
+  }
 });
 
 test("revoking or expiring a grant ends its token on the next request", async () => {

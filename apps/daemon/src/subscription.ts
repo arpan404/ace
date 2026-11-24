@@ -40,6 +40,7 @@ export type SubscriptionStore = Pick<
       | "countThreadEvents"
       | "threadReadState"
       | "onThreadRead"
+      | "chatMembership"
     >
   >;
 

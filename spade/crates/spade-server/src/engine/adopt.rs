@@ -24,6 +24,7 @@ impl Engine {
         name: String,
     ) -> StoredEndpoint {
         StoredEndpoint {
+            gateway_token: false,
             id,
             name,
             format: preset.format.name().to_owned(),
@@ -210,6 +211,7 @@ fn adopted(
         edited = true;
     }
     let mut stored = StoredEndpoint {
+        gateway_token: false,
         id: file.id.clone(),
         name: name.clone(),
         format: format.name().to_owned(),

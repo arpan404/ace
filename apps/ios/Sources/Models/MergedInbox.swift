@@ -74,8 +74,13 @@ struct MergedInbox: Equatable {
                 seen += 1
                 for (index, id) in section.ids.enumerated() {
                     // A runtime without ranks keeps its own order after every ranked row.
-                    let rank = section.ranks.flatMap { index < $0.count ? $0[index] : nil }
-                        ?? String(format: "\u{FFFF}%06d%08d", machine, index)
+                    let rank = section.ranks.flatMap { ranks -> String? in
+                        guard index < ranks.count else { return nil }
+                        if let host = part.layout.rankMachine, section.key != "unsent" {
+                            return "\(ranks[index])\u{0}\(host)\u{0}\(id)"
+                        }
+                        return ranks[index]
+                    } ?? String(format: "\u{FFFF}%06d%08d", machine, index)
                     group.rows.append((rank, InboxKey(machineId: part.machineId, id: id)))
                 }
                 if let total = section.total, total > section.ids.count {

@@ -4,7 +4,10 @@ import XCTest
 /// older page landing leaves the reader's line where it was. Read each frame from what is drawn
 /// (`TranscriptJumpProbe`).
 @MainActor final class TranscriptJumpUITests: XCTestCase {
-    override func setUp() { continueAfterFailure = false }
+    override func setUp() async throws {
+        continueAfterFailure = false
+        try await FixtureStream.restart()
+    }
 
     /// A long finished thread opens at its end: from the first frame its rows are drawn, they
     /// don't move.
@@ -31,22 +34,21 @@ import XCTest
     }
 
     /// Reading back, an older page lands above the rows on screen without moving them: it joins
-    /// once the fling has come to rest, and the line stays within a point while the offset takes
-    /// the page's height.
+    /// without moving the resting line. An append keeps the same content coordinates.
     func testAnOlderPageLandsWithoutMovingTheReadersLine() {
         let app = open("ios-reading")
         _ = jumpRun(app, "open")
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         for _ in 0..<20 where (app.probeValue("jump.older.runs") ?? 0) < 2 {
             transcript.fling(older: true)
         }
         XCTAssertTrue(app.waitForProbe("jump.older.runs", atLeast: 2, timeout: 20), "two older pages loaded")
+        XCTAssertTrue(app.waitForProbe("pages.older", atLeast: 2, timeout: 20), "the bridge read two older pages")
         let pages = [jumpRun(app, "older.1"), jumpRun(app, "older.2")]
         for (n, page) in pages.enumerated() { print("jump older ios-reading page \(n + 1): \(page)") }
         for page in pages { XCTAssertGreaterThan(page.frames, 30, "frames were sampled: \(page)") }
         for page in pages {
             XCTAssertFalse(page.trace.contains("swap"), "no frame replaced the whole screen: \(page)")
-            XCTAssertTrue(page.atRest.contains { abs($0.inContent) >= 100 }, "the page joined while the feed was at rest: \(page)")
             let most = page.atRest.map { abs($0.onScreen) }.max() ?? 0
             XCTAssertLessThanOrEqual(most, 1, "the rows on screen stayed put while the page joined: \(page)")
         }
@@ -59,7 +61,7 @@ import XCTest
         app.launchWithArguments()
         let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons["Allow"]
         if allow.waitForExistence(timeout: 3) { allow.tap() }
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 30))
         return app
     }
@@ -73,7 +75,8 @@ import XCTest
 
     /// The probe's last `name` run, once it has recorded one.
     private func jumpRun(_ app: XCUIApplication, _ name: String) -> JumpRun {
-        XCTAssertNotNil(app.waitForProbe("jump.\(name).frames", timeout: 30), "the probe recorded a \(name) run")
+        XCTAssertNotNil(app.waitForProbe("jump.\(name).frames", timeout: 30),
+                        "the probe recorded a \(name) run; it holds: \(app.probe.keys.filter { $0.hasPrefix("jump.") }.sorted())")
         let probe = app.probe
         func number(_ key: String) -> Int { Int(probe["jump.\(name).\(key)"] ?? "") ?? -1 }
         return JumpRun(frames: number("frames"), moved: number("moved"), total: number("total"), max: number("max"),

@@ -53,6 +53,12 @@ export interface DevicePeer {
   agentExists(threadId: string, agentId: string): boolean;
   send(message: DeviceServerMessage): Promise<void>;
   /**
+   * This connection is on this machine: the daemon's loopback listener decided that, never a
+   * client's claim. A view on this machine is paced at the local rate (ADR 0149: no link to
+   * estimate), and ace-media's other pictures go the same way.
+   */
+  local?: boolean;
+  /**
    * The connection's binary stream (`@ace/browser/stream`): writes one binary message (a stream
    * piece) and reports the transport's backlog. Only a person's screenshots go here; live
    * pictures come from ace-media on the client's media connection (X3).
@@ -83,7 +89,7 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
  * welcome has gone out. Changes in between are held and follow the opening snapshot.
  */
 export function reserveDevices(service: DevicesService, owner: string, peer: DevicePeer) {
-  const actor: Actor = { kind: "human", owner, guard: () => access() };
+  const actor: Actor = { kind: "human", owner, guard: () => authorized() };
   /** Watched devices ace-media delivers, by their view there. */
   const delivered = new Map<string, HeldView>();
   /** Each device's subscribes and unsubscribes, one at a time. */
@@ -112,7 +118,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
       codecs: operation.codecs ?? ["avc1.42E033"],
       // A phone-sized pane until the viewer's `stream.configure` says its size.
       viewport: viewViewport({ width: 390, height: 844, devicePixelRatio: 3 }),
-      local: false,
+      local: peer.local === true,
       audio: false,
       ...(link ? { link } : {}),
       shows: showsDevice(deviceId),
@@ -151,8 +157,22 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
   const stills = new StillWriter(peer.media);
   let closed = false;
   let pending = 0;
+  /**
+   * This channel may speak and hold views: it is open, and the connection behind it authorizes.
+   * A channel closes when its last view unmounts; that ends its views and replies, not the
+   * connection.
+   */
   const access = () => {
     if (closed || !peer.authorize()) throw new Error("Device access revoked");
+  };
+  /**
+   * The connection behind this channel still authorizes device work. Work a request started
+   * while its channel was open finishes on that authorization even if the channel closes
+   * meanwhile: unmounting a view never cancels a boot or an install the person asked for. Only
+   * the connection going away (a closed socket, a revoked session) stops it.
+   */
+  const authorized = () => {
+    if (!peer.authorize()) throw new Error("Device access revoked");
   };
   const deviceAccess = (id: string) => {
     access();
@@ -411,6 +431,9 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
               : operation.op === "screenshot" || subscribed
                 ? undefined
                 : await service.request(operation, requestActor);
+          // The channel went while the work ran: the work stands, but its reply has nowhere to
+          // go. That is not a failure of the work, so it is neither sent nor logged as one.
+          if (closed) return;
           access();
           if ("deviceId" in operation) deviceAccess(operation.deviceId);
           if (subscribed) {

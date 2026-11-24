@@ -48,6 +48,17 @@ pub fn same_origin(a: &str, b: &str) -> bool {
     matches!((origin(a), origin(b)), (Some(a), Some(b)) if a == b)
 }
 
+/// Whether `raw` is a gateway's OpenAI-compatible layer, such as Cloudflare AI Gateway's
+/// `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/compat/`. That layer speaks chat
+/// completions: it has no OpenAI Responses or Anthropic Messages web-search tool of its own,
+/// whatever an endpoint's format or a model's facts say.
+pub fn is_compat_layer(raw: &str) -> bool {
+    let Ok(url) = Url::parse(raw.trim()) else {
+        return false;
+    };
+    url.path().trim_end_matches('/').ends_with("/compat")
+}
+
 /// Whether `raw` points at this computer: a loopback address or `localhost`. Such an endpoint
 /// is a local model (ADR 0205), offered before any other.
 pub fn is_loopback(raw: &str) -> bool {
@@ -87,6 +98,26 @@ mod tests {
             "not a url",
         ] {
             assert!(!is_loopback(remote), "{remote}");
+        }
+    }
+
+    #[test]
+    fn a_gateways_compat_layer_is_recognised_by_its_address() {
+        for compat in [
+            "https://gateway.ai.cloudflare.com/v1/acct/gw/compat/",
+            "https://gateway.ai.cloudflare.com/v1/acct/default/compat",
+            "https://gw.example/v1/a/b/compat/",
+        ] {
+            assert!(is_compat_layer(compat), "{compat}");
+        }
+        for other in [
+            "https://gateway.ai.cloudflare.com/v1/acct/gw/openai/",
+            "https://gateway.ai.cloudflare.com/v1/acct/gw/anthropic/",
+            "https://api.openai.com/v1/",
+            "https://compat.example/v1/",
+            "not a url",
+        ] {
+            assert!(!is_compat_layer(other), "{other}");
         }
     }
 

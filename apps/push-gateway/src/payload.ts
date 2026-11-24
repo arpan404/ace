@@ -50,6 +50,7 @@ export function alertPush(
       aps: {
         alert: { title: "ace", body: "New activity" },
         "mutable-content": 1,
+        "content-available": 1,
         "interruption-level": quiet ? "passive" : "active",
         ...(quiet ? {} : { sound: "default" }),
       },

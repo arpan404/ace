@@ -55,11 +55,11 @@ test("another machine's repository is found here by its origin, however its URL 
   try {
     expect(
       await daemon.ask({ op: "workspaces.match", url: "https://github.com/acme/ace" }),
-    ).toEqual({ kind: "match", workspaceId: daemon.id("ace-main") });
+    ).toEqual({ kind: "match", workspaceId: daemon.id("ace-main"), keyVersion: 2 });
     // Same folder name, another repository: not the same project.
     expect(
       await daemon.ask({ op: "workspaces.match", url: "https://github.com/acme/web" }),
-    ).toEqual({ kind: "match", workspaceId: null });
+    ).toEqual({ kind: "match", workspaceId: null, keyVersion: 2 });
   } finally {
     await daemon.close();
   }
@@ -74,6 +74,7 @@ test("a project reports its origin URL, and none when the repository has no orig
     expect(await daemon.ask({ op: "workspace.origin", workspaceId: daemon.id("relay") })).toEqual({
       kind: "origin",
       url: "https://github.com/acme/relay.git",
+      key: "github.com/acme/relay",
     });
     expect(await daemon.ask({ op: "workspace.origin", workspaceId: daemon.id("scratch") })).toEqual(
       { kind: "origin", url: null },
@@ -95,7 +96,7 @@ test("the first of several checkouts of the same repository is the one found", a
   try {
     expect(
       await daemon.ask({ op: "workspaces.match", url: "git@github.com:acme/shared.git" }),
-    ).toEqual({ kind: "match", workspaceId: daemon.id("p5") });
+    ).toEqual({ kind: "match", workspaceId: daemon.id("p5"), keyVersion: 2 });
   } finally {
     await daemon.close();
   }
@@ -108,16 +109,19 @@ test("a checkout whose origin changed is matched by the new one once a short whi
     expect(await lookFor("https://github.com/acme/relay")).toEqual({
       kind: "match",
       workspaceId: daemon.id("relay"),
+      keyVersion: 2,
     });
     await daemon.setOrigin("relay", "https://github.com/acme/relay-next.git");
     daemon.wait(60_000);
     expect(await lookFor("https://github.com/acme/relay-next")).toEqual({
       kind: "match",
       workspaceId: daemon.id("relay"),
+      keyVersion: 2,
     });
     expect(await lookFor("https://github.com/acme/relay")).toEqual({
       kind: "match",
       workspaceId: null,
+      keyVersion: 2,
     });
   } finally {
     await daemon.close();

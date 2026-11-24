@@ -11,9 +11,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
-import { Input } from "@/components/ui/input.tsx";
-import { editEndpoint, removeEndpoint, setKey } from "./spade-api.ts";
+import { Input, apiKeyFieldClassName } from "@/components/ui/input.tsx";
+import { editEndpoint, removeEndpoint, setGatewayToken, setKey } from "./spade-api.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
+import { SpadeProviderMark } from "./spade-marks.tsx";
 import { fault } from "./spade-settings-rows.tsx";
 import { modelsKey } from "./use-spade-models.ts";
 
@@ -43,6 +44,8 @@ function useAccountChange(onDone: () => void) {
 
 function Shell(props: {
   title: string;
+  account: Pick<SpadeEndpoint, "id" | "provider">;
+  providerName: string;
   description?: ReactNode;
   refusal: string | undefined;
   onClose(): void;
@@ -59,7 +62,15 @@ function Shell(props: {
       <DialogContent>
         <form onSubmit={submit} className="contents">
           <DialogHeader>
-            <DialogTitle>{props.title}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <SpadeProviderMark
+                account={props.account}
+                name={props.providerName}
+                size={20}
+                decorative
+              />
+              {props.title}
+            </DialogTitle>
             {props.description && <DialogDescription>{props.description}</DialogDescription>}
           </DialogHeader>
           {(props.children || props.refusal) && (
@@ -97,6 +108,8 @@ export function KeyDialog(props: { account: SpadeEndpoint; provider: string; onC
   const replacing = props.account.keySet === true;
   return (
     <Shell
+      account={props.account}
+      providerName={props.provider}
       title={`${replacing ? "Replace" : "Add"} the key for ${props.account.name}`}
       description="Spade keeps it in this computer's keychain and never shows it again."
       refusal={change.refusal}
@@ -118,11 +131,78 @@ export function KeyDialog(props: { account: SpadeEndpoint; provider: string; onC
       </label>
       <Input
         id={field}
+        name="spade-api-key"
         type="password"
-        autoComplete="off"
+        autoComplete="one-time-code"
+        data-1p-ignore=""
+        data-lpignore="true"
         spellCheck={false}
         placeholder="Paste key"
         // oxlint-disable-next-line jsx-a11y/no-autofocus -- the dialog opened for the key.
+        autoFocus
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        disabled={change.busy}
+        className={apiKeyFieldClassName}
+      />
+    </Shell>
+  );
+}
+
+/**
+ * An authenticated gateway's own token (Cloudflare AI Gateway's `cf-aig-authorization`): typed
+ * here, it goes to Spade in one request, which keeps it in the OS keychain beside the key. It is
+ * never stored with the endpoint, so nothing of it is shown again.
+ */
+export function GatewayTokenDialog(props: {
+  account: SpadeEndpoint;
+  provider: string;
+  onClose(): void;
+}) {
+  const client = useSpadeClient();
+  const field = useId();
+  const [draft, setDraft] = useState("");
+  const change = useAccountChange(props.onClose);
+  const save = () => {
+    const token = draft.trim();
+    if (!token) return;
+    setDraft("");
+    void change.run(() => setGatewayToken(client, props.account.id, token));
+  };
+  const replacing = props.account.gatewayTokenSet;
+  return (
+    <Shell
+      account={props.account}
+      providerName={props.provider}
+      title={`${replacing ? "Replace" : "Add"} the gateway token for ${props.account.name}`}
+      description="Only an authenticated gateway needs one. Spade keeps it in this computer's keychain and never shows it again."
+      refusal={change.refusal}
+      onClose={props.onClose}
+      onSubmit={save}
+      footer={
+        <>
+          <Button variant="ghost" onClick={props.onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="submit" disabled={change.busy || !draft.trim()}>
+            {change.busy ? "Saving…" : "Save token"}
+          </Button>
+        </>
+      }
+    >
+      <label htmlFor={field} className="sr-only">
+        {props.provider} gateway token
+      </label>
+      <Input
+        id={field}
+        name="spade-gateway-token"
+        type="password"
+        autoComplete="one-time-code"
+        data-1p-ignore=""
+        data-lpignore="true"
+        spellCheck={false}
+        placeholder="Paste gateway token"
+        // oxlint-disable-next-line jsx-a11y/no-autofocus -- the dialog opened for the token.
         autoFocus
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
@@ -145,6 +225,8 @@ export function RenameDialog(props: { account: SpadeEndpoint; onClose(): void })
   };
   return (
     <Shell
+      account={props.account}
+      providerName={props.account.name}
       title={`Rename ${props.account.name}`}
       refusal={change.refusal}
       onClose={props.onClose}
@@ -160,17 +242,19 @@ export function RenameDialog(props: { account: SpadeEndpoint; onClose(): void })
         </>
       }
     >
-      <label htmlFor={field} className="w-fit text-ui font-medium">
-        Name
-      </label>
-      <Input
-        id={field}
-        // oxlint-disable-next-line jsx-a11y/no-autofocus -- the dialog opened to rename.
-        autoFocus
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        disabled={change.busy}
-      />
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor={field} className="w-fit text-ui font-medium">
+          Name
+        </label>
+        <Input
+          id={field}
+          // oxlint-disable-next-line jsx-a11y/no-autofocus -- the dialog opened to rename.
+          autoFocus
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          disabled={change.busy}
+        />
+      </div>
     </Shell>
   );
 }
@@ -187,6 +271,8 @@ export function RemoveDialog(props: { account: SpadeEndpoint; provider: string; 
   const change = useAccountChange(props.onClose);
   return (
     <Shell
+      account={props.account}
+      providerName={props.provider}
       title={`Remove ${props.account.name} from ${props.provider}?`}
       description={`Bots can't use its models after this.${goesWith(props.account)}`}
       refusal={change.refusal}

@@ -267,51 +267,57 @@ pub(super) async fn keep_trying(mut store: impl FnMut() -> Result<(), StoreError
     }
 }
 
-/// Stops the jobs a stored `stop_requested` named: those listed in `named`, and any started by
-/// `reply`. A running one is cancelled and stored as stopped before this returns, so a restart
-/// can never bring it back; a finishing one keeps its result, which opens no reply because the
-/// caller stored `stop_requested` first. Jobs of later replies keep running. Returns how many
-/// were stopped.
-pub(super) fn stop_named(
+/// Cancels the running jobs a stored `stop_requested` named: those listed in `named`, and any
+/// started by `reply`. A finishing one keeps its result, which opens no reply because the caller
+/// stored `stop_requested` first. Jobs of later replies keep running. Returns the cancelled job
+/// ids and how many finishing ones it named.
+///
+/// The cancelled jobs have no end yet: [`stopped`] stores it, and a caller that stops what those
+/// jobs ran waits for it to end before calling. So no job reads as done while its helpers still
+/// work (AGENTS.md priority 1), and a research job's result never comes before its parts end.
+pub(super) fn cancel_named(
     engine: &Arc<Engine>,
     id: &str,
     reply: Option<&str>,
     named: &[String],
-) -> usize {
-    let (cancelled, quietened) = {
-        let live = engine.live(id);
-        // The lock a job start takes, so the choice cannot miss or mistake one starting now.
-        let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
-        take_named(&mut jobs, reply, named)
-    };
-    if !cancelled.is_empty() {
-        let names = engine.load(id).unwrap_or_default();
-        let ends: Vec<Event> = cancelled
-            .iter()
-            .map(|job| {
-                Event::Known(Known::JobFinished {
-                    job: job.clone(),
-                    name: job_name(&names, job),
-                    content: JOB_STOPPED.to_owned(),
-                    is_error: true,
-                    uncertain: true,
-                    files: Vec::new(),
-                    untrusted: false,
-                    cost_micros: None,
-                })
+) -> (Vec<String>, usize) {
+    let live = engine.live(id);
+    // The lock a job start takes, so the choice cannot miss or mistake one starting now.
+    let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
+    take_named(&mut jobs, reply, named)
+}
+
+/// Stores the stopped end of each job [`cancel_named`] cancelled ("Stopped by the person…", which
+/// opens no reply): call once what those jobs ran has ended.
+pub(super) fn stopped(engine: &Arc<Engine>, id: &str, cancelled: &[String]) {
+    if cancelled.is_empty() {
+        return;
+    }
+    let names = engine.load(id).unwrap_or_default();
+    let ends: Vec<Event> = cancelled
+        .iter()
+        .map(|job| {
+            Event::Known(Known::JobFinished {
+                job: job.clone(),
+                name: job_name(&names, job),
+                content: JOB_STOPPED.to_owned(),
+                is_error: true,
+                uncertain: true,
+                files: Vec::new(),
+                untrusted: false,
+                cost_micros: None,
             })
-            .collect();
-        for end in ends {
-            if let Err(error) = engine.record(id, &end) {
-                tracing::error!(%error, "could not store a stopped job; trying again");
-                let (engine, id) = (engine.clone(), id.to_owned());
-                tokio::spawn(async move {
-                    keep_trying(|| engine.record(&id, &end).map(|_| ())).await;
-                });
-            }
+        })
+        .collect();
+    for end in ends {
+        if let Err(error) = engine.record(id, &end) {
+            tracing::error!(%error, "could not store a stopped job; trying again");
+            let (engine, id) = (engine.clone(), id.to_owned());
+            tokio::spawn(async move {
+                keep_trying(|| engine.record(&id, &end).map(|_| ())).await;
+            });
         }
     }
-    cancelled.len() + quietened
 }
 
 /// Cancels and removes the running jobs a stop names (listed, or started by `reply`) and counts
@@ -406,6 +412,11 @@ pub(super) fn report_lost(engine: &Arc<Engine>, id: &str) -> Result<(), StoreErr
         if crate::tools::reattaches(&name) && !spade_core::turn::job_stopped(&events, &job) {
             reattach_ace(engine, id, &events, &job, &name);
             continue;
+        }
+        // A research job lost in the restart closes its parts before it reports itself lost, so
+        // none of them can resume with nothing to collect their answer.
+        if name == spade_core::research::TOOL {
+            engine.stop_parts_after_restart(id, &job);
         }
         let finished = Event::Known(Known::JobFinished {
             name,

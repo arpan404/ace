@@ -47,7 +47,7 @@ import XCTest
         XCTAssertTrue(stop.waitForExistence(timeout: 10))
         XCTAssertEqual(stop.label, "Stop whole agent tree")
         // Mid-transcript, the words run under the header's fade rather than through the title.
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         transcript.swipeDown(velocity: .fast)
         sleep(1)
         // Then the first message partly under the header.

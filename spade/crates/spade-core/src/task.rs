@@ -139,12 +139,9 @@ fn resolved(name: &str, arguments: &Value) -> (String, Value) {
 /// The note Spade gives the model for step `step`.
 pub fn nudge(step: u32) -> String {
     format!(
-        "<continue step=\"{step}\">Nobody has written since your last reply, and your task is \
-         still marked working, so carry on with the next step. Call task_status with done when \
-         the task is finished. If you need the person, ask with ask_user and set \
-         blocked_on_person. If you must wait on something outside (a build, a reply, a date), call \
-         sleep_until or wait_for and end your reply. Write to the person only at milestones.\
-         </continue>"
+        "<continue step=\"{step}\">Task is still working; take the next step. Set task_status to \
+         done when finished, ask_user + blocked_on_person if you need the person, or \
+         sleep_until/wait_for to wait. Message the person only at milestones.</continue>"
     )
 }
 

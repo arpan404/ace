@@ -4,12 +4,15 @@
 use crate::Copies;
 use crate::decoder::{DecodeOutput, VtDecoder};
 use crate::encoder::VtEncoder;
-use crate::surface::VtFormat;
+use crate::surface::{VtFormat, VtSurface};
 use media_codec::*;
 
 pub struct VtTranscoder {
     decoder: VtDecoder,
     encoder: VtEncoder,
+    /// The last decoded picture, retained (a retain, not a copy) so a still source can be
+    /// encoded again as a sharp keyframe without re-decoding.
+    last: Option<VtSurface>,
 }
 impl VtTranscoder {
     pub fn new(spec: &EncodeSpec) -> Result<Self, CodecError> {
@@ -19,7 +22,11 @@ impl VtTranscoder {
             size: Some(spec.size),
             format: VtFormat::Nv12,
         });
-        Ok(Self { decoder, encoder })
+        Ok(Self {
+            decoder,
+            encoder,
+            last: None,
+        })
     }
     /// A new encode size also becomes the decoder's destination size.
     pub fn configure(&mut self, spec: &EncodeSpec) -> Result<(), CodecError> {
@@ -28,6 +35,7 @@ impl VtTranscoder {
             size: Some(spec.size),
             format: VtFormat::Nv12,
         });
+        self.last = None;
         Ok(())
     }
     /// Returns whether a picture reached the encoder (the decoder may buffer).
@@ -39,8 +47,15 @@ impl VtTranscoder {
         let Some(picture) = self.decoder.decode(unit)? else {
             return Ok(false);
         };
+        if let Some(surface) = VtSurface::of(&picture) {
+            self.last = Some(surface.share());
+        }
         self.encoder.encode(picture, force_key)?;
         Ok(true)
+    }
+    /// The last decoded picture, retained without a copy; `None` before the first one.
+    pub fn last_surface(&self) -> Option<VtSurface> {
+        self.last.as_ref().map(VtSurface::share)
     }
     pub fn encoder(&mut self) -> &mut VtEncoder {
         &mut self.encoder

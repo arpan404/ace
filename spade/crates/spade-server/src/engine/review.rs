@@ -16,6 +16,7 @@ use tokio::sync::watch;
 use super::Engine;
 use super::autonomy::{TOOK_TOO_LONG, line};
 use super::judge::Judged;
+use super::stream_calls::{ReviewResult, Work};
 use spade_core::autonomy::escalate::Stop;
 
 /// Longest a review may take before the call goes to the person.
@@ -47,12 +48,13 @@ pub(super) async fn call(
     // What the verdict holds for: a connected app's tool's definition (ADR 0202, amendment 5).
     bound: Option<String>,
     stop: &mut watch::Receiver<bool>,
+    work: &mut Work<'_>,
 ) -> Reviewed {
     if let Some((verdict, reason)) = review::stored(events, &call.id, launch) {
         return of(verdict, reason);
     }
     let model = engine.review_model(id);
-    engine.set_status(id, Some(CHECKING.to_owned()));
+
     let agent = engine.store.agent_for_conversation(id).ok().flatten();
     let (bot, task) = agent
         .as_ref()
@@ -69,9 +71,33 @@ pub(super) async fn call(
     let prompt = review::prompt(&case)
         .session(id)
         .effort(engine.role_effort(id, spade_core::routing::Role::Review));
-    let (verdict, reason, cost) =
-        match super::judge::judge::<Judgment>(engine, id, &model, &prompt, REVIEW_TIMEOUT, stop)
-            .await
+    let reviewed = Event::Known(Known::CallReviewed {
+        reply: reply.to_owned(),
+        call_id: call.id.clone(),
+        name: name.to_owned(),
+        verdict: Verdict::Escalate,
+        reason: String::new(),
+        model: model.clone(),
+        cost_micros: 0,
+        bound,
+        acts_in: None,
+        launch: Some(launch),
+        raised: None,
+    });
+    let early = work.early();
+    let judge = async {
+        if !early {
+            engine.set_status(id, Some(CHECKING.to_owned()));
+        }
+        let (verdict, reason, cost) = match super::judge::judge::<Judgment>(
+            engine,
+            id,
+            &model,
+            &prompt,
+            REVIEW_TIMEOUT,
+            stop,
+        )
+        .await
         {
             // Stored as the line the person reads, so a restart asks with the same words.
             Judged::Answer(judgment, cost) => {
@@ -92,29 +118,19 @@ pub(super) async fn call(
                 line(Stop::SecondReviewUndecided(TOOK_TOO_LONG)),
                 cost,
             ),
-            Judged::Stopped => return Reviewed::Stopped,
+            Judged::Stopped => return None,
         };
-    // The check is over: until the call starts or the person is asked, the bot is thinking, not
-    // still checking (a stale "Checking a step" showed after an approval).
-    engine.set_status(id, Some(super::roster::THINKING.to_owned()));
-    let reviewed = Event::Known(Known::CallReviewed {
-        reply: reply.to_owned(),
-        call_id: call.id.clone(),
-        name: name.to_owned(),
-        verdict,
-        reason: reason.clone(),
-        model,
-        cost_micros: cost,
-        bound,
-        acts_in: None,
-        launch: Some(launch),
-        raised: None,
-    });
-    match engine.record_unless_stopped(id, reply, &reviewed) {
-        Ok(true) => of(verdict, reason),
-        Ok(false) => Reviewed::Stopped,
-        // Not stored: the person decides rather than the call running unrecorded.
-        Err(_) => Reviewed::Escalate("Spade couldn't store the review, so you decide.".to_owned()),
+        if !early {
+            engine.set_status(id, Some(super::roster::THINKING.to_owned()));
+        }
+        Some((verdict, reason, cost))
+    };
+    match work.review(engine, id, &prompt, reviewed, judge).await {
+        ReviewResult::Decided(verdict, reason) => of(verdict, reason),
+        ReviewResult::Stopped => Reviewed::Stopped,
+        ReviewResult::Unstored => {
+            Reviewed::Escalate("Spade couldn't store the review, so you decide.".to_owned())
+        }
     }
 }
 

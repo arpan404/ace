@@ -61,17 +61,13 @@ struct TranscriptRowFrames: Equatable, Sendable {
         frame(id).map { Double($0.minY - inset) }
     }
 
-    /// Of the rows on screen, the highest one showing below the top `inset`.
-    func topRow(inset: CGFloat) -> String? {
-        topRow(of: content.keys.sorted(), inset: inset)
-    }
-
-    /// Of the rows in `order`, the highest one showing below the top `inset`.
-    func topRow(of order: [String], inset: CGFloat) -> String? {
+    /// The highest measured row showing below the header that still belongs to the window.
+    func topRow(inset: CGFloat, containing contains: (String) -> Bool = { _ in true }) -> String? {
         var best: (id: String, top: CGFloat)?
-        for id in order {
-            guard let frame = frame(id), frame.maxY > inset + 1 else { continue }
-            if best.map({ frame.minY < $0.top }) ?? true { best = (id, frame.minY) }
+        for (id, frame) in content {
+            guard frame.maxY + origin > inset + 1 else { continue }
+            if let best, frame.minY > best.top || (frame.minY == best.top && id >= best.id) { continue }
+            if contains(id) { best = (id, frame.minY) }
         }
         return best?.id
     }

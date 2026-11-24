@@ -17,6 +17,7 @@ use spade_core::tools::{Registry, ToolDef};
 use tokio::sync::watch;
 
 use super::Engine;
+use super::stream_calls::{ReviewResult, Work};
 
 /// What the status line says while the reviewer reads a call.
 const REVIEWING: &str = "Checking a step";
@@ -128,6 +129,7 @@ pub(super) struct Under<'a> {
 /// anything but a clear answer (a failure, a timeout, an answer that doesn't parse twice), goes to
 /// the person with the reviewer's reason (ADR 0163, amendment 3): an unreviewed call never runs,
 /// and the bot is never told no for a reviewer's sake.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn review(
     engine: &Arc<Engine>,
     id: &str,
@@ -136,6 +138,7 @@ pub(super) async fn review(
     registry: &Registry,
     under: Under<'_>,
     stop: &mut watch::Receiver<bool>,
+    work: &mut Work<'_>,
 ) -> Reviewed {
     // Stored before a restart: reused only where it was given (ADR 0171, amendment 3).
     if let Some((verdict, reason)) =
@@ -144,7 +147,7 @@ pub(super) async fn review(
         return of(verdict, reason);
     }
     let model = engine.review_model(id);
-    engine.set_status(id, Some(REVIEWING.to_owned()));
+
     let agent = engine.store.agent_for_conversation(id).ok().flatten();
     let (bot, task, agent_id) = agent.as_ref().map_or(("the bot", "", ""), |a| {
         (a.name.as_str(), a.task.as_str(), a.id.as_str())
@@ -174,46 +177,54 @@ pub(super) async fn review(
     let prompt = autonomy::prompt(&case)
         .session(id)
         .effort(engine.role_effort(id, spade_core::routing::Role::Review));
-    let (outcome, cost) = match super::judge::judge::<Judgment>(
-        engine,
-        id,
-        &model,
-        &prompt,
-        engine.limits.review_timeout,
-        stop,
-    )
-    .await
-    {
-        Judged::Answer(judgment, cost) => (autonomy::judged(&judgment), cost),
-        Judged::Failed(why, cost) => (undecided(why), cost),
-        Judged::TimedOut(cost) => (undecided(TOOK_TOO_LONG), cost),
-        Judged::Stopped => return Reviewed::Stopped,
-    };
-    // The check is over: until the call starts or the person is asked, the bot is thinking, not
-    // still checking (a stale "Checking a step" showed after an approval).
-    engine.set_status(id, Some(super::roster::THINKING.to_owned()));
-    let (verdict, reason) = match &outcome {
-        Outcome::Run => (Verdict::Allow, String::new()),
-        Outcome::Escalate(reason) => (Verdict::Escalate, reason.clone()),
-    };
     let reviewed = Event::Known(Known::CallReviewed {
         reply: reply.to_owned(),
         call_id: under.call.id.clone(),
         name: under.name.to_owned(),
-        verdict,
-        reason: reason.clone(),
-        model,
-        cost_micros: cost,
+        verdict: Verdict::Escalate,
+        reason: String::new(),
+        model: model.clone(),
+        cost_micros: 0,
         bound: under.bound.clone(),
         acts_in: under.acts_in.cloned().map(Box::new),
         launch: Some(under.launch),
         raised: None,
     });
-    match engine.record_unless_stopped(id, reply, &reviewed) {
-        Ok(true) => of(verdict, reason),
-        Ok(false) => Reviewed::Stopped,
-        // Not stored: the person decides rather than the call running unrecorded.
-        Err(_) => Reviewed::Escalate("Spade couldn't store the review, so you decide.".to_owned()),
+    let early = work.early();
+    let judge = async {
+        if !early {
+            engine.set_status(id, Some(REVIEWING.to_owned()));
+        }
+        let (outcome, cost) = match super::judge::judge::<Judgment>(
+            engine,
+            id,
+            &model,
+            &prompt,
+            engine.limits.review_timeout,
+            stop,
+        )
+        .await
+        {
+            Judged::Answer(judgment, cost) => (autonomy::judged(&judgment), cost),
+            Judged::Failed(why, cost) => (undecided(why), cost),
+            Judged::TimedOut(cost) => (undecided(TOOK_TOO_LONG), cost),
+            Judged::Stopped => return None,
+        };
+        let (verdict, reason) = match &outcome {
+            Outcome::Run => (Verdict::Allow, String::new()),
+            Outcome::Escalate(reason) => (Verdict::Escalate, reason.clone()),
+        };
+        if !early {
+            engine.set_status(id, Some(super::roster::THINKING.to_owned()));
+        }
+        Some((verdict, reason, cost))
+    };
+    match work.review(engine, id, &prompt, reviewed, judge).await {
+        ReviewResult::Decided(verdict, reason) => of(verdict, reason),
+        ReviewResult::Stopped => Reviewed::Stopped,
+        ReviewResult::Unstored => {
+            Reviewed::Escalate("Spade couldn't store the review, so you decide.".to_owned())
+        }
     }
 }
 

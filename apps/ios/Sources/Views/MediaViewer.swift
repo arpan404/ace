@@ -59,13 +59,7 @@ struct MediaShareButton<Item: Transferable>: View {
     let title: String
     var body: some View {
         ShareLink(item: item, preview: SharePreview(title)) { Text("Share") }
-            .aceFont(AceTheme.Typography.label, relativeTo: .body)
-            .foregroundStyle(AceTheme.Colours.foreground)
-            .padding(.horizontal, AceDesign.Space.margin)
-            .frame(minHeight: AceDesign.Size.tap)
-            .floatingGlass()
-            .padding(.leading, AceDesign.Space.margin).padding(.top, AceDesign.Space.tight)
-            .accessibilityIdentifier("media.share")
+            .shareChip()
     }
 }
 
@@ -108,5 +102,18 @@ struct MediaPager: View {
         .background(AceDesign.Surface.media.ignoresSafeArea())
         .ignoresSafeArea()
         .accessibilityIdentifier("media.pager")
+    }
+}
+
+extension View {
+    /// The Share chip in the top corner across from Done.
+    func shareChip() -> some View {
+        aceFont(AceTheme.Typography.label, relativeTo: .body)
+            .foregroundStyle(AceTheme.Colours.foreground)
+            .padding(.horizontal, AceDesign.Space.margin)
+            .frame(minHeight: AceDesign.Size.tap)
+            .floatingGlass()
+            .padding(.leading, AceDesign.Space.margin).padding(.top, AceDesign.Space.tight)
+            .accessibilityIdentifier("media.share")
     }
 }

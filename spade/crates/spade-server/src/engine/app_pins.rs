@@ -48,11 +48,22 @@ impl Engine {
         found: &std::sync::Arc<dyn crate::tools::Tool>,
         arguments: &Value,
     ) -> Option<AppCall> {
+        let (app, _) = found.app()?;
+        found.definition()?;
+        self.seed_pins(conversation, &app);
+        self.pinned_app_call(found, arguments)
+    }
+
+    /// Read a binding without seeding pins during an unfinished step.
+    pub(super) fn pinned_app_call(
+        &self,
+        found: &std::sync::Arc<dyn crate::tools::Tool>,
+        arguments: &Value,
+    ) -> Option<AppCall> {
         let tool = found.def().spec.name;
         let tool = tool.as_str();
         let (app, _) = found.app()?;
         let definition = found.definition()?;
-        self.seed_pins(conversation, &app);
         let changed = match self.store.setting(&key(&app, tool)) {
             Ok(Some(pinned)) => pinned != definition,
             // Not listed when the connection was first used: new since, so unproven. Unreadable:
@@ -67,6 +78,13 @@ impl Engine {
             definition,
             reading,
         })
+    }
+
+    pub(super) fn has_app_pins(&self, app: &str) -> bool {
+        matches!(
+            self.store.setting(&format!("app_pins_seeded:{app}")),
+            Ok(Some(_))
+        )
     }
 
     /// On a connection's first use, pins every tool it lists then.

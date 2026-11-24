@@ -2,12 +2,14 @@ import { createServer, type Server } from "node:http";
 import { createECDH, generateKeyPairSync, randomBytes } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { afterEach, expect, it } from "vitest";
-import { DeviceId, type Notification } from "@ace/protocol";
+import { DeviceId, type Notification, type ServerMessage } from "@ace/protocol";
+import { connectClientViaRelay, startRelay, type ClientChannel } from "@ace/relay";
+import { keyPair } from "@ace/secure-channel";
 import { createPushGatewayTransport } from "@ace/notify";
 import { fixture } from "./socket-test-support.ts";
 import { createDaemonNotifications, type DaemonNotifications } from "./notifications.ts";
 
-const cleanups: (() => Promise<void>)[] = [];
+const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
 });
@@ -64,7 +66,10 @@ const daemonKey = () =>
     format: "pem",
   });
 
-async function setup() {
+async function pushDaemon(
+  relay?: { url: string; keys: ReturnType<typeof keyPair> },
+  beforeFeedReply?: () => Promise<void>,
+) {
   const gateway = await stubGateway();
   const errors: unknown[] = [];
   const state = { enabled: true };
@@ -77,7 +82,7 @@ async function setup() {
     Date.now,
   );
   let notifications!: DaemonNotifications;
-  const f = await fixture({}, (store, home) => {
+  const f = await fixture(relay ? { relay } : {}, (store, home) => {
     notifications = createDaemonNotifications(
       home,
       store,
@@ -85,7 +90,16 @@ async function setup() {
       { push },
       0,
     );
-    return { notifications: notifications.service };
+    return {
+      notifications: {
+        ...notifications.service,
+        async feed(...args) {
+          const page = await notifications.service.feed(...args);
+          await beforeFeedReply?.();
+          return page;
+        },
+      },
+    };
   });
   notifications.setSender((device, notification) => f.server.notify(device, notification));
   notifications.setConnected(() => f.server.notificationDevices());
@@ -94,6 +108,20 @@ async function setup() {
     await notifications.close();
     await f.close();
   });
+  // The thread genuinely needs the person: the worker raises a needs_you alert from this.
+  const raise = async () => {
+    f.store.appendEvents(f.thread.id, [
+      { type: "thread.updated", status: { state: "working", agents: 1 } },
+      { type: "thread.updated", status: { state: "needs_you", interactions: 1 } },
+    ]);
+    return notifications.tick();
+  };
+  return { f, gateway, state, errors, notifications, raise };
+}
+
+async function setup() {
+  const daemon = await pushDaemon();
+  const { f, notifications } = daemon;
   const client = await f.connect();
   expect(await client.next()).toMatchObject({ type: "welcome" });
   const phone = DeviceId.parse("device");
@@ -112,14 +140,6 @@ async function setup() {
     type: "notification.register.result",
     requestId: "push",
   });
-  // The thread genuinely needs the person: the worker raises a needs_you alert from this.
-  const raise = async () => {
-    f.store.appendEvents(f.thread.id, [
-      { type: "thread.updated", status: { state: "working", agents: 1 } },
-      { type: "thread.updated", status: { state: "needs_you", interactions: 1 } },
-    ]);
-    return notifications.tick();
-  };
   const liveFrame = async (): Promise<Notification> => {
     const frame = await client.next();
     if (frame.type !== "notification") throw new Error(`Expected a live alert, got ${frame.type}`);
@@ -130,7 +150,7 @@ async function setup() {
       const feed = await notifications.service.feed(phone, 0);
       return feed.entries.some((entry) => entry.notification.id === id) ? true : undefined;
     }, 15_000);
-  return { f, gateway, state, errors, notifications, client, phone, raise, liveFrame, delivered };
+  return { ...daemon, client, phone, liveFrame, delivered };
 }
 
 async function poll<T>(read: () => Promise<T | undefined>, timeoutMs: number): Promise<T> {
@@ -183,4 +203,95 @@ it("the per-machine switch turns push off without unregistering the phone", asyn
   expect(errors).toEqual([]);
   await client.close();
   await draining;
+});
+
+async function nextOf<T extends ServerMessage["type"]>(channel: ClientChannel, type: T) {
+  for await (const message of channel) {
+    if (message.type === type) return message as Extract<ServerMessage, { type: T }>;
+    if (message.type === "error") throw new Error(message.code);
+  }
+  throw new Error("Relay closed before " + type);
+}
+
+it("a push wakes a relay-only phone, which resumes an interrupted feed from its daemon checkpoint", async () => {
+  const relay = await startRelay();
+  cleanups.push(() => relay.close());
+  const waiting = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const { f, gateway, raise } = await pushDaemon({ url: relay.url, keys: keyPair() }, async () => {
+    waiting.resolve();
+    await release.promise;
+  });
+  cleanups.push(release.resolve);
+  const hostId = f.server.relayHostId;
+  if (!hostId) throw new Error("Relay host missing");
+  const paired = f.store.devices.create("iPhone", ["read"], Date.now());
+  const open = async (device = paired) => {
+    const channel = await connectClientViaRelay({
+      relayUrl: relay.url,
+      hostId,
+      pinnedFingerprint: hostId,
+    });
+    cleanups.push(() => channel.close());
+    await channel.send({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: device.device.id,
+      token: device.token,
+    });
+    await nextOf(channel, "welcome");
+    return channel;
+  };
+  const first = await open();
+  await first.send({
+    type: "notification.register",
+    requestId: "push",
+    device: {
+      channel: "push",
+      platform: "phone",
+      token: "ab".repeat(32),
+      environment: "sandbox",
+      ...phoneKeys(),
+    },
+  });
+  await nextOf(first, "notification.register.result");
+  first.close();
+
+  const draining = raise();
+  const push = await poll(async () => gateway.posts.at(-1), 15_000);
+  expect(push.encoding).toBe("aes128gcm");
+  await draining;
+
+  const wake = await open();
+  // Drop the stream after the feed starts, before the simulated app applies or acknowledges it.
+  await wake.send({ type: "notification.feed", requestId: "interrupted", afterCursor: 0 });
+  await waiting.promise;
+  wake.close();
+  await wake.closed;
+  release.resolve();
+
+  const resumed = await open();
+  await resumed.send({ type: "notification.feed", requestId: "resume" });
+  const feed = await nextOf(resumed, "notification.feed.result");
+  expect(feed.entries.map(({ notification }) => notification.status)).toEqual(["needs_you"]);
+  await resumed.send({
+    type: "notification.feed",
+    requestId: "commit",
+    afterCursor: feed.cursor,
+    checkpoint: true,
+  });
+  expect(await nextOf(resumed, "notification.feed.result")).toMatchObject({
+    cursor: feed.cursor,
+    entries: [],
+    retracted: [],
+  });
+  resumed.close();
+
+  const next = await open();
+  await next.send({ type: "notification.feed", requestId: "next" });
+  expect((await nextOf(next, "notification.feed.result")).entries).toEqual([]);
+
+  // A client that lost local state may explicitly ask for the bounded history again.
+  await next.send({ type: "notification.feed", requestId: "rebuild", afterCursor: 0 });
+  expect((await nextOf(next, "notification.feed.result")).entries).toEqual(feed.entries);
 });

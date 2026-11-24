@@ -197,3 +197,14 @@ test("a turned picture maps the pointer back into the device's own orientation",
   });
   expect(shownFrameSize(frame)).toEqual({ width: 2532, height: 1170 });
 });
+
+test("a downscaled picture maps its right edge to the source's native width", () => {
+  // A Simulator re-encoded at 824x1792 from a 1206x2622 source: the header scale is encoded px
+  // per source point, so width/scale is the 1206 points input uses. A click at the shown right
+  // edge lands at the source's last point, not at 68% of it.
+  const scale = 824 / 1206;
+  const frame = { width: 824, height: 1792, scale };
+  const shown = { left: 0, top: 0, width: 412, height: 896 };
+  expect(devicePoint(frame, shown, { x: 412, y: 448 })).toEqual({ x: 1205, y: 1311 });
+  expect(devicePoint(frame, shown, { x: 0, y: 0 })).toEqual({ x: 0, y: 0 });
+});

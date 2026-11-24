@@ -42,7 +42,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     while let Some(delta) = stream.next().await {
         match delta? {
             Delta::Text(text) => write!(out, "{text}")?,
-            Delta::Reasoning(_) | Delta::Call(_) => {}
+            Delta::Reasoning(_) | Delta::Call(_) | Delta::CallClosed(_) => {}
             Delta::Done { usage, .. } => eprintln!(
                 "\n[{} in, {} out]",
                 usage.input_tokens.map_or("?".into(), |n| n.to_string()),

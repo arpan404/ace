@@ -9,6 +9,12 @@
 //! that must not fire on a healthy link: each chunk is due by its send time, plus the bytes in
 //! flight up to it at the relay's floor rate, two round trips and a second (`deadline`). Past
 //! it, the chunk is lost: freed, reported (`Event::Lost`) and a keyframe owed. Time is passed in.
+//!
+//! A view that stops acking is not asked for keyframes for ever, and is not sent pictures it will
+//! not take: one that acked before and then went silent past `PARK_AFTER_MS` is parked (nothing
+//! in flight or queued, no keyframe owed) until an ack or a keyframe request starts it again at a
+//! fresh keyframe; one that has never acked is asked for at most `UNANSWERED_LIMIT` keyframes and
+//! then left to whatever its source makes on its own.
 use crate::link_rate::{LINK_FLOOR, UNKNOWN_ROUND_TRIP_MS};
 use std::collections::VecDeque;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,6 +48,13 @@ pub enum Event {
 }
 
 const DEADLINE_SLACK_MS: f64 = 1_000.0;
+/// How long a view may go without an ack while chunks of it sit past their deadline before it is
+/// parked: a page hidden for a while, a decoder that stopped answering, a client that went away.
+/// A live view acks every picture, so this only fires on one that stopped taking them.
+const PARK_AFTER_MS: f64 = 2_000.0;
+/// How many keyframes are asked of a source for a view that has never acked before it is clear
+/// it takes none: a client that has shown no picture is not asked for ever.
+const UNANSWERED_LIMIT: u8 = 3;
 /// When a chunk sent `at`, with `bytes` in flight up to and including it, is due: those bytes
 /// at the relay's floor rate (never the current rate), two round trips and a second.
 pub fn deadline(at: f64, bytes: usize, round_trip: Option<f64>) -> f64 {
@@ -65,6 +78,18 @@ pub struct Viewer {
     playing: bool,
     /// Bytes in flight its link carries in time (`LinkRate::backlog_bytes`); the window bounds it too.
     bound: Option<usize>,
+    /// When it last acknowledged a chunk; absent until its first. A view that stops acking is
+    /// what `parked` and `unanswered` decide about.
+    last_ack: Option<f64>,
+    /// Sending stopped: nothing is in flight, nothing queued, and its source is asked for
+    /// nothing. An ack (or a client's keyframe request) starts it again at a fresh keyframe.
+    parked: bool,
+    /// Automatic keyframe requests made since it last acked: a view that never does is asked
+    /// only so many times.
+    unanswered: u8,
+    /// It asked for its limit of keyframes without a single ack: what the source makes still
+    /// reaches it, but its source is asked for nothing more.
+    stalled: bool,
 }
 impl Viewer {
     pub fn new(window: Window) -> Self {
@@ -82,7 +107,39 @@ impl Viewer {
             dropping: false,
             playing: false,
             bound: None,
+            last_ack: None,
+            unanswered: 0,
+            parked: false,
+            stalled: false,
         }
+    }
+    /// Whether it stopped sending for want of acks.
+    pub fn parked(&self) -> bool {
+        self.parked
+    }
+    /// Asks its source for a keyframe: once per deficit, up to the limit, while it acks nothing.
+    fn ask_key(&mut self, mut event: impl FnMut(Event)) {
+        if self.encode.is_none() || self.stalled {
+            return;
+        }
+        if self.last_ack.is_none() {
+            if self.unanswered >= UNANSWERED_LIMIT {
+                self.stalled = true;
+                return;
+            }
+            self.unanswered += 1;
+        }
+        event(Event::Keyframe);
+    }
+    /// Stops it: nothing in flight, nothing queued, and no keyframe owed. What it missed is not
+    /// asked of its source: a view that acks nothing would only miss that too.
+    fn park(&mut self) {
+        self.parked = true;
+        self.inflight.clear();
+        self.inflight_bytes = 0;
+        self.clear_queue();
+        self.need_key = false;
+        self.dropping = false;
     }
     /// Holds bytes in flight to what the link carries in time, within the window (ADR 0149).
     pub fn bound(&mut self, bytes: Option<usize>) {
@@ -105,6 +162,9 @@ impl Viewer {
         self.inflight.iter().any(|(_, g, _)| *g == generation)
     }
     fn expire(&mut self, now: f64, event: &mut impl FnMut(Event)) -> bool {
+        if self.parked {
+            return false;
+        }
         let lost = self
             .inflight
             .iter()
@@ -117,6 +177,12 @@ impl Viewer {
             self.inflight_bytes = self.inflight_bytes.saturating_sub(p.bytes);
         }
         event(Event::Lost);
+        // A view that acked once and then stopped is not taking pictures any more: park it,
+        // rather than ask its source for keyframes it would never take.
+        if self.last_ack.is_some_and(|at| now - at >= PARK_AFTER_MS) {
+            self.park();
+            return true;
+        }
         self.dropping = true;
         // A keyframe already waiting starts the picture over; else deltas wait for one.
         if self.queue.front().is_some_and(|p| p.key) {
@@ -124,15 +190,16 @@ impl Viewer {
         }
         self.clear_queue();
         self.need_key = true;
-        if self.encode.is_some() {
-            event(Event::Keyframe);
-        }
+        self.ask_key(event);
         true
     }
     pub fn assign(&mut self, encode: Option<u64>, mut event: impl FnMut(Event)) {
         if self.encode == encode {
             return;
         }
+        self.parked = false;
+        self.stalled = false;
+        self.unanswered = 0;
         self.encode = encode;
         // Another sequence space; what is on the wire stays in flight.
         self.generation += 1;
@@ -147,6 +214,7 @@ impl Viewer {
         }
     }
     pub fn stop(&mut self, mut event: impl FnMut(Event)) {
+        self.parked = false;
         if self.encode.is_some() {
             self.generation += 1;
         }
@@ -190,6 +258,10 @@ impl Viewer {
         if self.encode.is_none() {
             return;
         }
+        // A client asking for a keyframe is alive: whatever it missed, it takes pictures again.
+        self.parked = false;
+        self.stalled = false;
+        self.unanswered = 0;
         self.need_key = true;
         self.retain_key();
         event(Event::Keyframe);
@@ -217,6 +289,9 @@ impl Viewer {
         mut send: impl FnMut(Piece) -> bool,
         mut event: impl FnMut(Event),
     ) {
+        if self.parked {
+            return;
+        }
         // What a loss frees goes at once: a keyframe waiting behind lost chunks needn't wait on.
         if self.expire(now, &mut event) && self.encode.is_some() {
             self.send_queued(now, &mut send, &mut event);
@@ -253,7 +328,7 @@ impl Viewer {
                 self.dropping = true;
                 self.retain_key();
                 event(Event::Dropped);
-                event(Event::Keyframe);
+                self.ask_key(event);
             }
             return;
         } else {
@@ -307,12 +382,21 @@ impl Viewer {
         send: impl FnMut(Piece) -> bool,
         mut event: impl FnMut(Event),
     ) {
+        self.last_ack = Some(now);
+        self.stalled = false;
+        self.unanswered = 0;
+        let parked = self.parked;
+        self.parked = false;
         for (p, _, _) in self.inflight.drain(..count) {
             self.inflight_bytes = self.inflight_bytes.saturating_sub(p.bytes);
         }
         self.expire(now, &mut event);
         if self.encode.is_some() {
-            self.send_queued(now, send, event);
+            self.send_queued(now, send, &mut event);
+        }
+        // Parked and back: whatever it missed is gone, so it starts again at a fresh keyframe.
+        if parked {
+            self.keyframe(&mut event);
         }
     }
     /// The transport confirms it dropped `generation`'s chunks: they are off the wire.

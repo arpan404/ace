@@ -16,11 +16,11 @@ import Testing
 
     @Test func theTopRowFollowsAScrollWithNoRowMeasuredAgain() {
         var rows = stacked()
-        #expect(rows.topRow(of: ["a", "b", "c"], inset: 0) == "a")
+        #expect(rows.topRow(inset: 0) == "a")
         // The reader scrolled 150 points down: only the origin moves.
         let moved = rows.scrolled(origin: -150)
         #expect(moved)
-        #expect(rows.topRow(of: ["a", "b", "c"], inset: 0) == "b")
+        #expect(rows.topRow(inset: 0) == "b")
         #expect(rows.top("b", inset: 0) == -50)
         #expect(rows.frame("c") == CGRect(x: 0, y: 50, width: 320, height: 100))
     }
@@ -70,13 +70,13 @@ import Testing
         // Row a starts at 60 in the viewport, which is where a 60-point header ends.
         #expect(rows.top("a", inset: 60) == 0)
         // Hidden under a header that ends at 170, a no longer counts as the top row.
-        #expect(rows.topRow(of: ["a", "b", "c"], inset: 170) == "b")
+        #expect(rows.topRow(inset: 170) == "b")
     }
 
     @Test func theTopRowIsOnlyOneOfTheRowsShown() {
         let rows = stacked()
-        #expect(rows.topRow(of: ["b", "c"], inset: 0) == "b")
-        #expect(rows.topRow(of: [], inset: 0) == nil)
+        #expect(rows.topRow(inset: 0, containing: { $0 != "a" }) == "b")
+        #expect(rows.topRow(inset: 0, containing: { _ in false }) == nil)
     }
 
     @Test func driftInsideThePlacementToleranceNeedsNoCorrection() {

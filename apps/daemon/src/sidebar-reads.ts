@@ -24,6 +24,8 @@ type SidebarOptions = {
   limit: number;
   project?: string | undefined;
   archived?: boolean | undefined;
+  /** The client's own thread list: a project's window also carries every chat (ADR 0099). */
+  withChats?: boolean | undefined;
 };
 /** Sidebar reads pin membership and payloads to one SQLite snapshot and revision. */
 export class SidebarReads {
@@ -56,7 +58,7 @@ export class SidebarReads {
     this.sidebarSummaries.clear();
   }
   sidebarPage(
-    options: { limit: number; project?: string | undefined; archived?: boolean | undefined },
+    options: SidebarOptions,
     before?: import("@ace/protocol").ThreadListCursor,
     reuse?: {
       entries: ReadonlyMap<string, import("@ace/protocol").ThreadListEntry>;
@@ -117,7 +119,7 @@ export class SidebarReads {
     };
   }
   private loadSidebarPage(
-    options: { limit: number; project?: string | undefined; archived?: boolean | undefined },
+    options: SidebarOptions,
     before?: import("@ace/protocol").ThreadListCursor,
     reuse?: {
       entries: ReadonlyMap<string, import("@ace/protocol").ThreadListEntry>;
@@ -140,6 +142,7 @@ export class SidebarReads {
       options.limit,
       options.project ?? null,
       options.archived === true,
+      options.withChats === true,
       before ?? null,
     ]);
     const cached = this.sidebarPages.get(key);
@@ -161,7 +164,11 @@ export class SidebarReads {
           }
         : undefined,
       (load) => {
-        const summaryKey = JSON.stringify([options.project ?? null, options.archived === true]);
+        const summaryKey = JSON.stringify([
+          options.project ?? null,
+          options.archived === true,
+          options.withChats === true,
+        ]);
         const summaryHit = this.sidebarSummaries.get(summaryKey);
         if (summaryHit) return summaryHit;
         const summary = load();

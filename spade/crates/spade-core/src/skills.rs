@@ -52,10 +52,8 @@ pub fn index(skills: &[SkillEntry], uses: &HashMap<String, Use>) -> String {
     }
     let loads = |s: &SkillEntry| uses.get(&s.name).map_or(0, |u| u.loads);
     offered.sort_by(|a, b| loads(b).cmp(&loads(a)).then_with(|| a.name.cmp(&b.name)));
-    let mut out = String::from(
-        "Skills: instructions for particular tasks. When one fits, load it with skill_load before \
-         starting; find others with skill_search.\n",
-    );
+    let mut out =
+        String::from("Skills (load matching ones with skill_load; find more with skill_search):\n");
     for skill in offered.iter().take(INDEX_SKILLS) {
         out.push_str(&format!(
             "- {}: {}\n",

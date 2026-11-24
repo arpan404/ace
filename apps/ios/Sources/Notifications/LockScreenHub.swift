@@ -11,12 +11,14 @@ import WidgetKit
         var activity: any AgentsActivityPort
         var writeSnapshot: (LockSummary) -> Void
         var reloadWidgets: () -> Void
+        var readSnapshot: () -> LockSummary? = { nil }
         /// How often a running activity is rebuilt while ace is open, so an unchanged inbox
         /// never reaches its stale date while it is still being confirmed. Nil: never.
         var renewal: Duration? = nil
         static var system: Edges {
             Edges(activity: SystemAgentsActivity(), writeSnapshot: { LockSnapshotStore.write($0) },
-                  reloadWidgets: { WidgetCenter.shared.reloadAllTimelines() }, renewal: .seconds(AgentsActivityPlan.renewEvery))
+                  reloadWidgets: { WidgetCenter.shared.reloadAllTimelines() },
+                  readSnapshot: { LockSnapshotStore.read() }, renewal: .seconds(AgentsActivityPlan.renewEvery))
         }
         /// Touches nothing outside the process: the default where no app runs (tests, previews).
         static var inert: Edges { Edges(activity: InertActivity(), writeSnapshot: { _ in }, reloadWidgets: {}) }
@@ -34,6 +36,7 @@ import WidgetKit
     /// The last summary a connected machine confirmed: what stays up, "as of" its time, once
     /// no machine answers (the phone offline, or the app letting its connections go).
     private var lastLive: LockSummary?
+    private var restoredSnapshot = false
     typealias Input = (machines: [LockScreenBuilder.Machine], requests: [String: LockRequest])
     /// Reads every attached machine's rows and the approvals it was told about.
     var read: @MainActor () -> Input = { ([], [:]) }
@@ -59,6 +62,7 @@ import WidgetKit
         guard pending == nil else { return }
         pending = Task { @MainActor [weak self, sleep] in
             await sleep(Self.coalesce)
+            guard !Task.isCancelled else { return }
             self?.pending = nil
             self?.rebuild()
         }
@@ -71,9 +75,15 @@ import WidgetKit
     }
     /// Drop the last confirmed summary kept for when no machine answers: what it showed may
     /// belong to a machine that is no longer to be shown.
-    func forgetHeld() { lastLive = nil }
+    func forgetHeld() { lastLive = nil; restoredSnapshot = true }
     /// Rebuild at once; tests and the background refresh call it directly.
     func rebuild() {
+        pending?.cancel()
+        pending = nil
+        if !restoredSnapshot {
+            restoredSnapshot = true
+            lastLive = edges.readSnapshot()
+        }
         let at = now()
         let input = read()
         let next = Self.held(LockScreenBuilder.summary(input.machines, requests: input.requests, now: at), last: &lastLive)
