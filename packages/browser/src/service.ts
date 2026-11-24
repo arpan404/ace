@@ -794,6 +794,31 @@ export class BrowserService {
     if (!session || session.state.closed) throw new Error("Browser session not open");
     return session;
   }
+  /**
+   * A paused session resumes when the person acts on it (viewing, selecting, opening or
+   * navigating, even a private page they keep agents out of). Agents never resume here: their
+   * tools open the browser first (`background: true`), which resumes unless the viewed page is
+   * private, and a direct command on a paused session still fails as paused. Waits for a
+   * recovery already running, or runs the paused session's own resume, so the action that
+   * follows finds it ready.
+   */
+  private async resumeForActor(threadId: string, actor?: Actor): Promise<void> {
+    if (actor?.kind !== "human") return;
+    const session = this.sessions.get(threadId);
+    if (!session || session.state.closed || session.state.status !== "paused") return;
+    await this.resumable
+      .get(threadId)?.()
+      .catch(() => {});
+    await this.recoveries.get(threadId)?.catch(() => {});
+  }
+  /** A viewer arrived: a paused session it may see starts coming back, without waiting for it. */
+  private resumeForViewer(threadId: string): void {
+    const session = this.sessions.get(threadId);
+    if (!session || session.state.closed || session.state.status !== "paused") return;
+    void this.resumeForActor(threadId, { kind: "human", connectionId: "" }).catch((error) =>
+      this.options.onError?.(error),
+    );
+  }
   downloadsList(threadId: string) {
     return this.get(threadId).state.downloads ?? [];
   }
@@ -815,7 +840,9 @@ export class BrowserService {
     actor?: Actor,
     signal?: AbortSignal,
   ): Promise<unknown> {
-    return this.get(threadId).execute(command, actor, signal);
+    return this.resumeForActor(threadId, actor).then(() =>
+      this.get(threadId).execute(command, actor, signal),
+    );
   }
   /**
    * Bound JPEG bytes from one tab's page, without interpreting an artifact path. The tab the
@@ -838,18 +865,22 @@ export class BrowserService {
     options: { fullPage?: boolean | undefined; ref?: string | undefined } = {},
     actor?: Actor,
   ): Promise<AgentScreenshot> {
-    return this.get(threadId).screenshot(signal, tabId, options, actor);
+    return this.resumeForActor(threadId, actor).then(() =>
+      this.get(threadId).screenshot(signal, tabId, options, actor),
+    );
   }
   /** The agent's own tab, opening one if the viewed tab is another agent's. */
   claimTab(threadId: string, actor: Actor): Promise<{ tabId: string; url: string; title: string }> {
-    return this.get(threadId).claim(actor);
+    return this.resumeForActor(threadId, actor).then(() => this.get(threadId).claim(actor));
   }
   /** The tab an agent's next command without `tabId` runs on. */
   currentTab(threadId: string, actor: Actor): { tabId: string; url: string; title: string } {
     return this.get(threadId).currentTab(actor);
   }
   input(threadId: string, input: unknown, connectionId: string, tabId?: string): Promise<void> {
-    return this.get(threadId).input(input, connectionId, tabId);
+    return this.resumeForActor(threadId, { kind: "human", connectionId }).then(() =>
+      this.get(threadId).input(input, connectionId, tabId),
+    );
   }
   /** "Keep agents out of this tab" (a person's choice), or let them back in. */
   setPrivate(threadId: string, tabId: string, value: boolean): BrowserState {
@@ -857,7 +888,9 @@ export class BrowserService {
   }
   /** What only the person may ask of a page, from their own client connection. */
   asPerson(threadId: string, request: PersonRequest): Promise<BrowserState> {
-    return this.get(threadId).asPerson(request);
+    return this.resumeForActor(threadId, { kind: "human", connectionId: "" }).then(() =>
+      this.get(threadId).asPerson(request),
+    );
   }
   /** Files the person dropped on a tab's page, from their own client connection. */
   dropFiles(
@@ -865,7 +898,9 @@ export class BrowserService {
     request: Parameters<BrowserSession["dropFiles"]>[0],
     connectionId: string,
   ): Promise<BrowserState> {
-    return this.get(threadId).dropFiles(request, connectionId);
+    return this.resumeForActor(threadId, { kind: "human", connectionId }).then(() =>
+      this.get(threadId).dropFiles(request, connectionId),
+    );
   }
   /** A chunk of one of the thread's finished downloads, fetched to the person's device. */
   readDownload(
@@ -892,6 +927,7 @@ export class BrowserService {
     capture?: import("./viewer-sink.ts").CaptureViewer,
   ): () => void {
     const session = this.get(threadId);
+    this.resumeForViewer(threadId);
     const stop = this.subscriptions.add(threadId, session.live, session.state, {
       connectionId,
       sink,
@@ -913,6 +949,7 @@ export class BrowserService {
     connectionId: string,
     capture: import("./viewer-sink.ts").CaptureViewer,
   ): void {
+    this.resumeForViewer(threadId);
     this.subscriptions.configure(threadId, connectionId, capture);
     this.get(threadId).live.configure(connectionId, capture);
     const style = capture.viewport.cursor;

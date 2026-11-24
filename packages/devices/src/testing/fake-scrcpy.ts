@@ -104,7 +104,8 @@ export async function fixture(
     resetAtControl?: boolean;
     /** The server process exits once control connects, leaving both sockets open and silent. */
     exitAtControl?: boolean;
-    media?: DeviceMedia;
+    /** `null`: no ace-media at all, as on a build without it. */
+    media?: DeviceMedia | null;
     now?: () => number;
     /** Opens each forward-tunnel connection, in place of a real TCP connect. */
     connect?: (port: number) => Socket;
@@ -189,7 +190,7 @@ export async function fixture(
     },
     failure: (error) => failures.push(error),
     // Video comes only through ace-media: a loopback stands in for it unless a test brings one.
-    media: options.media ?? (await loopbackMedia(cleanup)),
+    ...(options.media === null ? {} : { media: options.media ?? (await loopbackMedia(cleanup)) }),
   });
   cleanup.push(() => capture.stop());
   return { capture, device, frames, failures, commands };

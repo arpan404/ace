@@ -170,6 +170,7 @@ export class BrowserSession {
         if (!host) return undefined;
         return { host: this.options.mediaVideo?.(host) ?? host, page: page.cdp };
       },
+      () => this.viewedPage().pageSize?.(),
     );
     // A recording needs frames whether or not anyone watches.
     this.live.require(() => this.recordings.active);
@@ -293,6 +294,7 @@ export class BrowserSession {
       budget: this.budget,
       timing: this.timing,
       page: (tabId) => this.tabs.page(tabId),
+      inputScale: () => this.live.inputScale(),
       flags: () => ({
         closed: this.closed,
         paused: this.paused,
@@ -509,6 +511,16 @@ export class BrowserSession {
         // takes the capture once the backend reports it (`changed`).
         if (target !== undefined && this.tabs.leaving(target)) return;
         if (token !== this.captureToken || this.closed || this.paused) return;
+        // A headless page that won't capture is not a lost browser: its document still runs,
+        // so the video retries on its own instead of pausing every tab. Only the desktop's
+        // views are gone when their capture fails.
+        if (this.options.backendKind !== "embedded") {
+          if (this.live.watched() && target !== undefined && this.tabs.viewedId() === target) {
+            this.watchWakes++;
+            this.watchedWakeFailed(error);
+          }
+          return;
+        }
         const reason = error instanceof Error ? error.message : failure;
         this.suspend(reason);
         this.options.suspended?.(reason);
