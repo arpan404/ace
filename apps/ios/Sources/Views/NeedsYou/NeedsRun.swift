@@ -4,8 +4,9 @@ import SwiftUI
 /// inbox's order. "1 of 3" with a slim track, Skip, and a swipe to move on; each page gives the
 /// context to decide (who asks for what, the command, the agent's last words, the thread) and
 /// Deny / Allow once as capsules in thumb reach. Questions, plans and forms answer on the
-/// thread's own cards. A haptic per decision; requests arriving meanwhile join at the end. It
-/// ends on "Nothing needs you" only when nothing waits and no answer is still on its way.
+/// thread's own cards. Each answer's haptic is the list's, once the phone has saved it; requests
+/// arriving meanwhile join at the end. It ends on "Nothing needs you" only when nothing waits
+/// and no answer is still on its way.
 struct NeedsRun: View {
     let inbox: MachineInbox
     /// What waits now, in the list's order.
@@ -17,7 +18,6 @@ struct NeedsRun: View {
     let openThread: (InboxKey) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.aceReduceMotion) private var reduceMotion
-    @State private var decisions = 0
     @State private var forward = true
 
     var body: some View {
@@ -59,7 +59,6 @@ struct NeedsRun: View {
                 }
             }
         }
-        .sensoryFeedback(AceDesign.Haptic.approve, trigger: decisions)
         .onAppear { queue.skipClosed(open: isOpen) }
         .onChange(of: live) { _, now in
             queue.merge(now)
@@ -83,7 +82,6 @@ struct NeedsRun: View {
                                                  answering: requests.filter { model?.approvalSubmissions[$0] != nil }))
     }
     private func decided() {
-        decisions += 1
         move { $0.next(open: isOpen) }
     }
     private func move(forward: Bool = true, _ change: (inout NeedsRunQueue) -> Void) {

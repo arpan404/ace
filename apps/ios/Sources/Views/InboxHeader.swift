@@ -6,8 +6,6 @@ import SwiftUI
 struct InboxConnectionProblem: Hashable {
     /// The machine's name when one is out, else how many.
     let text: String
-    /// Still trying (spinner) rather than out of reach (wifi.slash).
-    let trying: Bool
     /// `inbox.connection.<name>` when machines are named, for UI tests.
     let identifier: String
 
@@ -27,7 +25,7 @@ struct InboxConnectionProblem: Hashable {
             : trying ? "Reconnecting to \(subject)"
             : out.count > 1 ? "\(subject) offline" : inbox.showsMachineNames ? "\(named) is offline" : "Your machine is offline"
         let identifier = inbox.showsMachineNames && out.count == 1 ? "inbox.connection.\(inbox.name(first.hostId))" : "inbox.connection"
-        return InboxConnectionProblem(text: text, trying: trying && !fatal, identifier: identifier)
+        return InboxConnectionProblem(text: text, identifier: identifier)
     }
 }
 

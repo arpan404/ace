@@ -34,7 +34,10 @@ return is unavoidable. The goal is that it isn't seen.
   a relay starts on it, never probes direct, and a machine on direct moves to its relay when the
   phone leaves Wi-Fi. On Wi-Fi a working relay is kept until the direct address answers a probe
   opened beside it, a socket that opens only for the daemon's pinned key. The probe never closes
-  the relay. The existing hold and cooldown still apply.
+  the relay. The existing hold and cooldown still apply. A path with no network says nothing
+  about Wi-Fi: a machine opened during it starts on its relay, no route already open moves, no
+  probe runs until the path is back, and the offline hold decides what the runtimes hear. Only a path confirmed on another interface moves a working
+  direct route to the relay.
 
 ## Consequences
 
@@ -43,7 +46,10 @@ return is unavoidable. The goal is that it isn't seen.
   long that isn't there.
 - The handover to direct is still a runtime switch, covered by the grace. The probe proves the
   daemon is at the address. It doesn't prove the device's hello is accepted there. A hello
-  refused on direct falls back to the relay under the existing cooldown. A true make-before-break
+  refused on direct, before that try was ever ready, goes back to the relay if the relay was
+  ready when the try began, and direct waits out the existing cooldown. Otherwise the refusal
+  shows, as it always has. The refusal is shown for the moment before the relay reopens, since a
+  `fatal` state skips the display grace. A true make-before-break
   switch (a second, authenticated path beside the relay, as the SDK's multipath does for the
   desktop, [ADR 0114](0114-fastest-path.md)) would need two native sockets per runtime and is left
   for later.

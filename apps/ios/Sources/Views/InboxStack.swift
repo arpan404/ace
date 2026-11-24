@@ -52,8 +52,6 @@ struct InboxStack<Destination: View, Side: View>: View {
     /// Select mode: the threads picked for one action, and whether the list is picking.
     @State private var selection: Set<InboxKey> = []
     @State private var selecting = false
-    /// The connection problem once it has lasted a moment, so a blip never flashes in the title.
-    @State private var problem: InboxConnectionProblem?
     /// Chats' filter field.
     @State private var chatsQuery = ""
     @Environment(SpacesModel.self) private var spaces: SpacesModel?
@@ -108,20 +106,14 @@ struct InboxStack<Destination: View, Side: View>: View {
                 .inboxFootBar {
                     if holds { SidebarPlaces(tab: $tab, open: header.place, needsYou: needsYou) }
                 }
-                .modifier(ListTitle(title: HomeTabs.title(list), subtitle: subtitle, selecting: selecting))
+                .modifier(ListTitle(title: HomeTabs.title(list),
+                                    subtitle: InboxListSubtitle.of(inbox, chats: chats, machine: machine, project: project, space: spaceName),
+                                    selecting: selecting))
                 .toolbar { if selecting { selectToolbar } else { listToolbar } }
                 .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
                     if selecting {
                         InboxSelectionBar(inbox: inbox, selection: selection, organize: organize) { selecting = false; selection = [] }
                     }
-                }
-                .task(id: InboxConnectionProblem.of(inbox)) {
-                    let now = InboxConnectionProblem.of(inbox)
-                    guard let now else { problem = nil; return }
-                    // An already-visible problem updates at once; a new one waits out a brief blip,
-                    // longer while the machine is only reconnecting, which usually recovers by itself.
-                    if problem == nil { try? await Task.sleep(for: .milliseconds(now.trying ? 4_000 : 800)) }
-                    if !Task.isCancelled { problem = now }
                 }
                 .onChange(of: selectAsks) { if !chats { startSelecting() } }
         }
@@ -154,15 +146,6 @@ struct InboxStack<Destination: View, Side: View>: View {
                     .accessibilityIdentifier("inbox.select")
             }
         }
-    }
-
-    /// Under the title: what is wrong with the connection while it lasts, else the scope while it
-    /// narrows the list. A list showing everything says nothing.
-    private var subtitle: String? {
-        let scoped = !project.isEmpty || !machine.isEmpty
-        let scope = chats ? (machine.isEmpty ? nil : inbox.name(machine)) : (scoped ? filters.subtitle : nil)
-        let parts = [spaceName, scope, problem?.text].compactMap { $0 }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     /// The space the list shows (ADR 0206 §1.4), once the person has an organization to tell it
@@ -321,6 +304,20 @@ struct InboxStack<Destination: View, Side: View>: View {
         guard !waiting.isEmpty else { return }
         for session in waiting { session.client.retry() }
         for _ in 0..<20 where waiting.contains(where: { $0.client.connection != "ready" }) { try? await Task.sleep(for: .milliseconds(100)) }
+    }
+}
+
+/// What the home list's title says under it (`ListTitle`): the space, the scope while it narrows
+/// the list, and what is wrong with the connection while it lasts. A list showing everything
+/// says nothing. The problem shows as soon as the machine's grace (`ConnectionGrace`) lets it,
+/// with no wait of its own; a blip never reaches it.
+@MainActor enum InboxListSubtitle {
+    static func of(_ inbox: MachineInbox, chats: Bool, machine: String, project: String, space: String?) -> String? {
+        let scoped = !project.isEmpty || !machine.isEmpty
+        let filters = InboxFilters(inbox: inbox, machine: .constant(machine), project: .constant(project))
+        let scope = chats ? (machine.isEmpty ? nil : inbox.name(machine)) : (scoped ? filters.subtitle : nil)
+        let parts = [space, scope, InboxConnectionProblem.of(inbox)?.text].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
 

@@ -135,9 +135,9 @@ struct ChatsList: View {
 private struct ChatRow: View {
     let row: ThreadRow
     var body: some View {
-        let look = row.look
-        InboxLineRow(row: row, end: .status, dimmed: look?.settled == true)
+        let look = InboxThreadRow.look(of: row)
+        InboxLineRow(row: row, end: .status, dimmed: look.settled)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel([row.title, look?.meaning, look?.unread == true ? "unread" : nil].compactMap { $0 }.joined(separator: ", "))
+            .accessibilityLabel([row.title, look.meaning, look.unread == true ? "unread" : nil].compactMap { $0 }.joined(separator: ", "))
     }
 }

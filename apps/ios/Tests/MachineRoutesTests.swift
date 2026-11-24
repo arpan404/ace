@@ -282,7 +282,7 @@ private let fingerprint = DaemonCertificate.pin
         let account = FakeAccountDirectory([AceMachine(hostId: relayKey, name: "studio", platform: "darwin", lastSeenAt: 1)])
         let fixture = try MachinesFixture(machines: [studio(paths: allPaths)], account: account, probe: { _ in answers.next() })
         defer { fixture.cleanUp() }
-        fixture.model.wifi(false)
+        fixture.model.interface(.other)
         await fixture.model.load()
         let relay = try #require(fixture.sessions.started.first)
         relay.finishShutdownWhenStopped()
@@ -305,6 +305,81 @@ private let fingerprint = DaemonCertificate.pin
         #expect(answers.asked == 0)
         #expect(fixture.sessions.started.count == 1)
         #expect(fixture.model.plans["studio"]?.current == .relay)
+    }
+
+    @Test func aPathThatDropsForAMomentOnWiFiKeepsAHealthyDirectRouteAndProbesNothing() async throws {
+        let answers = Answers()
+        let account = FakeAccountDirectory([AceMachine(hostId: relayKey, name: "studio", platform: "darwin", lastSeenAt: 1)])
+        let fixture = try MachinesFixture(machines: [studio(paths: allPaths)], account: account, probe: { _ in answers.next() })
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        let direct = try #require(fixture.sessions.started.first)
+        direct.finishShutdownWhenStopped()
+        direct.emit(row(connection: "ready", thread: "t1"))
+        await settle { fixture.model.inbox.client("studio")?.connection == "ready" }
+
+        // A brief outage, as the path monitor reports it: no network, then the same Wi-Fi back.
+        fixture.model.interface(.unknown)
+        fixture.model.network(online: false, interfaceChanged: true)
+        await drain()
+        fixture.model.interface(.wifi)
+        fixture.model.network(online: true, interfaceChanged: true)
+        await drain()
+        // The direct runtime that was open stays open: no relay, no probe, no offline.
+        #expect(!direct.stopped)
+        #expect(fixture.sessions.started.count == 1)
+        #expect(fixture.model.plans["studio"]?.current == .direct)
+        #expect(answers.asked == 0)
+        #expect(!direct.invoked.contains { $0.contains(#""type":"network""#) && $0.contains("false") })
+        // Back on cellular for real: the machine moves to its relay.
+        fixture.model.interface(.other)
+        await settle { fixture.sessions.started.count == 2 }
+        #expect(fixture.sessions.started.last?.target.relay?.hostId == relayKey)
+    }
+
+    @Test func aDirectRouteRefusedAfterItsProbeAnsweredReturnsToTheRelayThatWorked() async throws {
+        let answers = Answers()
+        let account = FakeAccountDirectory([AceMachine(hostId: relayKey, name: "studio", platform: "darwin", lastSeenAt: 1)])
+        let fixture = try MachinesFixture(machines: [studio(paths: allPaths)], account: account, probe: { _ in answers.next() })
+        defer { fixture.cleanUp() }
+        fixture.model.interface(.other)
+        await fixture.model.load()
+        let relay = try #require(fixture.sessions.started.first)
+        relay.finishShutdownWhenStopped()
+        relay.emit(row(connection: "ready", thread: "t1"))
+        await settle { fixture.model.inbox.client("studio")?.connection == "ready" }
+
+        // Home on Wi-Fi past the hold: the daemon answers the probe, but refuses this phone's hello.
+        fixture.clock.advance(MachineRoutePlan.hold)
+        answers.queue = [true]
+        fixture.model.interface(.wifi)
+        await settle { fixture.sessions.started.count == 2 }
+        let direct = try #require(fixture.sessions.started.last)
+        direct.finishShutdownWhenStopped()
+        #expect(direct.target.relay == nil)
+        direct.emit(#"[{"type":"connection","state":"fatal"}]"#)
+        await settle { fixture.sessions.started.count == 3 }
+        let back = try #require(fixture.sessions.started.last)
+        back.finishShutdownWhenStopped()
+        #expect(back.target.relay?.hostId == relayKey)
+        #expect(fixture.model.plans["studio"]?.current == .relay)
+        // The next network change waits out the cooldown before the direct address is tried again.
+        fixture.model.network(online: true, interfaceChanged: true)
+        await settle { fixture.scheduler.pending == 1 }
+        #expect(answers.asked == 1)
+    }
+
+    @Test func aRefusalOnTheDirectRouteWithNoWorkingRelayToReturnToStaysARefusal() async throws {
+        let account = FakeAccountDirectory([AceMachine(hostId: relayKey, name: "studio", platform: "darwin", lastSeenAt: 1)])
+        let fixture = try MachinesFixture(machines: [studio(paths: allPaths)], account: account)
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        let direct = try #require(fixture.sessions.started.first)
+        direct.emit(#"[{"type":"connection","state":"fatal"}]"#)
+        await settle { fixture.model.inbox.client("studio")?.connection == "fatal" }
+        await drain()
+        #expect(fixture.sessions.started.count == 1)
+        #expect(fixture.model.inbox.client("studio")?.shownConnection == "fatal")
     }
 
     private func studio(paths: [MachinePath]?) -> MachineEntry {
@@ -414,7 +489,7 @@ private let fingerprint = DaemonCertificate.pin
     }
 
     @Test func onCellularTheRelayIsKeptAndDirectIsNeverTried() {
-        var plan = MachineRoutePlan(direct: true, relay: true, wifi: false)
+        var plan = MachineRoutePlan(direct: true, relay: true, interface: .other)
         #expect(plan.current == .relay)
         #expect(plan.connection("ready", at: 0) == .stay)
         // The relay's socket is replaced after the hand-over: it stays on the relay.
@@ -426,29 +501,106 @@ private let fingerprint = DaemonCertificate.pin
     @Test func leavingWiFiMovesAMachineOnDirectToItsRelay() {
         var plan = MachineRoutePlan(direct: true, relay: true)
         #expect(plan.current == .direct)
-        #expect(plan.wifi(false, at: 0) == .open(.relay))
+        #expect(plan.interface(.other, at: 0) == .open(.relay))
         #expect(plan.current == .relay)
         // Only a direct route: there's nowhere else to go.
         var alone = MachineRoutePlan(direct: true, relay: false)
-        #expect(alone.wifi(false, at: 0) == .stay)
+        #expect(alone.interface(.other, at: 0) == .stay)
     }
 
     @Test func directIsUsedOnlyAfterItAnswersOnWiFiAndTheRelayIsNeverDroppedToLook() {
-        var plan = MachineRoutePlan(direct: true, relay: true, wifi: false)
+        var plan = MachineRoutePlan(direct: true, relay: true, interface: .other)
         #expect(plan.connection("ready", at: 0) == .stay)
         // Home on Wi-Fi past the hold: look for the direct address beside the working relay.
-        #expect(plan.wifi(true, at: MachineRoutePlan.hold) == .probeDirect)
+        #expect(plan.interface(.wifi, at: MachineRoutePlan.hold) == .probeDirect)
         #expect(plan.current == .relay)
         #expect(plan.probed(answered: false, at: MachineRoutePlan.hold) == .stay)
         #expect(plan.current == .relay)
         #expect(plan.networkChanged(at: MachineRoutePlan.hold + 1) == .probeDirect)
         #expect(plan.probed(answered: true, at: MachineRoutePlan.hold + 1) == .open(.direct))
         // An answer that lands after the phone left Wi-Fi moves nothing.
-        var left = MachineRoutePlan(direct: true, relay: true, wifi: false)
-        _ = left.wifi(true, at: MachineRoutePlan.hold)
-        _ = left.wifi(false, at: MachineRoutePlan.hold)
+        var left = MachineRoutePlan(direct: true, relay: true, interface: .other)
+        _ = left.interface(.wifi, at: MachineRoutePlan.hold)
+        _ = left.interface(.other, at: MachineRoutePlan.hold)
         #expect(left.probed(answered: true, at: MachineRoutePlan.hold) == .stay)
         #expect(left.current == .relay)
+    }
+
+    @Test func anUnsatisfiedPathSaysNothingAboutWiFi() {
+        #expect(MachineRoutePlan.Interface(satisfied: false, wifiOrWired: true) == .unknown)
+        #expect(MachineRoutePlan.Interface(satisfied: false, wifiOrWired: false) == .unknown)
+        #expect(MachineRoutePlan.Interface(satisfied: true, wifiOrWired: true) == .wifi)
+        #expect(MachineRoutePlan.Interface(satisfied: true, wifiOrWired: false) == .other)
+    }
+
+    @Test func whileThePathIsUnknownAHealthyDirectRouteStaysAndNothingIsProbed() {
+        var plan = MachineRoutePlan(direct: true, relay: true)
+        #expect(plan.connection("ready", at: 0) == .stay)
+        #expect(plan.interface(.unknown, at: 0) == .stay)
+        #expect(plan.routes(direct: true, relay: true, at: 0) == .stay)
+        #expect(plan.current == .direct)
+        // Only a confirmed move off Wi-Fi leaves direct.
+        #expect(plan.interface(.wifi, at: 1) == .stay)
+        #expect(plan.interface(.unknown, at: 2) == .stay)
+        #expect(plan.interface(.other, at: 3) == .open(.relay))
+
+        // On the relay, no probe starts while the path is unknown, and one out is ignored.
+        var relay = MachineRoutePlan(direct: true, relay: true, interface: .other)
+        let later = MachineRoutePlan.hold
+        #expect(relay.interface(.wifi, at: later) == .probeDirect)
+        #expect(relay.interface(.unknown, at: later) == .stay)
+        #expect(relay.probed(answered: true, at: later) == .stay)
+        #expect(relay.networkChanged(at: later) == .stay)
+        #expect(relay.connection("reconnecting", at: later) == .stay)
+        #expect(relay.connection("fatal", at: later) == .stay)
+        #expect(relay.current == .relay)
+        // Wi-Fi confirmed again: the direct address is looked for.
+        #expect(relay.interface(.wifi, at: later) == .probeDirect)
+    }
+
+    @Test func aMachineOpenedWhileThePathIsUnknownStartsOnItsRelayAndLooksForDirectOnceOnWiFi() {
+        var plan = MachineRoutePlan(direct: true, relay: true, interface: .unknown)
+        #expect(plan.current == .relay)
+        #expect(plan.connection("ready", at: 0) == .stay)
+        #expect(plan.interface(.wifi, at: 0) == .probeDirect)
+        // Only a direct route: it is the only way to the machine.
+        #expect(MachineRoutePlan(direct: true, relay: false, interface: .unknown).current == .direct)
+    }
+
+    @Test func aDirectTrialWhoseHelloIsRefusedGoesBackToTheRelayThatWorkedAndWaitsOutTheCooldown() {
+        var plan = MachineRoutePlan(direct: true, relay: true, interface: .other)
+        #expect(plan.connection("ready", at: 0) == .stay)
+        let later = MachineRoutePlan.hold
+        #expect(plan.interface(.wifi, at: later) == .probeDirect)
+        #expect(plan.probed(answered: true, at: later) == .open(.direct))
+        // The daemon answered the probe but refuses this phone's hello on direct.
+        #expect(plan.connection("fatal", at: later) == .open(.relay))
+        #expect(plan.current == .relay)
+        #expect(plan.networkChanged(at: later + 1) == .reconsider(at: later + MachineRoutePlan.cooldown))
+    }
+
+    @Test func aRefusalOnDirectWithNoWorkingRelayBehindItStaysARefusal() {
+        // Direct from the start: nothing to go back to.
+        var direct = MachineRoutePlan(direct: true, relay: true)
+        #expect(direct.connection("fatal", at: 0) == .stay)
+        #expect(direct.current == .direct)
+        // A trial left a relay that was itself refused: going back would only loop.
+        var refused = MachineRoutePlan(direct: true, relay: true, interface: .other)
+        let later = MachineRoutePlan.hold
+        _ = refused.interface(.wifi, at: 0)
+        _ = refused.probed(answered: false, at: 0)
+        #expect(refused.connection("fatal", at: later) == .probeDirect)
+        #expect(refused.probed(answered: true, at: later) == .open(.direct))
+        #expect(refused.connection("fatal", at: later) == .stay)
+        #expect(refused.current == .direct)
+        // A trial that reached ready proved the route: a later refusal there is the daemon's word.
+        var proven = MachineRoutePlan(direct: true, relay: true, interface: .other)
+        _ = proven.connection("ready", at: 0)
+        #expect(proven.interface(.wifi, at: later) == .probeDirect)
+        _ = proven.probed(answered: true, at: later)
+        _ = proven.connection("ready", at: later)
+        #expect(proven.connection("fatal", at: later) == .stay)
+        #expect(proven.current == .direct)
     }
 }
 

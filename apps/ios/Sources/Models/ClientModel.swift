@@ -187,6 +187,9 @@ import QuartzCore
     /// The Chats tab's sections from this machine's runtime (`chats.sections`).
     var chatLayout = InboxLayout.empty
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
+    /// Answers from the inbox or the needs-you run the bridge has durably admitted: the approve
+    /// haptic's trigger, so a refused answer never feels like a success (`admitAnswer`).
+    var admittedNeedAnswers = 0
     /// What each needs-you inbox row waits on, by thread id, and the agent's last words for the
     /// needs-you run (`ClientModel+Needs.swift`).
     var needs: [String: InboxNeeds] = [:]
@@ -421,6 +424,8 @@ import QuartzCore
         resumeUsagePins()
         restoreDeviceTabs()
         if readAheadAllowed { action(["type": "readAhead", "allowed": true]) }
+        // The offline hold ran out before this runtime existed: it starts knowing the phone is offline.
+        if !networkOnline { action(["type": "network", "online": false]) }
         spadeResume()
         // The thread on screen (the kept one, or one tapped while the old runtime shut down) is
         // visited on this runtime. Not the person opening it: its notifications stay delivered.
@@ -791,7 +796,7 @@ import QuartzCore
                 if !ok { receipts.resolve(id, refused: message.isEmpty ? CommandReceipts.unsent : message) }
             case .receipt(let id, let ok, let message, _):
                 if let interactionId = approvalRequests[id], approvalSubmissions[interactionId]?.requestId == id {
-                    if ok { approvalSubmissions[interactionId]?.phase = .waiting }
+                    if ok { admitAnswer(interactionId) }
                     else { approvalSubmissions[interactionId] = nil; approvalRequests[id] = nil }
                 }
                 // A refused Stop leaves the tree working: offer Stop again.
@@ -800,7 +805,7 @@ import QuartzCore
                 if ok, !notes.isEmpty { carriedNotes[id] = notes }
                 admissions.resolve(id, persisted: ok)
                 if let interactionId = approvalRequests[id], approvalSubmissions[interactionId]?.requestId == id {
-                    if ok { approvalSubmissions[interactionId]?.phase = .waiting }
+                    if ok { admitAnswer(interactionId) }
                     else { approvalSubmissions[interactionId] = nil; approvalRequests[id] = nil }
                 }
                 // A refusal with no words (a move waiting on its question) says nothing here.
@@ -1143,7 +1148,13 @@ import QuartzCore
         let id = admissions.nextId()
         return await admissions.wait(id: id) { command(["type": "background_task.stop", "taskId": taskId], requestId: id) }
     }
-    func network(_ online: Bool) { action(["type": "network", "online": online]) }
+    /// What the runtimes were last told about the phone's network (`OfflineHold`), kept here so a
+    /// runtime still opening, or opened later, hears an offline that expired before it existed.
+    @ObservationIgnored private(set) var networkOnline = true
+    func network(_ online: Bool) {
+        networkOnline = online
+        action(["type": "network", "online": online])
+    }
     /// Whether the network and power allow reading likely threads ahead (`bridge/read-ahead.ts`).
     /// Sent again to every runtime this model starts.
     var readAheadAllowed = false {

@@ -17,11 +17,21 @@ struct InboxThreadRow: View {
     var need: InboxNeedLine? = nil
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    /// Old payloads without a look read quietly with the shared word.
     private var look: RowLook { Self.look(of: row) }
+    /// What every row draws and says of its status. A row the current connection hasn't
+    /// confirmed (a cached copy, or one kept across a reconnect while the header's grace still
+    /// reads connected) has a status mark that claims nothing: no state icon, unread result or
+    /// running subagents. It reads Syncing, as the web's unconfirmed card does, until its fresh
+    /// copy confirms it. It keeps its place (settled) and where its work went. Old payloads
+    /// without a look read quietly with the shared word.
     static func look(of row: ThreadRow) -> RowLook {
-        row.look ?? RowLook(level: "quiet", word: row.status.label, tone: row.status.token, muted: true,
-                            glyph: nil, since: nil, settled: false, subagents: max(0, row.agents - 1))
+        guard row.confirmed == true else {
+            return RowLook(level: "syncing", word: "Syncing", tone: "idle", muted: true, glyph: nil, since: nil,
+                           settled: row.look?.settled ?? false, subagents: 0, icon: "none", iconTone: "idle", mode: "word",
+                           meaning: "Syncing", state: "syncing", moved: row.look?.moved)
+        }
+        return row.look ?? RowLook(level: "quiet", word: row.status.label, tone: row.status.token, muted: true,
+                                   glyph: nil, since: nil, settled: false, subagents: max(0, row.agents - 1))
     }
     /// The third line shows for a branch or a pull request, as the owner's row rule has it. A row
     /// that needs the person shows its request there instead, so every row stays three lines;

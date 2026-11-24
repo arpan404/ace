@@ -12,10 +12,11 @@ struct ThreadPreview: View {
     let machine: MachineMark?
     let project: ProjectMarkLook?
 
-    private var look: RowLook {
-        row.look ?? RowLook(level: "quiet", word: row.status.label, tone: row.status.token, muted: true,
-                            glyph: nil, since: nil, settled: false, subagents: max(0, row.agents - 1))
-    }
+    private var look: RowLook { InboxThreadRow.look(of: row) }
+    private var hover: ThreadRow.HoverLine? { Self.hover(of: row) }
+    /// The hover card's line, only from a confirmed row: an unconfirmed copy's says what was true
+    /// then, so the preview reads Syncing like its row.
+    static func hover(of row: ThreadRow) -> ThreadRow.HoverLine? { row.confirmed == true ? row.hover : nil }
 
     var body: some View {
         let look = look
@@ -111,15 +112,15 @@ struct ThreadPreview: View {
     /// The hover card's sentence with the row's own icon, coloured only when it needs the person
     /// or just failed; what it is about under it. Older bridges keep the row's meaning.
     @ViewBuilder private func status(_ look: RowLook) -> some View {
-        let sentence = row.hover?.sentence ?? look.meaning
+        let sentence = hover?.sentence ?? look.meaning
         if let sentence {
             HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.tight) {
                 if let icon = look.icon, icon != "none" { RowStatusIcon(kind: icon, tone: look.iconTone ?? "idle", count: look.count) }
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                     Text(sentence).foregroundStyle(ink)
-                    if let detail = row.hover?.detail {
+                    if let detail = hover?.detail {
                         Text(detail).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(Self.readLines)
-                            .monospaced(row.hover?.code == true)
+                            .monospaced(hover?.code == true)
                     }
                 }
             }
@@ -129,7 +130,7 @@ struct ThreadPreview: View {
         }
     }
     private var ink: Color {
-        switch row.hover?.ink ?? (look.iconTone == "needs-you" ? "warning" : look.iconTone == "failed" ? "destructive" : "muted") {
+        switch hover?.ink ?? (look.iconTone == "needs-you" ? "warning" : look.iconTone == "failed" ? "destructive" : "muted") {
         case "warning": AceTheme.RowStatus.needsYou
         case "destructive": AceTheme.RowStatus.failed
         default: AceTheme.Colours.mutedForeground

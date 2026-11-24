@@ -124,6 +124,99 @@ import Testing
         #expect(NeedActions(request: request, model: model, threadId: "asking", decided: {}).answers.isEmpty)
     }
 
+    @Test func anAnswerTheBridgeCouldNotSendSaysWhyAndOffersTheControlsAgain() async throws {
+        let (model, session) = try await connected()
+        model.receive(try json([needs(total: 1, loaded: 1, more: false, elsewhere: 0, requests: [ask("ask-1")])]))
+        try answer("allow_once", on: model)
+        let requestId = try #require(session.requestIds.first)
+        #expect(model.approvalSubmissions["ask-1"]?.phase == .saving)
+
+        // The machine couldn't be reached while the header still showed it connected.
+        let words = "Couldn't reach your computer to send that. Try again once it's connected."
+        model.receive(try json([["type": "admission", "id": requestId, "ok": false, "message": words]]))
+        #expect(model.error == words)
+        #expect(model.approvalSubmissions["ask-1"] == nil)
+        // The row offers Allow once and Deny again, and the second try is sent.
+        try answer("allow_once", on: model)
+        #expect(session.answers.map(\.interaction) == ["ask-1", "ask-1"])
+    }
+
+    @Test func anAnswerWithNoRuntimeToTakeItSaysWhyAndOffersTheControlsAgain() async throws {
+        // Cached rows restored while a route is replaced: the rows show, but no runtime is there.
+        let model = waiting()
+        model.receive(try json([needs(total: 1, loaded: 1, more: false, elsewhere: 0, requests: [ask("ask-1")])]))
+        try answer("allow_once", on: model)
+        #expect(model.error == "Couldn't reach your computer to send that. Try again once it's connected.")
+        #expect(model.approvalSubmissions["ask-1"] == nil)
+        #expect(model.approvalRequests.isEmpty)
+        #expect(!NeedActions(request: try #require(model.needsYou("asking").first), model: model, threadId: "asking", decided: {}).answers.isEmpty)
+    }
+
+    @Test func anAnswerTheRuntimeTakesLeavesNoErrorBehind() async throws {
+        let (model, session) = try await connected()
+        model.receive(try json([needs(total: 1, loaded: 1, more: false, elsewhere: 0, requests: [ask("ask-1")])]))
+        try answer("allow_once", on: model)
+        #expect(session.answers.count == 1)
+        #expect(model.error == nil)
+    }
+
+    @Test func anAnswerToARequestNoLongerOfferedGivesTheControlsBackWithoutWords() async throws {
+        let (model, session) = try await connected()
+        model.receive(try json([needs(total: 1, loaded: 1, more: false, elsewhere: 0, requests: [ask("ask-1")])]))
+        try answer("deny", on: model)
+        let requestId = try #require(session.requestIds.first)
+
+        model.receive(try json([["type": "admission", "id": requestId, "ok": false, "message": ""]]))
+        #expect(model.error == nil)
+        #expect(model.approvalSubmissions["ask-1"] == nil)
+    }
+
+    @Test func theApproveHapticWaitsForTheAnswerToBeSavedNotTheTap() async throws {
+        let (model, session) = try await connected()
+        model.receive(try json([needs(total: 1, loaded: 1, more: false, elsewhere: 0, requests: [ask("ask-1")])]))
+        var tapped = 0
+        let request = try #require(model.needsYou("asking").first)
+        let allow = try #require(NeedActions(request: request, model: model, threadId: "asking", decided: { tapped += 1 }).answers.first { $0.id == "allow_once" })
+        allow.run()
+        // The tap moved the run on, but nothing is saved yet: no success to feel.
+        #expect(tapped == 1)
+        #expect(model.admittedNeedAnswers == 0)
+
+        let requestId = try #require(session.requestIds.first)
+        model.receive(try json([["type": "admission", "id": requestId, "ok": true, "message": ""]]))
+        #expect(model.admittedNeedAnswers == 1)
+        #expect(model.approvalSubmissions["ask-1"]?.phase == .waiting)
+        // The machine's receipt after admission is the same answer, never a second feeling.
+        model.receive(try json([["type": "receipt", "id": requestId, "ok": true, "message": ""]]))
+        #expect(model.admittedNeedAnswers == 1)
+    }
+
+    @Test func aRefusedAnswerIsNeverCountedAsAdmittedAndItsRetryIsOnceItsSaved() async throws {
+        let (model, session) = try await connected()
+        model.receive(try json([needs(total: 1, loaded: 1, more: false, elsewhere: 0, requests: [ask("ask-1")])]))
+        try answer("allow_once", on: model)
+        let first = try #require(session.requestIds.first)
+        model.receive(try json([["type": "admission", "id": first, "ok": false,
+                                 "message": "Couldn't reach your computer to send that. Try again once it's connected."]]))
+        #expect(model.admittedNeedAnswers == 0)
+
+        try answer("allow_once", on: model)
+        let retry = try #require(session.requestIds.last)
+        #expect(retry != first)
+        model.receive(try json([["type": "admission", "id": retry, "ok": true, "message": ""]]))
+        #expect(model.admittedNeedAnswers == 1)
+    }
+
+    @Test func anAnswerFromAnOpenThreadsOwnCardDoesNotMoveTheInboxHaptic() async throws {
+        let (model, _) = try await connected()
+        // The thread strip's own submission, admitted: the strip feels it itself.
+        model.approvalSubmissions["ask-1"] = ApprovalSubmission(requestId: "r-1", phase: .saving)
+        model.approvalRequests["r-1"] = "ask-1"
+        model.receive(try json([["type": "admission", "id": "r-1", "ok": true, "message": ""]]))
+        #expect(model.approvalSubmissions["ask-1"]?.phase == .waiting)
+        #expect(model.admittedNeedAnswers == 0)
+    }
+
     /// Runs one of the row's answers as the row builds them now, from the request it shows.
     private func answer(_ id: String, on model: ClientModel) throws {
         let request = try #require(model.needsYou("asking").first)
@@ -199,6 +292,10 @@ private final class NeedsSession: ClientSession, @unchecked Sendable {
                 return Sent(interaction: interaction, option: option)
             }
         }
+    }
+    /// The request ids of the answers sent, in order.
+    var requestIds: [String] {
+        lock.withLock { invoked.filter { $0["type"] as? String == "needs.answer" }.compactMap { $0["requestId"] as? String } }
     }
     func start(itemLimit: Int) {}
     func invoke(_ name: String, json: String) {

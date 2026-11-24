@@ -68,8 +68,8 @@ import Observation
     @ObservationIgnored private var offlineHold = OfflineHold()
     @ObservationIgnored private var pathTimer: RouteRetries
     @ObservationIgnored private let monotonic: () -> Double
-    /// The phone is on Wi-Fi: until the first reading, as if it were (`MachineRoutePlan.wifi`).
-    @ObservationIgnored private(set) var onWiFi = true
+    /// The phone's path: until the first reading, as if on Wi-Fi (`MachineRoutePlan.interface`).
+    @ObservationIgnored private(set) var phoneInterface: MachineRoutePlan.Interface = .wifi
     /// Account runtimes' saved sends moving into the paired machines they turned out to be.
     @ObservationIgnored private let adoptions: SendAdoptions
     /// Runs before each machine's connection opens, so notifications bind to that runtime.
@@ -403,13 +403,13 @@ import Observation
         }
     }
     private static let pathKey = "network"
-    /// The phone joined or left Wi-Fi: each machine's plan decides whether its route moves
-    /// (direct only on Wi-Fi, never by dropping a working relay to look).
-    func wifi(_ on: Bool) {
-        guard on != onWiFi else { return }
-        onWiFi = on
+    /// The phone joined or left Wi-Fi, or lost its network: each machine's plan decides whether
+    /// its route moves (direct only on Wi-Fi, never by dropping a working relay to look).
+    func interface(_ interface: MachineRoutePlan.Interface) {
+        guard interface != phoneInterface else { return }
+        phoneInterface = interface
         for hostId in plans.keys {
-            Task { await take(plans[hostId]?.wifi(on, at: clock()), hostId) }
+            Task { await take(plans[hostId]?.interface(interface, at: clock()), hostId) }
         }
     }
     func disconnectAll() async {
@@ -468,10 +468,13 @@ import Observation
         if isOff(entry.hostId) || inbox.client(entry.hostId) != nil { return }
         plans[entry.hostId] = MachineRoutePlan(direct: routes.direct != nil, relay: routes.relay != nil,
                                                linking: adoptions.linking.contains(entry.hostId),
-                                               purpose: backgroundOnly ? .background : .foreground, wifi: onWiFi)
+                                               purpose: backgroundOnly ? .background : .foreground, interface: phoneInterface)
         guard let target = target(for: entry) else { return }
         let client = makeClient()
         client.readAheadAllowed = readAheadAllowed
+        // The phone went offline (the hold ran out) before this machine's runtime was made: it
+        // opens knowing, as the others were told.
+        if !offlineHold.told { client.network(false) }
         let hostId = entry.hostId
         client.onConnection = { [weak self] state in
             Task { @MainActor in

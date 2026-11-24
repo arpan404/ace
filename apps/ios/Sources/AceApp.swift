@@ -194,8 +194,8 @@ import QuartzCore
                 Task { @MainActor in machines.network(online: change.online, interfaceChanged: change.interfaceChanged) }
             }, roomy: { [readAhead] roomy in
                 Task { @MainActor in readAhead.roomy = roomy }
-            }, wifi: { on in
-                Task { @MainActor in machines.wifi(on) }
+            }, interface: { interface in
+                Task { @MainActor in machines.interface(interface) }
             })
             readAhead.changed = { [weak machines] allowed in machines?.readAhead(allowed) }
             readAhead.start()

@@ -22,6 +22,24 @@ import Testing
     }
 }
 
+/// What the OS's readings tell the model, before any hold.
+@Suite struct NetworkMonitorReadingTests {
+    @Test func aFirstReadingWithANetworkIsOnlyABaseline() {
+        #expect(NetworkMonitor.change(from: nil, online: true, interfaces: ["en0"]) == nil)
+    }
+
+    @Test func aFirstReadingWithNoNetworkIsOfflineNews() {
+        #expect(NetworkMonitor.change(from: nil, online: false, interfaces: []) == .init(online: false, interfaceChanged: false))
+    }
+
+    @Test func laterReadingsReportOnlyWhatMoved() {
+        let baseline = (online: true, interfaces: ["en0"])
+        #expect(NetworkMonitor.change(from: baseline, online: true, interfaces: ["en0"]) == nil)
+        #expect(NetworkMonitor.change(from: baseline, online: false, interfaces: ["en0"]) == .init(online: false, interfaceChanged: false))
+        #expect(NetworkMonitor.change(from: baseline, online: true, interfaces: ["pdp_ip0"]) == .init(online: true, interfaceChanged: true))
+    }
+}
+
 /// The hold as the machines' runtimes hear it, while the wall clock moves on its own.
 @Suite(.timeLimit(.minutes(1))) @MainActor struct OfflineHoldClockTests {
     @Test func aWallClockSetForwardDuringABlipNeverTellsTheRuntimesOfflineEarly() async throws {
@@ -41,8 +59,65 @@ import Testing
         #expect(toldOffline(session))
     }
 
+    @Test func aPhoneThatLaunchesWithNoNetworkStartsTheHoldAndTellsTheRuntimeOnceItExpires() async throws {
+        let fixture = try MachinesFixture(machines: [studio()])
+        defer { fixture.cleanUp() }
+        // The monitor's first reading is no network, and it reaches the model before any runtime exists.
+        let first = try #require(NetworkMonitor.change(from: nil, online: false, interfaces: []))
+        fixture.model.network(online: first.online, interfaceChanged: first.interfaceChanged)
+        fixture.scheduler.advance(OfflineHold.hold)
+        await fixture.model.load()
+        let session = try #require(fixture.sessions.started.first)
+        session.finishShutdownWhenStopped()
+        #expect(toldOffline(session))
+        // Online again at once, for the runtime too.
+        fixture.model.network(online: true, interfaceChanged: true)
+        #expect(toldOnline(session))
+    }
+
+    @Test func aRuntimeThatFinishesOpeningAfterTheHoldExpiredStartsOffline() async throws {
+        let fixture = try MachinesFixture(machines: [studio()])
+        defer { fixture.cleanUp() }
+        let gate = ListGate()
+        gate.close()
+        let reached = Reached()
+        fixture.model.beforeConnect = { _, _ in reached.count += 1; await gate.wait() }
+        let loading = Task { await fixture.model.load() }
+        await settle { reached.count == 1 }
+
+        // The path drops and stays down while the machine's runtime is still opening.
+        fixture.model.network(online: false, interfaceChanged: true)
+        fixture.scheduler.advance(OfflineHold.hold)
+        #expect(fixture.sessions.started.isEmpty)
+        gate.open()
+        await loading.value
+        let session = try #require(fixture.sessions.started.first)
+        session.finishShutdownWhenStopped()
+        #expect(toldOffline(session))
+    }
+
+    @Test func aRuntimeOpeningWhileThePathIsStillInsideTheHoldIsNotToldOffline() async throws {
+        let fixture = try MachinesFixture(machines: [studio()])
+        defer { fixture.cleanUp() }
+        fixture.model.network(online: false, interfaceChanged: true)
+        fixture.scheduler.advance(OfflineHold.hold - 1)
+        await fixture.model.load()
+        let session = try #require(fixture.sessions.started.first)
+        session.finishShutdownWhenStopped()
+        #expect(!toldOffline(session))
+        fixture.scheduler.advance(1)
+        #expect(toldOffline(session))
+    }
+
     private func toldOffline(_ session: FakeMachineSession) -> Bool {
         session.invoked.contains { $0.contains(#""type":"network""#) && $0.contains("false") }
+    }
+    private func toldOnline(_ session: FakeMachineSession) -> Bool {
+        session.invoked.contains { $0.contains(#""type":"network""#) && $0.contains("true") }
+    }
+    @MainActor private final class Reached { var count = 0 }
+    private func settle(_ done: () -> Bool) async {
+        for _ in 0..<500 where !done() { try? await Task.sleep(for: .milliseconds(2)) }
     }
     private func studio() -> MachineEntry {
         MachineEntry(hostId: "studio", displayName: "Studio", icon: nil,

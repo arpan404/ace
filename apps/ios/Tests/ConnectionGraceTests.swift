@@ -139,6 +139,31 @@ import Testing
         await model.disconnectAndWait()
     }
 
+    /// The Projects title names the reconnect the moment the grace runs out, with no wait of its own.
+    @Test func theInboxHeaderNamesTheReconnectTheMomentTheGraceRunsOut() async throws {
+        let clock = TestClock()
+        let scheduler = FakeScheduler(clock: clock)
+        let (model, session, directory) = try await connected(clock: clock, schedule: { scheduler.schedule($0, $1) })
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let suite = "ace.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let inbox = MachineInbox(defaults: defaults, now: { 0 })
+        inbox.attach("studio", name: "Studio", client: model)
+        let title = { InboxListSubtitle.of(inbox, chats: false, machine: "", project: "", space: nil) }
+        #expect(title() == nil)
+
+        session.emit(#"[{"type":"connection","state":"reconnecting"}]"#)
+        await settle { model.connection == "reconnecting" }
+        scheduler.advance(ConnectionGrace.grace - 1)
+        #expect(title() == nil)
+        scheduler.advance(1)
+        #expect(title() == "Reconnecting to your machine")
+        #expect(InboxListSubtitle.of(inbox, chats: false, machine: "", project: "", space: "Personal") == "Personal · Reconnecting to your machine")
+        model.disconnect()
+        await model.disconnectAndWait()
+    }
+
     /// A model on a fake runtime that has reached ready, its grace counting on `clock` and its
     /// timestamps on `wall`.
     private func connected(clock: TestClock, wall: TestClock = TestClock(), schedule: @escaping RouteScheduler) async throws
