@@ -35,13 +35,20 @@ struct BackgroundHold: Equatable {
 
     init(enabled: Bool) { self.enabled = enabled }
 
-    /// `willResignActive`: the app may be about to leave the screen. Background time is only
-    /// worth asking for while at least one machine's connection is live; with none (the
-    /// pairing screen of a fresh install) there is nothing to keep.
-    mutating func resignActive(connected: Bool) -> [Effect] {
-        guard enabled, connected, !holding else { return [] }
+    /// `willResignActive`: the app may be about to leave the screen, with each machine's
+    /// connection state. Background time is only worth asking for while a socket is ready or
+    /// still being opened; with none (the pairing screen of a fresh install, every machine
+    /// offline or refused) there is nothing to keep.
+    mutating func resignActive(connections: [String]) -> [Effect] {
+        guard enabled, connections.contains(where: Self.socketWorking), !holding else { return [] }
         holding = true
         return [.beginTask]
+    }
+
+    /// A connection state whose socket is open or being opened (the client SDK's
+    /// `ConnectionState`). `offline` waits for the network and `fatal` for the person.
+    static func socketWorking(_ state: String) -> Bool {
+        ["connecting", "starting", "ready", "reconnecting"].contains(state)
     }
 
     /// `didEnterBackground`: the app left the screen, so its sockets may die while it is away.

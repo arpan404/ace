@@ -21,7 +21,7 @@ struct RootView: View {
         .onAppear {
             guard keeper == nil else { return }
             keeper = BackgroundKeeper.system(
-                connected: { [machines] in machines.anyConnected }, wake: { [machines] in machines.wake() })
+                connections: { [machines] in machines.connectionStates }, wake: { [machines] in machines.wake() })
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.backgroundRefreshStatusDidChangeNotification)) { _ in
             keeper?.refreshSetting(UIApplication.shared.backgroundRefreshStatus == .available)
