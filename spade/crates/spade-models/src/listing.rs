@@ -91,8 +91,9 @@ async fn fetch_noting(
     for (name, value) in &endpoint.headers {
         request = request.header(name.as_str(), value.as_str());
     }
-    // Never echo the key or a configured header's value, whatever the endpoint sends back.
-    let mut secrets: Vec<&str> = endpoint.headers.iter().map(|(_, v)| v.as_str()).collect();
+    // Never echo the key, a configured header's value or the token inside one, whatever the
+    // endpoint sends back.
+    let mut secrets = crate::scrub::header_secrets(endpoint);
     secrets.extend(key);
     let scrub = |text: String| one_line(&text, &secrets);
     let mut response = request

@@ -538,3 +538,39 @@ async fn a_stream_cut_after_the_endpoint_answered_is_never_sent_again() -> Resul
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn a_refused_call_never_echoes_the_bare_key_or_gateway_token() -> Result {
+    const KEY: &str = "sk-chat-secret-4417";
+    const TOKEN: &str = "cf-aig-chat-secret-4417";
+    let echo = json!({ "error": { "message": format!("refused key {KEY} and token {TOKEN}") } });
+    let fake =
+        spade_testkit::FakeModelList::start(401, echo.to_string(), Default::default()).await?;
+    let presets = Catalog::from_json(&json!({ "endpoints": [] }).to_string())?;
+    let models = Models::new(presets, Keys::new(|_| Some(KEY.to_owned())), "test")?;
+    models.set_gateway_keys(Keys::new(|_| Some(TOKEN.to_owned())));
+    models.set_endpoints(vec![spade_models::Endpoint {
+        gateway_token: true,
+        id: "gw".into(),
+        name: "Gateway".into(),
+        format: spade_models::Format::OpenAiChat,
+        base_url: fake.root.clone(),
+        needs_key: true,
+        key_env: None,
+        headers: Vec::new(),
+        session_header: None,
+        sign_in: None,
+        models: vec![spade_models::Model::unknown("m")],
+    }]);
+    let error = models
+        .chat("gw/m", &Prompt::ask("hi"))
+        .await
+        .err()
+        .ok_or("the call should have failed")?;
+    let said = error.to_string();
+    assert!(
+        !said.contains(KEY) && !said.contains(TOKEN),
+        "a bare secret reached the error: {said}"
+    );
+    Ok(())
+}

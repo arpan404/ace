@@ -108,6 +108,39 @@ test("a placeholder URL can't be added, and Custom clears an unfinished generate
   expect(add.disabled).toBe(false);
 });
 
+test("a Cloudflare gateway's token is asked for beside the provider's key", async () => {
+  const { spade } = await spadeApp("/settings/spade/models", (api) => {
+    withEndpoint(api);
+    main(api);
+  });
+  await userEvent.click(await screen.findByRole("button", { name: "Add a provider" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "Add a provider" }));
+  await userEvent.click(dialog.getByRole("button", { name: /Cloudflare AI Gateway/ }));
+  await userEvent.type(dialog.getByRole("textbox", { name: "Account ID" }), "acct-1");
+  await userEvent.type(dialog.getByRole("textbox", { name: "Gateway name" }), "my-gateway");
+  await userEvent.type(dialog.getByLabelText("Gateway token"), "cf-token");
+  await userEvent.click(dialog.getByRole("button", { name: "Add provider" }));
+  const created = await waitFor(() => {
+    const endpoint = spade.endpoints.find((each) => each.name === "Cloudflare AI Gateway");
+    if (!endpoint) throw new Error("the gateway was not added");
+    return endpoint;
+  });
+  expect(created.base_url).toBe("https://gateway.ai.cloudflare.com/v1/acct-1/my-gateway/compat/");
+  // The token travels in the create itself, so a refusal can never leave an endpoint behind.
+  expect(spade.sent("POST", "/v1/endpoints")).toEqual([
+    {
+      name: "Cloudflare AI Gateway",
+      format: "openai-chat",
+      base_url: "https://gateway.ai.cloudflare.com/v1/acct-1/my-gateway/compat/",
+      gateway_token: "cf-token",
+    },
+  ]);
+  expect(spade.sent("PUT", `/v1/keys/${String(created.id)}/gateway`)).toEqual([]);
+  // The token is no stored header: the endpoint carries none.
+  expect(created.header_names).toEqual([]);
+  expect(created.gateway_token_set).toBe(true);
+});
+
 test("on a machine without a keychain, Spade's conversation says which variable to set", async () => {
   await spadeApp("/spade", (api) => {
     api.keychain = false;

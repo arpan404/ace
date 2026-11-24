@@ -117,6 +117,7 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
     azureResource: useId(),
     cfAccount: useId(),
     cfGateway: useId(),
+    cfToken: useId(),
   };
   const client = useSpadeClient();
   const cache = useQueryClient();
@@ -137,6 +138,8 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
   const [azureResource, setAzureResource] = useState("");
   const [cfAccount, setCfAccount] = useState("");
   const [cfGateway, setCfGateway] = useState("");
+  /** An authenticated gateway's own token: kept in the keychain, never a stored header. */
+  const [cfToken, setCfToken] = useState("");
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
   const locals = useLocalServers(true).data ?? [];
@@ -285,6 +288,11 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
         ...(session.trim() ? { session_header: session.trim() } : {}),
         ...(needsKey ? {} : { needs_key: false }),
         ...(props.presets.some((preset) => preset.id === from) ? { preset: from } : {}),
+        // Stored in the keychain with the endpoint, in the same request: a refusal leaves no
+        // half-made endpoint for a retry to add a second one beside.
+        ...(activeCloud === "cloudflare" && cfToken.trim()
+          ? { gateway_token: cfToken.trim() }
+          : {}),
       });
       await cache.invalidateQueries({ queryKey: modelsKey });
       props.onClose();
@@ -463,6 +471,23 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
                   onChange={(event) => updateCloudflare(cfAccount, event.target.value)}
                 />
               </Field>
+              <div className="sm:col-span-2">
+                <Field
+                  label="Gateway token"
+                  htmlFor={ids.cfToken}
+                  hint="Only for an authenticated gateway. Kept in your keychain, sent as cf-aig-authorization."
+                >
+                  <Input
+                    id={ids.cfToken}
+                    type="password"
+                    autoComplete="off"
+                    placeholder="Optional"
+                    spellCheck={false}
+                    value={cfToken}
+                    onChange={(event) => setCfToken(event.currentTarget.value)}
+                  />
+                </Field>
+              </div>
             </div>
           )}
 

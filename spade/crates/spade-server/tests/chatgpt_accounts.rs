@@ -809,3 +809,174 @@ async fn renewing_a_chatgpt_account_with_no_saved_models_populates_its_listed_mo
     assert_eq!(ids, vec!["gpt-6.2-sol"]);
     Ok(())
 }
+// A finding-1/2 helper: `/models` answers the `(status, models)` its call number gives, once
+// `hold` opens (a list still in flight); `arrived` gets a permit as each call comes in.
+type ModelsAnswer = Arc<dyn Fn(usize) -> (u16, Value) + Send + Sync>;
+
+async fn chatgpt_backend(
+    answer: ModelsAnswer,
+    arrived: Arc<tokio::sync::Semaphore>,
+    hold: Option<Arc<tokio::sync::Semaphore>>,
+) -> Result<String> {
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let app = axum::Router::new().route(
+        "/models",
+        axum::routing::get(move || {
+            let answer = answer.clone();
+            let arrived = arrived.clone();
+            let hold = hold.clone();
+            let calls = calls.clone();
+            async move {
+                let n = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                arrived.add_permits(1);
+                if n > 0
+                    && let Some(hold) = hold
+                {
+                    let _ = hold.acquire().await;
+                }
+                let (status, models) = answer(n);
+                let status = axum::http::StatusCode::from_u16(status)
+                    .unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+                (status, axum::Json(json!({ "models": models })))
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let backend = format!("http://{}/", listener.local_addr()?);
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    Ok(backend)
+}
+
+/// Sign-ins that renew `spade`'s account against `backend`.
+fn sign_ins_against(spade: &Spade, fake: &FakeSignIn, backend: &str) -> Result<()> {
+    let config = Config {
+        issuer: fake.issuer.clone(),
+        client_id: fake.client_id.clone(),
+        callback_port: 0,
+        originator: "spade".to_owned(),
+        wait: Duration::from_secs(20),
+        backend: backend.to_owned(),
+    };
+    let accounts = Arc::new(Accounts::new(
+        Some(vault_of(spade)),
+        config,
+        Arc::new(|| 1_000),
+    )?);
+    spade
+        .engine
+        .set_sign_ins(Flows::new(accounts, Arc::new(spade_connect::OsRandom)));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_model_saved_while_a_sign_ins_list_is_read_is_never_replaced_by_it() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let fake = FakeSignIn::start().await?;
+    let arrived = Arc::new(tokio::sync::Semaphore::new(0));
+    let hold = Arc::new(tokio::sync::Semaphore::new(0));
+    let backend = chatgpt_backend(
+        Arc::new(|n| {
+            if n == 0 {
+                // The first sign-in's account starts with no models of its own.
+                (200, json!([]))
+            } else {
+                (
+                    200,
+                    json!([{ "slug": "gpt-6.2-sol", "display_name": "GPT-6.2-Sol", "visibility": "list" }]),
+                )
+            }
+        }),
+        arrived.clone(),
+        Some(hold.clone()),
+    )
+    .await?;
+    sign_ins_against(&spade, &fake, &backend)?;
+    let id = signed_in(&spade).await?;
+    assert_eq!(account(&spade, &id).await?["models"], json!([]));
+
+    // The renewal's list is read while the person saves a model of their own.
+    let renewing = sign_in(&spade, json!({ "method": "browser", "terms_read": true }));
+    let saving = async {
+        // The first permit is the sign-in that just ended; the second is the renewal's list.
+        arrived.acquire().await?.forget();
+        arrived.acquire().await?.forget();
+        let (status, body) = spade
+            .post(
+                &format!("/v1/endpoints/{id}/models"),
+                json!({ "id": "mine", "name": "Mine" }),
+            )
+            .await?;
+        assert_eq!(status, 200, "{body}");
+        hold.add_permits(1);
+        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+    };
+    let (renewed, saved) = tokio::join!(renewing, saving);
+    saved?;
+    let renewed = renewed?;
+    assert_eq!(renewed["state"], "done", "{renewed}");
+    let shown = account(&spade, &id).await?;
+    let ids: Vec<&str> = shown["models"]
+        .as_array()
+        .map(|all| all.iter().filter_map(|m| m["id"].as_str()).collect())
+        .unwrap_or_default();
+    assert_eq!(ids, vec!["mine"], "the person's own model is the one kept");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_renewal_whose_list_signs_the_account_out_fails_instead_of_reporting_done() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let fake = FakeSignIn::start().await?;
+    let backend = chatgpt_backend(
+        Arc::new(|n| {
+            if n == 0 {
+                (200, json!([]))
+            } else {
+                // The list is refused, and the renewal's own refresh token is refused with it.
+                (401, json!({}))
+            }
+        }),
+        Arc::new(tokio::sync::Semaphore::new(0)),
+        None,
+    )
+    .await?;
+    sign_ins_against(&spade, &fake, &backend)?;
+    let id = signed_in(&spade).await?;
+    // The renewal trades the second code, so its refresh token is the fake's second.
+    assert_eq!(fake.tokens(2)["refresh_token"], "refresh-2");
+    fake.kill("refresh-2");
+
+    let flow = sign_in(&spade, json!({ "method": "browser", "terms_read": true })).await?;
+    assert_eq!(flow["state"], "failed", "{flow}");
+    let error = flow["error"].as_str().unwrap_or_default();
+    assert!(error.contains("signed out"), "{error}");
+    assert_eq!(account(&spade, &id).await?["account"]["signed_in"], false);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_list_that_only_fails_transiently_leaves_the_sign_in_done() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let fake = FakeSignIn::start().await?;
+    let backend = chatgpt_backend(
+        Arc::new(|n| {
+            if n == 0 {
+                (200, json!([]))
+            } else {
+                (503, json!({}))
+            }
+        }),
+        Arc::new(tokio::sync::Semaphore::new(0)),
+        None,
+    )
+    .await?;
+    sign_ins_against(&spade, &fake, &backend)?;
+    let id = signed_in(&spade).await?;
+
+    let flow = sign_in(&spade, json!({ "method": "browser", "terms_read": true })).await?;
+    assert_eq!(flow["state"], "done", "{flow}");
+    let shown = account(&spade, &id).await?;
+    assert_eq!(shown["account"]["signed_in"], true);
+    assert_eq!(shown["models"], json!([]), "the list was read and failed");
+    Ok(())
+}

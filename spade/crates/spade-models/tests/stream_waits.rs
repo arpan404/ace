@@ -75,6 +75,7 @@ fn models(root: &str, waits: StreamWaits) -> Result<(Models, Arc<Mutex<Option<In
         "1.2.3",
     )?;
     models.set_endpoints(vec![Endpoint {
+        gateway_token: false,
         id: "chatgpt-a".to_owned(),
         name: "ChatGPT".to_owned(),
         format: Format::OpenAiResponses,

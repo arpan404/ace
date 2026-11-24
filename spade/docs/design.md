@@ -130,10 +130,13 @@ spade/<version>`). No secret is stored. The query is trimmed and cut to 400 char
 2. **The model endpoint's own built-in search**, for models marked `web-search` on an Anthropic
    Messages or OpenAI Responses endpoint, when ace search refused, failed, is waiting or the
    person is signed out: one call with the server web search tool (`web_search_20250305`) or the
-   Responses `web_search` tool, admitted against the caps like any model call. Its results and
-   citations are read leniently and come back as the model's short answer and its numbered
-   sources. It is paid for its tokens plus the model's `per_search` price for each search the
-   endpoint billed.
+   Responses `web_search` tool, admitted against the caps like any model call. A gateway's
+   OpenAI-compatible layer (an address ending in `/compat/`, as Cloudflare AI Gateway's
+   compatibility endpoint does) never has one: it speaks chat completions, whatever the
+   endpoint's format or a model's facts say, so the plain sentence below is the answer there. Its
+   results and citations are read leniently and come back as the model's short answer and its
+   numbered sources. It is paid for its tokens plus the model's `per_search` price for each search
+   the endpoint billed.
 3. Otherwise **one plain sentence**: "Sign in to ace to search the web." (signed out, or the
    cloud answered `401`/`403`), "ace search is resting today." (`error: "resting"`), or a
    refusal's own `reason` (trimmed, plain text, at most 200 characters).

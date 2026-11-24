@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 import { Input, apiKeyFieldClassName } from "@/components/ui/input.tsx";
-import { editEndpoint, removeEndpoint, setKey } from "./spade-api.ts";
+import { editEndpoint, removeEndpoint, setGatewayToken, setKey } from "./spade-api.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 import { SpadeProviderMark } from "./spade-marks.tsx";
 import { fault } from "./spade-settings-rows.tsx";
@@ -144,6 +144,69 @@ export function KeyDialog(props: { account: SpadeEndpoint; provider: string; onC
         onChange={(event) => setDraft(event.target.value)}
         disabled={change.busy}
         className={apiKeyFieldClassName}
+      />
+    </Shell>
+  );
+}
+
+/**
+ * An authenticated gateway's own token (Cloudflare AI Gateway's `cf-aig-authorization`): typed
+ * here, it goes to Spade in one request, which keeps it in the OS keychain beside the key. It is
+ * never stored with the endpoint, so nothing of it is shown again.
+ */
+export function GatewayTokenDialog(props: {
+  account: SpadeEndpoint;
+  provider: string;
+  onClose(): void;
+}) {
+  const client = useSpadeClient();
+  const field = useId();
+  const [draft, setDraft] = useState("");
+  const change = useAccountChange(props.onClose);
+  const save = () => {
+    const token = draft.trim();
+    if (!token) return;
+    setDraft("");
+    void change.run(() => setGatewayToken(client, props.account.id, token));
+  };
+  const replacing = props.account.gatewayTokenSet;
+  return (
+    <Shell
+      account={props.account}
+      providerName={props.provider}
+      title={`${replacing ? "Replace" : "Add"} the gateway token for ${props.account.name}`}
+      description="Only an authenticated gateway needs one. Spade keeps it in this computer's keychain and never shows it again."
+      refusal={change.refusal}
+      onClose={props.onClose}
+      onSubmit={save}
+      footer={
+        <>
+          <Button variant="ghost" onClick={props.onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="submit" disabled={change.busy || !draft.trim()}>
+            {change.busy ? "Saving…" : "Save token"}
+          </Button>
+        </>
+      }
+    >
+      <label htmlFor={field} className="sr-only">
+        {props.provider} gateway token
+      </label>
+      <Input
+        id={field}
+        name="spade-gateway-token"
+        type="password"
+        autoComplete="one-time-code"
+        data-1p-ignore=""
+        data-lpignore="true"
+        spellCheck={false}
+        placeholder="Paste gateway token"
+        // oxlint-disable-next-line jsx-a11y/no-autofocus -- the dialog opened for the token.
+        autoFocus
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        disabled={change.busy}
       />
     </Shell>
   );

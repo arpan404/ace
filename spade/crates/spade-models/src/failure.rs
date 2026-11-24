@@ -97,6 +97,42 @@ pub(crate) fn read_as(
     }
 }
 
+/// [`read`] with every one of `secrets` taken out of what it says: an endpoint's, or the SDK's,
+/// words can echo the key or a gateway token, bare or as `Bearer <token>`.
+pub(crate) fn read_scrubbed(
+    model: &str,
+    error: &genai::Error,
+    answered: bool,
+    secrets: &[String],
+) -> ModelError {
+    hidden(read(model, error, answered), secrets)
+}
+
+/// [`read_as`] with `secrets` taken out of a call that is not a signed-in account's: an account's
+/// words are replaced outright, so only anything else needs them.
+pub(crate) fn read_scrubbed_as(
+    model: &str,
+    error: &genai::Error,
+    answered: bool,
+    signed: bool,
+    secrets: &[String],
+) -> ModelError {
+    let read = read_as(model, error, answered, signed);
+    if signed { read } else { hidden(read, secrets) }
+}
+
+/// `error` with every one of `secrets` taken out of the line it says.
+fn hidden(mut error: ModelError, secrets: &[String]) -> ModelError {
+    let scrub = |message: String| crate::scrub::hidden(&message, secrets);
+    match &mut error {
+        ModelError::Unanswered { message, .. } | ModelError::Provider { message, .. } => {
+            *message = scrub(std::mem::take(message));
+        }
+        _ => {}
+    }
+    error
+}
+
 /// The body an endpoint refused a call with, when the error carries it.
 fn refused_body(error: &genai::Error) -> Option<&str> {
     match error {
