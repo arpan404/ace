@@ -3,6 +3,7 @@
 //! for, and what pausing and the main session's round trip change.
 use super::*;
 use crate::engine::delivery::{MediaOut, VIDEO_SHARE, VIDEO_SHARE_CUT, next_media_id};
+use crate::serve_sim::{Record, Translator};
 use media_core::envelope::Assembler;
 use media_core::headers::decode_picture;
 use media_wire::control::EncodeSpec;
@@ -121,6 +122,52 @@ fn a_device_view_gets_annex_b_pictures_with_parameter_sets_on_keyframes() {
     expected.extend_from_slice(&pps);
     expected.extend_from_slice(&[0, 0, 0, 1, 0x65, 7]);
     assert_eq!(payload, expected);
+}
+
+/// One Simulator access unit of two NAL units, each with a 4-byte length; `first` is the leading
+/// NAL's first byte (its type in the low five bits).
+fn sim_unit(first: u8) -> Vec<u8> {
+    let mut out = Vec::new();
+    for nal in [[first, 0x88, 0x84], [0x06, 0x05, 0x01]] {
+        out.extend_from_slice(&(nal.len() as u32).to_be_bytes());
+        out.extend_from_slice(&nal);
+    }
+    out
+}
+
+#[test]
+fn a_simulator_delta_reaches_a_device_view_with_a_codec_its_header_names() {
+    // serve-sim's records, as its reader gives them: the avcC description, a keyframe, a delta.
+    let fixture = include_bytes!("../../../../media-mp4/tests/vectors/h264.bin");
+    let n = u32::from_be_bytes([fixture[0], fixture[1], fixture[2], fixture[3]]) as usize;
+    let mut translate = Translator::default();
+    assert_eq!(
+        translate.frame(Record::Description(fixture[4..4 + n].to_vec())),
+        Ok(None)
+    );
+    let mut engine = watched(json!({ "kind": "device", "deviceId": "android:emulator-5554" }));
+    let Ok(Some(key)) = translate.frame(Record::Key(sim_unit(0x25))) else {
+        panic!("a keyframe after its description is a frame");
+    };
+    assert_eq!(binaries(&ingest(&mut engine, 1, key, NOW)).len(), 1);
+    let Ok(Some(delta)) = translate.frame(Record::Delta(sim_unit(0x21))) else {
+        panic!("a delta is a frame");
+    };
+    let effects = ingest(&mut engine, 1, delta, at(1_100));
+    let pieces = binaries(&effects);
+    let mut assembler = Assembler::new();
+    let codec = pieces.iter().find_map(|piece| {
+        let envelope = assembler.push(piece).ok().flatten()?;
+        let picture = decode_picture(4, envelope.meta, envelope.payload).ok()?;
+        Some(picture.codec.to_owned())
+    });
+    let Some(codec) = codec else {
+        panic!("a delta reached the device view with no header a client can read: {effects:?}");
+    };
+    assert!(
+        codec.starts_with("avc1."),
+        "the delta's header names the codec it carries: {codec:?}"
+    );
 }
 
 #[test]
