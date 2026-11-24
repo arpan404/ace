@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * The transport's proof run (ADR 0226, T1a.8): every test file that starts a server, run twice,
- * once with `ACE_TRANSPORT` off and once with the Rust loopback listener on, one file at a time.
+ * once with the Rust loopback listener on and once with `ACE_TRANSPORT` off, one file at a time.
  *
  * The list comes from `list-server-tests.ts`. Each leg writes a Vitest JSON report and the on leg
  * a fresh `ACE_TRANSPORT_EVIDENCE` file; a report is read with `JSON.parse(readFileSync(...))`,
@@ -9,14 +9,23 @@
  * it executed a test and the evidence file is non-empty. A skipped test in a file with no
  * identified platform guard is a failure, so one guard can't hide an unrelated skip.
  *
+ * The on leg runs first. When it passes with no evidence, the switch never took effect and the
+ * off leg would be identical, so the off leg is skipped and recorded as such; a failing on leg or
+ * one with native evidence still runs the off leg.
+ *
  * Runs with `node scripts/t1a-proof.ts`. It exits non-zero on any failed leg, a report missing,
  * unparsable or empty, an on leg with no evidence, or a skip without a platform guard. Before
  * each file it waits up to two minutes for the shared machine's 1-minute load average to fall
  * under 60, then runs anyway: this run proves pass/fail and evidence, not timing. A leg that
  * failed only by timing out is rerun once, alone, and the table says so.
+ *
+ * For a long list: `--from N` starts at the Nth file (1-based), `--shard i/n` keeps the files
+ * whose sorted index is `i` mod `n`, and `--results <path>` writes this run's results as JSON.
+ * `--merge <path...>` reads any mix of those JSON files and proof-run logs, prints the same final
+ * report, and exits by the same rules; a JSON result wins over a log's line for the same file.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { loadavg, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,6 +51,8 @@ interface LegRun {
   /** The Vitest process's own exit status and output, for a failure's diagnosis. */
   status: number | null;
   output: string;
+  /** The leg was not run: the on leg passed with no native evidence, so it would be identical. */
+  skipped?: boolean;
 }
 
 interface FileRun {
@@ -56,6 +67,12 @@ interface FileRun {
   platformGuard: boolean;
   /** The file guards a case on the transport switch: that skip is expected on the off leg. */
   switchGuard: boolean;
+}
+
+/** One file of the sorted list, with the index a shard and the progress line use. */
+interface Entry {
+  index: number;
+  file: string;
 }
 
 const REPORT_TIMEOUT_MS = 15 * 60 * 1000;
@@ -214,71 +231,194 @@ function runLeg(file: string, leg: Leg, reportPath: string, evidencePath: string
   return { noReport: undefined, results, status: run.status, output };
 }
 
+/** Whether a leg executed at least one test, as opposed to skipping all of them. */
+function executed(run: LegRun): boolean {
+  return run.results.some((result) => result.status === "passed" || result.status === "failed");
+}
+
+/** How the on leg proved itself. */
+function evidenceOfRun(run: LegRun, ran: boolean, witness: string, platformGuard: boolean) {
+  if (run.noReport !== undefined) return "no-report" as const;
+  if (!ran) return platformGuard ? ("platform-skipped" as const) : ("no-report" as const);
+  return evidenceOf(witness) ? ("native" as const) : ("NONE" as const);
+}
+
+/** One file's two legs, from this process. */
+function runFile(entry: Entry, name: string, work: string): FileRun {
+  const { file } = entry;
+  waitForLoad();
+  const evidencePath = join(work, `${name}-evidence.jsonl`);
+  let on = runLeg(file, "on", join(work, `${name}-on.json`), evidencePath);
+  // A leg that failed only by timing out gets one more run, alone, on a fresh report.
+  let rerunOn = false;
+  if (timedOutOnly(on)) {
+    rerunOn = true;
+    on = runLeg(file, "on", join(work, `${name}-on-retry.json`), `${evidencePath}.retry`);
+  }
+  const witness = rerunOn ? `${evidencePath}.retry` : evidencePath;
+  const text = readFileSync(join(root, file), "utf8");
+  const platformGuard = hasPlatformGuard(text);
+  const evidence = evidenceOfRun(on, executed(on), witness, platformGuard);
+  let off: LegRun;
+  let rerunOff = false;
+  // The on leg passed with no evidence: ACE_TRANSPORT never took effect, so the off leg (which
+  // runs without it) would be the same tests with the same result. Record the skip, run nothing.
+  // A failing on leg still gets its off leg, so a pre-existing failure is not mistaken for one.
+  if (evidence === "NONE" && !legFailed(on)) {
+    off = { noReport: undefined, results: [], status: null, output: "", skipped: true };
+  } else {
+    off = runLeg(file, "off", join(work, `${name}-off.json`), "");
+    if (timedOutOnly(off)) {
+      rerunOff = true;
+      off = runLeg(file, "off", join(work, `${name}-off-retry.json`), "");
+    }
+  }
+  return {
+    file,
+    off,
+    on,
+    evidence,
+    rerun: { off: rerunOff, on: rerunOn },
+    platformGuard,
+    switchGuard: hasSwitchGuard(text),
+  };
+}
+
+/** The progress line, and the form `--merge` reads back from a log. */
+function progressLine(entry: Entry, total: number, run: FileRun): string {
+  const offFailed = run.off.results.filter((result) => result.status === "failed").length;
+  const onFailed = run.on.results.filter((result) => result.status === "failed").length;
+  const offState = run.off.skipped
+    ? "skipped (on had no native evidence)"
+    : (run.off.noReport ?? "PASS");
+  const onState = run.evidence === "native" ? "native" : (run.on.noReport ?? run.evidence);
+  const rerun =
+    run.rerun.off || run.rerun.on
+      ? ` (rerun ${[run.rerun.off ? "off" : "", run.rerun.on ? "on" : ""].filter(Boolean).join(" ")})`
+      : "";
+  return (
+    `[${String(entry.index + 1).padStart(3)}/${total}] ` +
+    `off ${offState} ${run.off.results.length - offFailed}/${run.off.results.length}  ` +
+    `on ${onState} ${run.on.results.length - onFailed}/${run.on.results.length}` +
+    `${rerun}  ${run.file}`
+  );
+}
+
 function main(): number {
+  const args = process.argv.slice(2);
+  const flag = (name: string): string | undefined => {
+    const at = args.indexOf(name);
+    return at < 0 ? undefined : args[at + 1];
+  };
+  const merge = (() => {
+    const at = args.indexOf("--merge");
+    if (at < 0) return undefined;
+    return args.slice(at + 1).filter((value) => !value.startsWith("--"));
+  })();
+  if (merge !== undefined) {
+    const runs = mergeRuns(merge);
+    report(runs);
+    return failures(runs) ? 1 : 0;
+  }
   const files = listServerTests();
+  const from = Math.max(1, Number(flag("--from") ?? "1"));
+  const shard = flag("--shard");
+  const [shardIndex, shardCount] =
+    shard === undefined ? [0, 1] : shard.split("/").map((value) => Number(value));
+  if (
+    shardCount === undefined ||
+    shardIndex === undefined ||
+    !(shardCount > 0) ||
+    shardIndex < 0 ||
+    shardIndex >= shardCount
+  )
+    throw new Error("--shard takes i/n with 0 <= i < n");
+  const entries: Entry[] = [];
+  for (const [index, file] of files.entries())
+    if (index + 1 >= from && index % shardCount === shardIndex) entries.push({ index, file });
   const work = mkdtempSync(join(tmpdir(), "t1a-proof-"));
   const runs: FileRun[] = [];
   const started = Date.now();
   try {
-    for (const [index, file] of files.entries()) {
-      waitForLoad();
-      const name = `${index}`;
-      let off = runLeg(file, "off", join(work, `${name}-off.json`), "");
-      const evidencePath = join(work, `${name}-evidence.jsonl`);
-      let on = runLeg(file, "on", join(work, `${name}-on.json`), evidencePath);
-      // A leg that failed only by timing out gets one more run, alone, on a fresh report.
-      let rerunOff = false;
-      let rerunOn = false;
-      if (timedOutOnly(off)) {
-        rerunOff = true;
-        off = runLeg(file, "off", join(work, `${name}-off-retry.json`), "");
-      }
-      if (timedOutOnly(on)) {
-        rerunOn = true;
-        on = runLeg(file, "on", join(work, `${name}-on-retry.json`), `${evidencePath}.retry`);
-      }
-      const text = readFileSync(join(root, file), "utf8");
-      const platformGuard = hasPlatformGuard(text);
-      const witness = rerunOn ? `${evidencePath}.retry` : evidencePath;
-      const ran =
-        on.noReport === undefined &&
-        on.results.some((result) => result.status === "passed" || result.status === "failed");
-      const evidence: FileRun["evidence"] =
-        on.noReport !== undefined
-          ? "no-report"
-          : !ran
-            ? platformGuard
-              ? "platform-skipped"
-              : "no-report"
-            : evidenceOf(witness)
-              ? "native"
-              : "NONE";
-      const run: FileRun = {
-        file,
-        off,
-        on,
-        evidence,
-        rerun: { off: rerunOff, on: rerunOn },
-        platformGuard,
-        switchGuard: hasSwitchGuard(text),
-      };
+    for (const entry of entries) {
+      const run = runFile(entry, `${entry.index}`, work);
       runs.push(run);
-      const offFailed = off.results.filter((result) => result.status === "failed").length;
-      const onFailed = on.results.filter((result) => result.status === "failed").length;
-      console.log(
-        `[${String(index + 1).padStart(3)}/${files.length}] ` +
-          `off ${(off.noReport ?? "PASS").padEnd(10)} ${off.results.length - offFailed}/${off.results.length}  ` +
-          `on ${on.evidence === "native" ? "native" : (on.noReport ?? evidence)} ` +
-          `${on.results.length - onFailed}/${on.results.length}` +
-          `${rerunOff || rerunOn ? ` (rerun ${rerunOff ? "off" : ""}${rerunOn ? "on" : ""})` : ""}  ${file}`,
-      );
+      console.log(progressLine(entry, files.length, run));
     }
   } finally {
     report(runs);
     rmSync(work, { recursive: true, force: true });
   }
-  console.log(`\n${files.length} files in ${Math.round((Date.now() - started) / 1000)} s`);
+  const results = flag("--results");
+  if (results !== undefined) writeFileSync(results, `${JSON.stringify({ files: runs })}\n`);
+  console.log(`\n${entries.length} files in ${Math.round((Date.now() - started) / 1000)} s`);
   return failures(runs) ? 1 : 0;
+}
+
+/** The progress line's fields: the state words, the counts, the rerun marker and the file. */
+const LINE =
+  /^\[\s*\d+\/\d+\]\s+off\s+(PASS|skipped|missing|unparsable|empty)(?:\s+\(([^)]*)\))?\s+(\d+)\/(\d+)\s+on\s+(\S+)\s+(\d+)\/(\d+)(?:\s+\(rerun\s+([^)]*)\))?\s{2,}(.+)$/;
+
+/** A leg from a log line: counts become pass/fail placeholders, no test names to recover. */
+function legFromLog(state: string, passed: number, total: number, leg: Leg): LegRun {
+  if (state === "skipped")
+    return { noReport: undefined, results: [], status: null, output: "", skipped: true };
+  if (state === "missing" || state === "unparsable" || state === "empty")
+    return { noReport: state, results: [], status: null, output: "" };
+  const results: Result[] = [];
+  for (let index = 0; index < total; index++)
+    results.push({
+      file: "",
+      fullName: "(log only)",
+      leg,
+      status: index < passed ? "passed" : "failed",
+    });
+  return { noReport: undefined, results, status: null, output: "" };
+}
+
+/** Results from one proof-run log, which records states and counts but no test names. */
+function runsFromLog(path: string): FileRun[] {
+  const runs: FileRun[] = [];
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    const match = LINE.exec(line);
+    if (match === null) continue;
+    const [, state, , passedOff, totalOff, stateOn, passedOn, totalOn, rerun, file] = match;
+    const off = legFromLog(state ?? "", Number(passedOff), Number(totalOff), "off");
+    const onLeg =
+      stateOn === "native" || stateOn === "NONE" || stateOn === "platform-skipped"
+        ? legFromLog("PASS", Number(passedOn), Number(totalOn), "on")
+        : legFromLog(stateOn ?? "", Number(passedOn), Number(totalOn), "on");
+    const evidence: FileRun["evidence"] =
+      stateOn === "native" || stateOn === "NONE" || stateOn === "platform-skipped"
+        ? stateOn
+        : "no-report";
+    const rerunFlags = rerun ?? "";
+    runs.push({
+      file: file ?? "",
+      off,
+      on: onLeg,
+      evidence,
+      rerun: { off: rerunFlags.includes("off"), on: rerunFlags.includes("on") },
+      platformGuard: false,
+      switchGuard: false,
+    });
+  }
+  return runs;
+}
+
+/** JSON results and logs, deduped by file: a JSON result wins over a log line. */
+function mergeRuns(paths: readonly string[]): FileRun[] {
+  const merged = new Map<string, FileRun>();
+  const json = paths.filter((path) => path.endsWith(".json"));
+  for (const path of paths) {
+    if (path.endsWith(".json")) continue;
+    for (const run of runsFromLog(path)) if (!merged.has(run.file)) merged.set(run.file, run);
+  }
+  for (const path of json) {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as { files?: FileRun[] };
+    for (const run of parsed.files ?? []) merged.set(run.file, run);
+  }
+  return [...merged.values()].toSorted((left, right) => left.file.localeCompare(right.file));
 }
 
 /** Counts as a failed leg: any failed test, or no report at all. */
@@ -296,7 +436,7 @@ function skips(run: FileRun): Result[] {
 /** Whether any rule failed; prints each failing group. */
 function failures(runs: readonly FileRun[]): boolean {
   let failed = false;
-  const onOnly = runs.filter((run) => legFailed(run.on) && !legFailed(run.off));
+  const onOnly = runs.filter((run) => legFailed(run.on) && !legFailed(run.off) && !run.off.skipped);
   const both = runs.filter((run) => legFailed(run.on) && legFailed(run.off));
   const noEvidence = runs.filter((run) => run.on.noReport === undefined && run.evidence === "NONE");
   const noReport = runs.filter(
@@ -331,7 +471,7 @@ function failures(runs: readonly FileRun[]): boolean {
       for (const result of entry.off.results.filter((one) => one.status === "failed"))
         console.log(`    ${result.fullName}\n      ${(result.message ?? "").split("\n")[0]}`);
   });
-  group("on leg without evidence", noEvidence, () => {
+  group("on leg without evidence (NONE)", noEvidence, () => {
     for (const entry of noEvidence) console.log(`    ${entry.file}: ${entry.evidence}`);
   });
   group("no report", noReport, () => {
@@ -375,6 +515,7 @@ function tail(text: string): string {
 /** The per-file table, for the PR. */
 function report(runs: readonly FileRun[]): void {
   const count = (run: FileRun, leg: "off" | "on") => {
+    if (leg === "off" && run.off.skipped) return "skipped";
     const results = leg === "off" ? run.off.results : run.on.results;
     const passed = results.filter((result) => result.status === "passed").length;
     return `${passed}/${results.length}`;
