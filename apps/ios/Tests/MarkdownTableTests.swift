@@ -4,8 +4,8 @@ import UIKit
 @testable import Ace
 
 /// A table in an answer fits the row whenever its words do: short columns keep their width,
-/// prose wraps, code breaks inside its paths. Only a table whose words alone are wider than the
-/// row scrolls sideways, inside the row.
+/// prose wraps, code breaks inside its paths, and a table whose words alone are wider than the
+/// row still fits it, its long words wrapping. Nothing scrolls sideways.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct MarkdownTableTests {
     @Test func columnsThatFitKeepTheirNaturalWidths() {
         #expect(MarkdownTableColumns.widths(natural: [80, 200.4], minimum: [40, 60], available: 400) == [80, 201])
@@ -30,10 +30,10 @@ import UIKit
         #expect(MarkdownTableColumns.widths(natural: [50, 200], minimum: [10, 60], available: 100) == [40, 60])
     }
 
-    @Test func onlyMinimumsWiderThanTheRoomMakeTheTableScroll() {
-        let widths = MarkdownTableColumns.widths(natural: [300, 300, 300], minimum: [150, 150, 150], available: 400)
-        #expect(widths.reduce(0, +) > 400)
-        #expect(widths.allSatisfy { $0 >= 150 && $0 <= 300 })
+    @Test func wordsWiderThanTheRoomStillFitItSharedByTheirWidth() {
+        let widths = MarkdownTableColumns.widths(natural: [300, 300, 600], minimum: [100, 100, 400], available: 400)
+        #expect(widths.reduce(0, +) == 400)
+        #expect(widths == [66, 66, 268])
     }
 
     @Test func inlineCodeInACellBreaksAfterItsSeparatorsAndProseIsLeftAlone() {
@@ -51,28 +51,19 @@ import UIKit
         | Tables | Wide tables in answers run past the screen. This child lays them out to fit, wrapping the prose column. |
         | Code | `apps/ios/project.yml:35` and `cloud.acehq.dev` ran off the edge of the text instead of wrapping inside it. |
         """
-        let views = try await laidOut(answer, width: 360) { views in
-            views.contains { ($0 as? UIScrollView).map { $0.bounds.width > 0 && $0.contentSize.width > 0 } ?? false }
-        }
-        let scrollers = views.compactMap { $0 as? UIScrollView }
-        #expect(!scrollers.isEmpty)
-        #expect(scrollers.allSatisfy {
-            $0.bounds.width > 0 && $0.bounds.width <= 360
-                && $0.contentSize.width > 0 && $0.contentSize.width <= $0.bounds.width + 1
-        })
+        let views = try await laidOut(answer, width: 360) { $0.dropFirst().contains { $0.bounds.height > 40 } }
+        #expect(views.dropFirst().contains { $0.bounds.height > 40 })
+        #expect(!views.contains { $0 is UIScrollView })
     }
 
-    @Test func aTableOfLongUnbreakableWordsScrollsInsideTheRow() async throws {
+    @Test func aTableOfLongUnbreakableWordsStillFitsTheRow() async throws {
         let answer = """
         | One | Two | Three |
         | --- | --- | --- |
         | Supercalifragilisticexpialidocious | Antidisestablishmentarianism | Pneumonoultramicroscopicsilicovolcanoconiosis |
         """
-        let views = try await laidOut(answer, width: 360) { views in
-            views.contains { ($0 as? UIScrollView).map { $0.contentSize.width > $0.bounds.width + 1 } ?? false }
-        }
-        let table = try #require(views.compactMap { $0 as? UIScrollView }.first { $0.contentSize.width > $0.bounds.width + 1 })
-        #expect(table.bounds.width <= 360)
+        let views = try await laidOut(answer, width: 360) { $0.dropFirst().contains { $0.bounds.height > 40 } }
+        #expect(!views.contains { $0 is UIScrollView })
         #expect(!views.contains { $0.accessibilityIdentifier == "markit-table" })
     }
 
