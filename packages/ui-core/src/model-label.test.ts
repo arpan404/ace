@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { modelLine, modelName } from "./model-label.ts";
+import { chipModelName, modelLine, modelName } from "./model-label.ts";
 import { modelLabel } from "./providers.ts";
 
 test("model ids read the way the model pickers name them", () => {
@@ -34,4 +34,15 @@ test("where no provider shows beside it, the label names the provider first", ()
   expect(modelLine("claude", modelName("claude"))).toBe("Claude Code · Default");
   expect(modelLine("pi", undefined)).toBe("Pi · Default");
   expect(modelLine("claude", modelName("claude"), "work")).toBe("Claude Code · work · Default");
+});
+
+test("the composer chip drops the brand Codex's and Antigravity's marks already show", () => {
+  expect(chipModelName("codex", "GPT-6.2 Sol")).toBe("6.2 Sol");
+  expect(chipModelName("codex", "ChatGPT 6.2 Sol")).toBe("6.2 Sol");
+  expect(chipModelName("antigravity", "Gemini 4 Argon")).toBe("4 Argon");
+  // Another provider serving a Gemini model keeps the brand: its mark doesn't say it.
+  expect(chipModelName("opencode", "Gemini 4 Argon")).toBe("Gemini 4 Argon");
+  expect(chipModelName(undefined, "GPT-6.2 Sol")).toBe("GPT-6.2 Sol");
+  // A name that is only the brand stays whole.
+  expect(chipModelName("codex", "GPT")).toBe("GPT");
 });
