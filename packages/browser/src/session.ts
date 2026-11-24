@@ -294,6 +294,7 @@ export class BrowserSession {
       budget: this.budget,
       timing: this.timing,
       page: (tabId) => this.tabs.page(tabId),
+      inputScale: () => this.live.inputScale(),
       flags: () => ({
         closed: this.closed,
         paused: this.paused,

@@ -174,6 +174,41 @@ it("a zoomed headless page plans its video at the pixels it had before zoom", as
   await zoomedLive.close();
   await plainLive.close();
 });
+
+it("a page larger than the client takes reaches ace-media fitted keeping its pixels", async () => {
+  vi.useFakeTimers();
+  const page = fakePage();
+  const fitted = recordingHost();
+  const live = new LiveCapture(
+    page.cdp,
+    () => Date.now(),
+    () => {},
+    undefined,
+    () => ({ width: 1280, height: 800 }),
+    () => "tab-1",
+    () => 1,
+    () => ({ host: fitted.host, page: page.cdp }),
+    // Embedded at 25% zoom reports 5120 CSS pixels: the fitted page reaches ace-media.
+    () => ({ width: 5120, height: 3200, scale: 1 }),
+  );
+  await live.start();
+  live.subscribe(
+    "phone",
+    {},
+    {
+      viewport: { width: 1280, height: 800, devicePixelRatio: 2, paused: false },
+      video: { codecs: ["avc1.42E033"] },
+      delivered: true,
+    },
+  );
+  await vi.advanceTimersByTimeAsync(500);
+  // source.page carries the fitted size at the scale keeping the 5120x3200 pixels...
+  expect(fitted.pages.at(-1)).toEqual({ width: 4096, height: 2560, scale: 1.25 });
+  // ...planned against the longest frame the capture sends, and input scales back by 1.25.
+  expect(fitted.encodes[0]).toMatchObject({ width: 2560, height: 1600 });
+  expect(live.inputScale()).toBe(1.25);
+  await live.close();
+});
 it("a screencast picture captured before the tab's privacy changed never reaches the video; later ones carry their epoch", async () => {
   const page = fakePage();
   let frame: ((raw: unknown) => void) | undefined;

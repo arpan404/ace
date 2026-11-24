@@ -167,6 +167,10 @@ export class LiveVideo {
   watched(): boolean {
     return this.showing().length > 0;
   }
+  /** The page size and scale the video plans its views against now. */
+  shape(): { width: number; height: number; scale: number } {
+    return { ...this.page };
+  }
   private showing(): [string, Viewer][] {
     return [...this.viewers].filter(([, viewer]) => !paused(viewer.capture));
   }
