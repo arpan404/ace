@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,11 +9,15 @@ import { MediaRuntime } from "@ace/media/runtime";
 import { nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
 import { fakeDelivery, phoneOwner } from "@ace/media/testing/fake-delivery";
 import { MediaTestClient } from "@ace/media/testing/media-test-client";
+import { ChromeHost } from "./chrome-host.ts";
+import { ChromeVideo } from "./chrome-video.ts";
 import { connectBrowser } from "./index.ts";
 import type { BrowserMedia } from "./media-video.ts";
+import { chromeDefaults } from "./owned-backend.ts";
 import { decodeStreamMessage, StreamAssembler, streamKinds, type StreamMessage } from "./stream.ts";
 import type { BrowserAudioChunk } from "./stream-audio.ts";
 import { executablePath, fixture, ref } from "./test-support.ts";
+import { videoExtensionKey } from "./video-extension.ts";
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 
@@ -501,3 +506,91 @@ it.runIf(process.platform === "win32" && executablePath)(
   },
   90_000,
 );
+
+// A profile can already run an older build of the extension under the same id and version. If
+// Chrome keeps that worker when ace writes the new build over it, every capture fails at the
+// first export the old worker lacks. A real Chrome is the only place the extension's lifecycle
+// is real; the unit test in chrome-video.test.ts pins the reinstall itself.
+describe.skipIf(!executablePath)("an upgraded video extension", () => {
+  it("opens a capture when the profile already runs an older build", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-video-stale-"));
+    const extensionDir = join(root, "extension");
+    const profileDir = join(root, "profile");
+    const stagingDir = join(root, "staging");
+    // The build beta 4 shipped: the same key and version, without aceVideo.tabFor.
+    await mkdir(extensionDir, { recursive: true });
+    await writeFile(
+      join(extensionDir, "manifest.json"),
+      JSON.stringify({
+        manifest_version: 3,
+        name: "ace video",
+        version: "0.1.0",
+        key: videoExtensionKey,
+        permissions: ["tabCapture", "offscreen", "tabs"],
+        background: { service_worker: "worker.js" },
+      }),
+    );
+    await writeFile(
+      join(extensionDir, "worker.js"),
+      `async function ready() {
+  if (await chrome.offscreen.hasDocument()) return;
+  await chrome.offscreen.createDocument({
+    url: "offscreen.html",
+    reasons: ["USER_MEDIA"],
+    justification: "Encodes ace's browser tabs as video for ace's own viewers.",
+  });
+}
+chrome.tabs.onUpdated.addListener(() => {});
+Object.assign(globalThis, {
+  aceVideo: { ready, open: async () => ({ streamId: "old-stream" }) },
+});`,
+    );
+    await writeFile(
+      join(extensionDir, "offscreen.js"),
+      `Object.assign(globalThis, { aceVideo: { supported: async (codecs) => codecs } });`,
+    );
+    await writeFile(
+      join(extensionDir, "offscreen.html"),
+      '<!doctype html>\n<meta charset="utf-8">\n<script src="offscreen.js"></script>\n',
+    );
+    const { launch, cleanup } = chromeDefaults(process.platform);
+    const host = new ChromeHost({
+      executable: async () => executablePath ?? "",
+      profileDir,
+      stagingDir,
+      platform: process.platform,
+      launch,
+      cleanup,
+    });
+    const lease = await host.acquire(new AbortController().signal);
+    try {
+      const instance = lease.instance;
+      // The old build is installed and its worker is the one running.
+      await instance.connection.send("Extensions.loadUnpacked", { path: extensionDir });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const target = await instance.targets.create({ width: 640, height: 400 });
+      await instance.targets.resume(target);
+      // ace installs the current build over it and opens a capture.
+      const video = new ChromeVideo({
+        connection: instance.connection,
+        targets: instance.targets,
+        directory: extensionDir,
+        delay: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+      });
+      const handle = await video.open(
+        instance.connection.session(target.sessionId),
+        640,
+        400,
+        { chunk: () => {}, failed: () => {}, ended: () => {} },
+      );
+      expect(handle).toBeDefined();
+      handle.close();
+      await instance.targets.close(target.targetId).catch(() => {});
+    } finally {
+      lease.release();
+      await host.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+});
+

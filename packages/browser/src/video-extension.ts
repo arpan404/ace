@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { videoExtensionFiles } from "./video-extension.gen.ts";
@@ -13,11 +14,28 @@ export const videoExtensionKey =
 /** Chrome's id for `videoExtensionKey`: the first 128 bits of its SHA-256, as letters a–p. */
 export const videoExtensionId = "ldgefbphhfgphnecebnomhhopapknllk";
 
+/**
+ * The manifest version of a build: Chrome keeps an unpacked extension whose version did not
+ * change, and an older worker then meets a newer daemon. A hash of the bundle makes every code
+ * change a real update; Chrome reads versions as 1-4 dot-separated integers up to 65535, and the
+ * key still fixes the extension id.
+ */
+export function videoExtensionVersion(
+  files: Readonly<Record<string, string>> = videoExtensionFiles,
+): string {
+  const bundle = Object.keys(files)
+    .toSorted()
+    .map((name) => `${name}\u0000${files[name] ?? ""}`)
+    .join("\u0000");
+  const digest = createHash("sha256").update(bundle).digest();
+  return `0.1.${digest.readUInt16BE(0)}.${digest.readUInt16BE(2)}`;
+}
+
 export function videoExtensionManifest() {
   return {
     manifest_version: 3,
     name: "ace video",
-    version: "0.1.0",
+    version: videoExtensionVersion(),
     description: "Encodes ace's browser tabs as video for ace's own viewers.",
     key: videoExtensionKey,
     minimum_chrome_version: "125",

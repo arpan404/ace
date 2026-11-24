@@ -12,6 +12,27 @@ const offscreenUrl = `chrome-extension://${videoExtensionId}/offscreen.html`;
 
 type Globals = Record<string, unknown>;
 
+/** The worker exports the daemon calls, as a build Chrome can use defines them. */
+const modernWorker = () => ({
+  ready: async () => {},
+  open: async () => ({ streamId: "stream-1" }),
+  tabFor: async (targetId: string) => Number(targetId.replace("target-", "")),
+  tabAudio: async () => ({ audible: false, muted: false }),
+  mute: async () => {},
+});
+
+/** The offscreen document exports the daemon calls. */
+const modernDocument = () => ({
+  supported: async (codecs: readonly string[]) => codecs,
+  start: async () => {},
+  encodes: () => {},
+  keyframe: () => {},
+  audio: () => {},
+  ingest: () => {},
+  epoch: () => {},
+  stop: () => {},
+});
+
 function driver(options: {
   workerGlobals: Globals;
   offscreenGlobals: Globals;
@@ -109,13 +130,10 @@ test("the encoder waits for the extension's paused scripts to run before calling
       directory: dir.path,
       delay: async () => {
         delays++;
-        if (delays === 2)
-          workerGlobals.aceVideo = {
-            ready: async () => {},
-            open: async () => ({ streamId: "stream-1" }),
-          };
+        if (delays === 2) workerGlobals.aceVideo = modernWorker();
         if (delays === 4)
           offscreenGlobals.aceVideo = {
+            ...modernDocument(),
             supported: async (codecs: readonly string[]) =>
               codecs.filter((codec) => codec === "vp8"),
           };
@@ -167,7 +185,7 @@ function chromeCapture(options: { failWithSound?: number; leaks?: number; stopMs
   let leaks = options.leaks ?? 0;
   const workerGlobals: Globals = {
     aceVideo: {
-      ready: async () => {},
+      ...modernWorker(),
       /** The daemon knows a page by its CDP target; this Chrome has one tab per target. */
       tabFor: async (targetId: string) => Number(targetId.replace("target-", "")),
       open: async (tabId: number) => {
@@ -181,6 +199,7 @@ function chromeCapture(options: { failWithSound?: number; leaks?: number; stopMs
   };
   const offscreenGlobals: Globals = {
     aceVideo: {
+      ...modernDocument(),
       supported: async (codecs: readonly string[]) => codecs,
       start: async (id: string, streamId: string, _w: number, _h: number, opts?: object) => {
         const tabId = minted.get(streamId);
@@ -268,4 +287,61 @@ test("a capture asked for while the tab's last one is still stopping waits for i
   await expect(v.open(page(1), 1024, 768, viewer().events)).resolves.toBeDefined();
   // Nothing else was torn down to get there.
   expect(other.seen.ended).toBe(0);
+});
+
+test("a running worker from an older build is installed again, and the capture opens", async () => {
+  const dir = await directory();
+  onTestFinished(dir.cleanup);
+  const workerGlobals: Globals = {
+    aceVideo: { ready: async () => {}, open: async () => ({ streamId: "old" }) },
+  };
+  const documentGlobals: Globals = { aceVideo: { supported: async () => [] } };
+  let installs = 0;
+  const connection = driver({
+    workerGlobals,
+    offscreenGlobals: documentGlobals,
+    targets: () => ({ worker: `worker-${installs}`, offscreen: `offscreen-${installs}` }),
+    uninstall: () => {
+      installs++;
+      workerGlobals.aceVideo = modernWorker();
+      documentGlobals.aceVideo = modernDocument();
+    },
+  });
+  const video = new ChromeVideo({
+    connection,
+    targets: { keep: () => {} },
+    directory: dir.path,
+    delay: async () => {},
+  });
+  const handle = await video.open(page(1), 800, 600, viewer().events);
+  expect(handle).toBeDefined();
+  expect(installs).toBe(1);
+});
+
+test("a build still out of date after installing again fails naming the missing exports", async () => {
+  const dir = await directory();
+  onTestFinished(dir.cleanup);
+  const workerGlobals: Globals = {
+    aceVideo: { ready: async () => {}, open: async () => ({ streamId: "old" }) },
+  };
+  const documentGlobals: Globals = { aceVideo: { supported: async () => [] } };
+  let installs = 0;
+  const connection = driver({
+    workerGlobals,
+    offscreenGlobals: documentGlobals,
+    targets: () => ({ worker: `worker-${installs}`, offscreen: `offscreen-${installs}` }),
+    uninstall: () => {
+      installs++;
+    },
+  });
+  const video = new ChromeVideo({
+    connection,
+    targets: { keep: () => {} },
+    directory: dir.path,
+    delay: async () => {},
+  });
+  await expect(video.open(page(1), 800, 600, viewer().events)).rejects.toThrow(
+    "The video extension is out of date: aceVideo.tabFor",
+  );
+  expect(installs).toBe(1);
 });

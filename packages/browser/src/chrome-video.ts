@@ -32,6 +32,7 @@ const Evaluated = z.object({
 const Binding = z.object({ name: z.string(), payload: z.string() });
 const TargetInfo = z.object({ targetInfo: z.object({ targetId: z.string() }) });
 const ChromeTabId = z.number().int();
+const ExportNames = z.array(z.string());
 /** The tab shown in a window: whether it plays sound and whether it is muted. */
 const Audio = z.object({ audible: z.boolean(), muted: z.boolean() });
 const TabAudio = Audio.extend({ tabId: ChromeTabId });
@@ -47,6 +48,23 @@ interface CaptureSound {
 }
 
 const origin = `chrome-extension://${videoExtensionId}/`;
+
+/**
+ * Every export the daemon calls. A profile can keep an older build of the same id and version
+ * running (Chrome does not replace an unpacked extension whose version did not change), and
+ * calling an export it lacks is how every capture would then fail.
+ */
+const workerExports = ["ready", "open", "tabFor", "tabAudio", "mute"] as const;
+const documentExports = [
+  "supported",
+  "start",
+  "encodes",
+  "keyframe",
+  "audio",
+  "ingest",
+  "epoch",
+  "stop",
+] as const;
 
 /** The CDP surface the encoder uses: commands, and the sessions of attached targets. */
 type Connection = Pick<CdpConnection, "send" | "session">;
@@ -237,10 +255,14 @@ export class ChromeVideo implements VideoHost {
     return this.install({});
   }
   /** Loads the unpacked extension and attaches to its worker and document, never to `not`. */
-  private async install(not: {
-    worker?: string | undefined;
-    document?: string | undefined;
-  }): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
+  private async install(
+    not: {
+      worker?: string | undefined;
+      document?: string | undefined;
+    },
+    /** This load follows installing a build that was already running. */
+    reinstalled = false,
+  ): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
     await writeVideoExtension(this.directory);
     const loaded = LoadedExtension.parse(
       await this.connection.send("Extensions.loadUnpacked", { path: this.directory }),
@@ -264,7 +286,29 @@ export class ChromeVideo implements VideoHost {
     await this.untilExport(document, "supported");
     document.on("Runtime.bindingCalled", (raw) => this.receive(raw));
     await document.send("Runtime.addBinding", { name: "aceVideoEvent" });
-    return { worker, document };
+    const missing = await this.missingExports(worker, document);
+    if (!missing.length) return { worker, document };
+    if (reinstalled)
+      throw new Error(`The video extension is out of date: ${missing.join(", ")} missing`);
+    // Chrome kept the build it was already running, which lacks these exports: install it again
+    // (which closes the old worker) and check the new one.
+    this.sessions.clear();
+    for (const events of this.captures.values()) events.ended();
+    this.captures.clear();
+    this.captureAudio.clear();
+    await this.connection.send("Extensions.uninstall", { id: videoExtensionId });
+    return this.install({ worker: attached.targetId, document: opened.targetId }, true);
+  }
+  /** The exports of `workerExports` and `documentExports` their `aceVideo` does not define. */
+  private async missingExports(
+    worker: BrowserCdp,
+    document: BrowserCdp,
+  ): Promise<string[]> {
+    const missing = [
+      ...(await absentExports(worker, workerExports)),
+      ...(await absentExports(document, documentExports)),
+    ];
+    return [...new Set(missing)].map((name) => `aceVideo.${name}`);
   }
   /** Attaches to the extension target at `url` (never `not`), waiting a few seconds for it. */
   private async attach(
@@ -347,6 +391,22 @@ export class ChromeVideo implements VideoHost {
         if (sound.tabId === tabId) sound.apply();
     }
     for (const listener of this.tabAudioListeners) listener(tabId, audio);
+  }
+}
+
+/** The exports of `exports` an `aceVideo` on `target` does not define (a stale build lacks some). */
+async function absentExports(target: BrowserCdp, exports: readonly string[]): Promise<string[]> {
+  try {
+    const reply = Evaluated.parse(
+      await target.send("Runtime.evaluate", {
+        expression: `(${JSON.stringify(exports)}).filter((name) => typeof globalThis.aceVideo?.[name] !== "function")`,
+        returnByValue: true,
+      }),
+    );
+    return ExportNames.parse(reply.result?.value ?? [...exports]);
+  } catch {
+    // A target that cannot answer is no better than one that lacks the exports.
+    return [...exports];
   }
 }
 
