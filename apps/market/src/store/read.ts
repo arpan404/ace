@@ -43,9 +43,13 @@ export async function raiseStamp(db: D1Database, to: number): Promise<number> {
 export async function listedEntries(db: D1Database, since?: number): Promise<EntryRow[]> {
   const statement =
     since === undefined
-      ? db.prepare(`${joined} WHERE e.listed = 1 ORDER BY e.type, e.name`)
+      ? db.prepare(
+          `${joined} WHERE e.listed = 1 AND e.visibility = 'listed' ORDER BY e.type, e.name`,
+        )
       : db
-          .prepare(`${joined} WHERE e.listed = 1 AND e.updated > ?1 ORDER BY e.type, e.name`)
+          .prepare(
+            `${joined} WHERE e.listed = 1 AND e.visibility = 'listed' AND e.updated > ?1 ORDER BY e.type, e.name`,
+          )
           .bind(since);
   const { results } = await statement.all<EntryJoined>();
   return results.map(entryRow);
@@ -70,7 +74,9 @@ export const listedEverywhere = (dbs: Databases) =>
 export async function publisherEntries(dbs: Databases, publisher: string): Promise<EntryRow[]> {
   return fromCatalogues(dbs, async ({ db }) => {
     const { results } = await db
-      .prepare(`${joined} WHERE e.listed = 1 AND e.publisher = ?1 ORDER BY e.type, e.name`)
+      .prepare(
+        `${joined} WHERE e.listed = 1 AND e.visibility = 'listed' AND e.publisher = ?1 ORDER BY e.type, e.name`,
+      )
       .bind(publisher)
       .all<EntryJoined>();
     return results.map(entryRow);

@@ -48,7 +48,7 @@ test.each(["spade-bot", "spade-skill"] as const)(
       );
       catalogue.sql
         .prepare(
-          "INSERT INTO entries (type, name, publisher, title, visibility, share_id) VALUES (?, ?, 'test', 'Private archive', 'unlisted', ?)",
+          "INSERT INTO entries (type, name, publisher, title, visibility, share_id, listed) VALUES (?, ?, 'test', 'Private archive', 'unlisted', ?, 1)",
         )
         .run(type, name, id);
       catalogue.sql
