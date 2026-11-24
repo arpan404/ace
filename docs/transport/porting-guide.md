@@ -791,7 +791,9 @@ relayed?, reservation?)` checks `cleanups.size + reserved - (reservation === und
   (`EADDRINUSE`, `EACCES`, `EADDRNOTAVAIL`, ...), and its message in Node's shape
   (`listen EADDRINUSE: address already in use 127.0.0.1:<port>`). Bun words the `node:http` bind
   failure it replaces differently (`Failed to start server. Is port <port> in use?`), so a test reads
-  the `code`, as `lifecycle.process` does.
+  the `code`, as `lifecycle.process` does. The OS errno table is shared with the supervisor's stream
+  errors (`ace-supervisor/src/errors.rs`), which now name `EADDRINUSE` and `EADDRNOTAVAIL` where they
+  read `UNKNOWN`; that matches Node.
 
 - **Bench**: the paired runs above, owner-scheduled.
 - **Must not**: run the full suite or a bench on its own. **Reviewer checks**: the list includes

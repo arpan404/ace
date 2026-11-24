@@ -13,16 +13,19 @@
  * off leg would be identical, so the off leg is skipped and recorded as such; a failing on leg or
  * one with native evidence still runs the off leg.
  *
- * Runs with `node scripts/t1a-proof.ts`. It exits non-zero on any failed leg, a report missing,
- * unparsable or empty, or a skip without a platform guard. An on leg with no evidence is a note,
- * not a failure: the closure deliberately lists the files that import a server-starting helper,
- * and some of them never start a server, so their on leg has no listener to prove. Before
+ * Runs with `node scripts/t1a-proof.ts`. It exits non-zero on any failed leg (a test failed in
+ * either leg, a leg's Vitest process exited non-zero, or a report is missing, unparsable or
+ * empty), or a skip without a platform guard, and a merge must cover every discovered file. An on
+ * leg with no evidence is a note, not a failure: the closure deliberately lists the files that
+ * import a server-starting helper, and some of them never start a server, so their on leg has no
+ * listener to prove. Before
  * each file it waits up to two minutes for the shared machine's 1-minute load average to fall
  * under 60, then runs anyway: this run proves pass/fail and evidence, not timing. A leg that
  * failed only by timing out is rerun once, alone, and the table says so.
  *
  * For a long list: `--from N` starts at the Nth file (1-based), `--shard i/n` keeps the files
- * whose sorted index is `i` mod `n`, and `--results <path>` writes this run's results as JSON.
+ * whose sorted index is `i` mod `n`, `--only <text>` keeps the files whose path contains it, and
+ * `--results <path>` writes this run's results as JSON.
  * `--merge <path...>` reads any mix of those JSON files and proof-run logs, prints the same final
  * report, and exits by the same rules; a JSON result wins over a log's line for the same file.
  */
@@ -286,24 +289,47 @@ function runFile(entry: Entry, name: string, work: string): FileRun {
   };
 }
 
+/** A log's exit field: `none` is a leg with no status (a skipped off leg). */
+function logExit(value: string | undefined): number | null {
+  return value === undefined || value === "none" ? null : Number(value);
+}
+
+/** A leg's statuses, as a log can carry them: pending and todo count as skipped. */
+function statusCounts(results: readonly Result[]): {
+  passed: number;
+  failed: number;
+  skipped: number;
+} {
+  let passed = 0;
+  let failed = 0;
+  let skipped = 0;
+  for (const result of results) {
+    if (result.status === "passed") passed++;
+    else if (result.status === "failed") failed++;
+    else skipped++;
+  }
+  return { passed, failed, skipped };
+}
+
+/** One leg's state and counts: every status is kept, and so is the Vitest exit. */
+function legText(token: string, run: LegRun, note?: string): string {
+  const state = note === undefined ? token : `${token} (${note})`;
+  if (run.skipped === true) return state;
+  const { passed, failed, skipped } = statusCounts(run.results);
+  return `${state} pass=${passed} fail=${failed} skip=${skipped} exit=${run.status ?? "none"}`;
+}
+
 /** The progress line, and the form `--merge` reads back from a log. */
 function progressLine(entry: Entry, total: number, run: FileRun): string {
-  const offFailed = run.off.results.filter((result) => result.status === "failed").length;
-  const onFailed = run.on.results.filter((result) => result.status === "failed").length;
   const offState = run.off.skipped
-    ? "skipped (on had no native evidence)"
-    : (run.off.noReport ?? "PASS");
-  const onState = run.evidence === "native" ? "native" : (run.on.noReport ?? run.evidence);
+    ? legText("skipped", run.off, "on had no native evidence")
+    : legText(run.off.noReport ?? "ran", run.off);
+  const onState = legText(run.on.noReport ?? run.evidence, run.on);
   const rerun =
     run.rerun.off || run.rerun.on
       ? ` (rerun ${[run.rerun.off ? "off" : "", run.rerun.on ? "on" : ""].filter(Boolean).join(" ")})`
       : "";
-  return (
-    `[${String(entry.index + 1).padStart(3)}/${total}] ` +
-    `off ${offState} ${run.off.results.length - offFailed}/${run.off.results.length}  ` +
-    `on ${onState} ${run.on.results.length - onFailed}/${run.on.results.length}` +
-    `${rerun}  ${run.file}`
-  );
+  return `[${String(entry.index + 1).padStart(3)}/${total}] off ${offState}  on ${onState}${rerun}  ${run.file}`;
 }
 
 function main(): number {
@@ -320,7 +346,13 @@ function main(): number {
   if (merge !== undefined) {
     const runs = mergeRuns(merge);
     report(runs);
-    return failures(runs) ? 1 : 0;
+    const failed = failures(runs);
+    const uncovered = uncoveredFiles(runs);
+    if (uncovered.length) {
+      console.log(`\n=== merge is incomplete (${uncovered.length}) ===`);
+      for (const file of uncovered) console.log(`  missing: ${file}`);
+    }
+    return failed || uncovered.length ? 1 : 0;
   }
   const files = listServerTests();
   const from = Math.max(1, Number(flag("--from") ?? "1"));
@@ -335,9 +367,15 @@ function main(): number {
     shardIndex >= shardCount
   )
     throw new Error("--shard takes i/n with 0 <= i < n");
+  const only = flag("--only");
   const entries: Entry[] = [];
   for (const [index, file] of files.entries())
-    if (index + 1 >= from && index % shardCount === shardIndex) entries.push({ index, file });
+    if (
+      index + 1 >= from &&
+      index % shardCount === shardIndex &&
+      (only === undefined || file.includes(only))
+    )
+      entries.push({ index, file });
   const work = mkdtempSync(join(tmpdir(), "t1a-proof-"));
   const runs: FileRun[] = [];
   const started = Date.now();
@@ -357,43 +395,99 @@ function main(): number {
   return failures(runs) ? 1 : 0;
 }
 
-/** The progress line's fields: the state words, the counts, the rerun marker and the file. */
-const LINE =
+/** The current progress line: state, per-status counts, the Vitest exit, rerun, file. */
+const MODERN_LINE =
+  /^\[\s*\d+\/\d+\]\s+off\s+(ran|skipped|missing|unparsable|empty)(?:\s+\(([^)]*)\))?(?:\s+pass=(\d+)\s+fail=(\d+)\s+skip=(\d+)\s+exit=(\S+))?\s+on\s+(\S+)(?:\s+pass=(\d+)\s+fail=(\d+)\s+skip=(\d+)\s+exit=(\S+))?(?:\s+\(rerun\s+([^)]*)\))?\s{2,}(.+)$/;
+/** A log from before the counts: `PASS 5/6` only, so a non-passed test could be a failure. */
+const LEGACY_LINE =
   /^\[\s*\d+\/\d+\]\s+off\s+(PASS|skipped|missing|unparsable|empty)(?:\s+\(([^)]*)\))?\s+(\d+)\/(\d+)\s+on\s+(\S+)\s+(\d+)\/(\d+)(?:\s+\(rerun\s+([^)]*)\))?\s{2,}(.+)$/;
 
-/** A leg from a log line: counts become pass/fail placeholders, no test names to recover. */
-function legFromLog(state: string, passed: number, total: number, leg: Leg): LegRun {
+/** A leg from a log line: placeholders keep the status, no test names to recover. */
+function legFromLog(
+  state: string,
+  passed: number,
+  failed: number,
+  skipped: number,
+  status: number | null,
+  leg: Leg,
+): LegRun {
   if (state === "skipped")
     return { noReport: undefined, results: [], status: null, output: "", skipped: true };
   if (state === "missing" || state === "unparsable" || state === "empty")
-    return { noReport: state, results: [], status: null, output: "" };
+    return { noReport: state, results: [], status, output: "" };
   const results: Result[] = [];
-  for (let index = 0; index < total; index++)
+  for (let index = 0; index < passed + failed + skipped; index++)
     results.push({
       file: "",
       fullName: "(log only)",
       leg,
-      status: index < passed ? "passed" : "failed",
+      status: index < passed ? "passed" : index < passed + failed ? "failed" : "skipped",
     });
-  return { noReport: undefined, results, status: null, output: "" };
+  return { noReport: undefined, results, status, output: "" };
 }
 
-/** Results from one proof-run log, which records states and counts but no test names. */
+/** Results from one proof-run log, which keeps each test's status and the leg's exit. */
 function runsFromLog(path: string): FileRun[] {
   const runs: FileRun[] = [];
   for (const line of readFileSync(path, "utf8").split("\n")) {
-    const match = LINE.exec(line);
-    if (match === null) continue;
-    const [, state, , passedOff, totalOff, stateOn, passedOn, totalOn, rerun, file] = match;
-    const off = legFromLog(state ?? "", Number(passedOff), Number(totalOff), "off");
-    const onLeg =
-      stateOn === "native" || stateOn === "NONE" || stateOn === "platform-skipped"
-        ? legFromLog("PASS", Number(passedOn), Number(totalOn), "on")
-        : legFromLog(stateOn ?? "", Number(passedOn), Number(totalOn), "on");
-    const evidence: FileRun["evidence"] =
-      stateOn === "native" || stateOn === "NONE" || stateOn === "platform-skipped"
-        ? stateOn
-        : "no-report";
+    const modern = MODERN_LINE.exec(line);
+    if (modern !== null) {
+      const [, offState, , op, of, os, oe, onToken, np, nf, ns, ne, rerun, file] = modern;
+      const off = legFromLog(
+        offState ?? "",
+        Number(op ?? 0),
+        Number(of ?? 0),
+        Number(os ?? 0),
+        logExit(oe),
+        "off",
+      );
+      const noReport = onToken === "missing" || onToken === "unparsable" || onToken === "empty";
+      const on = legFromLog(
+        noReport ? (onToken ?? "") : "ran",
+        Number(np ?? 0),
+        Number(nf ?? 0),
+        Number(ns ?? 0),
+        logExit(ne),
+        "on",
+      );
+      const evidence: FileRun["evidence"] =
+        onToken === "native" || onToken === "NONE" || onToken === "platform-skipped"
+          ? onToken
+          : "no-report";
+      const rerunFlags = rerun ?? "";
+      runs.push({
+        file: file ?? "",
+        off,
+        on,
+        evidence,
+        rerun: { off: rerunFlags.includes("off"), on: rerunFlags.includes("on") },
+        platformGuard: false,
+        switchGuard: false,
+      });
+      continue;
+    }
+    const legacy = LEGACY_LINE.exec(line);
+    if (legacy === null) continue;
+    const [, state, , passedOff, totalOff, stateOn, passedOn, totalOn, rerun, file] = legacy;
+    const off = legFromLog(
+      state ?? "",
+      Number(passedOff),
+      Number(totalOff) - Number(passedOff),
+      0,
+      0,
+      "off",
+    );
+    const onIsEvidence =
+      stateOn === "native" || stateOn === "NONE" || stateOn === "platform-skipped";
+    const onLeg = legFromLog(
+      onIsEvidence ? "ran" : (stateOn ?? ""),
+      Number(passedOn),
+      onIsEvidence ? Number(totalOn) - Number(passedOn) : 0,
+      0,
+      0,
+      "on",
+    );
+    const evidence: FileRun["evidence"] = onIsEvidence ? (stateOn ?? "no-report") : "no-report";
     const rerunFlags = rerun ?? "";
     runs.push({
       file: file ?? "",
@@ -406,6 +500,12 @@ function runsFromLog(path: string): FileRun[] {
     });
   }
   return runs;
+}
+
+/** The discovered files a merge does not cover. */
+function uncoveredFiles(runs: readonly FileRun[]): string[] {
+  const present = new Set(runs.map((run) => run.file));
+  return listServerTests().filter((file) => !present.has(file));
 }
 
 /** JSON results and logs, deduped by file: a JSON result wins over a log line. */
@@ -428,9 +528,25 @@ function mergeRuns(paths: readonly string[]): FileRun[] {
   return [...merged.values()].toSorted((left, right) => left.file.localeCompare(right.file));
 }
 
-/** Counts as a failed leg: any failed test, or no report at all. */
+/** Counts as a failed leg: a failed test, a missing report, or a non-zero Vitest exit. */
 function legFailed(run: LegRun): boolean {
-  return run.noReport !== undefined || run.results.some((result) => result.status === "failed");
+  if (run.skipped === true) return false;
+  return (
+    run.noReport !== undefined ||
+    run.status !== 0 ||
+    run.results.some((result) => result.status === "failed")
+  );
+}
+
+/** Why a leg failed: its failed tests, its missing report, or its exit. */
+function why(leg: LegRun): string {
+  const failedTests = leg.results.filter((one) => one.status === "failed");
+  if (failedTests.length)
+    return failedTests
+      .map((one) => `${one.fullName}\n      ${(one.message ?? "").split("\n")[0]}`)
+      .join("\n    ");
+  if (leg.noReport !== undefined) return `report: ${leg.noReport}\n${tail(leg.output)}`;
+  return `exit status ${String(leg.status)}`;
 }
 
 /** The skips of a file, from both legs. */
@@ -444,6 +560,7 @@ function skips(run: FileRun): Result[] {
 function failures(runs: readonly FileRun[]): boolean {
   let failed = false;
   const onOnly = runs.filter((run) => legFailed(run.on) && !legFailed(run.off) && !run.off.skipped);
+  const offOnly = runs.filter((run) => legFailed(run.off) && !legFailed(run.on));
   const both = runs.filter((run) => legFailed(run.on) && legFailed(run.off));
   const noEvidence = runs.filter((run) => run.on.noReport === undefined && run.evidence === "NONE");
   const noReport = runs.filter(
@@ -472,17 +589,13 @@ function failures(runs: readonly FileRun[]): boolean {
     detail();
   };
   group("on leg fails, off passes", onOnly, () => {
-    for (const entry of onOnly)
-      for (const result of entry.on.results.filter((one) => one.status === "failed"))
-        console.log(`    ${result.fullName}\n      ${(result.message ?? "").split("\n")[0]}`);
-    for (const entry of onOnly)
-      if (entry.on.noReport !== undefined || entry.on.results.length === 0)
-        console.log(`    report: ${entry.on.noReport ?? "no tests"}\n${tail(entry.on.output)}`);
+    for (const entry of onOnly) console.log(`    on: ${why(entry.on)}`);
+  });
+  group("off leg fails, on passes", offOnly, () => {
+    for (const entry of offOnly) console.log(`    off: ${why(entry.off)}`);
   });
   group("both legs fail (pre-existing)", both, () => {
-    for (const entry of both)
-      for (const result of entry.off.results.filter((one) => one.status === "failed"))
-        console.log(`    ${result.fullName}\n      ${(result.message ?? "").split("\n")[0]}`);
+    for (const entry of both) console.log(`    off: ${why(entry.off)}\n    on: ${why(entry.on)}`);
   });
   // Not a failure: the file is in the list because it imports a server-starting helper, but the
   // on leg never reached a listener, so there is no native evidence to prove and nothing to fix.

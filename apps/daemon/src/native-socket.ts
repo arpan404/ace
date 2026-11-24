@@ -64,8 +64,9 @@ export class NativeSocket extends EventEmitter implements MainSocket {
    * `ws`'s ready state as the handler sees it. It moves to CLOSING the moment a close, a
    * terminate or an error starts one, and the getter also takes the Rust socket's own state
    * once that is no longer OPEN, so a peer's close frame is visible before its `close` event
-   * crosses the threadsafe function, as `ws` reports it. A send in between takes ws's
-   * after-close path.
+   * crosses the threadsafe function. As in `ws` (`receiverOnConclude` calls `close()`), that is
+   * CLOSING: CLOSED is published only with the `close` event, so a queued message's handler still
+   * sees a socket that is not silently gone. A send in between takes ws's after-close path.
    */
   #state: ReadyState = OPEN;
 
@@ -79,12 +80,14 @@ export class NativeSocket extends EventEmitter implements MainSocket {
 
   get readyState(): ReadyState {
     // The Rust socket seals its state when the peer's close frame arrives, before that `close`
-    // crosses the threadsafe function. Reading it here lets a caller see the closed socket on
-    // the turn `ws` reports one: notification delivery must not hand a frame to a device whose
-    // socket is already gone (`notification-race.process`).
+    // crosses the threadsafe function. Reading it here lets a caller see a closing socket on the
+    // turn `ws` reports one: notification delivery must not hand a frame to a device whose socket
+    // is already gone (`notification-race.process`), and a close request still gets its bounded
+    // grace (`server-socket-close.ts`).
     if (this.#state === OPEN) {
-      const native = this.#handle.readyState();
-      if (native !== OPEN) this.#state = native === CLOSED ? CLOSED : CLOSING;
+      // CLOSING, never CLOSED: Rust's sealed state means the peer's close frame arrived, and the
+      // `close` event that publishes CLOSED is still ahead in this socket's ordered events.
+      if (this.#handle.readyState() !== OPEN) this.#state = CLOSING;
     }
     return this.#state;
   }

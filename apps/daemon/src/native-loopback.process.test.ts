@@ -183,36 +183,41 @@ it("the proxy guard refuses everything that did not come through the hop, and on
   for (const name of Object.keys(hopHeaders())) expect(reached[0]?.headers[name]).toBeUndefined();
 });
 
-it("a request from a non-loopback peer is refused even carrying a valid hop", async () => {
-  const outside = outsideAddress();
-  if (outside === undefined) return; // A machine with only loopback cannot present this peer.
-  const server = createHttpServer(
-    proxyGuard(HOP_SECRET, (_request, response) => {
-      response.writeHead(200, { "Content-Length": "0" }).end();
-    }),
-  );
-  server.listen(0, "0.0.0.0");
-  await once(server, "listening");
-  cleanups.push(() => void server.close());
-  const address = server.address();
-  if (address === null || typeof address === "string") throw new Error("No guard address");
-  const request = httpRequest({
-    host: outside,
-    port: address.port,
-    path: "/guarded",
-    headers: hopHeaders(),
-    agent: false,
-  });
-  const status = new Promise<number>((resolve, reject) => {
-    request.once("response", (response) => {
-      response.resume();
-      response.once("end", () => resolve(response.statusCode ?? 0));
+// The guard refuses a peer that did not arrive over loopback; the case needs an interface the
+// request can come from, so a machine with only loopback skips it with that reason.
+it.skipIf(outsideAddress() === undefined)(
+  "a request from a non-loopback peer is refused even carrying a valid hop",
+  async () => {
+    const outside = outsideAddress();
+    if (outside === undefined) throw new Error("skipIf should have skipped: no outside address");
+    const server = createHttpServer(
+      proxyGuard(HOP_SECRET, (_request, response) => {
+        response.writeHead(200, { "Content-Length": "0" }).end();
+      }),
+    );
+    server.listen(0, "0.0.0.0");
+    await once(server, "listening");
+    cleanups.push(() => void server.close());
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("No guard address");
+    const request = httpRequest({
+      host: outside,
+      port: address.port,
+      path: "/guarded",
+      headers: hopHeaders(),
+      agent: false,
     });
-    request.once("error", reject);
-  });
-  request.end();
-  expect(await status).toBe(403);
-});
+    const status = new Promise<number>((resolve, reject) => {
+      request.once("response", (response) => {
+        response.resume();
+        response.once("end", () => resolve(response.statusCode ?? 0));
+      });
+      request.once("error", reject);
+    });
+    request.end();
+    expect(await status).toBe(403);
+  },
+);
 
 it.runIf(transportParts().has("loopback"))(
   "a request straight to the internal hop port is refused without the secret",
@@ -321,6 +326,9 @@ async function stopFromChild(options: {
 
 it("a stop request's caller is the process holding the connection, through the hop", async () => {
   const received: Member[][] = [];
+  // `peer-process.ts` verifies nobody on Windows (no peer credentials and no lsof), so there the
+  // verified chain is empty on every hint.
+  const verifies = process.platform !== "win32";
   const f = await fixture({}, (_store, home) => ({ shutdown: recordingShutdown(home, received) }));
   cleanups.push(() => f.close());
   const port = Number(new URL(f.server.httpUrl).port);
@@ -328,13 +336,13 @@ it("a stop request's caller is the process holding the connection, through the h
   const own = await stopFromChild({ port, hint: "own", forge: false });
   expect(own.status).toBe(0);
   expect(received).toHaveLength(1);
-  expect(received[0]?.[0]?.pid).toBe(own.pid);
+  expect(received[0]?.[0]?.pid).toBe(verifies ? own.pid : undefined);
 
   // The child's own forged hop ports are replaced by the hop's real ones, so the chain stands.
   const forged = await stopFromChild({ port, hint: "own", forge: true });
   expect(forged.status).toBe(0);
   expect(received).toHaveLength(2);
-  expect(received[1]?.[0]?.pid).toBe(forged.pid);
+  expect(received[1]?.[0]?.pid).toBe(verifies ? forged.pid : undefined);
 
   // A hint naming a process that doesn't hold this connection spares nobody.
   const wrong = await stopFromChild({ port, hint: "test", forge: false });
@@ -355,6 +363,15 @@ it("a peer that drops the TCP connection is reported as 1006", async () => {
   const code = closed(server);
   client.terminate();
   expect(await code).toBe(1006);
+});
+
+it("a send while closing reports CLOSING, as ws does", async () => {
+  const { server } = await socketPair();
+  server.close(1000, "bye");
+  const message = await new Promise<string>((resolve) => {
+    server.send("during close", (error) => resolve(error?.message ?? ""));
+  });
+  expect(message).toBe("WebSocket is not open: readyState 2 (CLOSING)");
 });
 
 it("a send after close calls back once with an error on the next tick, through both overloads", async () => {

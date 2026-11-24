@@ -12,7 +12,7 @@
  * line. An import this script can't resolve fails it, naming the import.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -245,7 +245,7 @@ export function listServerTests(): string[] {
   const known = new Set(files);
   const importers = new Map<string, Set<string>>();
   for (const file of files) {
-    for (const target of importsOf(file, file.slice(0, file.lastIndexOf("/")))) {
+    for (const target of importsOf(file, dirname(file))) {
       if (!known.has(target)) continue;
       const set = importers.get(target);
       if (set) set.add(file);
@@ -269,10 +269,11 @@ export function listServerTests(): string[] {
   const found = new Set<string>();
   for (const file of files) {
     if (!isTest(file)) continue;
-    const imports = importsOf(file, file.slice(0, file.lastIndexOf("/")));
+    const imports = importsOf(file, dirname(file));
     if (imports.some((target) => set.has(target)) || seedsServer(file)) found.add(file);
   }
-  return [...found].map((file) => relative(root, file)).toSorted();
+  // One spelling across platforms: the proof runner and its result keys compare these paths.
+  return [...found].map((file) => relative(root, file).split(sep).join("/")).toSorted();
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
