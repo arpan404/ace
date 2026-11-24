@@ -155,8 +155,12 @@ export function createDaemonUsage(
       if (wait !== null) arm(wait);
     });
   };
+  /** One retry timer, and no coalesced wake beside it: a failure is retried only by the backoff. */
   const arm = (milliseconds: number) => {
     retry?.();
+    // A commit during the failed lap may have armed a wake: it would retry before the backoff.
+    scheduled?.();
+    scheduled = undefined;
     retry = replayTimer.delay(() => {
       retry = undefined;
       replay();

@@ -9,6 +9,21 @@ import { createDaemonUsage } from "./usage.ts";
 
 const at = Date.parse("2026-10-02T12:00Z");
 const query = UsageQuery.parse({ from: "2026-10-01", to: "2026-10-03", groupBy: ["thread"] });
+/** The replay's injected timer, held so a test fires a wake or retry itself. */
+function replayTimers() {
+  const timers: { ms: number; fire(): void }[] = [];
+  return {
+    timers,
+    delay(fire: () => void, ms: number) {
+      const timer = { ms, fire };
+      timers.push(timer);
+      return () => {
+        const index = timers.indexOf(timer);
+        if (index >= 0) timers.splice(index, 1);
+      };
+    },
+  };
+}
 
 test("analytics replay backs off, records its cause, and waits for new data once it gives up", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-usage-backoff-"));
@@ -153,7 +168,7 @@ test("a burst of commits waking usage causes one replay, which reads the last co
   // Reads count replay laps: a lap reads the page, and its flush can commit, so a lap that a
   // commit wakes must not become the next lap.
   let reads = 0;
-  const timers: { ms: number; fire(): void }[] = [];
+  const { timers, delay } = replayTimers();
   const usage = createDaemonUsage(
     home,
     {
@@ -172,16 +187,7 @@ test("a burst of commits waking usage causes one replay, which reads the last co
     () => at,
     undefined,
     undefined,
-    {
-      delay(fire, ms) {
-        const timer = { ms, fire };
-        timers.push(timer);
-        return () => {
-          const index = timers.indexOf(timer);
-          if (index >= 0) timers.splice(index, 1);
-        };
-      },
-    },
+    { delay },
   );
   try {
     await usage.catchUp();
@@ -196,8 +202,11 @@ test("a burst of commits waking usage causes one replay, which reads the last co
     const burst = timers.shift();
     if (!burst) throw new Error("The burst scheduled no replay");
     burst.fire();
-    await usage.catchUp();
-    expect(reads).toBeGreaterThan(readsBeforeBurst);
+    // Wait on the replay the timer itself started: one pass reads the burst's page, then the one
+    // empty page that ends it. A manual catchUp would hide a timer that started no replay.
+    await expect.poll(() => reads, { timeout: 2000 }).toBe(readsBeforeBurst + 2);
+    expect(reads).toBe(readsBeforeBurst + 2);
+    expect(timers).toEqual([]);
     // The one replay after the burst sees every commit, including the last: incremental counts
     // from opencode add up, so 10 requires all four events and not just the first.
     expect((await usage.series(query)).cursor).toBe(store.headSeq());
@@ -207,6 +216,90 @@ test("a burst of commits waking usage causes one replay, which reads the last co
     expect(timers).toHaveLength(1);
     await usage.close();
     expect(timers).toEqual([]);
+  } finally {
+    await usage.close().catch(() => {});
+    store.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("a commit during a failing replay waits for the backoff instead of retrying early", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-usage-fail-wake-"));
+  const store = new Store(join(home, "events.sqlite"), undefined, { now: () => at });
+  const workspace = store.createWorkspace("/repo", "Repo");
+  const threadId = ThreadId.parse("usage-fail-wake");
+  store.appendEvents(
+    threadId,
+    [
+      EventPayload.parse({
+        type: "thread.created",
+        thread: {
+          id: threadId,
+          workspaceId: workspace,
+          provider: "opencode",
+          title: "Usage",
+          status: { state: "new" },
+          createdAt: at,
+          updatedAt: at,
+        },
+      }),
+    ],
+    at,
+  );
+  const sample = (inputTokens: number) =>
+    store.appendEvents(
+      threadId,
+      [
+        EventPayload.parse({
+          type: "usage.updated",
+          agentId: "root",
+          inputTokens,
+          outputTokens: 0,
+        }),
+      ],
+      at,
+    );
+  let failing = false;
+  let committedDuringLap = false;
+  const errors: unknown[] = [];
+  const { timers, delay } = replayTimers();
+  const usage = createDaemonUsage(
+    home,
+    {
+      subscribeUsage: (listener) => store.subscribeUsage(listener),
+      readUsagePage(options) {
+        if (!failing) return store.readUsagePage(options);
+        // A commit lands while this lap is in flight, waking the replay again before the lap fails.
+        if (!committedDuringLap) {
+          committedDuringLap = true;
+          sample(7);
+        }
+        throw new Error("database disk image is malformed");
+      },
+      headSeq: () => store.headSeq(),
+      flushLiveWrites: () => store.flushLiveWrites(),
+      usageReplay: store.usageReplay,
+    },
+    UsageSettings.parse({ timezone: "UTC" }),
+    (error) => errors.push(error),
+    undefined,
+    () => at,
+    undefined,
+    undefined,
+    { delay },
+  );
+  try {
+    await usage.catchUp();
+    failing = true;
+    sample(3);
+    expect(timers.map((timer) => timer.ms)).toEqual([100]);
+    timers.shift()?.fire();
+    await expect.poll(() => errors.length, { timeout: 2000 }).toBe(1);
+    // The wake the in-lap commit armed is gone: only the backoff retry is armed.
+    expect(timers.map((timer) => timer.ms)).toEqual([1000]);
+    timers.shift()?.fire();
+    await expect.poll(() => errors.length, { timeout: 2000 }).toBe(2);
+    expect(timers.map((timer) => timer.ms)).toEqual([2000]);
   } finally {
     await usage.close().catch(() => {});
     store.close();
