@@ -88,9 +88,16 @@ pub struct NativeSocketHandle {
 
 impl NativeSocketHandle {
     /// Opens T1a.4's socket over a flushed `101` and counts it until it reports
-    /// `close`: the listener's close waits on this count.
-    pub(crate) fn open(shared: Arc<Shared>, stream: Box<dyn ace_transport::UpgradeIo>) -> Self {
-        let (handle, events) = ace_transport::socket::open(stream);
+    /// `close`: the listener's close waits on this count. `deflate` is the
+    /// `permessage-deflate` extension this connection negotiated (T1b.3b), and
+    /// `stats` the listener's counters.
+    pub(crate) fn open(
+        shared: Arc<Shared>,
+        stream: Box<dyn ace_transport::UpgradeIo>,
+        deflate: Option<ace_transport::Deflate>,
+        stats: Option<Arc<ace_transport::Stats>>,
+    ) -> Self {
+        let (handle, events) = ace_transport::socket::open(stream, deflate, stats);
         let id = shared.live.add();
         Self {
             inner: Arc::new(SocketState {
@@ -124,13 +131,16 @@ impl NativeSocketHandle {
     /// `ws`'s send while open: `queued` (and then exactly one `sent`), or why
     /// nothing was queued. The shell tells `not-open` (a close race) apart from
     /// `full` and `invalid-utf8`, which only fail that one send's callback.
+    /// `compress` is the shell's per-message answer (the compression allowlist);
+    /// Rust adds `ws`'s threshold and compresses nothing without the extension.
     #[napi(catch_unwind)]
-    pub fn send(&self, data: Uint8Array, binary: bool, id: f64) -> String {
-        match self
-            .inner
-            .handle
-            .send(bytes::Bytes::copy_from_slice(&data), binary, count(id))
-        {
+    pub fn send(&self, data: Uint8Array, binary: bool, compress: bool, id: f64) -> String {
+        match self.inner.handle.send(
+            bytes::Bytes::copy_from_slice(&data),
+            binary,
+            compress,
+            count(id),
+        ) {
             SendResult::Queued => "queued",
             SendResult::NotOpen => "not-open",
             SendResult::Full => "full",

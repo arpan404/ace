@@ -12,7 +12,7 @@ use bytes::{Buf, BytesMut};
 use futures_util::Stream;
 use tokio::io::{AsyncRead, ReadBuf};
 
-use super::assemble::{Assembler, Plain};
+use super::assemble::{Assembler, MessageBody, Plain};
 use super::header::{First, extended_len, parse_first, payload_length};
 use super::{Frame, FrameError};
 
@@ -32,10 +32,10 @@ enum State {
     Payload,
 }
 
-pub struct FrameReader<R> {
+pub struct FrameReader<R, B: MessageBody = Plain> {
     io: R,
     buffer: BytesMut,
-    assembler: Assembler<Plain>,
+    assembler: Assembler<B>,
     allow_rsv1: bool,
     state: State,
     first: Option<First>,
@@ -43,14 +43,24 @@ pub struct FrameReader<R> {
     length: usize,
 }
 
-impl<R: AsyncRead + Unpin> FrameReader<R> {
+impl<R: AsyncRead + Unpin> FrameReader<R, Plain> {
     /// A reader over `io`, with no extension negotiated and an empty assembler.
     pub fn new(io: R) -> Self {
+        Self::with_body(io, Plain::new())
+    }
+}
+
+impl<R: AsyncRead + Unpin, B: MessageBody> FrameReader<R, B> {
+    /// A reader that collects messages in `body`. RSV1 is accepted exactly when the
+    /// body decodes an extension ([`MessageBody::allows_rsv1`]).
+    pub fn with_body(io: R, body: B) -> Self {
+        let assembler = Assembler::with_body(body);
+        let allow_rsv1 = assembler.body().allows_rsv1();
         Self {
             io,
             buffer: BytesMut::with_capacity(READ_CHUNK),
-            assembler: Assembler::new(),
-            allow_rsv1: false,
+            assembler,
+            allow_rsv1,
             state: State::First,
             first: None,
             mask: [0; 4],
@@ -60,7 +70,7 @@ impl<R: AsyncRead + Unpin> FrameReader<R> {
 
     /// The assembler this reader checks lengths against. The driver feeds every
     /// frame to it, so its message-in-flight accounting is the reader's.
-    pub fn assembler_mut(&mut self) -> &mut Assembler<Plain> {
+    pub fn assembler_mut(&mut self) -> &mut Assembler<B> {
         &mut self.assembler
     }
 
@@ -117,7 +127,7 @@ impl<R: AsyncRead + Unpin> FrameReader<R> {
     }
 }
 
-impl<R: AsyncRead + Unpin> Stream for FrameReader<R> {
+impl<R: AsyncRead + Unpin, B: MessageBody + Unpin> Stream for FrameReader<R, B> {
     type Item = Result<Frame, FrameError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -209,7 +219,9 @@ impl<R: AsyncRead + Unpin> Stream for FrameReader<R> {
                             "missing frame header",
                         ))));
                     };
-                    let mut payload = this.buffer.split_to(this.length).to_vec();
+                    // Split, unmask in place, freeze: the frame's bytes are the
+                    // reader's own, never a second copy of them.
+                    let mut payload = this.buffer.split_to(this.length);
                     unmask(&mut payload, this.mask);
                     this.state = State::First;
                     this.first = None;
@@ -217,7 +229,7 @@ impl<R: AsyncRead + Unpin> Stream for FrameReader<R> {
                         fin: first.fin,
                         rsv1: first.rsv1,
                         opcode: first.opcode,
-                        payload,
+                        payload: payload.freeze(),
                     };
                     return Poll::Ready(Some(Ok(frame)));
                 }

@@ -15,12 +15,14 @@ use tokio::io::{ReadHalf, WriteHalf};
 use tokio::sync::mpsc;
 
 use super::{CLOSED, CLOSING, OPEN, Queued, Shared, SocketEvent, lock};
+use crate::deflate::{Body, Deflate, Deflater, deflate_window, may_compress};
 use crate::driver::UpgradeIo;
 use crate::frame::assemble::{Message, conclude};
+use crate::frame::write::header_length;
 use crate::frame::{Frame, FrameError, FrameReader, FrameWriter, Opcode, Outbound};
 use crate::prefixed::WRITE_TIMEOUT;
 
-type Source = FrameReader<ReadHalf<Box<dyn UpgradeIo>>>;
+type Source = FrameReader<ReadHalf<Box<dyn UpgradeIo>>, Body>;
 type Sink = FrameWriter<WriteHalf<Box<dyn UpgradeIo>>>;
 
 /// How a socket's conversation ended, and what it still owes the wire.
@@ -38,7 +40,7 @@ enum Wire {
     Nothing,
     /// The peer closed. The writer sends the local close if one is queued, else
     /// echoes this payload, unless a close frame already went out.
-    Peer(Vec<u8>),
+    Peer(Bytes),
     /// `ws` closes with this code (a violation, or its own local close).
     Close(u16),
 }
@@ -60,8 +62,9 @@ impl Ending {
         let message = error.to_string();
         let wire = match &error {
             FrameError::TooBig(_) => Wire::Close(1009),
-            // Invalid UTF-8 in a text frame is its own code, not a protocol one.
-            FrameError::InvalidUtf8(_) => Wire::Close(1007),
+            // Invalid UTF-8 in a text frame is its own code, not a protocol one;
+            // a compressed message that does not decode is its neighbour.
+            FrameError::InvalidUtf8(_) | FrameError::Compression(_) => Wire::Close(1007),
             FrameError::Protocol(_) => Wire::Close(1002),
             FrameError::TooManyFragments(_) => Wire::Close(1008),
             FrameError::Io(_) => Wire::Nothing,
@@ -89,7 +92,7 @@ impl Ending {
     /// when the frame named no code). What is written is decided in `finish`,
     /// because `ws` keeps the local close it already queued and ends without a
     /// second frame once one has been sent.
-    fn peer(frame: Option<(u16, Vec<u8>)>, reply: Vec<u8>) -> Self {
+    fn peer(frame: Option<(u16, Vec<u8>)>, reply: Bytes) -> Self {
         let (code, reason) = frame.unwrap_or((1005, Vec::new()));
         Ending {
             code,
@@ -105,12 +108,17 @@ pub(super) async fn run(
     shared: Arc<Shared>,
     queued: mpsc::UnboundedReceiver<Queued>,
     woken: mpsc::Receiver<()>,
+    deflate: Option<Deflate>,
 ) {
     let (reader, writer) = tokio::io::split(stream);
-    let source = FrameReader::new(reader);
+    let body = match deflate {
+        Some(_) => Body::compressed(),
+        None => Body::plain(),
+    };
+    let source = FrameReader::with_body(reader, body);
     let sink = FrameWriter::new(writer);
     let reader = tokio::spawn(read(source, Arc::clone(&shared), woken));
-    write(sink, Arc::clone(&shared), queued).await;
+    write(sink, Arc::clone(&shared), queued, deflate).await;
     // The writer has ended the conversation; the reader returns at once.
     let _ = reader.await;
 }
@@ -118,6 +126,9 @@ pub(super) async fn run(
 /// Delivers what arrives until the socket ends, and records why. A peer's ping
 /// is answered here and never surfaced; a pong is ignored, as `autoPong` does.
 async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver<()>) {
+    // The message in flight is compressed (its first data frame set RSV1), so
+    // completing it counts one inflated message.
+    let mut inflating = false;
     let ending = loop {
         let readable = shared.readable();
         tokio::select! {
@@ -126,15 +137,28 @@ async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver
             // nothing more.
             _ = shared.over.cancelled() => return,
             frame = source.next(), if readable => match frame {
-                Some(Ok(frame)) => match frame_in(&shared, &mut source, frame) {
-                    Ok(Some(message)) => {
-                        if !shared.deliver(message.data, message.binary) {
-                            break Ending::lost();
-                        }
+                Some(Ok(frame)) => {
+                    if matches!(frame.opcode, Opcode::Text | Opcode::Binary) && frame.rsv1 {
+                        inflating = true;
                     }
-                    Ok(None) => {}
-                    Err(ending) => break ending,
-                },
+                    match frame_in(&shared, &mut source, frame) {
+                        Ok(Some(message)) => {
+                            if inflating
+                                && let Some(stats) = &shared.stats
+                            {
+                                stats.inflated_in();
+                            }
+                            inflating = false;
+                            if !shared.deliver(message.data, message.binary) {
+                                break Ending::lost();
+                            }
+                        }
+                        // A control frame between fragments, or a fragment that
+                        // did not finish the message: nothing is delivered.
+                        Ok(None) => {}
+                        Err(ending) => break ending,
+                    }
+                }
                 Some(Err(error)) => break Ending::failed(error),
                 None => break Ending::lost(),
             },
@@ -175,8 +199,19 @@ fn frame_in(shared: &Shared, source: &mut Source, frame: Frame) -> Result<Option
 
 /// Flushes what `send` queued until the conversation ends, then ends it. A local
 /// close starts `ws`'s close timeout at the call, so a queue of frames still
-/// waiting cannot postpone the socket being destroyed.
-async fn write(mut sink: Sink, shared: Arc<Shared>, mut queued: mpsc::UnboundedReceiver<Queued>) {
+/// waiting cannot postpone the socket being destroyed. Compression happens here,
+/// in the socket's order and with one context, reset after every message (no
+/// context takeover); a message past [`OFF_THREAD`] is deflated on the blocking
+/// pool so the runtime's worker stays free.
+async fn write(
+    mut sink: Sink,
+    shared: Arc<Shared>,
+    mut queued: mpsc::UnboundedReceiver<Queued>,
+    deflate: Option<Deflate>,
+) {
+    let mut deflater = deflate
+        .as_ref()
+        .map(|deflate| Deflater::new(deflate_window(deflate.server_max_window_bits())));
     loop {
         let item = tokio::select! {
             biased;
@@ -193,17 +228,32 @@ async fn write(mut sink: Sink, shared: Arc<Shared>, mut queued: mpsc::UnboundedR
         };
         let owed = item.own.map(|own| own.id);
         let close = item.frame.opcode == Opcode::Close;
-        match flushed(&shared, sink.send(item.frame)).await {
+        let frame = match compress(&shared, &mut deflater, item.frame, item.compress).await {
+            Ok(frame) => frame,
+            Err(ending) => {
+                shared.release(item.charge, item.memory, item.control);
+                return finish(sink, &shared, &mut queued, ending, owed).await;
+            }
+        };
+        // ws leaves only the compressed frame's bytes pending once deflate
+        // finished (sender.js:511-527, websocket.js:133-136): the queued charge
+        // was the message's original size, so the difference moves now.
+        let charge = if frame.rsv1 {
+            shared.recharge(item.charge, wire_bytes(&frame))
+        } else {
+            item.charge
+        };
+        match flushed(&shared, sink.send(frame)).await {
             Ok(Ok(())) => {
                 if close {
                     shared.close_flushed();
                 }
-                shared.settle(item.own, item.charge, item.memory, item.control, None);
+                shared.settle(item.own, charge, item.memory, item.control, None);
             }
             Ok(Err(error)) => {
                 shared.settle(
                     item.own,
-                    item.charge,
+                    charge,
                     item.memory,
                     item.control,
                     Some(not_open(shared.state())),
@@ -220,7 +270,7 @@ async fn write(mut sink: Sink, shared: Arc<Shared>, mut queued: mpsc::UnboundedR
             // The frame is owed a `Sent`, which `finish` reports once the state
             // is sealed.
             Err(ending) => {
-                shared.release(item.charge, item.memory, item.control);
+                shared.release(charge, item.memory, item.control);
                 // The interrupted frame may be the local close itself. It counts
                 // as sent: `finish` flushes what is in flight, and a second close
                 // must never follow it.
@@ -294,7 +344,7 @@ async fn finish(
                 if inner.close_sent {
                     None
                 } else if inner.close.is_some() {
-                    inner.close.take()
+                    inner.close.take().map(Bytes::from)
                 } else {
                     Some(reply)
                 }
@@ -303,7 +353,12 @@ async fn finish(
         }
         // `ws`'s answer to a protocol or size violation, before it drops.
         Wire::Close(code) => {
-            close_frame(&mut sink, shared, code.to_be_bytes().to_vec()).await;
+            close_frame(
+                &mut sink,
+                shared,
+                Bytes::copy_from_slice(&code.to_be_bytes()),
+            )
+            .await;
         }
         Wire::Nothing => {}
     }
@@ -331,7 +386,7 @@ async fn finish(
 /// close deadline. A frame already in flight is completed first, never
 /// interleaved; if it cannot be finished the stream is dropped without a close,
 /// as `ws` drops a socket it cannot drain.
-async fn close_frame(sink: &mut Sink, shared: &Shared, payload: Vec<u8>) {
+async fn close_frame(sink: &mut Sink, shared: &Shared, payload: bytes::Bytes) {
     // Finish whatever is in flight first, whether or not a close still needs to
     // go out: a close already being written is completed, never followed.
     if !matches!(terminal(shared, sink.flush()).await, Some(Ok(()))) {
@@ -343,11 +398,83 @@ async fn close_frame(sink: &mut Sink, shared: &Shared, payload: Vec<u8>) {
     let frame = Outbound {
         opcode: Opcode::Close,
         rsv1: false,
-        payload: Bytes::from(payload),
+        payload,
     };
     if matches!(terminal(shared, sink.send(frame)).await, Some(Ok(()))) {
         shared.close_flushed();
     }
+}
+
+/// A message at least this large is deflated off the runtime's worker threads.
+/// Level 6 deflates at roughly 100–300 MB/s, so 64 KiB is about half a
+/// millisecond of a worker — long enough to delay every other socket that shares
+/// it, and the size the outbox already packs a frame at, so it is the size a
+/// send arrives in. A message past it is up to the 1 MiB cap, 16 times this.
+pub(crate) const OFF_THREAD: usize = 64 * 1024;
+
+/// The frame this send puts on the wire: deflated with RSV1 set when the socket
+/// negotiated `permessage-deflate`, the shell asked for it and the payload
+/// reached the threshold; exactly as sent otherwise. A deflate that fails sends
+/// the message plain rather than a broken frame, and nothing is compressed on a
+/// socket that negotiated no extension (T1b.0 §3's trap). Large messages run on
+/// the blocking pool; the writer awaits each one, so order holds and the
+/// conversation's end abandons the wait the same way a write does.
+async fn compress(
+    shared: &Shared,
+    deflater: &mut Option<Deflater>,
+    frame: Outbound,
+    ask: bool,
+) -> Result<Outbound, Ending> {
+    if !may_compress(frame.opcode, frame.payload.len(), ask) {
+        return Ok(frame);
+    }
+    let Some(mut owned) = deflater.take() else {
+        return Ok(frame);
+    };
+    if frame.payload.len() < OFF_THREAD {
+        let deflated = owned.deflate(&frame.payload);
+        *deflater = Some(owned);
+        return Ok(deflated_frame(frame, deflated, shared));
+    }
+    let payload = frame.payload.clone();
+    let task = tokio::task::spawn_blocking(move || {
+        let deflated = owned.deflate(&payload);
+        (owned, deflated)
+    });
+    tokio::select! {
+        biased;
+        _ = shared.over.cancelled() => Err(shared.ended()),
+        _ = shared.expired.cancelled() => Err(Ending::lost()),
+        joined = task => match joined {
+            Ok((owned, deflated)) => {
+                *deflater = Some(owned);
+                Ok(deflated_frame(frame, deflated, shared))
+            }
+            // The blocking task panicked: nothing more can be trusted here.
+            Err(_) => Err(Ending::lost()),
+        },
+    }
+}
+
+/// The compressed frame, or the message as it was when the deflater failed.
+fn deflated_frame(frame: Outbound, deflated: Option<Vec<u8>>, shared: &Shared) -> Outbound {
+    let Some(payload) = deflated else {
+        return frame;
+    };
+    if let Some(stats) = &shared.stats {
+        stats.deflated_out();
+    }
+    Outbound {
+        opcode: frame.opcode,
+        rsv1: true,
+        payload: Bytes::from(payload),
+    }
+}
+
+/// The bytes the frame takes on the wire: its unmasked header and payload, which
+/// is what `ws`'s `bufferedAmount` counts for a frame waiting to be written.
+fn wire_bytes(frame: &Outbound) -> u64 {
+    (header_length(frame.payload.len()) + frame.payload.len()) as u64
 }
 
 /// `ws`'s words for a send that could not be completed.

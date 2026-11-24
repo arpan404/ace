@@ -21,6 +21,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
 
+use crate::deflate::Deflate;
 use crate::driver::{self, Grace, RefuseUpgrades, UpgradeIo};
 use crate::hop::HopSecret;
 use crate::limits::ConnectionLimits;
@@ -208,7 +209,13 @@ impl UpgradeAdmission for Accepting {
 struct Dropping;
 
 impl SocketSink for Dropping {
-    fn opened(&self, _reservation: u64, stream: Box<dyn UpgradeIo>, _user_agent: Option<String>) {
+    fn opened(
+        &self,
+        _reservation: u64,
+        stream: Box<dyn UpgradeIo>,
+        _user_agent: Option<String>,
+        _deflate: Option<Deflate>,
+    ) {
         drop(stream);
     }
 }

@@ -66,7 +66,7 @@ export interface NativeSocketHandle {
   /** Delivers this socket's events, in order; they queue in Rust until this call. */
   listen(events: (event: NativeSocketEvent) => void): void;
   /** `ws`'s send while open: what happened to the frame, and which `sent` it owes. */
-  send(data: Buffer, binary: boolean, id: number): NativeSendResult;
+  send(data: Buffer, binary: boolean, compress: boolean, id: number): NativeSendResult;
   close(code: number | null, reason: string): void;
   terminate(): void;
   pause(): void;

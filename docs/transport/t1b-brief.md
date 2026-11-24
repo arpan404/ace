@@ -120,7 +120,8 @@ every run-time decision of remote access (`remote-runtime.ts`, `remote-direct.ts
 9. **Compressed bytes differ**: zlib-rs at level 6 and Node's zlib at level 6, memLevel 8, need not
    produce identical streams. Sizes stay within ±3% (the bench checks it); every inflater reads
    both. `ws`'s `concurrencyLimit: 10` has no counterpart: each socket's writer compresses its own
-   messages in order on tokio.
+   messages in order, and one of at least 64 KiB runs on the blocking pool (`spawn_blocking`)
+   rather than a runtime worker, so a big message cannot stall the sockets that share it.
 10. **Extension parameter numbers**: window-bit values are decimal digits only. `ws` reads them
     with JavaScript's `+value`, so `0x0a`, `1e1`, `10.0` and `+10` pass there and are refused with
     `ws`'s 400 here. No client sends them.
@@ -716,7 +717,10 @@ move, and every later change to `server.ts` is net zero or negative.
 - **Must not**: decide to compress anything in Rust beyond the threshold; compress control frames;
   negotiate on loopback.
 - **Reviewer checks**: the negotiation table's expected values come from running `ws`; the
-  inflate cap aborts mid-stream (a 2 KiB frame inflating to 2 MiB allocates under 1.1 MiB).
+  inflate cap aborts mid-stream (a 2 KiB frame inflating to 2 MiB allocates under 1.1 MiB); the
+  message buffer reserves exactly what it holds, so its capacity never passes the cap, and the
+  frame reader hands each fragment to the inflater without copying it — a maximal compressed
+  fragment costs its wire bytes once, not twice.
 
 ### T1b.4 Run-time toggling of the native remote listeners
 

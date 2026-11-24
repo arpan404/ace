@@ -94,7 +94,7 @@ fn text(fin: bool, payload: &[u8]) -> Frame {
         fin,
         rsv1: false,
         opcode: Opcode::Text,
-        payload: payload.to_vec(),
+        payload: Bytes::copy_from_slice(payload),
     }
 }
 
@@ -103,7 +103,7 @@ fn continuation(fin: bool, payload: &[u8]) -> Frame {
         fin,
         rsv1: false,
         opcode: Opcode::Continuation,
-        payload: payload.to_vec(),
+        payload: Bytes::copy_from_slice(payload),
     }
 }
 
@@ -112,7 +112,7 @@ fn ping(payload: &[u8]) -> Frame {
         fin: true,
         rsv1: false,
         opcode: Opcode::Ping,
-        payload: payload.to_vec(),
+        payload: Bytes::copy_from_slice(payload),
     }
 }
 
@@ -131,14 +131,14 @@ async fn frames_come_off_the_wire_in_order_and_unmasked() {
                 fin: true,
                 rsv1: false,
                 opcode: Opcode::Binary,
-                payload: vec![0, 1, 255],
+                payload: Bytes::from(vec![0, 1, 255]),
             },
             ping(b"hb"),
             Frame {
                 fin: true,
                 rsv1: false,
                 opcode: Opcode::Pong,
-                payload: Vec::new(),
+                payload: Bytes::new(),
             },
         ]
     );
@@ -172,7 +172,7 @@ async fn a_mask_is_applied_to_every_payload_and_a_zero_mask_changes_nothing() {
             fin: true,
             rsv1: false,
             opcode: Opcode::Binary,
-            payload: vec![7, 8, 9, 10, 11],
+            payload: Bytes::from(vec![7, 8, 9, 10, 11]),
         }]
     );
 
@@ -185,7 +185,7 @@ async fn a_mask_is_applied_to_every_payload_and_a_zero_mask_changes_nothing() {
             fin: true,
             rsv1: false,
             opcode: Opcode::Binary,
-            payload: vec![7, 8, 9, 10, 11],
+            payload: Bytes::from(vec![7, 8, 9, 10, 11]),
         }]
     );
 }
@@ -219,7 +219,7 @@ async fn the_three_length_encodings_round_trip() {
         let bytes = masked(true, Opcode::Binary, &payload);
         let got = frames(&bytes).await;
         assert_eq!(got.len(), 1, "{length}");
-        assert_eq!(got[0].payload, payload, "{length}");
+        assert_eq!(got[0].payload.as_ref(), payload.as_slice(), "{length}");
     }
 }
 
@@ -331,7 +331,7 @@ async fn a_complete_text_frame_that_is_not_utf8_is_refused() {
             fin: true,
             rsv1: false,
             opcode: Opcode::Binary,
-            payload: vec![0xff, 0xfe],
+            payload: Bytes::from(vec![0xff, 0xfe]),
         }),
         Ok(Some(Message {
             data: vec![0xff, 0xfe],

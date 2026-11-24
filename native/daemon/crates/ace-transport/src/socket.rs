@@ -18,8 +18,10 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use zeroize::Zeroize;
 
+use crate::deflate::Deflate;
 use crate::driver::UpgradeIo;
 use crate::frame::{Opcode, Outbound as Frame};
+use crate::stats::Stats;
 
 mod drive;
 mod events;
@@ -31,6 +33,8 @@ pub use events::{SendResult, SocketEvent, SocketEvents};
 pub use handle::{CloseError, SocketHandle};
 
 use drive::Ending;
+#[cfg(test)]
+pub(crate) use drive::OFF_THREAD;
 
 /// `maxPayload` (`server.ts:252`): one inbound message, after any inflation.
 pub use crate::frame::MAX_MESSAGE_BYTES;
@@ -75,6 +79,9 @@ struct Queued {
     /// What the pong memory ceiling counts: frame bytes plus the entry itself.
     memory: u64,
     control: bool,
+    /// Whether this send asked for compression: the shell's allowlist answer,
+    /// `true` when it said nothing (T1b.3b).
+    compress: bool,
 }
 
 /// A queued pong's own allocation, counted against [`CONTROL_BYTES`] beside its
@@ -119,6 +126,9 @@ struct Shared {
     expired: CancellationToken,
     /// The runtime it was opened on: `close` starts its timer from any thread.
     runtime: Handle,
+    /// The listener's counters, when this socket belongs to one (T1b.1b): the
+    /// compressed and inflated messages it handled.
+    stats: Option<Arc<Stats>>,
 }
 
 impl Shared {
@@ -138,7 +148,7 @@ impl Shared {
     /// memory ceiling also counts the queue entry. Reading never stops for a pong.
     /// False when the queued memory would pass [`CONTROL_BYTES`]: the caller closes
     /// with 1008.
-    fn control(&self, opcode: Opcode, payload: Vec<u8>) -> bool {
+    fn control(&self, opcode: Opcode, payload: Bytes) -> bool {
         let charge = 2 + payload.len() as u64;
         let memory = charge + CONTROL_ENTRY_BYTES;
         let inner = lock(&self.inner);
@@ -159,7 +169,7 @@ impl Shared {
         let frame = Frame {
             opcode,
             rsv1: false,
-            payload: Bytes::from(payload),
+            payload,
         };
         if outbound
             .send(Queued {
@@ -168,6 +178,7 @@ impl Shared {
                 charge,
                 memory,
                 control: true,
+                compress: false,
             })
             .is_err()
         {
@@ -175,6 +186,19 @@ impl Shared {
             debit(&self.buffered, charge);
         }
         true
+    }
+
+    /// Re-charges a queued send once its frame's real size is known: `ws` stops
+    /// counting the message's uncompressed length and counts the pending
+    /// compressed frame's bytes once deflate finished (`sender.js:511`-`:527`,
+    /// `websocket.js:133`-`:136`). Returns the new charge.
+    fn recharge(&self, from: u64, to: u64) -> u64 {
+        if to >= from {
+            self.buffered.fetch_add(to - from, Ordering::Relaxed);
+        } else {
+            debit(&self.buffered, from - to);
+        }
+        to
     }
 
     fn state(&self) -> u8 {
@@ -278,8 +302,14 @@ impl Shared {
 
 /// Opens a socket over either kind of stream the handshake hands on (the raw
 /// path's `Prefixed<Box<dyn ConnIo>>`, the keep-alive path's upgraded stream),
-/// `OPEN` at once on the caller's tokio runtime (T1a.5).
-pub fn open(stream: Box<dyn UpgradeIo>) -> (SocketHandle, SocketEvents) {
+/// `OPEN` at once on the caller's tokio runtime (T1a.5). `deflate` is the
+/// `permessage-deflate` extension the connection negotiated (T1b.3b); `stats` the
+/// listener's counters, when it has them.
+pub fn open(
+    stream: Box<dyn UpgradeIo>,
+    deflate: Option<Deflate>,
+    stats: Option<Arc<Stats>>,
+) -> (SocketHandle, SocketEvents) {
     let (events, incoming) = mpsc::unbounded_channel();
     let (outbound, queued) = mpsc::unbounded_channel();
     let (wake, woken) = mpsc::channel(1);
@@ -303,8 +333,15 @@ pub fn open(stream: Box<dyn UpgradeIo>) -> (SocketHandle, SocketEvents) {
         ending: Mutex::new(None),
         expired: CancellationToken::new(),
         runtime: Handle::current(),
+        stats,
     });
-    Handle::current().spawn(drive::run(stream, Arc::clone(&shared), queued, woken));
+    Handle::current().spawn(drive::run(
+        stream,
+        Arc::clone(&shared),
+        queued,
+        woken,
+        deflate,
+    ));
     let events = SocketEvents {
         receiver: incoming,
         shared: Arc::clone(&shared),

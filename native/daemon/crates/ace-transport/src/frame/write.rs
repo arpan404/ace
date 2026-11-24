@@ -40,17 +40,32 @@ impl<W> FrameWriter<W> {
     }
 }
 
+/// The bytes a frame's header takes for a payload of `length`: the shortest of
+/// the three encodings. `ws`'s `bufferedAmount` counts these with the payload,
+/// so the socket charges a compressed send by this number (T1b.3b).
+pub fn header_length(length: usize) -> usize {
+    if length <= 125 {
+        2
+    } else if length <= u16::MAX as usize {
+        4
+    } else {
+        10
+    }
+}
+
 /// The header for `length`, with the shortest length encoding that holds it.
 fn header(fin: bool, rsv1: bool, opcode: u8, length: usize, out: &mut Vec<u8>) {
     out.push((if fin { 0x80 } else { 0 }) | (if rsv1 { 0x40 } else { 0 }) | (opcode & 0x0f));
-    if length <= 125 {
-        out.push(length as u8);
-    } else if length <= u16::MAX as usize {
-        out.push(126);
-        out.extend_from_slice(&(length as u16).to_be_bytes());
-    } else {
-        out.push(127);
-        out.extend_from_slice(&(length as u64).to_be_bytes());
+    match header_length(length) {
+        2 => out.push(length as u8),
+        4 => {
+            out.push(126);
+            out.extend_from_slice(&(length as u16).to_be_bytes());
+        }
+        _ => {
+            out.push(127);
+            out.extend_from_slice(&(length as u64).to_be_bytes());
+        }
     }
 }
 

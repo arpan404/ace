@@ -196,7 +196,7 @@ impl NativeRemote {
             stop: watch::channel(false).0,
             stats: OnceLock::new(),
         });
-        let upgrades = Arc::new(WebSocketUpgrades::new(
+        let upgrades = Arc::new(WebSocketUpgrades::with_deflate(
             Arc::new(Admitting(Arc::clone(&shared))),
             Arc::new(Sinking(Arc::clone(&shared))),
         ));

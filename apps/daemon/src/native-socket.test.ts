@@ -66,3 +66,24 @@ test("a close on a closing or closed socket returns before validating, as ws doe
   expect(() => socket.close(1005)).not.toThrow(TypeError);
   expect(close).not.toHaveBeenCalled();
 });
+
+test("a send with no options asks for compression, as ws does, and only false keeps a message plain", () => {
+  const sends: [string, boolean, boolean][] = [];
+  const socket = new NativeSocket({
+    ...handle(() => {}),
+    send(data, binary, compress) {
+      sends.push([data.toString(), binary, compress]);
+      return "queued";
+    },
+  });
+
+  socket.send(Buffer.from("bytes"));
+  socket.send("text");
+  socket.send(Buffer.from("refused"), { compress: false });
+
+  expect(sends).toEqual([
+    ["bytes", true, true],
+    ["text", false, true],
+    ["refused", true, false],
+  ]);
+});

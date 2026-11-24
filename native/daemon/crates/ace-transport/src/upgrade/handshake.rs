@@ -8,6 +8,7 @@ use http::{HeaderValue, Response, StatusCode, header};
 use http_body_util::Full;
 use tungstenite::handshake::derive_accept_key;
 
+use crate::deflate::{Deflate, Malformed, negotiate};
 use crate::head::RequestHead;
 
 use super::number::js_number;
@@ -45,6 +46,13 @@ impl Refusal {
     pub(super) const INVALID_PROTOCOL: Self = Self {
         status: StatusCode::BAD_REQUEST,
         message: "Invalid Sec-WebSocket-Protocol header",
+        version_field: false,
+    };
+    /// `websocket-server.js:308`–`:320`: a syntax error, an unknown or repeated
+    /// parameter, or a value outside its shape in a `permessage-deflate` offer.
+    pub(super) const INVALID_EXTENSIONS: Self = Self {
+        status: StatusCode::BAD_REQUEST,
+        message: "Invalid or unacceptable Sec-WebSocket-Extensions header",
         version_field: false,
     };
     /// hyper upgrades HTTP/1.1 only (`proto/h1/role.rs:336`), so an HTTP/1.0
@@ -110,14 +118,21 @@ pub(super) fn empty_response(status: StatusCode) -> Response<Full<Bytes>> {
     response
 }
 
-/// A handshake that passed every check: the accept digest and, when the client
-/// offered one, the first protocol (`ws`'s default selection).
+/// A handshake that passed every check: the accept digest, when the client
+/// offered one the first protocol (`ws`'s default selection), and the extension
+/// the listener negotiated.
 pub(super) struct Acceptance {
     digest: String,
     protocol: Option<String>,
+    extensions: Option<Deflate>,
 }
 
 impl Acceptance {
+    /// The negotiated extension, for the sink that opens the socket.
+    pub(super) fn deflate(&self) -> Option<Deflate> {
+        self.extensions.clone()
+    }
+
     pub(super) fn bytes(&self) -> Vec<u8> {
         let mut answer = format!(
             "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {}\r\n",
@@ -125,6 +140,13 @@ impl Acceptance {
         );
         if let Some(protocol) = &self.protocol {
             answer.push_str(&format!("Sec-WebSocket-Protocol: {protocol}\r\n"));
+        }
+        // After the protocol, as `websocket-server.js:413`–`:419` writes it.
+        if let Some(deflate) = &self.extensions {
+            answer.push_str(&format!(
+                "Sec-WebSocket-Extensions: {}\r\n",
+                deflate.header()
+            ));
         }
         answer.push_str("\r\n");
         answer.into_bytes()
@@ -144,13 +166,19 @@ impl Acceptance {
         {
             headers.insert(header::SEC_WEBSOCKET_PROTOCOL, value);
         }
+        if let Some(deflate) = &self.extensions
+            && let Ok(value) = HeaderValue::from_str(&deflate.header())
+        {
+            headers.insert(header::SEC_WEBSOCKET_EXTENSIONS, value);
+        }
         response
     }
 }
 
 /// `ws`'s checks, in `handleUpgrade`'s order: method, Upgrade, key, version,
-/// then the protocol list.
-pub(super) fn handshake(head: &RequestHead) -> Result<Acceptance, Refusal> {
+/// then the protocol list, then the extensions `permessage-deflate` negotiates
+/// when `deflate` says this listener offers it.
+pub(super) fn handshake(head: &RequestHead, deflate: bool) -> Result<Acceptance, Refusal> {
     if head.method != "GET" {
         return Err(Refusal::INVALID_METHOD);
     }
@@ -175,9 +203,17 @@ pub(super) fn handshake(head: &RequestHead) -> Result<Acceptance, Refusal> {
         None => None,
         Some(value) => Some(parse_protocols(&value).ok_or(Refusal::INVALID_PROTOCOL)?),
     };
+    // A listener that never offers the extension ignores the header entirely, as
+    // a `ws` server without `perMessageDeflate` does.
+    let extensions = match deflate {
+        false => None,
+        true => negotiate(node_header(&head.headers, "sec-websocket-extensions").as_deref())
+            .map_err(|Malformed| Refusal::INVALID_EXTENSIONS)?,
+    };
     Ok(Acceptance {
         digest: derive_accept_key(&key),
         protocol,
+        extensions,
     })
 }
 

@@ -30,6 +30,7 @@ use tokio_util::sync::CancellationToken;
 
 use self::handshake::{Refusal, empty_response, handshake, latin1, node_header};
 use crate::conn_io::ConnIo;
+use crate::deflate::Deflate;
 use crate::driver::{Grace, UpgradeHandler, UpgradeIo, UpgradeReply};
 use crate::head::RequestHead;
 use crate::peer::Peer;
@@ -111,23 +112,57 @@ pub trait UpgradeAdmission: Send + Sync + 'static {
 
 /// Who receives a socket once its `101` is on the wire.
 pub trait SocketSink: Send + Sync + 'static {
-    fn opened(&self, reservation: u64, stream: Box<dyn UpgradeIo>, user_agent: Option<String>);
+    /// `deflate` is the extension this connection negotiated, `None` when it
+    /// negotiated none (always on loopback).
+    fn opened(
+        &self,
+        reservation: u64,
+        stream: Box<dyn UpgradeIo>,
+        user_agent: Option<String>,
+        deflate: Option<Deflate>,
+    );
 }
 
 /// The handshake `UpgradeHandler`: admission, `ws`'s checks, then the socket.
 pub struct WebSocketUpgrades {
     admission: Arc<dyn UpgradeAdmission>,
     sink: Arc<dyn SocketSink>,
-    /// The User-Agent each `Switch` reply still owes its `opened`: hyper
-    /// resolves the upgrade after the reply is written, on another task.
-    switching: Arc<Mutex<HashMap<u64, Option<String>>>>,
+    /// Whether this listener offers `permessage-deflate`. The remote listeners do;
+    /// loopback never does (`server.ts:280`).
+    deflate: bool,
+    /// The User-Agent (and negotiated extension) each `Switch` reply still owes
+    /// its `opened`: hyper resolves the upgrade after the reply is written, on
+    /// another task.
+    switching: Arc<Mutex<HashMap<u64, Opening>>>,
+}
+
+/// What `switched` still needs to open a socket from hyper's `101`.
+#[derive(Default)]
+struct Opening {
+    user_agent: Option<String>,
+    deflate: Option<Deflate>,
 }
 
 impl WebSocketUpgrades {
+    /// A listener that negotiates no extension: the loopback listener.
     pub fn new(admission: Arc<dyn UpgradeAdmission>, sink: Arc<dyn SocketSink>) -> Self {
+        Self::configured(admission, sink, false)
+    }
+
+    /// A remote listener, which negotiates `permessage-deflate` (T1b.3b).
+    pub fn with_deflate(admission: Arc<dyn UpgradeAdmission>, sink: Arc<dyn SocketSink>) -> Self {
+        Self::configured(admission, sink, true)
+    }
+
+    fn configured(
+        admission: Arc<dyn UpgradeAdmission>,
+        sink: Arc<dyn SocketSink>,
+        deflate: bool,
+    ) -> Self {
         Self {
             admission,
             sink,
+            deflate,
             switching: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -144,6 +179,7 @@ impl UpgradeHandler for WebSocketUpgrades {
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         let admission = Arc::clone(&self.admission);
         let sink = Arc::clone(&self.sink);
+        let negotiate = self.deflate;
         Box::pin(async move {
             let request = UpgradeRequest::from_head(&head, peer);
             let user_agent = request.user_agent.clone();
@@ -183,7 +219,7 @@ impl UpgradeHandler for WebSocketUpgrades {
             // Every exit below that does not open or release explicitly drops
             // this guard, which releases the reservation exactly once.
             let mut settle = Settle::new(&admission, reservation);
-            let acceptance = match handshake(&head) {
+            let acceptance = match handshake(&head, negotiate) {
                 Ok(acceptance) => acceptance,
                 Err(refusal) => return refuse(&mut stream, &refusal.bytes()).await,
             };
@@ -207,7 +243,12 @@ impl UpgradeHandler for WebSocketUpgrades {
             // bounded: the socket is a WebSocket from here, and Node bounds no
             // WebSocket write (T1b.1a).
             stream.set_write_timeout(None);
-            sink.opened(reservation, Box::new(stream), user_agent);
+            sink.opened(
+                reservation,
+                Box::new(stream),
+                user_agent,
+                acceptance.deflate(),
+            );
             settle.disarm();
         })
     }
@@ -221,6 +262,7 @@ impl UpgradeHandler for WebSocketUpgrades {
     ) -> Pin<Box<dyn Future<Output = UpgradeReply> + Send>> {
         let admission = Arc::clone(&self.admission);
         let switching = Arc::clone(&self.switching);
+        let negotiate = self.deflate;
         Box::pin(async move {
             // A `101` on a version hyper does not upgrade would leave the client
             // with no socket behind it, so this is refused before admission
@@ -242,7 +284,7 @@ impl UpgradeHandler for WebSocketUpgrades {
                 Decided::Reservation(reservation) => reservation,
             };
             let mut settle = Settle::new(&admission, reservation);
-            let acceptance = match handshake(&head) {
+            let acceptance = match handshake(&head, negotiate) {
                 Ok(acceptance) => acceptance,
                 Err(refusal) => return UpgradeReply::Refuse(refusal.response()),
             };
@@ -257,24 +299,31 @@ impl UpgradeHandler for WebSocketUpgrades {
             if !admission.writing(reservation) {
                 return UpgradeReply::Drop;
             }
+            let opening = Opening {
+                user_agent,
+                deflate: acceptance.deflate(),
+            };
             switching
                 .lock()
                 .unwrap_or_else(|poison| poison.into_inner())
-                .insert(reservation, user_agent);
+                .insert(reservation, opening);
             settle.disarm();
             UpgradeReply::Switch(acceptance.response(), reservation)
         })
     }
 
     fn switched(&self, reservation: u64, stream: Option<Box<dyn UpgradeIo>>) {
-        let user_agent = self
+        let opening = self
             .switching
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
             .remove(&reservation)
-            .flatten();
+            .unwrap_or_default();
         match stream {
-            Some(stream) => self.sink.opened(reservation, stream, user_agent),
+            Some(stream) => {
+                self.sink
+                    .opened(reservation, stream, opening.user_agent, opening.deflate)
+            }
             // hyper never flushed the `101`: nothing was opened.
             None => self.admission.release(reservation),
         }

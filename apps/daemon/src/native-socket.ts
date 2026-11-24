@@ -115,9 +115,11 @@ export class NativeSocket extends EventEmitter implements MainSocket {
   ): void {
     const done = typeof options === "function" ? options : callback;
     const flags = typeof options === "function" ? undefined : options;
-    // As ws: bytes are binary and strings are text unless the caller names `binary`; `compress`
-    // is accepted and ignored, because loopback negotiates no extension.
+    // As ws: bytes are binary and strings are text unless the caller names `binary`, and
+    // `compress` defaults to true: only the outbox's allowlist refusal keeps a message plain.
+    // Loopback negotiates no extension, so Rust ignores it there and compresses nothing.
     const binary = flags?.binary ?? typeof data !== "string";
+    const compress = flags?.compress ?? true;
     const bytes = bytesOf(data);
     if (this.readyState !== OPEN) {
       this.#sendAfterClose(bytes.byteLength, done);
@@ -127,7 +129,7 @@ export class NativeSocket extends EventEmitter implements MainSocket {
     if (done !== undefined) this.#callbacks.set(id, done);
     let result: NativeSendResult;
     try {
-      result = this.#handle.send(bytes, binary, id);
+      result = this.#handle.send(bytes, binary, compress, id);
     } catch (error) {
       this.#callbacks.delete(id);
       throw error;
