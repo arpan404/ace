@@ -290,6 +290,19 @@ export async function removeKey(target: SpadeTarget, endpoint: string): Promise<
   await spadeHttp(target, "DELETE", `/v1/keys/${segment(endpoint)}`);
 }
 
+/**
+ * The token an authenticated gateway asks for beside the provider's key (Cloudflare AI
+ * Gateway's `cf-aig-authorization`). It is kept in the keychain, never in the endpoint's
+ * headers.
+ */
+export async function setGatewayToken(
+  target: SpadeTarget,
+  endpoint: string,
+  token: string,
+): Promise<void> {
+  await spadeHttp(target, "PUT", `/v1/keys/${segment(endpoint)}/gateway`, { body: { token } });
+}
+
 /** `endpoint/model` that turns recordings into words; null clears it (ADR 0134). */
 export async function setTranscriptionModel(
   target: SpadeTarget,

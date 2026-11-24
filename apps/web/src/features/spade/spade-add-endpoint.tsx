@@ -25,7 +25,7 @@ import { BrandMark } from "@/components/ui/provider-icons.tsx";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { cn } from "@/lib/cn.ts";
-import { addEndpoint } from "./spade-api.ts";
+import { addEndpoint, setGatewayToken } from "./spade-api.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 import {
   buildAzureUrl,
@@ -92,6 +92,7 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
     azureResource: useId(),
     cfAccount: useId(),
     cfGateway: useId(),
+    cfToken: useId(),
   };
   const client = useSpadeClient();
   const cache = useQueryClient();
@@ -112,6 +113,8 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
   const [azureResource, setAzureResource] = useState("");
   const [cfAccount, setCfAccount] = useState("");
   const [cfGateway, setCfGateway] = useState("");
+  /** An authenticated gateway's own token: kept in the keychain, never a stored header. */
+  const [cfToken, setCfToken] = useState("");
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
   const locals = useLocalServers(true).data ?? [];
@@ -192,7 +195,7 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
     setProblem(undefined);
     const extra = parseHeaderLines(headers);
     try {
-      await addEndpoint(client, {
+      const added = await addEndpoint(client, {
         name: name.trim(),
         format,
         base_url: url.trim(),
@@ -201,6 +204,8 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
         ...(needsKey ? {} : { needs_key: false }),
         ...(props.presets.some((preset) => preset.id === from) ? { preset: from } : {}),
       });
+      if (activeCloud === "cloudflare" && cfToken.trim())
+        await setGatewayToken(client, added.id, cfToken.trim());
       await cache.invalidateQueries({ queryKey: modelsKey });
       props.onClose();
     } catch (error) {
@@ -360,6 +365,23 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
                   onChange={(event) => updateCloudflare(cfAccount, event.target.value)}
                 />
               </Field>
+              <div className="sm:col-span-2">
+                <Field
+                  label="Gateway token"
+                  htmlFor={ids.cfToken}
+                  hint="Only for an authenticated gateway. Kept in your keychain, sent as cf-aig-authorization."
+                >
+                  <Input
+                    id={ids.cfToken}
+                    type="password"
+                    autoComplete="off"
+                    placeholder="Optional"
+                    spellCheck={false}
+                    value={cfToken}
+                    onChange={(event) => setCfToken(event.currentTarget.value)}
+                  />
+                </Field>
+              </div>
             </div>
           )}
 

@@ -782,7 +782,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (root === "endpoints" && id === "local" && sub && request.method === "POST")
       return this.useLocalModel(sub, String(body.model ?? ""));
     if (root === "endpoints") return this.endpointRoute(request.method, id, sub, body, query);
-    if (root === "keys" && id) return this.keyRoute(request.method, id);
+    if (root === "keys" && id) return this.keyRoute(request.method, id, sub);
     if (root === "usage" && id === "search" && !sub && request.method === "GET")
       return this.searchUsage ? reply(this.searchUsage) : problem(404, "Not found.");
     if (root === "settings" && request.method === "PUT") {
@@ -1184,11 +1184,16 @@ export class FakeSpadeApi implements FakeSpadeServer {
     return problem(405, "Not allowed.");
   }
 
-  private keyRoute(method: string, id: string): FakeSpadeAnswer {
+  private keyRoute(method: string, id: string, sub?: string): FakeSpadeAnswer {
     const endpoint = this.endpoints.find((candidate) => candidate.id === id);
     if (!endpoint) return problem(404, "No such endpoint.");
     if (!this.keychain) return problem(503, "This machine has no keychain.");
     if (this.keyFailure) return problem(this.keyFailure, "The keychain refused the key.");
+    // A gateway token is its own keychain entry: the endpoint's own key stays as it was.
+    if (sub === "gateway") {
+      endpoint.gateway_token_set = method === "PUT";
+      return { status: 204 };
+    }
     endpoint.key_set = method === "PUT";
     endpoint.key_source = method === "PUT" ? "keychain" : null;
     return { status: 204 };
