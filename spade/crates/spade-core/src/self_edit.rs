@@ -69,12 +69,10 @@ pub fn naming_note(events: &[Event]) -> Option<&'static str> {
     naming_open(&events[..started]).then_some(NAMING_NOTE)
 }
 
-const NAMING_NOTE: &str = "You were just made from the person's first message and have no name \
-yet. Before anything else in this reply, name yourself with profile_update after the work you do, \
-the way a team labels the person who does it: one to three plain words that say the job, such as \
-\"Fundraising Deck\", \"Inbox Triage\" or \"Release Notes\". Never a metaphor, an object, a \
-mascot or a person's name (not \"Dossier\", \"Quill\" or \"Compass\"), and not \"Bot\" or \
-\"Assistant\". Pick a face that suits the job too. Then answer.";
+const NAMING_NOTE: &str = "You have no name yet. Call profile_update first to set your name and \
+face, then reply. Name yourself in 1-3 plain words for the job (e.g. \"Fundraising Deck\", \
+\"Inbox Triage\", \"Release Notes\"), not a person's name, metaphor, mascot, \"Bot\" or \
+\"Assistant\".";
 
 /// One version of a bot's task, as its history lists it.
 #[derive(Debug, Clone, PartialEq, Eq)]
