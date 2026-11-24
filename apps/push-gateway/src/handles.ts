@@ -2,12 +2,17 @@ import { createCipheriv, createDecipheriv } from "node:crypto";
 import { z } from "zod";
 import { ApnsToken } from "@ace/notify/apns-client";
 
-const aad = Buffer.from("ace-push-handle-v1");
+const alertAad = Buffer.from("ace-push-handle-v1");
+// An older gateway must fail to open activity handles instead of treating them as alerts.
+const activityAad = Buffer.from("ace-push-handle-v2");
+export const HandleKind = z.enum(["alert", "liveactivity", "start"]);
+export type HandleKind = z.infer<typeof HandleKind>;
 const Sealed = z.object({
   t: ApnsToken,
   e: z.enum(["sandbox", "production"]),
   d: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   x: z.number().int().nonnegative(),
+  k: HandleKind.default("alert"),
 });
 export interface Registration {
   token: string;
@@ -15,6 +20,7 @@ export interface Registration {
   /** The daemon identity the handle was sealed for. */
   daemon: string;
   expiresAt: number;
+  kind: HandleKind;
 }
 
 /**
@@ -24,13 +30,14 @@ export interface Registration {
 export function sealHandle(key: Buffer, registration: Registration, nonce: Buffer): string {
   if (nonce.length !== 12) throw new Error("Handle nonce must be 12 bytes");
   const cipher = createCipheriv("aes-256-gcm", key, nonce);
-  cipher.setAAD(aad);
+  cipher.setAAD(registration.kind === "alert" ? alertAad : activityAad);
   const body = Buffer.from(
     JSON.stringify({
       t: registration.token.toLowerCase(),
       e: registration.environment,
       d: registration.daemon,
       x: registration.expiresAt,
+      k: registration.kind,
     }),
   );
   return Buffer.concat([nonce, cipher.update(body), cipher.final(), cipher.getAuthTag()]).toString(
@@ -46,21 +53,24 @@ export function openHandle(keys: readonly Buffer[], handle: string): Registratio
   const tag = bytes.subarray(bytes.length - 16);
   const body = bytes.subarray(12, bytes.length - 16);
   for (const key of keys) {
-    try {
-      const decipher = createDecipheriv("aes-256-gcm", key, nonce);
-      decipher.setAAD(aad);
-      decipher.setAuthTag(tag);
-      const plain = Buffer.concat([decipher.update(body), decipher.final()]);
-      const parsed = Sealed.safeParse(JSON.parse(plain.toString("utf8")));
-      if (!parsed.success) return undefined;
-      return {
-        token: parsed.data.t,
-        environment: parsed.data.e,
-        daemon: parsed.data.d,
-        expiresAt: parsed.data.x,
-      };
-    } catch {
-      // Try the next key.
+    for (const aad of [alertAad, activityAad]) {
+      try {
+        const decipher = createDecipheriv("aes-256-gcm", key, nonce);
+        decipher.setAAD(aad);
+        decipher.setAuthTag(tag);
+        const plain = Buffer.concat([decipher.update(body), decipher.final()]);
+        const parsed = Sealed.safeParse(JSON.parse(plain.toString("utf8")));
+        if (!parsed.success || (parsed.data.k === "alert") !== (aad === alertAad)) return undefined;
+        return {
+          token: parsed.data.t,
+          environment: parsed.data.e,
+          daemon: parsed.data.d,
+          expiresAt: parsed.data.x,
+          kind: parsed.data.k,
+        };
+      } catch {
+        // Try the other handle format or the next key.
+      }
     }
   }
   return undefined;

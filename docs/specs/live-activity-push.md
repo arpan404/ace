@@ -194,7 +194,9 @@ at most 1,024 bytes:
 }
 ```
 
-`slot` only with `start`; `dismissAfter` only with `end`; `staleAfter` 60...3600.
+`slot` (0...15) is required for `start` and forbidden for `update` and `end`.
+`dismissAfter` (0...14400) is required for `end` and forbidden for `start` and `update`.
+`staleAfter` is 60...3600. Both dates are relative to `timestamp`.
 
 ### Gateway to APNs
 
@@ -210,7 +212,8 @@ at most 1,024 bytes:
 ```
 
 `start` adds `"attributes-type": "MachineActivityAttributes"`, `"attributes": { "slot": 0,
-"version": 1 }` and the fixed alert. `end` adds `"dismissal-date"`.
+"version": 1 }`, the fixed alert and `"input-push-token": 1` to request the update token on iOS 18
+and later. `end` adds `"dismissal-date"`.
 
 ### Phone to daemon
 
@@ -314,8 +317,6 @@ Existing per-IP and per-daemon limits apply to every kind.
 
 ## Open questions
 
-- **One activity per machine** replaces today's single activity for all machines (ADR 0223).
-  Owner to confirm; it is what makes daemon-driven start and end correct.
 - **Titles on the Lock Screen while closed.** Counts only is the owner's decision of 2026-11-13.
   Uber-style "Fixing the login bug · Working" would need titles in plaintext pushes.
 - **Push-to-start without opening ace.** Confirm on a device that iOS 18 wakes the app to deliver
