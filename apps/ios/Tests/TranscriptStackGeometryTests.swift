@@ -17,7 +17,9 @@ import Testing
 
         #expect(move == 0)
         #expect(geometry.top(of: "b") == 301)
-        #expect(geometry.contentHeight == 1001 + 2700)
+        // The rows laid out before (1001) plus three joining at their estimate (3 x 900).
+        let farEdge: CGFloat = 1001 + 2700
+        #expect(geometry.contentHeight == farEdge)
     }
 
     @Test func newerRowsTradedForASpacerOfTheirHeightLeaveTheReaderStill() {
