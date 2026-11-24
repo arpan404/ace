@@ -1,5 +1,6 @@
+import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
-import { Thread, type ServerMessage } from "@ace/protocol";
+import { Thread, ThreadId, type ServerMessage, type WorkspaceId } from "@ace/protocol";
 import { sidebarPage } from "@ace/projection";
 import { fixture } from "./socket-test-support.ts";
 import { subscribe, pageSubscription } from "./subscription.ts";
@@ -141,6 +142,189 @@ test("SQL classification and ordering match shared pagination for filters, pins,
     );
     // The daemon adds the row revision the window reflects (for resume); the rest is shared.
     expect(actual.window).toEqual({ ...expected.window, revision: expect.any(Number) });
+  }
+});
+
+function settledOrLive(
+  id: ThreadId,
+  workspaceId: WorkspaceId,
+  activityAt: number,
+  settled: boolean,
+) {
+  return Thread.parse({
+    id,
+    workspaceId,
+    title: id,
+    provider: "codex",
+    status: settled ? { state: "done" } : { state: "working", agents: 1 },
+    createdAt: 1,
+    updatedAt: activityAt,
+    activityAt,
+    ...(settled ? { settledAt: 5000 } : {}),
+    hasSentMessage: true,
+  });
+}
+/** A hidden chat project in `f`'s home, as `workspace.chat.create` registers one (ADR 0099). */
+function chatProject(f: Awaited<ReturnType<typeof seeded>>, name: string) {
+  const id = f.store.createWorkspace(join(f.home, name), name);
+  f.store.atomic((db) =>
+    db
+      .prepare(
+        "INSERT INTO workspace_metadata(workspace_id,kind) VALUES (?,'chat') ON CONFLICT(workspace_id) DO UPDATE SET kind='chat'",
+      )
+      .run(id),
+  );
+  return id;
+}
+test("a project's paged window carries every chat, and paging reaches each exactly once", async () => {
+  const f = await seeded();
+  const chats = [chatProject(f, "chat-one"), chatProject(f, "chat-two")];
+  const other = f.store.createWorkspace(join(f.home, "other"), "Other");
+  const add = (id: string, workspaceId: WorkspaceId, activityAt: number, settled: boolean) => {
+    const threadId = ThreadId.parse(id);
+    const next = settledOrLive(threadId, workspaceId, activityAt, settled);
+    f.store.appendEvents(threadId, [{ type: "thread.created", thread: next }], activityAt);
+  };
+  // Interleaved with the project's own history, so a window must merge the two.
+  const chatPaged = ["chat-1", "chat-2", "chat-3", "chat-4", "chat-5"];
+  chatPaged.forEach((id, index) => add(id, chats[index % 2]!, 995 - index * 10, true));
+  const chatLive = "chat-live";
+  add(chatLive, chats[0]!, 4000, false);
+  const others = ["other-1", "other-2"];
+  others.forEach((id, index) => add(id, other, 3000 + index, true));
+
+  // The client's own window: a project's page carries every chat.
+  const options = { limit: 7, project: f.workspace as string, withChats: true };
+  const live = f.store.sidebarPage(options, undefined, { entries: new Map(), changed: new Set() });
+  const first = f.store.sidebarPage(options);
+  expect(live.threads.map((entry) => entry.id)).toEqual(first.threads.map((entry) => entry.id));
+  expect(live.window.total).toBe(first.window.total);
+  // The seeded project's 55 settled threads, plus the chats' five.
+  expect(first.window.total).toBe(60);
+  expect(first.threads.some((entry) => chatPaged.includes(entry.id))).toBe(true);
+
+  const seen = new Map<string, number>();
+  let page = first;
+  let before = page.window.before;
+  const cursors = new Set<string>();
+  const collect = () => {
+    for (const entry of page.threads) seen.set(entry.id, (seen.get(entry.id) ?? 0) + 1);
+  };
+  collect();
+  while (before) {
+    const cursor = `${before.at}:${before.id}`;
+    if (!cursors.add(cursor) || cursors.size > 100)
+      throw new Error(`Paging does not reach the end: ${cursor}`);
+    page = f.store.sidebarPage(options, before);
+    collect();
+    before = page.window.before;
+  }
+  expect([...seen.keys()].toSorted()).toEqual(
+    [
+      ...f.entries.map((entry) => entry.id),
+      f.thread.id,
+      f.active.id,
+      f.pinned.id,
+      ...chatPaged,
+      chatLive,
+    ].toSorted(),
+  );
+  expect([...seen.values()].filter((count) => count !== 1)).toEqual([]);
+  expect(others.filter((id) => seen.has(id))).toEqual([]);
+
+  // A chat newer than the cursor stays behind it; an older one comes back once, in order,
+  // ahead of the project thread sharing its moment (ids ascend on a tie).
+  const across = f.store.sidebarPage(options, { at: 976, id: ThreadId.parse("history-024") });
+  expect(across.threads.map((entry) => entry.id)).toEqual([
+    "chat-3",
+    "history-025",
+    "history-026",
+    "history-027",
+    "history-028",
+    "history-029",
+    "history-030",
+  ]);
+});
+
+test("a chat's own project pages each of its threads once", async () => {
+  const f = await seeded();
+  const chat = chatProject(f, "chat-own");
+  const ids = ["own-1", "own-2", "own-3"];
+  ids.forEach((id, index) => {
+    const threadId = ThreadId.parse(id);
+    f.store.appendEvents(
+      threadId,
+      [{ type: "thread.created", thread: settledOrLive(threadId, chat, 4000 + index, true) }],
+      4000 + index,
+    );
+  });
+  const options = { limit: 2, project: chat as string, withChats: true };
+  const seen: string[] = [];
+  let page = f.store.sidebarPage(options);
+  expect(page.window.total).toBe(3);
+  seen.push(...page.threads.map((entry) => entry.id));
+  let before = page.window.before;
+  for (let pages = 0; before; pages++) {
+    if (pages > 10) throw new Error("Paging does not reach the end");
+    page = f.store.sidebarPage(options, before);
+    seen.push(...page.threads.map((entry) => entry.id));
+    before = page.window.before;
+  }
+  expect(seen).toEqual(["own-3", "own-2", "own-1"]);
+});
+
+test("a resumed project window keeps unchanged threads instead of resending them", async () => {
+  const f = await seeded();
+  const chat = chatProject(f, "chat-resume");
+  const chatThread = ThreadId.parse("chat-resume-thread");
+  f.store.appendEvents(
+    chatThread,
+    [{ type: "thread.created", thread: settledOrLive(chatThread, chat, 4500, true) }],
+    4500,
+  );
+  const window = { limit: 10, project: f.workspace as string };
+  const messages: ServerMessage[] = [];
+  const stop = subscribe(
+    f.store,
+    "resume-one",
+    { kind: "threads", window },
+    undefined,
+    5000,
+    (message) => messages.push(message),
+  );
+  try {
+    const snapshot = messages[0];
+    if (snapshot?.type !== "snapshot" || snapshot.view.kind !== "threads")
+      throw new Error("Missing snapshot");
+    const held = Object.keys(snapshot.view.threads);
+    expect(held).toContain(chatThread);
+    const resume = {
+      revision: snapshot.view.window?.revision ?? 0,
+      epoch: snapshot.view.window?.epoch ?? "",
+    };
+    stop();
+    // Nothing changed while it was away: the resumed list keeps every thread it held and is
+    // sent none of them again (a projection missing the revisions would resend them all).
+    const again: ServerMessage[] = [];
+    const resumed = subscribe(
+      f.store,
+      "resume-two",
+      { kind: "threads", window: { ...window, resume } },
+      undefined,
+      5000,
+      (message) => again.push(message),
+    );
+    try {
+      const next = again[0];
+      if (next?.type !== "snapshot" || next.view.kind !== "threads")
+        throw new Error("Missing resumed snapshot");
+      expect(next.view.keep?.toSorted()).toEqual(held.toSorted());
+      expect(Object.keys(next.view.threads)).toEqual([]);
+    } finally {
+      resumed();
+    }
+  } finally {
+    stop();
   }
 });
 

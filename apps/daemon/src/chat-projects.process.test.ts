@@ -8,9 +8,11 @@ import {
   Thread,
   ThreadId,
   type CommandPayload,
+  type ServerMessage,
   type WorkspaceChanged,
 } from "@ace/protocol";
 import { emptyChatGraceMs } from "./chat-projects.ts";
+import { subscribe } from "./subscription.ts";
 import { findProjects } from "./agent-control/projects.ts";
 import { Projects } from "./projects.ts";
 import { Store } from "./store.ts";
@@ -115,6 +117,90 @@ test("deleting a chat's last thread removes its folder and its hidden project", 
       change: "removed",
       workspaceId: chat.id,
     });
+  } finally {
+    await f.close();
+  }
+});
+
+test("reclassifying a workspace as a chat, and back, wakes a project window without touching its threads", async () => {
+  const f = await chatFixture();
+  try {
+    const plain = join(f.root, "plain-project");
+    const id = f.store.createWorkspace(plain, "Plain");
+    const threadId = ThreadId.parse("plain-thread");
+    // A legacy settled row: no activityAt, so its place comes from updated_at.
+    f.store.appendEvents(
+      threadId,
+      [
+        {
+          type: "thread.created",
+          thread: Thread.parse({
+            id: threadId,
+            workspaceId: id,
+            title: "Plain",
+            provider: "codex",
+            status: { state: "done" },
+            createdAt: 1,
+            updatedAt: 900,
+            settledAt: 2000,
+            hasSentMessage: true,
+          }),
+        },
+      ],
+      900,
+    );
+    const other = f.store.createWorkspace(join(f.root, "other-project"), "Other");
+    const messages: ServerMessage[] = [];
+    const stop = subscribe(
+      f.store,
+      "chat-wake",
+      { kind: "threads", window: { limit: 20, project: other } },
+      undefined,
+      5000,
+      (message) => messages.push(message),
+    );
+    const row = () => f.store.statement("SELECT updated_at FROM threads WHERE id=?").get(threadId);
+    const eventRows = () =>
+      Number(
+        f.store.statement("SELECT COUNT(*) AS n FROM events WHERE thread_id=?").get(threadId)?.n,
+      );
+    try {
+      const snapshot = messages[0];
+      if (snapshot?.type !== "snapshot" || snapshot.view.kind !== "threads")
+        throw new Error("Missing snapshot");
+      expect(Object.keys(snapshot.view.threads)).toEqual([]);
+      const updatedAt = row()?.updated_at;
+      const thread = f.store.getThread(threadId);
+      const events = eventRows();
+
+      // The same folder registered as a chat: its thread joins every project's window.
+      f.projects.catalog.registerChat(plain, "Chat");
+      const added = messages.at(-1);
+      if (added?.type !== "threads.patch") throw new Error("Missing chat patch");
+      expect(Object.keys(added.threads)).toEqual([threadId]);
+      expect(added.removed).toEqual([]);
+      expect(added.window.total).toBe(1);
+      // No event, no row write: the thread's place, history and read state stand.
+      expect(row()?.updated_at).toBe(updatedAt);
+      expect(f.store.getThread(threadId)).toEqual(thread);
+      expect(eventRows()).toBe(events);
+
+      // Spade's hidden kind takes the chat flag away again.
+      f.projects.catalog.registerSpade(plain);
+      const removed = messages.at(-1);
+      if (removed?.type !== "threads.patch") throw new Error("Missing spade patch");
+      expect(removed.removed).toEqual([threadId]);
+      expect(removed.window.total).toBe(0);
+      expect(row()?.updated_at).toBe(updatedAt);
+      expect(f.store.getThread(threadId)).toEqual(thread);
+      expect(eventRows()).toBe(events);
+      // Its own project still lists it.
+      expect(
+        f.store.sidebarPage({ limit: 20, project: id }).threads.map((entry) => entry.id),
+      ).toEqual([threadId]);
+    } finally {
+      stop();
+    }
   } finally {
     await f.close();
   }
