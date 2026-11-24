@@ -48,7 +48,6 @@ struct AttachmentVideoTile: View {
         }
         .buttonStyle(.plain)
         .disabled(access == nil)
-        .accessibilityElement(children: .ignore)
         .accessibilityLabel("Video, \(line.name.isEmpty ? "attachment" : line.name)")
         .accessibilityValue(line.detail)
         .accessibilityHint("Plays the video")
