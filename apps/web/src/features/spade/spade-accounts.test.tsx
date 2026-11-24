@@ -1,5 +1,5 @@
 import type { FakeSpadeApi } from "@ace/fake-daemon";
-import { configure, screen, within } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { spadeApp } from "@/test/spade.ts";
@@ -227,4 +227,37 @@ test("another account of a preset is added by its name, and the preset fills in 
   expect(work.getByText("Key missing")).toBeTruthy();
   expect(work.getByRole("button", { name: "Add key" })).toBeTruthy();
   expect(spade.sent("POST", "/v1/endpoints")).toEqual([{ preset: "openai", name: "Work" }]);
+});
+
+test("a gateway's token is set, replaced and removed from its account", async () => {
+  // An endpoint added by its address is its own provider: `address:<id>`.
+  const { spade } = await spadeApp("/settings/spade/models/address:gateway", (api) => {
+    api.presets.push(openaiPreset);
+    api.endpoints.push(
+      account({
+        id: "gateway",
+        name: "Gateway",
+        provider: null,
+        format: "openai-chat",
+        base_url: "https://gateway.ai.cloudflare.com/v1/acct/gw/compat/",
+        key_set: false,
+        key_source: null,
+        models: [{ id: "openai/gpt-6-sol", name: "GPT-6 Sol", source: "typed" }],
+      }),
+    );
+    main(api, "gateway/openai/gpt-6-sol");
+  });
+  await fromMenu("Gateway", "Set gateway token…");
+  const dialog = within(await screen.findByRole("dialog", { name: /gateway token for Gateway/ }));
+  await userEvent.type(dialog.getByLabelText(/gateway token$/), "cf-token");
+  await userEvent.click(dialog.getByRole("button", { name: "Save token" }));
+  await waitFor(() =>
+    expect(spade.sent("PUT", "/v1/keys/gateway/gateway")).toEqual([{ token: "cf-token" }]),
+  );
+  // It is set now: the menu offers replacing or removing it, never adding a second.
+  await fromMenu("Gateway", "Replace gateway token…");
+  expect(screen.getByRole("dialog", { name: /gateway token for Gateway/ })).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  await fromMenu("Gateway", "Remove gateway token");
+  await waitFor(() => expect(spade.sent("DELETE", "/v1/keys/gateway/gateway")).toHaveLength(1));
 });

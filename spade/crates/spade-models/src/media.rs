@@ -33,12 +33,7 @@ pub(crate) struct Target {
 
 impl Target {
     pub(crate) fn secrets(&self) -> Vec<&str> {
-        let mut secrets: Vec<&str> = self
-            .endpoint
-            .headers
-            .iter()
-            .map(|(_, v)| v.as_str())
-            .collect();
+        let mut secrets = crate::scrub::header_secrets(&self.endpoint);
         secrets.extend(self.key.as_deref());
         secrets
     }
@@ -67,6 +62,7 @@ impl Models {
         let (endpoint, model) = self
             .resolve(reference)
             .ok_or_else(|| ModelError::UnknownModel(reference.to_owned()))?;
+        let endpoint = self.sending(endpoint).await;
         let key = if endpoint.needs_key {
             Some(
                 self.key_for(&endpoint)

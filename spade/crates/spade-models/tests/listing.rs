@@ -12,6 +12,7 @@ const KEY: &str = "sk-listing-secret";
 
 fn endpoint(root: &str, format: Format) -> Endpoint {
     Endpoint {
+        gateway_token: false,
         id: "mine".into(),
         name: "Mine".into(),
         format,
@@ -222,5 +223,23 @@ async fn a_hostile_endpoint_that_puts_the_key_in_a_model_never_gets_it_listed() 
     let listed = models.list("mine").await?;
     let ids: Vec<_> = listed.iter().map(|m| m.id.as_str()).collect();
     assert_eq!(ids, vec!["kimi"]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_listing_error_never_echoes_the_bare_gateway_token() -> Result {
+    const TOKEN: &str = "cf-aig-listing-secret";
+    let echo = json!({ "error": { "message": format!("bad gateway token {TOKEN}") } });
+    let refusing = FakeModelList::start(401, echo.to_string(), Duration::ZERO).await?;
+    let mut at = endpoint(&refusing.root, Format::OpenAiChat);
+    at.gateway_token = true;
+    let models = models(at, ListBounds::default())?;
+    models.set_gateway_keys(Keys::new(|_| Some(TOKEN.to_owned())));
+    let error = models.list("mine").await;
+    let text = error.err().map(|e| e.to_string()).unwrap_or_default();
+    assert!(
+        text.contains("401") && !text.contains(TOKEN),
+        "the bare gateway token reached the error: {text}"
+    );
     Ok(())
 }

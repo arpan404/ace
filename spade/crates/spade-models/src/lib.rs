@@ -27,10 +27,11 @@ mod waits;
 mod web_search;
 
 pub use catalog::{
-    Capability, Catalog, CatalogError, DEFAULT_CONTEXT, Endpoint, Model, Price, Resolved, Role,
+    Capability, Catalog, CatalogError, DEFAULT_CONTEXT, Endpoint, LongContext, Model, Price,
+    Resolved, Role,
 };
 pub use chatgpt::SignIn;
-pub use client::{KEYLESS, Models};
+pub use client::{GATEWAY_HEADER, KEYLESS, Models};
 pub use config::ModelsConfig;
 pub use effort::Effort;
 pub use error::{ModelError, Unserved};

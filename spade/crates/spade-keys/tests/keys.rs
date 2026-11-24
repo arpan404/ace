@@ -46,6 +46,23 @@ fn setting_again_replaces_and_deleting_removes() -> Result {
 }
 
 #[test]
+fn a_gateway_token_is_its_own_entry_beside_the_endpoints_key() -> Result {
+    let (keys, store) = mock_store()?;
+    keys.set("gateway", "sk-provider")?;
+    keys.set_gateway_token("gateway", " cf-token ")?;
+    assert_eq!(keys.gateway_token("gateway")?, Some("cf-token".to_owned()));
+    assert_eq!(keys.get("gateway")?, Some("sk-provider".to_owned()));
+    let entry = store.build(SERVICE, "gateway:gateway", None)?;
+    assert_eq!(entry.get_password()?, "cf-token");
+    // Removed on its own: the endpoint's own key stays.
+    assert!(keys.delete_gateway_token("gateway")?);
+    assert_eq!(keys.gateway_token("gateway")?, None);
+    assert_eq!(keys.get("gateway")?, Some("sk-provider".to_owned()));
+    assert!(!keys.delete_gateway_token("gateway")?);
+    Ok(())
+}
+
+#[test]
 fn keys_are_filed_under_spades_service_and_the_endpoint() -> Result {
     let (keys, store) = mock_store()?;
     keys.set("zai", "sk-zai")?;

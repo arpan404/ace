@@ -118,7 +118,9 @@ export function bootFake(): {
   // `?fakeWorld=row-states` adds one thread for each thread-row status.
   const world =
     (globalThis as { aceFakeWorld?: string }).aceFakeWorld ??
-    new URLSearchParams(globalThis.location?.search ?? "").get("fakeWorld");
+    (new URLSearchParams(globalThis.location?.search ?? "").get("fakeWorld") ||
+      import.meta.env.VITE_ACE_FAKE_WORLD ||
+      null);
   const empty = world === "empty";
   // `?fakeWorld=just-this-mac`: Fleet with this computer alone, nothing else paired or on the
   // account.
@@ -259,9 +261,11 @@ export function bootFake(): {
   // In Electron `window.ace` is the read-only desktop bridge, so use `aceFake` there.
   Object.assign(globalThis, { ["ace" in globalThis ? "aceFake" : "ace"]: { daemon, client } });
   // A build server with its own folders, so Add project offers a machine picker.
-  // `?fakeWorld=org`: the build server is Acme Robotics' host, under its relay id.
+  // `?fakeWorld=org` and `?fakeWorld=spade-all`: the build server is Acme Robotics' host, under
+  // its relay id, so its Spade binding and the org host catalog name the same machine.
   const orgWorld = world === "org";
-  const serverId = orgWorld ? fakeOrgHostId : "build-server";
+  const orgHost = orgWorld || world === "spade-all";
+  const serverId = orgHost ? fakeOrgHostId : "build-server";
   const server = new FakeDaemon({
     clock: () => Date.now(),
     hostId: serverId,
@@ -329,9 +333,17 @@ export function bootFake(): {
   if (orgWorld) seedFakeSpade(daemon, server, (remote) => seedFakeOrgSpade(remote, Date.now()));
   // `?fakeWorld=mentions`: the Spade world, and a thread that asked its bots (ADR 0198).
   if (world === "mentions") seedFakeMentions(daemon, seedFakeSpade(daemon, server), server);
+  // `?fakeWorld=spade-all`: every Spade scenario together (bots, lanes, mentions, shared org bots).
+  if (world === "spade-all") {
+    const here = seedFakeSpade(daemon, server, (remote) => seedFakeOrgSpade(remote, Date.now()));
+    seedFakeLanes(here);
+    seedFakeMentions(daemon, here, server);
+  }
   // Every other world starts with Spade off. Turning it on (Settings › Spade › Run Spade on this
   // machine) starts the Spade world here, as the daemon starts Spade; off stops it again.
-  const seedsSpade = ["spade", "spade-empty", "mentions"].includes(world ?? "") || orgWorld;
+  const seedsSpade =
+    ["spade", "spade-lanes", "spade-empty", "mentions", "spade-all"].includes(world ?? "") ||
+    orgWorld;
   if (!seedsSpade) startSpadeOnRequest(daemon, server);
   if (world === "cross-device") seedMachineChildren(daemon, server);
   // This Mac and the build server are linked both ways, as Settings › Fleet's Link leaves them,

@@ -14,4 +14,6 @@ interface ImportMetaEnv {
   readonly VITE_ACE_BUILD?: string;
   /** Set by the build from `ACE_FAKE_PR_PUSH_EVERY_MS`: the fake app's sample push timer. */
   readonly VITE_ACE_FAKE_PR_PUSH_EVERY_MS?: string;
+  /** Optional default fake world when running `dev:fake` without `?fakeWorld=`. */
+  readonly VITE_ACE_FAKE_WORLD?: string;
 }

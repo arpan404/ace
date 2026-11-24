@@ -18,7 +18,8 @@ import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { checkModel, removeModel, saveModel } from "./spade-api.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
-import { SpadeModelMark } from "./spade-marks.tsx";
+import { SpadeModelMark, SpadeProviderMark } from "./spade-marks.tsx";
+import { SpadeModelCapabilities } from "./spade-model-capabilities.tsx";
 import { fault } from "./spade-settings-rows.tsx";
 import { modelsKey, useEndpointModels } from "./use-spade-models.ts";
 
@@ -85,14 +86,20 @@ function ModelProblems(props: { accounts: readonly SpadeEndpoint[] }) {
   );
 }
 
-/** One account's line: how many models bots may use on it, and Manage. */
+function modelSummary(models: readonly SpadeModelInfo[]): string {
+  if (!models.length) return "None yet";
+  const shown = models.slice(0, 3).map((model) => model.name);
+  const rest = models.length - shown.length;
+  return rest > 0 ? `${shown.join(", ")} · +${rest} more` : shown.join(", ");
+}
+
+/** One account's line: which models bots may use on it, and Manage. */
 function AccountModels(props: { account: SpadeEndpoint; title: string | undefined }) {
   const [open, setOpen] = useState(false);
   const { account } = props;
   const title = props.title ?? "Models bots can use";
-  const count = account.models.length;
   return (
-    <SettingRow title={title} description={count ? pluralCount(count, "model") : "None yet"} inline>
+    <SettingRow title={title} description={modelSummary(account.models)} inline>
       <Button
         size="sm"
         variant="secondary"
@@ -124,7 +131,10 @@ function ManageModels(props: { account: SpadeEndpoint; onClose(): void }) {
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
       <DialogContent size="lg">
         <DialogHeader>
-          <DialogTitle>{`Models on ${account.name}`}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <SpadeProviderMark account={account} name={account.name} size={20} decorative />
+            {`Models on ${account.name}`}
+          </DialogTitle>
         </DialogHeader>
         <SearchField
           label={`Search ${account.name}'s models`}
@@ -137,6 +147,14 @@ function ManageModels(props: { account: SpadeEndpoint; onClose(): void }) {
             {`${saved.size} of ${pluralCount(models.length, "model")} on`}
           </span>
           {live.isFetching && <Spinner label="Reading the provider's list" />}
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={live.isFetching}
+            onClick={() => void live.refetch()}
+          >
+            Refresh
+          </Button>
         </div>
         {live.isError && (
           <p className="text-xs text-muted-foreground">
@@ -164,7 +182,8 @@ function ModelRow(props: { account: SpadeEndpoint; model: SpadeModelInfo; on: bo
   const cache = useQueryClient();
   const toast = useToast();
   const [pending, setPending] = useState<boolean>();
-  const facts = spadeModelFacts(model);
+  const context = spadeModelFacts({ context: model.context, capabilities: [] });
+  const hasCapabilities = model.capabilities.length > 0;
   const checks = account.local ? spadeChecksLine(model) : undefined;
   const failed = account.local && spadeCantRunBots(model) !== undefined;
   const fixed = model.source === "preset";
@@ -195,11 +214,15 @@ function ModelRow(props: { account: SpadeEndpoint; model: SpadeModelInfo; on: bo
         <span className="truncate" title={model.id}>
           {model.name}
         </span>
-        {(facts || checks) && (
-          <span className="truncate text-xs text-subtle-foreground">
-            {facts}
-            {facts && checks && " · "}
-            {checks && <span className={failed ? "text-status-failed" : undefined}>{checks}</span>}
+        {(context || hasCapabilities || checks) && (
+          <span className="flex min-w-0 items-center gap-1.5 text-xs text-subtle-foreground">
+            {context && <span className="shrink-0 tabular-nums">{context}</span>}
+            {context && hasCapabilities && <span aria-hidden>·</span>}
+            <SpadeModelCapabilities capabilities={model.capabilities} />
+            {(context || hasCapabilities) && checks && <span aria-hidden>·</span>}
+            {checks && (
+              <span className={failed ? "truncate text-status-failed" : "truncate"}>{checks}</span>
+            )}
           </span>
         )}
       </span>
