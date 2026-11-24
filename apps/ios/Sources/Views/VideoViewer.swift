@@ -38,6 +38,7 @@ struct VideoViewer: View {
     let mimeType: String
     @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer?
+    @State private var failed = false
     var body: some View {
         VStack(spacing: AceTheme.Spacing.none) {
             HStack {
@@ -45,7 +46,16 @@ struct VideoViewer: View {
                 Spacer()
                 MediaDoneButton { dismiss() }
             }
-            if let player { SystemPlayer(player: player, label: title) }
+            if failed {
+                Spacer()
+                Text("This video couldn't be played.")
+                    .aceFont(AceTheme.Typography.body, relativeTo: .body)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, AceDesign.Space.margin)
+                    .accessibilityIdentifier("media.video.failed")
+                Spacer()
+            } else if let player { SystemPlayer(player: player, label: title) }
             else { Spacer() }
         }
         .background(AceDesign.Surface.media.ignoresSafeArea())
@@ -53,9 +63,14 @@ struct VideoViewer: View {
         .accessibilityAction(.escape) { dismiss() }
         .task {
             guard player == nil else { return }
-            let player = AVPlayer(playerItem: AVPlayerItem(asset: VideoPreview.asset(url, mimeType: mimeType)))
+            let item = AVPlayerItem(asset: VideoPreview.asset(url, mimeType: mimeType))
+            let player = AVPlayer(playerItem: item)
             self.player = player
             player.play()
+            for await status in item.publisher(for: \.status).values where status == .failed {
+                failed = true
+                break
+            }
         }
         .onDisappear { player?.pause() }
     }
