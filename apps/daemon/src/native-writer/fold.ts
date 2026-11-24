@@ -10,13 +10,7 @@ import type { DatabaseSync } from "@ace/provider-kit/sqlite";
 import type { Event, Thread } from "@ace/protocol";
 
 interface NativeFold {
-  foldThread(
-    thread: string,
-    kind: string,
-    seq: number,
-    at: number,
-    payload: string | null,
-  ): string;
+  foldThread(thread: string, kind: string, seq: number, at: number, payload: string | null): string;
 }
 
 function binding(db: DatabaseSync): NativeFold {
@@ -47,13 +41,7 @@ export function foldThread(db: DatabaseSync, thread: Thread, event: Event): void
   const input = foldInput(event);
   if (input === undefined) return;
   const text = nativeCall(() =>
-    binding(db).foldThread(
-      JSON.stringify(thread),
-      input.kind,
-      event.seq,
-      event.at,
-      input.payload,
-    ),
+    binding(db).foldThread(JSON.stringify(thread), input.kind, event.seq, event.at, input.payload),
   );
   const next = JSON.parse(text) as Record<string, unknown>;
   for (const key of Object.keys(thread)) Reflect.deleteProperty(thread, key);

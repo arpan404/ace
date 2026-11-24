@@ -135,8 +135,7 @@ function parseWriterParts(value: string | undefined): ReadonlySet<StoreWriterPar
 }
 
 const writerPartsValue = parseWriterParts(process.env.ACE_STORE_WRITER);
-if (writerPartsValue.size > 0 && !store)
-  throw new Error("ACE_STORE_WRITER needs ACE_STORE=native");
+if (writerPartsValue.size > 0 && !store) throw new Error("ACE_STORE_WRITER needs ACE_STORE=native");
 for (let index = 1; index < writerPartsOrder.length; index++) {
   const part = writerPartsOrder[index] as StoreWriterPart;
   const need = writerPartsOrder[index - 1] as StoreWriterPart;
@@ -376,7 +375,13 @@ function bootRoot(path: string): string | undefined {
 export function noteDatabaseBoot(path: string): void {
   const root = bootRoot(path);
   if (root === undefined) return;
-  noteBoot(root, ["ACE_STORE", "ACE_TRANSLATORS", "ACE_SESSIONS", "ACE_ENGINE", "ACE_STORE_WRITER"]);
+  noteBoot(root, [
+    "ACE_STORE",
+    "ACE_TRANSLATORS",
+    "ACE_SESSIONS",
+    "ACE_ENGINE",
+    "ACE_STORE_WRITER",
+  ]);
 }
 
 /** `ProcessInventory`'s constructor calls this once per journal open. */

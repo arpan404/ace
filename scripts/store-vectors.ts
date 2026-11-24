@@ -64,7 +64,11 @@ function build(): Built[] {
   const nextAt = () => 1_700_000_000_000 + seq * 1000;
   // Every sample of the moved table: none reaches, the no-op check proves the skip.
   for (const [key, payload] of Object.entries(samples))
-    push(`sample-${key}`, baseThread(), envelope(payload as Record<string, unknown>, seq++, nextAt()));
+    push(
+      `sample-${key}`,
+      baseThread(),
+      envelope(payload as Record<string, unknown>, seq++, nextAt()),
+    );
   // Every field of rule 3 alone.
   const alone: Array<[string, Record<string, unknown>]> = [
     ["workspaceId", { workspaceId: "workspace-2" }],
@@ -151,7 +155,14 @@ function build(): Built[] {
   // cursor-sdk with and without a continuation.
   push(
     "backend-cursor-with-continuation",
-    baseThread({ continuation: { state: "read_only", reason: "cursor_cli_retired", actionId: "thread.continue_new" }, backend: "acp" }),
+    baseThread({
+      continuation: {
+        state: "read_only",
+        reason: "cursor_cli_retired",
+        actionId: "thread.continue_new",
+      },
+      backend: "acp",
+    }),
     envelope({ type: "thread.updated", backend: "cursor-sdk" }, seq++, nextAt()),
   );
   push(
@@ -161,7 +172,14 @@ function build(): Built[] {
   );
   push(
     "backend-acp-keeps-continuation",
-    baseThread({ continuation: { state: "read_only", reason: "cursor_cli_retired", actionId: "thread.continue_new" }, backend: "acp" }),
+    baseThread({
+      continuation: {
+        state: "read_only",
+        reason: "cursor_cli_retired",
+        actionId: "thread.continue_new",
+      },
+      backend: "acp",
+    }),
     envelope({ type: "thread.updated", backend: "acp" }, seq++, nextAt()),
   );
   // acp whole, and acp without instanceId dropping the old one.
@@ -177,7 +195,11 @@ function build(): Built[] {
   push(
     "acp-without-instanceId",
     baseThread({ acpAgentId: "old-a", installationId: "old-i", instanceId: "old-s" }),
-    envelope({ type: "thread.updated", acp: { acpAgentId: "a2", installationId: "i2" } }, seq++, nextAt()),
+    envelope(
+      { type: "thread.updated", acp: { acpAgentId: "a2", installationId: "i2" } },
+      seq++,
+      nextAt(),
+    ),
   );
   // changes with null, __proto__, array-index key, and different order.
   push(
@@ -217,15 +239,21 @@ function build(): Built[] {
   push(
     "queue-with-queue",
     baseThread({ queue: { revision: 1, paused: true } }),
-    envelope({ type: "queue.updated", revision: 2, paused: false, reason: "manual" }, seq++, nextAt()),
+    envelope(
+      { type: "queue.updated", revision: 2, paused: false, reason: "manual" },
+      seq++,
+      nextAt(),
+    ),
   );
   // thread.created.
   const createdThread = baseThread({ id: "thread-2", title: "Born" });
-  push(
-    "thread-created",
-    createdThread,
-    { seq: seq++, id: `event-${seq}`, at: nextAt(), threadId: "thread-2", payload: { type: "thread.created", thread: createdThread } },
-  );
+  push("thread-created", createdThread, {
+    seq: seq++,
+    id: `event-${seq}`,
+    at: nextAt(),
+    threadId: "thread-2",
+    payload: { type: "thread.created", thread: createdThread },
+  });
   // agent.created root and non-root.
   push(
     "agent-root",
@@ -242,23 +270,43 @@ function build(): Built[] {
   push(
     "item-created-large",
     baseThread(),
-    envelope({ type: "item.created", item: { id: "item-big", type: "message", text: big } }, seq++, nextAt()),
+    envelope(
+      { type: "item.created", item: { id: "item-big", type: "message", text: big } },
+      seq++,
+      nextAt(),
+    ),
   );
   push(
     "item-updated-large",
     baseThread(),
-    envelope({ type: "item.updated", item: { id: "item-big", type: "message", text: big } }, seq++, nextAt()),
+    envelope(
+      { type: "item.updated", item: { id: "item-big", type: "message", text: big } },
+      seq++,
+      nextAt(),
+    ),
   );
   // unknown payload type.
   push(
     "unknown-type",
     baseThread(),
-    envelope({ type: "mystery.event", data: 1 } as unknown as Record<string, unknown>, seq++, nextAt()),
+    envelope(
+      { type: "mystery.event", data: 1 } as unknown as Record<string, unknown>,
+      seq++,
+      nextAt(),
+    ),
   );
   // lone surrogates and split pairs in a title, a change and an agent id.
   const lone = "\ud800";
-  push("title-lone", baseThread(), envelope({ type: "thread.updated", title: `hi ${lone}` }, seq++, nextAt()));
-  push("title-pair", baseThread(), envelope({ type: "thread.updated", title: "hi 😀" }, seq++, nextAt()));
+  push(
+    "title-lone",
+    baseThread(),
+    envelope({ type: "thread.updated", title: `hi ${lone}` }, seq++, nextAt()),
+  );
+  push(
+    "title-pair",
+    baseThread(),
+    envelope({ type: "thread.updated", title: "hi 😀" }, seq++, nextAt()),
+  );
   push(
     "changes-lone",
     baseThread(),
@@ -294,7 +342,9 @@ function build(): Built[] {
   // a thread whose keys include an array-index key.
   push(
     "thread-array-keys",
-    JSON.parse('{"id":"thread-1","workspaceId":"workspace-1","title":"Task","provider":"codex","status":{"state":"new"},"createdAt":1,"updatedAt":1,"2":"two","0":"zero","a":"A"}'),
+    JSON.parse(
+      '{"id":"thread-1","workspaceId":"workspace-1","title":"Task","provider":"codex","status":{"state":"new"},"createdAt":1,"updatedAt":1,"2":"two","0":"zero","a":"A"}',
+    ),
     envelope({ type: "thread.updated", title: "Reordered" }, seq++, nextAt()),
   );
   return raws.map(({ name, thread, event }) => {
@@ -305,7 +355,11 @@ function build(): Built[] {
     const input = foldInput(JSON.parse(eventText) as never);
     const payload = input?.payload ?? null;
     const reaches = input !== undefined;
-    const parsed = JSON.parse(eventText) as { seq: number; at: number; payload: { thread?: unknown } };
+    const parsed = JSON.parse(eventText) as {
+      seq: number;
+      at: number;
+      payload: { thread?: unknown };
+    };
     let folded: string;
     if (!reaches) {
       const copy = JSON.parse(threadText) as Record<string, unknown>;
@@ -338,7 +392,10 @@ function build(): Built[] {
 }
 
 const cases = build();
-const text = `${JSON.stringify(cases, null, 2)}\n`;
+// oxfmt writes `1e21` for an outer `1e+21`; `JSON.stringify` writes `1e+21`. Normalize the
+// outer seq/at numbers so the committed file passes both `--check` and `fmt:check`. Inner
+// texts keep `1e+21`: they are strings here, and both backends print `1e+21` for the fold.
+const text = `${JSON.stringify(cases, null, 2).replaceAll('"seq": 1e+21', '"seq": 1e21').replaceAll('"at": 1e+21', '"at": 1e21')}\n`;
 if (process.argv.includes("--check")) {
   const current = readFileSync(out, "utf8");
   if (current !== text) {

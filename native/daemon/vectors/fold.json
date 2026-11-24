@@ -653,8 +653,8 @@
     "event": "{\"seq\":1e+21,\"id\":\"event-1e+21\",\"at\":1e+21,\"threadId\":\"thread-1\",\"payload\":{\"type\":\"thread.updated\",\"title\":\"n-1e21\"}}",
     "kind": "thread.updated",
     "payload": "{\"type\":\"thread.updated\",\"title\":\"n-1e21\"}",
-    "seq": 1e+21,
-    "at": 1e+21,
+    "seq": 1e21,
+    "at": 1e21,
     "sidebar": true,
     "reaches": true,
     "folded": "{\"id\":\"thread-1\",\"workspaceId\":\"workspace-1\",\"title\":\"n-1e21\",\"provider\":\"codex\",\"status\":{\"state\":\"new\"},\"createdAt\":1,\"updatedAt\":1e+21}"
