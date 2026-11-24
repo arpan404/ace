@@ -94,8 +94,13 @@ extension ConversationFeed {
             let touched = intent.active
             intent.active = false
             model.endReadingScroll()
-            // A tap moved nothing: where the feed follows and what it holds stay as they were.
-            if old == .tracking, !touched { break }
+            // A tap moved nothing: whether the feed follows stays as it was. The window held
+            // under it has landed and reported its geometry by now, so a focus still landing
+            // aims again at its row, which may have landed off screen.
+            if old == .tracking, !touched {
+                keep(.phase(.idle), proxy: proxy)
+                break
+            }
             if touched {
                 let atEnd = intent.metrics.bottom <= AceDesign.Space.group
                 let live = reading.thread == nil || reading.joined
