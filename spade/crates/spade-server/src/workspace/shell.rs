@@ -209,6 +209,14 @@ pub trait Confine: Send + Sync {
         Err("this machine has no read-only sandbox".to_owned())
     }
 
+    /// Adds the credential guard when a Full access bot would otherwise launch unconfined.
+    fn outside_guard(&self, _home: &Path, required: bool) -> Result<Option<Launcher>, String> {
+        if required {
+            return Err("The outside credential guard is unavailable.".to_owned());
+        }
+        Ok(None)
+    }
+
     /// Whether the bot whose workspace is `home` runs its commands outside the sandbox (its own
     /// setting, else the machine's; ADR 0171).
     fn outside(&self, _home: &Path) -> bool {
@@ -568,7 +576,26 @@ impl Shell {
         };
         let mut seals_env = false;
         let mut shell = match &confined {
-            None => platform::command(&self.env, command),
+            None => {
+                let guard = match (&self.confine, &job.by) {
+                    (Some(confine), By::Bot(warrant)) => confine.outside_guard(
+                        home,
+                        warrant.as_ref().is_some_and(|w| w.credential_guard),
+                    )?,
+                    (None, By::Bot(Some(warrant))) if warrant.credential_guard => {
+                        return Err("The outside credential guard is unavailable.".to_owned());
+                    }
+                    _ => None,
+                };
+                if let Some(guard) = guard {
+                    let (program, args) = platform::shell_args(&self.env, command);
+                    let launched = guard(&program, &args)?;
+                    seals_env = launched.seals_env;
+                    platform::wrapped(launched.program, launched.args)
+                } else {
+                    platform::command(&self.env, command)
+                }
+            }
             Some(confined) => {
                 #[cfg(unix)]
                 let mapped;

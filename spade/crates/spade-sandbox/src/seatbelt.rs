@@ -102,6 +102,44 @@ pub fn profile_offline(policy: &Policy) -> String {
     profile_in(policy, false, true)
 }
 
+/// The file-only guard for a Full access command outside the workspace sandbox.
+pub fn credentials_only(
+    roots: &[std::path::PathBuf],
+    workspace: &Path,
+    secrets: &[std::path::PathBuf],
+) -> String {
+    let mut out = String::from("(version 1)\n(allow default)\n");
+    let paths = |paths: &[std::path::PathBuf]| {
+        paths
+            .iter()
+            .flat_map(|path| {
+                let real = crate::policy::real(path);
+                let data = real
+                    .strip_prefix("/")
+                    .ok()
+                    .map(|tail| Path::new("/System/Volumes/Data").join(tail));
+                [Some(path.clone()), Some(real), data].into_iter().flatten()
+            })
+            .collect::<Vec<_>>()
+    };
+    rule(
+        &mut out,
+        "deny file-read* file-write*",
+        paths(roots).iter().map(|p| subpath(p)),
+    );
+    rule(
+        &mut out,
+        "allow file-read* file-write*",
+        paths(&[workspace.to_owned()]).iter().map(|p| subpath(p)),
+    );
+    rule(
+        &mut out,
+        "deny file-read* file-write*",
+        paths(secrets).iter().map(|p| subpath(p)),
+    );
+    out
+}
+
 fn profile_in(policy: &Policy, read_only: bool, offline: bool) -> String {
     let mut out = String::from("(version 1)\n(deny default)\n");
     out.push_str(

@@ -932,6 +932,7 @@ pub(super) async fn handle_calls(
                             }
                             let warrant = Warrant {
                                 limit,
+                                credential_guard: mode == Mode::FullAccess,
                                 bound: verdict_bound,
                                 incomplete: false,
                             };
@@ -1082,6 +1083,7 @@ pub(super) async fn handle_calls(
                 let stopped = asked_stopped(events, &pending.call.id);
                 let warrant = Warrant {
                     limit: allowed_to,
+                    credential_guard: mode == Mode::FullAccess,
                     bound: Bound::from_stored(review::bound(events, &pending.call.id)),
                     incomplete: stopped == Some(Stopped::Incomplete),
                 };

@@ -28,6 +28,17 @@ impl Confine for Late {
         }
     }
 
+    fn outside_guard(
+        &self,
+        home: &Path,
+        required: bool,
+    ) -> std::result::Result<Option<spade_server::workspace::shell::Launcher>, String> {
+        self.0
+            .get()
+            .ok_or("the security service isn't set")?
+            .outside_guard(home, required)
+    }
+
     fn contains(&self, home: &Path) -> bool {
         self.0
             .get()

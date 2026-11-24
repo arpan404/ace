@@ -41,6 +41,51 @@ impl Security {
 }
 
 impl Confine for Security {
+    fn outside_guard(
+        &self,
+        home: &Path,
+        required: bool,
+    ) -> Result<Option<crate::workspace::shell::Launcher>, String> {
+        use spade_core::autonomy::Mode;
+        if !required
+            && !self
+                .bot_of(home)
+                .is_some_and(|bot| self.autonomy(&bot) == Mode::FullAccess)
+        {
+            return Ok(None);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let ace = self
+                .ace_data
+                .clone()
+                .unwrap_or_else(|| self.home.join(".ace"));
+            let mut secrets = spade_sandbox::credentials::places(&self.home);
+            secrets.extend(self.attestor.path().map(Path::to_path_buf));
+            let profile = spade_sandbox::seatbelt::credentials_only(
+                &[ace, self.spade_data.clone()],
+                home,
+                &secrets,
+            );
+            Ok(Some(Box::new(move |program, args| {
+                use std::ffi::OsString;
+                let mut wrapped = vec![
+                    OsString::from("-p"),
+                    OsString::from(&profile),
+                    program.as_os_str().to_owned(),
+                ];
+                wrapped.extend_from_slice(args);
+                Ok(spade_sandbox::Launch {
+                    program: spade_sandbox::seatbelt::SANDBOX_EXEC.into(),
+                    args: wrapped,
+                    seals_env: false,
+                })
+            })))
+        }
+        #[cfg(not(target_os = "macos"))]
+        Err("Full access cannot launch outside the sandbox on this platform because its credential guard is unavailable.".to_owned())
+    }
+
     fn confine(&self, home: &Path, kind: &Kind) -> Result<Confinement, String> {
         let Some(bot) = self.bot_of(home) else {
             return Ok(Confinement::None);

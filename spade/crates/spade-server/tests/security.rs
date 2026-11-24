@@ -95,7 +95,7 @@ async fn a_sandboxed_shell_maps_cd_tmp_and_uses_only_its_own_temp_files() -> Res
 }
 
 #[tokio::test]
-async fn full_access_runs_an_explicit_outside_command_without_approval() -> Result {
+async fn full_access_requires_a_credential_guard_for_an_explicit_outside_command() -> Result {
     let w = world(true, vec![], |at| {
         vec![
         Script::reply("").call("outside", "shell", json!({
@@ -121,7 +121,54 @@ async fn full_access_runs_an_explicit_outside_command_without_approval() -> Resu
         .parent()
         .ok_or("no sandbox fixture root")?
         .join("full-access.txt");
+    #[cfg(target_os = "macos")]
     assert_eq!(std::fs::read_to_string(path)?, "outside");
+    #[cfg(target_os = "linux")]
+    {
+        assert!(!path.exists());
+        assert!(output(&events, "outside").contains("credential guard is unavailable"));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn full_access_outside_seatbelt_denies_indirect_credential_reads_and_writes() -> Result {
+    let w = world(true, vec![], |at| {
+        let alias = quoted(&at.root.join("ordinary-file"));
+        let marker = quoted(&at.root.join("outside-ok"));
+        vec![
+            Script::reply("").call("outside", "shell", json!({
+                "command": format!("cat {alias}; printf changed > {alias}; printf ok > {marker}"),
+                "outside_sandbox": true
+            })),
+            Script::reply("Done."),
+        ]
+    })
+    .await?;
+    let root = w.home.parent().ok_or("no fixture root")?;
+    let protected = w.home.join(".ssh/probe");
+    std::fs::create_dir_all(w.home.join(".ssh"))?;
+    std::fs::write(&protected, "protected-credential-content")?;
+    std::os::unix::fs::symlink(&protected, root.join("ordinary-file"))?;
+    full_access(&w).await?;
+    w.spade
+        .say(&w.conversation, "Check the outside marker")
+        .await?;
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    let output = output(&events, "outside");
+    assert!(asked(&events).is_empty(), "{events:?}");
+    assert!(!output.contains("protected-credential-content"), "{output}");
+    assert_eq!(
+        output.matches("Operation not permitted").count(),
+        2,
+        "{output}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&protected)?,
+        "protected-credential-content"
+    );
+    assert_eq!(std::fs::read_to_string(root.join("outside-ok"))?, "ok");
     Ok(())
 }
 
