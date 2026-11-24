@@ -78,3 +78,73 @@ pub fn validate_merged_item(candidate: &Map) -> ItemCheck {
         ItemCheck::Invalid
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{ItemCheck, validate_merged_item};
+    use crate::json_io::Json;
+
+    /// A canonical tool_call item; `gaps` supplies the measurement's hitch keys.
+    fn measured_item(gaps: &str) -> Json {
+        let text = format!(
+            r#"{{
+  "id": "item_1",
+  "agentId": "agent_1",
+  "createdAt": 100,
+  "type": "tool_call",
+  "call": {{
+    "id": "item_1",
+    "agentId": "agent_1",
+    "kind": "shell",
+    "title": "shell",
+    "status": "pending",
+    "startedAt": 100,
+    "raw": [],
+    "detail": {{ "kind": "shell", "command": "ls" }}
+  }},
+  "measurement": {{
+    "source": "browser-trace",
+    "target": {{ "kind": "window", "bundleId": "com.apple.Safari", "windowId": 41 }},
+    "refreshHz": 120,
+    "windowMs": 2000,
+    "frames": 80,
+    {gaps},
+    "verdict": "smooth",
+    "confidence": "high",
+    "notes": []
+  }}
+}}"#
+        );
+        match crate::json_io::parse_untrusted(&text) {
+            Ok(item) => item,
+            Err(error) => panic!("the candidate is JSON: {error}"),
+        }
+    }
+
+    fn check(item: &Json) -> ItemCheck {
+        match item {
+            Json::Object(map) => validate_merged_item(map),
+            _ => panic!("the candidate is an object"),
+        }
+    }
+
+    #[test]
+    fn a_measurement_gap_keeps_extra_fields_visible_as_unknown_item_fields() {
+        for (field, gaps) in [
+            (
+                "hitches",
+                r#""hitches": [{"atMs":10,"durationMs":20,"gapField":"kept"}]"#,
+            ),
+            (
+                "longTasks",
+                r#""hitches": [], "longTasks": [{"atMs":10,"durationMs":20,"gapField":"kept"}]"#,
+            ),
+        ] {
+            let item = measured_item(gaps);
+            assert!(
+                matches!(check(&item), ItemCheck::UnknownFields),
+                "{field} gap extras must be unknown fields, never a misshapen item"
+            );
+        }
+    }
+}
