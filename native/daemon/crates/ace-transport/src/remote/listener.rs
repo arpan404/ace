@@ -11,7 +11,6 @@ use std::time::Duration;
 
 use rustls::crypto::CryptoProvider;
 use tokio::net::TcpStream;
-use tokio_rustls::TlsAcceptor;
 
 use crate::accept::{Accepting, Acceptor, Admitted, DEFAULT_MAX_TCP_CONNECTIONS};
 use crate::conn_io::ConnIo;
@@ -20,8 +19,8 @@ use crate::error::TransportError;
 use crate::limits::ConnectionLimits;
 use crate::peer::Peer;
 use crate::proxy::{ProxyTarget, is_localhost};
-use crate::tls::config::server_config;
-use crate::tls::handshake;
+use crate::tls::config::{server_config, server_config_preferring_hybrid};
+use crate::tls::handshake::{self, Configs};
 use crate::tls::identity::TlsIdentity;
 use crate::tls::resolver::SniResolver;
 
@@ -48,9 +47,13 @@ impl RemoteListener {
             return Err(TransportError::NotLoopback { addr: target.addr });
         }
         let resolver = Arc::new(SniResolver::new(identity));
-        let config = server_config(provider, Arc::clone(&resolver))?;
+        // Both configurations are built once per identity: a hybrid-capable
+        // client gets the hybrid-only one, everyone else the normal one.
+        let preferring =
+            server_config_preferring_hybrid(Arc::clone(&provider), Arc::clone(&resolver))?;
+        let normal = server_config(provider, Arc::clone(&resolver))?;
         let acceptor = Tls {
-            acceptor: TlsAcceptor::from(Arc::new(config)),
+            configs: Arc::new(Configs::new(Arc::new(preferring), Arc::new(normal))),
             handshake: limits.handshake,
         };
         let accepting = Accepting::start(
@@ -94,16 +97,16 @@ impl RemoteListener {
 /// A remote connection ends TLS before the driver sees it.
 #[derive(Clone)]
 struct Tls {
-    acceptor: TlsAcceptor,
+    configs: Arc<Configs>,
     handshake: Option<Duration>,
 }
 
 impl Acceptor for Tls {
     fn admit(&self, stream: TcpStream, _peer: Peer) -> Admitted {
-        let acceptor = self.acceptor.clone();
+        let configs = Arc::clone(&self.configs);
         let handshake_limit = self.handshake;
         Box::pin(async move {
-            let accepted = handshake::accept(&acceptor, stream, handshake_limit).await?;
+            let accepted = handshake::accept(&configs, stream, handshake_limit).await?;
             // The negotiated name reaches the hop in T1b.2; a connection keeps
             // the certificate it shook hands with.
             Some(Box::new(accepted.stream) as Box<dyn ConnIo>)

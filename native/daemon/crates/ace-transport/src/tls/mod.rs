@@ -11,8 +11,8 @@ pub mod identity;
 pub mod provider;
 pub mod resolver;
 
-pub use config::server_config;
-pub use handshake::{Accepted, accept};
+pub use config::{server_config, server_config_preferring_hybrid};
+pub use handshake::{Accepted, Configs, accept};
 pub use identity::TlsIdentity;
 pub use provider::process_provider;
 pub use resolver::SniResolver;

@@ -21,9 +21,8 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
-use tokio_rustls::server::TlsAcceptor;
 
-use crate::tls::handshake::{self, Accepted};
+use crate::tls::handshake::{self, Accepted, Configs};
 
 /// The aws-lc-rs provider the tests configure explicitly.
 pub(crate) fn provider() -> Arc<CryptoProvider> {
@@ -104,19 +103,16 @@ pub(crate) async fn connect(
     connector.connect(server_name, tcp).await
 }
 
-/// A one-connection TLS endpoint running `config`, settled with whatever the
+/// A one-connection TLS endpoint running `configs`, settled with whatever the
 /// handshake produced: `None` for a refusal.
-pub(crate) async fn endpoint(
-    config: Arc<rustls::ServerConfig>,
-) -> (SocketAddr, JoinHandle<Option<Accepted>>) {
+pub(crate) async fn endpoint(configs: Arc<Configs>) -> (SocketAddr, JoinHandle<Option<Accepted>>) {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("a loopback listener");
     let addr = listener.local_addr().expect("its address");
-    let acceptor = TlsAcceptor::from(config);
     let task = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.ok()?;
-        handshake::accept(&acceptor, stream, Some(Duration::from_secs(10))).await
+        handshake::accept(&configs, stream, Some(Duration::from_secs(10))).await
     });
     (addr, task)
 }

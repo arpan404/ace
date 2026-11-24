@@ -8,24 +8,30 @@ use std::time::Duration;
 
 use rustls::pki_types::CertificateDer;
 use rustls::version::TLS12;
-use rustls::{CipherSuite, ClientConfig, HandshakeKind, NamedGroup, ProtocolVersion, ServerConfig};
+use rustls::{CipherSuite, ClientConfig, HandshakeKind, NamedGroup, ProtocolVersion};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
+use crate::tls::config::{server_config, server_config_preferring_hybrid};
+use crate::tls::handshake::{self, Configs};
 use crate::tls::identity::TlsIdentity;
 use crate::tls::resolver::SniResolver;
-use crate::tls::server_config;
 
 use self::client::Options;
 use super::{client, ec, rsa};
 
-/// A server configuration whose identity is `identity`, with the pin a client
-/// of that identity needs.
-fn server(identity: TlsIdentity) -> (Arc<ServerConfig>, Vec<u8>) {
+/// The two configurations a client of `identity` chooses between, with the pin
+/// that identity's certificate needs.
+fn server(identity: TlsIdentity) -> (Arc<Configs>, Vec<u8>) {
     let pin = client::spki(&identity_pin_cert(&identity));
     let resolver = Arc::new(SniResolver::new(identity));
-    let config = server_config(client::provider(), resolver).expect("the server config builds");
-    (Arc::new(config), pin)
+    let preferring = server_config_preferring_hybrid(client::provider(), Arc::clone(&resolver))
+        .expect("the hybrid config builds");
+    let normal = server_config(client::provider(), resolver).expect("the server config builds");
+    (
+        Arc::new(Configs::new(Arc::new(preferring), Arc::new(normal))),
+        pin,
+    )
 }
 
 /// The certificate a test identity was loaded from, for its pin. The identity
@@ -163,8 +169,10 @@ async fn a_pushed_certificate_serves_the_next_handshake_and_an_open_one_keeps_it
     let trusted = ec();
     let trusted_pin = client::spki(&trusted.key().cert[0]);
     let resolver = Arc::new(SniResolver::new(pinned));
-    let config =
-        Arc::new(server_config(client::provider(), Arc::clone(&resolver)).expect("the config"));
+    let preferring =
+        server_config_preferring_hybrid(client::provider(), Arc::clone(&resolver)).expect("config");
+    let normal = server_config(client::provider(), Arc::clone(&resolver)).expect("the config");
+    let config = Arc::new(Configs::new(Arc::new(preferring), Arc::new(normal)));
     let pins = [pinned_pin, trusted_pin];
 
     let (addr, first_task) = client::endpoint(Arc::clone(&config)).await;
@@ -207,12 +215,11 @@ fn served(client: &tokio_rustls::client::TlsStream<TcpStream>) -> Vec<u8> {
 }
 
 #[tokio::test]
-async fn a_client_that_lists_x25519_first_gets_classical_tls() {
-    // rustls 0.23 picks the key-exchange group from the client's order, not the
-    // server's (`server/hs.rs`: the first client-listed group the server
-    // supports), and offers no way to prefer the server's; recorded as a
-    // difference. Every ace client names the hybrid first, so none of them
-    // lands here.
+async fn an_x25519_first_client_that_supports_the_hybrid_still_gets_it() {
+    // rustls picks from the client's group order (`server/hs.rs:564`,`:646`),
+    // so choosing the configuration by the ClientHello is what makes the hybrid
+    // win: this client names X25519 first and sends no hybrid key share, and the
+    // server asks for one with a HelloRetryRequest (RFC 8446 §4.2.8).
     let (config, pin) = server(rsa());
     let (addr, task) = client::endpoint(config).await;
     let options = Options {
@@ -225,7 +232,30 @@ async fn a_client_that_lists_x25519_first_gets_classical_tls() {
     let client = client::connect(addr, client::client_config(&[pin], options), "localhost")
         .await
         .expect("the handshake completes");
+    assert_eq!(negotiated(&client), NamedGroup::X25519MLKEM768);
+    assert_eq!(
+        client.get_ref().1.handshake_kind(),
+        Some(HandshakeKind::FullWithHelloRetryRequest)
+    );
+    assert!(task.await.expect("the server task").is_some());
+}
+
+#[tokio::test]
+async fn a_client_without_the_hybrid_negotiates_x25519() {
+    let (config, pin) = server(rsa());
+    let (addr, task) = client::endpoint(config).await;
+    let options = Options {
+        kx_groups: Some(vec![rustls::crypto::aws_lc_rs::kx_group::X25519]),
+        ..Options::default()
+    };
+    let client = client::connect(addr, client::client_config(&[pin], options), "localhost")
+        .await
+        .expect("the handshake completes");
     assert_eq!(negotiated(&client), NamedGroup::X25519);
+    assert_eq!(
+        client.get_ref().1.handshake_kind(),
+        Some(HandshakeKind::Full)
+    );
     assert!(task.await.expect("the server task").is_some());
 }
 
@@ -254,6 +284,32 @@ async fn the_server_cipher_order_wins_as_it_does_on_node() {
 }
 
 #[tokio::test]
+async fn the_tls_1_2_server_cipher_order_matches_node() {
+    // Node's TLS 1.2 list puts AES-128-GCM ahead of AES-256-GCM, and the
+    // server's order decides: a client offering AES-256-GCM first still gets
+    // AES-128-GCM.
+    let (config, pin) = server(rsa());
+    let (addr, task) = client::endpoint(config).await;
+    let options = Options {
+        versions: vec![&TLS12],
+        kx_groups: Some(vec![rustls::crypto::aws_lc_rs::kx_group::X25519]),
+        cipher_suites: Some(vec![
+            rustls::crypto::aws_lc_rs::cipher_suite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+            rustls::crypto::aws_lc_rs::cipher_suite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+        ]),
+        ..Options::default()
+    };
+    let client = client::connect(addr, client::client_config(&[pin], options), "localhost")
+        .await
+        .expect("the handshake completes");
+    assert_eq!(
+        negotiated_suite(&client),
+        CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+    );
+    assert!(task.await.expect("the server task").is_some());
+}
+
+#[tokio::test]
 async fn a_second_connection_resumes_with_a_ticket() {
     let (config, pin) = server(rsa());
     let client_config = client::client_config(&[pin], Options::default());
@@ -270,16 +326,14 @@ async fn a_second_connection_resumes_with_a_ticket() {
 
 /// One handshake and one answer, so the client reads the session tickets the
 /// server queued after its handshake; the kind of handshake is the result.
-async fn round_trip(config: Arc<ServerConfig>, client_config: Arc<ClientConfig>) -> HandshakeKind {
+async fn round_trip(config: Arc<Configs>, client_config: Arc<ClientConfig>) -> HandshakeKind {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("a listener");
     let addr = listener.local_addr().expect("its address");
-    let acceptor = tokio_rustls::TlsAcceptor::from(config);
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.expect("a connection");
-        let accepted =
-            crate::tls::handshake::accept(&acceptor, stream, Some(Duration::from_secs(10)))
-                .await
-                .expect("the handshake");
+        let accepted = handshake::accept(&config, stream, Some(Duration::from_secs(10)))
+            .await
+            .expect("the handshake");
         let mut stream = accepted.stream;
         stream.write_all(b"ok").await.expect("the answer");
         stream.flush().await.expect("the flush");
