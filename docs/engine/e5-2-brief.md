@@ -516,26 +516,56 @@ pub enum FrameRef { Js(u32), Native(Box<ace_adapter_api::Frame>) }
     counted, so nothing is subtracted. A parked mailbox that reaches a
     slot still pending waits for it. Outside a transaction, `enqueue` pushes the op at once, as
     the first kind does.
-- **Capacity and provisional actors.** Outside a transaction, `get_or_create` is TypeScript's
-  exactly: evict the oldest actors without a reserved slot until there is room, else
-  `Engine actor capacity exceeded`. Inside an open transaction it **evicts nobody**: eviction
-  stops a committed actor's session and evicts its state, and a rollback cannot undo that.
-  Provisional actors do not count toward `max_active_threads + retiring_count()`. The call only
-  refuses, with `Engine actor capacity exceeded` at the call as TypeScript does, when no eviction
-  could make room even at commit, that is when every committed actor holds a reserved slot. The
-  count and any eviction happen at **promotion**, the deferred task's first poll after commit, on
-  committed state. That runs TypeScript's loop (oldest first, never a reserved slot, never another
-  provisional actor) and then marks the actor committed. If reservations changed in between and
-  there is still no room, the promoted actor is discarded as a rolled-back one is, its pending
-  frames are acknowledged `Done`, and `Engine actor capacity exceeded` is reported once through
-  `onError` (the call had already returned).
+- **Capacity and provisional actors: the slot is reserved at the call.** The call returns exactly
+  what TypeScript returns (`index.ts:528`–`:562`), and once it has returned an actor, promotion at
+  commit cannot fail. Capacity is counted as
+  `occupied = committed actors + held reservations − pledged victims`, against
+  `room = max_active_threads + retiring_count()`.
+  - **Outside a transaction**: TypeScript's loop exactly. Evict the oldest actors with no
+    `engine_slots` row (`repository.ts:539`) until `occupied < room`, else throw
+    `Engine actor capacity exceeded`. The new actor is committed at once.
+  - **Inside an open transaction**: the same loop picks the same victims, in the same order, with
+    the same predicate, plus "not provisional, not already pledged". It does not evict them. It
+    **pledges** each one to this transaction, which takes it out of `occupied`. If the loop cannot
+    reach `occupied < room`, the call throws `Engine actor capacity exceeded`, exactly where
+    TypeScript throws, and pledges nothing. Otherwise the call **holds one reservation** for the
+    new provisional actor and returns it. The reservation and the pledges belong to the
+    transaction's after-commit token (the deferred mailbox task below), so a second creation in
+    the same transaction, or in a nested or later one, sees them in `occupied` and can never be
+    given the same slot.
+  - **On commit**, before any other entry can look at actors, the pledged victims are evicted
+    (`stop`, `repo.evict`, removed from `Actors`: memory only, what TypeScript did at the call),
+    and the provisional actor becomes committed, using the slot its reservation held. This runs
+    **lazily, at the first of** the promoted task's first poll or any synchronous actor entry
+    (`get_or_create`, `frame`, `enqueue`, `liveThreadIds`, `workload`), which first completes
+    every committed transaction's pending promotions in commit order. A victim that something
+    asks for after the commit is therefore already evicted and is recreated fresh, as TypeScript
+    would recreate it after evicting it at the call. Promotion only moves a slot it already holds,
+    so it cannot fail.
+  - **On rollback** the deferred task is dropped. Its guard releases the reservation, unpledges
+    the victims (which were never touched and carry on) and discards the provisional actor
+    (below). Nothing was evicted, so nothing is lost.
+  - **Inside the transaction itself**, a lookup of a pledged victim returns it as it stands, not
+    evicted. TypeScript would have rebuilt it from the store. The difference is in-memory only
+    (an idle timer re-armed, `idleSince` kept), lasts only until the transaction ends, and the
+    commit then evicts it as above.
+  - **If a reservation is ever found unusable at promotion** (an invariant break, never a normal
+    path), the actor is not discarded quietly. Every pending acknowledgement **rejects** with
+    `Provider frame failed to commit`, so the session's tracker stops intake (ADR 0223 §7 rule 4)
+    and nothing reads as a false success. Every op staged or queued for it is failed, not dropped:
+    it is reported through `onError` as `Engine actor capacity reservation lost for <thread>`, and
+    the durable work behind it (a send receipt is a durable admission, `handler.ts:536`–`:549`;
+    intents and queue rows stay as committed) is retried by `links.wake(thread)`, so the workers
+    redeliver it through a fresh actor once there is room. Seam test 17d forces this path through a
+    probe hook.
 - **A new actor's first poll.** `get_or_create` inside an open transaction inserts the actor marked
   `provisional` and defers its mailbox task: `core.defer(Deferred::Spawn(Lane::Work, mailbox))`.
   On commit the task is spawned, registers its waker and gets its first poll in a later pump. On
   rollback the deferred future is dropped, and its guard removes the provisional actor from
-  `Actors` (dropping any pending frames, acknowledged with `Done`, as a stopped actor's are) and
-  unregisters nothing, since nothing was registered. A discarded actor is never polled and has no
-  waker. Outside a transaction the task is spawned at once. Until its task exists, a direct wake
+  `Actors` and unregisters nothing, since nothing was registered. A rolled-back provisional actor
+  has no session (sessions attach after their own commits), so it holds no frames. If one ever
+  holds a pending acknowledgement, the acknowledgement rejects with
+  `Provider frame failed to commit` and never resolves `Done`. A discarded actor is never polled and has no waker. Outside a transaction the task is spawned at once. Until its task exists, a direct wake
   of a provisional actor is a no-op; the spawned task's first poll runs `catch_up` and takes
   whatever was queued.
 - These are the actor's only exceptions to E5.1's "sync entries start work through `defer`": direct
@@ -1080,12 +1110,22 @@ the switch on:
     Afterwards `liveThreadIds()` lacks the thread, `probe.turns()` shows no poll of its task, and
     no waker is registered for it. The same call inside a committed transaction leaves the actor
     live with its tick applied.
-    17b. "an actor created inside a rolled-back transaction at capacity evicts nobody":
-    `limits.maxActiveThreads: 2`, two committed actors with no reserved slot, then `rootAgent` for a
-    third thread inside a `store.atomic` that throws. Afterwards both original actors are live,
-    neither session was aborted, and `liveThreadIds()` is unchanged. The same call inside a
-    committed transaction evicts the oldest at promotion, as TypeScript evicts at the call, and
-    leaves the other two live. Evicting at the call makes the rollback case fail.
+    17b. "an actor created at capacity inside a transaction returns what TypeScript returns, and
+    a rollback evicts nobody": `limits.maxActiveThreads: 2`, two committed actors with no
+    `engine_slots` row. (i) `rootAgent` for a third thread inside a `store.atomic` that throws:
+    the call succeeds as in TypeScript, and afterwards both original actors are live and
+    untouched, and `liveThreadIds()` is unchanged. (ii) The same call inside a committed
+    transaction: after commit, the oldest is evicted (the one TypeScript evicts at the call), and
+    the new actor and the other original are live. (iii) Inside one transaction, two creations
+    with room for one pledge two different victims and hold two reservations; a third creation
+    throws `Engine actor capacity exceeded` at the call, as TypeScript does when every remaining
+    actor holds a slot. Evicting at the call fails (i); promoting without a held reservation fails
+    (iii).
+    17d. "a reservation lost at promotion never acknowledges as success": the probe invalidates a
+    provisional actor's reservation before its first poll. A frame queued on it rejects with
+    `Provider frame failed to commit`, an op staged on it is reported with
+    `Engine actor capacity reservation lost for <thread>`, `links.wake(thread)` was called, and no
+    promise resolved `Done`.
     17c. "staged enqueues of a rolled-back transaction never overflow the mailbox":
     `limits.maxQueuedFrames: 4`, three frames sealed and held behind a write hold, then five
     `enqueue`s inside a `store.atomic` that throws. There is no overflow: `aborted()` is 0, no
@@ -1178,9 +1218,12 @@ the switch on:
 - Rollback scope: frame batches and ticks wake directly; receipt-dependent `enqueue`s are staged
   and deferred; an actor created in a rolled-back transaction is discarded and never polled (seam
   tests 15–17).
-- Rollback capacity: no eviction inside a transaction, and provisional actors and staged slots
-  count only at promotion and admission, on committed state. Outside a transaction eviction and
-  overflow are TypeScript's (seam tests 17b, 17c).
+- Rollback capacity: a provisional actor holds its slot from the call, and its victims are pledged,
+  not evicted; commit evicts and promotes (promotion cannot fail), rollback releases. Staged slots
+  count only at admission, on committed state. Outside a transaction eviction and overflow are
+  TypeScript's. No path resolves an acknowledgement `Done` for frames it did not fold, except the
+  stopped-actor and stale-generation drops TypeScript also acknowledges (`actor.ts:304`) (seam
+  tests 17b–17d).
 - `released_thread` is E5.3's, `cursor_record` is called only for a non-empty journal, and
   `latest_generation`'s row says E5.4 reads both indexed maxima.
 - The coalescer checks the in-between signal's own agent, and the raw walk visits siblings last
