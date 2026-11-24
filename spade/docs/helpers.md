@@ -28,16 +28,18 @@ conversation, the job (the `helper` call's id), the bot's reply that started it,
 as it was then (name, standing instructions, reads-only, tool list) and the model. Kept whole, so
 what it may run stays what it was after a restart even if a plugin's profile changed.
 
-- Its system prompt is the one every conversation starts from (Spade's own instructions) and its
-  offered tools are its bot's, in the same order, so the provider's cache serves both
-  ([design.md](design.md), Caching). What makes it a helper sits in its first message, not at the
-  top: one `user_message`, the task, with `helper::RULES` and the profile's instructions in its
-  context. Nothing else of the bot's conversation comes with it: no skill index, no notes index,
-  no title, no cowork notes, and no task of the bot's.
-- A helper stored before helpers shared their bot's prompt keeps the system text its row pinned
-  (Spade's rules and its profile's instructions, then its task alone as the first message), so it
-  still resumes on the prompt it had. A helper made now pins none: its prompt top is its bot's,
-  which the build fixes.
+- Its system prompt is Spade's own instructions (the bytes every conversation's prompt starts
+  with) followed by what makes it a helper: `helper::RULES`, then the profile's instructions. Its
+  offered tools are its bot's, in the same order. So the tool list and Spade's rules are a prefix
+  its bot's prompt has too, and the provider's cache serves both up to where the bot's own task
+  and indexes begin ([design.md](design.md), Caching).
+- Its first message is the task alone. Nothing else of the bot's conversation comes with it: no
+  skill index, no notes index, no title, no cowork notes, and no task of the bot's. The rules sit
+  above the conversation, so a compaction never cuts them.
+- The system text is pinned in the helper's row when it is made, so a restart rebuilds the same
+  bytes even if a plugin's profile changed. A helper stored before helpers shared their bot's
+  prompt keeps the text it pinned then (Spade's rules and its profile's instructions, without the
+  shared part), so it still resumes on the prompt it had.
 - It is driven by the same turn worker and `next_step` as any reply: it streams, retries a step
   that failed before anything streamed, compacts, pauses for updates and Stop
   (`turn_paused`), and resumes from its events when Spade starts. A helper cut off mid-step by a
@@ -104,12 +106,13 @@ background result would arrive after it. Deferred tools (ace's, connectors') are
 same way, so `explore` keeps read-only ace and connector tools.
 
 A profile narrows what a helper may run, not what the model is offered: every helper is offered
-its bot's tool list, so the two share the provider's cache as their prompts do. A call to a tool
-the profile leaves out is answered with a refusal and never run, checked before anything the turn
-loop answers itself (a helper's `ask_user` would wait on a question nobody sees), and the same
-holds for a call made through `call_tool`. It reads "Refused: a helper cannot use _name_. Finish
-the task with your tools and answer." when its bot has the tool or no helper may have it, and
-"There is no tool named _name_." otherwise. Nothing a helper could not do is possible because the
+its bot's tool list, so the tool list and Spade's rules are the same bytes as its bot's. A call to
+a tool the profile leaves out is answered with a refusal and never run, checked before anything
+the turn loop answers itself (a helper's `ask_user` would wait on a question nobody sees), and the
+same holds for a call made through `call_tool`. It reads "Refused: a helper cannot use _name_.
+Finish the task with your tools and answer." when its bot has the tool or no helper may have it,
+and "There is no tool named _name_." otherwise. `tool_search` searches what the profile allows, so
+a deferred tool outside it is never found. Nothing a helper could not do is possible because the
 list is wider.
 
 **Plugin agents' profiles.** `engine::ProfileSource` is the seam: `fn profiles(&self, agent:
