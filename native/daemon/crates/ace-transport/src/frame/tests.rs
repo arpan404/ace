@@ -3,11 +3,15 @@
 //! and the frames (or the refusal) that come off them, so a rule is checked at
 //! the same edge the socket uses.
 
+use std::io;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 
 use super::assemble::{Assembler, Message, MessageBody, Plain, conclude};
 use super::header::{parse_first, payload_length};
@@ -460,4 +464,188 @@ async fn written(item: Outbound) -> Vec<u8> {
         .await
         .expect("the wire's bytes are read");
     bytes
+}
+
+/// An `AsyncRead` that yields one byte per poll, so a frame spans every partial
+/// read a socket can produce.
+struct Dribble {
+    bytes: Vec<u8>,
+    at: usize,
+}
+
+impl Dribble {
+    fn new(bytes: Vec<u8>) -> Self {
+        Self { bytes, at: 0 }
+    }
+}
+
+impl AsyncRead for Dribble {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        if this.at < this.bytes.len() && buf.remaining() > 0 {
+            buf.put_slice(&[this.bytes[this.at]]);
+            this.at += 1;
+        }
+        Poll::Ready(Ok(()))
+    }
+}
+
+#[tokio::test]
+async fn a_frame_read_one_byte_at_a_time_is_whole() {
+    let payload = vec![0x5a; 300];
+    let bytes = masked(false, Opcode::Binary, &payload);
+    let mut reader = FrameReader::new(Dribble::new(bytes));
+    let frame = reader
+        .next()
+        .await
+        .expect("a frame")
+        .expect("a valid frame");
+    assert!(!frame.fin);
+    assert_eq!(frame.opcode, Opcode::Binary);
+    assert_eq!(
+        frame.payload, payload,
+        "header, length, mask and payload split"
+    );
+    assert!(reader.next().await.is_none(), "the end is still the end");
+}
+
+#[tokio::test]
+async fn a_fragmented_message_read_one_byte_at_a_time_keeps_its_frames() {
+    let mut bytes = masked(false, Opcode::Text, b"Hel");
+    bytes.extend(masked(true, Opcode::Ping, b"p"));
+    bytes.extend(masked(true, Opcode::Continuation, b"lo"));
+    let mut reader = FrameReader::new(Dribble::new(bytes));
+    let mut frames = Vec::new();
+    while let Some(frame) = reader.next().await {
+        frames.push(frame.expect("a valid frame"));
+    }
+    assert_eq!(
+        frames,
+        vec![text(false, b"Hel"), ping(b"p"), continuation(true, b"lo"),]
+    );
+}
+
+#[derive(Default)]
+struct Counts {
+    writes: usize,
+    flushes: usize,
+    first_write_len: usize,
+}
+
+/// An `AsyncWrite` that accepts at most `accept` bytes per write and counts the
+/// calls, so a test can see how many writes and flushes one message took.
+struct Counting {
+    counts: Arc<Mutex<Counts>>,
+    accept: usize,
+}
+
+impl Counting {
+    fn new(accept: usize) -> (Self, Arc<Mutex<Counts>>) {
+        let counts = Arc::new(Mutex::new(Counts::default()));
+        (
+            Self {
+                counts: Arc::clone(&counts),
+                accept,
+            },
+            counts,
+        )
+    }
+}
+
+impl AsyncWrite for Counting {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let this = self.get_mut();
+        let mut counts = this.counts.lock().expect("no poison");
+        if counts.writes == 0 {
+            counts.first_write_len = buf.len();
+        }
+        counts.writes += 1;
+        Poll::Ready(Ok(buf.len().min(this.accept)))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.counts.lock().expect("no poison").flushes += 1;
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
+#[tokio::test]
+async fn a_message_is_one_write_and_one_flush() {
+    let (io, counts) = Counting::new(7);
+    let mut writer = FrameWriter::new(io);
+    writer
+        .send(Outbound {
+            opcode: Opcode::Text,
+            rsv1: false,
+            payload: Bytes::from(vec![0x7b; 20]),
+        })
+        .await
+        .expect("the frame is written");
+
+    let counts = counts.lock().expect("no poison");
+    assert_eq!(counts.flushes, 1, "one flush per message");
+    assert_eq!(
+        counts.first_write_len, 22,
+        "header and payload in one write"
+    );
+    assert_eq!(counts.writes, 4, "a 7-byte writer takes four writes");
+}
+
+#[tokio::test]
+async fn a_frame_in_flight_is_never_interleaved_with_the_next() {
+    let (io, counts) = Counting::new(usize::MAX);
+    let mut writer = FrameWriter::new(io);
+    writer
+        .feed(Outbound {
+            opcode: Opcode::Text,
+            rsv1: false,
+            payload: Bytes::from_static(b"one"),
+        })
+        .await
+        .expect("the first frame is buffered");
+
+    let error = writer
+        .send(Outbound {
+            opcode: Opcode::Close,
+            rsv1: false,
+            payload: Bytes::from_static(b"\x03\xe8"),
+        })
+        .await
+        .expect_err("a second frame is refused while the first is in flight");
+    assert!(error.to_string().contains("still in flight"));
+
+    writer.flush().await.expect("the first frame still flushes");
+    let counts = counts.lock().expect("no poison");
+    assert_eq!(counts.first_write_len, 5, "only the first frame's bytes");
+    assert_eq!(counts.writes, 1);
+}
+
+#[tokio::test]
+async fn more_than_16384_fragments_is_refused_with_1008() {
+    let mut assembler = Assembler::new();
+    assembler
+        .accept(Opcode::Text, false, 0)
+        .expect("the first fragment");
+    for _ in 0..super::assemble::MAX_FRAGMENTS - 1 {
+        assembler
+            .accept(Opcode::Continuation, false, 0)
+            .expect("still within the limit");
+    }
+    assert_eq!(
+        assembler.accept(Opcode::Continuation, false, 0),
+        Err(super::CloseCode::TooManyFragments)
+    );
+    assert_eq!(super::CloseCode::TooManyFragments.wire(), 1008);
 }

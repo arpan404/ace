@@ -13,7 +13,27 @@ use super::{
     CLOSE_TIMEOUT, CLOSED, CLOSING, MESSAGE_OVERHEAD, OPEN, OUTBOUND_MESSAGES, Own, Queued, Shared,
     debit, lock, message,
 };
+use crate::frame::assemble::valid_status;
 use crate::frame::{Opcode, Outbound as Frame};
+
+/// Why `ws` refuses a local close before anything reaches the wire.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloseError {
+    /// Not `isValidStatusCode` (sender.js:184): `TypeError` in `ws`.
+    InvalidCode,
+    /// A reason over 123 bytes: `RangeError` in `ws` (sender.js:196).
+    ReasonTooLong,
+}
+
+impl CloseError {
+    /// `ws`'s words for the throw.
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::InvalidCode => "First argument must be a valid error code number",
+            Self::ReasonTooLong => "The message must not be greater than 123 bytes",
+        }
+    }
+}
 
 /// One socket. Cheap to clone; it lives until the last clone and the events
 /// receiver are gone.
@@ -67,8 +87,13 @@ impl SocketHandle {
         // always follows its charge.
         shared.buffered.fetch_add(length, Ordering::Relaxed);
         shared.pending.fetch_add(1, Ordering::Relaxed);
-        let own = Some(Own { id, length });
-        match outbound.send(Queued { frame, own }) {
+        let own = Some(Own { id });
+        match outbound.send(Queued {
+            frame,
+            own,
+            charge: length,
+            control: false,
+        }) {
             Ok(()) => SendResult::Queued,
             Err(_) => {
                 debit(&shared.buffered, length);
@@ -80,14 +105,21 @@ impl SocketHandle {
 
     /// `ws`'s `close`: idempotent, and a socket already closing keeps its code.
     /// Its deadline starts here, as `ws`'s close timer does, whatever is queued.
-    pub fn close(&self, code: Option<u16>, reason: String) {
+    pub fn close(&self, code: Option<u16>, reason: String) -> Result<(), CloseError> {
         // A close with no code writes no payload at all, reason included, as `ws`
         // does when `close()` is called with no arguments.
         let mut payload = Vec::with_capacity(2 + reason.len());
         if let Some(code) = code {
+            if !valid_status(code) {
+                return Err(CloseError::InvalidCode);
+            }
+            if reason.len() > 123 {
+                return Err(CloseError::ReasonTooLong);
+            }
             payload.extend_from_slice(&code.to_be_bytes());
             payload.extend_from_slice(reason.as_bytes());
         }
+        let close = payload.clone();
         let frame = Frame {
             opcode: Opcode::Close,
             rsv1: false,
@@ -96,11 +128,17 @@ impl SocketHandle {
         {
             let mut inner = lock(&self.shared.inner);
             if inner.state != OPEN {
-                return;
+                return Ok(());
             }
             inner.state = CLOSING;
+            inner.close = Some(close);
             if let Some(outbound) = inner.outbound.as_ref() {
-                let _ = outbound.send(Queued { frame, own: None });
+                let _ = outbound.send(Queued {
+                    frame,
+                    own: None,
+                    charge: 0,
+                    control: false,
+                });
             }
         }
         let expired = self.shared.expired.clone();
@@ -120,6 +158,7 @@ impl SocketHandle {
                 () = deadline => expired.cancel(),
             }
         });
+        Ok(())
     }
 
     /// `ws`'s `terminate`: drops the connection where it stands and reports

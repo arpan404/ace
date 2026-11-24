@@ -19,6 +19,14 @@ const INVALID_UTF8 = "Invalid WebSocket frame: invalid UTF-8 sequence";
 /** The outbound queue spent its bound: nothing was queued or counted. */
 const SEND_QUEUE_FULL = "WebSocket send buffer is full";
 
+/** `ws`'s `isValidStatusCode` (validation.js:37-45), for a local close. */
+function isValidStatusCode(code: number): boolean {
+  return (
+    (code >= 1000 && code <= 1014 && code !== 1004 && code !== 1005 && code !== 1006) ||
+    (code >= 3000 && code <= 4999)
+  );
+}
+
 /** `ws`'s word for a ready state, as its send-after-close error spells it. */
 function stateName(state: ReadyState): string {
   switch (state) {
@@ -161,6 +169,12 @@ export class NativeSocket extends EventEmitter implements MainSocket {
   }
 
   close(code?: number, reason?: string): void {
+    // `ws`'s checks before anything reaches the sender (sender.js:184-199): an
+    // invalid code throws a TypeError and a reason over 123 bytes a RangeError.
+    if (code !== undefined && !isValidStatusCode(code))
+      throw new TypeError("First argument must be a valid error code number");
+    if (code !== undefined && reason !== undefined && Buffer.byteLength(reason) > 123)
+      throw new RangeError("The message must not be greater than 123 bytes");
     this.#handle.close(code ?? null, reason ?? "");
     this.#closing();
   }

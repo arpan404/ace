@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
-use tokio::io::DuplexStream;
+use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::protocol::Role;
@@ -16,6 +16,7 @@ use super::{
     DELIVERY_MESSAGES, MAX_MESSAGE_BYTES, MESSAGE_OVERHEAD, OPEN, OUTBOUND_MESSAGES, SendResult,
     SocketEvent, SocketEvents, SocketHandle, open,
 };
+use crate::frame::assemble::MAX_FRAGMENTS;
 
 mod close;
 
@@ -56,11 +57,11 @@ async fn quiet(events: &mut SocketEvents) {
     );
 }
 
-/// One masked text frame, as a client sends it (RFC 6455 §5.3), so a test can put
-/// bytes on the wire that a WebSocket client would refuse to write.
-fn masked_text(payload: &[u8]) -> Vec<u8> {
+/// One masked client frame, as a client sends it (RFC 6455 §5.3), so a test can
+/// put bytes on the wire that a WebSocket client would refuse to write.
+fn masked_frame(opcode: u8, payload: &[u8]) -> Vec<u8> {
     let mask = [0x11u8, 0x22, 0x33, 0x44];
-    let mut frame = vec![0x81, 0x80 | payload.len() as u8];
+    let mut frame = vec![0x80 | opcode, 0x80 | payload.len() as u8];
     frame.extend_from_slice(&mask);
     frame.extend(
         payload
@@ -68,6 +69,19 @@ fn masked_text(payload: &[u8]) -> Vec<u8> {
             .enumerate()
             .map(|(index, byte)| byte ^ mask[index % 4]),
     );
+    frame
+}
+
+fn masked_text(payload: &[u8]) -> Vec<u8> {
+    masked_frame(0x1, payload)
+}
+
+/// A masked client frame whose FIN bit is chosen, for fragmented messages.
+fn masked_part(opcode: u8, fin: bool, payload: &[u8]) -> Vec<u8> {
+    let mut frame = masked_frame(opcode, payload);
+    if !fin {
+        frame[0] &= 0x7f;
+    }
     frame
 }
 
@@ -264,6 +278,99 @@ async fn pause_stops_reading_until_resume() {
         SocketEvent::Message { data, .. } => assert_eq!(data, b"while paused"),
         other => panic!("expected the held message, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn a_control_reply_keeps_its_place_behind_queued_data() {
+    let (handle, mut events, mut client) = pair(1 << 16).await;
+    assert_eq!(
+        handle.send(Bytes::from_static(b"first"), true, 1),
+        SendResult::Queued
+    );
+    client
+        .send(Message::Ping(Bytes::from_static(b"p")))
+        .await
+        .expect("the client pings");
+    assert_eq!(
+        read(&mut client).await,
+        Message::Binary(Bytes::from_static(b"first")),
+        "the queued data frame goes first"
+    );
+    assert_eq!(
+        read(&mut client).await,
+        Message::Pong(Bytes::from_static(b"p")),
+        "the pong follows it"
+    );
+    assert!(matches!(
+        next(&mut events).await,
+        SocketEvent::Sent { id: 1, .. }
+    ));
+}
+
+#[tokio::test]
+async fn more_than_16384_fragments_closes_with_1008() {
+    let (server, mut client) = tokio::io::duplex(1 << 16);
+    let (_handle, mut events) = open(Box::new(server));
+    let mut bytes = masked_part(0x1, false, b"");
+    for _ in 0..MAX_FRAGMENTS {
+        bytes.extend(masked_part(0x0, false, b""));
+    }
+    client
+        .write_all(&bytes)
+        .await
+        .expect("the fragments are written");
+
+    match next(&mut events).await {
+        SocketEvent::Error { code, .. } => assert_eq!(code, "protocol"),
+        other => panic!("expected a fragment-limit error, got {other:?}"),
+    }
+    match next(&mut events).await {
+        SocketEvent::Close { code, .. } => assert_eq!(code, 1006),
+        other => panic!("expected Close 1006, got {other:?}"),
+    }
+    let mut answer = [0u8; 4];
+    client
+        .read_exact(&mut answer)
+        .await
+        .expect("the close frame arrives");
+    assert_eq!(
+        answer,
+        [0x88, 0x02, 0x03, 0xf0],
+        "the close frame carries 1008"
+    );
+}
+
+#[tokio::test]
+async fn peer_pings_cannot_grow_the_control_queue_past_the_send_budget() {
+    // A one-byte duplex keeps the writer mid-pong forever: every queued reply is
+    // still charged, so the queue stops at the same 16,384-send budget.
+    let (server, mut client) = tokio::io::duplex(1);
+    let (handle, _events) = open(Box::new(server));
+    let ping = masked_frame(0x9, b"p");
+    let mut pings = Vec::new();
+    for _ in 0..OUTBOUND_MESSAGES + 100 {
+        pings.extend_from_slice(&ping);
+    }
+    client
+        .write_all(&pings)
+        .await
+        .expect("the pings are written");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let cap = OUTBOUND_MESSAGES * (1 + MESSAGE_OVERHEAD);
+    assert_eq!(
+        handle.buffered_amount(),
+        cap,
+        "each queued pong is charged, up to the send budget"
+    );
+
+    client.write_all(&ping).await.expect("one more ping");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(
+        handle.buffered_amount(),
+        cap,
+        "a pong past the bound is dropped, not queued"
+    );
 }
 
 #[tokio::test]

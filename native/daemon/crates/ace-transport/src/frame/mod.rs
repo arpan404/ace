@@ -94,6 +94,8 @@ pub enum CloseCode {
     TooBig,
     /// 1007: text or a close reason that is not UTF-8.
     InvalidUtf8,
+    /// 1008: a message with more than 16,384 fragments.
+    TooManyFragments,
 }
 
 impl CloseCode {
@@ -103,13 +105,14 @@ impl CloseCode {
             Self::Protocol => 1002,
             Self::TooBig => 1009,
             Self::InvalidUtf8 => 1007,
+            Self::TooManyFragments => 1008,
         }
     }
 
     /// `ws`'s `error.code` word for the event the shell sees.
     pub fn error_code(self) -> &'static str {
         match self {
-            Self::Protocol | Self::InvalidUtf8 => "protocol",
+            Self::Protocol | Self::InvalidUtf8 | Self::TooManyFragments => "protocol",
             Self::TooBig => "too_big",
         }
     }
@@ -120,6 +123,7 @@ impl CloseCode {
             Self::Protocol => "Invalid WebSocket frame: protocol violation",
             Self::TooBig => "Max payload size exceeded",
             Self::InvalidUtf8 => "Invalid WebSocket frame: invalid UTF-8 sequence",
+            Self::TooManyFragments => "Too many message fragments",
         }
     }
 }
@@ -133,6 +137,8 @@ pub enum FrameError {
     TooBig(String),
     /// Text, or a close reason, that is not UTF-8: `ws` closes with 1007.
     InvalidUtf8(String),
+    /// More than 16,384 fragments in one message: `ws` closes with 1008.
+    TooManyFragments(String),
     /// The connection failed; nothing more can be written to it.
     Io(io::Error),
 }
@@ -149,7 +155,7 @@ impl FrameError {
     /// The word the shell reports on the socket's `error` event.
     pub fn error_code(&self) -> &'static str {
         match self {
-            Self::Protocol(_) | Self::InvalidUtf8(_) => "protocol",
+            Self::Protocol(_) | Self::InvalidUtf8(_) | Self::TooManyFragments(_) => "protocol",
             Self::TooBig(_) => "too_big",
             Self::Io(_) => "io",
         }
@@ -161,6 +167,7 @@ impl FrameError {
             Self::Protocol(_) => Some(1002),
             Self::TooBig(_) => Some(1009),
             Self::InvalidUtf8(_) => Some(1007),
+            Self::TooManyFragments(_) => Some(1008),
             Self::Io(_) => None,
         }
     }
@@ -172,6 +179,7 @@ impl From<CloseCode> for FrameError {
             CloseCode::Protocol => Self::protocol(code.message()),
             CloseCode::TooBig => Self::too_big(code.message()),
             CloseCode::InvalidUtf8 => Self::InvalidUtf8(code.message().to_owned()),
+            CloseCode::TooManyFragments => Self::TooManyFragments(code.message().to_owned()),
         }
     }
 }
@@ -185,9 +193,10 @@ impl From<io::Error> for FrameError {
 impl fmt::Display for FrameError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Protocol(message) | Self::TooBig(message) | Self::InvalidUtf8(message) => {
-                formatter.write_str(message)
-            }
+            Self::Protocol(message)
+            | Self::TooBig(message)
+            | Self::InvalidUtf8(message)
+            | Self::TooManyFragments(message) => formatter.write_str(message),
             Self::Io(error) => error.fmt(formatter),
         }
     }

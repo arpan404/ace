@@ -28,7 +28,7 @@ mod handle;
 mod tests;
 
 pub use events::{SendResult, SocketEvent, SocketEvents};
-pub use handle::SocketHandle;
+pub use handle::{CloseError, SocketHandle};
 
 use drive::Ending;
 
@@ -52,18 +52,19 @@ pub const OPEN: u8 = 1;
 pub const CLOSING: u8 = 2;
 pub const CLOSED: u8 = 3;
 
-/// What a `send` still owes: the id that gets one `Sent`, and the charged bytes
-/// (its length plus the per-message overhead) it holds in `buffered_amount`.
+/// What a `send` still owes: the id that gets one `Sent`.
 #[derive(Clone, Copy)]
 struct Own {
     id: u64,
-    length: u64,
 }
 
-/// One thing for the writer: a frame, and the `send` whose completion it is.
+/// One thing for the writer: a frame, the `send` whose completion it is, and the
+/// bytes it charged. A control reply is charged but owes no `Sent`.
 struct Queued {
     frame: Frame,
     own: Option<Own>,
+    charge: u64,
+    control: bool,
 }
 
 /// The socket's state, its outbound queue and its events under one lock, so a
@@ -74,6 +75,11 @@ struct Inner {
     /// `None` once the socket is closed: no later `send` can queue anything.
     outbound: Option<mpsc::UnboundedSender<Queued>>,
     events: Option<mpsc::UnboundedSender<SocketEvent>>,
+    /// The local close frame queued but not yet on the wire (`ws`'s
+    /// `_closeFrameSent === false` after `close()`).
+    close: Option<Vec<u8>>,
+    /// A close frame has been flushed, local or a reply.
+    close_sent: bool,
 }
 
 struct Shared {
@@ -82,6 +88,8 @@ struct Shared {
     buffered: AtomicU64,
     /// Sends whose `Sent` the owner has not taken, which bounds the queue.
     pending: AtomicU64,
+    /// Auto-pongs queued but not flushed, bounded like sends and charged like them.
+    controls: AtomicU64,
     paused: AtomicBool,
     /// Charged bytes and messages waiting for JavaScript, so for the reader.
     waiting_bytes: AtomicU64,
@@ -111,19 +119,39 @@ impl Shared {
     }
 
     /// Queues one control frame the reader owes (a pong), with no `Sent`: control
-    /// frames answer the peer, they are not one of the owner's sends. Dropped once
-    /// the socket is sealed, as `ws` drops anything after its close.
+    /// frames answer the peer, they are not one of the owner's sends. It is charged
+    /// and bounded like a send, so peer pings cannot grow the queue past the same
+    /// budget; `ws` buffers them through the socket, which has the same effect but
+    /// no explicit count. Past the bound the reply is dropped, as a ping whose
+    /// answer the socket cannot carry.
     fn control(&self, opcode: Opcode, payload: Vec<u8>) {
+        let charge = payload.len() as u64 + MESSAGE_OVERHEAD;
         let inner = lock(&self.inner);
         let Some(outbound) = inner.outbound.as_ref() else {
             return;
         };
+        if self.controls.load(Ordering::Relaxed) >= OUTBOUND_MESSAGES {
+            return;
+        }
+        self.controls.fetch_add(1, Ordering::Relaxed);
+        self.buffered.fetch_add(charge, Ordering::Relaxed);
         let frame = Frame {
             opcode,
             rsv1: false,
             payload: Bytes::from(payload),
         };
-        let _ = outbound.send(Queued { frame, own: None });
+        if outbound
+            .send(Queued {
+                frame,
+                own: None,
+                charge,
+                control: true,
+            })
+            .is_err()
+        {
+            debit(&self.controls, 1);
+            debit(&self.buffered, charge);
+        }
     }
 
     fn state(&self) -> u8 {
@@ -151,20 +179,30 @@ impl Shared {
         let _ = self.emit(SocketEvent::Sent { id, error });
     }
 
-    /// Releases a frame's bytes without completing it; `finish` reports the `Sent`
-    /// once sealed, and the owner's taking it is what releases `pending`.
-    fn release(&self, own: Option<Own>) {
-        if let Some(own) = own {
-            debit(&self.buffered, own.length);
+    /// Releases a frame's charge without completing it; `finish` reports the
+    /// `Sent` once sealed, and the owner's taking it is what releases `pending`.
+    fn release(&self, charge: u64, control: bool) {
+        debit(&self.buffered, charge);
+        if control {
+            debit(&self.controls, 1);
         }
     }
 
-    fn complete(&self, own: Option<Own>, error: Option<String>) {
-        let Some(own) = own else {
-            return;
-        };
-        self.release(Some(own));
-        self.sent(own.id, error);
+    /// One queued frame is done: release its charge, its control slot, and the
+    /// one `Sent` a data send owes.
+    fn settle(&self, own: Option<Own>, charge: u64, control: bool, error: Option<String>) {
+        self.release(charge, control);
+        if let Some(own) = own {
+            self.sent(own.id, error);
+        }
+    }
+
+    /// A close frame reached the wire: `ws`'s `_closeFrameSent`, and no later
+    /// reply is written.
+    fn close_flushed(&self) {
+        let mut inner = lock(&self.inner);
+        inner.close_sent = true;
+        inner.close = None;
     }
 
     fn emit(&self, event: SocketEvent) -> Result<(), SocketEvent> {
@@ -220,9 +258,12 @@ pub fn open(stream: Box<dyn UpgradeIo>) -> (SocketHandle, SocketEvents) {
             state: OPEN,
             outbound: Some(outbound),
             events: Some(events),
+            close: None,
+            close_sent: false,
         }),
         buffered: AtomicU64::new(0),
         pending: AtomicU64::new(0),
+        controls: AtomicU64::new(0),
         paused: AtomicBool::new(false),
         waiting_bytes: AtomicU64::new(0),
         waiting_messages: AtomicU64::new(0),

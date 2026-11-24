@@ -6,6 +6,10 @@
 
 use super::{CloseCode, Frame, MAX_MESSAGE_BYTES, Opcode};
 
+/// `ws`'s `maxFragments` default (`websocket-server.js:73`): one message may not
+/// split into more data frames than this, empty fragments included.
+pub const MAX_FRAGMENTS: usize = 16 * 1024;
+
 /// What a message's bytes are collected in. One fragment is fed at a time, so a
 /// body can refuse the byte that takes a message over its limit before the rest
 /// of the message exists.
@@ -67,6 +71,8 @@ pub struct Assembler<B: MessageBody = Plain> {
     total: usize,
     /// The data frame `push` is joining fragments into, if any.
     kind: Option<Opcode>,
+    /// Data fragments seen in the message in flight, empty ones included.
+    fragments: usize,
 }
 
 impl Assembler<Plain> {
@@ -88,6 +94,7 @@ impl<B: MessageBody> Assembler<B> {
             pending: None,
             total: 0,
             kind: None,
+            fragments: 0,
         }
     }
 
@@ -137,11 +144,18 @@ impl<B: MessageBody> Assembler<B> {
         if opcode.is_control() {
             return Ok(());
         }
+        self.fragments += 1;
+        if self.fragments > MAX_FRAGMENTS {
+            return Err(CloseCode::TooManyFragments);
+        }
         self.total = if fin {
             0
         } else {
             self.total.saturating_add(length)
         };
+        if fin {
+            self.fragments = 0;
+        }
         self.pending = if fin {
             None
         } else {

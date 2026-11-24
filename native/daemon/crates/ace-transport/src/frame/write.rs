@@ -76,7 +76,12 @@ impl<W: AsyncWrite + Unpin> Sink<Outbound> for FrameWriter<W> {
 
     fn start_send(self: Pin<&mut Self>, item: Outbound) -> Result<(), Self::Error> {
         let this = self.get_mut();
-        debug_assert!(this.pending.is_empty());
+        // A partly written frame must be finished (or the stream dropped) before
+        // another frame begins: appending here would interleave the two on the
+        // wire and restart the write at byte zero.
+        if !this.pending.is_empty() {
+            return Err(io::Error::other("a frame is still in flight"));
+        }
         header(
             true,
             item.rsv1,

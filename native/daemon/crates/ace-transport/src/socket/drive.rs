@@ -36,8 +36,9 @@ pub(super) struct Ending {
 enum Wire {
     /// The connection is gone: nothing more is written.
     Nothing,
-    /// The peer closed: answer with this frame's payload.
-    Reply(Vec<u8>),
+    /// The peer closed. The writer sends the local close if one is queued, else
+    /// echoes this payload, unless a close frame already went out.
+    Peer(Vec<u8>),
     /// `ws` closes with this code (a violation, or its own local close).
     Close(u16),
 }
@@ -62,6 +63,7 @@ impl Ending {
             // Invalid UTF-8 in a text frame is its own code, not a protocol one.
             FrameError::InvalidUtf8(_) => Wire::Close(1007),
             FrameError::Protocol(_) => Wire::Close(1002),
+            FrameError::TooManyFragments(_) => Wire::Close(1008),
             FrameError::Io(_) => Wire::Nothing,
         };
         Ending {
@@ -72,15 +74,17 @@ impl Ending {
         }
     }
 
-    /// The peer's close frame: answered with the same payload and reported with
-    /// its code and reason (`ws`'s 1005 when the frame named no code).
+    /// The peer's close frame: reported with its code and reason (`ws`'s 1005
+    /// when the frame named no code). What is written is decided in `finish`,
+    /// because `ws` keeps the local close it already queued and ends without a
+    /// second frame once one has been sent.
     fn peer(frame: Option<(u16, Vec<u8>)>, reply: Vec<u8>) -> Self {
         let (code, reason) = frame.unwrap_or((1005, Vec::new()));
         Ending {
             code,
             reason,
             error: None,
-            wire: Wire::Reply(reply),
+            wire: Wire::Peer(reply),
         }
     }
 }
@@ -174,10 +178,21 @@ async fn write(mut sink: Sink, shared: Arc<Shared>, mut queued: mpsc::UnboundedR
             return finish(sink, &shared, &mut queued, Ending::lost(), None).await;
         };
         let owed = item.own.map(|own| own.id);
+        let close = item.frame.opcode == Opcode::Close;
         match flushed(&shared, sink.send(item.frame)).await {
-            Ok(Ok(())) => shared.complete(item.own, None),
+            Ok(Ok(())) => {
+                if close {
+                    shared.close_flushed();
+                }
+                shared.settle(item.own, item.charge, item.control, None);
+            }
             Ok(Err(error)) => {
-                shared.complete(item.own, Some(not_open(shared.state())));
+                shared.settle(
+                    item.own,
+                    item.charge,
+                    item.control,
+                    Some(not_open(shared.state())),
+                );
                 return finish(
                     sink,
                     &shared,
@@ -190,7 +205,7 @@ async fn write(mut sink: Sink, shared: Arc<Shared>, mut queued: mpsc::UnboundedR
             // The frame is owed a `Sent`, which `finish` reports once the state
             // is sealed.
             Err(ending) => {
-                shared.release(item.own);
+                shared.release(item.charge, item.control);
                 return finish(sink, &shared, &mut queued, ending, owed).await;
             }
         }
@@ -250,23 +265,26 @@ async fn finish(
         });
     }
     match ending.wire {
-        // The peer's close, answered with the payload it carried.
-        Wire::Reply(payload) => {
-            let frame = Outbound {
-                opcode: Opcode::Close,
-                rsv1: false,
-                payload: Bytes::from(payload),
+        // The peer's close: `ws` keeps a local close that was queued first and
+        // writes no second frame once one has gone out.
+        Wire::Peer(reply) => {
+            let payload = {
+                let mut inner = lock(&shared.inner);
+                if inner.close_sent {
+                    None
+                } else if inner.close.is_some() {
+                    inner.close.take()
+                } else {
+                    Some(reply)
+                }
             };
-            let _ = terminal(shared, sink.send(frame)).await;
+            if let Some(payload) = payload {
+                close_frame(&mut sink, shared, payload).await;
+            }
         }
         // `ws`'s answer to a protocol or size violation, before it drops.
         Wire::Close(code) => {
-            let frame = Outbound {
-                opcode: Opcode::Close,
-                rsv1: false,
-                payload: Bytes::copy_from_slice(&code.to_be_bytes()),
-            };
-            let _ = terminal(shared, sink.send(frame)).await;
+            close_frame(&mut sink, shared, code.to_be_bytes().to_vec()).await;
         }
         Wire::Nothing => {}
     }
@@ -277,11 +295,37 @@ async fn finish(
         shared.sent(id, Some(not_open(shared.state())));
     }
     while let Ok(item) = queued.try_recv() {
-        shared.complete(item.own, Some(not_open(shared.state())));
+        shared.settle(
+            item.own,
+            item.charge,
+            item.control,
+            Some(not_open(shared.state())),
+        );
     }
     shared.finish_events(ending.code, ending.reason);
     // The reader stops at once; whatever it read meanwhile is dropped.
     shared.over.cancel();
+}
+
+/// Writes one close frame after finishing any partly written frame, inside the
+/// close deadline. A frame already in flight is completed first, never
+/// interleaved; if it cannot be finished the stream is dropped without a close,
+/// as `ws` drops a socket it cannot drain.
+async fn close_frame(sink: &mut Sink, shared: &Shared, payload: Vec<u8>) {
+    if lock(&shared.inner).close_sent {
+        return;
+    }
+    if !matches!(terminal(shared, sink.flush()).await, Some(Ok(()))) {
+        return;
+    }
+    let frame = Outbound {
+        opcode: Opcode::Close,
+        rsv1: false,
+        payload: Bytes::from(payload),
+    };
+    if matches!(terminal(shared, sink.send(frame)).await, Some(Ok(()))) {
+        shared.close_flushed();
+    }
 }
 
 /// `ws`'s words for a send that could not be completed.
