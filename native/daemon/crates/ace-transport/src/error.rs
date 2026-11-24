@@ -34,4 +34,16 @@ pub enum TransportError {
         #[source]
         source: std::io::Error,
     },
+    /// The process TLS provider is not aws-lc-rs with a post-quantum key
+    /// exchange group first, so no remote listener starts.
+    #[error("the process TLS provider is not aws-lc-rs with X25519MLKEM768 first")]
+    CryptoProvider,
+    /// A TLS identity could not be read from the bytes TypeScript loaded. The
+    /// message names which part failed and never carries key or certificate
+    /// bytes.
+    #[error("TLS identity: {0}")]
+    Identity(&'static str),
+    /// rustls refused a server configuration.
+    #[error("TLS configuration: {0}")]
+    Tls(#[from] rustls::Error),
 }
