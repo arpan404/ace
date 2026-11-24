@@ -7,10 +7,10 @@ import { canonicalEvent } from "./canonical-event.ts";
 import { prepareRunClient } from "./run-client-storage.ts";
 import { liveMetadataChange } from "./thread-client-storage.ts";
 import {
+  coldRowValues,
   threadColumnChanges,
-  threadColumnValue,
+  writtenColumns,
   type ColumnValue,
-  type ThreadColumn,
 } from "./thread-columns.ts";
 import { rebuildThread } from "./thread-row.ts";
 import { keepThreadRowConfirmed, threadRowConfirmed } from "./thread-row-trust.ts";
@@ -267,15 +267,12 @@ export class EventWriter {
         .run(...changes.hot.map(([, value]) => value), thread.id);
     if (changes.cold.length) {
       // A new cold row also needs the column that did not change.
-      const value = (name: ThreadColumn) => {
-        const change = changes.cold.find(([column]) => column === name);
-        return change ? change[1] : previous ? threadColumnValue(previous, name) : null;
-      };
+      const values = coldRowValues(previous, changes);
       this.source
         .statement(
           `INSERT INTO thread_cold (thread_id, details, capabilities) VALUES (?, ?, ?) ON CONFLICT(thread_id) DO UPDATE SET ${changes.cold.map(([name]) => `${name} = excluded.${name}`).join(", ")}`,
         )
-        .run(thread.id, value("details"), value("capabilities"));
+        .run(thread.id, values[0], values[1]);
     }
     const revision = this.source
       .statement("SELECT revision FROM sidebar_thread_revisions WHERE thread_id = ?")
@@ -287,34 +284,4 @@ export class EventWriter {
     if (previous) this.source.rememberThread(thread.id, revision, rebuilt, changes.row);
     else this.source.rememberCreatedThread(thread.id, revision, rebuilt, changes.row);
   }
-}
-
-const updated: ThreadColumn[] = [
-  "workspace_id",
-  "title",
-  "status",
-  "updated_at",
-  "archived_at",
-  "root_agent_id",
-  "provider",
-  "transitions",
-  "provider_metadata",
-  "capabilities",
-  // Any event may fold client fields (a status change sets activitySeq), so all are checked.
-  "client",
-  "details",
-];
-/** The columns an event may write. Others keep their stored value, whatever it folded. */
-function writtenColumns(payload: EventPayload): ThreadColumn[] {
-  if (payload.type === "item.delta") return [];
-  const columns = [...updated];
-  if (
-    payload.type === "thread.created" ||
-    (payload.type === "thread.updated" &&
-      (payload.effectiveCapabilities !== undefined ||
-        payload.acpSupport !== undefined ||
-        payload.acp !== undefined))
-  )
-    columns.push("acp");
-  return columns;
 }

@@ -16,3 +16,5 @@ workspace = true
 # ace-json: every JS-visible value crosses as JSON text with JavaScript's key order,
 # numbers and lone surrogates, never as a Rust String for a JS string.
 ace-json = { path = "../ace-json" }
+# ace-protocol: the shape table the column encoders strip and default through (5.3b).
+ace-protocol = { path = "../ace-protocol" }

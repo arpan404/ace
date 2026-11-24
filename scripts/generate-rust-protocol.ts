@@ -45,7 +45,11 @@ import {
   ScreenKey,
   ThreadId,
   ThreadStatus,
+  ThreadClientFields,
+  ThreadDetails,
+  ThreadProviderMetadata,
 } from "@ace/protocol";
+import { shapesSource } from "./rust-protocol-shapes.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -304,6 +308,30 @@ function generate(scratchDir: string): void {
   } else {
     writeFileSync(generated, formatted);
     console.log(`wrote ${generated}`);
+  }
+  // The shape table for the column encoders (porting guide 5.3b): the same schemas, walked by
+  // `rust-protocol-shapes.ts` instead of through JSON Schema, because `typify` can't describe
+  // Zod's stripping, defaults and key order.
+  const shapesRaw = join(scratchDir, "shapes.raw.rs");
+  writeFileSync(
+    shapesRaw,
+    shapesSource({
+      THREAD_CLIENT_COLUMN: ThreadClientFields.omit({ details: true }),
+      THREAD_DETAILS: ThreadDetails,
+      THREAD_PROVIDER_METADATA: ThreadProviderMetadata,
+    }),
+  );
+  runRustfmt(shapesRaw);
+  const shapes = join(root, "native", "daemon", "crates", "ace-protocol", "src", "shapes.rs");
+  const shaped = readFileSync(shapesRaw, "utf8");
+  if (process.argv.includes("--check")) {
+    const committed = readFileSync(shapes, "utf8");
+    if (shaped !== committed)
+      throw new Error(`${shapes} is stale; run bun scripts/generate-rust-protocol.ts`);
+    console.log("ace-protocol/src/shapes.rs is fresh");
+  } else {
+    writeFileSync(shapes, shaped);
+    console.log(`wrote ${shapes}`);
   }
 }
 

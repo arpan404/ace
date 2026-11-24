@@ -6,7 +6,6 @@ import { afterEach, expect, test } from "vitest";
 import {
   Agent,
   AgentId,
-  Capabilities,
   Item,
   ItemId,
   Thread,
@@ -20,6 +19,7 @@ import { Store } from "./store.ts";
 import { schemaVersionBefore } from "./migrations.ts";
 import { undoMachineCode } from "./upgrade-test-support.ts";
 import { threadColdTable } from "./thread-cold.ts";
+import { capabilities } from "./thread-column-samples.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -43,27 +43,6 @@ function random(seed: number) {
   };
   return { next, pick, chance: (p: number) => next() < p };
 }
-
-const capabilities = (variant: number) =>
-  Capabilities.parse({
-    steer: variant % 2 === 0,
-    interruptCascades: true,
-    resume: true,
-    fork: variant % 3 === 0,
-    subagentTranscripts: true,
-    backgroundTaskControl: variant % 2 === 1,
-    backgroundVisibility: "full",
-    planMode: true,
-    tokenUsage: true,
-    imageInput: true,
-    rewindFiles: false,
-    permissionModes: Array.from({ length: 6 }, (_, n) => ({
-      id: `mode-${n}`,
-      label: `Mode ${n}`,
-      description: `What mode ${n} lets the agent do without asking, variant ${variant}.`,
-      risk: "medium",
-    })),
-  });
 
 type Window = { limit: number; project?: string; archived?: boolean };
 

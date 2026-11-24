@@ -13,3 +13,5 @@
 //! `deny_unknown_fields` anywhere.
 
 pub mod generated;
+pub mod shape;
+pub mod shapes;
