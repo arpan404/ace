@@ -67,6 +67,15 @@ observes, and must hold unchanged with any `ACE_TRANSPORT`, `ACE_HTTP`, `ACE_REL
   without context takeover, both directions; outbound compression is chosen per message by the
   allowlist in `compression-policy.ts` (transcript and history bulk only, never a message that may
   carry a credential), for messages of at least 1,024 bytes. Loopback sockets never compress.
+- **Recorded difference (T1b.3b, window bits 8)**: an offer of `server_max_window_bits=8` is
+  answered `=8`, as `ws` does, but the deflater is built with a 9-bit window: `flate2`'s window
+  constructors panic below 9, and zlib-rs 0.6.8 at level 6 keeps every match distance within 250
+  bytes, inside the 256 an 8-bit window may rely on (RFC 7692 §7.2.1). No test compares our bytes
+  with Node's; the tests decode our output with a decoder that refuses a distance past 256.
+  Inflating always uses a 15-bit window, which reads every stream a smaller window can produce.
+- **Recorded difference (T1b.3b, extension parameter numbers)**: `ws` reads a window-bits value
+  with JavaScript's `+value`, so `0x0a`, `1e1`, `10.0` and `+10` negotiate there and get its `400`
+  here; only decimal digits are read. No ace client sends any of them.
 - **Recorded difference (T1a.6's socket shell)**: outbound text that isn't valid UTF-8, a JavaScript
   string holding a lone surrogate included, fails that send's callback instead of reaching the
   peer, where `ws` sends the bytes and the peer closes with `1007`. The callback's error reads
