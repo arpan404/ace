@@ -154,9 +154,9 @@ impl Engine {
     }
 
     /// The standing instructions for `id`. Every conversation starts from Spade's own, so a bot's,
-    /// a lane's and a helper's prompt top begins with the same bytes. A helper stored before
-    /// helpers shared their bot's prompt keeps the text its row pinned: its conversation cannot be
-    /// rewritten.
+    /// a lane's and a helper's prompt top begins with the same bytes. A helper goes on with what
+    /// makes it a helper, pinned in its row when it was made (an old one with its old text, which
+    /// had no shared top): a restart rebuilds the same bytes either way.
     pub(super) fn system_for(&self, id: &str) -> String {
         match self.helper_of(id) {
             Some(helper) if !helper.system.is_empty() => helper.system,
@@ -308,12 +308,9 @@ impl Engine {
         // it reaches the helper as the bot's message, which taints the helper's turn.
         let events = self.load(bot).unwrap_or_default();
         let tainted = !context::untrusted_in_view(&events, &self.registry_for(bot)).is_empty();
-        // What makes it a helper rides in its first message: its system prompt and offered tools
-        // are its bot's, so the provider's cache serves both (docs/helpers.md).
+        // The task alone is its first message: what makes it a helper is in its system prompt,
+        // after Spade's own rules, which outlives every compaction (docs/helpers.md).
         let mut message = Event::user_message(task);
-        if let Event::Known(Known::UserMessage { context, .. }) = &mut message {
-            *context = Some(profile.told());
-        }
         if tainted
             && let Event::Known(Known::UserMessage { from_agent, .. }) = &mut message
             && let Ok(Some(agent)) = self.store.agent_for_conversation(bot)
@@ -341,8 +338,8 @@ impl Engine {
             job: job.to_owned(),
             reply,
             profile: profile.name.clone(),
-            // No pinned system text: the prompt is the bot's, which the build fixes.
-            system: String::new(),
+            // Pinned, so a restart rebuilds the same bytes even if the profile changes.
+            system: profile.system(),
             reads_only: profile.reads_only,
             tools: profile.tools.clone(),
             model,

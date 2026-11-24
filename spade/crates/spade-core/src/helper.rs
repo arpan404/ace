@@ -1,11 +1,11 @@
 //! Helpers (ADR 0152): a short-lived loop a bot starts with `helper {task, profile?}`. A helper
 //! runs as one of the bot's background jobs, in its own hidden conversation driven by the same
 //! `next_step` as any turn. These are its rules, with no I/O: which tools a profile lets it run,
-//! what it is told in its first message, where a helper stands, and what it hands back.
+//! what it is told in its system prompt, where a helper stands, and what it hands back.
 //!
-//! A helper's system prompt is the one every conversation starts from and its offered tools are
-//! its bot's (docs/helpers.md, "A helper's conversation"), so the provider's cache serves both; a
-//! profile narrows what it may run, not what the model is offered.
+//! A helper's system prompt is Spade's own instructions followed by what makes it a helper, and
+//! its offered tools are its bot's (docs/helpers.md, "A helper's conversation"), so the provider's
+//! cache serves both; a profile narrows what it may run, not what the model is offered.
 
 use crate::event::{Event, Known};
 use crate::tools::{Registry, Risk, ToolDef};
@@ -119,9 +119,15 @@ what you found."
         registry.retain(|def| self.allows(def))
     }
 
-    /// What the helper is told about itself, in the context of its first message: Spade's rules
-    /// for helpers, then the profile's. It is not its system prompt, which is the one every
-    /// conversation starts from, so the provider's cache serves both (design.md, Caching).
+    /// The system text a helper of this profile is pinned with: Spade's own instructions, the same
+    /// bytes every conversation's prompt starts with, then what makes it a helper. Its bot's
+    /// system goes on with its own task and indexes instead, so the two share the top and the
+    /// offered tool list, and the provider's cache serves both (design.md, Caching).
+    pub fn system(&self) -> String {
+        format!("{}\n\n{}", crate::context::SYSTEM, self.told())
+    }
+
+    /// What makes a helper of this profile: Spade's rules for helpers, then the profile's.
     pub fn told(&self) -> String {
         format!("{RULES}\n\n{}", self.instructions.trim())
     }
@@ -359,6 +365,18 @@ mod tests {
             told.ends_with(Profile::explore().instructions.trim()),
             "{told}"
         );
+    }
+
+    #[test]
+    fn a_profiles_system_is_spades_own_then_what_makes_it_a_helper() {
+        let profile = Profile::explore();
+        let system = profile.system();
+        assert_eq!(
+            system,
+            format!("{}\n\n{}", crate::context::SYSTEM, profile.told())
+        );
+        assert!(system.starts_with(crate::context::SYSTEM), "{system}");
+        assert!(system.ends_with(profile.instructions.trim()), "{system}");
     }
 
     #[test]
