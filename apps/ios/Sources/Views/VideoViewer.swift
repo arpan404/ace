@@ -36,13 +36,17 @@ struct VideoViewer: View {
     let title: String
     let url: URL
     let mimeType: String
+    /// Tells the owner of `url` when a share of it starts and ends, so it isn't removed mid-share.
+    var onShare: (Bool) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer?
     @State private var failed = false
+    @State private var sharing = false
     var body: some View {
         VStack(spacing: AceTheme.Spacing.none) {
             HStack {
-                MediaShareButton(item: url, title: title)
+                Button("Share") { sharing = true; onShare(true) }
+                    .shareChip()
                 Spacer()
                 MediaDoneButton { dismiss() }
             }
@@ -72,7 +76,14 @@ struct VideoViewer: View {
                 break
             }
         }
-        .onDisappear { player?.pause() }
+        .sheet(isPresented: $sharing) {
+            let onShare = onShare
+            ShareSheet(url: url) { onShare(false) }
+        }
+        .onDisappear {
+            player?.pause()
+            player?.replaceCurrentItem(with: nil)
+        }
     }
 }
 
