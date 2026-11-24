@@ -597,12 +597,22 @@ impl Delivery {
         self.stamp = captured_ms(frame, wall_ms);
         if frame.kind == 1 {
             let facts = self.sources.entry(source.to_owned()).or_default();
+            // Producers name the codec on keyframes only: a delta keeps the one recorded for
+            // its encode, rather than erasing what the viewer decodes with.
+            let codec = if frame.codec_string.is_empty() {
+                facts
+                    .seen
+                    .get(&frame.encode)
+                    .map_or_else(String::new, |seen| seen.codec.clone())
+            } else {
+                frame.codec_string.clone()
+            };
             facts.seen.insert(
                 frame.encode,
                 Seen {
                     width: frame.width,
                     height: frame.height,
-                    codec: frame.codec_string.clone(),
+                    codec,
                     at_ms: now_ms,
                 },
             );
