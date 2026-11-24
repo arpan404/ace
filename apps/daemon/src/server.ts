@@ -50,12 +50,13 @@ import { readCore } from "./socket-reads.ts";
 import { admitUpgrades } from "./socket-upgrade.ts";
 import { nativeUpgrade } from "./native-upgrade.ts";
 import { proxyGuard } from "./proxy-guard.ts";
-import {
-  noteTransportStart,
-  transportAddon,
-  type NativeLoopbackHandle,
-} from "@ace/provider-kit/native-transport";
+import { transportAddon } from "@ace/provider-kit/native-transport";
 import { transportParts } from "@ace/provider-kit/native-switches";
+import {
+  startNativeLoopback,
+  unwindNativeLoopback,
+  type StartedNativeLoopback,
+} from "./native-listeners.ts";
 import { startMachineTunnel } from "./machine-tunnel/wiring.ts";
 import { createSocketCloser } from "./server-socket-close.ts";
 import { enrollNotifications, helloActor } from "./socket-hello.ts";
@@ -1289,8 +1290,7 @@ export async function startServer(options: ServerOptions): Promise<{
     Math.max(10, Math.min(1000, (options.idleTimeoutMs ?? 60_000) / 2)),
   );
   let port: number;
-  let native: NativeLoopbackHandle | undefined;
-  let releaseNativePort: (() => void) | undefined;
+  let native: StartedNativeLoopback | undefined;
   let internalHttpUrl: string | undefined;
   let transports: Awaited<ReturnType<typeof startTransports>> | undefined;
   let remoteStarted = { direct: Promise.resolve(), networks: Promise.resolve() };
@@ -1299,27 +1299,18 @@ export async function startServer(options: ServerOptions): Promise<{
     if (hopSecret === undefined) {
       port = await bind(local, "127.0.0.1", options.port);
     } else {
-      const internalPort = await bind(local, "127.0.0.1", 0);
-      internalHttpUrl = `http://127.0.0.1:${internalPort}`;
       // Known before Rust accepts; a `0` port is refused until recorded below (T1a.7).
       nativePublicPort = options.port;
-      native = await transportAddon().NativeLoopback.start(
-        {
-          port: options.port,
-          targetPort: internalPort,
-          secretHex: hopSecret,
-          admitTimeoutMs: 5_000,
-        },
-        upgrades.admit,
-        upgrades.release,
-        upgrades.opened,
-      );
-      port = native.port();
+      native = await startNativeLoopback({
+        port: options.port,
+        bindInternal: () => bind(local, "127.0.0.1", 0),
+        hopSecret,
+        upgrades,
+        holdPort: (bound) => tunnel.hold(bound),
+      });
+      port = native.port;
       nativePublicPort = port;
-      // Both ports are ace's from the bind (ADR 0194): the internal one through `attach`'s
-      // `tunnel.track`, the public one here.
-      releaseNativePort = tunnel.hold(port);
-      noteTransportStart(port);
+      internalHttpUrl = native.internalHttpUrl;
     }
     if (remote && options.remote) {
       const remotePort = await bind(remote, options.remote.host, options.remote.port);
@@ -1377,11 +1368,13 @@ export async function startServer(options: ServerOptions): Promise<{
     registrySigner?.stop();
     if (native !== undefined) {
       // Native first: 1001 and bounded terminate, then drain, then the internal server (T1a.7).
-      for (const socket of nativeSockets) closer.gracefulClose(socket, 1001, "Daemon shutdown");
-      await native.close(0);
-      // The listener stopped watching its admissions: nothing it promised stays charged.
-      preAuth.releaseAll();
-      releaseNativePort?.();
+      await unwindNativeLoopback(
+        native,
+        () => {
+          for (const socket of nativeSockets) closer.gracefulClose(socket, 1001, "Daemon shutdown");
+        },
+        () => preAuth.releaseAll(),
+      );
     }
     await closeListener(local);
     if (remote) await closeListener(remote);
@@ -1451,8 +1444,6 @@ export async function startServer(options: ServerOptions): Promise<{
         // Stop accepting first, then drain: the internal server closes after the native listener.
         const nativeClosing = native?.close(TRANSPORT_CLOSE_DEADLINE_MS);
         const nativeDone = nativeClosing?.finally(() => {
-          releaseNativePort?.();
-          releaseNativePort = undefined;
           // A late acceptance that reached Rust after it stopped watching is still ours:
           // nothing stays charged through teardown.
           preAuth.releaseAll();
