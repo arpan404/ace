@@ -619,8 +619,12 @@ none, and have candidates after it). The one-line change at E5.1's two call site
      next query does. A thread a recovery made eligible after a cursor had scanned past it is found
      if its id is above the last recovered one, exactly when the TypeScript finds it.
 
-  `done` is true when a page closed at exhaustion has been recovered. So the pages, their
-  boundaries and the recovered set are the TypeScript's.
+  **`done` only after an empty page.** A page closed at exhaustion that holds candidates is not
+  the end: its recoveries may have made a later thread eligible, so after recovering it the scan
+  re-queries from its last recovered id like any other page. The scan is done only when a page,
+  built from a fresh re-query, comes back with no candidates at all, as the TypeScript returns
+  only when `ids.length` is 0 (`repository.ts:269`). So the pages, their boundaries and the
+  recovered set are the TypeScript's.
 
 - This corrects ADR 0223 §5's "`threads` by rowid, `intents` by `id`": paging those by rowid
   would need a final sort to recover in `thread_id` order.
@@ -634,7 +638,12 @@ none, and have candidates after it). The one-line change at E5.1's two call site
   source; the probe's recovery of `t00` inserts a pending intent for `u`; `u` is recovered in the
   second page, because the re-query starts at `t63`, not at the cursors); "pages close at 64 candidates as the TypeScript's do" (130 candidates spread over 2,000
   threads: pages of 64, 64, 2, and a recovery in the first page that makes a thread eligible below
-  the first page's last id is not recovered, as in the TypeScript, while one above it is); "an empty thread id is never a candidate".
+  the first page's last id is not recovered, as in the TypeScript, while one above it is); "a
+  partial last page whose recovery makes a later thread eligible is followed by another page" (3
+  working threads `a`, `b`, `c` and an idle `z` after them; the first page is `a`, `b`, `c`, closed
+  at exhaustion; the probe's recovery of `c` inserts a pending intent for `z`; `z` is recovered in a
+  second page, and only the third, empty page ends the scan); "an empty thread id is never a
+  candidate".
 - Delete the probe's `emptyCandidates` stub and `State.probe_empty_candidates` (E5.1 step 12).
 - `states()` (`repository.ts:283`–`:292`) is not ported: no repository code calls it, and it reads
   every `thread_state` id at once.
