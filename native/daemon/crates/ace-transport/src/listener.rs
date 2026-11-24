@@ -18,6 +18,7 @@ use crate::error::TransportError;
 use crate::limits::ConnectionLimits;
 use crate::peer::Peer;
 use crate::proxy::{ProxyTarget, is_localhost};
+use crate::stats::Stats;
 
 /// The daemon's loopback listener.
 pub struct LoopbackListener(Accepting);
@@ -61,6 +62,9 @@ impl LoopbackListener {
             // writes included.
             Some(limits.upgrade_write),
             max_tcp_connections,
+            Stats::new(),
+            // Node's loopback server reports no accept failures today.
+            None,
         )
         .await?;
         Ok(Self(accepting))
@@ -70,6 +74,11 @@ impl LoopbackListener {
     /// for 0.
     pub fn local_addr(&self) -> SocketAddr {
         self.0.local_addr()
+    }
+
+    /// The counters this listener has kept since it bound (T1b.1b).
+    pub fn stats(&self) -> Arc<Stats> {
+        self.0.stats()
     }
 
     /// Stop accepting, tell every connection and upgrade handler the listener is

@@ -9,16 +9,18 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use rustls::NamedGroup;
 use rustls::crypto::CryptoProvider;
 use tokio::net::TcpStream;
 
-use crate::accept::{Accepting, Acceptor, Admitted, DEFAULT_MAX_TCP_CONNECTIONS};
+use crate::accept::{Accepting, Acceptor, Admitted, DEFAULT_MAX_TCP_CONNECTIONS, ErrorSink};
 use crate::conn_io::ConnIo;
 use crate::driver::UpgradeHandler;
 use crate::error::TransportError;
 use crate::limits::ConnectionLimits;
 use crate::peer::Peer;
 use crate::proxy::{ProxyTarget, is_localhost};
+use crate::stats::Stats;
 use crate::tls::config::{server_config, server_config_preferring_hybrid};
 use crate::tls::handshake::{self, Configs};
 use crate::tls::identity::TlsIdentity;
@@ -28,6 +30,7 @@ use crate::tls::resolver::SniResolver;
 pub struct RemoteListener {
     accepting: Accepting,
     resolver: Arc<SniResolver>,
+    stats: Arc<Stats>,
 }
 
 impl RemoteListener {
@@ -43,10 +46,26 @@ impl RemoteListener {
         target: ProxyTarget,
         upgrades: Arc<dyn UpgradeHandler>,
     ) -> Result<Self, TransportError> {
+        Self::bind_reporting(addr, provider, identity, limits, target, upgrades, None).await
+    }
+
+    /// The same bind, with every accept failure after it reaches `errors`
+    /// (T1b.1b): the binding reports them, throttled per OS error code.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn bind_reporting(
+        addr: SocketAddr,
+        provider: Arc<CryptoProvider>,
+        identity: TlsIdentity,
+        limits: ConnectionLimits,
+        target: ProxyTarget,
+        upgrades: Arc<dyn UpgradeHandler>,
+        errors: Option<ErrorSink>,
+    ) -> Result<Self, TransportError> {
         if !is_localhost(target.addr) {
             return Err(TransportError::NotLoopback { addr: target.addr });
         }
-        let resolver = Arc::new(SniResolver::new(identity));
+        let stats = Stats::new();
+        let resolver = Arc::new(SniResolver::with_stats(identity, Arc::clone(&stats)));
         // Both configurations are built once per identity: a hybrid-capable
         // client gets the hybrid-only one, everyone else the normal one.
         let preferring =
@@ -55,6 +74,7 @@ impl RemoteListener {
         let acceptor = Tls {
             configs: Arc::new(Configs::new(Arc::new(preferring), Arc::new(normal))),
             handshake: limits.handshake,
+            stats: Arc::clone(&stats),
         };
         let accepting = Accepting::start(
             addr,
@@ -66,11 +86,14 @@ impl RemoteListener {
             // peer may stall far longer than the loopback write timeout.
             None,
             DEFAULT_MAX_TCP_CONNECTIONS,
+            Arc::clone(&stats),
+            errors,
         )
         .await?;
         Ok(Self {
             accepting,
             resolver,
+            stats,
         })
     }
 
@@ -86,6 +109,11 @@ impl RemoteListener {
         &self.resolver
     }
 
+    /// The counters this listener has kept since it bound (T1b.1b).
+    pub fn stats(&self) -> Arc<Stats> {
+        Arc::clone(&self.stats)
+    }
+
     /// Stop accepting, drop every connection that is handshaking, idle or
     /// carrying an HTTP exchange (at once when `deadline` is zero), and let an
     /// upgrade that is writing its `101` finish.
@@ -99,14 +127,26 @@ impl RemoteListener {
 struct Tls {
     configs: Arc<Configs>,
     handshake: Option<Duration>,
+    stats: Arc<Stats>,
 }
 
 impl Acceptor for Tls {
     fn admit(&self, stream: TcpStream, _peer: Peer) -> Admitted {
         let configs = Arc::clone(&self.configs);
         let handshake_limit = self.handshake;
+        let stats = Arc::clone(&self.stats);
         Box::pin(async move {
             let accepted = handshake::accept(&configs, stream, handshake_limit).await?;
+            // A hybrid handshake is the post-quantum one (T1b.1b's evidence).
+            if accepted
+                .stream
+                .get_ref()
+                .1
+                .negotiated_key_exchange_group()
+                .is_some_and(|group| group.name() == NamedGroup::X25519MLKEM768)
+            {
+                stats.post_quantum_handshake();
+            }
             // The negotiated name reaches the hop in T1b.2; a connection keeps
             // the certificate it shook hands with.
             Some(Box::new(accepted.stream) as Box<dyn ConnIo>)

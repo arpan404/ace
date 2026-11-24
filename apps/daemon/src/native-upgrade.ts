@@ -12,7 +12,12 @@ import { ownLoopbackOrigin, upgradeDecision } from "./socket-upgrade.ts";
 
 /** What the native listener's upgrade half needs from the daemon it opens sockets into. */
 export interface NativeUpgradeWiring {
-  /** The local socket server whose `connection` listeners register a main socket. */
+  /**
+   * Which listener this is: `isLocal` for `upgradeDecision`, and the kind of reservation both
+   * the pre-auth budget and the socket sweep use (data, not a mode flag).
+   */
+  kind: "local" | "remote";
+  /** The socket server whose `connection` listeners register a main socket. */
   wss: WebSocketServer;
   preAuth: PreAuthAdmission;
   allowedOrigins: ReadonlySet<string>;
@@ -42,6 +47,41 @@ export interface NativeUpgrade {
   ): void;
 }
 
+/** One listener's view of the reservations it admitted: nobody else's are released at its close. */
+export interface OwnedUpgrade extends NativeUpgrade {
+  /** Releases every reservation this listener still holds, and only those. */
+  releaseHeld(): void;
+}
+
+/**
+ * The reservations one listener admitted, kept apart from every other listener's. TypeScript takes a
+ * pre-auth slot at `admit` and gives it up at `release` or `opened`; whatever is still held when the
+ * listener closes is released here, so a closing loopback never drops a remote upgrade's charge.
+ */
+export function ownReservations(upgrade: NativeUpgrade): OwnedUpgrade {
+  const held = new Set<number>();
+  return {
+    async admit(request) {
+      const answer = await upgrade.admit(request);
+      if (answer.decision === "accept") held.add(answer.reservation);
+      return answer;
+    },
+    release(reservation) {
+      held.delete(reservation);
+      upgrade.release(reservation);
+    },
+    opened(handle, reservation, userAgent) {
+      // The registration consumes the reservation, exactly as a `ws` upgrade's does.
+      held.delete(reservation);
+      upgrade.opened(handle, reservation, userAgent);
+    },
+    releaseHeld() {
+      for (const reservation of held) upgrade.release(reservation);
+      held.clear();
+    },
+  };
+}
+
 /**
  * The native listener asks TypeScript; this module answers and registers. It decides nothing
  * itself: `upgradeDecision` is the same function the `ws` listeners use, `preAuth` the same
@@ -49,6 +89,8 @@ export interface NativeUpgrade {
  * the daemon exactly where a `ws` one does.
  */
 export function nativeUpgrade(wiring: NativeUpgradeWiring): NativeUpgrade {
+  const isLocal = wiring.kind === "local";
+  const kind = wiring.kind;
   const admit = async (request: TransportAdmitRequest): Promise<TransportAdmitAnswer> => {
     // A queued admission can run after shutdown's sweep. It must take no hold, and a closing
     // listener answers `ws`'s closing-state 503, not admission's empty-body one.
@@ -57,11 +99,11 @@ export function nativeUpgrade(wiring: NativeUpgradeWiring): NativeUpgrade {
     // own-Origin check would compare against 0 and refuse a page that is ours.
     // Refuse the upgrade instead, and the client retries once the port is known.
     const port = wiring.publicPort();
-    if (port === 0) return { decision: "unavailable", reservation: 0 };
+    if (isLocal && port === 0) return { decision: "unavailable", reservation: 0 };
     const decision = upgradeDecision({
       url: request.target,
       origin: request.origin ?? undefined,
-      isLocal: true,
+      isLocal,
       address: request.address,
       servesRenderer: wiring.servesRenderer,
       // The public (native) port, not the internal server's: the page reaches that one.
@@ -71,7 +113,7 @@ export function nativeUpgrade(wiring: NativeUpgradeWiring): NativeUpgrade {
       preAuth: wiring.preAuth,
     });
     if (decision !== "accept") return { decision, reservation: 0 };
-    return { decision, reservation: wiring.preAuth.reserve("local", request.address) };
+    return { decision, reservation: wiring.preAuth.reserve(kind, request.address) };
   };
   const release = (reservation: number) => wiring.preAuth.release(reservation);
   const opened = (
@@ -85,7 +127,7 @@ export function nativeUpgrade(wiring: NativeUpgradeWiring): NativeUpgrade {
     wiring.wss.emit(
       "connection",
       socket,
-      true,
+      isLocal,
       { headers: { "user-agent": userAgent ?? undefined } },
       undefined,
       reservation,

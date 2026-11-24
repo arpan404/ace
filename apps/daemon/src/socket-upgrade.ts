@@ -1,7 +1,8 @@
 import type { Server } from "node:http";
 import type { Duplex } from "node:stream";
-import type { WebSocket, WebSocketServer } from "ws";
+import type { WebSocketServer } from "ws";
 import { peerOf } from "./http-peer.ts";
+import type { MainSocket } from "./main-socket.ts";
 import type { PreAuthAdmission } from "./socket-admission.ts";
 
 const refuseUpgrade = (socket: Duplex, status: string) =>
@@ -79,7 +80,8 @@ export function admitUpgrades(
     servesRenderer?: boolean;
     preAuth: PreAuthAdmission;
     full(): boolean;
-    remoteSockets: Set<WebSocket>;
+    /** Remote sockets, `ws` and native in one set: a retire or a shutdown sweeps them together. */
+    remoteSockets: Set<MainSocket>;
   },
 ): Server {
   const { wss, preAuth, remoteSockets } = options;
