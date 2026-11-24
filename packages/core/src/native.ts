@@ -307,14 +307,11 @@ export class FactBatch {
   private readonly deadlineJson: string | undefined;
   /** Whether the native handle retired this batch (a flush happened). */
   private closed = false;
-  /** The stable-signal eligibility the TypeScript batch keeps, mirrored across a flush. */
-  private preserveSignals: boolean;
   private readonly wasmBatch: InstanceType<WasmExports["WasmBatch"]> | undefined;
   constructor(state: ThreadState, stableSignals?: { deadline: number | undefined }) {
     this.state = state;
     const backend = coreBackend();
     this.backend = backend;
-    this.preserveSignals = stableSignals !== undefined;
     if (backend === "typescript") throw new Error("native FactBatch is off");
     const deadlineJson =
       stableSignals === undefined ? undefined : JSON.stringify(stableSignals.deadline ?? null);
@@ -330,14 +327,7 @@ export class FactBatch {
   apply(fact: Fact, ctx: ApplyContext): EventPayload[] {
     if (this.closed) this.reopen();
     if (!isFactData(fact)) return this.rejectNonJson(fact, ctx);
-    const events = this.applyFact(fact, ctx);
-    // Any non-signal control fact invalidates the cached eligibility window, as in `reduce.ts`.
-    if (
-      (fact.type !== "signal" && fact.type !== "item.delta") ||
-      events.some((event) => event.type !== "item.delta")
-    )
-      this.preserveSignals = false;
-    return events;
+    return this.applyFact(fact, ctx);
   }
   private applyFact(fact: Fact, ctx: ApplyContext): EventPayload[] {
     if (this.backend === "wasm") {
@@ -395,12 +385,11 @@ export class FactBatch {
   /** Open a fresh native batch with this wrapper's deadline after a flush retired the last. */
   private reopen(): void {
     if (this.backend === "wasm") return;
-    // Under the same id and with the same stable-signal eligibility the batch had.
-    this.batchId = handleFor(this.state, openThread).batchBegin(
-      this.deadlineJson,
-      this.batchId,
-      this.preserveSignals,
-    );
+    // Under the same id, with the eligibility the fold left: Rust owns it (a rejected fact
+    // turns it off there), so the facade reads it back instead of keeping a copy.
+    const handle = handleFor(this.state, openThread);
+    const preserve = handle.batchPreserve(this.batchId) ?? false;
+    this.batchId = handle.batchBegin(this.deadlineJson, this.batchId, preserve);
     this.closed = false;
   }
 }

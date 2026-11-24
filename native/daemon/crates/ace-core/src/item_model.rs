@@ -322,6 +322,9 @@ pub enum ToolDetail {
         command: String,
         #[serde(rename = "rawCommand", skip_serializing_if = "Option::is_none")]
         raw_command: Option<String>,
+        /// What the provider says the command is for (Claude's Bash `description`).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         cwd: Option<String>,
         #[serde(rename = "exitCode", skip_serializing_if = "Option::is_none")]

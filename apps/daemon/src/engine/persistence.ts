@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
-import { DeadlineIndex, type AgentRecord, type ThreadState, type Fact } from "@ace/core";
+import type { AgentRecord, ThreadState, Fact } from "@ace/core";
+import { DeadlineIndex } from "@ace/core/typescript";
 import { RunId, type Item, type EventPayload } from "@ace/protocol";
 import { z } from "zod";
 import { recordSchemas } from "./snapshot.ts";

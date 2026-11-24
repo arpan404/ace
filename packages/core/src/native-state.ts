@@ -24,6 +24,8 @@ export interface CoreThreadHandle {
     resolvingJson?: string,
   ): string;
   batchBegin(deadlineJson: string | undefined, reuseId?: number, preserve?: boolean): number;
+  /** A batch's stable-signal eligibility, live or retired by its flush. */
+  batchPreserve(batchId: number): boolean | undefined;
   batchApply(
     batchId: number,
     factJson: string,
@@ -47,6 +49,41 @@ export interface CoreThreadHandle {
   fields(): string[];
   snapshot(): string;
 }
+
+/** Every field a `ThreadState` can carry, in the order the reducer creates them. An absent
+ * field keeps a non-enumerable setter, so an assignment still reaches the handle while the
+ * state's visible keys stay exactly its own. */
+const KNOWN_FIELDS: readonly string[] = [
+  "threadId",
+  "config",
+  "initialRoot",
+  "agents",
+  "runs",
+  "items",
+  "interactions",
+  "tasks",
+  "uncertainTasks",
+  "interactionHistory",
+  "taskHistory",
+  "indexes",
+  "outcomeOrder",
+  "pendingNotices",
+  "itemLinks",
+  "queueCount",
+  "queueSources",
+  "hasRun",
+  "status",
+  "rootKey",
+  "processExit",
+  "lastTransportSignalAt",
+  "statusObservedAt",
+  "runSeq",
+  "personTasks",
+  "rejectionNotices",
+  "queueHeld",
+  "queueStopped",
+  "movedTo",
+];
 
 /** One native thread behind a `ThreadState`, with the state bytes it last read. */
 interface Slot {
@@ -94,17 +131,28 @@ function accessor(slot: Slot, field: string): PropertyDescriptor {
   return descriptor;
 }
 
-/** Rebuild the view's own fields: exactly the state's, in its order. A field the state does not
- * have is absent from the object (`in`, `Object.hasOwn`), and its setter is gone with it. */
+/** Rebuild the view's own fields: the state's, in its order and enumerable, plus every other
+ * known field as a non-enumerable setter, so a write for a field the state has not set (or one
+ * it cleared) still reaches the handle while `Object.keys` and `JSON.stringify` stay faithful. */
 function reshape(target: Record<string, unknown>, slot: Slot, fields: string[]): void {
   const same =
     fields.length === slot.fields.length &&
     fields.every((field, index) => field === slot.fields[index]) &&
-    Object.getOwnPropertyNames(target).length === fields.length;
+    KNOWN_FIELDS.every((field) => Object.hasOwn(target, field));
   if (same) return;
   slot.fields = fields;
   for (const key of Object.getOwnPropertyNames(target)) delete target[key];
-  for (const field of fields) Object.defineProperty(target, field, accessor(slot, field));
+  for (const field of fields) {
+    const descriptor = accessor(slot, field);
+    descriptor.enumerable = true;
+    Object.defineProperty(target, field, descriptor);
+  }
+  for (const field of KNOWN_FIELDS) {
+    if (fields.includes(field)) continue;
+    const descriptor = accessor(slot, field);
+    descriptor.enumerable = false;
+    Object.defineProperty(target, field, descriptor);
+  }
 }
 
 /** Mark the state stale and re-read its field list from the handle. */
@@ -166,7 +214,16 @@ export function refreshState(target: ThreadState, fresh: ThreadState): void {
  * writes into the handle; a plain (TypeScript) state is assigned directly.
  */
 export function setStateField(state: ThreadState, field: keyof ThreadState, value: unknown): void {
-  (state as unknown as Record<string, unknown>)[field as string] = value;
+  const name = field as string;
+  const slot = slots.get(state);
+  if (slot === undefined) {
+    (state as unknown as Record<string, unknown>)[name] = value;
+    return;
+  }
+  // A view writes into its handle, including a field it no longer carries.
+  const json = JSON.stringify(value) as string | undefined;
+  slot.handle.setField(name, json === undefined ? "null" : json);
+  invalidateSlot(slot);
 }
 
 /** The state bytes a fold left behind are stale; the next read asks the handle. */

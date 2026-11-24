@@ -163,9 +163,15 @@ impl FactBatch {
         Some(())
     }
 
-    /// Carry the batch's stable-signal eligibility, which the facade mirrors across a flush.
+    /// Carry the batch's stable-signal eligibility, which the facade carries across a flush.
     pub fn set_preserve(&mut self, preserve: bool) {
         self.preserve_signals = preserve;
+    }
+
+    /// The batch's stable-signal eligibility as the fold last left it: the facade re-begins a
+    /// retired batch from this, never from a copy of its own.
+    pub fn preserves_signals(&self) -> bool {
+        self.preserve_signals
     }
 
     /// Derive the deferred status, if any.

@@ -12,8 +12,6 @@ interface ConsoleBreak {
   removeListener(signal: "SIGBREAK", listener: () => void): unknown;
 }
 /** Install the process lifetime before startup can advertise an endpoint. */
-import { useCoreBackend } from "@ace/core";
-
 export async function runDaemonProcess(
   start: (options: DaemonOptions) => Promise<Daemon>,
   options: DaemonOptions,
@@ -37,10 +35,6 @@ export async function runDaemonProcess(
   },
   consoleBreak: ConsoleBreak | undefined = process.platform === "win32" ? process : undefined,
 ): Promise<Daemon | undefined> {
-  // ADR 0223: ACE_CORE is for tests, tools and the fake daemon. The daemon's engine reads
-  // ThreadState directly and stores through its own record windows, so it always runs the
-  // TypeScript reducer; the switch has no effect in this process.
-  useCoreBackend("typescript");
   const lifetime = new AbortController();
   let daemon: Daemon | undefined;
   let cancelExit: (() => void) | undefined;

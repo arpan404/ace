@@ -16,6 +16,9 @@ pub struct CoreThreadNative {
     /// The fact batches open on this thread, keyed by the id the facade was handed: a second
     /// batch must not replace the first one's deferred status.
     batches: HashMap<u32, ace_core::reduce::FactBatch>,
+    /// The eligibility of the batch a flush retired, kept so a re-begun wrapper reads the fold's
+    /// own answer (`reduce.rs` may have turned it off for a rejected fact).
+    retired_preserve: Option<(u32, bool)>,
     next_batch: u32,
     /// Preallocated output buffer reused for every JSON response.
     buffer: String,
@@ -304,6 +307,18 @@ impl CoreThreadNative {
         }
     }
 
+    /// A batch's stable-signal eligibility: the live batch's, or the one its flush retired.
+    #[napi]
+    pub fn batch_preserve(&self, batch_id: u32) -> Option<bool> {
+        if let Some(batch) = self.batches.get(&batch_id) {
+            return Some(batch.preserves_signals());
+        }
+        match self.retired_preserve {
+            Some((retired, preserve)) if retired == batch_id => Some(preserve),
+            _ => None,
+        }
+    }
+
     /// Fold one fact of one of this thread's batches.
     #[napi(catch_unwind)]
     pub fn batch_apply(
@@ -355,6 +370,7 @@ impl CoreThreadNative {
                 .batches
                 .remove(&batch_id)
                 .ok_or_else(|| CoreBindError::Contract("no batch began with this id".to_owned()))?;
+            self.retired_preserve = Some((batch_id, batch.preserves_signals()));
             Ok::<Vec<ace_core::emit::Event>, CoreBindError>(batch.flush(&mut self.state))
         }));
         let events = match result {
@@ -435,6 +451,7 @@ impl CoreThreadNative {
         Self {
             state,
             batches: HashMap::new(),
+            retired_preserve: None,
             next_batch: 0,
             buffer: String::with_capacity(65536),
         }

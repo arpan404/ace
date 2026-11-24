@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./typescript": "./src/typescript.ts",
     "./background-hold": "./src/background-hold.ts",
     "./human": "./src/human.ts",
     "./shared-work": "./src/shared-work.ts",

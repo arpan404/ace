@@ -832,10 +832,19 @@ fn valid_tool_detail(detail: &Map) -> bool {
     match kind {
         Some("shell") => {
             detail.keys().all(|key| {
-                ["kind", "command", "rawCommand", "cwd", "exitCode", "output"]
-                    .contains(&key.as_str())
+                [
+                    "kind",
+                    "command",
+                    "rawCommand",
+                    "description",
+                    "cwd",
+                    "exitCode",
+                    "output",
+                ]
+                .contains(&key.as_str())
             }) && is_string(detail.get("command"))
                 && optional_string(detail.get("rawCommand"))
+                && optional_string(detail.get("description"))
                 && optional_string(detail.get("cwd"))
                 && detail.get("exitCode").is_none_or(|code| {
                     matches!(code, Json::Null) || as_integer(Some(code)).is_some()
