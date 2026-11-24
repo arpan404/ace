@@ -154,11 +154,13 @@ pub struct Executor {
     shared: Arc<Shared>,
     running: Cell<bool>,
     current: Cell<Option<TaskId>>,
-    /// Consecutive control polls since the last work poll. Executor state, not per turn: it
-    /// survives the end of a turn, so the fairness rule holds when every turn ends after one poll.
+    /// Consecutive control polls since the last work poll, saturating at 8. Executor state, not
+    /// per turn: it survives the end of a turn, so the fairness rule holds when every turn ends
+    /// after one poll, and it never grows past 8.
     control_streak: Cell<u8>,
     /// Set by `close_admission`; the pump signals `drained` at the end of the first turn that
-    /// finds the inbox and both run queues empty.
+    /// finds the inbox and both run queues empty and the join predicate the close task passed
+    /// (no admitted batch unacknowledged) true. The close task's 5 s deadline cuts it short.
     draining: Cell<Option<oneshot::Sender<()>>>,
 }
 
@@ -221,17 +223,27 @@ state it observed**; no rule is two fixed CAS attempts. Exactly:
   failure return `Stale` (a stale notification). If `transaction_open()` (the shared stack's
   `is_open`), store `Scheduled` and return `Busy`; the shell re-arms. The event loop already
   guarantees this never happens, since `Store.atomic` is synchronous; the check confirms it.
-- **The turn**: set `running`, `budget.start()`. First move the inbox's items to their tasks
-  (each wakes or spawns; bounded by the same budget). Then pick the next runnable by the
-  **fairness rule**: the control queue first, except that once `control_streak` reaches 8 and the
-  work queue is non-empty, one work runnable runs before the next control. `control_streak` counts
-  across turns (it is executor state): a control poll adds one, a work poll resets it to 0, and a
-  turn's end leaves it as it is. A per-turn counter would never reach 8 if every turn's budget ran
-  out after one slow control, and work would starve. So controls keep priority (a Stop's
-  interrupt is never behind bulk work) and a burst of controls cannot starve work. Poll it with
-  `current` set to its task and inside `catch_unwind` (a panic that escapes `propagate_panic` is
-  reported once and the runnable is dropped); count it; stop starting runnables when
-  `budget.spent(count)`. Both lanes count toward the 64 / 4 ms budget.
+- **The turn**: set `running`, `budget.start()`. The turn has two phases with separate shares
+  of its budget, so neither can use up the other's:
+  1. **Intake**: move at most **32 inbox items** to their tasks (each wakes or spawns, which is
+     cheap and polls nothing), and stop early once 2 ms of the turn have gone. Items beyond that
+     stay in the inbox for the next turn, which the turn's end re-arms for. An inbox that stays
+     full therefore costs each turn at most 32 moves and half the time budget.
+  2. **Polling**: the rest of the turn, up to 64 polls and 4 ms from the turn's start, is for
+     runnables. Whenever a run queue is non-empty at the start of this phase, at least one
+     runnable is polled, even if intake used its whole share. Pick each by the **fairness rule**:
+     the control queue first, except that when `control_streak` is 8 and the work queue is
+     non-empty, the next poll is a work runnable. A control poll sets the streak to
+     `min(streak + 1, 8)` (it saturates, so it never grows without limit); a work poll sets it to
+     0; a turn's end leaves it as it is. A per-turn counter would never reach 8 if every turn's
+     budget ran out after one slow control, and work would starve. So controls keep priority (a
+     Stop's interrupt is never behind bulk work), and neither a control flood nor a full inbox can
+     starve work.
+
+  Poll each runnable with `current` set to its task and inside `catch_unwind` (a panic that
+  escapes `propagate_panic` is reported once and the runnable is dropped); count it; stop
+  starting runnables when `budget.spent(count)`.
+
 - **One poll may exceed 4 ms.** `setImmediate` yields to I/O between turns, but the budget is
   checked between polls, never inside one, so a turn can overrun by one poll. What bounds a poll
   is design (ADR 0223 §4 "Responsiveness", `:255`: a step commits at most once, no history-sized
@@ -239,7 +251,8 @@ state it observed**; no rule is two fixed CAS attempts. Exactly:
   of each turn and a count of polls over 16 ms; the bench reports both (Benches). No tighter
   bound is promised.
 - **The turn's end**, also a loop over the observed state:
-  - work left and budget remaining: keep draining;
+  - work left (a run queue or the inbox) and budget remaining: keep draining, intake share
+    included;
   - budget spent (whether the claim reads `Running` or `RunningDirty`): `swap(Scheduled)` and
     return `Rearm`. A producer that dirtied the claim posted nothing, and the continuation covers
     its item; a producer that now sees `Scheduled` does nothing;
@@ -274,6 +287,11 @@ interleavings are written as explicit sequences on one thread, with no sleeps:
   `ExecutorWake` in a loop while `close_admission` runs; every push that returned `Accepted` is
   run before `drained` completes, every later push returns `Refused`, nothing runs after `shut`,
   nothing panics.
+- "a flood of controls and a full inbox still let work progress every turn": every control
+  requeues another control, a producer refills the inbox to 1,000 items before every turn, and
+  100 work runnables wait; with the standard budget, every turn polls at least one work runnable,
+  moves at most 32 inbox items, and `control_streak` never reads above 8. Removing the intake cap
+  or the saturation makes it fail.
 - A nested `pump` from inside a runnable returns `Stale`; a panicking task leaves the pump usable
   and its `Task` reports the panic; after `shut`, `wake` posts nothing.
 
@@ -400,54 +418,86 @@ The skeleton's own flow, with where each unported step fails:
   (stubs return `true`: an unported module holds no work). **A flush excludes its own waiter**:
   called through a port from inside a task (`executor.current()` is `Some`), it waits for
   everything except that task and the worker run it belongs to, so a task that flushes never
-  waits on itself. `flushDepth` (`:1407`) is kept as today.
+  waits on itself. `flushDepth` (`:1407`) is kept as today. `flush()` has no deadline (callers
+  and tests rely on it meaning quiescence); `close()` therefore never calls it (below).
 - **Promise identity.** `ready()` returns the same promise object every time, created once in the
   constructor (`index.ts:1088`–`:1090`); `close()` caches its first promise (`closePromise ??=`,
   `:1429`) and returns that object on every later call. The facade holds both JS promises; Rust
   settles them and never creates a second.
 - **Failed readiness.** If preparation or recovery fails, the ready promise rejects with that
   error, as today, and commands keep getting `engine_starting`. `close()` awaits the ready promise
-  as `:1436` does, so its result is that error, but the shutdown below still runs, so a failed
-  start never leaks the threadsafe function or a timer.
+  as `:1436` does, so its result is that error, but every shutdown step below still runs, so a
+  failed start never leaks the threadsafe function or a timer.
 - **`close()`** runs as one engine task, spawned once; its promise is the cached `closePromise`.
-  First the module steps: `Closing`; cancel the sweep; the module close steps in
-  `index.ts:1428`–`:1466`'s order, each a declared function (E5.2, E5.6, E5.8 fill them); a final
-  flush. Then the **shutdown**, reached whether those steps succeeded or failed:
-  1. **Close admission.** Cancel every timer the engine armed, unsubscribe from the registry
-     (step 7), and call `executor.close_admission()`. From here no external producer can
-     enqueue: a session event, I/O completion, timer firing or after-commit release that races it
-     gets `Refused` and is dropped (it is work that arrived after shutdown began, as an item
-     arriving after `Engine.close` is ignored today). Native session queues were already drained
-     by the module steps (ADR 0223 §7 rule 5). New facade calls get `Closing`.
-  2. **Drain through the normal pump.** The close task awaits the receiver from
-     `close_admission` and yields. The drain is the ordinary pump on ordinary macrotasks (the
-     threadsafe call and `setImmediate` re-arms), with the same 64 / 4 ms budget and fairness, so
-     it may take any number of turns. It is never called from inside the close task, so it is
-     never re-entrant. At the end of the first turn that finds the inbox and both run queues
-     empty, the pump completes the receiver; tasks that are only waiting (on a promise that will
-     never settle) do not hold the drain.
-  3. **Settle the close promise.** The close task records its own result (the readiness error or
-     a module step's error, else success). It is settled by step 6 from that result alone; it is
-     never in the set step 5 rejects.
-  4. Detach the after-commit sink, then `executor.shut()`: `closed` is set, the run queues are
-     closed, queued runnables are dropped and their tasks cancel.
-  5. Every **other** facade promise still pending rejects with `Error("Engine closed")`, so
-     cancelled work never leaves a promise hanging; a task's own rejection always reaches its
-     promise as the mapped error.
-  6. Settle the cached close promise from step 3's result, zero the process-reference count,
-     release the threadsafe function (step 6). The close task returns; the pump turn it ran in
-     returns `Done` and nothing re-arms.
+  The order is: module steps, close admission, a bounded join, then cancellation. Nothing in it
+  waits for a worker to go idle, so a port that never settles cannot stop close from finishing.
+  1. **Module steps.** `Closing` (new facade calls get `Closing`, commands
+     `daemon_shutting_down`); cancel the sweep; the module close steps in
+     `index.ts:1428`–`:1466`'s order, each a declared function (E5.2, E5.6, E5.8 fill them): flush
+     and capture restart evidence, then close sessions, whose frames still arrive (ADR 0223 §7
+     rule 5) and whose stop plan bounds them (3 s/3 s/2 s). The TypeScript's final `flush()`
+     (`:1465`) is **not** run here; step 3 replaces it.
+  2. **Close admission.** Cancel every timer the engine armed, unsubscribe from the registry
+     (step 7), and call `executor.close_admission()`. From here no external producer can enqueue:
+     a session event, I/O completion, timer firing or after-commit release that races it gets
+     `Refused` and is dropped (it arrived after shutdown began, as an item arriving after
+     `Engine.close` is ignored today).
+  3. **The bounded join.** Close joins exactly two kinds of work, both already admitted:
+     - **commits in flight**: runnables already queued whose step will commit (a frame batch, a
+       receipt's follow-up, a recovery capture), and the after-commit wakes those commits release
+       (released into the run queues directly, since the inbox is closed);
+     - **acknowledgements already admitted**: every frame batch accepted into an actor's mailbox
+       before admission closed is committed and its acknowledgement resolved (or, on a failed
+       commit, rejected as today).
+
+     The join is the ordinary pump on ordinary macrotasks (the threadsafe call and `setImmediate`
+     re-arms), with the same budget and fairness, never called from inside the close task, so it
+     is never re-entrant. It ends at the end of the first turn that finds the inbox and both run
+     queues empty and no admitted batch unacknowledged. Tasks parked on a port, a timer or a
+     promise are not runnable and do not hold it. It has a **deadline of 5 s** on the injected
+     clock (`clock.setTimer`, so a `ManualClock` test advances it), armed after step 2; its
+     callback completes the close task's oneshot and wakes the close task through its own task
+     waker (a runnable, not an inbox item), so closed admission never refuses it. At the deadline
+     the join stops; whatever it had not finished is cancelled in step 4 with the rest.
+
+  4. **Cancel the rest.** Detach the after-commit sink, then `executor.shut()`: `closed` is set,
+     the run queues close, queued runnables are dropped, and every task still alive is cancelled.
+     That covers workers awaiting a port (`prepareInput`, `beforeSend`, `prepareWorkspace`,
+     `waitForProvider`, transition I/O), tasks waiting on timers, and facade calls awaiting a JS
+     promise. A JS promise a cancelled task was waiting on cannot be cancelled; when it settles
+     later, the binding's `then` callback finds its task gone and does nothing.
+  5. **Reject, never drop silently.** Every facade promise still pending, except the close
+     promise, rejects with `EngineClosed` (`Error("Engine closed")`, `code: "ACE_ENGINE_CLOSED"`).
+     Every cancelled worker run is reported once through `onError` as
+     `Engine closed while <worker> for <thread> waited on <port>`. The durable state it was moving
+     (an intent mid-delivery, a queued input) stays as committed, held or uncertain, and the next
+     boot's restart recovery (E5.8, behaviour.md §13) decides it, as after a crash today.
+  6. **Settle the close promise** from its own result alone: the readiness error (`:1436` awaits
+     the ready promise), else a module step's error, else success. A join that hit its deadline is
+     not an error of close: it resolves, and step 5's reports say what was cut. Then zero the
+     process-reference count and release the threadsafe function (step 6). The close task
+     returns; its pump turn returns `Done` and nothing re-arms.
 
   A `close()` called from inside a task (through a port) gets the same cached promise; the close
-  task's waits exclude the calling task, which sees `Closing` at its next await and ends.
+  task's waits exclude the calling task, which is cancelled in step 4.
 
-- **Tests** (seam): "a shutdown drain longer than one budget completes over several macrotasks"
-  (the probe queues 200 chained runnables, then close; `turns()` shows more than one turn after
-  admission closed, every runnable ran, no pump entry returned `Stale` from inside the close
-  task); "close settles its own promise even when it cancels pending work" (a pending
-  `ensureProvider` rejects with "Engine closed" while `close()` resolves, and a second `close()`
-  returns the same object); "a failed ready still shuts down" (close rejects with the readiness
-  error, the threadsafe function is released). The racing-producer test is in step 2.
+- **Tests** (seam):
+  - "close finishes within its deadline when a worker waits on a port that never settles": the
+    probe runs a worker task awaiting a port whose JS promise never settles, plus a facade call
+    tied to it; `close()`, then advance the `ManualClock` 5 s; close resolves, the facade call
+    rejects with `ACE_ENGINE_CLOSED`, `onError` got one report naming the worker and the port, and
+    resolving that JS promise afterwards changes nothing. A close that awaits worker idleness
+    hangs this test.
+  - "close joins a commit and an acknowledgement admitted before admission closed": the probe
+    queues a step that commits and an admitted batch, then `close()`; after it the row is in the
+    store and the acknowledgement resolved, with the clock never advanced.
+  - "a shutdown join longer than one budget completes over several macrotasks": 200 chained
+    runnables queued, then close; `turns()` shows more than one turn after admission closed,
+    every runnable ran, no pump entry returned `Stale` from inside the close task.
+  - "close settles its own promise even when it cancels pending work" (a second `close()` returns
+    the same object), and "a failed ready still shuts down" (close rejects with the readiness
+    error, the threadsafe function is released).
+  - The racing-producer test is in step 2.
 
 - **A forced exit** (`process.exit`, a signal, a crash) runs none of this. What is lost is what was
   never committed: frames read but not in a committed batch, live deltas the store had not
@@ -919,8 +969,8 @@ test -f "$f" && bun --bun x vitest run "$f" --maxWorkers=4
 - Run a runnable outside `pump`, or start a task from a sync entry except through `defer`.
 - Hold a transaction or a `with_state` borrow across an await.
 - Give the probe any thread behaviour, or ship the `engine-probe` feature.
-- Run a shutdown drain from inside the close task, or let an external producer enqueue after
-  `close_admission`.
+- Run the shutdown join from inside the close task, let an external producer enqueue after
+  `close_admission`, or make close wait for a worker to go idle.
 - Change the store's stored formats, `engineSchemaVersion` 9, or `finish_json`'s output.
 - Run the full suite, `bun run check`, `test:process` or any tier; one file at a time (rule 3).
 
@@ -931,16 +981,18 @@ test -f "$f" && bun --bun x vitest run "$f" --maxWorkers=4
   `Scheduled`. Replacing the producer's loop with two fixed CAS attempts makes the lost-wake test
   fail.
 - Controls run first but yield one work runnable after 8 in a row; the budget is 64 runnables or
-  4 ms across both lanes.
+  4 ms across both lanes; intake takes at most 32 inbox items and 2 ms per turn, and a turn with a
+  non-empty run queue always polls at least one runnable.
 - A Rust-opened transaction pushes its shell context before its body; the wake release runs after
   publication and before `pass.rethrow()`.
 - A missing async binding returns a rejected promise; `ready()` and `close()` return identical
   promise objects on repeated calls.
 - The registry class is unchanged in behaviour; each native view subscribes and unsubscribes.
 - Wake lists are keyed by top frame and each is released after its own publication.
-- `control_streak` lives in the executor and survives a turn's end.
-- Shutdown closes admission first, drains on scheduled macrotasks, and settles the close promise
-  from its own result, apart from cancelled work.
+- `control_streak` lives in the executor, survives a turn's end and saturates at 8.
+- Close runs module steps, closes admission, joins only admitted commits and acknowledgements on
+  scheduled macrotasks under a 5 s deadline, then cancels and rejects the rest with
+  `ACE_ENGINE_CLOSED`; the close promise settles from its own result, apart from cancelled work.
 - `with_state`'s closure type admits no port, executor or store; no `&mut self` on `NativeEngine`.
 - A token is released or dropped exactly once; a rolled-back receipt's wake never runs (make one
   table row fail by moving `dropped` to `released`).
