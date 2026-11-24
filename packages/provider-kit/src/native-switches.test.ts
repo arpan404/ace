@@ -183,10 +183,10 @@ test.each<SessionRefusalCase>([
     refusal: "ACE_SESSIONS needs ACE_SUPERVISOR=native",
   },
   {
-    name: "nothing naming the sessions switch",
+    name: "nothing naming the sessions switch, the default boot",
     sessions: [],
-    store: true,
-    supervisor: true,
+    store: false,
+    supervisor: false,
     cross: undefined,
     refusal: undefined,
   },

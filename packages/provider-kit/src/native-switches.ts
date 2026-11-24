@@ -412,11 +412,19 @@ const library =
  * TypeScript session.
  */
 export function sessionsAddonPath(): string {
-  const explicit = process.env.ACE_SESSIONS_ADDON ?? process.env.ACE_STORE_ADDON;
-  if (explicit) return explicit;
-  return fileURLToPath(
-    new URL(`../../../native/daemon/target/release/${library}`, import.meta.url),
-  );
+  // Precedence is by presence, not by truthiness: a set-but-empty value names no addon and is
+  // refused, rather than silently taking the store's or the development build.
+  const own = process.env.ACE_SESSIONS_ADDON;
+  const [name, explicit] =
+    own !== undefined
+      ? (["ACE_SESSIONS_ADDON", own] as const)
+      : (["ACE_STORE_ADDON", process.env.ACE_STORE_ADDON] as const);
+  if (explicit === undefined)
+    return fileURLToPath(
+      new URL(`../../../native/daemon/target/release/${library}`, import.meta.url),
+    );
+  if (explicit === "") throw new Error(`${name} is set but empty`);
+  return explicit;
 }
 
 /** The backend of a new engine: the current boot's, else the switch's. */
