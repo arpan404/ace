@@ -28,7 +28,6 @@ mod preflight;
 mod tools;
 
 use crate::json_io::{Json, Map};
-use crate::validate_shapes::valid_timestamp;
 
 pub use keys::SCREEN_KEYS;
 pub(crate) use keys::screen_key_valid;
@@ -63,17 +62,6 @@ fn is_string(value: Option<&Json>) -> bool {
 
 fn optional_string(value: Option<&Json>) -> bool {
     matches!(value, None | Some(Json::String(_)))
-}
-
-fn valid_id(value: Option<&Json>, min: usize, max: usize) -> bool {
-    matches!(value, Some(Json::String(id)) if id.len() >= min && id.len() <= max)
-}
-
-fn valid_optional_timestamp(value: Option<&Json>) -> bool {
-    match value {
-        None => true,
-        Some(_) => valid_timestamp(value),
-    }
 }
 
 /// Whether the merged candidate validates: a strict pass first (like

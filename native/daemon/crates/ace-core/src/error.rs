@@ -10,9 +10,6 @@ pub enum CoreError {
     /// facade only ever sends strings it serialized itself.
     #[error("not JSON: {0}")]
     NotJson(String),
-    /// A JSON value of the wrong shape where an object was required.
-    #[error("not an object")]
-    NotAnObject,
     /// The caller broke the binding contract (unknown handle, bad ids).
     #[error("core contract: {0}")]
     Contract(String),
@@ -25,10 +22,6 @@ impl CoreError {
 
     pub(crate) fn invalid_json_string(error: impl std::fmt::Display) -> Self {
         Self::NotJson(error.to_string())
-    }
-
-    pub(crate) fn not_an_object() -> Self {
-        Self::NotAnObject
     }
 
     pub(crate) fn contract(message: impl Into<String>) -> Self {
