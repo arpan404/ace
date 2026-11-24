@@ -141,6 +141,11 @@ function shownTab(f: Fixture) {
   return state.tabs?.find((tab) => tab.tabId === state.activeTabId);
 }
 
+/** One tab as the session lists it. */
+function listedTab(f: Fixture, tabId: string) {
+  return f.service.state("thread").tabs?.find((tab) => tab.tabId === tabId);
+}
+
 /**
  * A viewer whose view ace-media delivers, so its tab's capture starts and loads the extension.
  * With a media runtime it watches the real media connection and keeps every piece it receives;
@@ -413,6 +418,42 @@ describe.skipIf(!executablePath)("page audio from ace's Chrome", () => {
     },
     90_000,
   );
+
+  // A named window.open(url, "player") without features opens a tab in the opener's Chrome
+  // window; ace adopts it as a tab of its own. Sound belongs to the Chrome tab, not the window
+  // the two share: the player's sound and mute are the player's alone.
+  it("a named popup sharing its opener's window lists its own sound and mute", async () => {
+    const f = await fixture();
+    await f.navigate();
+    const opener = f.service.state("thread").activeTabId;
+    if (!opener) throw new Error("No opener tab");
+    await f.evaluate(
+      `document.querySelector('button').addEventListener('click', () => window.open(${JSON.stringify(
+        `${f.url}/player`,
+      )}, 'player'))`,
+    );
+    await f.execute({ action: "click", ref: ref(await f.execute({ action: "snapshot" }), "Save") });
+    await until(() => (f.service.state("thread").tabs?.length ?? 0) === 2);
+    const player = f.service.state("thread").tabs?.find((tab) => tab.tabId !== opener)?.tabId;
+    if (!player) throw new Error("No player tab");
+    // The person sees the popup, and a viewer's view starts its capture (loading the extension).
+    expect(f.service.state("thread").activeTabId).toBe(player);
+    const listener = mediaViewer(f);
+    await listener.subscribe();
+    await f.execute({ action: "evaluate", tabId: player, expression: tone });
+    await f.execute({
+      action: "click",
+      tabId: player,
+      ref: ref(await f.execute({ action: "snapshot", tabId: player }), "Save"),
+    });
+    await until(() => listedTab(f, player)?.audible === true);
+    expect(listedTab(f, opener)?.audible).not.toBe(true);
+    await f.service.asPerson("thread", { kind: "mute", tabId: player, muted: true });
+    await until(() => listedTab(f, player)?.muted === true);
+    expect(listedTab(f, opener)?.muted).not.toBe(true);
+    await f.execute({ action: "evaluate", tabId: player, expression: "window.animating = false" });
+    listener.close();
+  }, 60_000);
 });
 
 // Windows captures a tab at the audio engine's mix rate (48 kHz with ace's fake output device)

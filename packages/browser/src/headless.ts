@@ -142,9 +142,13 @@ export class ChromeBackend implements BrowserBackend {
       request,
       this.options.launch.deviceScaleFactor,
       this.options.cleanup.schedule,
-      async (windowId, muted) => {
+      async (tabId, muted) => {
         if (!current) throw new Error("Browser closed");
-        await this.video(current.instance, request.profileDir).mute(windowId, muted);
+        await this.video(current.instance, request.profileDir).mute(tabId, muted);
+      },
+      async (page) => {
+        if (!current) throw new Error("Browser closed");
+        return this.video(current.instance, request.profileDir).chromeTabId(page);
       },
     );
     const lifetime = new AbortController();
@@ -170,12 +174,12 @@ export class ChromeBackend implements BrowserBackend {
           browserContextId,
         );
       current = { instance, browserContextId };
-      // The extension's worker hears each tab's sound; the tabs shown here take theirs by window.
+      // The extension's worker hears each tab's sound; the tabs shown here take theirs by tab.
       // A session closed while this connected must not leave its listener on the shared encoder.
       if (!lifetime.signal.aborted) {
         stopAudio?.();
-        stopAudio = this.video(instance, request.profileDir).onTabAudio((windowId, audio) =>
-          tabs.audio(windowId, audio),
+        stopAudio = this.video(instance, request.profileDir).onTabAudio((tabId, audio) =>
+          tabs.audio(tabId, audio),
         );
       }
       // `exited` rejects only when teardown itself failed, which `stop()` reports; the watch

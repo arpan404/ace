@@ -151,8 +151,8 @@ test("the encoder fails in bounded time when the extension's scripts never defin
 });
 
 /**
- * Chrome's tab capture as the video extension meets it, one tab per window: a stream id works
- * once; window 1's capture with sound fails `failWithSound` times, and the first `leaks` of those leave
+ * Chrome's tab capture as the video extension meets it, one tab per Chrome tab: a stream id works
+ * once; tab 1's capture with sound fails `failWithSound` times, and the first `leaks` of those leave
  * their tab held until the extension is uninstalled; a stop takes `stopMs` to release its tab.
  */
 function chromeCapture(options: { failWithSound?: number; leaks?: number; stopMs?: number } = {}) {
@@ -160,7 +160,7 @@ function chromeCapture(options: { failWithSound?: number; leaks?: number; stopMs
   let loads = 1;
   const minted = new Map<string, number>();
   const used = new Set<string>();
-  /** Window of each running capture, and windows a failed capture left held. */
+  /** Tab of each running capture, and tabs a failed capture left held. */
   const live = new Map<string, number>();
   const held = new Set<number>();
   let failWithSound = options.failWithSound ?? 0;
@@ -168,11 +168,13 @@ function chromeCapture(options: { failWithSound?: number; leaks?: number; stopMs
   const workerGlobals: Globals = {
     aceVideo: {
       ready: async () => {},
-      open: async (windowId: number) => {
-        if (held.has(windowId) || [...live.values()].includes(windowId))
+      /** The daemon knows a page by its CDP target; this Chrome has one tab per target. */
+      tabFor: async (targetId: string) => Number(targetId.replace("target-", "")),
+      open: async (tabId: number) => {
+        if (held.has(tabId) || [...live.values()].includes(tabId))
           throw new Error("Cannot capture a tab with an active stream.");
         const streamId = `stream-${++ids}`;
-        minted.set(streamId, windowId);
+        minted.set(streamId, tabId);
         return { streamId };
       },
     },
@@ -181,19 +183,19 @@ function chromeCapture(options: { failWithSound?: number; leaks?: number; stopMs
     aceVideo: {
       supported: async (codecs: readonly string[]) => codecs,
       start: async (id: string, streamId: string, _w: number, _h: number, opts?: object) => {
-        const windowId = minted.get(streamId);
-        if (windowId === undefined || used.has(streamId))
+        const tabId = minted.get(streamId);
+        if (tabId === undefined || used.has(streamId))
           throw new Error("AbortError: Error starting tab capture");
         used.add(streamId);
-        if (windowId === 1 && !(opts && "audio" in opts) && failWithSound > 0) {
+        if (tabId === 1 && !(opts && "audio" in opts) && failWithSound > 0) {
           failWithSound--;
           if (leaks > 0) {
             leaks--;
-            held.add(windowId);
+            held.add(tabId);
           }
           throw new Error("AbortError: Failed due to shutdown");
         }
-        live.set(id, windowId);
+        live.set(id, tabId);
       },
       stop: async (id: string) => {
         await new Promise((resolve) => setTimeout(resolve, options.stopMs ?? 0));
@@ -216,9 +218,10 @@ function chromeCapture(options: { failWithSound?: number; leaks?: number; stopMs
   };
 }
 
-/** The page shown in window `windowId`. */
-const page = (windowId: number) => ({
-  send: async () => ({ windowId }),
+/** The page on CDP target `target-${tabId}`, which the worker maps back to Chrome tab `tabId`. */
+const page = (tabId: number) => ({
+  send: async (method: string) =>
+    method === "Target.getTargetInfo" ? { targetInfo: { targetId: `target-${tabId}` } } : {},
   on: () => {},
   off: () => {},
 });

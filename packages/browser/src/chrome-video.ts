@@ -20,7 +20,6 @@ const Targets = z.object({
   targetInfos: z.array(z.object({ targetId: z.string(), type: z.string(), url: z.string() })),
 });
 const Attached = z.object({ sessionId: z.string() });
-const Window = z.object({ windowId: z.number().int() });
 const Evaluated = z.object({
   result: z.object({ value: z.unknown().optional() }).optional(),
   exceptionDetails: z
@@ -31,14 +30,16 @@ const Evaluated = z.object({
     .optional(),
 });
 const Binding = z.object({ name: z.string(), payload: z.string() });
+const TargetInfo = z.object({ targetInfo: z.object({ targetId: z.string() }) });
+const ChromeTabId = z.number().int();
 /** The tab shown in a window: whether it plays sound and whether it is muted. */
 const Audio = z.object({ audible: z.boolean(), muted: z.boolean() });
-const TabAudio = Audio.extend({ windowId: z.number().int() });
-type TabAudioListener = (windowId: number, audio: z.infer<typeof Audio>) => void;
+const TabAudio = Audio.extend({ tabId: ChromeTabId });
+type TabAudioListener = (tabId: number, audio: z.infer<typeof Audio>) => void;
 
 /** One open capture's sound: what its viewer asked, and how to set what the document encodes. */
 interface CaptureSound {
-  windowId: number;
+  tabId: number;
   /** A viewer of this capture listens (ADR 0088, Audio): it asked for the tab's sound. */
   wanted: boolean;
   /** Applies `wanted`, less the tab's mute, which is for everyone. */
@@ -63,9 +64,9 @@ export class ChromeVideo implements VideoHost {
   private captures = new Map<string, CaptureEvents>();
   /** Told of each tab's sound as the extension's worker hears it (they outlive reinstalls). */
   private tabAudioListeners = new Set<TabAudioListener>();
-  /** Tabs Chrome reports muted, by window: their sound is off for every viewer (ADR 0088). */
-  private mutedWindows = new Set<number>();
-  /** Each open capture's sound, so a tab's mute applies to the captures of its window. */
+  /** Tabs Chrome reports muted, by Chrome tab: their sound is off for every viewer (ADR 0088). */
+  private mutedTabs = new Set<number>();
+  /** Each open capture's sound, so a tab's mute applies to the captures of that tab. */
   private captureAudio = new Map<string, CaptureSound>();
   /** Captures told to stop whose stop hasn't finished: their tab is still held until then. */
   private stopping = new Set<Promise<unknown>>();
@@ -100,8 +101,8 @@ export class ChromeVideo implements VideoHost {
     );
   }
   /**
-   * Told each time the extension's worker hears a tab's sound change, with the window the tab
-   * is shown in. One per Chrome, so every thread's tabs listen here.
+   * Told each time the extension's worker hears a tab's sound change, with the Chrome tab it
+   * belongs to. One per Chrome, so every thread's tabs listen here.
    */
   onTabAudio(listener: TabAudioListener): () => void {
     this.tabAudioListeners.add(listener);
@@ -109,15 +110,24 @@ export class ChromeVideo implements VideoHost {
       this.tabAudioListeners.delete(listener);
     };
   }
-  /** Whether the tab shown in `windowId` plays sound, and whether it is muted. */
-  async tabAudio(windowId: number): Promise<z.infer<typeof Audio>> {
+  /**
+   * The Chrome tab id of the page on `page`'s CDP session: the extension keys sound by tab, not
+   * by window, since a named popup shares its opener's window.
+   */
+  async chromeTabId(page: BrowserCdp): Promise<number> {
+    const { targetInfo } = TargetInfo.parse(await page.send("Target.getTargetInfo"));
     const { worker } = await this.extension();
-    return Audio.parse(await evaluate(worker, "aceVideo.tabAudio", [windowId]));
+    return ChromeTabId.parse(await evaluate(worker, "aceVideo.tabFor", [targetInfo.targetId]));
   }
-  /** Turns the sound of the tab shown in `windowId` off or on. */
-  async mute(windowId: number, muted: boolean): Promise<void> {
+  /** Whether the Chrome tab plays sound, and whether it is muted. */
+  async tabAudio(tabId: number): Promise<z.infer<typeof Audio>> {
     const { worker } = await this.extension();
-    await evaluate(worker, "aceVideo.mute", [windowId, muted]);
+    return Audio.parse(await evaluate(worker, "aceVideo.tabAudio", [tabId]));
+  }
+  /** Turns the sound of the Chrome tab off or on. */
+  async mute(tabId: number, muted: boolean): Promise<void> {
+    const { worker } = await this.extension();
+    await evaluate(worker, "aceVideo.mute", [tabId, muted]);
   }
   async open(
     page: BrowserCdp,
@@ -125,19 +135,19 @@ export class ChromeVideo implements VideoHost {
     height: number,
     events: CaptureEvents,
   ): Promise<VideoCaptureHandle> {
-    const { windowId } = Window.parse(await page.send("Browser.getWindowForTarget"));
+    const tabId = await this.chromeTabId(page);
     const id = `capture-${++this.ids}`;
-    const document = await this.start(id, windowId, width, height);
+    const document = await this.start(id, tabId, width, height);
     // A page already playing sound when its capture starts sends no change once the worker
     // listens: seed the tab's state for every listener, best effort.
-    void this.tabAudio(windowId).then(
-      (audio) => this.announceTabAudio(windowId, audio),
+    void this.tabAudio(tabId).then(
+      (audio) => this.announceTabAudio(tabId, audio),
       () => {},
     );
     this.captures.set(id, events);
-    const muted = () => this.mutedWindows.has(windowId);
+    const muted = () => this.mutedTabs.has(tabId);
     const sound: CaptureSound = {
-      windowId,
+      tabId,
       wanted: false,
       apply: () => {
         void evaluate(document, "aceVideo.audio", [id, sound.wanted && !muted()]).catch(() => {});
@@ -166,19 +176,19 @@ export class ChromeVideo implements VideoHost {
     };
   }
   /**
-   * Opens capture `id` of the tab shown in `windowId` and returns the document encoding it.
-   * Each attempt takes a fresh stream id, since Chrome takes one only once. With the tab's sound
-   * first; a capture that can't take it streams its picture alone. A failed attempt can leave
-   * the tab held by a capture Chrome started but never handed over, which neither a new stream id
-   * nor a new document frees: then the extension is installed again, which ends every capture
-   * it asked for, and the tab is tried once more.
+   * Opens capture `id` of Chrome tab `tabId` and returns the document encoding it. Each attempt
+   * takes a fresh stream id, since Chrome takes one only once. With the tab's sound first; a
+   * capture that can't take it streams its picture alone. A failed attempt can leave the tab
+   * held by a capture Chrome started but never handed over, which neither a new stream id nor a
+   * new document frees: then the extension is installed again, which ends every capture it asked
+   * for, and the tab is tried once more.
    */
-  private async start(id: string, windowId: number, width: number, height: number) {
+  private async start(id: string, tabId: number, width: number, height: number) {
     // A capture still stopping holds its tab; asking for the tab before then is refused.
     await Promise.all(this.stopping);
     let { worker, document } = await this.extension();
     const attempt = async (audio: boolean) => {
-      const { streamId } = OpenedStream.parse(await evaluate(worker, "aceVideo.open", [windowId]));
+      const { streamId } = OpenedStream.parse(await evaluate(worker, "aceVideo.open", [tabId]));
       await evaluate(document, "aceVideo.start", [
         id,
         streamId,
@@ -325,18 +335,18 @@ export class ChromeVideo implements VideoHost {
     }
     const audio = TabAudio.safeParse(json);
     if (!audio.success) return;
-    const { windowId, audible, muted } = audio.data;
-    this.announceTabAudio(windowId, { audible, muted });
+    const { tabId, audible, muted } = audio.data;
+    this.announceTabAudio(tabId, { audible, muted });
   }
-  private announceTabAudio(windowId: number, audio: z.infer<typeof Audio>): void {
-    if (audio.muted !== this.mutedWindows.has(windowId)) {
-      if (audio.muted) this.mutedWindows.add(windowId);
-      else this.mutedWindows.delete(windowId);
+  private announceTabAudio(tabId: number, audio: z.infer<typeof Audio>): void {
+    if (audio.muted !== this.mutedTabs.has(tabId)) {
+      if (audio.muted) this.mutedTabs.add(tabId);
+      else this.mutedTabs.delete(tabId);
       // The tab's mute is for everyone: its captures stop or resume their sound with it.
       for (const sound of this.captureAudio.values())
-        if (sound.windowId === windowId) sound.apply();
+        if (sound.tabId === tabId) sound.apply();
     }
-    for (const listener of this.tabAudioListeners) listener(windowId, audio);
+    for (const listener of this.tabAudioListeners) listener(tabId, audio);
   }
 }
 

@@ -21,7 +21,9 @@ export function videoExtensionManifest() {
     description: "Encodes ace's browser tabs as video for ace's own viewers.",
     key: videoExtensionKey,
     minimum_chrome_version: "125",
-    permissions: ["tabCapture", "offscreen", "tabs"],
+    // "debugger" only lets the worker map a CDP target to its Chrome tab (getTargets); nothing
+    // ever attaches. A named popup shares its opener's window, so sound is keyed by tab.
+    permissions: ["tabCapture", "offscreen", "tabs", "debugger"],
     background: { service_worker: "worker.js" },
   };
 }
