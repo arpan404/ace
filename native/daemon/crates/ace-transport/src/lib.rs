@@ -6,6 +6,7 @@
 
 pub mod driver;
 pub mod error;
+pub mod frame;
 pub mod head;
 pub mod hop;
 pub mod listener;
