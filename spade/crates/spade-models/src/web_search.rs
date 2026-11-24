@@ -169,10 +169,12 @@ fn transport(error: &reqwest::Error) -> &'static str {
     }
 }
 
-/// The model searches on its own endpoint: it says so, and its format has a search tool.
+/// The model searches on its own endpoint: it says so, its format has a search tool, and the
+/// address is not a gateway's compatibility layer, which speaks chat completions only.
 fn native(endpoint: &Endpoint, model: &Model) -> bool {
     model.can(Capability::WebSearch)
         && matches!(endpoint.format, Format::Anthropic | Format::OpenAiResponses)
+        && !crate::base_url::is_compat_layer(&endpoint.base_url)
 }
 
 fn text(value: &Value) -> String {
