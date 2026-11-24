@@ -462,9 +462,15 @@ export class NotificationDatabase {
     return this.matches(state, notification, generation);
   }
   /** Catch-up omits and retracts alerts that no longer match canonical state or are snoozed. */
-  feed(device: DeviceId, afterCursor: number | undefined, now: number, checkpoint?: true) {
+  feed(
+    device: DeviceId,
+    afterCursor: number | undefined,
+    now: number,
+    checkpoint?: true,
+    linked?: readonly DeviceId[],
+  ) {
     if (checkpoint) return this.inbox.checkpoint(device, afterCursor);
-    return this.inbox.feed(device, afterCursor, now, (notification, generation) => {
+    const current = (notification: Notification, generation: number) => {
       const row = this.statement("SELECT body FROM threads WHERE id=?").get(notification.threadId);
       if (!row || this.snoozed(notification.threadId, now)) return false;
       return this.matches(
@@ -472,7 +478,8 @@ export class NotificationDatabase {
         notification,
         generation,
       );
-    });
+    };
+    return this.inbox.feed(device, afterCursor, now, current, linked);
   }
   private matches(state: CompactThread, notification: Notification, generation: number): boolean {
     if (state.archived || state.deleted || state.remote) return false;

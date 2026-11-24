@@ -1,7 +1,7 @@
 import type { StatementSync } from "node:sqlite";
 import { z } from "zod";
-import { Notification, type NotificationFeed } from "@ace/protocol/notifications";
-import type { DeviceId } from "@ace/protocol";
+import { Notification, NotificationFeed } from "@ace/protocol/notifications";
+import { ThreadId, type DeviceId } from "@ace/protocol";
 
 /** Rows a phone may still need to catch up on, per device. */
 const LIMIT = 100;
@@ -22,6 +22,15 @@ const Row = z.object({
   body: z.string(),
   generation: z.number().int().nonnegative(),
 });
+
+/**
+ * A feed as the inbox reads it: each retraction keeps the thread it is about, so the daemon can
+ * drop what a socket may not read (an organization member's) before the feed leaves it.
+ */
+export const InboxFeed = NotificationFeed.extend({
+  retracted: z.array(z.object({ id: z.string(), threadId: ThreadId })).max(LIMIT),
+});
+export type InboxFeed = z.infer<typeof InboxFeed>;
 
 /**
  * The catch-up feed for clients that can't be woken (local-only iOS notifications). An alert that
@@ -60,31 +69,44 @@ export class NotificationInbox {
    * Alerts after `afterCursor` that still describe canonical state. Anything recent that no
    * longer does (the thread went back to work, the approval was answered elsewhere) is listed as
    * retracted, so a client can withdraw an alert it already showed.
+   *
+   * `linked` are the device's other ids, which the daemon has proven are the same install (ADR
+   * 0115, ADR 0221): one phone reached directly and over its account relay. Their alerts read
+   * as this device's, each id once, so one saved cursor on the phone never skips an alert
+   * recorded under the other id. The checkpoint stays this device's own.
    */
   feed(
     device: DeviceId,
     afterCursor: number | undefined,
     now: number,
     current: (notification: Notification, generation: number) => boolean,
-  ): NotificationFeed {
-    this.statement("DELETE FROM inbox WHERE device=? AND expires<=?").run(device, now);
+    linked: readonly DeviceId[] = [],
+  ): InboxFeed {
+    const devices = [device, ...linked.filter((id) => id !== device)];
+    const expire = this.statement("DELETE FROM inbox WHERE device=? AND expires<=?");
+    for (const id of devices) expire.run(id, now);
     const head = this.head();
     const cursor = afterCursor ?? this.committed(device);
     // A cursor from beyond this database's history means the database was rebuilt: start over.
     const after = cursor > head ? 0 : cursor;
+    // An alert recorded under both ids reads at its first cursor. The newest of them, as many as
+    // one device keeps, oldest first.
     const rows = this.statement(
-      `SELECT cursor,body,generation FROM inbox WHERE device=? ORDER BY cursor LIMIT ${LIMIT}`,
-    ).all(device);
-    const feed: NotificationFeed = { cursor: head, entries: [], retracted: [] };
+      `SELECT * FROM (SELECT min(cursor) AS cursor,body,generation FROM inbox
+        WHERE device IN (${devices.map(() => "?").join(",")}) GROUP BY id
+        ORDER BY cursor DESC LIMIT ${LIMIT}) ORDER BY cursor`,
+    ).all(...devices);
+    const feed: InboxFeed = { cursor: head, entries: [], retracted: [] };
     for (const input of rows) {
       const row = Row.parse(input);
       const notification = Notification.parse(JSON.parse(row.body));
-      if (!current(notification, row.generation)) feed.retracted.push(notification.id);
+      if (!current(notification, row.generation))
+        feed.retracted.push({ id: notification.id, threadId: notification.threadId });
       else if (row.cursor > after) feed.entries.push({ cursor: row.cursor, notification });
     }
     return feed;
   }
-  checkpoint(device: DeviceId, cursor: number | undefined): NotificationFeed {
+  checkpoint(device: DeviceId, cursor: number | undefined): InboxFeed {
     if (cursor !== undefined && cursor <= this.head()) {
       // Restrict receipts to devices with a feed. A duplicate or delayed receipt cannot rewind it.
       this.statement(

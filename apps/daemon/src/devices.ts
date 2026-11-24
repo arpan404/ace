@@ -127,6 +127,7 @@ export class Devices {
   private unfold: StatementSync;
   private folded: StatementSync;
   private linkAccount: StatementSync;
+  private linkedTo: StatementSync;
   private unperson: StatementSync;
   constructor(db: DatabaseSync, runtime: CredentialRuntime) {
     this.runtime = runtime;
@@ -142,6 +143,9 @@ export class Devices {
       "UPDATE devices SET person = 0, standing_key = NULL WHERE person = 1 OR standing_key IS NOT NULL",
     );
     this.linkAccount = db.prepare("UPDATE devices SET account_link = ? WHERE id = ?");
+    this.linkedTo = db.prepare(
+      `SELECT * FROM devices WHERE account_link = ? AND ${live} ORDER BY id`,
+    );
     this.stamp = db.prepare("UPDATE devices SET install_id = ? WHERE id = ?");
     // Records an install left behind before it said who it is: the same name, never used since
     // the install paired again.
@@ -302,6 +306,19 @@ export class Devices {
     };
     const left = proven(a);
     return left !== null && left === proven(b);
+  }
+  /**
+   * The other ids `id` is one device with (`sameInstall`), while their records are active: the
+   * account device and every pairing it proved. Empty for a device nothing links.
+   */
+  linked(id: string, at: number): DeviceId[] {
+    const row = this.byId.get(id);
+    if (row && !activeDevice(decode(row), at)) return [];
+    const account = row ? (row.account_link === null ? undefined : String(row.account_link)) : id;
+    if (account === undefined) return [];
+    const ids = this.linkedTo.all(account, at).map((linked) => DeviceId.parse(linked.id));
+    if (ids.length === 0) return [];
+    return [DeviceId.parse(account), ...ids].filter((other) => other !== id);
   }
   get(id: string): Device | undefined {
     const row = this.byId.get(id);

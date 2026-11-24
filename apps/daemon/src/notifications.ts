@@ -415,8 +415,8 @@ export function createDaemonNotifications(
     acknowledge: (device, id) => {
       acks.resolve(device, id);
     },
-    feed: (device, afterCursor, checkpoint) =>
-      use((worker) => worker.feed(device, afterCursor, checkpoint)),
+    feed: (device, afterCursor, checkpoint, linked) =>
+      use((worker) => worker.feed(device, afterCursor, checkpoint, linked)),
     disconnect: (session) => ifAwake((worker) => worker.disconnect(session)),
     revoke: (device, abort) => ifAwake((worker) => worker.revoke(device, abort)),
     drain: () => use((worker) => worker.drain()),
