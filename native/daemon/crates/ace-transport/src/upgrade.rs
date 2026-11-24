@@ -77,9 +77,13 @@ impl UpgradeRequest {
 /// What admission decided for one upgrade.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AdmissionDecision {
-    Accept { reservation: u64 },
+    Accept {
+        reservation: u64,
+    },
     Forbidden,
     Unavailable,
+    /// The listener is closing: `ws`'s closing-state `503`, and no reservation.
+    Closing,
     Drop,
 }
 
@@ -173,6 +177,7 @@ impl UpgradeHandler for WebSocketUpgrades {
                 Decided::Drop => return,
                 Decided::Forbidden => return refuse(&mut stream, FORBIDDEN).await,
                 Decided::Unavailable => return refuse(&mut stream, UNAVAILABLE).await,
+                Decided::Closing => return refuse(&mut stream, &Refusal::CLOSING.bytes()).await,
                 Decided::Reservation(reservation) => reservation,
             };
             // Every exit below that does not open or release explicitly drops
@@ -223,6 +228,7 @@ impl UpgradeHandler for WebSocketUpgrades {
                 Decided::Unavailable => {
                     return UpgradeReply::Refuse(empty_response(StatusCode::SERVICE_UNAVAILABLE));
                 }
+                Decided::Closing => return UpgradeReply::Refuse(Refusal::CLOSING.response()),
                 Decided::Reservation(reservation) => reservation,
             };
             let mut settle = Settle::new(&admission, reservation);
@@ -301,6 +307,7 @@ enum Decided {
     Drop,
     Forbidden,
     Unavailable,
+    Closing,
     Reservation(u64),
 }
 
@@ -319,6 +326,7 @@ fn decided(outcome: AdmissionOutcome) -> Decided {
         AdmissionOutcome::Decided(AdmissionDecision::Unavailable) | AdmissionOutcome::TimedOut => {
             Decided::Unavailable
         }
+        AdmissionOutcome::Decided(AdmissionDecision::Closing) => Decided::Closing,
         AdmissionOutcome::Decided(AdmissionDecision::Drop) => Decided::Drop,
     }
 }

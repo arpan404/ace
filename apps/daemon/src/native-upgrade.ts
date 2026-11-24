@@ -20,6 +20,8 @@ export interface NativeUpgradeWiring {
   servesRenderer: boolean;
   /** The public listener's port: the own-Origin check compares against it, not the internal one. */
   publicPort(): number;
+  /** The daemon has begun shutting down: no upgrade may take a reservation any more. */
+  draining(): boolean;
   /** The one capacity check shared with `ws` upgrades, reservations included. */
   full(): boolean;
   /** Sockets the native listener opened: no `ws` server owns them, so owners sweep them. */
@@ -48,6 +50,9 @@ export interface NativeUpgrade {
  */
 export function nativeUpgrade(wiring: NativeUpgradeWiring): NativeUpgrade {
   const admit = async (request: TransportAdmitRequest): Promise<TransportAdmitAnswer> => {
+    // A queued admission can run after shutdown's sweep. It must take no hold, and a closing
+    // listener answers `ws`'s closing-state 503, not admission's empty-body one.
+    if (wiring.draining()) return { decision: "closing", reservation: 0 };
     // The listener binds before JavaScript records its port; until then an
     // own-Origin check would compare against 0 and refuse a page that is ours.
     // Refuse the upgrade instead, and the client retries once the port is known.

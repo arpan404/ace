@@ -80,6 +80,7 @@ impl Decided {
                 None => Decided::Refused(AdmissionDecision::Unavailable),
             },
             "forbidden" => Decided::Refused(AdmissionDecision::Forbidden),
+            "closing" => Decided::Refused(AdmissionDecision::Closing),
             "drop" => Decided::Refused(AdmissionDecision::Drop),
             // `unavailable`, and any word outside the union: refuse, don't decide.
             _ => Decided::Refused(AdmissionDecision::Unavailable),

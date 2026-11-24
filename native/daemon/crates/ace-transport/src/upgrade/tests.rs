@@ -333,6 +333,19 @@ async fn a_raw_upgrade_answers_in_ws_bytes_and_releases_only_on_refusal() {
         assert!(released.is_empty());
     }
 
+    let (written, _, released, _) = raw(
+        &valid("GET"),
+        AdmissionOutcome::Decided(AdmissionDecision::Closing),
+        false,
+    )
+    .await;
+    assert_eq!(
+        written,
+        Refusal::CLOSING.bytes(),
+        "a draining listener answers ws's closing 503, not admission's"
+    );
+    assert!(released.is_empty(), "a closing refusal reserves nothing");
+
     let (written, writing, released, opened) = raw(&valid("POST"), accepted, false).await;
     assert_eq!(written, Refusal::INVALID_METHOD.bytes());
     assert!(

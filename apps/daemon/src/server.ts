@@ -1268,6 +1268,7 @@ export async function startServer(options: ServerOptions): Promise<{
     allowedOrigins: access.allowedOrigins,
     servesRenderer: options.webRoot !== undefined,
     publicPort: () => nativePublicPort,
+    draining: () => nativeDraining,
     full: () => cleanups.size + preAuth.reserved >= 256,
     sockets: nativeSockets,
   });
@@ -1300,8 +1301,7 @@ export async function startServer(options: ServerOptions): Promise<{
     } else {
       const internalPort = await bind(local, "127.0.0.1", 0);
       internalHttpUrl = `http://127.0.0.1:${internalPort}`;
-      // A fixed public port is known before Rust starts accepting; a `0` request is not, so
-      // admission refuses until it is recorded below (T1a.7).
+      // Known before Rust accepts; a `0` port is refused until recorded below (T1a.7).
       nativePublicPort = options.port;
       native = await transportAddon().NativeLoopback.start(
         {
@@ -1361,6 +1361,7 @@ export async function startServer(options: ServerOptions): Promise<{
         () => options.machineAccount?.accessOrg() !== undefined,
       );
   } catch (error) {
+    if (native !== undefined) nativeDraining = true;
     stopTimer();
     await dynamicRemote?.close();
     await transports?.close();
@@ -1375,9 +1376,7 @@ export async function startServer(options: ServerOptions): Promise<{
     void orgHost?.close();
     registrySigner?.stop();
     if (native !== undefined) {
-      // Native first: its sockets get today's 1001 and bounded terminate, then the listener
-      // drains, and only then the internal server closes, where `local` closes today.
-      nativeDraining = true;
+      // Native first: 1001 and bounded terminate, then drain, then the internal server (T1a.7).
       for (const socket of nativeSockets) closer.gracefulClose(socket, 1001, "Daemon shutdown");
       await native.close(0);
       // The listener stopped watching its admissions: nothing it promised stays charged.
@@ -1432,6 +1431,8 @@ export async function startServer(options: ServerOptions): Promise<{
     },
     close() {
       closing ??= new Promise<void>((resolve, reject) => {
+        // First, so a queued admission takes no hold through the sweep below.
+        nativeDraining = true;
         stopTimer();
         stopRevocation();
         stopReplaced();
@@ -1440,7 +1441,6 @@ export async function startServer(options: ServerOptions): Promise<{
         registrySigner?.stop();
         tunnel.close();
         machineUpdates?.close();
-        nativeDraining = true;
         for (const cleanup of cleanups.values()) cleanup();
         for (const socket of relaySockets) closer.gracefulClose(socket, 1001, "Daemon shutdown");
         for (const socket of nativeSockets) closer.gracefulClose(socket, 1001, "Daemon shutdown");

@@ -15,7 +15,7 @@ import { transportParts } from "./native-switches.ts";
 import { warnSafely } from "./native-process.ts";
 
 /** An upgrade's decision, as the admission state machine asks TypeScript for it. */
-export type TransportDecision = "accept" | "forbidden" | "unavailable" | "drop";
+export type TransportDecision = "accept" | "forbidden" | "unavailable" | "closing" | "drop";
 
 /** One upgrade candidate, as the native listener asks TypeScript to admit it. */
 export interface TransportAdmitRequest {
