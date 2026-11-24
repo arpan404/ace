@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { finished } from "node:stream/promises";
 import { piLaunchArgs } from "./launch-args.ts";
 import { piNative } from "@ace/provider-kit/access-modes";
+import { sessionBackend } from "@ace/provider-kit/native-switches";
 import {
   assertSteerTarget,
   InputRejected,
@@ -56,7 +57,7 @@ export async function openPiSession(
   ctx: SessionContext,
   options: PiOptions = {},
 ): Promise<PiSession> {
-  if ((await import("@ace/provider-kit/native-switches")).sessionBackend("pi") === "native")
+  if (sessionBackend("pi") === "native")
     return (await import("./native-session.ts")).openNativePiSession(ctx, options);
   ctx.signal.throwIfAborted();
   const io = { ...runtime, ...options.runtime };

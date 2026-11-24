@@ -91,6 +91,8 @@ export async function openNativePiSession(
   options: PiOptions = {},
 ): Promise<PiSession> {
   ctx.signal.throwIfAborted();
+  // The addon first: a missing one must not leave a credential file or a lease behind.
+  const native = addon();
   const io = { ...runtime, ...options.runtime };
   // Windows has no SIGTERM for a console child: closing stdin is the polite stop there.
   const windows = (io.platform ?? process.platform) === "win32";
@@ -155,7 +157,7 @@ export async function openNativePiSession(
     ACE_PI_MCP_BEARER: undefined,
   };
   let bridge: SessionBridge;
-  const handle = new (addon().PiSessionNative)(
+  const handle = new native.PiSessionNative(
     JSON.stringify({
       control_secret: controlSecret,
       ...(lease ? { lease_bearer: lease.bearer } : {}),
@@ -242,6 +244,8 @@ export async function openNativePiSession(
   }
   const rpc = {
     request(command: string, params: Record<string, unknown> = {}): Promise<unknown> {
+      // The RPC boundary refuses too: a close in flight must stop a sequence already under way.
+      if (closed || closing) return Promise.reject(new PiCommandRefused("Pi RPC closed"));
       const id = ++nextId;
       try {
         handle.request(command, JSON.stringify(params), id);
@@ -253,6 +257,7 @@ export async function openNativePiSession(
       return bridge.expect(id);
     },
     write(data: Record<string, unknown>): Promise<void> {
+      if (closed || closing) return Promise.reject(new PiCommandRefused("Pi RPC closed"));
       const id = ++nextId;
       try {
         handle.write(JSON.stringify(data), id, false);
@@ -279,14 +284,11 @@ export async function openNativePiSession(
       throw new Error("ace Pi extension did not load");
   };
   const checkOpen = () => {
-    if (closed) throw new Error("Pi session closed");
-    ctx.signal.throwIfAborted();
-  };
-  /** resolve() after a failed stop: stop-only, so no dialog answer is ever written. */
-  const checkWritable = () => {
     if (closed || closing) throw new Error("Pi session closed");
     ctx.signal.throwIfAborted();
   };
+  /** resolve() after a failed stop: stop-only, so no dialog answer is ever written. */
+  const checkWritable = checkOpen;
   const check = () => {
     checkOpen();
     if (control) throw new Error("Pi history operation in progress");
@@ -325,7 +327,8 @@ export async function openNativePiSession(
       await proc.stop({ graceMs: 1000 });
       return;
     }
-    if (proc.pid !== undefined) {
+    // The leader is alive until its exit; after that its pid may name someone else's tree.
+    if (proc.pid !== undefined && !proc.signal.aborted) {
       if (firstTree === undefined) {
         firstTree = recordTree(proc.pid);
         trees.push(firstTree);

@@ -2,6 +2,9 @@ import { expect, test } from "vitest";
 import type { Frame } from "@ace/engine-api";
 import { createPiTranslator, openPiSession } from "./index.ts";
 import { ThreadId } from "@ace/protocol";
+import { spawnTextSupervised } from "@ace/provider-kit/process";
+import { sessionBackend } from "@ace/provider-kit/native-switches";
+import { fileURLToPath } from "node:url";
 import { sessionHarness } from "./testing/harness.ts";
 import { obj, str } from "./native.ts";
 const received = (type: string, id?: string) => (f: { dir: string; data: unknown }) =>
@@ -173,6 +176,45 @@ test("interrupt clears native queued continuation before aborting", async () => 
     await h.dispose();
   }
 });
+const nativeOnly = sessionBackend("pi") === "native";
+test.skipIf(!nativeOnly)(
+  "a failed stop leaves the session stop-only and a retried close still finishes",
+  async () => {
+    let attempts = 0;
+    const h = await sessionHarness({
+      runtime: {
+        spawn: (options) => {
+          const proc = spawnTextSupervised({
+            ...options,
+            command: process.execPath,
+            args: [
+              fileURLToPath(new URL("./testing/fake-pi.ts", import.meta.url)),
+              ...(options.args ?? []),
+            ],
+          });
+          const stop = proc.stop.bind(proc);
+          proc.stop = async (opts) => {
+            attempts++;
+            if (attempts === 1) throw new Error("stop failed");
+            return stop(opts);
+          };
+          return proc;
+        },
+      },
+    });
+    try {
+      await expect(h.session.close("shutdown")).rejects.toThrow("stop failed");
+      // No write follows a failed stop: the retry alone is left.
+      await expect(h.session.send(text("late"), "queue")).rejects.toThrow("Pi session closed");
+      expect(
+        h.frames.filter((frame) => frame.dir === "send" && obj(frame.data).type === "prompt"),
+      ).toEqual([]);
+      await h.session.close("shutdown");
+    } finally {
+      await h.dispose();
+    }
+  },
+);
 test("Pi releases older than 0.85.1 are refused before process launch, naming the supported range", async () => {
   const context = {
     threadId: ThreadId.parse("test"),
