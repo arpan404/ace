@@ -4,6 +4,7 @@
 //! (`ace-daemon-node`) only translates values and errors.
 
 pub mod adapter;
+pub mod bridge;
 pub mod error;
 pub mod frame;
 pub mod session;
