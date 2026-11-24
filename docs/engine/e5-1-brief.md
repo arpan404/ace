@@ -160,7 +160,7 @@ pub struct Executor {
     control_streak: Cell<u8>,
     /// Set by `close_admission`; the pump signals `drained` at the end of the first turn that
     /// finds the inbox and both run queues empty and the join predicate the close task passed
-    /// (no admitted batch unacknowledged) true. Close's overall 15 s deadline cuts it short.
+    /// (no admitted batch unacknowledged) true. Close's overall 4.5 s deadline cuts it short.
     draining: Cell<Option<oneshot::Sender<()>>>,
 }
 
@@ -431,14 +431,46 @@ The skeleton's own flow, with where each unported step fails:
 - **`close()`** runs as one engine task, spawned once; its promise is the cached `closePromise`.
   The order is: the readiness wait and module steps, close admission, a bounded join, then
   cancellation. Nothing in it waits for a worker to go idle, and the **whole sequence runs under
-  one overall deadline of 15 s** on the injected clock (`clock.setTimer`, so a `ManualClock` test
+  one overall deadline of 4.5 s** on the injected clock (`clock.setTimer`, so a `ManualClock` test
   advances it), so a port that never settles, wherever it is awaited, cannot stop close from
   finishing.
   - **The deadline** is armed as close's first action, before the readiness wait, and is the one
-    timer step 2 does not cancel. 15 s covers the longest bounded step inside close, a session's
-    stop plan (3 s/3 s/2 s), with margin. Its callback completes the close task's deadline oneshot
-    and wakes the close task through its own task waker (a runnable, not an inbox item), so closed
-    admission never refuses it.
+    timer step 2 does not cancel. Its value is derived from the daemon's shutdown budgets, which
+    this task does not change (they are product behaviour, owned elsewhere), so the native close
+    does what the TypeScript close does inside them:
+    - **How the TypeScript close fits an 8 s stop plan into 6 s.** It does not cut session stops
+      and has no deadline of its own: `Sessions.close(actor, "shutdown")` (`engine/sessions.ts:1053`)
+      runs each session's polite stop inside `Engine.close` (`index.ts:1452`–`:1458`). The daemon
+      bounds it from outside: when shutdown begins it arms `forceStopAfterPoliteWindow`
+      (`apps/daemon/src/index.ts:502`–`:512`), which after `POLITE_SHUTDOWN_MS` = 3 s
+      (`shutdown-processes.ts:8`) stops every owned process group and tree member
+      (`stopOwnedGroups`, `stopMembers`) with `FORCED_GRACE_MS` = 0.5 s from SIGTERM to SIGKILL
+      (`:10`). Those exits release the session closes, so the provider part of engine close ends
+      about 3.5 s after shutdown begins. The engine's disposer (`services/engine.ts:506`) is
+      bounded by the service cleanup budget of 6 s (`services/startup.ts:91`, shared budget
+      `:586`–`:590`); past it the cleanup is logged as left running (`:337`–`:343`) and the
+      process exits. The daemon as a whole has 7 s (`index.ts:515`–`:520`); the desktop's 10 s
+      SIGTERM grace (`apps/desktop/src/main/daemon/supervisor-config.ts:127`) and the 30 s quit
+      gate (`apps/desktop/src/main/os/quit-gate.ts:6`) sit
+      outside both.
+    - **The native close does the same.** It runs the same session closes with the same stop plan
+      and never shortens them; the daemon's forced stop at 3 s + 0.5 s ends their processes
+      through the same `@ace/provider-kit/process` exports, native behind `ACE_SUPERVISOR` or not,
+      and those exits release them exactly as today.
+    - **The value: 4.5 s**, from close's start. That is the forced stop's end (3.5 s) plus 1 s for
+      the exits to be reaped and the final batches to commit and be acknowledged, and it leaves
+      1.5 s of the 6 s cleanup budget for what runs after `engine.close` in that budget: the rest
+      of the engine service's disposers (`registry.close()`, `services/engine.ts:75`, closes the
+      adapters and their hosts) and the store's close, which closes after its dependents. So in
+      the normal case the deadline never fires, because the forced stop has already released
+      every session.
+    - **When close starts late.** The 6 s budget is shared and starts at the first service's
+      close; services that depend on the engine close before it, and the time they take is not
+      the engine's. If they take more than 1.5 s, the shared budget can pass before the engine's
+      4.5 s: the daemon then leaves the engine's cleanup running and exits, exactly as it does
+      with the TypeScript engine today, and what was cut is lost as in a forced exit (below). The
+      native deadline is never longer than the budget it sits in, and is not stretched to
+      compensate.
   - **Everything awaitable counts against it**: the readiness wait (`:1436`), the module steps of
     step 1 and the join of step 3. The close task races that part (`futures::select` over the
     sequence and the deadline). When the deadline passes first, the sequence future is dropped
@@ -447,10 +479,10 @@ The skeleton's own flow, with where each unported step fails:
     Admission closing and steps 4 to 6 never await, so they finish within the turn the deadline
     fired in, and close settles inside the deadline plus that one turn.
   - A phase the deadline cut is reported once through `onError` as
-    `Engine close passed its 15 s deadline during <phase>` (`readiness`, `<module> close`,
+    `Engine close passed its 4.5 s deadline during <phase>` (`readiness`, `<module> close`,
     `join`). Work it cut is handled as step 5 says. A session whose close was cut is dropped,
-    which ends its process through the supervisor (kill-on-drop, ADR 0223 §2's `process-wrap`),
-    and restart evidence it had not captured is treated by the next boot as a crash's (E5.8).
+    which ends its process through the supervisor (kill-on-drop, ADR 0223 §2's `process-wrap`) if
+    the daemon's forced stop has not already, and restart evidence it had not captured is treated by the next boot as a crash's (E5.8).
   1. **Module steps.** `Closing` (new facade calls get `Closing`, commands
      `daemon_shutting_down`); cancel the sweep; the module close steps in
      `index.ts:1428`–`:1466`'s order, each a declared function (E5.2, E5.6, E5.8 fill them): flush
@@ -507,14 +539,14 @@ The skeleton's own flow, with where each unported step fails:
     `providersActivated` is a JS promise that never settles, so the readiness wait stalls; and a
     probe close step (`probe.stallCloseStep(port)`, declared in E5.1, which adds a module close
     step awaiting a never-settling port) stalls the module steps. In each, `close()`, then advance
-    the `ManualClock`: close is still pending at 14.9 s and settles at 15 s within the turn the
+    the `ManualClock`: close is still pending at 4.4 s and settles at 4.5 s within the turn the
     deadline fired in; admission was closed and the threadsafe function released; `onError` got
     one deadline report naming the phase (`readiness`, or the probe step); in the first case
     `ready()` rejects with `ACE_ENGINE_CLOSED`. A close whose readiness wait or module steps sit
     outside the deadline hangs this test.
   - "close finishes within its deadline when a worker waits on a port that never settles": the
     probe runs a worker task awaiting a port whose JS promise never settles, plus a facade call
-    tied to it; `close()`, then advance the `ManualClock` 15 s; close resolves, the facade call
+    tied to it; `close()`, then advance the `ManualClock` 4.5 s; close resolves, the facade call
     rejects with `ACE_ENGINE_CLOSED`, `onError` got one report naming the worker and the port, and
     resolving that JS promise afterwards changes nothing. A close that awaits worker idleness
     hangs this test.
@@ -1021,7 +1053,8 @@ test -f "$f" && bun --bun x vitest run "$f" --maxWorkers=4
 - The registry class is unchanged in behaviour; each native view subscribes and unsubscribes.
 - Wake lists are keyed by top frame and each is released after its own publication.
 - `control_streak` lives in the executor, survives a turn's end and saturates at 8.
-- Close arms one 15 s deadline first, and the readiness wait, the module steps, admission
+- Close arms one 4.5 s deadline first (derived in step 4 from `shutdown-processes.ts:8`, `:10`
+  and the 6 s budget at `services/startup.ts:588`), and the readiness wait, the module steps, admission
   closing, the join and cancellation all fall under it; it joins only admitted commits and
   acknowledgements on scheduled macrotasks, then cancels and rejects the rest with
   `ACE_ENGINE_CLOSED`; the close promise settles from its own result, apart from cancelled work.
