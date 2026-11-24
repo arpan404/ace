@@ -421,9 +421,7 @@ export function ModelPickerPanel(props: {
         ref={rail}
         focusList={() => search.current?.focus()}
         onSelect={showTab}
-        renderMark={(entry, selected) => (
-          <ModelPickerRailMark entry={entry} selected={selected} />
-        )}
+        renderMark={(entry, marked) => <ModelPickerRailMark entry={entry} selected={marked} />}
       />
       <div
         role="tabpanel"

@@ -71,10 +71,7 @@ test("Azure's template waits for a real resource name before it can be added", a
   const add = dialog.getByRole("button", { name: "Add provider" });
   expect((add as HTMLButtonElement).disabled).toBe(true);
   expect(dialog.getByText("Enter your Azure resource name.")).toBeTruthy();
-  await userEvent.type(
-    dialog.getByRole("textbox", { name: "Azure resource name" }),
-    "contoso-ai",
-  );
+  await userEvent.type(dialog.getByRole("textbox", { name: "Azure resource name" }), "contoso-ai");
   expect((add as HTMLButtonElement).disabled).toBe(false);
   await userEvent.click(add);
   await waitFor(() =>

@@ -424,9 +424,7 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
                 spellCheck={false}
                 value={azureResource}
                 aria-invalid={azureResourceProblem ? true : undefined}
-                aria-describedby={
-                  azureResourceProblem ? `${ids.azureResource}-error` : undefined
-                }
+                aria-describedby={azureResourceProblem ? `${ids.azureResource}-error` : undefined}
                 onChange={(event) => updateAzure(event.target.value)}
               />
             </Field>

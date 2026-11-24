@@ -176,21 +176,21 @@ function AddFallback(props: {
   choose(next: string[]): Promise<void>;
 }) {
   const [adding, setAdding] = useState(false);
-  const [restoring, setRestoring] = useState(false);
   const addRef = useRef<HTMLButtonElement>(null);
   const editRef = useRef<HTMLDivElement>(null);
+  const restoreFocus = useRef(false);
   const id = useId();
   // Opening the picker puts the keyboard in it; cancelling puts it back on the button that
   // opened it, which the edit replaced.
   useEffect(() => {
-    if (!adding) return;
+    if (!adding) {
+      if (!restoreFocus.current) return;
+      restoreFocus.current = false;
+      addRef.current?.focus();
+      return;
+    }
     editRef.current?.querySelector<HTMLElement>("button")?.focus();
   }, [adding]);
-  useEffect(() => {
-    if (adding || !restoring) return;
-    addRef.current?.focus();
-    setRestoring(false);
-  }, [adding, restoring]);
   if (!adding)
     return (
       <button
@@ -230,8 +230,8 @@ function AddFallback(props: {
         aria-label="Cancel adding fallback"
         className="shrink-0 text-subtle-foreground hover:text-foreground"
         onClick={() => {
+          restoreFocus.current = true;
           setAdding(false);
-          setRestoring(true);
         }}
       >
         <XIcon aria-hidden size={14} />

@@ -19,7 +19,7 @@ let cache: SpadeFavorite[] | undefined;
 const listeners = new Set<() => void>();
 let watchingStorage = false;
 
-function isFavorite(value: unknown): value is SpadeFavorite {
+function isStoredFavorite(value: unknown): value is SpadeFavorite {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
   return (
@@ -34,7 +34,7 @@ function read(): SpadeFavorite[] {
     const raw = localStorage.getItem(storageKey);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter(isFavorite) : [];
+    return Array.isArray(parsed) ? parsed.filter(isStoredFavorite) : [];
   } catch {
     return [];
   }
@@ -119,8 +119,7 @@ export function useSpadeFavorites(machine: string) {
       remember(
         has
           ? existing.filter(
-              (favorite) =>
-                favoriteId(favorite.machine, favorite.account, favorite.value) !== id,
+              (favorite) => favoriteId(favorite.machine, favorite.account, favorite.value) !== id,
             )
           : [{ machine, account, value }, ...existing],
       );

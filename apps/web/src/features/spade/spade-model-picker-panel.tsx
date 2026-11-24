@@ -8,12 +8,7 @@ import {
   type SpadeModelOption,
   type SpadeModelSources,
 } from "@ace/ui-core/spade-chat";
-import {
-  ArrowClockwiseIcon,
-  DesktopIcon,
-  MagnifyingGlassIcon,
-  StarIcon,
-} from "@ace/icons";
+import { ArrowClockwiseIcon, DesktopIcon, MagnifyingGlassIcon, StarIcon } from "@ace/icons";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
