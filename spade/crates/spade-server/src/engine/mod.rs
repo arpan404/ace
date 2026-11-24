@@ -62,6 +62,7 @@ pub(crate) mod packages;
 mod panels;
 mod park;
 mod pause;
+mod pins;
 mod plugin_hooks;
 mod questions;
 mod reach;

@@ -284,6 +284,16 @@ async fn run_one(
     let Some(tool) = engine.tools.get_for(id, name) else {
         return Ran::Done(ToolOutput::error(format!("There is no tool named {name}.")));
     };
+    // A deferred tool the bot reached for (through `call_tool` or a pin) is one it may want up
+    // front next time (docs/harness.md, Tools). Recorded before it runs, so a failed call counts
+    // too: the bot still had to find it.
+    if engine
+        .registry_for(id)
+        .get(name)
+        .is_some_and(|def| def.deferred)
+    {
+        engine.note_tool_use(id, name);
+    }
     // Unique across conversations, and the same on every retry of this call.
     let key = format!("{id}.{call_id}");
     let mut work = crate::tools::marked(tool.as_ref(), tool.run_in(&key, arguments, facts));

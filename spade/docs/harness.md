@@ -189,6 +189,16 @@ up front: a deferred tool can still be called by name, and every name stays in t
 (runtime.md). Output from `web_search`, `web_fetch` and most of ace's tools is untrusted, so a
 write later in that turn asks.
 
+**Learned pins.** A deferred tool a bot runs twice (through `call_tool` or by name) is pinned: it
+is offered up front from the bot's next conversation or its next compaction, never mid-conversation,
+so the prompt's top stays byte-stable for the provider's cache (design.md, Caching). At most 8 are
+pinned, the most run first, ties by name. `spade_core::tools::pinning` decides them from two small
+settings per bot: how often it ran each deferred tool (`tools.uses.<agent>`, the 32 most run) and
+the pins frozen for the conversation now (`tools.pinned.<conversation>`). The freeze happens on a
+conversation's first model call and again after each compaction; the engine records a use when a
+deferred tool actually runs. A lane takes its bot's list byte for byte, pins included; a helper
+keeps its profile's narrower list.
+
 `cargo test -p spade-server tool_tokens -- --nocapture` prints every offered tool's definition in
 characters and tokens (a token per four characters), largest first, with the total; the test fails
 past its budget, because the list is paid for on every call.

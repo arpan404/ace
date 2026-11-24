@@ -7,6 +7,8 @@ use std::collections::BTreeMap;
 use serde_json::{Value, json};
 use spade_models::ToolSpec;
 
+pub mod pinning;
+
 /// How much a tool call can change in the world, which decides whether the gate asks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -80,6 +82,18 @@ impl Registry {
     #[must_use]
     pub fn retain(mut self, keep: impl Fn(&ToolDef) -> bool) -> Self {
         self.tools.retain(|_, tool| keep(tool));
+        self
+    }
+
+    /// The same registry with `names` offered up front, as core tools: a bot's learned pins
+    /// (docs/harness.md, Tools). Names it has no deferred tool for are ignored.
+    #[must_use]
+    pub fn pin(mut self, names: &[String]) -> Self {
+        for name in names {
+            if let Some(tool) = self.tools.get_mut(name) {
+                tool.deferred = false;
+            }
+        }
         self
     }
 
@@ -287,6 +301,22 @@ mod tests {
         ])
         .offered();
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn a_pinned_deferred_tool_is_offered_up_front_in_name_order() {
+        let registry = registry().pin(&["thread_start".to_owned(), "no_such_tool".to_owned()]);
+        let names: Vec<String> = registry.offered().into_iter().map(|s| s.name).collect();
+        assert_eq!(
+            names,
+            vec![
+                "ask_user",
+                "thread_start",
+                "web_search",
+                "tool_search",
+                "call_tool"
+            ]
+        );
     }
 
     #[test]

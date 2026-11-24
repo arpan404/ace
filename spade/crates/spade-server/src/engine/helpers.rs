@@ -150,11 +150,14 @@ impl Engine {
     pub(super) fn offered_for(&self, id: &str) -> Vec<spade_models::ToolSpec> {
         // A lane is offered its bot's list byte for byte, so the two share the provider's cache
         // (ADR 0217 §8); a lane's call to a lane tool is refused like any tool outside a grant.
+        // The bot's learned pins are part of that list, frozen for its conversation.
+        let pins = self.pins_for(id);
         match self.helper_of(id) {
             Some(helper) => profile_of(&helper)
                 .registry(self.tools.registry())
+                .pin(&pins)
                 .offered(),
-            None => self.tools.registry().offered(),
+            None => self.tools.registry().pin(&pins).offered(),
         }
     }
 

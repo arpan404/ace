@@ -157,7 +157,12 @@ async fn run(
         asks: Some(Box::new(engine.asks_of(id, events))),
     });
     match engine.record(id, &event) {
-        Ok(_) => true,
+        Ok(_) => {
+            // The prompt's top may change here, so the bot's learned pins are frozen again now
+            // (docs/design.md, Caching; docs/harness.md, Tools).
+            engine.refreeze_pins(id);
+            true
+        }
         Err(error) => {
             tracing::error!(%error, "could not store a compaction");
             false
