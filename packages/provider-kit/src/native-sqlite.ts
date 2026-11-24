@@ -78,25 +78,35 @@ class SqliteError extends Error {
 }
 
 const prefix = "ace-store:";
+/** A failure the addon serialises after `ace-store:` (`ace-daemon-node`'s `failure`). */
+export interface NativeSqliteFailure {
+  kind: string;
+  errcode: number;
+  message: string;
+  errstr: string;
+}
+
+/**
+ * The error node:sqlite throws for an addon failure. `Finish` carries these as data, so the
+ * shell builds the same error without a throw; `rethrow` uses it too.
+ */
+export function sqliteError(failure: NativeSqliteFailure): Error {
+  switch (failure.kind) {
+    case "sqlite":
+      return new SqliteError(failure.message, "ERR_SQLITE_ERROR", failure.errcode, failure.errstr);
+    case "range":
+      return new SqliteError(failure.message, "ERR_OUT_OF_RANGE");
+    case "no-statement":
+      return new SqliteError(failure.message, "ERR_INVALID_ARG_VALUE");
+    default:
+      return new SqliteError(failure.message, "ERR_INVALID_STATE");
+  }
+}
+
 /** The addon's failure as the error node:sqlite throws for it. */
 function rethrow(error: unknown): never {
   if (!(error instanceof Error) || !error.message.startsWith(prefix)) throw error;
-  const failure = JSON.parse(error.message.slice(prefix.length)) as {
-    kind: string;
-    errcode: number;
-    message: string;
-    errstr: string;
-  };
-  switch (failure.kind) {
-    case "sqlite":
-      throw new SqliteError(failure.message, "ERR_SQLITE_ERROR", failure.errcode, failure.errstr);
-    case "range":
-      throw new SqliteError(failure.message, "ERR_OUT_OF_RANGE");
-    case "no-statement":
-      throw new SqliteError(failure.message, "ERR_INVALID_ARG_VALUE");
-    default:
-      throw new SqliteError(failure.message, "ERR_INVALID_STATE");
-  }
+  throw sqliteError(JSON.parse(error.message.slice(prefix.length)) as NativeSqliteFailure);
 }
 
 function call<T>(run: () => T): T {

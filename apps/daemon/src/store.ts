@@ -13,6 +13,7 @@ import { createStoreThreadCache, type FrozenThread, type ThreadCache } from "./t
 import type { DelegationEdgeReader } from "./tree-root.ts";
 import { StreamSequences, type SequenceAllocator } from "./stream-sequences.ts";
 import { NativeStreamSequences } from "./native-writer/sequences.ts";
+import { NativeTransactions, type TransactionHost } from "./native-writer/transaction.ts";
 import { BoundedEvents } from "./bounded-events.ts";
 import { rolledBack, type LineageFile } from "./sequence-lineage.ts";
 /** Committed sequences between marks: a rollback within the last this many may go unseen. */
@@ -149,6 +150,8 @@ export class Store {
   private readonly workspaces: WorkspaceStore;
   private statements = new BoundedCache<string, StatementSync>(256, 256);
   private transactionEvents: Event[] | undefined;
+  /** The Rust transaction stack when `ACE_STORE_WRITER=transactions`; it owns events and outcomes. */
+  private nativeTransactions: NativeTransactions | undefined;
   private settlements: { at: number; outcome: TransactionOutcome }[] = [];
   private readonly quarantineListeners = new Set<(thread: ThreadId, error: Error) => void>();
   private rolledBack = 0;
@@ -213,7 +216,7 @@ export class Store {
         `${this.statement("PRAGMA data_version").get()?.data_version}:${this.totalChanges() - this.attributedChanges}`,
       // Any transaction open on the connection, including one begun outside `transaction`
       // (history installation): its rows may still roll back, which no counter would show.
-      inTransaction: () => this.transactionEvents !== undefined || this.db.isTransaction,
+      inTransaction: () => this.transactionsOpen || this.db.isTransaction,
       generationChanged: () => this.threadReads.invalidateViews(),
     });
     const threadCache = createStoreThreadCache(
@@ -297,8 +300,7 @@ export class Store {
           this.db.prepare("PRAGMA journal_mode").get()?.["journal_mode"] === "wal"
             ? (options.checkpointWorker ?? spawnCheckpointWorker)
             : undefined,
-        busy: () =>
-          !!this.transactionEvents || this.historyWriting || this.streaming.buffer.bytes > 0,
+        busy: () => this.transactionsOpen || this.historyWriting || this.streaming.buffer.bytes > 0,
         checkpoint: (mode) => this.checkpointWal(mode),
         report: (error) => this.onError(error),
       });
@@ -321,6 +323,9 @@ export class Store {
         readThread: (id) => this.readThread(id),
         reservations: this.workspaceReservations,
       });
+      this.nativeTransactions = storeWriterOn("transactions")
+        ? new NativeTransactions({ db: this.db, host: this.transactionHost() })
+        : undefined;
       this.atomic(migrateThreadClient);
       this.atomic(migrateThreadCold);
       // Needs every threads column the sidebar reads; its triggers cover the passes below.
@@ -360,7 +365,7 @@ export class Store {
         getThread: (id) => this.getThread(id),
         readThread: (id) => this.readThread(id),
         // Any transaction open on the connection, the store's own or one begun directly.
-        inTransaction: () => this.transactionEvents !== undefined || this.db.isTransaction,
+        inTransaction: () => this.transactionsOpen || this.db.isTransaction,
         report: (error) => this.onError(error),
       });
       this.atomic(migrateRunClient);
@@ -472,7 +477,7 @@ export class Store {
       trust: this.trust,
       options,
       busy: () =>
-        !!this.transactionEvents ||
+        this.transactionsOpen ||
         this.historyWriting ||
         this.writes.isHeld() ||
         this.streaming.buffer.bytes > 0,
@@ -587,12 +592,59 @@ export class Store {
   rollbackGeneration(): number {
     return this.rolledBack;
   }
+  /** Whether a store transaction is open, on either the TypeScript or the native stack. */
+  private get transactionsOpen(): boolean {
+    return this.nativeTransactions
+      ? this.nativeTransactions.transactionOpen
+      : this.transactionEvents !== undefined;
+  }
+  /** Append a write's events to whichever stack owns the open transaction. */
+  private recordEvents(events: Event[]): void {
+    if (this.nativeTransactions) this.nativeTransactions.append(events);
+    else this.transactionEvents?.push(...events);
+  }
+  /** What the native stack keeps in TypeScript while it owns depth and settlement positions. */
+  private transactionHost(): TransactionHost {
+    return {
+      flush: () => {
+        if (!this.streaming.flushing) this.flushLiveWrites();
+      },
+      installingHistory: () => this.installingHistory,
+      beginThreads: () => this.threads.begin(),
+      discardThreads: () => this.threads.discard(),
+      commitThreads: () => this.threads.commit(),
+      endThreads: () => this.threads.end(),
+      evictWritten: () => {
+        this.readCache.evict(this.writtenThreads);
+        this.writtenThreads.clear();
+      },
+      topRolledBack: () => {
+        this.writtenThreads.clear();
+        this.rolledBack++;
+        this.sidebarReads.invalidate();
+      },
+      nestedRolledBack: () => {
+        this.readCache.invalidate();
+        this.rolledBack++;
+        this.sidebarReads.invalidate();
+      },
+      wakeWal: () => this.wal.wake(),
+      committed: (rows) => {
+        this.transactions++;
+        this.eventRows += rows;
+      },
+      publish: (events, report) => this.publishFresh(events, report),
+      usage: () => this.usageListeners,
+      onError: (error) => this.onError(error),
+    };
+  }
   /**
    * `outcome` marks rows that publish themselves (the live buffer's). Nested in an open
    * transaction, they settle only when the outermost one does: its commit runs `committed`
    * in sequence with the transaction's own events, and any rollback runs `rolledBack`.
    */
   private transaction<T>(run: () => T, outcome?: TransactionOutcome): T {
+    if (this.nativeTransactions) return this.nativeTransactions.transaction(run, outcome);
     if (!this.streaming.flushing) this.flushLiveWrites();
     if (this.installingHistory) {
       // installHistory drains the buffer before it begins; a live write retries after it.
@@ -851,7 +903,7 @@ export class Store {
     this.flushLiveWrites();
     return this.writes.exclusive(async () => {
       if (this.closing) throw new Error("Store is closed");
-      if (this.transactionEvents || this.installingHistory) throw new Error("Store is busy");
+      if (this.transactionsOpen || this.installingHistory) throw new Error("Store is busy");
       return work(this.db);
     }, signal);
   }
@@ -907,7 +959,7 @@ export class Store {
     }
   }
   installHistory(archive: ArchiveReader, at: number, cancelled: () => boolean): void {
-    if (this.transactionEvents || this.installingHistory) throw new Error("Store is busy");
+    if (this.transactionsOpen || this.installingHistory) throw new Error("Store is busy");
     this.flushLiveWrites();
     this.db.exec("BEGIN IMMEDIATE");
     this.installingHistory = true;
@@ -1126,7 +1178,7 @@ export class Store {
       const events = write();
       this.attributedChanges += this.totalChanges() - before;
       for (const event of events) this.writtenThreads.add(event.threadId);
-      this.transactionEvents?.push(...events);
+      this.recordEvents(events);
       for (const hook of this.writeHooks) hook(events);
       return events;
     });
