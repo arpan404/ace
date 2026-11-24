@@ -14,7 +14,7 @@ use spade_server::home::{Home, HomeError, new_token};
 use spade_server::images::ImageStore;
 use spade_server::learning::{Learning, SkillFeedback, SkillPropose};
 use spade_server::presets;
-use spade_server::research::{LiveWeb, ResearchTool};
+use spade_server::research::ResearchTool;
 use spade_server::skill_store::SkillStore;
 use spade_server::tools::{
     AceLink, AceTarget, Asks, ConnectorSource, DecisionLog, EngineHandle, Retry, SkillLibrary,
@@ -417,12 +417,8 @@ async fn run() -> Result<(), Failure> {
     })
     .await;
     let shell = Shell::system().confined(security.clone());
-    // Deep research (ADR 0135), reading through the same backends and fetcher.
+    // Deep research (ADR 0135): a team of read-only helpers over `web_search` and `web_fetch`.
     core.push(Arc::new(ResearchTool::new(
-        Arc::new(LiveWeb {
-            search: search.clone(),
-            fetcher,
-        }),
         workspaces.clone(),
         bots.clone(),
     )));

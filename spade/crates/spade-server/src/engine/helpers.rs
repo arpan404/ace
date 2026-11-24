@@ -17,6 +17,7 @@ use serde_json::Value;
 use spade_core::context;
 use spade_core::event::{FromAgent, HelperAsk, Known};
 use spade_core::helper::{self, Profile, Stage};
+use spade_core::research;
 use spade_core::routing;
 use spade_core::tools::Registry;
 use spade_core::{Event, Transcript};
@@ -38,6 +39,19 @@ pub const TASK_CHARS: usize = 20_000;
 /// How often a job waiting on its helper looks again without being woken, so a missed wake
 /// costs a few seconds and never a lost result.
 const LOOK_AGAIN: Duration = Duration::from_secs(5);
+
+/// How often research looks at its first helper while waiting for it to begin answering, and
+/// every how many of those looks it reads the stored events (a first step that only calls).
+const PART_POLL: Duration = Duration::from_millis(20);
+const PART_STEP_LOOKS: u32 = 10;
+
+/// What one of research's part helpers came back with: its answer, whether it failed, and the
+/// pages it read (with the workspace path each was saved at).
+pub(crate) struct PartEnd {
+    pub content: String,
+    pub is_error: bool,
+    pub pages: Vec<research::Page>,
+}
 
 /// The `helper` call's arguments.
 #[derive(serde::Deserialize)]
@@ -383,6 +397,112 @@ impl Engine {
         }
     }
 
+    /// Starts the helper for part `n` of the bot's research job `job`: `explore` only, so it
+    /// reads and changes nothing, on the `helper` role. It waits queued until a slot is free;
+    /// research then fills the slots and waits for it.
+    pub(crate) fn start_research_part(
+        self: &Arc<Self>,
+        bot: &str,
+        job: &str,
+        n: usize,
+        task: &str,
+    ) -> Result<StoredHelper, String> {
+        let arguments = Arguments {
+            task: task.to_owned(),
+            profile: Some(helper::Profile::explore().name),
+            model: Some(routing::Role::Helper.name().to_owned()),
+            escalate: None,
+        };
+        self.start_helper(bot, &research::part_job(job, n), &arguments, None)
+            .map_err(|refused| refused.content)
+    }
+
+    /// Waits until research part `helper` has begun answering: its stream has words, or its first
+    /// step has finished (a first step may only make calls). Its request writes the provider's
+    /// cache for the prompt top every helper shares, so the others start after it. `false` when
+    /// `limit` passed first, or it ended without a step.
+    pub(crate) async fn part_answering(&self, helper: &StoredHelper, limit: Duration) -> bool {
+        let started = std::time::Instant::now();
+        let mut looks = 0;
+        loop {
+            if self.part_streaming(helper) {
+                return true;
+            }
+            if looks % PART_STEP_LOOKS == 0 && self.part_stepped(helper) {
+                return true;
+            }
+            if started.elapsed() >= limit {
+                return false;
+            }
+            looks += 1;
+            tokio::time::sleep(PART_POLL).await;
+        }
+    }
+
+    /// Its words are streaming: the request has the provider's answer under way.
+    fn part_streaming(&self, helper: &StoredHelper) -> bool {
+        self.live(&helper.conversation)
+            .current
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .is_some_and(|snapshot| !snapshot.text.trim().is_empty())
+    }
+
+    /// Its first step has finished (it may only make calls) or it has ended.
+    fn part_stepped(&self, helper: &StoredHelper) -> bool {
+        match self.load(&helper.conversation) {
+            Ok(events) => {
+                events
+                    .iter()
+                    .any(|event| matches!(event, Event::Known(Known::StepFinished { .. })))
+                    || helper::ended(&events).is_some()
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Waits for research part `helper` to end, with the pages it read. Past `limit` it is
+    /// stopped and `None` comes back, so the run goes on with what the others found.
+    pub(crate) async fn wait_part_end(
+        self: &Arc<Self>,
+        helper: &StoredHelper,
+        limit: Duration,
+    ) -> Option<PartEnd> {
+        match tokio::time::timeout(limit, self.part_end(helper)).await {
+            Ok(end) => end,
+            Err(_) => {
+                if let Err(error) = self.stop(&helper.conversation) {
+                    tracing::error!(%error, "could not stop a research helper");
+                }
+                None
+            }
+        }
+    }
+
+    async fn part_end(&self, helper: &StoredHelper) -> Option<PartEnd> {
+        loop {
+            // Listening before looking, so an end between the two is not missed.
+            let changed = self.helpers.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            match self.load(&helper.conversation) {
+                Ok(events) => {
+                    if let Some(end) = helper::ended(&events) {
+                        return Some(PartEnd {
+                            content: end.content,
+                            is_error: end.is_error,
+                            pages: research::pages_read(&events),
+                        });
+                    }
+                }
+                Err(StoreError::NoConversation(_)) => return None,
+                Err(_) => {}
+            }
+            let _ = tokio::time::timeout(LOOK_AGAIN, changed).await;
+        }
+    }
+
     /// Waits for the helper to end and answers with what it hands back.
     async fn helper_result(&self, helper: &StoredHelper) -> ToolOutput {
         loop {
@@ -429,7 +549,7 @@ impl Engine {
 
     /// Starts the bot's queued helpers while slots are free, and a worker for each running
     /// helper that has none (after a restart or a pause). Nothing starts while Spade is closing.
-    pub(super) fn fill_slots(self: &Arc<Self>, bot: &str) {
+    pub(crate) fn fill_slots(self: &Arc<Self>, bot: &str) {
         let helpers = match self.store.helpers_of(bot) {
             Ok(helpers) => only_helpers(helpers),
             Err(error) => {
@@ -492,8 +612,13 @@ impl Engine {
             return;
         };
         for helper in only_helpers(helpers) {
-            let job = routing::base_job(&helper.job).to_owned();
-            if Some(helper.reply.as_str()) != reply && !named.contains(&job) {
+            let job = routing::base_job(&helper.job);
+            // A research part's job is stored under its research job (`<job>/<n>`), and stops
+            // with it.
+            let owned = named
+                .iter()
+                .any(|named_job| named_job == job || research::part_of(named_job, job));
+            if Some(helper.reply.as_str()) != reply && !owned {
                 continue;
             }
             let id = helper.conversation.as_str();
@@ -770,9 +895,12 @@ impl Engine {
             // job's end was stored and the helper's own stop was not (a crash between the two):
             // recovery by the bot's open jobs alone never sees such a helper.
             let parent = self.load(&helper.parent)?;
-            if helper.profile != spade_core::lane::PROFILE
-                && spade_core::turn::job_stopped(&parent, routing::base_job(&helper.job))
-            {
+            let stopped = spade_core::turn::job_stopped(&parent, routing::base_job(&helper.job));
+            // A research part's job is its research job's, reported lost by the restart: nothing
+            // would collect its answer, so it is stopped rather than resumed.
+            let left_behind = helper.profile != spade_core::lane::PROFILE
+                && research::part_left_behind(&parent, &helper.job);
+            if helper.profile != spade_core::lane::PROFILE && (stopped || left_behind) {
                 self.stop_helper_after_restart(&helper)?;
             }
             let events = self.load(&helper.conversation)?;

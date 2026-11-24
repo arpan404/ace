@@ -198,6 +198,8 @@ pub struct Seen {
     pub key: Option<String>,
     pub headers: Vec<(String, String)>,
     pub body: Value,
+    /// When it arrived, for tests of what starts only after something else began.
+    pub at: std::time::Instant,
 }
 
 #[derive(Clone)]
@@ -338,6 +340,7 @@ async fn answer(
     let streamed = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
     if let Ok(mut seen) = shared.seen.lock() {
         seen.push(Seen {
+            at: std::time::Instant::now(),
             path: path.clone(),
             key: if anthropic {
                 header("x-api-key")
