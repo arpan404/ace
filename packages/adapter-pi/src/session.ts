@@ -56,6 +56,8 @@ export async function openPiSession(
   ctx: SessionContext,
   options: PiOptions = {},
 ): Promise<PiSession> {
+  if ((await import("@ace/provider-kit/native-switches")).sessionBackend("pi") === "native")
+    return (await import("./native-session.ts")).openNativePiSession(ctx, options);
   ctx.signal.throwIfAborted();
   const io = { ...runtime, ...options.runtime };
   // Windows has no SIGTERM for a console child: closing stdin is the polite stop there, and
