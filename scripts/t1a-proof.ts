@@ -11,7 +11,9 @@
  *
  * Runs with `node scripts/t1a-proof.ts`. It exits non-zero on any failed leg, a report missing,
  * unparsable or empty, an on leg with no evidence, or a skip without a platform guard. Before
- * each file it waits for the shared machine's 1-minute load average to fall under 60.
+ * each file it waits up to two minutes for the shared machine's 1-minute load average to fall
+ * under 60, then runs anyway: this run proves pass/fail and evidence, not timing. A leg that
+ * failed only by timing out is rerun once, alone, and the table says so.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
@@ -48,6 +50,8 @@ interface FileRun {
   on: LegRun;
   /** How the on leg proved itself: `native`, `NONE`, `platform-skipped`, or why not. */
   evidence: "native" | "NONE" | "platform-skipped" | "no-report";
+  /** A leg that failed only by timing out was rerun once alone. */
+  rerun: { off: boolean; on: boolean };
   /** The file has a `runIf`/`skipIf` guard on the platform, so its skips are expected. */
   platformGuard: boolean;
   /** The file guards a case on the transport switch: that skip is expected on the off leg. */
@@ -55,6 +59,10 @@ interface FileRun {
 }
 
 const REPORT_TIMEOUT_MS = 15 * 60 * 1000;
+/** The proof run's worker bound on this shared machine. */
+const MAX_WORKERS = 2;
+/** How long one file may wait for the load to settle before it runs anyway. */
+const LOAD_WAIT_MS = 2 * 60 * 1000;
 
 /** A blocking sleep; the proof run holds the shared machine between runs. */
 function sleep(ms: number): void {
@@ -74,11 +82,12 @@ function oneMinuteLoad(): number {
 }
 
 /**
- * Holds until the 1-minute load average is under 60, checking every 30 s for at most 10 minutes,
- * then runs anyway: the machine is shared, and a proof run must not wait forever on it.
+ * Holds until the 1-minute load average is under 60, checking every 30 s for at most two minutes,
+ * then runs anyway: the machine is shared, other threads keep the load high, and this run proves
+ * pass/fail rather than timing.
  */
 function waitForLoad(): void {
-  const deadline = Date.now() + 10 * 60 * 1000;
+  const deadline = Date.now() + LOAD_WAIT_MS;
   for (;;) {
     const load = oneMinuteLoad();
     if (load < 60 || Date.now() >= deadline) return;
@@ -125,6 +134,16 @@ function evidenceOf(path: string): boolean {
   }
 }
 
+/** Whether a leg failed only because a test timed out, so one rerun alone is the fair reading. */
+function timedOutOnly(run: LegRun): boolean {
+  const failed = run.results.filter((result) => result.status === "failed");
+  return (
+    run.noReport === undefined &&
+    failed.length > 0 &&
+    failed.every((result) => /timed out in \d+ ?ms/i.test(result.message ?? ""))
+  );
+}
+
 /** One leg's outcome, from its report only. */
 function runLeg(file: string, leg: Leg, reportPath: string, evidencePath: string): LegRun {
   const env: NodeJS.ProcessEnv = { ...process.env };
@@ -144,7 +163,7 @@ function runLeg(file: string, leg: Leg, reportPath: string, evidencePath: string
       "vitest",
       "run",
       file,
-      "--maxWorkers=4",
+      `--maxWorkers=${MAX_WORKERS}`,
       "--reporter=json",
       `--outputFile=${reportPath}`,
     ],
@@ -204,11 +223,23 @@ function main(): number {
     for (const [index, file] of files.entries()) {
       waitForLoad();
       const name = `${index}`;
-      const off = runLeg(file, "off", join(work, `${name}-off.json`), "");
+      let off = runLeg(file, "off", join(work, `${name}-off.json`), "");
       const evidencePath = join(work, `${name}-evidence.jsonl`);
-      const on = runLeg(file, "on", join(work, `${name}-on.json`), evidencePath);
+      let on = runLeg(file, "on", join(work, `${name}-on.json`), evidencePath);
+      // A leg that failed only by timing out gets one more run, alone, on a fresh report.
+      let rerunOff = false;
+      let rerunOn = false;
+      if (timedOutOnly(off)) {
+        rerunOff = true;
+        off = runLeg(file, "off", join(work, `${name}-off-retry.json`), "");
+      }
+      if (timedOutOnly(on)) {
+        rerunOn = true;
+        on = runLeg(file, "on", join(work, `${name}-on-retry.json`), `${evidencePath}.retry`);
+      }
       const text = readFileSync(join(root, file), "utf8");
       const platformGuard = hasPlatformGuard(text);
+      const witness = rerunOn ? `${evidencePath}.retry` : evidencePath;
       const ran =
         on.noReport === undefined &&
         on.results.some((result) => result.status === "passed" || result.status === "failed");
@@ -219,7 +250,7 @@ function main(): number {
             ? platformGuard
               ? "platform-skipped"
               : "no-report"
-            : evidenceOf(evidencePath)
+            : evidenceOf(witness)
               ? "native"
               : "NONE";
       const run: FileRun = {
@@ -227,6 +258,7 @@ function main(): number {
         off,
         on,
         evidence,
+        rerun: { off: rerunOff, on: rerunOn },
         platformGuard,
         switchGuard: hasSwitchGuard(text),
       };
@@ -237,7 +269,8 @@ function main(): number {
         `[${String(index + 1).padStart(3)}/${files.length}] ` +
           `off ${(off.noReport ?? "PASS").padEnd(10)} ${off.results.length - offFailed}/${off.results.length}  ` +
           `on ${on.evidence === "native" ? "native" : (on.noReport ?? evidence)} ` +
-          `${on.results.length - onFailed}/${on.results.length}  ${file}`,
+          `${on.results.length - onFailed}/${on.results.length}` +
+          `${rerunOff || rerunOn ? ` (rerun ${rerunOff ? "off" : ""}${rerunOn ? "on" : ""})` : ""}  ${file}`,
       );
     }
   } finally {
@@ -349,7 +382,10 @@ function report(runs: readonly FileRun[]): void {
   console.log("\n=== per file ===");
   console.log("off\t on\t evidence\tfile");
   for (const run of runs)
-    console.log(`${count(run, "off")}\t${count(run, "on")}\t${run.evidence}\t${run.file}`);
+    console.log(
+      `${count(run, "off")}\t${count(run, "on")}\t${run.evidence}\t${run.file}` +
+        `${run.rerun.off || run.rerun.on ? `\t(rerun ${run.rerun.off ? "off " : ""}${run.rerun.on ? "on" : ""})` : ""}`,
+    );
 }
 
 process.exitCode = main();
