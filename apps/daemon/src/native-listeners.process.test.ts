@@ -11,10 +11,12 @@ import { createServer as createNetServer, type Server as NetServer } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { WebSocketServer } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 import { loadIdentity } from "./tls-identity.ts";
 import { bindListener, closeListener } from "./listener.ts";
 import { startNativeListeners, type NativeListenersStart } from "./native-listeners.ts";
+import type { MainSocket } from "./main-socket.ts";
+import { NativeSocket } from "./native-socket.ts";
 import type { NativeUpgrade } from "./native-upgrade.ts";
 import { tlsFixtureHome } from "./process-test-support.ts";
 import { PreAuthAdmission } from "./socket-admission.ts";
@@ -41,13 +43,15 @@ async function free(port: number): Promise<boolean> {
   const server = createNetServer();
   server.listen(port, "127.0.0.1");
   try {
-    await once(server, "listening");
+    await new Promise<void>((resolve, reject) => {
+      server.once("listening", resolve);
+      server.once("error", reject);
+    });
     return true;
   } catch {
     return false;
   } finally {
     server.close();
-    await once(server, "close");
   }
 }
 
@@ -60,13 +64,21 @@ async function occupy(port: number): Promise<NetServer> {
 }
 
 /** What an upgrade answers when nothing is at stake: admission's accept, no socket. */
-function upgrades(): NativeUpgrade {
+function upgrades(sockets?: Set<MainSocket>): NativeUpgrade {
   return {
     admit: async () => ({ decision: "accept", reservation: 0 }),
     release: () => {},
-    opened: () => {},
+    opened: (handle) => {
+      if (sockets === undefined) return;
+      const socket = new NativeSocket(handle);
+      sockets.add(socket);
+      socket.once("close", () => sockets.delete(socket));
+    },
   };
 }
+
+/** The remote listener's side of a start: native on `port`, or a TypeScript bind that answers. */
+type Remote = { native: true; port: number } | { native: false; bind: () => Promise<number> };
 
 describe.runIf(transportParts().has("loopback"))("the native listeners' start", () => {
   const internals: Server[] = [];
@@ -75,8 +87,24 @@ describe.runIf(transportParts().has("loopback"))("the native listeners' start", 
     for (const server of internals.splice(0)) await closeListener(server);
   });
 
-  function wiring(loopbackPort: number, remotePort: number): NativeListenersStart {
+  function wiring(
+    loopbackPort: number,
+    remote: Remote,
+    options: {
+      upgrades?: NativeUpgrade;
+      sockets?: Set<MainSocket>;
+      closeSocket?: (socket: MainSocket) => void;
+    } = {},
+  ): NativeListenersStart {
     const preAuth = new PreAuthAdmission({}, () => () => {});
+    const admission = {
+      preAuth,
+      allowedOrigins: new Set<string>(),
+      servesRenderer: false,
+      publicPort: () => 0,
+      draining: () => false,
+      full: () => false,
+    };
     return {
       port: loopbackPort,
       hopSecret: transportAddon().NativeLoopback.generateSecret(),
@@ -85,28 +113,35 @@ describe.runIf(transportParts().has("loopback"))("the native listeners' start", 
         internals.push(internal);
         return bindListener(internal, "127.0.0.1", wanted);
       },
-      loopbackUpgrades: upgrades(),
+      loopbackUpgrades: options.upgrades ?? upgrades(),
+      loopbackSockets: options.sockets ?? new Set(),
+      closeSocket: options.closeSocket ?? (() => {}),
+      startDraining: () => {},
       publicPort: () => {},
       tunnel: { hold: () => () => {}, track: () => {} },
       sockets: new Set(),
-      remote: {
-        native: true,
-        host: "127.0.0.1",
-        port: remotePort,
-        advertisedHost: "127.0.0.1",
-        identity,
-        requests: (_request, response) => response.end("ok"),
-        admission: {
-          preAuth,
-          allowedOrigins: new Set(),
-          servesRenderer: false,
-          publicPort: () => 0,
-          draining: () => false,
-          full: () => false,
-        },
-        wss: new WebSocketServer({ noServer: true }),
-        log: () => {},
-      },
+      remote:
+        remote.native === true
+          ? {
+              native: true,
+              host: "127.0.0.1",
+              port: remote.port,
+              advertisedHost: "127.0.0.1",
+              identity,
+              requests: (_request, response) => response.end("ok"),
+              admission,
+              wss: new WebSocketServer({ noServer: true }),
+              log: () => {},
+            }
+          : {
+              native: false,
+              host: "127.0.0.1",
+              port: 0,
+              advertisedHost: "127.0.0.1",
+              identity,
+              bind: remote.bind,
+              log: () => {},
+            },
     };
   }
 
@@ -115,22 +150,88 @@ describe.runIf(transportParts().has("loopback"))("the native listeners' start", 
     const remotePort = await freePort();
     const occupant = await occupy(remotePort);
     try {
-      await expect(startNativeListeners(wiring(loopbackPort, remotePort))).rejects.toMatchObject({
-        code: "EADDRINUSE",
-      });
+      await expect(
+        startNativeListeners(wiring(loopbackPort, { native: true, port: remotePort })),
+      ).rejects.toMatchObject({ code: "EADDRINUSE" });
     } finally {
       occupant.close();
       await once(occupant, "close");
     }
     expect(await free(loopbackPort)).toBe(true);
 
-    const listeners = await startNativeListeners(wiring(loopbackPort, remotePort));
+    const listeners = await startNativeListeners(
+      wiring(loopbackPort, { native: true, port: remotePort }),
+    );
     expect(listeners.port).toBe(loopbackPort);
     expect(listeners.remote?.port).toBe(remotePort);
     await listeners.loopback?.close(0);
     await listeners.remote?.close(0);
     expect(await free(loopbackPort)).toBe(true);
     expect(await free(remotePort)).toBe(true);
+  }, 30_000);
+
+  it("unwinds promptly while a client holds an open loopback socket, and the client gets 1001", async () => {
+    const loopbackPort = await freePort();
+    const remotePort = await freePort();
+    const sockets = new Set<MainSocket>();
+    let releaseBind!: () => void;
+    const held = new Promise<void>((resolve) => {
+      releaseBind = resolve;
+    });
+    let bindStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      bindStarted = resolve;
+    });
+    const attempt = startNativeListeners(
+      wiring(
+        loopbackPort,
+        {
+          native: false,
+          bind: async () => {
+            bindStarted();
+            await held;
+            throw Object.assign(new Error("listen EADDRINUSE: address already in use"), {
+              code: "EADDRINUSE",
+            });
+          },
+        },
+        {
+          upgrades: upgrades(sockets),
+          sockets,
+          closeSocket: (socket) => socket.close(1001, "Daemon shutdown"),
+        },
+      ),
+    );
+    await started;
+    const client = new WebSocket(`ws://127.0.0.1:${loopbackPort}/`);
+    client.on("error", () => {});
+    await once(client, "open");
+    // The 101 reaches the client before the binding's `opened` crosses the thread; the client holds
+    // the socket once TypeScript has registered it.
+    for (let waited = 0; sockets.size === 0 && waited < 5_000; waited += 10)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(sockets.size).toBe(1);
+    // Registered before the close can fire: the sweep gives 1001 as soon as the bind fails.
+    const closed = once(client, "close");
+    releaseBind();
+    const outcome = await Promise.race([
+      attempt.then(
+        () => new Error("the failed start resolved"),
+        (error: unknown) => error,
+      ),
+      new Promise<Error>((resolve) =>
+        setTimeout(() => resolve(new Error("the rollback stalled")), 5_000),
+      ),
+    ]);
+    expect(outcome).toMatchObject({ code: "EADDRINUSE" });
+    const [code] = await closed;
+    expect(code).toBe(1001);
+    expect(await free(loopbackPort)).toBe(true);
+
+    const listeners = await startNativeListeners(
+      wiring(loopbackPort, { native: false, bind: async () => remotePort }),
+    );
+    await listeners.loopback?.close(0);
   }, 30_000);
 
   it("names a loopback bind failure in the evidence file, and writes no close for it", async () => {
@@ -140,9 +241,9 @@ describe.runIf(transportParts().has("loopback"))("the native listeners' start", 
     const evidence = join(tmpdir(), `ace-native-listener-${process.pid}-${Date.now()}.jsonl`);
     process.env.ACE_TRANSPORT_EVIDENCE = evidence;
     try {
-      await expect(startNativeListeners(wiring(loopbackPort, remotePort))).rejects.toMatchObject({
-        code: "EADDRINUSE",
-      });
+      await expect(
+        startNativeListeners(wiring(loopbackPort, { native: true, port: remotePort })),
+      ).rejects.toMatchObject({ code: "EADDRINUSE" });
     } finally {
       delete process.env.ACE_TRANSPORT_EVIDENCE;
       occupant.close();
@@ -173,9 +274,9 @@ describe.runIf(transportParts().has("loopback"))("the native listeners' start", 
     const evidence = join(tmpdir(), `ace-native-listener-${process.pid}-${Date.now()}.jsonl`);
     process.env.ACE_TRANSPORT_EVIDENCE = evidence;
     try {
-      await expect(startNativeListeners(wiring(loopbackPort, remotePort))).rejects.toMatchObject({
-        code: "EADDRINUSE",
-      });
+      await expect(
+        startNativeListeners(wiring(loopbackPort, { native: true, port: remotePort })),
+      ).rejects.toMatchObject({ code: "EADDRINUSE" });
     } finally {
       delete process.env.ACE_TRANSPORT_EVIDENCE;
       occupant.close();

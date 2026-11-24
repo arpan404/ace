@@ -25,6 +25,9 @@ import { proxyGuard } from "./proxy-guard.ts";
 /** How long a listener may take to decide an upgrade: `socket-admission.ts`'s hello window. */
 const ADMIT_TIMEOUT_MS = 5_000;
 
+/** How long a closing native listener lets an upgrade still deciding finish (T1a.5's admit window). */
+export const TRANSPORT_CLOSE_DEADLINE_MS = 5_000;
+
 /** `ConnectionLimits::remote_static()`: a `node:https` server's own defaults (T1b.1a). */
 const STATIC_LIMITS: NativeRemoteLimits = {
   handshakeMs: 120_000,
@@ -217,11 +220,12 @@ export interface NativeRemoteStart {
   port: number;
   advertisedHost: string;
   identity: { key: Buffer; cert: Buffer };
-  requests: RequestListener;
-  /** Admission's wiring, minus the listener's own kind, `wss` and socket set. */
-  admission: Omit<NativeUpgradeWiring, "kind" | "wss" | "sockets">;
-  /** The socket server this listener's `connection` event reaches: `remoteWss`. */
-  wss: WebSocketServer;
+  /** The paired-device chain the hop forwards to; native only. */
+  requests?: RequestListener | undefined;
+  /** Admission's wiring, minus the listener's own kind, `wss` and socket set; native only. */
+  admission?: Omit<NativeUpgradeWiring, "kind" | "wss" | "sockets"> | undefined;
+  /** The socket server this listener's `connection` event reaches: `remoteWss`; native only. */
+  wss?: WebSocketServer | undefined;
   /** Binds the TypeScript `https` listener; absent when `native`. */
   bind?: (() => Promise<number>) | undefined;
   log(error: Error): void;
@@ -240,8 +244,14 @@ export interface NativeListenersStart {
   publicPort(port: number): void;
   /** The machine tunnel: ports held, servers tracked, as ace's (ADR 0194). */
   tunnel: { hold(port: number): () => void; track(server: Server): void };
+  /** The loopback listener's sockets, `nativeSockets`. */
+  loopbackSockets: Set<MainSocket>;
   /** The remote listener's sockets, `remoteSockets`. */
   sockets: Set<MainSocket>;
+  /** Gives one opened native socket the shutdown close. */
+  closeSocket(socket: MainSocket): void;
+  /** Stops admission before a failed start unwinds, as shutdown does. */
+  startDraining(): void;
   remote?: NativeRemoteStart | undefined;
 }
 
@@ -290,14 +300,17 @@ export async function startNativeListeners(
       if (remoteConfig.native) {
         if (options.hopSecret === undefined)
           throw new Error("ACE_TRANSPORT=native,remote needs the loopback listener's hop secret");
+        const { requests, admission, wss } = remoteConfig;
+        if (requests === undefined || admission === undefined || wss === undefined)
+          throw new Error("The native remote listener has no hop target or admission");
         remote = await startNativeStaticRemote({
           host: remoteConfig.host,
           port: remoteConfig.port,
           identity: remoteConfig.identity,
           hopSecret: options.hopSecret,
-          requests: remoteConfig.requests,
-          admission: remoteConfig.admission,
-          wss: remoteConfig.wss,
+          requests,
+          admission,
+          wss,
           sockets: options.sockets,
           holdPort: (bound) => options.tunnel.hold(bound),
           track: (server) => options.tunnel.track(server),
@@ -320,8 +333,19 @@ export async function startNativeListeners(
     };
   } catch (error) {
     // Transactional start: a later bind's failure unwinds what this call already started, so its
-    // port and reservations are never left behind for the process's next attempt.
-    await Promise.allSettled([remote?.close(0), loopback?.close(0)]);
+    // port and reservations are never left behind for the process's next attempt. Draining first
+    // and sweeping with 1001 is what lets a connected client go, so the close cannot wait forever
+    // on a socket Rust still holds; the shutdown deadline bounds it.
+    options.startDraining();
+    closeNativeSockets(
+      { loopback, remote },
+      { loopback: options.loopbackSockets, remote: options.sockets },
+      options.closeSocket,
+    );
+    await Promise.allSettled([
+      remote?.close(TRANSPORT_CLOSE_DEADLINE_MS),
+      loopback?.close(TRANSPORT_CLOSE_DEADLINE_MS),
+    ]);
     throw error;
   }
 }

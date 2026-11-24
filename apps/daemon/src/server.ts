@@ -56,6 +56,7 @@ import {
   nativeListenerStages,
   shutdownNativeListeners,
   startNativeListeners,
+  TRANSPORT_CLOSE_DEADLINE_MS,
   unwindNativeListeners,
   type StartedNativeListeners,
 } from "./native-listeners.ts";
@@ -96,9 +97,6 @@ import { answerEarly } from "./relay-nk/early-reads.ts";
 import { orgSocketPolicy } from "./org-access/socket-wiring.ts";
 import { serverTrees } from "./org-access/store-trees.ts";
 import { releaseLineOf } from "@ace/service/release-line";
-
-/** How long a closing native listener lets an upgrade still deciding finish (T1a.5's admit window). */
-const TRANSPORT_CLOSE_DEADLINE_MS = 5_000;
 
 export async function startServer(options: ServerOptions): Promise<{
   relayHostId?: string | undefined;
@@ -1303,6 +1301,11 @@ export async function startServer(options: ServerOptions): Promise<{
       hopSecret,
       bindLocal: (wanted) => bind(local, "127.0.0.1", wanted),
       loopbackUpgrades: upgrades,
+      loopbackSockets: nativeSockets,
+      closeSocket: (socket) => closer.gracefulClose(socket, 1001, "Daemon shutdown"),
+      startDraining: () => {
+        nativeDraining = true;
+      },
       publicPort: (bound) => {
         nativePublicPort = bound;
       },
@@ -1314,9 +1317,8 @@ export async function startServer(options: ServerOptions): Promise<{
             remote: {
               ...remoteConfig,
               native: nativeRemote,
-              requests: remoteHttp(),
-              admission,
-              wss: remoteWss,
+              // Only the native remote listener builds the hop chain and the admission wiring.
+              ...(nativeRemote ? { requests: remoteHttp(), admission, wss: remoteWss } : {}),
               ...(remote === undefined
                 ? {}
                 : { bind: () => bind(remote, remoteConfig.host, remoteConfig.port) }),
@@ -1474,7 +1476,6 @@ export async function startServer(options: ServerOptions): Promise<{
             for (const socket of server.clients)
               closer.gracefulClose(socket, 1001, "Daemon shutdown");
           for (const socket of nativeSockets) closer.gracefulClose(socket, 1001, "Daemon shutdown");
-          for (const socket of remoteSockets) closer.gracefulClose(socket, 1001, "Daemon shutdown");
           return stage("socket servers", closeServers()).then((error) => {
             void shutdownDeadline(
               "Socket tasks",
