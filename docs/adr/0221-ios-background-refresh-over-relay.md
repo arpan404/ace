@@ -21,7 +21,9 @@ can drop between the request, the response and the receipt.
 - The APNs alert payload requests a background fetch alongside extension delivery. The
   notification service extension renders the encrypted alert locally. When iOS wakes the app,
   it authenticates the payload, records the push's ID for deduplication and follows up over
-  the remembered daemon route. BGAppRefresh and push wakes share a bounded refresh. A cold
+  the remembered daemon route. BGAppRefresh and push wakes share a bounded refresh. Each OS callback reports its completion exactly once, by its
+  own 25-second deadline, independent of the refresh's cooperative 18-second budget. Expiration
+  reports failure at once, and a result the shared refresh returns afterwards is ignored. A cold
   wake can read the feed while iOS is still returning the push token, preserving the address
   already registered with the daemon. The authenticated welcome links the daemon ID in the
   push to the phone's directory entry. A relay-only machine can have a different directory ID.
@@ -36,6 +38,17 @@ can drop between the request, the response and the receipt.
   a database. Rebuilding the notification database drops its checkpoints. A phone's explicit
   cursor beyond the new head restarts the scan over retained alerts. Explicit reads also let
   a client rebuild local state independently of the daemon checkpoint.
+- One phone reached directly and over its account relay is two device ids, and the phone keeps
+  one cursor per machine. The daemon serves one feed for both: a read includes the inbox rows
+  of every id the pairing proof links to the socket's device (ADR 0115), each alert once at its
+  first cursor, so a relay wake delivers alerts recorded for the direct pairing and neither
+  route's head skips the other's. We chose this over a cursor per authenticated identity on the
+  phone because that would only stop the skip: the relay wake would still find nothing.
+- On an organization's host the feed is a filtered read: a member may request it, and the
+  daemon keeps only entries and retractions of trees the member may read now (a summary only
+  when every thread it names is readable). The member's checkpoint is their own device's. The
+  host still refuses a member's phone registration, since pushes are not filtered per member,
+  so the bridge goes on to the feed after that refusal and the wake can finish.
 - After reading confirmed inbox state on a wake, the app writes the merged lock-screen
   snapshot and updates an existing Live Activity. The phone keeps the last confirmed summary
   when the transient connections close. The app can refresh while iOS grants execution time.
@@ -45,6 +58,10 @@ can drop between the request, the response and the receipt.
 
 - The relay and daemon process test interrupts a feed with a registered phone away from its
   daemon, then reads after reconnect and resumes from the acknowledged position.
+- The feed process test reads an alert recorded for one paired id from a linked id, then
+  returns to the first with the saved cursor and sees nothing twice.
+- The policy, feed-view and `CompletionGate` unit tests cover a member's filtered feed and the
+  exactly-once, deadline-bound completion.
 - The client grant-keeper tests simulate wall time passing while timers are suspended.
 - The bridge and Swift tests cover push registration during wake, applying a feed once,
   releasing a transient machine and choosing a remembered route.
