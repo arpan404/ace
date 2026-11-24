@@ -131,6 +131,7 @@ dependencies = [
  "ace-store",
  "ace-supervisor",
  "ace-transport",
+ "bytes",
  "napi",
  "napi-build",
  "napi-derive",
@@ -138,6 +139,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
+ "zeroize",
 ]
 
 [[package]]
