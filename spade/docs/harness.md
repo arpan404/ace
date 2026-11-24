@@ -180,10 +180,12 @@ library while ace is there and works without it (workspace.md, "Spade's skill st
 and `tool_search` with `call_tool`, which are offered whenever anything is deferred.
 
 Deferred, found with `tool_search` and run through `call_tool`: `card_show`, `panel_update`,
-`notify`, `package_suggest`, `profile_update`, `skill_propose`, `skill_feedback`, the routine
-tools, `knowledge_write`, `episode_search`, `memory_update`, `memory_forget`, the typed-call
-tools (`contracts_find`, `contract_call`, `contract_return`), `bots_list`, `group_ask`,
-`wake_cancel` and the service tools. Each is rare in a conversation; one a bot does need costs
+`notify`, `package_suggest`, `profile_update`, `club_add`, `skill_propose`, `skill_feedback`, the
+routine tools, `knowledge_write`, `episode_search`, `memory_update`, `memory_forget`, the
+typed-call tools (`contracts_find`, `contract_call`, `contract_return`), `bots_list`,
+`group_ask`, `wake_cancel`, the service tools, the worker tools (`worker_message`,
+`worker_status`, `worker_result`, `worker_stop`), the outward tools (`git_push`, `pr_comment`,
+`issue_comment`, `send_message`), `image_generate` and a package's code tools. Each is rare in a conversation; one a bot does need costs
 one `tool_search` round trip, once (see the pins below). Deferring changes only what is offered
 up front: a deferred tool can still be called by name, and every name stays in the runtime API
 (runtime.md). Output from `web_search`, `web_fetch` and most of ace's tools is untrusted, so a
