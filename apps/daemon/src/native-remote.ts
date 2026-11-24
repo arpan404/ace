@@ -1,0 +1,138 @@
+// SPDX-License-Identifier: Apache-2.0
+import {
+  nativeRemoteClass,
+  noteTransportEvent,
+  noteTransportStart,
+  registerTransportListener,
+  type NativeHandled,
+  type NativeRemoteHandle,
+  type NativeRemoteLimits,
+} from "@ace/provider-kit/native-transport";
+import type { NativeUpgrade } from "./native-upgrade.ts";
+
+/** How long admission may take when the caller names none: the hello window. */
+const ADMIT_TIMEOUT_MS = 5_000;
+
+/** The OS code a failed bind carries, or `unknown` when it names none. */
+function bindFailureCode(error: unknown): string {
+  if (typeof error !== "object" || error === null) return "unknown";
+  const code = Reflect.get(error, "code");
+  return typeof code === "string" ? code : "unknown";
+}
+
+/** What a native remote listener needs from the daemon it opens sockets into. */
+export interface NativeRemoteOptions {
+  /** The bind address: a LAN address, Tailscale's 100.x, or 127.0.0.1 in a test. */
+  host: string;
+  /** The public port; `0` picks a free one. */
+  port: number;
+  /** The internal `node:http` server the hop forwards to. */
+  targetPort: number;
+  /** The identity exactly as `loadIdentity` read it: PEM bytes, never regenerated. */
+  identity: { key: Buffer; cert: Buffer };
+  /** This boot's hop secret, the loopback listener's: kept in memory and passed back. */
+  hopSecret: string;
+  limits: NativeRemoteLimits;
+  /** Admission, release and registration for this listener (`kind: "remote"`). */
+  upgrade: NativeUpgrade;
+  /** Holds the public port as ace's (ADR 0194); the returned function releases it. */
+  holdPort(port: number): () => void;
+  /** Where a post-bind accept failure is logged, as `sni-listener.ts:187` logs its own. */
+  log(error: Error): void;
+}
+
+/** A running native remote listener: its port, its certificate, and its close. */
+export interface NativeRemoteListener {
+  port(): number;
+  /** Serves `name` the trusted certificate from the next handshake on. */
+  setTrusted(name: string, cert: Buffer, key: Buffer): void;
+  /** Serves the pinned certificate again from the next handshake on. */
+  clearTrusted(): void;
+  close(deadlineMs: number): Promise<void>;
+}
+
+/**
+ * Starts one native remote listener (T1b.1b): Rust terminates TLS and HTTP, TypeScript decides
+ * every upgrade through the same admission and registration as the `ws` listeners. With
+ * `ACE_TRANSPORT_EVIDENCE` set, each lifecycle step Rust reports is one line, and the close line
+ * carries what the listener, on that port, handled.
+ *
+ * The reservations admitted through this listener are held here and released when `close`
+ * resolves; never `preAuth.releaseAll()`, which would drop the loopback listener's as well.
+ */
+export async function startNativeRemote(
+  options: NativeRemoteOptions,
+): Promise<NativeRemoteListener> {
+  const reservations = new Set<number>();
+  let handle: NativeRemoteHandle;
+  try {
+    handle = await nativeRemoteClass().start(
+      {
+        host: options.host,
+        port: options.port,
+        targetPort: options.targetPort,
+        secretHex: options.hopSecret,
+        admitTimeoutMs: ADMIT_TIMEOUT_MS,
+        cert: options.identity.cert,
+        key: options.identity.key,
+        // napi reads `None` from an absent field, never from `null`.
+        limits: {
+          ...options.limits,
+          headMs: options.limits.headMs ?? undefined,
+          trustedKeepAliveMs: options.limits.trustedKeepAliveMs ?? undefined,
+        },
+      },
+      async (request) => {
+        const answer = await options.upgrade.admit(request);
+        if (answer.decision === "accept") reservations.add(answer.reservation);
+        return answer;
+      },
+      (reservation) => {
+        reservations.delete(reservation);
+        options.upgrade.release(reservation);
+      },
+      (socket, reservation, userAgent) => {
+        // The reservation is consumed by the registration, exactly as a `ws` upgrade's is.
+        reservations.delete(reservation);
+        options.upgrade.opened(socket, reservation, userAgent);
+      },
+      (code, message, repeated) => {
+        const failure = new Error(message);
+        Object.assign(failure, { code, repeated });
+        options.log(failure);
+      },
+    );
+  } catch (error) {
+    // The bind never landed: the requested port is the only port to name. `code` is the OS's
+    // (`EADDRINUSE`, `EADDRNOTAVAIL`), as `bindListener`'s failure carries it.
+    noteTransportEvent("remote", options.port, "bind-failed", { code: bindFailureCode(error) });
+    throw error;
+  }
+  const port = handle.port();
+  const releasePort = options.holdPort(port);
+  noteTransportStart("remote", port);
+  const unregister = registerTransportListener("remote", port, () => handle.handled());
+  let closing: Promise<void> | undefined;
+  return {
+    port: () => port,
+    setTrusted: (name, cert, key) => handle.setTrusted(name, cert, key),
+    clearTrusted: () => handle.clearTrusted(),
+    close(deadlineMs) {
+      closing ??= (async () => {
+        noteTransportEvent("remote", port, "close-requested", { bound: true });
+        try {
+          await handle.close(deadlineMs);
+        } finally {
+          const counts: NativeHandled = handle.handled();
+          // What this listener, on this port, handled: a bind line only proves a bind.
+          noteTransportEvent("remote", port, "close", counts);
+          unregister();
+          releasePort();
+          for (const reservation of reservations) options.upgrade.release(reservation);
+          reservations.clear();
+        }
+      })();
+      return closing;
+    },
+  };
+}

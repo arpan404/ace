@@ -26,6 +26,7 @@ use crate::hop::HopSecret;
 use crate::limits::ConnectionLimits;
 use crate::peer::Peer;
 use crate::proxy::ProxyTarget;
+use crate::stats::Stats;
 use crate::upgrade::{
     AdmissionDecision, AdmissionOutcome, SocketSink, UpgradeAdmission, UpgradeRequest,
     WebSocketUpgrades,
@@ -108,6 +109,7 @@ async fn a_later_head_after_thirty_seconds_is_still_served() {
             Grace::new(),
             limits,
             None,
+            Stats::new(),
         )
         .await;
     });
@@ -159,6 +161,7 @@ async fn a_stalled_101_ends_the_connection_within_the_upgrade_write_bound() {
         Grace::new(),
         limits,
         None,
+        Stats::new(),
     ));
 
     client

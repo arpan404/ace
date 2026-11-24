@@ -41,6 +41,7 @@ use crate::head::{self, RequestHead};
 use crate::hop::{self, HopSecret};
 use crate::peer::Peer;
 use crate::prefixed::WriteTimeout;
+use crate::stats::Stats;
 
 /// The loopback listener's exchange deadline, from the service call to the last
 /// byte of the answer: Node's `requestTimeout` bounds receiving the whole request
@@ -424,6 +425,8 @@ pub struct ConnectionState {
     /// `Uri` fills "/" into a pathless absolute form, so only the head the
     /// driver parsed can be forwarded byte for byte.
     pub first_target: Option<String>,
+    /// This listener's counters (T1b.1b): one per exchange answered.
+    pub stats: Arc<Stats>,
 }
 
 /// Everything one exchange needs, cloned per request.
@@ -446,6 +449,8 @@ struct Exchange {
     write: WriteTimeout,
     /// The bound a `101` or a refusal is written under.
     upgrade_write: Duration,
+    /// This listener's counters (T1b.1b).
+    stats: Arc<Stats>,
 }
 
 /// The service hyper's server runs for ordinary requests and for upgrade
@@ -472,6 +477,7 @@ impl ProxyService {
                 exchange: state.exchange,
                 write: state.write,
                 upgrade_write: state.upgrade_write,
+                stats: state.stats,
             },
         }
     }
@@ -483,6 +489,7 @@ impl Service<Request<Incoming>> for ProxyService {
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn call(&self, req: Request<Incoming>) -> Self::Future {
+        self.exchange.stats.exchange();
         let exchange = self.exchange.clone();
         Box::pin(async move { handle(exchange, req).await })
     }

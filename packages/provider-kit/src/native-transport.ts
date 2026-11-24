@@ -76,10 +76,76 @@ export interface NativeSocketHandle {
   readyState(): number;
 }
 
-/** The bound listener: its port, and a close that resolves when its sockets reported theirs. */
+/** The bound listener: its port, its counters, and a close that resolves when its sockets did. */
 export interface NativeLoopbackHandle {
   port(): number;
+  /** What this listener handled since it bound (T1b.5's evidence). */
+  handled(): NativeHandled;
   close(deadlineMs: number): Promise<void>;
+}
+
+/** What one native listener handled since it bound, as T1b.5's evidence reads it. */
+export interface NativeHandled {
+  connections: number;
+  exchanges: number;
+  upgrades: number;
+  trustedHandshakes: number;
+  postQuantumHandshakes: number;
+  deflatedOut: number;
+  inflatedIn: number;
+}
+
+/** A remote listener's connection timers, as `ConnectionLimits` takes them. */
+export interface NativeRemoteLimits {
+  handshakeMs: number;
+  firstHeadMs: number;
+  /** None: only the idle timer bounds a later head. */
+  headMs: number | null | undefined;
+  keepAliveMs: number;
+  /** None: no trusted keep-alive (the static listener). */
+  trustedKeepAliveMs: number | null | undefined;
+}
+
+/** What `NativeRemote.start` binds, and what it forwards HTTP to. */
+export interface NativeRemoteStartOptions {
+  host: string;
+  port: number;
+  /** The internal server the proxy hop forwards to, on 127.0.0.1. */
+  targetPort: number;
+  secretHex: string;
+  admitTimeoutMs: number;
+  /** The identity's PEM bytes exactly as `loadIdentity` read them. */
+  cert: Buffer;
+  key: Buffer;
+  limits: NativeRemoteLimits;
+}
+
+/** The bound remote listener: its port, its certificate and a close that waits for its sockets. */
+export interface NativeRemoteHandle {
+  port(): number;
+  /** Serves `name` the trusted certificate from the next handshake on. */
+  setTrusted(name: string, cert: Buffer, key: Buffer): void;
+  clearTrusted(): void;
+  handled(): NativeHandled;
+  close(deadlineMs: number): Promise<void>;
+}
+
+/** The addon's `NativeRemote` class: static, because the listener is built by `start`. */
+export interface NativeRemoteClass {
+  /** Parses the PEM as `start` will, and throws naming what is unusable. Synchronous. */
+  checkIdentity(cert: Buffer, key: Buffer): void;
+  start(
+    options: NativeRemoteStartOptions,
+    admit: (request: TransportAdmitRequest) => Promise<TransportAdmitAnswer>,
+    release: (reservation: number) => void,
+    opened: (
+      socket: NativeSocketHandle,
+      reservation: number,
+      userAgent: string | null | undefined,
+    ) => void,
+    /** An accept failure after the bind, throttled per OS code by the binding. */
+    error: (code: string, message: string, repeated: number) => void,
+  ): Promise<NativeRemoteHandle>;
 }
 
 /** The addon's `NativeLoopback` class: static, because the listener is built by `start`. */
@@ -106,6 +172,8 @@ export interface NativeLoopbackClass {
 /** What `ace-daemon-node`'s transport binding exports. */
 export interface TransportAddon {
   NativeLoopback: NativeLoopbackClass;
+  /** Present in a build of this tree; an older addon may not export it. */
+  NativeRemote?: NativeRemoteClass | undefined;
 }
 
 const library =
@@ -134,6 +202,13 @@ function isNativeLoopbackClass(value: unknown): value is NativeLoopbackClass {
     typeof statics["start"] === "function" &&
     typeof statics["underflowCount"] === "function"
   );
+}
+
+/** Whether an exported value is the addon's `NativeRemote` class, statics included. */
+function isNativeRemoteClass(value: unknown): value is NativeRemoteClass {
+  if (typeof value !== "function") return false;
+  const statics = value as unknown as Record<string, unknown>;
+  return typeof statics["checkIdentity"] === "function" && typeof statics["start"] === "function";
 }
 
 /** The fields node puts on a failed `listen`, as `bind_rejection` hands them over. */
@@ -205,6 +280,20 @@ function nodeShaped(loopback: NativeLoopbackClass): NativeLoopbackClass {
   };
 }
 
+/** The remote class with its statics kept, its start's bind failure in node's shape. */
+function remoteShaped(remote: NativeRemoteClass): NativeRemoteClass {
+  return {
+    checkIdentity: (cert, key) => remote.checkIdentity(cert, key),
+    start: async (options, admit, release, opened, error) => {
+      try {
+        return await remote.start(options, admit, release, opened, error);
+      } catch (failure) {
+        throw bindFailure(failure);
+      }
+    },
+  };
+}
+
 let loaded: TransportAddon | undefined;
 
 /**
@@ -230,22 +319,130 @@ export function transportAddon(): TransportAddon {
     throw new Error(
       `The transport addon at ${path} exports no NativeLoopback class with generateSecret, start and underflowCount; rebuild it with cargo build --release in native/daemon`,
     );
-  loaded = { NativeLoopback: nodeShaped(loopback) };
+  const remote = module.exports["NativeRemote"];
+  loaded = {
+    NativeLoopback: nodeShaped(loopback),
+    ...(isNativeRemoteClass(remote) ? { NativeRemote: remoteShaped(remote) } : {}),
+  };
   return loaded;
 }
 
 /**
- * One line of evidence that a native listener started, for a bench. `ACE_TRANSPORT_EVIDENCE`
- * names the file and nothing else reads it; the line holds no secret and no client data. A write
- * that fails is reported, never fatal: the listener it describes is already bound.
+ * The addon's `NativeRemote` class. A build of this tree has it; an older addon with only the
+ * loopback listener throws here, naming its path, before anything binds.
  */
-export function noteTransportStart(port: number): void {
+export function nativeRemoteClass(): NativeRemoteClass {
+  const remote = transportAddon().NativeRemote;
+  if (remote === undefined)
+    throw new Error(
+      `The transport addon at ${transportAddonPath()} exports no NativeRemote class; rebuild it with cargo build --release in native/daemon`,
+    );
+  return remote;
+}
+
+/** A native listener's name in the evidence file. */
+export type TransportListenerName = "loopback" | "remote";
+
+/** A set of counters, as every handled line carries them. */
+export type TransportCounts = NativeHandled;
+
+/** One live listener the evidence helper flushes (T1b.1b); never read by logic. */
+interface EvidenceListener {
+  listener: TransportListenerName;
+  port: number;
+  counts(): NativeHandled;
+  /** The counts already written for this listener, so a line holds only the change. */
+  written: NativeHandled;
+}
+
+/** Created only when `ACE_TRANSPORT_EVIDENCE` names a file. */
+let evidence: Set<EvidenceListener> | undefined;
+
+/** The evidence file, when the daemon was started to write one. */
+function evidencePath(): string | undefined {
   const path = process.env.ACE_TRANSPORT_EVIDENCE;
-  if (path === undefined || path === "") return;
+  return path === undefined || path === "" ? undefined : path;
+}
+
+/** One line appended to the evidence file; a failed write is reported, never fatal. */
+function appendEvidence(path: string, line: object): void {
   try {
-    appendFileSync(path, `${JSON.stringify({ pid: process.pid, port, backend: "native" })}\n`);
+    appendFileSync(path, `${JSON.stringify(line)}\n`);
   } catch (error) {
     warnSafely(`ACE_TRANSPORT_EVIDENCE could not be appended at ${path}: ${String(error)}`);
+  }
+}
+
+/**
+ * A native listener bound on `port` (T1b.1b). The line proves a bind and nothing else; what the
+ * listener handled is the close line's, or a `flushTransportEvidence()` line's.
+ */
+export function noteTransportStart(listener: TransportListenerName, port: number): void {
+  const path = evidencePath();
+  if (path === undefined) return;
+  appendEvidence(path, { pid: process.pid, listener, port, event: "bind", backend: "native" });
+}
+
+/**
+ * One lifecycle line for a native listener: `bind-failed` (the requested port and the OS code),
+ * `close-requested` (`bound` says whether the bind had landed) or `close` (with the counts).
+ */
+export function noteTransportEvent(
+  listener: TransportListenerName,
+  port: number,
+  event: "bind-failed" | "close-requested" | "close",
+  fields: object = {},
+): void {
+  const path = evidencePath();
+  if (path === undefined) return;
+  appendEvidence(path, { pid: process.pid, listener, port, event, backend: "native", ...fields });
+}
+
+/**
+ * Adds a live native listener to the evidence registry, so `flushTransportEvidence()` can say what
+ * it handled since its last line. Returns the function that ends it, called once it closed.
+ */
+export function registerTransportListener(
+  listener: TransportListenerName,
+  port: number,
+  counts: () => NativeHandled,
+): () => void {
+  if (evidencePath() === undefined) return () => {};
+  const entry: EvidenceListener = { listener, port, counts, written: counts() };
+  (evidence ??= new Set()).add(entry);
+  return () => {
+    evidence?.delete(entry);
+  };
+}
+
+/**
+ * Appends one `handled` line per live native listener with the counts since its last line
+ * (T1b.5's case markers call it, so traffic lands in the case that made it). Nothing happens unless
+ * `ACE_TRANSPORT_EVIDENCE` names a file.
+ */
+export function flushTransportEvidence(): void {
+  const path = evidencePath();
+  if (path === undefined || evidence === undefined) return;
+  for (const entry of evidence) {
+    const current = entry.counts();
+    const counted: NativeHandled = {
+      connections: current.connections - entry.written.connections,
+      exchanges: current.exchanges - entry.written.exchanges,
+      upgrades: current.upgrades - entry.written.upgrades,
+      trustedHandshakes: current.trustedHandshakes - entry.written.trustedHandshakes,
+      postQuantumHandshakes: current.postQuantumHandshakes - entry.written.postQuantumHandshakes,
+      deflatedOut: current.deflatedOut - entry.written.deflatedOut,
+      inflatedIn: current.inflatedIn - entry.written.inflatedIn,
+    };
+    entry.written = current;
+    appendEvidence(path, {
+      pid: process.pid,
+      listener: entry.listener,
+      port: entry.port,
+      event: "handled",
+      backend: "native",
+      ...counted,
+    });
   }
 }
 

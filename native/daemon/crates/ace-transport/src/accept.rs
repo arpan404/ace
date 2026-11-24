@@ -23,10 +23,16 @@ use crate::error::TransportError;
 use crate::limits::ConnectionLimits;
 use crate::peer::Peer;
 use crate::proxy::ProxyTarget;
+use crate::stats::Stats;
 
 /// How long an accept that failed waits before trying again, so a transient
 /// failure (file descriptors exhausted) never spins the loop.
 const ACCEPT_RETRY: Duration = Duration::from_millis(10);
+
+/// Where a listener's accept failures go after it bound (T1b.1b): the binding
+/// throttles them per OS error code. The loopback listener names no sink, as
+/// Node's loopback server has no such report today.
+pub type ErrorSink = Arc<dyn Fn(&std::io::Error) + Send + Sync>;
 
 /// The TCP connection cap when the caller has no reason to choose another.
 ///
@@ -63,6 +69,7 @@ pub(crate) struct Accepting {
     /// The close deadline, handed to the accept loop as it starts draining.
     deadline: oneshot::Sender<Duration>,
     accept: JoinHandle<()>,
+    stats: Arc<Stats>,
 }
 
 impl Accepting {
@@ -70,7 +77,9 @@ impl Accepting {
     /// `target` and handing every upgrade candidate to `upgrades`. At most
     /// `max_tcp_connections` TCP connections are held at once. `http_write`
     /// bounds the writes of an HTTP exchange; None leaves them unbounded, as
-    /// Node does on a remote connection.
+    /// Node does on a remote connection. `errors` receives every accept the OS
+    /// refused after the bind.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn start<A: Acceptor>(
         addr: SocketAddr,
         acceptor: A,
@@ -79,6 +88,8 @@ impl Accepting {
         limits: ConnectionLimits,
         http_write: Option<Duration>,
         max_tcp_connections: usize,
+        stats: Arc<Stats>,
+        errors: Option<ErrorSink>,
     ) -> Result<Self, TransportError> {
         let listener = TcpListener::bind(addr)
             .await
@@ -98,12 +109,15 @@ impl Accepting {
             closing_deadline,
             limits,
             http_write,
+            Arc::clone(&stats),
+            errors,
         ));
         Ok(Self {
             local,
             shutdown,
             deadline,
             accept,
+            stats,
         })
     }
 
@@ -111,6 +125,11 @@ impl Accepting {
     /// for 0.
     pub fn local_addr(&self) -> SocketAddr {
         self.local
+    }
+
+    /// The counters this listener has kept since it bound (T1b.1b).
+    pub fn stats(&self) -> Arc<Stats> {
+        Arc::clone(&self.stats)
     }
 
     /// Stop accepting, tell every connection and upgrade handler the listener is
@@ -154,6 +173,8 @@ async fn accept_connections<A: Acceptor>(
     closing_deadline: oneshot::Receiver<Duration>,
     limits: ConnectionLimits,
     http_write: Option<Duration>,
+    stats: Arc<Stats>,
+    errors: Option<ErrorSink>,
 ) {
     let connections = Arc::new(Mutex::new(HashMap::<u64, Connection>::new()));
     let mut tasks = JoinSet::new();
@@ -170,6 +191,7 @@ async fn accept_connections<A: Acceptor>(
                     if !acceptor.serves(&peer) {
                         continue;
                     }
+                    stats.connection();
                     let permit = match Arc::clone(&permits).try_acquire_owned() {
                         Ok(permit) => permit,
                         Err(_) => {
@@ -183,6 +205,7 @@ async fn accept_connections<A: Acceptor>(
                     let connection_shutdown = shutdown.clone();
                     let connection_acceptor = acceptor.clone();
                     let connection_limits = limits.clone();
+                    let connection_stats = Arc::clone(&stats);
                     let cancel = CancellationToken::new();
                     let grace = Grace::new();
                     let id = next;
@@ -218,6 +241,7 @@ async fn accept_connections<A: Acceptor>(
                                             grace,
                                             connection_limits,
                                             http_write,
+                                            connection_stats,
                                         ) => {}
                                     }
                                 }
@@ -226,7 +250,14 @@ async fn accept_connections<A: Acceptor>(
                         locked(&registry).remove(&id);
                     });
                 }
-                Err(_) => tokio::time::sleep(ACCEPT_RETRY).await,
+                Err(error) => {
+                    // A listener that bound still drains: an accept failure such
+                    // as `EMFILE` repeats while it lasts, so the sink throttles.
+                    if let Some(report) = &errors {
+                        report(&error);
+                    }
+                    tokio::time::sleep(ACCEPT_RETRY).await;
+                }
             },
             joined = tasks.join_next(), if !tasks.is_empty() => {
                 drop(joined);

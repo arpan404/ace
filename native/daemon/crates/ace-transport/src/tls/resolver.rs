@@ -9,6 +9,7 @@ use std::sync::{Arc, RwLock};
 use rustls::server::{ClientHello, ResolvesServerCert};
 use rustls::sign::CertifiedKey;
 
+use crate::stats::Stats;
 use crate::tls::identity::TlsIdentity;
 
 /// The certificate a handshake gets.
@@ -20,6 +21,8 @@ use crate::tls::identity::TlsIdentity;
 pub struct SniResolver {
     pinned: Arc<CertifiedKey>,
     trusted: RwLock<Option<Trusted>>,
+    /// Counts the handshakes that were served the trusted certificate (T1b.1b).
+    stats: Option<Arc<Stats>>,
 }
 
 #[derive(Debug)]
@@ -34,6 +37,17 @@ impl SniResolver {
         Self {
             pinned: pinned.key(),
             trusted: RwLock::new(None),
+            stats: None,
+        }
+    }
+
+    /// The same resolver, counting the handshakes it serves the trusted
+    /// certificate to (T1b.1b's `trustedHandshakes`).
+    pub fn with_stats(pinned: TlsIdentity, stats: Arc<Stats>) -> Self {
+        Self {
+            pinned: pinned.key(),
+            trusted: RwLock::new(None),
+            stats: Some(stats),
         }
     }
 
@@ -68,7 +82,12 @@ impl SniResolver {
             .read()
             .unwrap_or_else(|poison| poison.into_inner());
         match trusted.as_ref() {
-            Some(trusted) if trusted.name.eq_ignore_ascii_case(name) => Arc::clone(&trusted.key),
+            Some(trusted) if trusted.name.eq_ignore_ascii_case(name) => {
+                if let Some(stats) = &self.stats {
+                    stats.trusted_handshake();
+                }
+                Arc::clone(&trusted.key)
+            }
             _ => Arc::clone(&self.pinned),
         }
     }

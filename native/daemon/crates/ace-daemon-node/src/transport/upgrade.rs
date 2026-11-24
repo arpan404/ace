@@ -59,6 +59,16 @@ pub type OpenedFn = ThreadsafeFunction<
     false,
     true,
 >;
+/// `error`: an accept failure after the listener bound, its OS code, its message
+/// and how many of that code went unreported since the last line (T1b.1b).
+pub type ErrorFn = ThreadsafeFunction<
+    FnArgs<(String, String, f64)>,
+    (),
+    FnArgs<(String, String, f64)>,
+    Status,
+    false,
+    true,
+>;
 
 /// What TypeScript decided, once its word and reservation are checked.
 enum Decided {
@@ -274,6 +284,10 @@ impl SocketSink for Sinking {
         // The socket joins the close wait before the wire count lets it go, so
         // the close never sees neither.
         let socket = NativeSocketHandle::open(Arc::clone(shared), stream);
+        if let Some(stats) = shared.stats.get() {
+            // A `101` flushed and a socket exists behind it (T1b.1b).
+            stats.upgrade();
+        }
         shared.live.leave_writing();
         let _ = shared.opened.call_with_return_value(
             FnArgs::from((socket, reservation as f64, user_agent)),

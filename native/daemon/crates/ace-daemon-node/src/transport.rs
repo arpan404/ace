@@ -16,6 +16,7 @@
 #![cfg_attr(test, allow(dead_code))]
 
 mod admission;
+mod remote;
 mod socket;
 mod upgrade;
 
@@ -26,7 +27,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
 use ace_supervisor::errors::NodeIoError;
-use ace_transport::{HopSecret, LoopbackListener, ProxyTarget, WebSocketUpgrades};
+use ace_transport::{HopSecret, LoopbackListener, ProxyTarget, Stats, WebSocketUpgrades};
 use admission::{Admission, Held};
 use napi::bindgen_prelude::Object;
 use napi::threadsafe_function::ThreadsafeFunctionCallMode;
@@ -44,7 +45,7 @@ const ADMIT_TIMEOUT: Duration = Duration::from_secs(5);
 /// libuv value, node's message shape (`listen EADDRINUSE: address already in use
 /// 127.0.0.1:PORT`) and the address. The shell sets those fields on the JS error;
 /// napi's own error can carry only its status as `code`.
-fn bind_rejection(addr: SocketAddr, error: &std::io::Error) -> napi::Error {
+pub(crate) fn bind_rejection(addr: SocketAddr, error: &std::io::Error) -> napi::Error {
     let io = NodeIoError::new("listen", error);
     let message = format!("listen {}: {} {addr}", io.code(), listen_reason(error));
     let payload = serde_json::json!({
@@ -73,7 +74,7 @@ fn listen_reason(error: &std::io::Error) -> String {
 /// that carry JavaScript's answers back. The shell's thread never waits on it.
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 
-fn runtime() -> napi::Result<&'static Runtime> {
+pub(crate) fn runtime() -> napi::Result<&'static Runtime> {
     if let Some(runtime) = RUNTIME.get() {
         return Ok(runtime);
     }
@@ -112,6 +113,8 @@ pub(crate) struct Shared {
     pub(crate) live: Live,
     /// Resolves `true` at close: the promises still watched end there.
     pub(crate) stop: watch::Sender<bool>,
+    /// This listener's counters, set once it binds (T1b.1b).
+    pub(crate) stats: OnceLock<Arc<Stats>>,
 }
 
 impl Shared {
@@ -144,7 +147,7 @@ impl Shared {
 
 /// The close all `close` calls share: the first one stops the listener and waits
 /// for every socket, and the promise of each call settles on the same signal.
-struct CloseGate {
+pub(crate) struct CloseGate {
     started: Mutex<bool>,
     done: watch::Sender<bool>,
 }
@@ -280,6 +283,7 @@ impl NativeLoopback {
             runtime: runtime.handle().clone(),
             live: Live::new(),
             stop: watch::channel(false).0,
+            stats: OnceLock::new(),
         });
         let upgrades = Arc::new(WebSocketUpgrades::new(
             Arc::new(Admitting(Arc::clone(&shared))),
@@ -291,6 +295,7 @@ impl NativeLoopback {
             match LoopbackListener::bind(listen, target, upgrades).await {
                 Ok(listener) => {
                     let port = listener.local_addr().port();
+                    let _ = shared.stats.set(listener.stats());
                     let loopback = NativeLoopback {
                         inner: shared,
                         listener: Mutex::new(Some(listener)),
@@ -312,6 +317,16 @@ impl NativeLoopback {
     #[napi(catch_unwind)]
     pub fn port(&self) -> f64 {
         f64::from(self.port)
+    }
+
+    /// What this listener handled since it bound (T1b.5's evidence).
+    #[napi(catch_unwind)]
+    pub fn handled(&self) -> remote::HandledJs {
+        self.inner
+            .stats
+            .get()
+            .map(|stats| remote::HandledJs::from(stats.counts()))
+            .unwrap_or_else(|| remote::HandledJs::from(ace_transport::Counts::default()))
     }
 
     /// Stops accepting, abandons what is still deciding at the deadline, and
@@ -377,14 +392,14 @@ fn addr(value: f64, name: &str, any_port: bool) -> napi::Result<SocketAddr> {
 }
 
 /// `admitTimeoutMs`, with the shell's 5,000 when it names none.
-fn admit_timeout(milliseconds: f64) -> Duration {
+pub(crate) fn admit_timeout(milliseconds: f64) -> Duration {
     if !milliseconds.is_finite() || milliseconds <= 0.0 {
         return ADMIT_TIMEOUT;
     }
     Duration::from_millis(milliseconds as u64)
 }
 
-fn deadline(milliseconds: f64) -> u64 {
+pub(crate) fn deadline(milliseconds: f64) -> u64 {
     if !milliseconds.is_finite() || milliseconds <= 0.0 {
         return 0;
     }

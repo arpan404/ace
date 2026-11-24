@@ -20,9 +20,11 @@ pub mod prefixed;
 pub mod proxy;
 pub mod remote;
 pub mod socket;
+pub mod stats;
 pub mod tls;
 pub mod upgrade;
 
+pub use accept::ErrorSink;
 pub use conn_io::ConnIo;
 pub use driver::{Grace, RefuseUpgrades, UpgradeHandler, UpgradeIo, UpgradeReply};
 pub use error::TransportError;
@@ -35,6 +37,7 @@ pub use prefixed::{Prefixed, TimedIo};
 pub use proxy::ProxyTarget;
 pub use remote::RemoteListener;
 pub use socket::{SendResult, SocketEvent, SocketEvents, SocketHandle, underflow_count};
+pub use stats::{Counts, Stats};
 pub use tls::{SniResolver, TlsIdentity, process_provider};
 pub use upgrade::{
     AdmissionDecision, AdmissionOutcome, SocketSink, UpgradeAdmission, UpgradeRequest,

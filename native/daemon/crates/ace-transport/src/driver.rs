@@ -31,6 +31,7 @@ use crate::prefixed::{Prefixed, TimedIo, WriteTimeout};
 use crate::proxy::{
     ConnectionState, ExchangeDeadline, ProxyService, ProxyTarget, RequestActivity, Stop,
 };
+use crate::stats::Stats;
 
 /// Whether a connection may still be cancelled by the close deadline.
 ///
@@ -164,6 +165,7 @@ pub(crate) async fn serve(
     grace: Grace,
     limits: ConnectionLimits,
     http_write: Option<Duration>,
+    stats: Arc<Stats>,
 ) {
     let mut buf = Vec::with_capacity(1024);
     let read = tokio::select! {
@@ -208,6 +210,7 @@ pub(crate) async fn serve(
         limits,
         write,
         first_target,
+        stats,
     )
     .await;
 }
@@ -223,6 +226,7 @@ async fn serve_hyper(
     limits: ConnectionLimits,
     write: WriteTimeout,
     first_target: String,
+    stats: Arc<Stats>,
 ) {
     let activity = RequestActivity::new();
     let deadlines = ExchangeDeadline::new();
@@ -241,6 +245,7 @@ async fn serve_hyper(
             write,
             upgrade_write: limits.upgrade_write,
             first_target: Some(first_target),
+            stats,
         },
     );
 

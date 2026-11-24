@@ -25,7 +25,6 @@ import { hostedWebOrigin, webOriginAllowlist } from "./web-origins.ts";
 import { PreAuthAdmission } from "./socket-admission.ts";
 import { activeDevice, allows, type SessionActor } from "./devices.ts";
 import { RemoteAuth } from "./remote-auth.ts";
-import { urlHost } from "./network.ts";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 import {
   APP_SOCKET_HEADER,
@@ -53,9 +52,12 @@ import { proxyGuard } from "./proxy-guard.ts";
 import { transportAddon } from "@ace/provider-kit/native-transport";
 import { transportParts } from "@ace/provider-kit/native-switches";
 import {
-  startNativeLoopback,
-  unwindNativeLoopback,
-  type StartedNativeLoopback,
+  closeNativeSockets,
+  nativeListenerStages,
+  shutdownNativeListeners,
+  startNativeListeners,
+  unwindNativeListeners,
+  type StartedNativeListeners,
 } from "./native-listeners.ts";
 import { startMachineTunnel } from "./machine-tunnel/wiring.ts";
 import { createSocketCloser } from "./server-socket-close.ts";
@@ -257,10 +259,8 @@ export async function startServer(options: ServerOptions): Promise<{
     if (!account?.status().signedIn) return undefined;
     return account.deviceGrant(deviceId, signal);
   };
-  // The native loopback listener (ADR 0226, T1a.7) takes the public port and proxies HTTP to the
-  // internal `node:http` server below. The hop secret is this boot's, from the OS CSPRNG, held
-  // only in memory and passed back to the listener; with the switch off nothing here runs.
   const nativeLoopback = transportParts().has("loopback");
+  const nativeRemote = transportParts().has("remote") && options.remote !== undefined;
   const hopSecret = nativeLoopback ? transportAddon().NativeLoopback.generateSecret() : undefined;
   const { local, remoteHttp } = httpChains(
     options,
@@ -270,9 +270,10 @@ export async function startServer(options: ServerOptions): Promise<{
     () => preview,
     hopSecret === undefined ? undefined : (chain) => proxyGuard(hopSecret, chain),
   );
-  const remote = options.remote
-    ? httpsServer({ ...options.remote.identity, minVersion: "TLSv1.2" }, remoteHttp())
-    : undefined;
+  const remote =
+    options.remote && !nativeRemote
+      ? httpsServer({ ...options.remote.identity, minVersion: "TLSv1.2" }, remoteHttp())
+      : undefined;
   for (const listener of [local, remote])
     if (listener) {
       listener.requestTimeout = 0;
@@ -296,7 +297,7 @@ export async function startServer(options: ServerOptions): Promise<{
         ),
       )
     ).find((error) => error !== undefined);
-  const remoteSockets = new Set<WebSocket>();
+  const remoteSockets = new Set<MainSocket>();
   const preAuth = new PreAuthAdmission(options.preAuth ?? {}, runtime.delay);
   // The machine's localhost for devices (ADR 0194): idle until a tunnel connection comes. It
   // starts before any listener binds, so each one is held as ace's from its bind.
@@ -1263,16 +1264,16 @@ export async function startServer(options: ServerOptions): Promise<{
    * The native listener's admission, release and registration (ADR 0226, T1a.5/T1a.7). Created
    * always, so nothing branches at startup; it is only handed to a listener under the switch.
    */
-  const upgrades = nativeUpgrade({
-    wss,
+  /** What both native listeners' admission shares: the budget, the port, the one cap. */
+  const admission = {
     preAuth,
     allowedOrigins: access.allowedOrigins,
     servesRenderer: options.webRoot !== undefined,
     publicPort: () => nativePublicPort,
     draining: () => nativeDraining,
     full: () => cleanups.size + preAuth.reserved >= 256,
-    sockets: nativeSockets,
-  });
+  };
+  const upgrades = nativeUpgrade({ ...admission, kind: "local", wss, sockets: nativeSockets });
   const stopTimer = runtime.every(
     () => {
       for (const tick of ticks.values()) {
@@ -1290,32 +1291,40 @@ export async function startServer(options: ServerOptions): Promise<{
     Math.max(10, Math.min(1000, (options.idleTimeoutMs ?? 60_000) / 2)),
   );
   let port: number;
-  let native: StartedNativeLoopback | undefined;
+  let listeners: StartedNativeListeners | undefined;
   let internalHttpUrl: string | undefined;
   let transports: Awaited<ReturnType<typeof startTransports>> | undefined;
   let remoteStarted = { direct: Promise.resolve(), networks: Promise.resolve() };
   try {
-    // Internal first, then the native listener in the public port's place (T1a.7).
-    if (hopSecret === undefined) {
-      port = await bind(local, "127.0.0.1", options.port);
-    } else {
-      // Known before Rust accepts; a `0` port is refused until recorded below (T1a.7).
-      nativePublicPort = options.port;
-      native = await startNativeLoopback({
-        port: options.port,
-        bindInternal: () => bind(local, "127.0.0.1", 0),
-        hopSecret,
-        upgrades,
-        holdPort: (bound) => tunnel.hold(bound),
-      });
-      port = native.port;
-      nativePublicPort = port;
-      internalHttpUrl = native.internalHttpUrl;
-    }
-    if (remote && options.remote) {
-      const remotePort = await bind(remote, options.remote.host, options.remote.port);
-      remoteOrigin = `https://${urlHost(options.remote.advertisedHost)}:${remotePort}`;
-    }
+    // The internal server first, then the public listeners, native or TypeScript (T1a.7, T1b.1b).
+    const remoteConfig = options.remote;
+    listeners = await startNativeListeners({
+      port: options.port,
+      hopSecret,
+      bindLocal: (wanted) => bind(local, "127.0.0.1", wanted),
+      loopbackUpgrades: upgrades,
+      publicPort: (bound) => {
+        nativePublicPort = bound;
+      },
+      tunnel,
+      sockets: remoteSockets,
+      ...(remoteConfig === undefined
+        ? {}
+        : {
+            remote: {
+              ...remoteConfig,
+              native: nativeRemote,
+              requests: remoteHttp(),
+              admission,
+              wss: remoteWss,
+              ...(remote === undefined
+                ? {}
+                : { bind: () => bind(remote, remoteConfig.host, remoteConfig.port) }),
+              log: (error) => options.log?.(error),
+            },
+          }),
+    });
+    ({ port, internalHttpUrl, remoteOrigin } = listeners);
     transports = options.remoteConfig
       ? await startLocalTransports(options)
       : await startTransports(options, auth);
@@ -1352,7 +1361,7 @@ export async function startServer(options: ServerOptions): Promise<{
         () => options.machineAccount?.accessOrg() !== undefined,
       );
   } catch (error) {
-    if (native !== undefined) nativeDraining = true;
+    if (listeners?.loopback !== undefined) nativeDraining = true;
     stopTimer();
     await dynamicRemote?.close();
     await transports?.close();
@@ -1366,13 +1375,12 @@ export async function startServer(options: ServerOptions): Promise<{
     stopAccountChange?.();
     void orgHost?.close();
     registrySigner?.stop();
-    if (native !== undefined) {
-      // Native first: 1001 and bounded terminate, then drain, then the internal server (T1a.7).
-      await unwindNativeLoopback(
-        native,
-        () => {
-          for (const socket of nativeSockets) closer.gracefulClose(socket, 1001, "Daemon shutdown");
-        },
+    if (listeners !== undefined) {
+      // Native first: 1001 and bounded terminate, then drain, then the internal servers (T1a.7).
+      await unwindNativeListeners(
+        listeners,
+        [nativeSockets, remoteSockets],
+        (socket) => closer.gracefulClose(socket, 1001, "Daemon shutdown"),
         () => preAuth.releaseAll(),
       );
     }
@@ -1436,27 +1444,25 @@ export async function startServer(options: ServerOptions): Promise<{
         machineUpdates?.close();
         for (const cleanup of cleanups.values()) cleanup();
         for (const socket of relaySockets) closer.gracefulClose(socket, 1001, "Daemon shutdown");
-        for (const socket of nativeSockets) closer.gracefulClose(socket, 1001, "Daemon shutdown");
+        closeNativeSockets([nativeSockets, remoteSockets], (socket) =>
+          closer.gracefulClose(socket, 1001, "Daemon shutdown"),
+        );
         for (const server of servers)
           for (const socket of server.clients) {
             closer.gracefulClose(socket, 1001, "Daemon shutdown");
           }
         // Stop accepting first, then drain: the internal server closes after the native listener.
-        const nativeClosing = native?.close(TRANSPORT_CLOSE_DEADLINE_MS);
-        const nativeDone = nativeClosing?.finally(() => {
-          // A late acceptance that reached Rust after it stopped watching is still ours:
-          // nothing stays charged through teardown.
-          preAuth.releaseAll();
-        });
+        const nativeClosing = shutdownNativeListeners(
+          { loopback: listeners?.loopback, remote: listeners?.remote },
+          TRANSPORT_CLOSE_DEADLINE_MS,
+          () => preAuth.releaseAll(),
+        );
         void Promise.all([
-          stage("native listener", nativeDone),
-          stage(
-            "local listener",
-            nativeDone === undefined
-              ? closeListener(local)
-              : nativeDone.finally(() => closeListener(local)),
-          ),
-          ...(remote ? [stage("remote listener", closeListener(remote))] : []),
+          ...nativeListenerStages(
+            nativeClosing,
+            () => closeListener(local),
+            remote === undefined ? undefined : () => closeListener(remote),
+          ).map(([name, task]) => stage(name, task)),
           stage("preview", preview?.close()),
           stage("transports", transports?.close()),
           stage("dynamic remote", dynamicRemote?.close()),
@@ -1468,6 +1474,7 @@ export async function startServer(options: ServerOptions): Promise<{
             for (const socket of server.clients)
               closer.gracefulClose(socket, 1001, "Daemon shutdown");
           for (const socket of nativeSockets) closer.gracefulClose(socket, 1001, "Daemon shutdown");
+          for (const socket of remoteSockets) closer.gracefulClose(socket, 1001, "Daemon shutdown");
           return stage("socket servers", closeServers()).then((error) => {
             void shutdownDeadline(
               "Socket tasks",
