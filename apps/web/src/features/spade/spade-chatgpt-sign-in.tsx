@@ -312,9 +312,10 @@ function FlowState(props: { flow: SpadeSignInFlow; machine: string }) {
                 className={buttonVariants({ variant: "primary", size: "lg" })}
                 onClick={(event) => {
                   event.preventDefault();
-                  const next = () => openPage(flow.url ?? "");
-                  if (flow.userCode) void copyCode(flow.userCode).finally(next);
-                  else next();
+                  // The tab opens inside the click, before the clipboard can outlive the
+                  // browser's user activation; copying the code does not wait on it either way.
+                  openPage(flow.url ?? "");
+                  if (flow.userCode) void copyCode(flow.userCode);
                 }}
               >
                 Copy code and open sign-in page
