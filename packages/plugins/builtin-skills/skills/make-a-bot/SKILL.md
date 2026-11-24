@@ -1,6 +1,6 @@
 ---
 name: make-a-bot
-description: Write a Spade bot as an agent package the person can install, test offline and publish, with ace bot init, check, test, dev and publish.
+description: Write a Spade bot as an agent package the person can install and test offline, with ace bot init, check, dev and publish.
 ---
 
 # Make a bot
