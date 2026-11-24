@@ -43,6 +43,13 @@ export async function publishTemplate(
   names: readonly string[],
 ): Promise<MarketResult> {
   const { id, review } = operation;
+  if (
+    privateText(
+      [review.name, review.description, review.task, review.routines, review.notes],
+      names,
+    )
+  )
+    return marketError("invalid", "The template contains private text. Remove it before sharing.");
   const draft = await port.authorize(id, review);
   if (
     privateText(draft.recipe, names) ||

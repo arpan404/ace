@@ -165,6 +165,20 @@ test("an agent and an unproven caller cannot publish a template", async () => {
   }
 });
 
+test("the signed-in person's name is refused before a reviewed draft uploads", async () => {
+  const request = operation("listed");
+  if (request.op !== "publishTemplate") throw new Error("Expected a template publication.");
+  request.review.task = "Send the summary to Ada Example.";
+  expect(
+    await harness.service.request(request, {
+      withoutPerson: false,
+      names: ["Ada Example"],
+      grant: async () => "test-market-grant",
+    }),
+  ).toMatchObject({ op: "error", code: "invalid" });
+  expect(market.seen).toEqual([]);
+});
+
 test.each(["listed", "unlisted"] as const)(
   "a person creates a %s listing and the signed link follows install review",
   async (visibility) => {

@@ -4,7 +4,7 @@ import type {
   MarketOperation,
   MarketResult,
 } from "@ace/protocol/marketplace";
-import { entryKey, search, verifyManifest, type FeedEntry } from "@ace/marketplace";
+import { entryKey, readFeedEntry, search, verifyManifest, type FeedEntry } from "@ace/marketplace";
 import { EntryBody, VersionBody, type MarketKeySet } from "@ace/protocol/marketplace";
 import { offeredUpdate } from "@ace/ui-core/market";
 import type { MarketHttp } from "./http.ts";
@@ -170,9 +170,10 @@ export async function readEntry(
     try {
       const page = EntryBody.safeParse(await http.entry(type, name));
       if (page.success) {
-        const direct = page.data.entry;
+        const direct = readFeedEntry(page.data.entry);
         if (
           !shown &&
+          !("problem" in direct) &&
           direct.type === type &&
           direct.name === name &&
           (await verifyListed(store, http, ports.keys, direct))
