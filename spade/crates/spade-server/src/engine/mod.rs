@@ -319,6 +319,8 @@ pub struct Engine {
     wakes: wakes::Shared,
     /// Bots' owned services (ADR 0160), once the server has set them.
     services: std::sync::OnceLock<Arc<crate::services::Services>>,
+    /// Bots' workspaces (ADR 0130), once the server has set them.
+    workspaces: std::sync::OnceLock<crate::workspace::Workspaces>,
     /// Bots' sandbox, network policies and grants (ADR 0167), once the server has set them.
     security: std::sync::OnceLock<Arc<crate::security::Security>>,
     /// Where ace's daemon keeps the person's key, for a Spade run without its security service
@@ -483,6 +485,7 @@ impl Engine {
             lanes: lanes::Shared::default(),
             wakes: wakes::Shared::default(),
             services: std::sync::OnceLock::new(),
+            workspaces: std::sync::OnceLock::new(),
             security: std::sync::OnceLock::new(),
             person_key: std::sync::OnceLock::new(),
             code: std::sync::OnceLock::new(),

@@ -516,12 +516,25 @@ impl Engine {
         self.helpers.changed.notify_waiters();
     }
 
-    /// The helpers' conversations of a bot being deleted, so nothing is delivered to them.
+    /// The helpers' and lanes' conversations of a bot being deleted (including any helpers
+    /// nested under a lane), so nothing is delivered to them and their `web_fetch` index entries
+    /// are pruned together.
     pub(super) fn helper_conversations(&self, bot: &str) -> Vec<String> {
-        self.store
-            .helpers_of(bot)
-            .map(|helpers| helpers.into_iter().map(|h| h.conversation).collect())
-            .unwrap_or_default()
+        let mut all = Vec::new();
+        let mut queue = std::collections::VecDeque::from([bot.to_owned()]);
+        let mut seen = std::collections::HashSet::from([bot.to_owned()]);
+        while let Some(parent) = queue.pop_front() {
+            let Ok(helpers) = self.store.helpers_of(&parent) else {
+                continue;
+            };
+            for helper in helpers {
+                if seen.insert(helper.conversation.clone()) {
+                    all.push(helper.conversation.clone());
+                    queue.push_back(helper.conversation);
+                }
+            }
+        }
+        all
     }
 
     /// Asks the person about a helper's call: stored in the helper's conversation (where its

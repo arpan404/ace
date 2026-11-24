@@ -831,6 +831,9 @@ impl Spade {
             engine.set_profile_source(plugins.clone());
             engine.set_plugins(plugins);
         }
+        if let Some(workspaces) = &options.workspaces {
+            engine.set_workspaces(workspaces.clone());
+        }
         let state = AppState {
             engine: engine.clone(),
             token: TOKEN.into(),

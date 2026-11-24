@@ -1,19 +1,22 @@
 //! `web_fetch`: reads a web page or PDF as readable text (`spade-fetch`), saves an immutable
-//! snapshot to the bot's workspace (`web/<host>-<url-hash>-<content-hash>.md`) without ever
-//! clobbering non-fetch files, and returns a compact bounded handle (title, URL, total length,
-//! saved path, heading outline with character offsets, and the first ~4,000 characters).
+//! snapshot to the bot's workspace (`web/<host>-<url-hash>-<content-hash>.md`) atomically and
+//! without ever clobbering non-fetch files, and returns a compact bounded handle (title, URL,
+//! total length, saved path, heading outline with character offsets, and the first ~4,000
+//! characters).
 //!
-//! Each conversation's URL-to-snapshot mapping is persisted outside the bot's workspace folder
-//! (under `<workspaces>/.web-fetch/<bot>.json`) so follow-up `offset` (including `offset: 0`) and
-//! `query` calls reuse the exact immutable snapshot even across restarts or concurrent fetches.
+//! Each conversation's URL-to-snapshot mapping (with full SHA-256 digest) is persisted outside
+//! the bot's workspace folder under `<workspaces>/.web-fetch/<bot>.json` via a no-follow
+//! capability directory handle, bounded in both entry count and bytes. Follow-up `offset`
+//! (including `offset: 0`) and `query` calls reuse the immutable snapshot only when its digest
+//! still matches; any cache miss (missing, evicted, or modified snapshot) refetches a fresh copy
+//! into a new snapshot.
 //!
 //! Its output is untrusted and saved snapshots are never added to the workspace trust allowlist,
 //! so both direct/cached `web_fetch` calls and later workspace reads/searches taint the turn.
 
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use spade_core::tools::{Risk, ToolDef};
 use spade_core::web_fetch::{
@@ -24,72 +27,17 @@ use spade_fetch::Fetcher;
 use spade_models::ToolSpec;
 
 use super::{EngineHandle, Tool, ToolFuture, ToolOutput, parse};
-use crate::workspace::{LARGEST_TEXT, PathError, Workspace, Workspaces};
+use crate::workspace::web_fetch_index::{self, MAX_INDEX_ENTRIES};
+use crate::workspace::{LARGEST_TEXT, PathError, Workspace, Workspaces, trust};
 
-/// Most `(conversation, canonical_url) -> snapshot_path` entries persisted per bot.
-const MAX_INDEX_ENTRIES: usize = 512;
 /// Most alternate candidate names tried if unrelated files already occupy snapshot paths.
 const MAX_SAVE_ATTEMPTS: usize = 64;
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-struct PersistedIndex {
-    #[serde(default)]
-    entries: Vec<IndexEntry>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct IndexEntry {
-    conversation: String,
-    url: String,
-    path: String,
-}
-
-impl PersistedIndex {
-    fn load(path: &Path) -> Self {
-        std::fs::read_to_string(path)
-            .ok()
-            .and_then(|raw| serde_json::from_str(&raw).ok())
-            .unwrap_or_default()
-    }
-
-    fn get(&self, conversation: &str, url: &str) -> Option<String> {
-        self.entries
-            .iter()
-            .rev()
-            .find(|e| e.conversation == conversation && e.url == url)
-            .map(|e| e.path.clone())
-    }
-
-    fn record(&mut self, conversation: &str, urls: &[String], snapshot: &str) {
-        for url in urls {
-            self.entries
-                .retain(|e| !(e.conversation == conversation && e.url == *url));
-            self.entries.push(IndexEntry {
-                conversation: conversation.to_owned(),
-                url: url.clone(),
-                path: snapshot.to_owned(),
-            });
-        }
-        if self.entries.len() > MAX_INDEX_ENTRIES {
-            let excess = self.entries.len() - MAX_INDEX_ENTRIES;
-            self.entries.drain(0..excess);
-        }
-    }
-
-    fn save(&self, path: &Path) {
-        let written = serde_json::to_string(self)
-            .map_err(std::io::Error::other)
-            .and_then(|text| crate::atomic::write_whole(path, &text));
-        if let Err(error) = written {
-            tracing::warn!(%error, "web_fetch snapshot index was not written");
-        }
-    }
-}
 
 pub struct WebFetch {
     fetcher: Arc<Fetcher>,
     workspaces: Option<Workspaces>,
     bots: Option<EngineHandle>,
+    max_index_entries: usize,
 }
 
 impl WebFetch {
@@ -99,6 +47,7 @@ impl WebFetch {
             fetcher,
             workspaces: None,
             bots: None,
+            max_index_entries: MAX_INDEX_ENTRIES,
         }
     }
 
@@ -110,16 +59,22 @@ impl WebFetch {
         self
     }
 
+    /// Overrides the per-bot snapshot index row cap. Tests only.
+    #[cfg(feature = "test-hooks")]
+    #[must_use]
+    pub fn with_max_index_entries(mut self, max: usize) -> Self {
+        self.max_index_entries = max.max(1);
+        self
+    }
+
     fn target(&self, key: &str) -> Option<SaveTarget> {
         let workspaces = self.workspaces.as_ref()?;
         let bots = self.bots.as_ref()?;
         let bot = bots.agent_for_key(key)?;
         let workspace = workspaces.of(&bot).ok()?;
-        let index_path = workspaces.web_fetch_index(&bot).ok()?;
         Some(SaveTarget {
             bot,
             workspace,
-            index_path,
             bots: bots.clone(),
         })
     }
@@ -128,7 +83,6 @@ impl WebFetch {
 struct SaveTarget {
     bot: String,
     workspace: Workspace,
-    index_path: PathBuf,
     bots: EngineHandle,
 }
 
@@ -152,7 +106,9 @@ impl Tool for WebFetch {
                               offsets, and the first ~4,000 characters. Read the outline and pull \
                               specific sections with `offset` (including 0) or matching passages \
                               with `query` (or use workspace_read/workspace_search on the saved \
-                              file) instead of re-fetching; omit both to fetch a fresh copy."
+                              file) instead of re-fetching; if no verified saved snapshot exists \
+                              (cache miss, eviction, or modified file) it refetches a fresh copy. \
+                              Omit both `offset` and `query` to force a fresh fetch."
                     .to_owned(),
                 schema: json!({
                     "type": "object",
@@ -182,6 +138,7 @@ impl Tool for WebFetch {
         let fetcher = self.fetcher.clone();
         let target = self.target(key);
         let conversation = super::bots::caller(key).to_owned();
+        let max_index_entries = self.max_index_entries;
 
         Box::pin(async move {
             let args: Args = match parse(arguments) {
@@ -199,12 +156,12 @@ impl Tool for WebFetch {
             let canonical_req = canonical_url(&args.url);
 
             // Follow-up offset (including explicit 0) or query calls reuse this conversation's
-            // persisted immutable snapshot off the async runtime without re-fetching.
+            // persisted immutable snapshot off the async runtime only when its SHA-256 matches;
+            // any cache miss (absent, evicted, or edited snapshot) falls through to refetch.
             if reuse_saved
                 && let Some(target) = &target
                 && let Some(rendered) = load_and_render_saved(
                     target.workspace.clone(),
-                    target.index_path.clone(),
                     conversation.clone(),
                     canonical_req.clone(),
                     offset,
@@ -226,14 +183,13 @@ impl Tool for WebFetch {
                         text: fetched.text,
                     };
                     let (rendered, changed_path) = save_and_render(
-                        target
-                            .as_ref()
-                            .map(|t| (t.workspace.clone(), t.index_path.clone())),
+                        target.as_ref().map(|t| t.workspace.clone()),
                         conversation,
                         canonical_req,
                         page,
                         offset,
                         query,
+                        max_index_entries,
                     )
                     .await;
                     if let (Some(target), Some(path)) = (target, changed_path)
@@ -276,25 +232,34 @@ fn render(
     }
 }
 
-/// Loads this conversation's persisted immutable snapshot and renders the requested window or
-/// query on a blocking worker thread so extraction/ranking never ties up an async worker.
+/// Loads this conversation's persisted immutable snapshot, verifies its full SHA-256 content
+/// digest, and renders the requested window or query on a blocking worker thread. Returns `None`
+/// on any cache miss (missing, evicted, symlinked, or edited file) so the caller refetches.
 async fn load_and_render_saved(
     workspace: Workspace,
-    index_path: PathBuf,
     conversation: String,
     canonical_req: String,
     offset: usize,
     query: Option<String>,
 ) -> Option<String> {
     tokio::task::spawn_blocking(move || {
-        let saved_path = workspace.changing(|| {
-            let index = PersistedIndex::load(&index_path);
-            index.get(&conversation, &canonical_req)
-        })?;
+        let (saved_path, expected_sha256) = match workspace
+            .changing(|| web_fetch_index::get_unlocked(&workspace, &conversation, &canonical_req))
+        {
+            Ok(Some(found)) => found,
+            Ok(None) => return None,
+            Err(error) => {
+                tracing::warn!(%error, "web_fetch snapshot index could not be opened");
+                return None;
+            }
+        };
         if !workspace.plain_file(&saved_path) {
             return None;
         }
         let raw = workspace.text(&saved_path).ok()?;
+        if trust::hash(raw.as_bytes()) != expected_sha256 {
+            return None;
+        }
         let page = parse_saved(&raw)?;
         Some(render(&page, Some(&saved_path), offset, query.as_deref()))
     })
@@ -303,16 +268,18 @@ async fn load_and_render_saved(
     .flatten()
 }
 
-/// Formats, saves (without clobbering non-fetch files), updates the persisted conversation index,
-/// and renders the tool result on a blocking worker thread.
+/// Formats, saves atomically (without clobbering non-fetch files), updates the persisted
+/// conversation index (with full SHA-256 digest and eviction cleanup), and renders the tool
+/// result on a blocking worker thread.
 /// Returns `(rendered_output, newly_created_path)`.
 async fn save_and_render(
-    storage: Option<(Workspace, PathBuf)>,
+    storage: Option<Workspace>,
     conversation: String,
     canonical_req: String,
     mut page: SavedPage,
     offset: usize,
     query: Option<String>,
+    max_index_entries: usize,
 ) -> (String, Option<String>) {
     let fallback_page = page.clone();
     let fallback_query = query.clone();
@@ -320,13 +287,14 @@ async fn save_and_render(
         let mut saved_path = None;
         let mut created_path = None;
 
-        if let Some((workspace, index_path)) = storage {
+        if let Some(workspace) = storage {
             let max_bytes = usize::try_from(LARGEST_TEXT).unwrap_or(4 * 1024 * 1024);
             let (formatted, capped) = format_saved(&page, max_bytes);
             if capped && let Some(parsed) = parse_saved(&formatted) {
                 page.text = parsed.text;
                 page.truncated = true;
             }
+            let sha256 = trust::hash(formatted.as_bytes());
             let canonical_final = canonical_url(&page.url);
             let mut urls = vec![canonical_req];
             if canonical_final != urls[0] {
@@ -336,9 +304,16 @@ async fn save_and_render(
             let save_result = workspace.changing(|| {
                 let (path, created) =
                     create_immutable_snapshot(&workspace, &page.url, &formatted, max_bytes)?;
-                let mut index = PersistedIndex::load(&index_path);
-                index.record(&conversation, &urls, &path);
-                index.save(&index_path);
+                if let Err(error) = web_fetch_index::record_unlocked(
+                    &workspace,
+                    &conversation,
+                    &urls,
+                    &path,
+                    &sha256,
+                    max_index_entries,
+                ) {
+                    tracing::warn!(%error, "web_fetch snapshot index was not written");
+                }
                 Ok::<(String, bool), PathError>((path, created))
             });
 
@@ -402,15 +377,13 @@ fn create_immutable_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::workspace::web_fetch_index::MAX_INDEX_BYTES;
 
     #[tokio::test]
     async fn two_conversations_sharing_one_bot_workspace_page_their_own_immutable_snapshots() {
         let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
         let workspaces = Workspaces::new(dir.path().join("workspace"));
         let ws = workspaces.of("bot_1").unwrap_or_else(|e| panic!("{e}"));
-        let index = workspaces
-            .web_fetch_index("bot_1")
-            .unwrap_or_else(|e| panic!("{e}"));
         let url = "https://example.com/live";
 
         let page_v1 = SavedPage {
@@ -431,32 +404,31 @@ mod tests {
         };
 
         let (_, created_v1) = save_and_render(
-            Some((ws.clone(), index.clone())),
+            Some(ws.clone()),
             "conv_a".to_owned(),
             canonical_url(url),
             page_v1,
             0,
             None,
+            MAX_INDEX_ENTRIES,
         )
         .await;
         let (_, created_v2) = save_and_render(
-            Some((ws.clone(), index.clone())),
+            Some(ws.clone()),
             "conv_b".to_owned(),
             canonical_url(url),
             page_v2,
             0,
             None,
+            MAX_INDEX_ENTRIES,
         )
         .await;
         assert!(created_v1.is_some());
         assert!(created_v2.is_some());
         assert_ne!(created_v1, created_v2);
 
-        // Both conversations share the same bot workspace + index file, yet each pages its own
-        // immutable snapshot (including explicit offset 0 and offset 4000).
         let a_tail = load_and_render_saved(
             ws.clone(),
-            index.clone(),
             "conv_a".to_owned(),
             canonical_url(url),
             4_000,
@@ -466,7 +438,6 @@ mod tests {
         .unwrap_or_else(|| panic!("conv_a snapshot missing"));
         let b_tail = load_and_render_saved(
             ws.clone(),
-            index.clone(),
             "conv_b".to_owned(),
             canonical_url(url),
             4_000,
@@ -474,15 +445,76 @@ mod tests {
         )
         .await
         .unwrap_or_else(|| panic!("conv_b snapshot missing"));
-        let a_zero =
-            load_and_render_saved(ws, index, "conv_a".to_owned(), canonical_url(url), 0, None)
-                .await
-                .unwrap_or_else(|| panic!("conv_a offset 0 missing"));
+        let a_zero = load_and_render_saved(ws, "conv_a".to_owned(), canonical_url(url), 0, None)
+            .await
+            .unwrap_or_else(|| panic!("conv_a offset 0 missing"));
 
         assert!(a_tail.contains("V1_END"), "{a_tail}");
         assert!(!a_tail.contains("V2_END"));
         assert!(b_tail.contains("V2_END"), "{b_tail}");
         assert!(!b_tail.contains("V1_END"));
         assert!(a_zero.contains("alpha alpha"), "{a_zero}");
+    }
+
+    #[tokio::test]
+    async fn oversized_index_file_is_treated_as_empty_and_rebuilt_within_byte_bound() {
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let workspaces = Workspaces::new(dir.path().join("workspace"));
+        let ws = workspaces.of("bot_1").unwrap_or_else(|e| panic!("{e}"));
+
+        // Plant a >1 MiB index file on disk.
+        let index_dir = workspaces.root().join(".web-fetch");
+        std::fs::create_dir_all(&index_dir).unwrap_or_else(|e| panic!("{e}"));
+        let index_file = index_dir.join("bot_1.json");
+        let huge = format!(
+            "{{\"entries\":[{{\"conversation\":\"c\",\"url\":\"{}\",\"path\":\"web/x.md\",\"sha256\":\"aa\"}}]}}",
+            "a".repeat(MAX_INDEX_BYTES + 1024)
+        );
+        std::fs::write(&index_file, huge).unwrap_or_else(|e| panic!("{e}"));
+
+        // Lookup refuses to load the oversized file (cache miss).
+        let miss = load_and_render_saved(
+            ws.clone(),
+            "c".to_owned(),
+            "https://example.com/x".to_owned(),
+            0,
+            None,
+        )
+        .await;
+        assert!(miss.is_none());
+
+        // Saving a page with a huge URL rebuilds the index within the byte bound.
+        let huge_url = format!("https://example.com/{}", "q".repeat(10_000));
+        let page = SavedPage {
+            url: huge_url.clone(),
+            title: Some("Huge".to_owned()),
+            content_type: "text/html".to_owned(),
+            pages: None,
+            truncated: false,
+            text: "Bounded body.".to_owned(),
+        };
+        let (_, created) = save_and_render(
+            Some(ws.clone()),
+            "c".to_owned(),
+            canonical_url(&huge_url),
+            page,
+            0,
+            None,
+            MAX_INDEX_ENTRIES,
+        )
+        .await;
+        assert!(created.is_some());
+
+        let meta = std::fs::metadata(&index_file).unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            meta.len() < 4_096,
+            "rebuilt index should be tiny, got {}",
+            meta.len()
+        );
+
+        let loaded = load_and_render_saved(ws, "c".to_owned(), canonical_url(&huge_url), 0, None)
+            .await
+            .unwrap_or_else(|| panic!("rebuilt index should serve huge_url"));
+        assert!(loaded.contains("Bounded body."), "{loaded}");
     }
 }

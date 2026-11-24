@@ -27,6 +27,7 @@ mod shell_tool;
 mod tools;
 pub mod trust;
 mod walk;
+pub(crate) mod web_fetch_index;
 
 pub use identity::Identity;
 pub use installed::SKILLS_FOLDER;
@@ -188,32 +189,63 @@ impl Workspaces {
         Ok(python::runtime_of(&self.root, bot))
     }
 
-    /// Path to the bot's persisted `web_fetch` snapshot index, outside its workspace folder.
-    pub fn web_fetch_index(&self, bot: &str) -> Result<PathBuf, PathError> {
-        self.of(bot)?;
-        Ok(self.root.join(WEB_INDEX_DIR).join(format!("{bot}.json")))
+    /// Opens `<workspaces>/.web-fetch` through a no-follow `cap-std` directory handle (creating
+    /// it if missing). Refuses a symlinked `.web-fetch` as [`PathError::Outside`].
+    pub fn web_fetch_dir(&self) -> Result<Dir, PathError> {
+        web_fetch_index::open_dir(&self.root)
     }
 
-    /// Deletes the bot's workspace, everything in it, its trust record and its Python runtime.
+    /// Prunes `web_fetch` snapshot index entries for `conversations` (main, lanes, or helpers)
+    /// belonging to `bot`, deleting any unreferenced snapshots under the bot's workspace lock.
+    pub fn prune_web_fetch_conversations(
+        &self,
+        bot: &str,
+        conversations: &[String],
+    ) -> Result<(), PathError> {
+        self.of(bot)?.prune_web_fetch_conversations(conversations)
+    }
+
+    /// Deletes the bot's workspace, everything in it, its trust record, its `web_fetch` index
+    /// and its Python runtime, serialized with concurrent writers under the bot's workspace lock.
     pub fn remove(&self, bot: &str) -> Result<(), PathError> {
         let workspace = self.of(bot)?;
-        workspace.trust.forget();
-        let _ = std::fs::remove_file(self.root.join(WEB_INDEX_DIR).join(format!("{bot}.json")));
-        match std::fs::remove_dir_all(python::runtime_of(&self.root, bot)) {
-            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
-            _ => {}
-        }
-        let root = match Dir::open_ambient_dir(&self.root, ambient_authority()) {
-            Ok(root) => root,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(error.into()),
-        };
-        match root.symlink_metadata(bot) {
-            Ok(meta) if meta.is_dir() => Ok(root.remove_dir_all(bot)?),
-            Ok(_) => Ok(root.remove_file(bot)?),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error.into()),
-        }
+        workspace.changing(|| {
+            workspace.trust.forget();
+            let index_error = match web_fetch_index::remove_bot_index_unlocked(&self.root, bot) {
+                Ok(()) => None,
+                Err(error) => {
+                    tracing::warn!(%error, %bot, "web_fetch snapshot index could not be removed");
+                    Some(error)
+                }
+            };
+            match std::fs::remove_dir_all(python::runtime_of(&self.root, bot)) {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(error.into());
+                }
+                _ => {}
+            }
+            let root = match Dir::open_ambient_dir(&self.root, ambient_authority()) {
+                Ok(root) => root,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return match index_error {
+                        Some(error) => Err(error),
+                        None => Ok(()),
+                    };
+                }
+                Err(error) => return Err(error.into()),
+            };
+            let folder_result = match root.symlink_metadata(bot) {
+                Ok(meta) if meta.is_dir() => root.remove_dir_all(bot).map_err(PathError::from),
+                Ok(_) => root.remove_file(bot).map_err(PathError::from),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(error) => Err(error.into()),
+            };
+            folder_result?;
+            match index_error {
+                Some(error) => Err(error),
+                None => Ok(()),
+            }
+        })
     }
 }
 
@@ -272,6 +304,12 @@ impl Workspace {
     /// Which of this bot's files are trusted.
     pub fn trust(&self) -> &Trust {
         &self.trust
+    }
+
+    /// Prunes `web_fetch` snapshot index entries for `conversations` and removes any unreferenced
+    /// immutable snapshots they pointed to.
+    pub fn prune_web_fetch_conversations(&self, conversations: &[String]) -> Result<(), PathError> {
+        self.changing(|| web_fetch_index::prune_unlocked(self, conversations))
     }
 
     /// Keeps a long result as a file and answers what the model is shown instead: the head, the

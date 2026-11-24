@@ -13,17 +13,18 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use axum::Router;
-use axum::extract::State;
+use axum::extract::{Path as AxumPath, State};
 use axum::http::header::CONTENT_TYPE;
 use axum::response::IntoResponse;
 use axum::routing::get;
+use futures_util::future::join_all;
 use serde_json::{Value, json};
 use spade_core::web_fetch::{SavedPage, format_saved, parse_saved, snapshot_path};
 use spade_docs::Extractor;
 use spade_fetch::{Fetcher, Policy};
 use spade_server::tools::{EngineHandle, Tool, WebFetch};
 use spade_server::workspace::shell::Shell;
-use spade_server::workspace::{LARGEST_TEXT, Workspaces, workspace_tools};
+use spade_server::workspace::{LARGEST_TEXT, PathError, Workspaces, workspace_tools};
 use spade_testkit::Script;
 use support::{Options, Result, Spade, types};
 use tokio::net::TcpListener;
@@ -128,6 +129,37 @@ async fn serve_counting(
                 let bytes = s.body.lock().unwrap_or_else(|p| p.into_inner()).clone();
                 ([(CONTENT_TYPE, s.content_type)], bytes).into_response()
             }),
+        )
+        .with_state(state);
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    Ok((addr, hits))
+}
+
+/// Starts a local HTTP server that returns distinct HTML for each path and counts requests.
+async fn serve_by_path() -> Result<(SocketAddr, Arc<AtomicUsize>)> {
+    let hits = Arc::new(AtomicUsize::new(0));
+    let state = hits.clone();
+    let app = Router::new()
+        .route(
+            "/alias-to-evict-3",
+            get(|| async { axum::response::Redirect::temporary("/evict-3") }),
+        )
+        .route(
+            "/{*path}",
+            get(
+                |State(hits): State<Arc<AtomicUsize>>, AxumPath(path): AxumPath<String>| async move {
+                    hits.fetch_add(1, Ordering::SeqCst);
+                    let html = format!(
+                        "<html><head><title>Page {path}</title></head><body><main>\
+                         <h1>Page {path}</h1><p>UNIQUE_BODY_{path}_MARKER</p></main></body></html>"
+                    );
+                    ([(CONTENT_TYPE, "text/html; charset=utf-8")], html).into_response()
+                },
+            ),
         )
         .with_state(state);
     let listener = TcpListener::bind("127.0.0.1:0").await?;
@@ -420,8 +452,8 @@ async fn existing_non_fetch_file_at_target_snapshot_path_is_never_clobbered() ->
 }
 
 #[tokio::test]
-async fn concurrent_fetches_and_separate_conversations_keep_immutable_snapshots_isolated() -> Result
-{
+async fn concurrent_fetches_of_distinct_keys_and_separate_conversations_lose_nothing() -> Result {
+    let (distinct_addr, distinct_hits) = serve_by_path().await?;
     let v1_body = format!(
         "<html><head><title>Feed</title></head><body><main><h1>Feed</h1><p>{}</p><p>V1_TAIL_MARKER</p></main></body></html>",
         "alpha one ".repeat(450)
@@ -436,12 +468,37 @@ async fn concurrent_fetches_and_separate_conversations_keep_immutable_snapshots_
 
     let setup = start(vec![]).await?;
     let (_, conv_a) = bot(&setup.spade).await?;
-    // Create a second bot/conversation sharing the same server/engine, AND test two concurrent
-    // calls against the same bot's workspace!
     let tool = WebFetch::new(setup.fetcher.clone())
         .with_workspaces(setup.workspaces.clone(), setup.bots.clone());
 
-    // Two concurrent fetches of the same URL on the same bot race safely without clobbering.
+    // Fetch 8 DISTINCT URLs concurrently against the SAME bot (same index file) and assert
+    // every single key survives without lost updates.
+    let distinct_urls: Vec<String> = (1..=8)
+        .map(|i| format!("http://{distinct_addr}/item/{i}"))
+        .collect();
+    let concurrent_results = join_all(distinct_urls.iter().enumerate().map(|(i, u)| {
+        let key = format!("{conv_a}.d{i}");
+        tool.run(&key, json!({ "url": u }))
+    }))
+    .await;
+    for (i, result) in concurrent_results.iter().enumerate() {
+        assert!(
+            !result.is_error,
+            "item {} failed: {}",
+            i + 1,
+            result.content
+        );
+        assert!(
+            result
+                .content
+                .contains(&format!("UNIQUE_BODY_item/{}_MARKER", i + 1)),
+            "{}",
+            result.content
+        );
+    }
+    assert_eq!(distinct_hits.load(Ordering::SeqCst), 8);
+
+    // Two concurrent fetches of the same URL on the same bot also race safely.
     let (r1, r2) = tokio::join!(
         tool.run(&format!("{conv_a}.c1"), json!({ "url": url })),
         tool.run(&format!("{conv_a}.c2"), json!({ "url": url })),
@@ -454,11 +511,7 @@ async fn concurrent_fetches_and_separate_conversations_keep_immutable_snapshots_
         Some(path_v1.as_str())
     );
 
-    // Server content changes to v2; a second conversation (same bot via helper/lane key or another
-    // conversation id mapping to the same bot) is simulated with a second bot AND same-bot
-    // fresh refetch:
-    // First, verify a fresh refetch updates THIS conversation to a new immutable snapshot while
-    // keeping v1 immutable on disk, and verify two distinct conversations keep distinct snapshots.
+    // Server content changes to v2; a second conversation gets its own immutable snapshot.
     *body.lock().unwrap_or_else(|p| p.into_inner()) = v2_body.into_bytes();
     let (_, conv_b) = bot(&setup.spade).await?;
     let rb = tool
@@ -468,12 +521,31 @@ async fn concurrent_fetches_and_separate_conversations_keep_immutable_snapshots_
     let path_v2 = extract_saved_path(&rb.content).ok_or("missing path on rb")?;
     assert_ne!(path_v1, path_v2);
 
-    // Now simulate restart/eviction by constructing a brand-new WebFetch instance (no memory)
-    // and paging BOTH conversations: zero new HTTP requests, conv_a still sees V1_TAIL_MARKER
-    // and conv_b still sees V2_TAIL_MARKER!
+    // Simulate restart by constructing a brand-new WebFetch instance (zero in-memory state):
+    // ALL 8 distinct keys AND both conversations' snapshots must be served with 0 HTTP hits.
     let hits_before_restart = hits.load(Ordering::SeqCst);
     let restarted_tool = WebFetch::new(setup.fetcher.clone())
         .with_workspaces(setup.workspaces.clone(), setup.bots.clone());
+
+    for (i, u) in distinct_urls.iter().enumerate() {
+        let reused = restarted_tool
+            .run(&format!("{conv_a}.re{i}"), json!({ "url": u, "offset": 0 }))
+            .await;
+        assert!(!reused.is_error, "{}", reused.content);
+        assert!(
+            reused
+                .content
+                .contains(&format!("UNIQUE_BODY_item/{}_MARKER", i + 1)),
+            "distinct key {} was lost: {}",
+            i + 1,
+            reused.content
+        );
+    }
+    assert_eq!(
+        distinct_hits.load(Ordering::SeqCst),
+        8,
+        "none of the 8 distinct concurrent keys should refetch after restart"
+    );
 
     let page_a = restarted_tool
         .run(
@@ -811,5 +883,340 @@ async fn pdfs_save_full_text_to_workspace_and_support_query_without_refetching()
 
     let saved = setup.workspaces.of(&bot_id)?.text(&saved_path)?;
     assert!(saved.contains("lithium battery replacement"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn edited_snapshot_is_never_reused_and_refetches_into_new_snapshot() -> Result {
+    let body = Arc::new(std::sync::Mutex::new(
+        b"<html><head><title>Spec</title></head><body><main><h1>Spec</h1><p>ORIGINAL_VERIFIED_TEXT</p></main></body></html>".to_vec(),
+    ));
+    let (addr, hits) = serve_counting("text/html", body.clone()).await?;
+    let url = format!("http://{addr}/spec");
+
+    let setup = start(vec![]).await?;
+    let (bot_id, conv) = bot(&setup.spade).await?;
+    let tool = WebFetch::new(setup.fetcher.clone())
+        .with_workspaces(setup.workspaces.clone(), setup.bots.clone());
+
+    let first = tool.run(&format!("{conv}.c1"), json!({ "url": url })).await;
+    assert!(!first.is_error, "{}", first.content);
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    let path1 = extract_saved_path(&first.content).ok_or("missing path1")?;
+
+    // Tamper with the snapshot body in place while keeping its YAML frontmatter intact.
+    let ws = setup.workspaces.of(&bot_id)?;
+    let original = ws.text(&path1)?;
+    let edited = original.replace("ORIGINAL_VERIFIED_TEXT", "EDITED_POISON_TEXT");
+    assert_ne!(edited, original);
+    assert!(parse_saved(&edited).is_some(), "frontmatter stays valid");
+    ws.write(&path1, &edited)?;
+
+    // Even with explicit offset: 0, digest verification rejects the edited file, refetches fresh
+    // content into a new snapshot path, leaves the edited file untouched, and never serves it.
+    let refetched = tool
+        .run(&format!("{conv}.c2"), json!({ "url": url, "offset": 0 }))
+        .await;
+    assert!(!refetched.is_error, "{}", refetched.content);
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        2,
+        "edited snapshot must trigger a cache miss and refetch"
+    );
+    assert!(
+        refetched.content.contains("ORIGINAL_VERIFIED_TEXT"),
+        "{}",
+        refetched.content
+    );
+    assert!(!refetched.content.contains("EDITED_POISON_TEXT"));
+    let path2 = extract_saved_path(&refetched.content).ok_or("missing path2")?;
+    assert_ne!(path2, path1, "refetch must save into a new snapshot path");
+    assert!(
+        ws.text(&path1)?.contains("EDITED_POISON_TEXT"),
+        "edited file must never be clobbered"
+    );
+
+    // Subsequent offset: 0 now reuses the new verified snapshot with zero extra HTTP hits.
+    let reused = tool
+        .run(&format!("{conv}.c3"), json!({ "url": url, "offset": 0 }))
+        .await;
+    assert_eq!(hits.load(Ordering::SeqCst), 2);
+    assert!(
+        reused.content.contains("ORIGINAL_VERIFIED_TEXT"),
+        "{}",
+        reused.content
+    );
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn symlinked_web_fetch_index_dir_is_refused() -> Result {
+    let (addr, _) = serve_by_path().await?;
+    let url = format!("http://{addr}/page");
+
+    let setup = start(vec![]).await?;
+    let (bot_id, conv) = bot(&setup.spade).await?;
+    let outside = tempfile::tempdir()?;
+    let sentinel_path = outside.path().join(format!("{bot_id}.json"));
+    let sentinel = r#"{"sentinel":"do-not-touch"}"#;
+    std::fs::write(&sentinel_path, sentinel)?;
+
+    std::fs::create_dir_all(setup.workspaces.root())?;
+    std::os::unix::fs::symlink(outside.path(), setup.workspaces.root().join(".web-fetch"))?;
+
+    assert!(matches!(
+        setup.workspaces.web_fetch_dir(),
+        Err(PathError::Outside(_))
+    ));
+    assert!(matches!(
+        setup
+            .workspaces
+            .prune_web_fetch_conversations(&bot_id, std::slice::from_ref(&conv)),
+        Err(PathError::Outside(_))
+    ));
+
+    let tool = WebFetch::new(setup.fetcher.clone())
+        .with_workspaces(setup.workspaces.clone(), setup.bots.clone());
+    let fetched = tool.run(&format!("{conv}.c1"), json!({ "url": url })).await;
+    assert!(!fetched.is_error, "{}", fetched.content);
+    assert_eq!(
+        std::fs::read_to_string(&sentinel_path)?,
+        sentinel,
+        "web_fetch must never write through a symlinked .web-fetch directory"
+    );
+
+    // Bot removal also refuses to follow the symlinked .web-fetch directory.
+    assert!(matches!(
+        setup.workspaces.remove(&bot_id),
+        Err(PathError::Outside(_))
+    ));
+    assert_eq!(
+        std::fs::read_to_string(&sentinel_path)?,
+        sentinel,
+        "workspace removal must never unlink through a symlinked .web-fetch directory"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn conversation_deletion_prunes_main_lane_and_helper_index_entries_and_unreferenced_snapshots()
+-> Result {
+    let (addr, hits) = serve_by_path().await?;
+    let url_shared = format!("http://{addr}/shared");
+    let url_main = format!("http://{addr}/main-only");
+    let url_lane = format!("http://{addr}/lane-only");
+    let url_helper = format!("http://{addr}/helper-only");
+
+    // Start a real bot that spawns both a real task lane and a real helper conversation.
+    let setup = start(vec![
+        Script::reply("")
+            .call(
+                "t1",
+                "task_start",
+                json!({ "title": "Research lane", "brief": "Check docs" }),
+            )
+            .call("h1", "helper", json!({ "task": "Summarize release notes" })),
+        // Helper's reply, lane's reply, and main's replies (ordering across tasks is concurrent).
+        Script::reply("Child done."),
+        Script::reply("Child done."),
+        Script::reply("Main done."),
+        Script::reply("Main wrap-up."),
+        title(),
+    ])
+    .await?;
+
+    let (bot_id, main_conv) = bot(&setup.spade).await?;
+    setup
+        .spade
+        .say(&main_conv, "Start a lane and a helper")
+        .await?;
+    setup.spade.wait_for(&main_conv, "reply_finished").await?;
+
+    let (_, tasks_body) = setup
+        .spade
+        .get(&format!("/v1/conversations/{main_conv}/tasks"))
+        .await?;
+    let lane_conv = tasks_body["tasks"][0]["conversation"]
+        .as_str()
+        .ok_or_else(|| format!("expected a lane conversation in {tasks_body}"))?
+        .to_owned();
+    let (_, helpers_body) = setup
+        .spade
+        .get(&format!("/v1/conversations/{main_conv}/helpers"))
+        .await?;
+    let helper_conv = helpers_body["helpers"][0]["conversation"]
+        .as_str()
+        .ok_or_else(|| format!("expected a helper conversation in {helpers_body}"))?
+        .to_owned();
+
+    let tool = WebFetch::new(setup.fetcher.clone())
+        .with_workspaces(setup.workspaces.clone(), setup.bots.clone());
+    let ws = setup.workspaces.of(&bot_id)?;
+
+    // Main, lane, and helper all belong to `bot_id` and share one `.web-fetch/<bot_id>.json`.
+    let main_shared = tool
+        .run(&format!("{main_conv}.m1"), json!({ "url": url_shared }))
+        .await;
+    let main_only = tool
+        .run(&format!("{main_conv}.m2"), json!({ "url": url_main }))
+        .await;
+    let lane_shared = tool
+        .run(&format!("{lane_conv}.l1"), json!({ "url": url_shared }))
+        .await;
+    let lane_only = tool
+        .run(&format!("{lane_conv}.l2"), json!({ "url": url_lane }))
+        .await;
+    let helper_only = tool
+        .run(&format!("{helper_conv}.h1"), json!({ "url": url_helper }))
+        .await;
+
+    let path_shared = extract_saved_path(&main_shared.content).ok_or("missing path_shared")?;
+    assert_eq!(
+        extract_saved_path(&lane_shared.content).as_deref(),
+        Some(path_shared.as_str())
+    );
+    let path_main = extract_saved_path(&main_only.content).ok_or("missing path_main")?;
+    let path_lane = extract_saved_path(&lane_only.content).ok_or("missing path_lane")?;
+    let path_helper = extract_saved_path(&helper_only.content).ok_or("missing path_helper")?;
+
+    // Pruning just the lane removes its private snapshot while keeping the shared snapshot
+    // (still referenced by main) and helper's snapshot intact.
+    setup
+        .workspaces
+        .prune_web_fetch_conversations(&bot_id, std::slice::from_ref(&lane_conv))?;
+    assert!(
+        !ws.plain_file(&path_lane),
+        "lane-only snapshot must be deleted"
+    );
+    assert!(
+        ws.plain_file(&path_shared),
+        "shared snapshot stays while main references it"
+    );
+    assert!(ws.plain_file(&path_main));
+    assert!(ws.plain_file(&path_helper));
+
+    // Main still reuses both of its snapshots with zero HTTP requests; lane misses cache.
+    let hits_before = hits.load(Ordering::SeqCst);
+    let main_reused = tool
+        .run(
+            &format!("{main_conv}.m3"),
+            json!({ "url": url_shared, "offset": 0 }),
+        )
+        .await;
+    assert_eq!(hits.load(Ordering::SeqCst), hits_before);
+    assert!(main_reused.content.contains("UNIQUE_BODY_shared_MARKER"));
+
+    let lane_miss = tool
+        .run(
+            &format!("{lane_conv}.l3"),
+            json!({ "url": url_lane, "offset": 0 }),
+        )
+        .await;
+    assert_eq!(hits.load(Ordering::SeqCst), hits_before + 1);
+    let path_lane_refetched =
+        extract_saved_path(&lane_miss.content).ok_or("missing refetched lane path")?;
+
+    // Deleting the bot via Engine::delete_agent (without workspaces.remove) automatically prunes
+    // main, lane, and helper entries, deletes the index file, and cleans up all unreferenced
+    // snapshots.
+    setup.spade.engine.delete_agent(&bot_id).await?;
+    let index_file = setup
+        .workspaces
+        .root()
+        .join(".web-fetch")
+        .join(format!("{bot_id}.json"));
+    assert!(
+        !index_file.exists(),
+        "deleting the agent must prune main, lane, and helper index entries"
+    );
+    assert!(!ws.plain_file(&path_shared));
+    assert!(!ws.plain_file(&path_main));
+    assert!(!ws.plain_file(&path_helper));
+    assert!(!ws.plain_file(&path_lane_refetched));
+    Ok(())
+}
+
+#[tokio::test]
+async fn index_eviction_deletes_unreferenced_snapshots_and_keeps_shared_ones() -> Result {
+    let (addr, hits) = serve_by_path().await?;
+    let url1 = format!("http://{addr}/evict-1");
+    let url2 = format!("http://{addr}/evict-2");
+    let url3 = format!("http://{addr}/evict-3");
+
+    let setup = start(vec![]).await?;
+    let (bot_id, conv) = bot(&setup.spade).await?;
+    let ws = setup.workspaces.of(&bot_id)?;
+    let tool = WebFetch::new(setup.fetcher.clone())
+        .with_workspaces(setup.workspaces.clone(), setup.bots.clone())
+        .with_max_index_entries(2);
+
+    let r1 = tool
+        .run(&format!("{conv}.c1"), json!({ "url": url1 }))
+        .await;
+    let r2 = tool
+        .run(&format!("{conv}.c2"), json!({ "url": url2 }))
+        .await;
+    let p1 = extract_saved_path(&r1.content).ok_or("missing p1")?;
+    let p2 = extract_saved_path(&r2.content).ok_or("missing p2")?;
+    assert!(ws.plain_file(&p1));
+    assert!(ws.plain_file(&p2));
+
+    // Third entry evicts url1; its unreferenced snapshot p1 is deleted while p2 and p3 remain.
+    let r3 = tool
+        .run(&format!("{conv}.c3"), json!({ "url": url3 }))
+        .await;
+    let p3 = extract_saved_path(&r3.content).ok_or("missing p3")?;
+    assert!(
+        !ws.plain_file(&p1),
+        "evicted unreferenced snapshot must be deleted"
+    );
+    assert!(ws.plain_file(&p2));
+    assert!(ws.plain_file(&p3));
+    assert_eq!(hits.load(Ordering::SeqCst), 3);
+
+    // url2 and url3 still serve from cache with 0 HTTP hits.
+    let reused2 = tool
+        .run(&format!("{conv}.c4"), json!({ "url": url2, "offset": 0 }))
+        .await;
+    assert_eq!(hits.load(Ordering::SeqCst), 3);
+    assert!(reused2.content.contains("UNIQUE_BODY_evict-2_MARKER"));
+
+    // Evicted url1 misses cache and refetches over HTTP (which in turn evicts url2 -> deletes p2).
+    let refetched1 = tool
+        .run(&format!("{conv}.c5"), json!({ "url": url1, "offset": 0 }))
+        .await;
+    assert_eq!(hits.load(Ordering::SeqCst), 4);
+    assert!(refetched1.content.contains("UNIQUE_BODY_evict-1_MARKER"));
+    assert!(!ws.plain_file(&p2), "evicted p2 must be deleted");
+
+    // Shared snapshot retention across eviction: fetching `/alias-to-evict-3` redirects to
+    // `/evict-3`, recording BOTH URLs pointing at the same immutable snapshot `p3` (2 entries).
+    // Evicting the first alias keeps `p3` on disk; evicting the second deletes `p3`.
+    let alias = format!("http://{addr}/alias-to-evict-3");
+    let url4 = format!("http://{addr}/evict-4");
+    let url5 = format!("http://{addr}/evict-5");
+    let ra = tool
+        .run(&format!("{conv}.c6"), json!({ "url": alias }))
+        .await;
+    assert_eq!(
+        extract_saved_path(&ra.content).as_deref(),
+        Some(p3.as_str())
+    );
+    assert!(ws.plain_file(&p3));
+    let _ = tool
+        .run(&format!("{conv}.c7"), json!({ "url": url4 }))
+        .await;
+    assert!(
+        ws.plain_file(&p3),
+        "p3 must stay on disk while its second index reference still exists"
+    );
+    let _ = tool
+        .run(&format!("{conv}.c8"), json!({ "url": url5 }))
+        .await;
+    assert!(
+        !ws.plain_file(&p3),
+        "p3 must be deleted once its last index reference is evicted"
+    );
     Ok(())
 }
