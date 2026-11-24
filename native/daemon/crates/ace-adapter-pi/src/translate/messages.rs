@@ -2,7 +2,7 @@
 //! Assistant and user message facts, mirroring `messages.ts`.
 
 use super::native::{field, parse_array, parse_object, raw_as_str, str_field};
-use ace_core::Fact;
+use ace_core::RawFact;
 use ace_json::Raw;
 use serde::Serialize;
 
@@ -18,7 +18,7 @@ pub enum MessageOutcome {
 
 /// Result of `message_facts`.
 pub struct MessageResult {
-    pub facts: Vec<Fact>,
+    pub facts: Vec<RawFact>,
     pub outcome: Option<MessageOutcome>,
 }
 
@@ -88,9 +88,9 @@ struct UsageFact {
     cost_usd: Option<f64>,
 }
 
-fn make_fact(fact_type: &str, json: String) -> Option<Fact> {
+fn make_fact(fact_type: &str, json: String) -> Option<RawFact> {
     let data = Raw::from_string(json).ok()?;
-    Some(Fact {
+    Some(RawFact {
         fact_type: fact_type.to_owned(),
         data,
     })
@@ -143,7 +143,7 @@ fn assistant_facts(
     message: u64,
     frame_data: &Raw,
     parsed: &super::native::Fields,
-    facts: &mut Vec<Fact>,
+    facts: &mut Vec<RawFact>,
 ) -> MessageResult {
     let mut retained = false;
     let mut order: u64 = 0;
@@ -208,7 +208,7 @@ fn assistant_facts(
     }
 }
 
-fn push_usage(agent: &str, parsed: &super::native::Fields, facts: &mut Vec<Fact>) {
+fn push_usage(agent: &str, parsed: &super::native::Fields, facts: &mut Vec<RawFact>) {
     let usage_raw = match field(parsed, "usage") {
         Some(raw) => raw,
         None => return,
@@ -327,7 +327,7 @@ fn user_facts(
     message: u64,
     frame_data: &Raw,
     parsed: &super::native::Fields,
-    facts: &mut Vec<Fact>,
+    facts: &mut Vec<RawFact>,
 ) {
     let parts = user_parts(parsed);
     let raw = vec![raw_payload(frame_data)];

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Live methods: thread starts, names, interactive requests and turns.
 
-use ace_core::Fact;
+use ace_core::RawFact;
 use ace_json::{Map, Value};
 
 use super::ParsedFrame;
@@ -14,7 +14,7 @@ pub fn handle_method(
     translator: &mut CodexTranslator,
     frame: &ParsedFrame,
     now: i64,
-    facts: &mut Vec<Fact>,
+    facts: &mut Vec<RawFact>,
 ) {
     let map = obj_map(&frame.data).clone();
     let method = str_empty(map.get("method")).to_owned();

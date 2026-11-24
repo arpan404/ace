@@ -20,6 +20,12 @@ import {
   type ApplyContext,
 } from "./index.ts";
 
+/** A deep copy of a state. `structuredClone` refuses a native view (it is a proxy), and a state
+ * is JSON data either way. */
+export function cloneState(state: ThreadState): ThreadState {
+  return JSON.parse(JSON.stringify(state)) as ThreadState;
+}
+
 /** Also catches fields stripped by the protocol schemas, such as unrepresentable links. */
 export function assertPayloads(events: EventPayload[]): void {
   for (const event of events) expect(EventPayload.parse(event)).toEqual(event);

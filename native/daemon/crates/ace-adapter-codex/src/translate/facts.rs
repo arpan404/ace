@@ -2,13 +2,13 @@
 //! Fact and diagnostic builders: the JSON must be field for field what the
 //! TypeScript emits, since core validates it.
 
-use ace_core::Fact;
+use ace_core::RawFact;
 use ace_json::{Map, Value};
 
 /// Build a fact: `type` first, then the body's fields in insertion order.
-pub fn fact(fact_type: &str, body: Map) -> Fact {
+pub fn fact(fact_type: &str, body: Map) -> RawFact {
     let data = ace_json::Raw::from_value(&Value::Object(body));
-    Fact {
+    RawFact {
         fact_type: fact_type.to_owned(),
         data,
     }
@@ -34,7 +34,7 @@ pub fn raw_payload(payload_type: &str, data: &Value, name: Option<&str>) -> Valu
     Value::Object(map)
 }
 
-pub fn signal_fact(agent: Option<&str>) -> Fact {
+pub fn signal_fact(agent: Option<&str>) -> RawFact {
     let mut body = Map::new();
     if let Some(agent) = agent {
         body.insert("agent".to_owned(), Value::from(agent.to_owned()));

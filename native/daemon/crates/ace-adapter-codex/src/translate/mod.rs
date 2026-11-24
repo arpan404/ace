@@ -31,7 +31,7 @@ pub mod retention;
 pub mod state;
 pub mod turn;
 
-use ace_core::Fact;
+use ace_core::RawFact;
 use ace_json::{Map, Value};
 
 use self::facts::{fact, raw_payload};
@@ -52,14 +52,14 @@ impl CodexTranslator {
         raw_type: &str,
         data: &Value,
         is_frame_data: bool,
-    ) -> Fact {
+    ) -> RawFact {
         if !is_frame_data {
             self.diagnostics.push(raw_payload(raw_type, data, None));
         }
         super::translate::facts::signal_fact(Some(agent))
     }
 
-    fn warning(&mut self, agent: &str, event: &str, detail: &str) -> Fact {
+    fn warning(&mut self, agent: &str, event: &str, detail: &str) -> RawFact {
         let mut inner = Map::with_capacity(2);
         inner.insert("event".to_owned(), Value::from(event.to_owned()));
         inner.insert("detail".to_owned(), Value::from(detail.to_owned()));
@@ -70,7 +70,7 @@ impl CodexTranslator {
         super::translate::facts::signal_fact(Some(agent))
     }
 
-    fn title(&self, value: &Value, data: &Value) -> Vec<Fact> {
+    fn title(&self, value: &Value, data: &Value) -> Vec<RawFact> {
         let text = match value {
             Value::String(s) => s.trim().to_owned(),
             _ => String::new(),
@@ -104,7 +104,7 @@ impl CodexTranslator {
         method: &str,
         params: Value,
         now: i64,
-        facts: &mut Vec<Fact>,
+        facts: &mut Vec<RawFact>,
     ) {
         let mut data = Map::with_capacity(2);
         data.insert("method".to_owned(), Value::from(method.to_owned()));
@@ -119,21 +119,21 @@ impl CodexTranslator {
         self.handle_frame(&frame, now, facts);
     }
 
-    pub fn replay_hydration_frame(&mut self, data: Value, now: i64, facts: &mut Vec<Fact>) {
+    pub fn replay_hydration_frame(&mut self, data: Value, now: i64, facts: &mut Vec<RawFact>) {
         // Buffered unknown-thread frames replay verbatim, not as hydration.
         let frame = self::handle_method::buffered_frame_to_parsed(&data);
         self.handle_frame(&frame, now, facts);
     }
 
-    pub fn replay_buffered(&mut self, frame: ParsedFrame, now: i64, facts: &mut Vec<Fact>) {
+    pub fn replay_buffered(&mut self, frame: ParsedFrame, now: i64, facts: &mut Vec<RawFact>) {
         self.handle_frame(&frame, now, facts);
     }
 
-    fn handle_frame(&mut self, frame: &ParsedFrame, now: i64, facts: &mut Vec<Fact>) {
+    fn handle_frame(&mut self, frame: &ParsedFrame, now: i64, facts: &mut Vec<RawFact>) {
         self::handler::handle(self, frame, now, facts);
     }
 
-    pub fn translate_value(&mut self, frame: ParsedFrame, now: i64) -> Vec<Fact> {
+    pub fn translate_value(&mut self, frame: ParsedFrame, now: i64) -> Vec<RawFact> {
         let is_exit = frame.dir == "note" && self::exit::is_codex_session_exit(&frame.data);
         let initial_type = if frame.dir == "stderr" {
             "stderr".to_owned()
@@ -161,7 +161,7 @@ impl CodexTranslator {
         facts
     }
 
-    pub fn tick_value(&mut self, now: i64) -> Vec<Fact> {
+    pub fn tick_value(&mut self, now: i64) -> Vec<RawFact> {
         let mut facts = Vec::new();
         let natives: Vec<String> = self.agents.keys().cloned().collect();
         for native in natives {
@@ -216,7 +216,7 @@ impl ace_adapter_api::translator::Translator for CodexTranslator {
         None
     }
 
-    fn translate(&mut self, frame: &ace_adapter_api::frame::Frame, now_ms: i64) -> Vec<Fact> {
+    fn translate(&mut self, frame: &ace_adapter_api::frame::Frame, now_ms: i64) -> Vec<RawFact> {
         let data: Value = ace_json::parse(frame.data.get()).unwrap_or(Value::Null);
         let dir = match frame.dir {
             ace_adapter_api::frame::FrameDirection::Send => "send",
@@ -237,7 +237,7 @@ impl ace_adapter_api::translator::Translator for CodexTranslator {
         )
     }
 
-    fn tick(&mut self, now_ms: i64) -> Vec<Fact> {
+    fn tick(&mut self, now_ms: i64) -> Vec<RawFact> {
         self.tick_value(now_ms)
     }
 }

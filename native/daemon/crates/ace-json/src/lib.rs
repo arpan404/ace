@@ -17,6 +17,7 @@
 //! - derived `serde::Serialize` types serialize with the same rules ([`ser::to_string`]).
 
 mod access;
+mod de;
 mod deep;
 mod macros;
 mod number;
@@ -31,10 +32,12 @@ mod value;
 mod write;
 
 pub use access::ValueIndex;
+pub use de::{Error as DeError, from_value};
 pub use number::{Number, write_number};
 pub use object::{Entry, Map, MapKey};
 pub use parse::{SyntaxError, parse};
 pub use raw::{Entries, Items, Kind, Raw, RawRef, parse_raw};
+pub use ser::PreSpliced;
 pub use string::{JsString, Units};
 pub use to_value::{ToValue, to_value};
 pub use value::{Array, Value};

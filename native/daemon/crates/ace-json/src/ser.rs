@@ -16,6 +16,16 @@ use crate::write::{write_js_string, write_str, write_value};
 
 const RAW_TOKEN: &str = "$ace_json::Raw";
 
+/// Already-serialized JSON text, spliced verbatim by [`to_string`]/[`write_into`]: what a crate
+/// that wrote its own bytes (numbers and escapes included) hands back to the serializer.
+pub struct PreSpliced<'a>(pub &'a str);
+
+impl Serialize for PreSpliced<'_> {
+    fn serialize<S: ser::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        serializer.serialize_newtype_struct(RAW_TOKEN, self.0)
+    }
+}
+
 /// Why a value could not be serialized: a custom `Serialize` failed or a map key was not a
 /// string or number.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,6 +52,11 @@ pub fn to_string<T: Serialize + ?Sized>(value: &T) -> Result<String> {
     let mut out = String::with_capacity(128);
     value.serialize(&mut Writer { out: &mut out })?;
     Ok(out)
+}
+
+/// Append `JSON.stringify(value)` to an existing buffer, so one response is built in one place.
+pub fn write_into<T: Serialize + ?Sized>(out: &mut String, value: &T) -> Result<()> {
+    value.serialize(&mut Writer { out })
 }
 
 /// As [`to_string`], as canonical [`Raw`] text.

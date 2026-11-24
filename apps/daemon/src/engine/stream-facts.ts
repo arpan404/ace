@@ -1,4 +1,5 @@
-import { FactBatch, type Fact, type IdSource } from "@ace/core";
+import type { Fact, IdSource } from "@ace/core";
+import { FactBatch } from "@ace/core/typescript";
 import type { EventPayload } from "@ace/protocol";
 import type { Snapshot } from "./persistence.ts";
 

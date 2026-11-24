@@ -1,4 +1,4 @@
-import { apply, deriveThreadStatus } from "@ace/core";
+import { apply, deriveThreadStatus } from "@ace/core/typescript";
 import type { Command, CommandResult, ThreadId, ThreadStatus } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 import { stoppableTasks } from "./stop-scope.ts";

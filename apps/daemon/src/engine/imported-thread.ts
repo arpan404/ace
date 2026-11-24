@@ -1,4 +1,4 @@
-import { createThreadState } from "@ace/core";
+import { createThreadState } from "@ace/core/typescript";
 import {
   Command as CommandSchema,
   type ClientMessage,

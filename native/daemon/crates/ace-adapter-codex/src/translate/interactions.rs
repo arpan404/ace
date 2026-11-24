@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Interaction requests: approvals, questions and elicitations.
 
-use ace_core::Fact;
+use ace_core::RawFact;
 use ace_json::{Map, Value};
 
 use super::facts::{fact, raw_payload};
@@ -222,7 +222,7 @@ pub fn open_request(
     p_value: &Value,
     known_item: bool,
     native_item: Option<&Map>,
-) -> Vec<Fact> {
+) -> Vec<RawFact> {
     let mut facts = Vec::new();
     let item = str_empty(p.get("itemId")).to_owned();
     if !item.is_empty() && !known_item {

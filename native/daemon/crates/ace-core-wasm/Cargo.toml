@@ -19,4 +19,15 @@ crate-type = ["cdylib"]
 # ace-core: the one reducer, shared with the addon.
 ace-core = { path = "../ace-core" }
 # wasm-bindgen: the browser binding for fake-daemon (ADR 0223, decided by the orchestrator).
-wasm-bindgen = "0.2"
+# Pinned to the installed wasm-bindgen CLI, which refuses glue from another version.
+wasm-bindgen = "=0.2.129"
+# js-sys tracks wasm-bindgen exactly; 0.3.106 is the pair for 0.2.129.
+js-sys = "=0.3.106"
+# serde: the response struct derives Serialize for ace-json emits.
+serde = { version = "1", features = ["derive"] }
+# serde_json: states and facts still deserialize through serde (typed
+# decoding bridges via canonical text); emits go through ace-json.
+serde_json = { version = "1", features = ["raw_value", "preserve_order"] }
+# ace-json: facts, states and emits cross the wasm boundary as
+# JavaScript-exact JSON.
+ace-json = { path = "../ace-json" }

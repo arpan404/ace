@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Agent discovery status: replays history turns and recovers terminals.
 
-use ace_core::Fact;
+use ace_core::RawFact;
 use ace_json::{Map, Value};
 
 use super::facts::fact;
@@ -14,7 +14,7 @@ impl CodexTranslator {
         &mut self,
         id: &str,
         p: &Map,
-        facts: &mut Vec<Fact>,
+        facts: &mut Vec<RawFact>,
         now: i64,
         revision: &Option<Revision>,
     ) {

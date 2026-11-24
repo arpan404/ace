@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Status, settings, goals and usage: the remaining live methods.
 
-use ace_core::Fact;
+use ace_core::RawFact;
 use ace_json::{Map, Value};
 
 use super::ParsedFrame;
@@ -15,7 +15,7 @@ pub fn handle_status(
     native: &str,
     frame: &ParsedFrame,
     now: i64,
-    facts: &mut Vec<Fact>,
+    facts: &mut Vec<RawFact>,
 ) {
     let method_owned = frame
         .data

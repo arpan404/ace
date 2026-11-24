@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Responses: replies to the requests `handle_send` remembered.
 
-use ace_core::Fact;
+use ace_core::RawFact;
 use ace_json::{Map, Value};
 
 use super::ParsedFrame;
@@ -15,7 +15,7 @@ pub fn handle_response(
     translator: &mut CodexTranslator,
     frame: &ParsedFrame,
     now: i64,
-    facts: &mut Vec<Fact>,
+    facts: &mut Vec<RawFact>,
 ) {
     let map = obj_map(&frame.data).clone();
     let id = match map.get("id") {
@@ -237,7 +237,7 @@ fn confirm_model_here(
     translator: &mut CodexTranslator,
     native: &str,
     value: &Value,
-    facts: &mut Vec<Fact>,
+    facts: &mut Vec<RawFact>,
 ) {
     let model = match value {
         Value::String(s) if !s.is_empty() && s.encode_utf16().count() <= 256 => s.clone(),

@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { Client } from "@ace/client";
 import { ClientProvider } from "@ace/client-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
+import { FakeDaemon, fakeTransport, startFakeCore } from "@ace/fake-daemon";
 import {
   ClientMessage,
   DeviceId,
@@ -106,6 +106,7 @@ export async function reviewHarness(options: {
   /** The conversation is locked to this account. */
   commentsLocked?: boolean;
 }) {
+  await startFakeCore();
   const daemon = new FakeDaemon({ clock: () => 1_000 });
   const read = {
     op: "forge.pr.review-state",

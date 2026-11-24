@@ -52,11 +52,10 @@ napi-derive = "3"
 # semantics; fact bodies splice as canonical Raw text, and nothing recurses, so deeply
 # nested provider data needs no stack growth.
 ace-json = { path = "../ace-json" }
+# serde: the one serde entry for the addon (core responses and supervisor spawn requests).
+serde = { version = "1", features = ["derive"] }
 # serde_json: the one serde_json entry for the addon; the translators no longer use it.
 serde_json = { version = "1", features = ["raw_value", "preserve_order"] }
-# serde: derive Deserialize for the supervisor binding's spawn requests (process args and env,
-# which the OS needs as valid strings anyway).
-serde = { version = "1", features = ["derive"] }
 
 [build-dependencies]
 napi-build = "2"

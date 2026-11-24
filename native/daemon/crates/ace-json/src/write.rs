@@ -57,8 +57,13 @@ fn escape(byte: u8) -> Option<&'static str> {
 }
 
 /// `JSON.stringify(text)` for a well-formed string.
-/// `JSON.stringify(text)` for a well-formed string.
+/// `JSON.stringify(text)` for a well-formed string. Rust text may carry a lone surrogate in its
+/// escaped form ([`crate::string::to_rust_text`]); it is written back as the exact units.
 pub fn write_str(out: &mut String, text: &str) {
+    if let Some(units) = crate::string::decode_marker(text) {
+        write_js_string(out, &units);
+        return;
+    }
     out.reserve(text.len() + 2);
     out.push('"');
     let bytes = text.as_bytes();

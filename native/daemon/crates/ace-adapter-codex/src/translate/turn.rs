@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Turn completion: settle open items, end the turn, link children.
 
-use ace_core::Fact;
+use ace_core::RawFact;
 use ace_json::{Map, Value};
 
 use super::facts::{fact, raw_payload};
@@ -33,7 +33,7 @@ pub fn complete_turn(
     agent_native: &str,
     p: &Map,
     actionable: bool,
-    facts: &mut Vec<Fact>,
+    facts: &mut Vec<RawFact>,
 ) {
     let agent_key = match translator.agents.get(agent_native) {
         Some(agent) => agent.key.clone(),

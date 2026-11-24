@@ -17,7 +17,20 @@ workspace = true
 ace-protocol = { path = "../ace-protocol" }
 # serde: the fold's state and facts serialize for tests and for the facade's state refresh.
 serde = { version = "1", features = ["derive"] }
-# ace-json: facts and diagnostics keep provider data as JavaScript-exact JSON, never re-encoded.
+# indexmap: every state map iterates in insertion order, exactly like the
+# TypeScript records and Maps they mirror; fact and event order must match
+# field for field.
+indexmap = { version = "2", features = ["serde"] }
+# serde_json: typed facts and states still deserialize through serde (all
+# derives), while transient trees and opaque payloads move to ace-json;
+# the doorway (parse, emit, Raw) is ace-json, and typed decoding bridges
+# via canonical text until the Value deserializer lands.
+serde_json = { version = "1", features = ["raw_value", "preserve_order", "unbounded_depth"] }
+# ace-json: the JSON doorway (parse, emit, Value/Map, Raw) with
+# JavaScript's semantics; transient trees and opaque payloads use it.
 ace-json = { path = "../ace-json" }
+# stacker: grows the stack around parsing, so deeply nested provider data
+# fails as a diagnostic downstream, never aborts the process.
+stacker = "0.1"
 # thiserror: the fold's typed errors (invalid facts are rejected, never fatal, in E4).
 thiserror = { version = "2" }

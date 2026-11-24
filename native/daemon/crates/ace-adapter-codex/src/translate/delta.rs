@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Deltas: streaming text, reasoning and command output.
 
-use ace_core::Fact;
+use ace_core::RawFact;
 use ace_json::{Map, Value};
 
 use super::facts::{fact, raw_payload};
@@ -18,13 +18,13 @@ fn delta_field(method: &str) -> Option<&'static str> {
     }
 }
 
-fn retry_cleared(agent_key: &str) -> Fact {
+fn retry_cleared(agent_key: &str) -> RawFact {
     let mut body = Map::with_capacity(1);
     body.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
     fact("retry.cleared", body)
 }
 
-fn item_delta(agent_key: &str, item: &str, field: &str, append: &str) -> Fact {
+fn item_delta(agent_key: &str, item: &str, field: &str, append: &str) -> RawFact {
     let mut body = Map::with_capacity(4);
     body.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
     body.insert("item".to_owned(), Value::from(item.to_owned()));
@@ -39,7 +39,7 @@ pub fn translate_delta(
     agent_native: &str,
     frame: &super::ParsedFrame,
     is_frame_data: bool,
-    facts: &mut Vec<Fact>,
+    facts: &mut Vec<RawFact>,
 ) {
     let p_value = frame
         .data
@@ -277,7 +277,7 @@ fn translator_note(
     raw_type: &str,
     data: &Value,
     is_frame_data: bool,
-    facts: &mut Vec<Fact>,
+    facts: &mut Vec<RawFact>,
 ) {
     if !is_frame_data {
         translator

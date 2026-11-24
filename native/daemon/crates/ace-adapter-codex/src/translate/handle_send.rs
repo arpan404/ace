@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Send frames: remember the request so the reply can be correlated.
 
-use ace_core::Fact;
+use ace_core::RawFact;
 use ace_json::Value;
 
 use super::ParsedFrame;
 use super::helpers::{obj_map, str_empty};
 use super::state::{CodexTranslator, SentEntry};
 
-pub fn handle_send(translator: &mut CodexTranslator, frame: &ParsedFrame, _facts: &mut Vec<Fact>) {
+pub fn handle_send(
+    translator: &mut CodexTranslator,
+    frame: &ParsedFrame,
+    _facts: &mut Vec<RawFact>,
+) {
     let map = obj_map(&frame.data).clone();
     let method = str_empty(map.get("method")).to_owned();
     let id = map.get("id").cloned();

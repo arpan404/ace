@@ -175,7 +175,7 @@ impl super::PiTranslator {
         map: &super::native::Fields,
         data: &ace_json::Raw,
         now: i64,
-        out: &mut Vec<ace_core::Fact>,
+        out: &mut Vec<ace_core::RawFact>,
     ) -> bool {
         use super::context_usage::pi_context_sample;
         use super::facts::{

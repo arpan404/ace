@@ -161,3 +161,21 @@ fn derived_structs_and_built_values_serialize_like_json_stringify() {
         "{\"1\":[null,0,\"\u{2028}\"],\"b\":1,\"a\":{}}"
     );
 }
+
+/// A `String` field that carries a Rust-text string back out: a string holding the escape
+/// marker itself and a lone surrogate keeps both, and writes back as the same JSON.
+#[test]
+fn rust_text_round_trips_a_marker_and_a_lone_surrogate() {
+    #[derive(serde::Deserialize, serde::Serialize)]
+    struct Text {
+        text: String,
+    }
+    let mixed = r#"{"text":"\ue000\ud800\ue000"}"#;
+    let value = parse(mixed).expect("parses");
+    let decoded: Text = crate::from_value(&value).expect("decodes into Rust text");
+    // JSON.stringify leaves U+E000 literal and escapes the lone surrogate.
+    assert_eq!(
+        ser::to_string(&decoded).ok().as_deref(),
+        Some("{\"text\":\"\u{e000}\\ud800\u{e000}\"}")
+    );
+}

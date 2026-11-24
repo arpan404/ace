@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Frame dispatch: notes, sends, responses and live methods.
 
-use ace_core::Fact;
+use ace_core::RawFact;
 
 use super::ParsedFrame;
 use super::state::CodexTranslator;
@@ -10,7 +10,7 @@ pub fn handle(
     translator: &mut CodexTranslator,
     frame: &ParsedFrame,
     now: i64,
-    facts: &mut Vec<Fact>,
+    facts: &mut Vec<RawFact>,
 ) {
     if frame.dir == "note" {
         super::handle_note::handle_note(translator, frame, now, facts);
