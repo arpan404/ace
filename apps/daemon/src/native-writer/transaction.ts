@@ -75,21 +75,11 @@ interface Context {
   outcomes: Map<number, TransactionOutcome>;
 }
 
-/** The native stack ran at least once in this process (the proof's evidence file). */
-let evidenceWritten = false;
-
-/** Appends one line to `ACE_STORE_WRITER_EVIDENCE` on the first native begin, when set. */
-function recordEvidence(): void {
-  if (evidenceWritten) return;
-  const path = process.env.ACE_STORE_WRITER_EVIDENCE;
-  if (path === undefined) return;
-  evidenceWritten = true;
-  appendFileSync(path, `${process.pid} transactions\n`);
-}
-
 export class NativeTransactions {
   private readonly stack: NativeStack;
   private readonly host: TransactionHost;
+  /** Whether this store has written its evidence line (the proof's evidence file). */
+  private evidenceWritten = false;
   /**
    * The open transactions, outermost first. Their event objects and settlement callbacks live
    * here, never in Rust. A committed transaction pops its context before publishing, so a
@@ -143,12 +133,12 @@ export class NativeTransactions {
       if (top) this.contexts.pop();
       throw error;
     }
-    recordEvidence();
-    if (top) this.host.beginThreads();
     let value: T | undefined;
     let thrown: unknown;
     let threw = false;
     try {
+      this.recordEvidence();
+      if (top) this.host.beginThreads();
       value = run();
       if (value instanceof Promise) throw new Error("Store transactions must be synchronous");
     } catch (error) {
@@ -167,7 +157,7 @@ export class NativeTransactions {
         this.rememberDoom(sqliteError(finish.error));
     }
     const failure = finish.error === null || threw ? undefined : this.finishError(finish.error);
-    if (top) this.finishTop(finish, context);
+    if (top) this.finishTop(finish, context, own, outcome);
     else this.finishNested(finish, context);
     if (threw) throw thrown;
     if (failure !== undefined) throw failure;
@@ -181,12 +171,26 @@ export class NativeTransactions {
     return id;
   }
 
+  /** Appends one line to `ACE_STORE_WRITER_EVIDENCE` on the first native begin, when set. */
+  private recordEvidence(): void {
+    if (this.evidenceWritten) return;
+    const path = process.env.ACE_STORE_WRITER_EVIDENCE;
+    if (path === undefined) return;
+    appendFileSync(path, `${process.pid} transactions\n`);
+    this.evidenceWritten = true;
+  }
+
   private finishCall(frame: number, succeeded: boolean): NativeFinish {
     const text = nativeCall(() => (succeeded ? this.stack.succeed(frame) : this.stack.fail(frame)));
     return JSON.parse(text) as NativeFinish;
   }
 
-  private finishTop(finish: NativeFinish, context: Context): void {
+  private finishTop(
+    finish: NativeFinish,
+    context: Context,
+    own: number | undefined,
+    outcome: TransactionOutcome | undefined,
+  ): void {
     try {
       if (finish.ending === "committed") {
         this.host.commitThreads();
@@ -198,9 +202,12 @@ export class NativeTransactions {
         // The SQL transaction is over: a listener that writes now opens a new top-level one.
         this.pop(context);
         this.resetDoom();
-        this.publishSteps(finish, context);
+        this.publishSteps(finish, context, own, outcome);
       } else {
         if (finish.rolledBack) this.host.topRolledBack();
+        // Rust has reset its stack: close the JS side before a callback can re-enter and write.
+        this.pop(context);
+        this.resetDoom();
         this.rollbackSteps(finish, context);
         this.report(finish.reports);
         this.host.endThreads();
@@ -246,19 +253,29 @@ export class NativeTransactions {
     }
   }
 
-  /** The committed pass: publish and settle in the order the stack returned. */
-  private publishSteps(finish: NativeFinish, context: Context): void {
+  /** The committed pass: the outer outcome at the off path's position, then the rest. */
+  private publishSteps(
+    finish: NativeFinish,
+    context: Context,
+    own: number | undefined,
+    outcome: TransactionOutcome | undefined,
+  ): void {
     const pass = new SettlementPass((error) => this.host.onError(error));
     const report: FailureReport = (error) => pass.report(error);
+    // A publishing outer outcome settles first; a reservation (non-publishing) settles last,
+    // after the usage listeners, exactly as the TypeScript's two guards do.
+    if (outcome?.publishes) pass.step(() => outcome.committed(report));
+    if (own !== undefined) context.outcomes.delete(own);
     for (const step of finish.steps) {
       if (step.kind === "publish") {
         pass.step(() => this.host.publish(context.events.slice(step.from, step.to), report));
         continue;
       }
-      const outcome = context.outcomes.get(step.id);
+      if (step.id === own) continue;
+      const settled = context.outcomes.get(step.id);
       context.outcomes.delete(step.id);
-      if (outcome === undefined) continue;
-      settleOutcomes([{ outcome }], step.how, (error) => this.host.onError(error), pass);
+      if (settled === undefined) continue;
+      settleOutcomes([{ outcome: settled }], step.how, (error) => this.host.onError(error), pass);
     }
     for (const listener of this.host.usage()) {
       try {
@@ -271,6 +288,7 @@ export class NativeTransactions {
         }
       }
     }
+    if (outcome && !outcome.publishes) pass.step(() => outcome.committed(report));
     pass.rethrow();
   }
 

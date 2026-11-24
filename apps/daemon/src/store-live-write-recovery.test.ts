@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -6,6 +6,9 @@ import { Agent, AgentItem, EventPayload, type Event, type ThreadId } from "@ace/
 import { afterEach, expect, test } from "vitest";
 import { createDevThread } from "./commands.ts";
 import { ManualClock } from "./engine/test-support.ts";
+import type { BufferScheduler } from "./live-write-buffer.ts";
+import { NativeTransactions } from "./native-writer/transaction.ts";
+import { storeWriterOn } from "@ace/provider-kit/native-switches";
 import type { LineageFile } from "./sequence-lineage.ts";
 import { Store } from "./store.ts";
 import { isStoreBusy, isStoreRetry } from "./store-busy.ts";
@@ -19,7 +22,11 @@ const unpinned = { persist() {}, committed() {} };
 /** A store on manual time with `threads` threads, each with an empty streaming answer. */
 function setup(
   threads = 1,
-  options: { lineage?: LineageFile; onError?: (error: unknown) => void } = {},
+  options: {
+    lineage?: LineageFile;
+    onError?: (error: unknown) => void;
+    bufferScheduler?: BufferScheduler;
+  } = {},
 ) {
   const home = mkdtempSync(join(tmpdir(), "ace-live-recovery-"));
   cleanup.push(() => rmSync(home, { recursive: true, force: true }));
@@ -28,7 +35,7 @@ function setup(
   const clock = new ManualClock();
   const open = () =>
     new Store(path, options.onError ?? ((error) => errors.push(error)), {
-      bufferScheduler: { delay: clock.setTimer },
+      bufferScheduler: options.bufferScheduler ?? { delay: clock.setTimer },
       ...(options.lineage ? { lineage: options.lineage } : {}),
     });
   let store = open();
@@ -385,6 +392,77 @@ test("a burst written inside a transaction that rolls back is written again, exa
   await state.reopen();
   expect(storedText(state.store, id)).toBe(burst.join(""));
 });
+
+test("a live write rearmed from a rolled-back transaction commits in its own transaction", async () => {
+  let reenter = false;
+  const scheduler: BufferScheduler = {
+    delay: (run) => {
+      if (reenter) {
+        reenter = false;
+        run();
+      }
+      return () => {};
+    },
+  };
+  const state = setup(1, { bufferScheduler: scheduler });
+  const [id] = state.ids;
+  if (!id) throw new Error("Missing thread");
+  const burst = words(60);
+  expect(() =>
+    state.store.atomic(() => {
+      stream(state.store, id, 0, burst);
+      reenter = true;
+      throw new Error("later step failed");
+    }),
+  ).toThrow("later step failed");
+  expect(state.store.liveWriteBlocked()).toBe(false);
+  expect(state.errors).toEqual([]);
+  await state.reopen();
+  expect(storedText(state.store, id)).toBe(burst.join(""));
+});
+
+test.skipIf(!storeWriterOn("transactions"))(
+  "a failed evidence write rolls back before the next transaction commits",
+  () => {
+    const dir = mkdtempSync(join(tmpdir(), "ace-evidence-"));
+    cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+    const db = new DatabaseSync(":memory:");
+    cleanup.push(() => db.close());
+    const previous = process.env.ACE_STORE_WRITER_EVIDENCE;
+    cleanup.push(() => {
+      if (previous === undefined) delete process.env.ACE_STORE_WRITER_EVIDENCE;
+      else process.env.ACE_STORE_WRITER_EVIDENCE = previous;
+    });
+    process.env.ACE_STORE_WRITER_EVIDENCE = dir;
+    const transactions = new NativeTransactions({
+      db,
+      host: {
+        flush() {},
+        installingHistory: () => false,
+        beginThreads() {},
+        discardThreads() {},
+        commitThreads() {},
+        endThreads() {},
+        evictWritten() {},
+        topRolledBack() {},
+        nestedRolledBack() {},
+        wakeWal() {},
+        committed() {},
+        publish() {},
+        usage: () => [],
+        onError(error) {
+          throw error;
+        },
+      },
+    });
+    expect(() => transactions.transaction(() => 1)).toThrow();
+    const file = join(dir, "evidence.log");
+    process.env.ACE_STORE_WRITER_EVIDENCE = file;
+    expect(transactions.transaction(() => 2)).toBe(2);
+    expect(db.isTransaction).toBe(false);
+    expect(readFileSync(file, "utf8")).toContain("transactions");
+  },
+);
 
 test("a constraint failure in a pinned batch is not reported as busy and the store recovers once repaired", async () => {
   const state = setup();

@@ -1907,11 +1907,13 @@ positions and the list of pending settlements (id and position). The TypeScript 
    frame's begin are cut from the publish range (`events_len` = the frame's begin length), and
    the outcome joins the pending list at that position. It settles when the outermost frame
    settles. No steps now.
-4. Nested failure: `ROLLBACK TO` and `RELEASE` the savepoint. If that is impossible (no open
-   transaction, or the statement fails), set doomed (first error kept) and add the failure to
-   `reports`. `events_len` = the frame's begin length. `Settle { id, RolledBack }` for every
-   settlement registered since the frame began, in order. The frame's own outcome is not
-   settled, because it never joined the list. `rolled_back` is true.
+4. Nested failure: `ROLLBACK TO` and `RELEASE` the savepoint. With no open transaction, the
+   savepoint cannot be undone: set doomed (first error kept) and add **no** recovery report, as
+   `store.ts:671` and `:752` do. If the `ROLLBACK TO` statement itself fails, report that
+   failure through `onError` (`recoverSavepoint`'s quiet report) and set doomed too. `events_len`
+   = the frame's begin length. `Settle { id, RolledBack }` for every settlement registered since
+   the frame began, in order. The frame's own outcome is not settled, because it never joined the
+   list. `rolled_back` is true.
 5. Exactly once: every `SettlementId` that joins the pending list appears in exactly one
    `Settle` step, ever. An id never joins twice.
 
