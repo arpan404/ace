@@ -182,6 +182,8 @@ async fn stopped_by_the_reviewer(tool: FakeTool) -> Result<(Spade, String, Vec<V
         vec![
             Script::reply("").call("c1", "shell", json!({ "command": "rm -rf tests" })),
             Script::reply("").plain(DELETES_TESTS),
+            Script::reply("").call("c2", "shell", json!({ "command": "rm -rf tests" })),
+            Script::reply("").plain(DELETES_TESTS),
             Script::reply("Done."),
             Script::reply("").plain(TITLE),
         ],
@@ -195,22 +197,24 @@ async fn stopped_by_the_reviewer(tool: FakeTool) -> Result<(Spade, String, Vec<V
 }
 
 #[tokio::test]
-async fn a_call_the_reviewer_refuses_waits_on_the_person_and_runs_exactly_once_when_they_allow_it()
--> Result {
+async fn a_reviewer_refused_retry_waits_on_the_person_and_runs_once_if_allowed() -> Result {
     let tool = shell();
     let commands = calls_of(&tool);
     let (spade, conversation, events) = stopped_by_the_reviewer(tool).await?;
-    // Put to the person with the reviewer's reason; nothing ran and the bot was told nothing.
+    // The bot got the first refusal. Only its retry goes to the person.
     let asked = first(&events, "approval_requested").ok_or("not asked")?;
-    assert_eq!(asked["call_id"], "c1");
+    assert_eq!(asked["call_id"], "c2");
     assert_eq!(
         asked["reviewer_reason"],
         "The reviewer stopped this: That deletes the tests the person wants kept."
     );
     assert_eq!(asked["stopped"], "reviewer");
-    assert_eq!(count(&events, "tool_finished"), 0, "{events:?}");
+    assert_eq!(count(&events, "tool_finished"), 1, "{events:?}");
     assert_eq!(ran(&commands), 0);
-    let verdict = first(&events, "call_reviewed").ok_or("no verdict")?;
+    let verdict = events
+        .iter()
+        .find(|event| event["type"] == "call_reviewed" && event["call_id"] == "c2")
+        .ok_or("no verdict")?;
     assert_eq!(verdict["verdict"], "escalate");
     // The list says it waits on the person.
     let waiting = Instant::now() + Duration::from_secs(5);
@@ -222,7 +226,7 @@ async fn a_call_the_reviewer_refuses_waits_on_the_person_and_runs_exactly_once_w
     }
     let (status, _) = spade
         .post(
-            &format!("/v1/conversations/{conversation}/approvals/c1"),
+            &format!("/v1/conversations/{conversation}/approvals/c2"),
             json!({ "allowed": true }),
         )
         .await?;
@@ -234,40 +238,48 @@ async fn a_call_the_reviewer_refuses_waits_on_the_person_and_runs_exactly_once_w
         vec!["rm -rf tests".to_owned()],
         "exactly the call that was reviewed"
     );
-    let result = first(&events, "tool_finished").ok_or("no result")?;
-    assert_eq!(result["call_id"], "c1");
+    let result = events
+        .iter()
+        .find(|event| event["type"] == "tool_finished" && event["call_id"] == "c2")
+        .ok_or("no result")?;
+    assert_eq!(result["call_id"], "c2");
     assert!(
         !result["content"]
             .as_str()
             .unwrap_or("")
             .starts_with("Not run")
     );
-    // Allow once is no Always allow: the reviewer is asked again next time.
+    // The first refusal never produced an approval card.
     assert_eq!(count(&events, "approval_requested"), 1);
     Ok(())
 }
 
 #[tokio::test]
-async fn a_call_the_reviewer_refuses_and_the_person_denies_never_runs_and_the_bot_hears_their_no()
--> Result {
+async fn a_reviewer_refused_retry_never_runs_if_the_person_denies_it() -> Result {
     let tool = shell();
     let commands = calls_of(&tool);
     let (spade, conversation, _) = stopped_by_the_reviewer(tool).await?;
     let (status, _) = spade
         .post(
-            &format!("/v1/conversations/{conversation}/approvals/c1"),
+            &format!("/v1/conversations/{conversation}/approvals/c2"),
             json!({ "allowed": false }),
         )
         .await?;
     assert_eq!(status, 202);
     let events = settled(&spade, &conversation).await?;
     assert_eq!(ran(&commands), 0);
-    let result = first(&events, "tool_finished").ok_or("no result")?;
+    let result = events
+        .iter()
+        .find(|event| event["type"] == "tool_finished" && event["call_id"] == "c2")
+        .ok_or("no result")?;
     assert_eq!(result["content"], "The person declined this action.");
-    // What the bot read next is the person's no, not the reviewer's.
-    let next = spade.fake.seen()[2].body.to_string();
+    let requests = spade.fake.seen();
+    let next = requests
+        .get(4)
+        .ok_or("bot never read the denial")?
+        .body
+        .to_string();
     assert!(next.contains("The person declined this action."), "{next}");
-    assert!(!next.contains("That deletes the tests"), "{next}");
     Ok(())
 }
 

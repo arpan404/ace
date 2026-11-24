@@ -17,7 +17,7 @@ use spade_core::tools::{Risk, TOOL_SEARCH, describe};
 use tokio::sync::watch;
 
 use super::super::{Engine, jobs, roster, trim, turn};
-use super::again::{self, Again, Held, ask_again};
+use super::again::{self, Held};
 use super::{Handled, ceiling, classify};
 use crate::tools::{ToolOutput, TurnFacts};
 
@@ -62,25 +62,17 @@ pub(super) async fn run_tools(
                 break;
             };
             // What it runs is read again: if it can't be, or a file changed since its verdict,
-            // it doesn't start, and the person decides on it as it is now (ADR 0163, amendment 3).
+            // it doesn't start. The bot can submit a fresh call for the current files.
             if let Some(held) = holding.bound.get(&call.id).filter(|held| held.recheck) {
                 let key = format!("{id}.{}", call.id);
                 let Some(now) = classify(engine, id, &name, &key, &arguments, stop).await else {
                     return Handled::Stopped;
                 };
-                if let Some((stop, read)) = again::stop_at_launch(now, held) {
-                    let again = Again {
-                        call: &call,
-                        name: &name,
-                        arguments: &arguments,
-                        held,
-                        read,
-                    };
-                    match ask_again(engine, id, reply, again, stop) {
-                        Ok(true) => continue,
-                        Ok(false) => return Handled::Stopped,
-                        Err(error) => return Handled::Failed(error.to_string()),
-                    }
+                if let Some(reason) = again::stop_at_launch(now, held) {
+                    let output =
+                        ToolOutput::error(format!("{reason} Retry with the current files."));
+                    finished.push_back((call, name, output));
+                    continue;
                 }
             }
             // A driving step whose page or app changed since it was decided on doesn't run: the

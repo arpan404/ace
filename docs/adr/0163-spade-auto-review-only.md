@@ -356,3 +356,11 @@ The per-bot driving switches are bypassed in Full access. The sandbox and its
 checkpoints stay in place for contained runs. An explicit outside request uses the
 existing outside launch binding, with Full access as its authorization. A command
 whose launch cannot be bound is refused. See ADR 0167 for the egress policy.
+
+
+Auto-review sends ordinary deterministic concerns to the reviewer, including tainted app
+calls, task changes, undeclared effects and explicit requests to leave the sandbox.
+The first model refusal goes to the bot. A later model refusal of the same call and
+review context reaches the person. Oversized input, review outages, and altered or
+unreadable launch bindings return errors to the bot. The three person-only effects
+keep their approval cards. Organization authorization stays independent.

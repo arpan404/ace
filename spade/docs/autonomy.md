@@ -85,12 +85,12 @@ Every tool declares its effect once (ADR 0171 and its amendment 1):
 
 ### Where a call goes
 
-In order, first match wins:
+In Auto-review, the gate checks these facts in order:
 
 | Facts                                                                              | Goes to                                                                               |
 | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | its arguments name a credential place (not for a sandboxed call), or `credential`  | refused: `Not run: Spade never lets a bot read…`                                      |
-| `pay`, `change_access`, `unknown`                                                  | the person, unless allowed always                                                     |
+| `pay`, `change_access`                                                             | the person, unless allowed always                                                     |
 | `send_as_person`                                                                   | the person, unless allowed always or a typed grant covers it                          |
 | a switch of the bot's Permissions that covers it is off                            | refused, saying where to turn it on, before any Always allow, grant or review         |
 | `drive` with its switch on, in an app on the never-use list                        | refused                                                                               |
@@ -99,10 +99,10 @@ In order, first match wins:
 | a command outside the sandbox, or on a machine with none                           | the classifier and ADR 0163's route (below)                                           |
 | a connector's or plugin's tool that can reach the network, in the sandbox          | decided as on the host, below (ADR 0171, amendment 4)                                 |
 | it declares nothing, in the sandbox                                                | runs                                                                                  |
-| it declares nothing                                                                | the reviewer; under untrusted content, the person (ADR 0202 amendment 5)              |
+| it declares nothing, or its effect is unknown                                       | the reviewer                                                                          |
 | in a sandbox that holds files and network (a plugin's only when sealed)            | runs                                                                                  |
 | in the sandbox, but its checkpoint couldn't be taken                               | the reviewer, told so                                                                 |
-| a command asking to run outside (`outside_sandbox: true`)                          | the person (`ask: outside_sandbox`)                                                   |
+| a command asking to run outside (`outside_sandbox: true`)                          | the reviewer, after reading what it would run                                         |
 | a routine set up under untrusted content                                           | the reviewer, with that concern                                                       |
 | `read`                                                                             | runs                                                                                  |
 | `write_local`                                                                      | runs; a file write with no checkpoint, or a note under untrusted content, is reviewed |
@@ -118,15 +118,10 @@ can't place, or a tool added or changed since. An undeclared tool's answer, from
 connection and its address, or a plugin, its accepted version and server), its own name and a
 hash of its schema, never the name it is offered under; a helper reads its bot's. A name two
 sourced tools would be offered under (two servers, or names cut to a provider's 64 characters) is
-offered for neither. A remembered allow still asks the person while untrusted content is in view.
-A covered push or comment under untrusted content is reviewed with the grant named. Requests the
-rules raise store `call_reviewed` as `escalate` with `model: ""`; the bubble's `reviewer_reason`
-is the rule's line, such as "It could spend money, so you decide.", "It acts in Mail, mail or
-messages, where it can send in your name, so you decide.", "It pushes to github.com/acme/app, branch main with your sign-in, so you
-decide.", "It sends something in your name to github.com/acme/app#7, so you decide.", "It
-declares something Spade doesn't know yet, so you decide.", "It may change something in the
-app, and the bot has read untrusted content, so you decide." or "It asks to run outside the
-sandbox, so you decide."
+offered for neither. Under untrusted content, a remembered allow goes back to the reviewer.
+Generic command tools derive their effect from the operation and arguments. Clear get/list
+commands and simple SELECT statements can be inferred reads. A tainted inferred read still
+goes to the reviewer. Recognized hard stops record a deterministic `call_reviewed` escalation.
 
 ### Driving a page or app
 
@@ -134,11 +129,11 @@ sandbox, so you decide."
 runs under its family's switch in the bot's Permissions (`spade_core::permission`): Computer use
 for `screen_*`, Browser for `browser_*`, Simulators and devices for `sim_*`. Off, it is refused
 with one line saying where to turn it on; on, it runs with no reviewer, no classifier and no
-request, in both modes. The switches are kept with each bot's security settings and the
+request in Auto-review. Full access skips these per-bot switches. The switches are kept with each bot's security settings and the
 machine's (a bot follows the default unless it sets its own; a worker is never freer than the
 bot above it), and turning one on needs the person's stamp, as Full access does.
 
-Right before the gate decides, Spade asks ace where the step acts
+In Auto-review, right before the gate decides, Spade asks ace where the step acts
 (`spade_core::effect::drive::lookup`): the tab it runs in (its `tabId`, else ace's current tab)
 from `browser_tabs list`, or every app ace could open for its `app` from `screen_apps`. A step
 that opens an address acts there. Under Computer use, the name given and every app ace could open
@@ -321,10 +316,10 @@ anywhere (the command, a nested command, a script it runs) is refused before any
 (`sudo sh keys.sh` is refused even when allowed always). Of the rest, the first named kind is the reason,
 over "unclear" or "unseen script". An "unclear" or "unseen script" finding also marks the
 reading incomplete: a command that would run outside the sandbox with one is never reviewed or
-run on the rules; the person decides, told so (ADR 0163 amendment 3, below). The approval is
-bound to the SHA-256 of what was shown (`call_reviewed.bound`): if any file differs, or can't be
-read again, when the call is about to start, it isn't run and the person is asked again on what
-it runs now. The run checks it once more after everything it waits on (in a terminal, under the
+run on the rules. A person-only effect keeps its approval path. For other calls, Spade
+reports the incomplete reading to the bot. Authorization is bound to the SHA-256 of what
+was shown (`call_reviewed.bound`). If a file differs or cannot be read at launch, the call
+fails and the bot can retry with a fresh reading. The run checks it once more after everything it waits on (in a terminal, under the
 terminal's lock, from the folder and variables it starts with): `Not run: A file it runs changed
 while it waited to start, after it was allowed.` Paths are resolved against the terminal's current folder. Every stored
 verdict (an answer, a review, an Always allow) holds only for the launch it was given for or a
@@ -461,9 +456,9 @@ least the bot's price (as `verify`), else the bot's own. Typed output:
 ```
 
 - `approve` runs the call.
-- `refuse` puts the call to the person (below): "The reviewer stopped this: \<reason\>". The bot
-  is told nothing until they answer. A `retries_refused` an older prompt asked for is ignored.
-- It reads the call's arguments whole, never cut; a call too long for that goes to the person.
+- A first `refuse` returns the reason to the bot. If it retries the same call in the same
+  review context and the reviewer refuses again, the person gets the reviewer's reason.
+- The reviewer reads the whole call. A call too long to read returns an error to the bot.
 - It is told of every untrusted source still in the model's view: this turn's, an earlier
   turn's since the last compaction, or a summary drawn from one.
 - Its cost is recorded even when the provider sends no usage (a timeout, Stop, an
@@ -474,56 +469,24 @@ least the bot's price (as `verify`), else the bot's own. Typed output:
   room on top of the 4,000 (9,216 tokens at medium), so the JSON keeps its whole budget.
 - An answer that comes back empty, cut short or unparseable (an `escalate` verdict included) is
   asked for once more, within the same 60 s; each try's cost is recorded.
-- Failure, a 60 s timeout, or a second answer Spade can't read: the person is asked (below), with
-  one plain sentence ("The reviewer couldn't decide on this, so you decide.", "The reviewer
-  couldn't be reached, so you decide.", "The review took too long, so you decide."). The raw
-  error, with model and type names, goes to the logs only. An unreviewed call never runs.
+- A failure, timeout, or second unreadable answer returns an error to the bot. The logs
+  retain the underlying provider error. A missing decision cannot authorize a call.
 - Status line while it reads: `Checking a step`.
 
 ### When the person is asked
 
-When one of Spade's automated judges says a call is unsafe, the call isn't refused: it waits on the
-person as a request, with the judge's reason in one plain sentence and what the call would do
-(ADR 0163, amendment 3; `spade_core::autonomy::escalate`). The request's `stopped` names the judge:
+Payments, sends in the person's name and access changes always need the person. In Auto-review,
+ordinary concerns such as untrusted app arguments, undeclared effects and a proposed task change
+go to the reviewer. The person gets a request only if the reviewer refuses the bot's retry.
+Organization policy continues to control who can authorize outward work for shared bots.
 
-| What stopped it                                                                  | `stopped`       | The request's line                                          |
-| -------------------------------------------------------------------------------- | --------------- | ----------------------------------------------------------- |
-| the reviewer refused it                                                          | `reviewer`      | "The reviewer stopped this: \<reason\>"                     |
-| the reviewer failed, timed out, answered twice what Spade can't read, or the cap | `reviewer`      | "The review took too long, so you decide." (and the like)   |
-| Spade's classifier raised it                                                     | `classifier`    | "It could spend money, so you decide." (and the like)       |
-| the second review (ADR 0135) objected or couldn't decide                         | `second_review` | "The second review stopped this: \<reason\>"                |
-| part of a command outside the sandbox couldn't be read whole                     | `incomplete`    | "Part of what this command would run … you decide."         |
-| right before the launch: couldn't be read again                                  | `unread`        | "Right before it started, Spade couldn't read again …"      |
-| right before the launch: couldn't be read whole again                            | `incomplete`    | "Right before it started, part of what this command runs …" |
-| right before the launch: a file it runs changed after its verdict                | `changed`       | "A file this command runs changed after it was checked …"   |
+An allowed call is bound to its launch and the inputs reviewed or shown on the card. When a
+command's files change or cannot be read at launch, the bot receives an error and can submit a
+fresh call. Deny refuses the call. Within a reply and its automatic task continuations, Spade reuses an approval for matching tool
+identity, arguments, bound inputs and review context. A refusal can never supply an allow.
 
-- An incomplete reading asks whatever the route: the rules, a grant, an Always allow, the
-  reviewer (who isn't paid for: it couldn't read it whole) or Full access; a route that already
-  asks keeps its line and adds this one.
-- At the launch, the verdict the call had never runs: Spade stores a verdict bound to what it runs
-  now (`call_reviewed`, `model: ""`) and asks again. Only the latest request's answer counts.
-- **Allow once** runs exactly that call, held to the launch it was asked about and the binding the
-  stopping verdict recorded, checked again right before it starts and at the spawn. After an
-  incomplete reading, the person's Allow alone (`Warrant::incomplete`) lets the spawn start a
-  reading still incomplete if what could be read is unchanged. After an `unread` request, the
-  spawn's own reading is the check.
-- **Deny** refuses it: the bot reads "The person declined this action."
-- A judge's request keeps the Always allow its card offers (Always allow lets later calls of that
-  tool and scope run unreviewed). `incomplete`, `unread` and `changed` requests are answered for
-  this call only: no Always allow, and not the bot's setting to run commands outside.
-- Unanswered, the call waits: the turn waits on the person and the list says so; a routine's or a
-  background run's request waits in the inbox, as every request does.
-
-Never put to the person: a call that hands back a secret (below); a tool the person declined for
-the bot; a command outside the sandbox Spade couldn't read at all when it was decided (`Not run:
-Spade couldn't read what this command would run…`). Not a judgment, so not decided here: what the
-OS sandbox blocks is the command's result (a host its network policy refused reads "Blocked
-\<host\>" on the step); a driving step whose place changed isn't run and the bot looks again; a
-step on a device or in a sensitive place keeps its own request. The spawn's own check still
-refuses a change in the moment after the last check; the bot calls again for a fresh decision.
-
-A stored "Refused again: …" request from an older build still shows as it did; nothing new is
-asked that way.
+Explicit questions and approval cards already shown in main stay with their owner when work
+moves to a task lane. A local pending request holds the move until the person resolves it.
 
 ### Credentials
 

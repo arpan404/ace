@@ -123,6 +123,17 @@ pub(super) async fn handle_calls(
                 let refused = ToolOutput::error(helper_refusal(engine, id, &name));
                 finish_tool(engine, id, reply, &pending.call, &name, refused).await;
             }
+            Status::New
+                if mode == Mode::FullAccess
+                    && matches!(
+                        name.as_str(),
+                        context::ASK_USER | connect::APP_CONNECT_REQUEST | suggest::PACKAGE_SUGGEST
+                    ) =>
+            {
+                let output =
+                    ToolOutput::error("Full access handles this without prompting the person.");
+                finish_tool(engine, id, reply, &pending.call, &name, output).await;
+            }
             // `ask_user` (ADR 0128, ADR 0154) waits like an approval until the person answers,
             // leaves it for later or dismisses it; asked with `wait: false` it never waits.
             Status::New if name == context::ASK_USER => match question::parse(&arguments) {
@@ -562,6 +573,7 @@ pub(super) async fn handle_calls(
                         })
                     };
                     let reuse_review = effect::may_memo_review(&gate);
+                    let reuse_person = !effect::person_only(&gate) && org.is_none();
                     // The ceiling first, before any route of Spade's own: nothing a packaged bot
                     // does, a bot it makes for the person included, gets past what its package
                     // declared.
@@ -602,9 +614,14 @@ pub(super) async fn handle_calls(
                             )
                         }
                     });
-                    let route = match own {
-                        Some(route) => route,
-                        None => effect::route(gate),
+                    let route = if gate.credentials
+                        || gate.effect == Some(effect::Effect::Credential)
+                        || effect::person_only(&gate)
+                        || org.is_some()
+                    {
+                        effect::route(gate)
+                    } else {
+                        own.unwrap_or_else(|| effect::route(gate))
                     };
                     let route = if mode == Mode::AutoReview {
                         let route = if explicit_outside
@@ -786,12 +803,7 @@ pub(super) async fn handle_calls(
                                         concern: concern.as_deref(),
                                         identity: review_identity(),
                                         reuse_review: reuse_review && !effect::person_only(&gate),
-                                        reuse_person: !effect::person_only(&gate)
-                                            && org.is_none()
-                                            && !gate.overwrites
-                                            && !gate.destructive
-                                            && !gate.standing,
-
+                                        reuse_person,
                                         app: app_name.as_deref(),
                                         acts_in: acts_in.as_ref(),
                                         launch: limit,
@@ -868,11 +880,7 @@ pub(super) async fn handle_calls(
                             app_bound.clone(),
                             review_identity(),
                             reuse_review && !effect::person_only(&gate),
-                            !effect::person_only(&gate)
-                                && org.is_none()
-                                && !gate.overwrites
-                                && !gate.destructive
-                                && !gate.standing,
+                            reuse_person,
                             stop,
                         )
                         .await
@@ -917,11 +925,8 @@ pub(super) async fn handle_calls(
                             if launch == Launch::Outside {
                                 let held = Held {
                                     bound: verdict_bound.stored(),
-                                    limit,
                                     incomplete: false,
                                     recheck: true,
-                                    scope: scope.clone(),
-                                    ask: None,
                                 };
                                 bound.insert(pending.call.id.clone(), held);
                             }
@@ -1083,13 +1088,10 @@ pub(super) async fn handle_calls(
                 if launch == Launch::Outside {
                     let held = Held {
                         bound: warrant.bound.stored(),
-                        limit: allowed_to,
                         incomplete: warrant.incomplete,
                         // Asked again because it couldn't be read before it started: the check
                         // at the spawn reads it, and holds it to what it was allowed on.
                         recheck: stopped != Some(Stopped::Unread),
-                        scope: asked_scope(events, &pending.call.id),
-                        ask: outside.then_some(effect::Ask::OutsideSandbox),
                     };
                     bound.insert(pending.call.id.clone(), held);
                 }

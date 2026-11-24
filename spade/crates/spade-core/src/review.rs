@@ -119,16 +119,28 @@ pub enum Prior {
 pub fn prior_attempt(events: &[Event], reply: &str, key: &str) -> Prior {
     let mut answers = std::collections::HashMap::new();
     let mut prior_step = false;
+    let mut continued = false;
+    let mut at_start = false;
     for event in events.iter().rev().take(256) {
+        if at_start {
+            if !matches!(event, Event::Known(Known::TaskContinued { .. })) {
+                break;
+            }
+            at_start = false;
+            continued = true;
+        }
         match event {
+            Event::Known(Known::ReplyStarted { .. }) => at_start = true,
             Event::Known(Known::StepFinished { .. }) => prior_step = true,
             Event::Known(Known::ApprovalAnswered {
                 reply: answered,
                 call_id,
                 allowed,
                 ..
-            }) if answered == reply => {
-                answers.entry(call_id.as_str()).or_insert(*allowed);
+            }) => {
+                answers
+                    .entry((answered.as_str(), call_id.as_str()))
+                    .or_insert(*allowed);
             }
             Event::Known(Known::CallReviewed {
                 reply: reviewed,
@@ -137,8 +149,12 @@ pub fn prior_attempt(events: &[Event], reply: &str, key: &str) -> Prior {
                 verdict,
                 model,
                 ..
-            }) if prior_step && reviewed == reply && memo == key && !model.is_empty() => {
-                return match (verdict, answers.get(call_id.as_str())) {
+            }) if prior_step
+                && (reviewed == reply || continued)
+                && memo == key
+                && !model.is_empty() =>
+            {
+                return match (verdict, answers.get(&(reviewed.as_str(), call_id.as_str()))) {
                     (Verdict::Escalate, Some(true)) => Prior::AllowedByPerson,
                     (Verdict::Escalate, Some(false)) => Prior::DeniedByPerson,
                     (Verdict::Refuse | Verdict::Escalate, _) => Prior::Refused,
@@ -146,8 +162,7 @@ pub fn prior_attempt(events: &[Event], reply: &str, key: &str) -> Prior {
                 };
             }
             Event::Known(
-                Known::ReplyStarted { .. }
-                | Known::Arrived { .. }
+                Known::Arrived { .. }
                 | Known::UserMessage { .. }
                 | Known::QuestionAnswered { .. }
                 | Known::AgentConfigured { .. },
@@ -415,6 +430,61 @@ mod tests {
         events.push(next);
         assert!(!memo_allowed(&events, "r", &key));
         Ok(())
+    }
+
+    #[test]
+    fn a_refusal_can_trigger_retry_review_but_never_reuse_as_an_allow() {
+        use serde_json::json;
+        let reviewed = |verdict| {
+            Event::from_json(json!({
+                "type":"call_reviewed","reply":"r","call_id":"c","name":"tool",
+                "verdict":verdict,"reason":"Check the scope","model":"fake/model","memo":"key"
+            }))
+        };
+        let next = Event::from_json(json!({"type":"step_finished","reply":"r","text":""}));
+        let refused = [reviewed(Verdict::Refuse), next.clone()];
+        assert_eq!(prior_attempt(&refused, "r", "key"), Prior::Refused);
+        assert!(!memo_allowed(&refused, "r", "key"));
+        let denied = [
+            reviewed(Verdict::Escalate),
+            Event::from_json(json!({
+                "type":"approval_answered","reply":"r","call_id":"c","allowed":false,"always":false
+            })),
+            next,
+        ];
+        assert_eq!(prior_attempt(&denied, "r", "key"), Prior::DeniedByPerson);
+        assert!(!memo_allowed(&denied, "r", "key"));
+    }
+
+    #[test]
+    fn an_approval_carries_to_the_next_reply_only_when_spade_continues_the_task() {
+        use serde_json::json;
+        let past = vec![
+            Event::from_json(
+                json!({"type":"call_reviewed","reply":"r","call_id":"c","name":"tool",
+                "verdict":"escalate","reason":"Check the scope","model":"fake/model","memo":"key"}),
+            ),
+            Event::from_json(json!({"type":"approval_answered","reply":"r","call_id":"c",
+                "allowed":true,"always":false})),
+        ];
+        let next =
+            Event::from_json(json!({"type":"reply_started","reply":"next","model":"fake/model"}));
+        let step = Event::from_json(json!({"type":"step_finished","reply":"next","text":""}));
+        for (boundary, expected) in [
+            (
+                Event::from_json(json!({"type":"task_continued","step":1,"nudge":"Continue"})),
+                Prior::AllowedByPerson,
+            ),
+            (Event::user_message("A new task"), Prior::Fresh),
+        ] {
+            let mut events = past.clone();
+            events.extend([boundary, next.clone(), step.clone()]);
+            assert_eq!(
+                prior_attempt(&events, "next", "key"),
+                expected,
+                "{events:?}"
+            );
+        }
     }
 
     #[test]

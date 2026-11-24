@@ -230,7 +230,7 @@ impl Engine {
                         self.decisions.mark(&key, form);
                         Screened::Run
                     }
-                    _ => Screened::Ask(NO_FORM.to_owned(), None),
+                    _ => Screened::Refuse(NO_FORM.to_owned()),
                 });
             }
             return Ok(Screened::Review);
@@ -293,7 +293,12 @@ impl Engine {
         // refusal is never turned into a run, nor a question into one.
         if let Some((verdict, reason)) = review::stored(events, &s.call.id, s.launch) {
             return Ok(match verdict {
-                Verdict::Escalate => Screened::Ask(reason, review::raised(events, &s.call.id)),
+                Verdict::Escalate => match review::raised(events, &s.call.id) {
+                    raised @ Some(Effect::Pay | Effect::SendAsPerson | Effect::ChangeAccess) => {
+                        Screened::Ask(reason, raised)
+                    }
+                    _ => Screened::Run,
+                },
                 Verdict::Refuse => Screened::Refuse(reason),
                 Verdict::Allow => Screened::Run,
             });

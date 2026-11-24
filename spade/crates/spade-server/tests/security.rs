@@ -95,6 +95,37 @@ async fn a_sandboxed_shell_maps_cd_tmp_and_uses_only_its_own_temp_files() -> Res
 }
 
 #[tokio::test]
+async fn full_access_runs_an_explicit_outside_command_without_approval() -> Result {
+    let w = world(true, vec![], |at| {
+        vec![
+        Script::reply("").call("outside", "shell", json!({
+            "command": format!("printf outside > {}", quoted(&at.root.join("full-access.txt"))),
+            "outside_sandbox": true
+        })),
+        Script::reply("Done."),
+    ]
+    })
+    .await?;
+    full_access(&w).await?;
+    w.spade
+        .say(&w.conversation, "Write the marker outside the workspace")
+        .await?;
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    assert!(asked(&events).is_empty(), "{events:?}");
+    assert!(
+        !events.iter().any(|e| e["type"] == "call_reviewed"),
+        "{events:?}"
+    );
+    let path = w
+        .home
+        .parent()
+        .ok_or("no sandbox fixture root")?
+        .join("full-access.txt");
+    assert_eq!(std::fs::read_to_string(path)?, "outside");
+    Ok(())
+}
+
+#[tokio::test]
 async fn without_the_sandbox_the_same_command_is_reviewed_as_before() -> Result {
     let w = world(false, vec![], |_| {
         vec![

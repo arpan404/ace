@@ -558,9 +558,9 @@ the sandbox no longer holds it. Run it again and Spade will ask first." — neve
 call the gate didn't mark counts as _contained_. A setting that changes in between never moves an
 unreviewed call outside.
 
-- **Asking to run outside** (`outside_sandbox: true` on `shell`): a request with
-  `ask: outside_sandbox`. Allow once runs that call outside; Always for this bot runs it and sets
-  the bot's `commands` to `outside`; Deny declines it.
+- **Requesting an outside launch** (`outside_sandbox: true` on `shell`): Full access can
+  authorize the launch directly. Auto-review judges the call after Spade reads what it would
+  run. Person-only effects still require the person's approval.
 - **Granted**: a `git_push` or `pr_comment` grant covers its typed tool, matched by
   `host/owner/name` (a grant written `owner/name` means GitHub); a `tool` grant covers only a tool
   that declares `read`, `write_local`, `network` or `publish`, never one that declares nothing;
@@ -683,3 +683,8 @@ organization's policy, and their steps go on a signed audit log: [orgs.md](orgs.
 - ace's plugin import carrying a server's `effects` declaration (ace's `PluginExecution` is
   strict); Spade reads it once it does.
 - `own_only` for `pr_comment` grants (whether the bot opened the pull request).
+
+
+Normal sandboxed commands on macOS and Linux get a workspace-owned `TMPDIR`.
+The shell maps a plain `cd /tmp` to that folder. Host temporary storage stays
+outside the sandbox's filesystem grants.

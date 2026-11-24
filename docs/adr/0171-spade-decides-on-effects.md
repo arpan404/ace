@@ -769,3 +769,14 @@ autonomy. The ordinary path, including unknown and unannotated tools and
 driving, skips approval and model review. An explicit outside request uses
 the existing file and launch binding with the bot's Full access authorization.
 The egress proxy opens public-host access as described in ADR 0167.
+
+
+Generic app command tools are classified per call. Spade infers reads from clear
+get/list selectors and simple single SELECT statements. It treats ambiguous command
+text as unresolved. A trusted declaration remains a minimum effect and tainted
+inferred reads still go to the reviewer.
+
+Reuse a person's positive answer within the reply or its automatic task continuations when the tool, exact arguments,
+launch, binding and review context match. Keep hard stops fresh and never turn a
+negative answer into an allow. A moved reply keeps its tool results and leaves its
+previous request cards in their original conversation.
