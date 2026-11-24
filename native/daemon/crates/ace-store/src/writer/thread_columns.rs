@@ -9,7 +9,9 @@
 //! a previous encoding. Readers are reset after their step, as 5.3a's review required.
 //!
 //! Zod validation stays TypeScript: an invalid value is copied and stored, and `rebuildThread`
-//! rejects it inside the caller's transaction, which rolls the write back.
+//! rejects it inside the caller's transaction, which rolls the write back. The previous details
+//! a cold upsert rebinds are the exception: Rust parses them there, as the shell's TypeScript
+//! does, so an invalid stored value fails the write instead of being silently shaped.
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;

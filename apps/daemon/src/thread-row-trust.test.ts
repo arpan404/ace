@@ -9,6 +9,7 @@ import { createDevThread } from "./commands.ts";
 import { Store } from "./store.ts";
 import { threadRowsPerBatch } from "./stored-trust-pass.ts";
 import { confirmedPerOpen } from "./thread-row-trust.ts";
+import { capabilities } from "./thread-column-samples.ts";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => {
@@ -275,6 +276,45 @@ it("a thread write Zod rejects leaves the row, its revision and its trust stamp 
   expect(() =>
     store.appendEvents(id, [{ type: "thread.client.updated", changes: { pinned: true } }], 2),
   ).toThrow(ZodError);
+  expect(stored()).toEqual(before);
+});
+
+it("a capabilities-only write over a confirmed row whose details parse rejects leaves the row as it was", () => {
+  const { open, raw, peek } = setup();
+  const store = open();
+  const id = thread(store);
+  store.appendEvents(
+    id,
+    [{ type: "thread.client.updated", changes: { details: { mode: "local" } } }],
+    2,
+  );
+  raw((db) => {
+    // A `workspaceChange` without the `state` and `at` the schema requires, confirmed as stored
+    // so the next open keeps it rather than failing the read.
+    db.prepare(
+      `UPDATE thread_cold SET details = json('{"workspaceChange":{"commandId":"cmd"}}') WHERE thread_id = ?`,
+    ).run(id);
+    db.prepare(forgeStamp).run(id);
+  });
+  const reopened = open();
+  const stored = () => ({
+    row: peek((db) => db.prepare("SELECT * FROM threads WHERE id = ?").get(id)),
+    cold: peek((db) =>
+      db.prepare("SELECT details, capabilities FROM thread_cold WHERE thread_id = ?").get(id),
+    ),
+    revision: peek(
+      (db) =>
+        db.prepare("SELECT revision FROM sidebar_thread_revisions WHERE thread_id = ?").get(id)
+          ?.revision,
+    ),
+    events: peek((db) => db.prepare("SELECT COUNT(*) AS n FROM events").get()?.n),
+  });
+  const before = stored();
+  // Only `capabilities` changes, so the cold upsert rebinds the stored details, which the
+  // writer parses on the way in: it rejects, and the whole append rolls back.
+  expect(() =>
+    reopened.appendEvents(id, [{ type: "thread.updated", capabilities: capabilities(1) }], 3),
+  ).toThrow();
   expect(stored()).toEqual(before);
 });
 
