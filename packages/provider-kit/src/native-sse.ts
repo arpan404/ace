@@ -14,9 +14,9 @@ export class NativeSseParser {
   readonly #handle: {
     feed(text: string): {
       events: { data: string; event: string; id?: string | null; retryMs?: number | null }[];
+      id?: string | null;
       error?: string | null;
     };
-    lastEventId(): string;
     retryMs(): number | null | undefined;
   };
   readonly #emit: (event: { data: string; event: string; id: string }) => void;
@@ -46,7 +46,9 @@ export class NativeSseParser {
       if (event.id != null) this.lastEventId = event.id;
       this.#emit({ data: event.data, event: event.event, id: this.lastEventId });
     }
-    this.lastEventId = this.#handle.lastEventId();
+    // An `id:` line with no event still changes the id, and the native parser
+    // sends it only when it changed since the last one it sent.
+    if (outcome.id != null) this.lastEventId = outcome.id;
     this.retryMs = this.#handle.retryMs() ?? undefined;
     if (outcome.error != null) throw this.#limitError(outcome.error);
   }

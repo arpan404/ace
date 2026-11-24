@@ -81,11 +81,25 @@ impl NodeIoError {
     }
 }
 
-/// Node's errno name for an I/O failure: the standard library's kind first
-/// (it is the portable classification), then the raw errno for the errors it
-/// leaves unclassified, then `UNKNOWN`, as node names the rest.
+/// Node's errno name for an I/O failure, from the raw errno on POSIX: `EPERM`
+/// and `EACCES` share a kind, and only the number tells them apart.
+#[cfg(not(windows))]
 fn errno_name(error: &std::io::Error) -> &'static str {
-    match error.kind() {
+    match error.raw_os_error() {
+        Some(errno) => raw_errno_name(errno).unwrap_or("UNKNOWN"),
+        None => kind_name(error.kind()),
+    }
+}
+
+/// Node's errno name for an I/O failure on Windows, which classifies by kind.
+#[cfg(windows)]
+fn errno_name(error: &std::io::Error) -> &'static str {
+    kind_name(error.kind())
+}
+
+/// Node's name for the errors the standard library classifies by kind.
+fn kind_name(kind: std::io::ErrorKind) -> &'static str {
+    match kind {
         std::io::ErrorKind::PermissionDenied => "EACCES",
         std::io::ErrorKind::NotFound => "ENOENT",
         std::io::ErrorKind::Interrupted => "EINTR",
@@ -107,10 +121,7 @@ fn errno_name(error: &std::io::Error) -> &'static str {
         std::io::ErrorKind::NetworkDown => "ENETDOWN",
         std::io::ErrorKind::NetworkUnreachable => "ENETUNREACH",
         std::io::ErrorKind::HostUnreachable => "EHOSTUNREACH",
-        _ => error
-            .raw_os_error()
-            .and_then(raw_errno_name)
-            .unwrap_or("UNKNOWN"),
+        _ => "UNKNOWN",
     }
 }
 
@@ -149,24 +160,30 @@ fn node_errno(error: &std::io::Error) -> i32 {
     }
 }
 
-/// The errno names node has and the standard library does not classify.
+/// The errno names node has, by number: the standard library's kind cannot
+/// tell `EPERM` from `EACCES`, so POSIX naming starts from the raw errno.
 #[cfg(unix)]
 fn raw_errno_name(errno: i32) -> Option<&'static str> {
     use rustix::io::Errno;
     [
+        (Errno::PERM, "EPERM"),
+        (Errno::NOENT, "ENOENT"),
+        (Errno::SRCH, "ESRCH"),
+        (Errno::INTR, "EINTR"),
+        (Errno::IO, "EIO"),
+        (Errno::BADF, "EBADF"),
+        (Errno::AGAIN, "EAGAIN"),
+        (Errno::NOMEM, "ENOMEM"),
+        (Errno::ACCESS, "EACCES"),
+        (Errno::EXIST, "EEXIST"),
+        (Errno::INVAL, "EINVAL"),
         (Errno::PIPE, "EPIPE"),
         (Errno::CONNRESET, "ECONNRESET"),
         (Errno::CONNABORTED, "ECONNABORTED"),
         (Errno::NOTCONN, "ENOTCONN"),
-        (Errno::CONNREFUSED, "ECONNREFUSED"),
-        (Errno::AGAIN, "EAGAIN"),
-        (Errno::INTR, "EINTR"),
-        (Errno::ACCESS, "EACCES"),
-        (Errno::NOENT, "ENOENT"),
-        (Errno::INVAL, "EINVAL"),
-        (Errno::IO, "EIO"),
-        (Errno::NOSPC, "ENOSPC"),
         (Errno::TIMEDOUT, "ETIMEDOUT"),
+        (Errno::CONNREFUSED, "ECONNREFUSED"),
+        (Errno::NOSPC, "ENOSPC"),
         (Errno::NXIO, "ENXIO"),
         (Errno::NODEV, "ENODEV"),
         (Errno::MFILE, "EMFILE"),

@@ -332,6 +332,9 @@ pub struct SseEventJs {
 #[napi(object)]
 pub struct SseFeedJs {
     pub events: Vec<SseEventJs>,
+    /// The id in force after this feed, when it differs from the last one sent:
+    /// an `id:` line with no event still changes what the shell must hold.
+    pub id: Option<String>,
     pub error: Option<String>,
 }
 
@@ -339,6 +342,8 @@ pub struct SseFeedJs {
 #[napi]
 pub struct SseParserNative {
     inner: sse::SseParser,
+    /// The last id handed to the shell, so an unchanged one never recrosses.
+    sent_id: Arc<str>,
 }
 
 #[napi]
@@ -354,42 +359,45 @@ impl SseParserNative {
             .map_err(|error| bind(&env, error))?;
         let event = ace_supervisor::budget::byte_limit(max_event_bytes, "maxEventBytes")
             .map_err(|error| bind(&env, error))?;
-        Ok(SseParserNative {
-            inner: sse::SseParser::new(line, event, last_event_id),
-        })
+        let inner = sse::SseParser::new(line, event, last_event_id);
+        let sent_id = Arc::from(inner.last_event_id());
+        Ok(SseParserNative { inner, sent_id })
     }
 
     #[napi(catch_unwind)]
     pub fn feed(&mut self, text: String) -> SseFeedJs {
         let feed = self.inner.feed(&text);
-        let mut previous: Option<Arc<str>> = None;
+        let mut sent = Arc::clone(&self.sent_id);
+        let events: Vec<SseEventJs> = feed
+            .events
+            .into_iter()
+            .map(|event| {
+                let id = if event.id == sent {
+                    None
+                } else {
+                    sent = Arc::clone(&event.id);
+                    Some(event.id.to_string())
+                };
+                SseEventJs {
+                    data: event.data,
+                    event: event.event,
+                    id,
+                    retry_ms: event.retry_ms,
+                }
+            })
+            .collect();
+        let last = self.inner.last_event_id();
+        let (id, sent_id) = if last == &*sent {
+            (None, sent)
+        } else {
+            (Some(last.to_owned()), Arc::from(last))
+        };
+        self.sent_id = sent_id;
         SseFeedJs {
-            events: feed
-                .events
-                .into_iter()
-                .map(|event| {
-                    let id = match &previous {
-                        Some(previous) if *previous == event.id => None,
-                        _ => {
-                            previous = Some(Arc::clone(&event.id));
-                            Some(event.id.to_string())
-                        }
-                    };
-                    SseEventJs {
-                        data: event.data,
-                        event: event.event,
-                        id,
-                        retry_ms: event.retry_ms,
-                    }
-                })
-                .collect(),
+            events,
+            id,
             error: feed.error,
         }
-    }
-
-    #[napi(catch_unwind)]
-    pub fn last_event_id(&self) -> String {
-        self.inner.last_event_id().to_owned()
     }
 
     #[napi(catch_unwind)]

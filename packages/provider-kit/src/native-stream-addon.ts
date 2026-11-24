@@ -83,8 +83,7 @@ export interface StreamsAddon {
     maxEventBytes: number,
     lastEventId: string,
   ) => {
-    feed(text: string): { events: NativeSseEvent[]; error?: string | null };
-    lastEventId(): string;
+    feed(text: string): { events: NativeSseEvent[]; id?: string | null; error?: string | null };
     retryMs(): number | null | undefined;
   };
   RpcIdsNative: new (maxExplicit: number) => {
