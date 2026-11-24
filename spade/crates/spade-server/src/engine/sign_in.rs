@@ -500,7 +500,7 @@ impl Engine {
     }
 
     /// Saves `models` on an account that still has none, under the lock that keeps a save of the
-    /// person's out. `false` when one came first: theirs stays.
+    /// person's out: one made in between is the one that stays.
     fn save_once_empty(&self, id: &str, models: &[StoredModel]) -> Result<(), String> {
         let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
         match self.store.put_listed_models(id, models) {
