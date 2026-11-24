@@ -137,6 +137,9 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
   });
 }
 
+/** The services that keep answering after shutdown withdraws their slots, and only those. */
+type RetainedServices = Pick<Services, "settings" | "launchPlugins">;
+
 /** The running daemon's public surface. */
 export function daemonHandle({
   server,
@@ -149,6 +152,7 @@ export function daemonHandle({
   log,
   pendingShutdown,
   close,
+  retained,
 }: {
   server: Awaited<ReturnType<typeof startServer>>;
   services: Services;
@@ -160,6 +164,12 @@ export function daemonHandle({
   log: ServiceContext["log"];
   pendingShutdown: () => string[];
   close: (reason?: StopReason) => Promise<void>;
+  /**
+   * The settings service and plugin launcher as they were when shutdown began. Shutdown
+   * withdraws their slots, but each answers a call with its own guard, so those two keep
+   * their answer. Every other withdrawn service stays withdrawn.
+   */
+  retained: () => RetainedServices | undefined;
 }) {
   return {
     // Read live: remote access starts after the daemon listens (`remoteStarted`).
@@ -191,7 +201,7 @@ export function daemonHandle({
       return requireService(services.preparePlugins, "preparePlugins");
     },
     get launchPlugins() {
-      return requireService(services.launchPlugins, "launchPlugins");
+      return requireService(services.launchPlugins ?? retained()?.launchPlugins, "launchPlugins");
     },
     get browser() {
       return requireService(services.browser, "browser");
@@ -200,7 +210,7 @@ export function daemonHandle({
       return requireService(services.context, "context");
     },
     get settings() {
-      return requireService(services.settings, "settings");
+      return requireService(services.settings ?? retained()?.settings, "settings");
     },
     get devices() {
       return services.devices;
