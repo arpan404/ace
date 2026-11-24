@@ -49,6 +49,14 @@ can drop between the request, the response and the receipt.
   when every thread it names is readable). The member's checkpoint is their own device's. The
   host still refuses a member's phone registration, since pushes are not filtered per member,
   so the bridge goes on to the feed after that refusal and the wake can finish.
+  Until pushes are filtered per member, a member's catch-up feed on an organization host is
+  empty: the inbox records alerts only for registered phones, and opening registration to
+  members would send them alerts for trees they may not read. The wake still finishes promptly
+  with nothing in it. A member's feed cursor also stops at the newest entry their own device
+  holds (their checkpoint when none), so it does not show how many alerts the host sends.
+- A phone's linked ids go to the worker most recently seen first, account device first. The
+  worker keeps sixteen, so past that the stalest pairings are dropped, and the daemon logs
+  once per socket when it cuts the list.
 - After reading confirmed inbox state on a wake, the app writes the merged lock-screen
   snapshot and updates an existing Live Activity. The phone keeps the last confirmed summary
   when the transient connections close. The app can refresh while iOS grants execution time.
