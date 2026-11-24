@@ -1,17 +1,14 @@
 import SwiftUI
 
 /// What floats over the transcript's end while the person reads away from it: a round glass
-/// Scroll to end, centred above the composer's foot, counting the rows that landed meanwhile. It
-/// sits over the foot rather than in it, so showing it never changes the room the transcript keeps
+/// Scroll to end, centred above the composer's foot. It sits over the foot rather than in it, so showing it never changes the room the transcript keeps
 /// at its end.
 struct ComposerFloaters: View {
     let behind: Bool
-    /// Rows that landed since the person left the end (`TranscriptNewRows`).
-    var unseen = 0
     let scrollToEnd: () -> Void
     var body: some View {
         HStack {
-            if behind { ScrollToEndButton(unseen: unseen, action: scrollToEnd).transition(.opacity) }
+            if behind { ScrollToEndButton(action: scrollToEnd).transition(.opacity) }
         }
         .frame(maxWidth: .infinity)
         .animation(.default, value: behind)
@@ -173,10 +170,8 @@ private struct StatusWords: View {
 
 /// Back to the live end: a round glass button with a down caret.
 struct ScrollToEndButton: View {
-    var unseen = 0
     let action: () -> Void
     var body: some View {
-        let badge = TranscriptNewRows.badge(unseen)
         Button(action: action) {
             AceIcon(.caretDown, size: AceDesign.Size.icon, relativeTo: .body)
                 .foregroundStyle(AceTheme.Colours.foreground)
@@ -185,28 +180,8 @@ struct ScrollToEndButton: View {
         }
         .buttonStyle(.plain)
         .aceGlass(in: Circle(), interactive: true)
-        // The count sits on the glass's top-right corner, drawn over it: the button keeps its size.
-        .overlay(alignment: .topTrailing) {
-            if let badge {
-                Text(badge)
-                    .aceFont(AceTheme.Typography.small, relativeTo: .caption2)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .foregroundStyle(AceTheme.Colours.onAccent)
-                    .padding(.horizontal, AceDesign.Space.tight)
-                    .frame(minWidth: AceDesign.Space.row + AceDesign.Space.related)
-                    .frame(height: AceDesign.Space.row + AceDesign.Space.related)
-                    .background(AceTheme.Colours.accent, in: AceShape.capsule)
-                    .fixedSize()
-                    .offset(x: AceDesign.Space.tight, y: -AceDesign.Space.tight)
-                    .allowsHitTesting(false)
-                    .transition(.opacity)
-            }
-        }
-        .animation(.default, value: badge)
         .tapBand(drawn: AceDesign.Size.chip, width: AceDesign.Size.chip)
         .accessibilityLabel("Scroll to end")
-        .accessibilityValue(badge.map { unseen == 1 ? "1 new message" : "\($0) new messages" } ?? "")
         .accessibilityIdentifier("transcript.latest")
     }
 }
