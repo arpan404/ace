@@ -83,7 +83,18 @@ export function headlessOverride(
   };
 }
 
-/** A tab's CSS viewport, as sharp as its viewer's screen allows, and its window to match. */
+/**
+ * The page's CSS size for live video (`source.page`): Chrome's CSS viewport is the emulated
+ * device's size, or the pane's, shrunk by the page zoom. What `headlessOverride` emulates.
+ */
+export function headlessPageSize(
+  metrics: HeadlessMetrics,
+  browserScale: number,
+  viewerScale = browserScale,
+): { width: number; height: number } {
+  const { override } = headlessOverride(metrics, browserScale, viewerScale);
+  return { width: override.width, height: override.height };
+}
 export async function sizeHeadlessTab(
   cdp: BrowserCdp,
   metrics: HeadlessMetrics,

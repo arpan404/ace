@@ -279,6 +279,7 @@ export class ChromeBackend implements BrowserBackend {
         zoom: (factor) => tabs.zoom(factor, tabId()),
         clearData: () => clearHeadlessData(cdp(), tabs.origins()),
         viewport: () => tabs.viewportSize(tabId()),
+        pageSize: () => tabs.pageSize(tabId()),
         media: async (colorScheme) => {
           await cdp().send("Emulation.setEmulatedMedia", {
             features: [{ name: "prefers-color-scheme", value: colorScheme }],

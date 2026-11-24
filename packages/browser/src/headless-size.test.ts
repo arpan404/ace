@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contentsScale, headlessOverride } from "./headless-size.ts";
+import { contentsScale, headlessOverride, headlessPageSize } from "./headless-size.ts";
 
 /** Screencast pixels across: the window's width at the browser's process-wide scale. */
 const framePixels = (contentsWidth: number, browserScale: number) => contentsWidth * browserScale;
@@ -52,5 +52,38 @@ describe("the page renders as sharp as the viewer's screen", () => {
     };
     expect(headlessOverride(metrics, 2, 3)).toEqual(headlessOverride(metrics, 2));
     expect(contentsScale(metrics, 2, 3)).toBe(1);
+  });
+});
+
+describe("the page size live video plans against", () => {
+  it("a pane at 100% zoom is its own CSS size", () => {
+    expect(headlessPageSize({ viewport: { width: 1280, height: 800 } }, 2)).toEqual({
+      width: 1280,
+      height: 800,
+    });
+  });
+
+  it("a pane at 200% zoom is half its size in CSS pixels", () => {
+    expect(headlessPageSize({ viewport: { width: 1280, height: 800 }, zoom: 2 }, 2)).toEqual({
+      width: 640,
+      height: 400,
+    });
+  });
+
+  it("an emulated device is the device's CSS size, not the pane's", () => {
+    const metrics = {
+      viewport: { width: 1280, height: 800 },
+      device: { width: 390, height: 844, deviceScaleFactor: 3, mobile: true },
+    };
+    expect(headlessPageSize(metrics, 2)).toEqual({ width: 390, height: 844 });
+  });
+
+  it("an emulated device at 125% zoom shrinks by the zoom", () => {
+    const metrics = {
+      viewport: { width: 1280, height: 800 },
+      zoom: 1.25,
+      device: { width: 390, height: 844, deviceScaleFactor: 3, mobile: true },
+    };
+    expect(headlessPageSize(metrics, 2)).toEqual({ width: 312, height: 675 });
   });
 });

@@ -72,6 +72,40 @@ it("stops the screencast feeding the video once its only viewer is hidden", asyn
   await live.close();
 });
 
+it("the video reaches ace-media at the page's CSS size where it differs from the viewport", async () => {
+  vi.useFakeTimers();
+  const page = fakePage();
+  const pages: { width: number; height: number; scale: number }[] = [];
+  const host: VideoHost = {
+    mediaKind: "tab",
+    supported: async () => ["avc1.42E033"],
+    open: async () => ({
+      encodes: () => {},
+      keyframe: () => {},
+      codecs: () => {},
+      audio: () => {},
+      page: (shown) => void pages.push({ ...shown }),
+      close: () => {},
+    }),
+  };
+  const live = new LiveCapture(
+    page.cdp,
+    () => Date.now(),
+    () => {},
+    undefined,
+    () => ({ width: 1280, height: 800 }),
+    () => "tab-1",
+    () => 1,
+    () => ({ host, page: page.cdp }),
+    () => ({ width: 640, height: 400 }),
+  );
+  await live.start();
+  live.subscribe("phone", {}, viewer(false));
+  await vi.advanceTimersByTimeAsync(500);
+  // The pane is 1280x800 at 200% zoom: source.page carries the 640x400 CSS viewport.
+  expect(pages.at(-1)).toEqual({ width: 640, height: 400, scale: 1 });
+  await live.close();
+});
 it("a screencast picture captured before the tab's privacy changed never reaches the video; later ones carry their epoch", async () => {
   const page = fakePage();
   let frame: ((raw: unknown) => void) | undefined;
