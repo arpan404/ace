@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { Agent, AgentItem, EventPayload, type Event, type ThreadId } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
 import { createDevThread } from "./commands.ts";
@@ -393,33 +393,39 @@ test("a burst written inside a transaction that rolls back is written again, exa
   expect(storedText(state.store, id)).toBe(burst.join(""));
 });
 
-test("a live write rearmed from a rolled-back transaction commits in its own transaction", async () => {
-  let reenter = false;
-  const scheduler: BufferScheduler = {
-    delay: (run) => {
-      if (reenter) {
-        reenter = false;
-        run();
-      }
-      return () => {};
-    },
-  };
-  const state = setup(1, { bufferScheduler: scheduler });
-  const [id] = state.ids;
-  if (!id) throw new Error("Missing thread");
-  const burst = words(60);
-  expect(() =>
-    state.store.atomic(() => {
-      stream(state.store, id, 0, burst);
-      reenter = true;
-      throw new Error("later step failed");
-    }),
-  ).toThrow("later step failed");
-  expect(state.store.liveWriteBlocked()).toBe(false);
-  expect(state.errors).toEqual([]);
-  await state.reopen();
-  expect(storedText(state.store, id)).toBe(burst.join(""));
-});
+test.skipIf(!storeWriterOn("transactions"))(
+  "a live write rearmed from a rolled-back transaction commits in its own transaction",
+  async () => {
+    let reenter = false;
+    const scheduler: BufferScheduler = {
+      delay: (run) => {
+        if (reenter) {
+          reenter = false;
+          run();
+        }
+        return () => {};
+      },
+    };
+    const state = setup(1, { bufferScheduler: scheduler });
+    const [id] = state.ids;
+    if (!id) throw new Error("Missing thread");
+    const burst = words(60);
+    const before = state.store.streamingMetrics().transactions;
+    expect(() =>
+      state.store.atomic(() => {
+        stream(state.store, id, 0, burst);
+        reenter = true;
+        throw new Error("later step failed");
+      }),
+    ).toThrow("later step failed");
+    // The rearmed write is its own top-level commit, not a savepoint in the failed one.
+    expect(state.store.streamingMetrics().transactions).toBe(before + 1);
+    expect(state.store.liveWriteBlocked()).toBe(false);
+    expect(state.errors).toEqual([]);
+    await state.reopen();
+    expect(storedText(state.store, id)).toBe(burst.join(""));
+  },
+);
 
 test.skipIf(!storeWriterOn("transactions"))(
   "a failed evidence write rolls back before the next transaction commits",
