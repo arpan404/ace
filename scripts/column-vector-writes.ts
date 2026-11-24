@@ -145,13 +145,17 @@ cases.push(
 
 // Every fold pair: the writer's previous thread (none on creation) and its folded thread.
 {
-  const folds = JSON.parse(readFileSync(join(root, "native/daemon/vectors/fold.json"), "utf8")) as {
-    name: string;
-    thread: string;
-    event: string;
-    folded: string;
-    kind: string;
-  }[];
+  const { fold: folds } = JSON.parse(
+    readFileSync(join(root, "native/daemon/vectors/fold.json"), "utf8"),
+  ) as {
+    fold: {
+      name: string;
+      thread: string;
+      event: string;
+      folded: string;
+      kind: string;
+    }[];
+  };
   for (const item of folds) {
     const payload = (JSON.parse(item.event) as { payload: EventPayload }).payload;
     cases.push(
