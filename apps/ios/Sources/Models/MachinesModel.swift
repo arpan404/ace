@@ -63,6 +63,11 @@ import Observation
     @ObservationIgnored private var backgroundClosed = false
     /// A look at a machine's route its plan asked for later (`MachineRoutePlan`).
     @ObservationIgnored private var retries: RouteRetries
+    /// When the runtimes hear the phone went offline (`OfflineHold`), and its look-again timer.
+    @ObservationIgnored private var offlineHold = OfflineHold()
+    @ObservationIgnored private var pathTimer: RouteRetries
+    /// The phone is on Wi-Fi: until the first reading, as if it were (`MachineRoutePlan.wifi`).
+    @ObservationIgnored private(set) var onWiFi = true
     /// Account runtimes' saved sends moving into the paired machines they turned out to be.
     @ObservationIgnored private let adoptions: SendAdoptions
     /// Runs before each machine's connection opens, so notifications bind to that runtime.
@@ -86,6 +91,7 @@ import Observation
         self.access = access; self.account = account; self.storage = storage; self.defaults = defaults; self.itemLimit = itemLimit; self.makeClient = makeClient
         self.installId = installId; self.probe = probe; clock = now
         retries = RouteRetries(schedule: schedule)
+        pathTimer = RouteRetries(schedule: schedule)
         adoptions = SendAdoptions(defaults: defaults, storage: storage, move: moveSends)
         inbox = MachineInbox(defaults: defaults, now: now)
         grants = GrantBook(defaults.dictionary(forKey: Keys.grants) as? [String: [String]] ?? [:])
@@ -370,13 +376,39 @@ import Observation
         for session in inbox.all { session.client.readAheadAllowed = allowed }
     }
     func network(online: Bool, interfaceChanged: Bool) {
-        for session in inbox.all { session.client.network(online) }
+        // A path down for a moment never reaches the runtimes: a socket that lives through it
+        // stays, and one that died retries by itself (`OfflineHold`).
+        tell(offlineHold.path(online: online, at: clock()))
+        if online { pathTimer.cancel(Self.pathKey) }
         // A new interface (Wi-Fi, cellular, Tailscale) can reach a host the old one couldn't,
         // and a socket still ready on the old one may be dead without having closed: a ready
         // socket must answer a ping within seconds or is replaced, and a waiting reconnect runs
         // now (`wake`), instead of waiting for the next heartbeat.
         if online && interfaceChanged { wakeClients() }
         if online && interfaceChanged { reconsiderRoutes() }
+    }
+    private func tell(_ step: OfflineHold.Step) {
+        switch step {
+        case .none: return
+        case .tell(let online):
+            pathTimer.cancel(Self.pathKey)
+            for session in inbox.all { session.client.network(online) }
+        case .check(let at):
+            pathTimer.set(Self.pathKey, after: at - clock()) { [weak self] in
+                guard let self else { return }
+                tell(offlineHold.elapsed(at: clock()))
+            }
+        }
+    }
+    private static let pathKey = "network"
+    /// The phone joined or left Wi-Fi: each machine's plan decides whether its route moves
+    /// (direct only on Wi-Fi, never by dropping a working relay to look).
+    func wifi(_ on: Bool) {
+        guard on != onWiFi else { return }
+        onWiFi = on
+        for hostId in plans.keys {
+            Task { await take(plans[hostId]?.wifi(on, at: clock()), hostId) }
+        }
     }
     func disconnectAll() async {
         for session in inbox.all { await session.client.disconnectAndWait() }
@@ -434,7 +466,7 @@ import Observation
         if isOff(entry.hostId) || inbox.client(entry.hostId) != nil { return }
         plans[entry.hostId] = MachineRoutePlan(direct: routes.direct != nil, relay: routes.relay != nil,
                                                linking: adoptions.linking.contains(entry.hostId),
-                                               purpose: backgroundOnly ? .background : .foreground)
+                                               purpose: backgroundOnly ? .background : .foreground, wifi: onWiFi)
         guard let target = target(for: entry) else { return }
         let client = makeClient()
         client.readAheadAllowed = readAheadAllowed
