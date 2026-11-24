@@ -299,7 +299,7 @@ struct InboxView: View {
 
     /// Spade: the bots of a machine that shows it, and one conversation.
     private var spade: some View {
-        SpadeTab(inbox: inbox, chosen: tab == .spade, talks: spadeTalks)
+        SpadeTab(inbox: inbox, chosen: tab == .spade, account: AccountToolbarItem(open: openAccount), talks: spadeTalks)
             .inboxFootBar {
                 if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }
             }
