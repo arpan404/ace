@@ -115,9 +115,9 @@ every run-time decision of remote access (`remote-runtime.ts`, `remote-direct.ts
    the connection trusted for its idle timer (`:47`). Both callers call it before writing
    (reviewer check, T1b.2).
 9. **Compressed bytes differ**: zlib-rs at level 6 and Node's zlib at level 6, memLevel 8, need not
-    produce identical streams. Sizes stay within ±3% (the bench checks it); every inflater reads
-    both. `ws`'s `concurrencyLimit: 10` has no counterpart: each socket's writer compresses its own
-    messages in order on tokio.
+   produce identical streams. Sizes stay within ±3% (the bench checks it); every inflater reads
+   both. `ws`'s `concurrencyLimit: 10` has no counterpart: each socket's writer compresses its own
+   messages in order on tokio.
 10. **Extension parameter numbers**: window-bit values are decimal digits only. `ws` reads them
     with JavaScript's `+value`, so `0x0a`, `1e1`, `10.0` and `+10` pass there and are refused with
     `ws`'s 400 here. No client sends them.
