@@ -275,7 +275,7 @@ not the ship rule. If any median fails, T1a stays opt-in and ships with T3 (ADR 
 Compiles and is tested alone. An upgrade candidate goes to an `UpgradeHandler`; this task's only
 implementation, `RefuseUpgrades`, closes the connection without an answer. T1a.3 replaces it.
 
-- **Files**: create `native/daemon/crates/ace-transport/src/{driver.rs,head.rs,prefixed.rs,listener.rs,proxy.rs,hop.rs,peer.rs}`;
+- **Files**: create `native/daemon/crates/ace-transport/src/{driver.rs,head.rs,prefixed.rs,listener.rs,proxy.rs,hop.rs,peer.rs,watch.rs}`;
   change `lib.rs`, `error.rs`, `Cargo.toml`.
 - **Crates** (versions as in the lock; `cargo deny check` on the resolved feature graph, not only
   the direct licences): `tokio` 1.54 (`net`, `rt-multi-thread`, `sync`, `macros`, `time`,
@@ -313,7 +313,13 @@ implementation, `RefuseUpgrades`, closes the connection without an answer. T1a.3
      headers but no body, because hyper 1.12 forces a `HEAD` response's body to zero length
      (`proto/h1/role.rs:974`–`:980`) and a response to `HEAD` carries no content (RFC 9110
      §9.3.2), so a conforming client reads none. A `HEAD` upgrade first on a connection still
-     gets `ws`'s exact bytes through the raw path. A drop
+     gets `ws`'s exact bytes through the raw path. A candidate whose request line is HTTP/1.0
+     takes the raw path as well: hyper installs its upgrade handle for HTTP/1.1 only
+     (`proto/h1/role.rs:336`) and would answer `HTTP/1.0 101` with no socket to hand on, where
+     Node fires `upgrade` for any version. The wrapper between the socket and hyper
+     (`watch.rs`) parses each later head and counts the body that head frames, which is how it
+     knows where heads begin; a head whose `Upgrade` field carries no value is not a candidate
+     there either, because Node's parser leaves it to the ordinary `request` path. A drop
      returns an error from the service, which ends the connection with no response
      (`proto/h1/dispatch.rs:365` in hyper 1.12 propagates it; a unit test pins that no bytes are
      written). An accepted upgrade returns the `101` response, and `hyper::upgrade::on(request)`

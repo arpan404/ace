@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The driver's peek at a connection's first request head: `httparse` over at
-//! most Node's 16 KiB of headers, the request-target exactly as received, and
-//! the two refusals Node writes for a head it cannot accept. Pure: no socket,
-//! no timer, no clock.
+//! The driver's peek at a connection's first request head, and the same peek
+//! over the heads that follow it: `httparse` over at most Node's 16 KiB of
+//! headers, the request-target exactly as received, and the two refusals Node
+//! writes for a head it cannot accept. Pure: no socket, no timer, no clock.
 
+use http::Version;
 use httparse::Error as ParseError;
 use httparse::Status;
 
@@ -28,6 +29,10 @@ pub struct RequestHead {
     /// The request-target exactly as received: `/`, `/?x`, `//` and
     /// absolute-form stay distinct.
     pub target: String,
+    /// The version the request line named. Node's `upgrade` event and hyper's
+    /// upgrade support disagree on it: Node fires for any version, hyper only
+    /// for HTTP/1.1 (`proto/h1/role.rs:336`).
+    pub version: Version,
     /// Every field, in order, with its value as received.
     pub headers: Vec<(String, Vec<u8>)>,
 }
@@ -57,6 +62,12 @@ pub fn parse(buf: &[u8]) -> Parsed {
             let (Some(method), Some(target)) = (request.method, request.path) else {
                 return Parsed::Malformed;
             };
+            let version = match request.version {
+                // httparse accepts HTTP/1.0 and HTTP/1.1 request lines only, and
+                // reports the minor version.
+                Some(1) => Version::HTTP_11,
+                _ => Version::HTTP_10,
+            };
             let headers = request
                 .headers
                 .iter()
@@ -66,6 +77,7 @@ pub fn parse(buf: &[u8]) -> Parsed {
                 RequestHead {
                     method: method.to_owned(),
                     target: target.to_owned(),
+                    version,
                     headers,
                 },
                 consumed,
@@ -85,16 +97,48 @@ pub fn parse(buf: &[u8]) -> Parsed {
 }
 
 /// Whether Node's `upgrade` event would fire for this head: it carries an
-/// `Upgrade` field and names `upgrade` among its `Connection` tokens.
+/// `Upgrade` field with a value and names `upgrade` among its `Connection`
+/// tokens. An empty or whitespace-only `Upgrade` is Node's ordinary HTTP path:
+/// the parser leaves such a request to the `request` event.
 pub fn is_upgrade_candidate(head: &RequestHead) -> bool {
-    let has_upgrade = head
+    let named = head
         .headers
         .iter()
-        .any(|(name, _)| name.eq_ignore_ascii_case("upgrade"));
-    has_upgrade
+        .any(|(name, value)| name.eq_ignore_ascii_case("upgrade") && has_value(value));
+    named
         && connection_names(&head.headers)
             .iter()
             .any(|name| name == "upgrade")
+}
+
+/// Whether a header value holds anything but optional whitespace. Node's parser
+/// treats an `Upgrade: ` field as no upgrade at all.
+fn has_value(value: &[u8]) -> bool {
+    value.iter().any(|byte| !byte.is_ascii_whitespace())
+}
+
+/// The length of the body this head frames, when `Content-Length` alone delimits
+/// it: the count a connection's bytes are read against to find the next head.
+/// `None` for a body a `Transfer-Encoding` frames, or a `Content-Length` that
+/// does not parse or disagrees with another — framing this peek does not follow,
+/// and hyper answers for those.
+pub fn body_length(head: &RequestHead) -> Option<u64> {
+    let mut length: Option<u64> = None;
+    for (name, value) in &head.headers {
+        if name.eq_ignore_ascii_case("transfer-encoding") {
+            return None;
+        }
+        if !name.eq_ignore_ascii_case("content-length") {
+            continue;
+        }
+        let text = std::str::from_utf8(value).ok()?.trim();
+        let parsed: u64 = text.parse().ok()?;
+        if length.is_some_and(|earlier| earlier != parsed) {
+            return None;
+        }
+        length = Some(parsed);
+    }
+    Some(length.unwrap_or(0))
 }
 
 /// Every token every `Connection` field names, lower-cased. These headers are
@@ -174,6 +218,61 @@ mod tests {
 
         let token_only = head("GET / HTTP/1.1\r\nConnection: upgrade\r\n\r\n");
         assert!(!is_upgrade_candidate(&token_only));
+    }
+
+    #[test]
+    fn an_upgrade_header_without_a_value_is_not_an_upgrade() {
+        for empty in ["Upgrade:\r\n", "Upgrade:   \r\n", "Upgrade:\t\r\n"] {
+            let raw = format!("GET / HTTP/1.1\r\n{empty}Connection: Upgrade\r\n\r\n");
+            assert!(
+                !is_upgrade_candidate(&head(&raw)),
+                "Node serves {empty:?} as plain HTTP"
+            );
+        }
+
+        // One field with a value is enough, whatever the others hold.
+        let duplicated =
+            head("GET / HTTP/1.1\r\nUpgrade:\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n");
+        assert!(is_upgrade_candidate(&duplicated));
+    }
+
+    #[test]
+    fn a_head_keeps_the_version_its_request_line_named() {
+        assert_eq!(
+            head("GET / HTTP/1.1\r\nHost: h\r\n\r\n").version,
+            Version::HTTP_11
+        );
+        assert_eq!(
+            head("GET / HTTP/1.0\r\nHost: h\r\n\r\n").version,
+            Version::HTTP_10
+        );
+    }
+
+    #[test]
+    fn a_body_is_counted_only_when_content_length_delimits_it() {
+        assert_eq!(
+            body_length(&head("POST / HTTP/1.1\r\nContent-Length: 3\r\n\r\n")),
+            Some(3)
+        );
+        assert_eq!(
+            body_length(&head("GET / HTTP/1.1\r\nHost: h\r\n\r\n")),
+            Some(0)
+        );
+        assert_eq!(
+            body_length(&head(
+                "POST / HTTP/1.1\r\nContent-Length: 4\r\nContent-Length: 4\r\n\r\n"
+            )),
+            Some(4),
+            "the same length twice is one length"
+        );
+        for unframed in [
+            "POST / HTTP/1.1\r\nContent-Length: 1\r\nContent-Length: 2\r\n\r\n",
+            "POST / HTTP/1.1\r\nContent-Length: five\r\n\r\n",
+            "POST / HTTP/1.1\r\nContent-Length: 3\r\nTransfer-Encoding: chunked\r\n\r\n",
+            "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n",
+        ] {
+            assert_eq!(body_length(&head(unframed)), None, "{unframed:?}");
+        }
     }
 
     #[test]

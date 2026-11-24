@@ -40,6 +40,7 @@ use crate::error::TransportError;
 use crate::head::{self, RequestHead};
 use crate::hop::{self, HopSecret};
 use crate::peer::Peer;
+use crate::watch::Framing;
 
 /// How long one exchange may take, from the service call to the last byte of
 /// the answer: Node's `requestTimeout` bounds receiving the whole request with
@@ -391,15 +392,26 @@ pub struct Stop {
     pub grace: Grace,
 }
 
+/// One connection, as every request on it sees it: who is talking, the
+/// listener's stop signal, the connection's own exchange bookkeeping, and the
+/// HTTP framing a `101` ends.
+#[derive(Clone)]
+pub struct Connection {
+    pub peer: Peer,
+    pub stop: Stop,
+    pub activity: Arc<RequestActivity>,
+    pub deadlines: Arc<ExchangeDeadline>,
+    /// The connection's HTTP framing, which a `101` ends: what follows is the
+    /// socket's protocol.
+    pub framing: Framing,
+}
+
 /// Everything one exchange needs, cloned per request.
 #[derive(Clone)]
 struct Exchange {
     target: ProxyTarget,
     upgrades: Arc<dyn UpgradeHandler>,
-    peer: Peer,
-    stop: Stop,
-    activity: Arc<RequestActivity>,
-    deadlines: Arc<ExchangeDeadline>,
+    connection: Connection,
     /// The first request head's target, exactly as the driver read it. hyper's
     /// `Uri` fills "/" into a pathless absolute form, so only the head the
     /// driver parsed can be forwarded byte for byte.
@@ -416,20 +428,14 @@ impl ProxyService {
     pub fn new(
         target: ProxyTarget,
         upgrades: Arc<dyn UpgradeHandler>,
-        peer: Peer,
-        stop: Stop,
-        activity: Arc<RequestActivity>,
-        deadlines: Arc<ExchangeDeadline>,
+        connection: Connection,
         first_target: Option<String>,
     ) -> Self {
         Self {
             exchange: Exchange {
                 target,
                 upgrades,
-                peer,
-                stop,
-                activity,
-                deadlines,
+                connection,
                 first_target: Arc::new(Mutex::new(first_target)),
             },
         }
@@ -451,7 +457,10 @@ async fn handle(
     exchange: Exchange,
     mut req: Request<Incoming>,
 ) -> Result<Response<HopBody>, ProxyError> {
-    let in_flight = InFlight::start(&exchange.activity, &exchange.deadlines);
+    let in_flight = InFlight::start(
+        &exchange.connection.activity,
+        &exchange.connection.deadlines,
+    );
     let head = request_head(&exchange, &req);
     if head::is_upgrade_candidate(&head) {
         return upgrade(exchange, in_flight, &mut req, head).await;
@@ -469,9 +478,9 @@ async fn upgrade(
         .upgrades
         .upgrade_hyper(
             head,
-            exchange.peer,
-            exchange.stop.shutdown.clone(),
-            exchange.stop.grace.clone(),
+            exchange.connection.peer,
+            exchange.connection.stop.shutdown.clone(),
+            exchange.connection.stop.grace.clone(),
         )
         .await;
     match reply {
@@ -479,6 +488,9 @@ async fn upgrade(
         UpgradeReply::Drop => Err(ProxyError::Dropped),
         UpgradeReply::Refuse(refusal) => Ok(answered(refusal, in_flight)),
         UpgradeReply::Switch(answer, reservation) => {
+            // From the `101` on the connection carries a socket's protocol, so
+            // the wrapper stops reading heads: a WebSocket frame is never one.
+            exchange.connection.framing.end();
             // The `101` is written by hyper after this returns; only then can
             // the upgrade resolve. Nothing bounds it but the stream's write
             // timeout.
@@ -523,7 +535,7 @@ async fn forward(
     let request = build_request(
         &head,
         &exchange.target.secret,
-        &exchange.peer,
+        &exchange.connection.peer,
         req.into_body(),
     )?;
     let response = tokio::time::timeout_at(deadline, sender.send_request(request))
@@ -546,6 +558,7 @@ fn request_head(exchange: &Exchange, req: &Request<Incoming>) -> RequestHead {
     RequestHead {
         method: req.method().as_str().to_owned(),
         target: first.unwrap_or_else(|| req.uri().to_string()),
+        version: req.version(),
         headers: header_pairs(req.headers()),
     }
 }
