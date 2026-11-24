@@ -143,11 +143,6 @@ pub(super) async fn review(
     stop: &mut watch::Receiver<bool>,
 ) -> Reviewed {
     // Stored before a restart: reused only where it was given (ADR 0171, amendment 3).
-    if let Some((verdict, reason)) =
-        review::stored_at(events, &under.call.id, under.acts_in, under.launch)
-    {
-        return of(verdict, reason);
-    }
     let model = engine.review_model(id);
     let agent = engine.store.agent_for_conversation(id).ok().flatten();
     let (bot, task, agent_id) = agent.as_ref().map_or(("the bot", "", ""), |a| {
@@ -200,15 +195,30 @@ pub(super) async fn review(
     let prior = memo.as_deref().map_or(review::Prior::Fresh, |key| {
         review::prior_attempt(events, reply, key)
     });
+    let unchanged = review::unchanged_events(events, registry);
+    if let Some((verdict, reason)) =
+        review::stored_at(events, &under.call.id, under.acts_in, under.launch)
+        && (verdict == Verdict::Refuse
+            || (verdict == Verdict::Allow
+                && review::stored_at(unchanged, &under.call.id, under.acts_in, under.launch)
+                    .is_some())
+            || review::retry_escalation(events, &under.call.id, memo.as_deref(), prior))
+    {
+        return of(verdict, reason);
+    }
     if under.reuse_person && prior == review::Prior::DeniedByPerson {
         return Reviewed::Refuse("The person declined this action.".to_owned());
     }
-    let person_allowed = under.reuse_person && prior == review::Prior::AllowedByPerson;
+    let person_allowed = under.reuse_person
+        && prior == review::Prior::AllowedByPerson
+        && memo.as_deref().is_some_and(|key| {
+            review::prior_attempt(unchanged, reply, key) == review::Prior::AllowedByPerson
+        });
     if person_allowed
         || (under.reuse_review
             && memo
                 .as_deref()
-                .is_some_and(|key| review::memo_allowed(events, reply, key)))
+                .is_some_and(|key| review::memo_allowed(unchanged, reply, key)))
     {
         return match record_rule(
             engine,

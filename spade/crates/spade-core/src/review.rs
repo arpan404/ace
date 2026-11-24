@@ -107,6 +107,48 @@ pub fn memo_allowed(events: &[Event], reply: &str, key: &str) -> bool {
     false
 }
 
+/// The part of the review window after the latest change that could invalidate an allow.
+pub fn unchanged_events<'a>(events: &'a [Event], registry: &crate::tools::Registry) -> &'a [Event] {
+    let floor = events.len().saturating_sub(256);
+    let start = events[floor..].iter().rposition(|event| {
+        crate::context::untrusted_event(event, registry)
+            || matches!(event, Event::Known(
+                Known::ToolStarted { effect: Some(effect), .. }
+            ) if *effect != crate::effect::Effect::Read)
+            || matches!(
+                event,
+                Event::Known(
+                    Known::ToolStarted { effect: None, .. }
+                        | Known::JobStarted { .. }
+                        | Known::JobFinished { .. }
+                        | Known::ContextCompacted { .. }
+                )
+            )
+    });
+    &events[start.map_or(floor, |at| floor + at + 1)..]
+}
+
+/// A stored escalation may be replayed only under the retry policy that could issue it today.
+pub fn retry_escalation(events: &[Event], call_id: &str, memo: Option<&str>, prior: Prior) -> bool {
+    prior == Prior::Refused
+        && memo.is_some_and(|memo| {
+            events.iter().rev().find_map(|event| match event {
+                Event::Known(Known::CallReviewed {
+                    call_id: id,
+                    memo: saved,
+                    verdict,
+                    model,
+                    ..
+                }) if id == call_id => Some(
+                    *verdict == Verdict::Escalate
+                        && !model.is_empty()
+                        && saved.as_deref() == Some(memo),
+                ),
+                _ => None,
+            }) == Some(true)
+        })
+}
+
 /// What the same call shape has already received during this reply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Prior {
@@ -485,6 +527,91 @@ mod tests {
                 "{events:?}"
             );
         }
+    }
+
+    #[test]
+    fn intervening_writes_and_untrusted_results_invalidate_approval_reuse() {
+        use serde_json::json;
+        let event = Event::from_json;
+        let allow = event(
+            json!({"type":"call_reviewed","reply":"r","call_id":"approved","name":"tool",
+            "verdict":"escalate","memo":"key","model":"fake/model","reason":"Check"}),
+        );
+        let answer = event(
+            json!({"type":"approval_answered","reply":"r","call_id":"approved",
+            "allowed":true,"always":false}),
+        );
+        let next = event(json!({"type":"step_finished","reply":"r","text":""}));
+        let registry = crate::tools::Registry::new([]);
+        for (intervening, expected) in [
+            (
+                event(
+                    json!({"type":"tool_started","reply":"r","call_id":"read","name":"query","effect":"read"}),
+                ),
+                Prior::AllowedByPerson,
+            ),
+            (
+                event(
+                    json!({"type":"tool_started","reply":"r","call_id":"change","name":"edit","effect":"write_local"}),
+                ),
+                Prior::Fresh,
+            ),
+            (
+                event(
+                    json!({"type":"tool_finished","reply":"r","call_id":"read","name":"query",
+                "content":"A second result from the same source", "untrusted":true}),
+                ),
+                Prior::Fresh,
+            ),
+        ] {
+            let events = [allow.clone(), answer.clone(), intervening, next.clone()];
+            assert_eq!(
+                prior_attempt(unchanged_events(&events, &registry), "r", "key"),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn only_a_model_escalation_bound_to_a_refused_retry_can_replay() {
+        use serde_json::json;
+        let reviewed = |model, memo| {
+            Event::from_json(json!({"type":"call_reviewed","reply":"r","call_id":"c",
+            "name":"tool","verdict":"escalate","reason":"Check","model":model,"memo":memo}))
+        };
+        let legacy_rule = reviewed("", Some("key"));
+        let legacy_model = reviewed("fake/model", None);
+        let current = reviewed("fake/model", Some("key"));
+        assert!(!retry_escalation(
+            &[legacy_rule],
+            "c",
+            Some("key"),
+            Prior::Refused
+        ));
+        assert!(!retry_escalation(
+            &[legacy_model],
+            "c",
+            Some("key"),
+            Prior::Refused
+        ));
+        assert!(!retry_escalation(
+            std::slice::from_ref(&current),
+            "c",
+            Some("changed"),
+            Prior::Refused
+        ));
+        assert!(!retry_escalation(
+            std::slice::from_ref(&current),
+            "c",
+            Some("key"),
+            Prior::Fresh
+        ));
+        assert!(retry_escalation(
+            &[current],
+            "c",
+            Some("key"),
+            Prior::Refused
+        ));
     }
 
     #[test]

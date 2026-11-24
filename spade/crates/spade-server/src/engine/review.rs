@@ -52,9 +52,6 @@ pub(super) async fn call(
     reuse_person: bool,
     stop: &mut watch::Receiver<bool>,
 ) -> Reviewed {
-    if let Some((verdict, reason)) = review::stored(events, &call.id, launch) {
-        return of(verdict, reason);
-    }
     let model = engine.review_model(id);
     let agent = engine.store.agent_for_conversation(id).ok().flatten();
     let (bot, task) = agent
@@ -92,15 +89,27 @@ pub(super) async fn call(
     let prior = memo.as_deref().map_or(review::Prior::Fresh, |key| {
         review::prior_attempt(events, reply, key)
     });
+    let unchanged = review::unchanged_events(events, registry);
+    if let Some((verdict, reason)) = review::stored(events, &call.id, launch)
+        && (verdict == Verdict::Refuse
+            || (verdict == Verdict::Allow && review::stored(unchanged, &call.id, launch).is_some())
+            || review::retry_escalation(events, &call.id, memo.as_deref(), prior))
+    {
+        return of(verdict, reason);
+    }
     if reuse_person && prior == review::Prior::DeniedByPerson {
         return Reviewed::Refuse("The person declined this action.".to_owned());
     }
-    let person_allowed = reuse_person && prior == review::Prior::AllowedByPerson;
+    let person_allowed = reuse_person
+        && prior == review::Prior::AllowedByPerson
+        && memo.as_deref().is_some_and(|key| {
+            review::prior_attempt(unchanged, reply, key) == review::Prior::AllowedByPerson
+        });
     if person_allowed
         || (reuse_review
             && memo
                 .as_deref()
-                .is_some_and(|key| review::memo_allowed(events, reply, key)))
+                .is_some_and(|key| review::memo_allowed(unchanged, reply, key)))
     {
         return match super::autonomy::record_rule(
             engine,

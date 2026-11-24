@@ -423,7 +423,7 @@ async fn publishing_is_still_the_reviewers_to_judge_and_runs_when_approved() -> 
 }
 
 #[tokio::test]
-async fn repeat_publish_reuses_a_review_only_for_matching_arguments_and_trust() -> Result {
+async fn a_write_invalidates_a_matching_model_allow() -> Result {
     let publish = FakeTool::new("publish_page", Risk::Write, "Published")
         .app("Site: Publishes a page")
         .declares(Effect::Publish);
@@ -434,6 +434,7 @@ async fn repeat_publish_reuses_a_review_only_for_matching_arguments_and_trust() 
             Script::reply("").call("c1", "publish_page", json!({ "page": "notes" })),
             Script::reply("").plain(APPROVE),
             Script::reply("").call("c2", "publish_page", json!({ "page": "notes" })),
+            Script::reply("").plain(APPROVE),
             Script::reply("").call("c3", "publish_page", json!({ "page": "index" })),
             Script::reply("").plain(APPROVE),
             Script::reply("").call("p1", "read_page", json!({})),
@@ -452,7 +453,7 @@ async fn repeat_publish_reuses_a_review_only_for_matching_arguments_and_trust() 
     let events = settled(&spade, &conversation).await?;
     assert_eq!(count(&events, "approval_requested"), 0);
     assert_eq!(ran(&published), 4);
-    for (call, reused) in [("c1", false), ("c2", true), ("c3", false), ("c4", false)] {
+    for (call, reused) in [("c1", false), ("c2", false), ("c3", false), ("c4", false)] {
         let review = events
             .iter()
             .find(|event| event["type"] == "call_reviewed" && event["call_id"] == call)
@@ -464,7 +465,7 @@ async fn repeat_publish_reuses_a_review_only_for_matching_arguments_and_trust() 
 }
 
 #[tokio::test]
-async fn a_second_model_refusal_asks_and_the_persons_allow_is_reused() -> Result {
+async fn a_second_model_refusal_asks_and_an_unresolved_effect_invalidates_the_allow() -> Result {
     let command = FakeTool::new("analytics__exec", Risk::Write, "Query results")
         .unannotated_app("Runs analytics commands");
     let calls = calls_of(&command);
@@ -479,6 +480,7 @@ async fn a_second_model_refusal_asks_and_the_persons_allow_is_reused() -> Result
             Script::reply("").call("retry", "analytics__exec", args.clone()),
             Script::reply("").plain(refuse),
             Script::reply("").call("same", "analytics__exec", args),
+            Script::reply("").plain(APPROVE),
             Script::reply("Counted."),
             Script::reply("").plain(TITLE),
         ],
@@ -518,7 +520,7 @@ async fn a_second_model_refusal_asks_and_the_persons_allow_is_reused() -> Result
         .find(|e| e["type"] == "call_reviewed" && e["call_id"] == "same")
         .ok_or("missing reused allow")?;
     assert_eq!(reused["verdict"], "allow");
-    assert_eq!(reused["cost_micros"], 0);
+    assert_ne!(reused["model"], "");
     assert!(spade.fake.seen().iter().any(|request| {
         let body = request.body.to_string();
         body.contains("generic command") && body.contains("SELECT count(*)")

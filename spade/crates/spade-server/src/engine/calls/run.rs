@@ -130,10 +130,12 @@ pub(super) async fn run_tools(
             };
             // What it does, as declared to the gate, so the app can say a send or a payment
             // stays when its files are undone.
-            let effect = engine
-                .tools
-                .get_for(id, &name)
-                .and_then(|tool| tool.effect(&arguments));
+            let effect = engine.tools.get_for(id, &name).and_then(|tool| {
+                match engine.app_call_with(id, &tool, &arguments) {
+                    Some(app) => app.reading.effect,
+                    None => tool.effect(&arguments),
+                }
+            });
             let started = Event::Known(Known::ToolStarted {
                 reply: reply.to_owned(),
                 call_id: call.id.clone(),
