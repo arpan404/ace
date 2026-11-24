@@ -161,8 +161,31 @@ export function transportAddon(): TransportAddon {
     throw new Error(
       `The transport addon at ${path} exports no NativeLoopback class with generateSecret, start and underflowCount; rebuild it with cargo build --release in native/daemon`,
     );
-  loaded = { NativeLoopback: loopback };
+  loaded = { NativeLoopback: nodeShaped(loopback) };
   return loaded;
+}
+
+/**
+ * A listener start's failure as Node's `listen` reports it. `startServer`'s callers test the
+ * error's `code` (a busy port is `EADDRINUSE`), and napi hands every Rust error back as its
+ * generic status, so the one bind failure that can happen on this machine's loopback is reworded
+ * before it leaves the shell. Any other failure is returned untouched.
+ */
+function nativeBindFailure(error: unknown): unknown {
+  if (!(error instanceof Error) || !/address already in use/i.test(error.message)) return error;
+  return Object.assign(new Error(error.message), { code: "EADDRINUSE" });
+}
+
+/** The addon's class behind the shell's Node-shaped errors, with its statics kept. */
+function nodeShaped(loopback: NativeLoopbackClass): NativeLoopbackClass {
+  return {
+    generateSecret: () => loopback.generateSecret(),
+    start: (options, admit, release, opened) =>
+      loopback.start(options, admit, release, opened).catch((error: unknown) => {
+        throw nativeBindFailure(error);
+      }),
+    underflowCount: () => loopback.underflowCount(),
+  };
 }
 
 /**
