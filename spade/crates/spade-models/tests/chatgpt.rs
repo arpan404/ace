@@ -17,6 +17,7 @@ type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + 
 
 fn account(root: &str) -> Endpoint {
     Endpoint {
+        gateway_token: false,
         id: "chatgpt".to_owned(),
         name: "ChatGPT".to_owned(),
         format: Format::OpenAiResponses,

@@ -312,6 +312,14 @@ async fn run() -> Result<(), Failure> {
     )
     .map_err(other)?;
     let models = Models::new(startup.presets, keys, spade_server::home::VERSION).map_err(other)?;
+    // Gateway tokens (an authenticated Cloudflare AI Gateway's `cf-aig-authorization`) are read
+    // from the same keychain, by endpoint, and never stored with the endpoint (ADR 0119).
+    let gateway_tokens = keychain.clone();
+    models.set_gateway_keys(Keys::new(move |request| {
+        gateway_tokens
+            .as_ref()
+            .and_then(|store| store.gateway_token(request.endpoint).ok().flatten())
+    }));
     // ace's tools and skill library, found from ace's home with the grant ace handed over (or
     // the SPADE_ACE_* variables in development). Absent while ace is away.
     let ace = match AceTarget::from_env(env) {

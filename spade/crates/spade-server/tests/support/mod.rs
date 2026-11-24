@@ -691,6 +691,14 @@ impl Spade {
             ),
             spade_server::home::VERSION,
         )?;
+        // As in Spade: gateway tokens come from the same keychain, by endpoint.
+        let gateway_tokens = keys.clone();
+        models.set_gateway_keys(Keys::new(move |request| {
+            gateway_tokens
+                .gateway_token(request.endpoint)
+                .ok()
+                .flatten()
+        }));
         let store = Store::open(&dir.path().join("spade.sqlite"))?;
         if let Some(seed) = options.seed {
             seed(&store)?;

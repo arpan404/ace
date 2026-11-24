@@ -67,6 +67,7 @@ impl Models {
         let (endpoint, model) = self
             .resolve(reference)
             .ok_or_else(|| ModelError::UnknownModel(reference.to_owned()))?;
+        let endpoint = self.sending(endpoint).await;
         let key = if endpoint.needs_key {
             Some(
                 self.key_for(&endpoint)

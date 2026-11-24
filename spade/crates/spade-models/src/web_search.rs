@@ -58,6 +58,7 @@ impl Models {
         let (endpoint, model) = self
             .resolve(reference)
             .ok_or_else(|| ModelError::UnknownModel(reference.to_owned()))?;
+        let endpoint = self.sending(endpoint).await;
         let fail = |message: String, key: Option<&str>| {
             let mut secrets: Vec<&str> = endpoint.headers.iter().map(|(_, v)| v.as_str()).collect();
             secrets.extend(key);

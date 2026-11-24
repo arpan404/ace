@@ -411,6 +411,7 @@ fn a_sign_in_accounts_facts_are_kept_and_change_and_a_keyed_account_has_none() -
     let (_dir, path) = temp();
     let store = Store::open(&path)?;
     let mut account = StoredEndpoint {
+        gateway_token: false,
         id: "chatgpt".into(),
         name: "sam@example.com".into(),
         format: "openai-responses".into(),
@@ -431,6 +432,7 @@ fn a_sign_in_accounts_facts_are_kept_and_change_and_a_keyed_account_has_none() -
         models: Vec::new(),
     };
     let keyed = StoredEndpoint {
+        gateway_token: false,
         id: "openai".into(),
         sign_in: None,
         needs_key: true,
@@ -454,6 +456,7 @@ fn a_list_a_sign_in_brings_lands_only_on_an_endpoint_with_no_model_of_its_own() 
     let (_dir, path) = temp();
     let store = Store::open(&path)?;
     let endpoint = StoredEndpoint {
+        gateway_token: false,
         id: "chatgpt".into(),
         name: "ChatGPT".into(),
         format: "openai-responses".into(),
@@ -499,6 +502,7 @@ fn endpoints_models_and_settings_are_kept_and_never_hold_a_key() -> Result<()> {
     let (_dir, path) = temp();
     let store = Store::open(&path)?;
     let endpoint = StoredEndpoint {
+        gateway_token: false,
         id: "go".into(),
         name: "Go".into(),
         format: "openai-chat".into(),
@@ -576,12 +580,12 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
                  ALTER TABLE spend DROP COLUMN role; DROP TABLE digests;
                  DROP TABLE knowledge_links; DROP TABLE knowledge_search; DROP TABLE knowledge;
                  DROP TABLE episodes_search; DROP TABLE episodes;
-                 DROP TABLE retired_endpoints; ALTER TABLE endpoints DROP COLUMN sign_in; DROP TABLE outside_outcomes; DROP TABLE org_audit_checkpoints; DROP TABLE org_audit; DROP TABLE cases; DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;",
+                 DROP TABLE retired_endpoints; ALTER TABLE endpoints DROP COLUMN sign_in; ALTER TABLE endpoints DROP COLUMN gateway_token; DROP TABLE outside_outcomes; DROP TABLE org_audit_checkpoints; DROP TABLE org_audit; DROP TABLE cases; DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;",
         )?;
         connection.pragma_update(
             None,
             "user_version",
-            crate::schema::current_version() as i64 - 19,
+            crate::schema::current_version() as i64 - 20,
         )?;
     }
     let store = Store::open(&path)?;
@@ -691,11 +695,11 @@ fn spending_caps_an_earlier_build_stored_are_dropped_and_the_review_switch_kept(
     {
         let connection = crate::Store::connect(&path)?;
         connection
-            .execute_batch("ALTER TABLE agents DROP COLUMN personality; ALTER TABLE notes DROP COLUMN origin; ALTER TABLE knowledge DROP COLUMN origin; DROP TABLE lane_copies; DROP TABLE lanes_live; DROP TABLE retired_endpoints; ALTER TABLE endpoints DROP COLUMN sign_in; DROP TABLE outside_outcomes; DROP TABLE org_audit_checkpoints; DROP TABLE org_audit; DROP TABLE cases; DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;")?;
+            .execute_batch("ALTER TABLE agents DROP COLUMN personality; ALTER TABLE notes DROP COLUMN origin; ALTER TABLE knowledge DROP COLUMN origin; DROP TABLE lane_copies; DROP TABLE lanes_live; DROP TABLE retired_endpoints; ALTER TABLE endpoints DROP COLUMN sign_in; ALTER TABLE endpoints DROP COLUMN gateway_token; DROP TABLE outside_outcomes; DROP TABLE org_audit_checkpoints; DROP TABLE org_audit; DROP TABLE cases; DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;")?;
         connection.pragma_update(
             None,
             "user_version",
-            crate::schema::current_version() as i64 - 10,
+            crate::schema::current_version() as i64 - 11,
         )?;
     }
     let store = Store::open(&path)?;

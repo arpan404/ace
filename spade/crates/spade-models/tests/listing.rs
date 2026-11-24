@@ -12,6 +12,7 @@ const KEY: &str = "sk-listing-secret";
 
 fn endpoint(root: &str, format: Format) -> Endpoint {
     Endpoint {
+        gateway_token: false,
         id: "mine".into(),
         name: "Mine".into(),
         format,

@@ -107,9 +107,10 @@ fn header_name(name: &str) -> bool {
 
 /// Headers that carry credentials. They are never stored with an endpoint: keys go to the
 /// keychain (ADR 0119).
-const CREDENTIAL_HEADERS: [&str; 7] = [
+const CREDENTIAL_HEADERS: [&str; 8] = [
     "authorization",
     "proxy-authorization",
+    "cf-aig-authorization",
     "x-api-key",
     "api-key",
     "x-goog-api-key",
@@ -227,6 +228,7 @@ impl Engine {
             Some(_) => return None,
         };
         Some(Endpoint {
+            gateway_token: stored.gateway_token,
             id: stored.id.clone(),
             name: stored.name.clone(),
             format,
@@ -317,6 +319,58 @@ impl Engine {
         }
     }
 
+    /// Stores (`Some`) or forgets (`None`) the token an authenticated gateway asks for with an
+    /// endpoint's calls, in the keychain only (ADR 0119), and marks the endpoint as sending it as
+    /// `cf-aig-authorization`. Keychain I/O is never done under `endpoint_lock`.
+    pub fn set_gateway_token(
+        &self,
+        id: &str,
+        token: Option<&str>,
+    ) -> Result<EndpointView, EndpointError> {
+        let keychain = self
+            .keychain
+            .as_ref()
+            .ok_or_else(|| EndpointError::Keychain("this machine has no keychain".to_owned()))?;
+        let exists = {
+            let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+            self.not_retiring(id)?;
+            self.store.endpoints()?.iter().any(|e| e.id == id)
+        };
+        if !exists {
+            return Err(EndpointError::NotFound);
+        }
+        let kept = match token {
+            Some(token) => {
+                keychain
+                    .set_gateway_token(id, token)
+                    .map_err(|e| EndpointError::Keychain(e.to_string()))?;
+                true
+            }
+            None => keychain
+                .delete_gateway_token(id)
+                .map_err(|e| EndpointError::Keychain(e.to_string()))?,
+        };
+        let marked = {
+            let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+            let row = self.store.endpoints()?.into_iter().find(|e| e.id == id);
+            match row {
+                Some(mut row) if !self.retiring(id) => {
+                    row.gateway_token = kept;
+                    self.store.update_endpoint(&row)?;
+                    self.sync_endpoints()?;
+                    true
+                }
+                _ => false,
+            }
+        };
+        if !marked {
+            // The endpoint went while the token was written: nothing is left behind.
+            let _ = keychain.delete_gateway_token(id);
+            return Err(EndpointError::NotFound);
+        }
+        self.endpoint_view(id)
+    }
+
     /// Adds an endpoint, from a preset or from scratch. Its id is a slug of its name.
     pub fn create_endpoint(&self, input: EndpointInput) -> Result<EndpointView, EndpointError> {
         let preset = match &input.preset {
@@ -367,6 +421,7 @@ impl Engine {
             let mut stored = match &preset {
                 Some(preset) => self.stored_preset(preset, id.clone(), name.clone()),
                 None => StoredEndpoint {
+                    gateway_token: false,
                     id: id.clone(),
                     name: name.clone(),
                     format: String::new(),
@@ -447,9 +502,9 @@ impl Engine {
         ))
     }
 
-    /// A key or headers belong to the host they were set for: never hand them to another.
-    /// Checked whatever `needs_key` says now, since it can be turned back on later. Reads the
-    /// keychain; never call it with `endpoint_lock` held.
+    /// A key, a gateway token or headers belong to the host they were set for: never hand them
+    /// to another. Checked whatever `needs_key` says now, since it can be turned back on later.
+    /// Reads the keychain; never call it with `endpoint_lock` held.
     fn check_host_change(
         &self,
         id: &str,
@@ -481,6 +536,21 @@ impl Engine {
             return Err(EndpointError::Conflict(format!(
                 "this endpoint takes its key from {var}, which is for {was}; add a new endpoint for \
                  the other host instead"
+            )));
+        }
+        // A gateway token authorizes calls to one gateway's host: it never follows to another.
+        let gateway = self
+            .keychain
+            .as_ref()
+            .map(|keychain| keychain.gateway_token(id))
+            .transpose()
+            .map_err(|e| EndpointError::Keychain(e.to_string()))?
+            .flatten()
+            .is_some();
+        if gateway {
+            return Err(EndpointError::Conflict(format!(
+                "this endpoint has a gateway token for {was}; remove it first \
+                 (DELETE /v1/keys/{id}/gateway) and add the new host's after"
             )));
         }
         if !after.headers.is_empty() {
@@ -546,10 +616,14 @@ impl Engine {
     fn retire_endpoint(&self, row: &StoredEndpoint) -> Result<(), EndpointError> {
         let id = row.id.as_str();
         // The key goes first, outside the lock (it can block): if it cannot, the endpoint and its
-        // id stay, so nothing can later pick up a key left behind.
+        // id stay, so nothing can later pick up a key left behind. Its gateway token goes with
+        // it, for the same reason.
         if let Some(keychain) = &self.keychain {
             keychain
                 .delete(id)
+                .map_err(|e| EndpointError::Keychain(e.to_string()))?;
+            keychain
+                .delete_gateway_token(id)
                 .map_err(|e| EndpointError::Keychain(e.to_string()))?;
         }
         // Sign-in tokens only for a signed-in account: a key account's id erases nothing else.
@@ -915,6 +989,7 @@ mod tests {
 
     fn endpoint(id: &str, base_url: &str, model: Option<&str>, keyed: bool) -> Endpoint {
         Endpoint {
+            gateway_token: false,
             id: id.to_owned(),
             name: id.to_owned(),
             format: Format::OpenAiChat,

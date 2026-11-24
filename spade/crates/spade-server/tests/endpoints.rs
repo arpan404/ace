@@ -398,6 +398,7 @@ async fn a_header_that_carries_a_credential_is_refused_whatever_its_case() -> Re
         json!({ "api-key": "x" }),
         json!({ "Cookie": "s=1" }),
         json!({ "Proxy-Authorization": "Basic x" }),
+        json!({ "cf-aig-authorization": "Bearer cf-token" }),
     ] {
         let (status, body) = spade
             .post(

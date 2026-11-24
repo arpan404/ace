@@ -206,6 +206,10 @@ pub struct Endpoint {
     /// How it signs in when not with a key: a ChatGPT account (ADR 0214). `None` for a key or
     /// no key at all, as `needs_key` says.
     pub sign_in: Option<crate::chatgpt::SignIn>,
+    /// Whether a gateway token waits in the keychain for its calls, sent as
+    /// [`crate::GATEWAY_HEADER`] (an authenticated Cloudflare AI Gateway). Never a header of its
+    /// own (ADR 0119).
+    pub gateway_token: bool,
     pub models: Vec<Model>,
 }
 
@@ -534,6 +538,8 @@ fn check_endpoint(endpoint: FileEndpoint, problems: &mut Vec<String>) -> Endpoin
         headers: endpoint.headers.into_iter().collect(),
         session_header,
         sign_in: None,
+        // A preset is a template: a gateway token belongs to one endpoint in the keychain.
+        gateway_token: false,
         models,
     }
 }

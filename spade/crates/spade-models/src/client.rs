@@ -33,6 +33,8 @@ pub struct Models {
     catalog: Arc<Catalog>,
     endpoints: Arc<RwLock<Arc<Vec<Endpoint>>>>,
     keys: Keys,
+    /// The tokens authenticated gateways ask for, kept apart from the endpoints' keys.
+    gateway_keys: Arc<RwLock<Keys>>,
     /// `spade/<version>`, sent as every request's User-Agent.
     user_agent: String,
     pub(crate) http: reqwest::Client,
@@ -49,6 +51,10 @@ pub(crate) type Deltas = Pin<Box<dyn Stream<Item = Result<Delta, ModelError>> + 
 
 /// Sent to an endpoint that needs no key (a local server), which ignores it.
 pub const KEYLESS: &str = "no-key";
+
+/// The header an authenticated gateway asks for its own token in, beside the endpoint's key:
+/// Cloudflare AI Gateway's `cf-aig-authorization`.
+pub const GATEWAY_HEADER: &str = "cf-aig-authorization";
 
 /// A model resolved for one call.
 struct Call {
@@ -137,6 +143,7 @@ impl Models {
             catalog: Arc::new(catalog),
             endpoints,
             keys,
+            gateway_keys: Arc::new(RwLock::new(Keys::new(|_| None))),
             user_agent,
             http,
             listing: ListBounds::default(),
@@ -144,6 +151,12 @@ impl Models {
             waits: Arc::default(),
             bearers: Arc::default(),
         })
+    }
+
+    /// Where an endpoint's gateway token comes from (ADR 0119): the server's keychain, looked up
+    /// by endpoint id, for endpoints marked as sending one.
+    pub fn set_gateway_keys(&self, keys: Keys) {
+        *self.gateway_keys.write().unwrap_or_else(|p| p.into_inner()) = keys;
     }
 
     /// How long a signed-in account's stream may take (ADR 0214).
@@ -239,6 +252,27 @@ impl Models {
         self.key_for_call(endpoint).await
     }
 
+    /// The endpoint as a call sends it: with its gateway token, when one waits in the keychain
+    /// for it, as `cf-aig-authorization: Bearer <token>`. The token is never stored with the
+    /// endpoint (ADR 0119), and it is scrubbed from what a request says as any header's value is.
+    pub(crate) async fn sending(&self, endpoint: Endpoint) -> Endpoint {
+        if !endpoint.gateway_token {
+            return endpoint;
+        }
+        let keys = {
+            let keys = self.gateway_keys.read().unwrap_or_else(|p| p.into_inner());
+            keys.clone()
+        };
+        let Some(token) = keys.find(&endpoint.id, None).await else {
+            return endpoint;
+        };
+        let mut sending = endpoint;
+        sending
+            .headers
+            .push((GATEWAY_HEADER.to_owned(), format!("Bearer {token}")));
+        sending
+    }
+
     /// The HTTP client every call goes through (no redirects followed).
     pub(crate) fn http(&self) -> &reqwest::Client {
         &self.http
@@ -256,9 +290,10 @@ impl Models {
         let endpoint = self
             .endpoint(endpoint_id)
             .ok_or_else(|| ModelError::UnknownModel(format!("{endpoint_id}/")))?;
-        if let Some(SignIn::ChatGpt { account_id }) = &endpoint.sign_in {
-            return self.list_signed(&endpoint, account_id).await;
+        if let Some(SignIn::ChatGpt { account_id }) = endpoint.sign_in.clone() {
+            return self.list_signed(&endpoint, &account_id).await;
         }
+        let endpoint = self.sending(endpoint).await;
         let key = if endpoint.needs_key {
             Some(
                 self.key_for_call(&endpoint)
@@ -584,6 +619,7 @@ impl Models {
             )),
             None => None,
         };
+        let endpoint = self.sending(endpoint).await;
         let auth = if let Some((credential, _)) = &signed {
             AuthData::from_single(credential.token.clone())
         } else if endpoint.needs_key {

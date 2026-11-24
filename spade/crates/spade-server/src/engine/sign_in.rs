@@ -409,6 +409,7 @@ impl Engine {
         // to the person.
         let name = sign_in_name(&endpoints);
         let row = StoredEndpoint {
+            gateway_token: false,
             id: id.clone(),
             name,
             format: spade_models::Format::OpenAiResponses.name().to_owned(),

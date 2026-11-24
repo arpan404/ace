@@ -15,6 +15,7 @@ fn models(root: &str) -> Result<Models> {
     let presets = Catalog::from_json(&json!({ "endpoints": [] }).to_string())?;
     let models = Models::new(presets, Keys::new(|_| Some("sk-key".to_owned())), "9.9.9")?;
     models.set_endpoints(vec![Endpoint {
+        gateway_token: false,
         id: "mine".into(),
         name: "Mine".into(),
         format: Format::Anthropic,
