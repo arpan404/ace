@@ -106,8 +106,32 @@ fn annex_b(frame: &MediaFrame, key: bool) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// A page size the client's browser video header takes: both sides in 100..=4096. Both
+/// sides scale by one factor, so the larger side fits 4096 and the smaller clears 100,
+/// keeping the aspect; where no one factor fits both, each side clamps after rounding.
+/// None for a page with no positive size, which takes the display size instead.
+fn browser_page_size(width: f64, height: f64) -> Option<(u32, u32)> {
+    if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+        return None;
+    }
+    let larger = width.max(height);
+    let smaller = width.min(height);
+    let factor = if larger > 4096.0 {
+        4096.0 / larger
+    } else if smaller < 100.0 {
+        100.0 / smaller
+    } else {
+        1.0
+    };
+    Some((
+        (width * factor).round().clamp(100.0, 4096.0) as u32,
+        (height * factor).round().clamp(100.0, 4096.0) as u32,
+    ))
+}
+
 /// One unit's pieces for a view, or `None` for a unit it can't show (a picture codec the
-/// header can't name, a malformed record).
+/// header can't name, a malformed record). `page` is the source's page CSS size and scale
+/// (`source.page`), which the browser video header carries as its size beside the coded one.
 pub fn build(
     target: &ViewerTarget,
     source: &str,
@@ -115,16 +139,28 @@ pub fn build(
     sequence: u64,
     timestamp_ms: f64,
     frame: &MediaFrame,
+    page: Option<(f64, f64, f64)>,
 ) -> Option<Built> {
     let key = frame.flags & FLAG_KEY != 0;
     let mut meta = vec![0u8; 512 + frame.description.len()];
     match (target, frame.kind) {
         (ViewerTarget::Browser { thread_id, tab_id }, FRAME_VIDEO) => {
+            // The client maps a click as its CSS pixels, so the header's size is the page's CSS
+            // size, fitted to what the client takes; the coded size stays the encoded pixels.
+            // Without a page, the display size.
+            let display = (
+                u32::from(frame.display_width.max(100)),
+                u32::from(frame.display_height.max(100)),
+            );
+            let (width, height) = match page {
+                Some((width, height, _)) => browser_page_size(width, height).unwrap_or(display),
+                None => display,
+            };
             let header = Video {
                 sequence: sequence as f64,
                 timestamp: timestamp_ms,
-                width: u32::from(frame.display_width.max(100)),
-                height: u32::from(frame.display_height.max(100)),
+                width,
+                height,
                 coded_width: frame.width,
                 coded_height: frame.height,
                 key,

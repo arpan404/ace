@@ -8,7 +8,12 @@ import { ChromeDownloads } from "./chrome-downloads.ts";
 import type { ChromeInstance } from "./chrome-instance.ts";
 import type { AttachedTarget } from "./chrome-targets.ts";
 import { consoleEntry, consoleEvents } from "./console-entry.ts";
-import { contentsScale, sizeHeadlessTab, type HeadlessDevice } from "./headless-size.ts";
+import {
+  contentsScale,
+  headlessPageSize,
+  sizeHeadlessTab,
+  type HeadlessDevice,
+} from "./headless-size.ts";
 import { BrowserInspection } from "./inspection.ts";
 import { installOriginGuard } from "./origin-guard.ts";
 import { pageFrames } from "./page-frames.ts";
@@ -232,6 +237,12 @@ export class ChromeTabs {
   }
   viewportSize(id = this.activeId): { width: number; height: number } {
     return { ...(this.tabs.get(id)?.viewport ?? this.viewport) };
+  }
+  /** A tab's CSS size and scale for live video: its device's, or its pane's, at its zoom. */
+  pageSize(id = this.activeId): { width: number; height: number; scale: number } {
+    const tab = this.tabs.get(id);
+    if (!tab) throw new Error("Browser tab unavailable");
+    return headlessPageSize(tab, this.deviceScaleFactor, this.viewerScale);
   }
   /**
    * Sizes one tab; new tabs open at the size last set. A viewer's `devicePixelRatio` sets how

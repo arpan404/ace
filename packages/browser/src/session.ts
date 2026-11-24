@@ -170,6 +170,7 @@ export class BrowserSession {
         if (!host) return undefined;
         return { host: this.options.mediaVideo?.(host) ?? host, page: page.cdp };
       },
+      () => this.viewedPage().pageSize?.(),
     );
     // A recording needs frames whether or not anyone watches.
     this.live.require(() => this.recordings.active);
@@ -293,6 +294,7 @@ export class BrowserSession {
       budget: this.budget,
       timing: this.timing,
       page: (tabId) => this.tabs.page(tabId),
+      inputScale: () => this.live.inputScale(),
       flags: () => ({
         closed: this.closed,
         paused: this.paused,

@@ -117,6 +117,11 @@ struct View {
 struct SourceFacts {
     /// The page's CSS size and scale (`source.page`), or the last unit's display size.
     page: Option<(f64, f64, f64)>,
+    /// The page size the daemon announced (`source.page`): the only page size the browser
+    /// header carries. A unit's display size seeds planning above but never the header.
+    daemon_page: Option<(f64, f64, f64)>,
+    /// The announcement before it: frames in flight across a resize keep their own geometry.
+    previous_daemon_page: Option<(f64, f64, f64)>,
     /// What the producer can encode (`source.codecs`), possibly nothing; none told: whatever
     /// the views decode.
     codecs: Option<Vec<String>>,
@@ -356,6 +361,13 @@ impl Delivery {
     ) {
         let facts = self.sources.entry(source.to_owned()).or_default();
         let page = Some((f64::from(width), f64::from(height), scale.max(0.1)));
+        // The announcement is the page even when it changes nothing planned: a unit's display
+        // size may already have seeded the same size, and the header takes only this. The
+        // one before stays while its frames are still in flight.
+        if facts.daemon_page != page {
+            facts.previous_daemon_page = facts.daemon_page;
+            facts.daemon_page = page;
+        }
         if facts.page == page {
             return;
         }
@@ -639,6 +651,7 @@ impl Delivery {
         for key in keys {
             self.message = self.message.wrapping_add(1);
             let message = self.message;
+            let page = self.sources.get(source).and_then(|facts| facts.daemon_page);
             let Some(view) = self.views.get_mut(&key) else {
                 continue;
             };
@@ -654,6 +667,7 @@ impl Delivery {
                     view.sequence,
                     self.stamp,
                     frame,
+                    page,
                 ) else {
                     continue;
                 };
@@ -723,13 +737,28 @@ impl Delivery {
         out: &mut Vec<Effect>,
     ) {
         {
+            let page = self.sources.get(source).and_then(|facts| {
+                header_page(
+                    facts.daemon_page,
+                    facts.previous_daemon_page,
+                    frame.display_width,
+                    frame.display_height,
+                )
+            });
             let Some(view) = self.views.get_mut(key) else {
                 return;
             };
             view.sequence += 1;
             let sequence = view.sequence;
-            let Some(built) = build(&view.target, source, message, sequence, self.stamp, frame)
-            else {
+            let Some(built) = build(
+                &view.target,
+                source,
+                message,
+                sequence,
+                self.stamp,
+                frame,
+                page,
+            ) else {
                 return;
             };
             let mut events = Vec::new();
@@ -1212,6 +1241,28 @@ pub(crate) fn next_media_id(
         id += 1;
     }
     (id < range.end).then(|| (id, id + 1))
+}
+
+/// The announced page a browser frame's header carries: the announcement whose shape is
+/// closest to the frame's display shape, so frames in flight across a resize keep the
+/// geometry they were captured in. The newest wins ties, and frames with no display size.
+fn header_page(
+    current: Option<(f64, f64, f64)>,
+    previous: Option<(f64, f64, f64)>,
+    display_width: u16,
+    display_height: u16,
+) -> Option<(f64, f64, f64)> {
+    let (width, height) = (f64::from(display_width), f64::from(display_height));
+    let (Some(newest), Some(older), true) = (current, previous, width > 0.0 && height > 0.0) else {
+        return current.or(previous);
+    };
+    // |w1*h2 - w2*h1| nearer zero is nearer the display's shape; ties keep the newest.
+    let off = |page: (f64, f64, f64)| (page.0 * height - page.1 * width).abs();
+    if off(older) < off(newest) {
+        Some(older)
+    } else {
+        Some(newest)
+    }
 }
 
 /// The encode a view takes: its planned one while the producer sends it, else the produced encode

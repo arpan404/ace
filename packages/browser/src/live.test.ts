@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import type { BrowserCdp, VideoHost } from "./backend.ts";
+import { headlessPageSize } from "./headless-size.ts";
 import { LiveCapture } from "./live.ts";
 import type { CaptureViewer } from "./viewer-sink.ts";
 
@@ -72,6 +73,142 @@ it("stops the screencast feeding the video once its only viewer is hidden", asyn
   await live.close();
 });
 
+it("the video reaches ace-media at the page's CSS size where it differs from the viewport", async () => {
+  vi.useFakeTimers();
+  const page = fakePage();
+  const pages: { width: number; height: number; scale: number }[] = [];
+  const host: VideoHost = {
+    mediaKind: "tab",
+    supported: async () => ["avc1.42E033"],
+    open: async () => ({
+      encodes: () => {},
+      keyframe: () => {},
+      codecs: () => {},
+      audio: () => {},
+      page: (shown) => void pages.push({ ...shown }),
+      close: () => {},
+    }),
+  };
+  const live = new LiveCapture(
+    page.cdp,
+    () => Date.now(),
+    () => {},
+    undefined,
+    () => ({ width: 1280, height: 800 }),
+    () => "tab-1",
+    () => 1,
+    () => ({ host, page: page.cdp }),
+    () => ({ width: 640, height: 400, scale: 1 }),
+  );
+  await live.start();
+  live.subscribe("phone", {}, viewer(false));
+  await vi.advanceTimersByTimeAsync(500);
+  // The pane is 1280x800 at 200% zoom: source.page carries the 640x400 CSS viewport.
+  expect(pages.at(-1)).toEqual({ width: 640, height: 400, scale: 1 });
+  await live.close();
+});
+
+/** A tab capture that records the page and encodes each capture runs. */
+function recordingHost() {
+  const pages: { width: number; height: number; scale: number }[] = [];
+  const encodes: { width: number; height: number }[] = [];
+  const host: VideoHost = {
+    mediaKind: "tab",
+    supported: async () => ["avc1.42E033"],
+    open: async () => ({
+      encodes: (specs) =>
+        void encodes.push(...specs.map(({ width, height }) => ({ width, height }))),
+      keyframe: () => {},
+      codecs: () => {},
+      audio: () => {},
+      page: (shown) => void pages.push({ ...shown }),
+      close: () => {},
+    }),
+  };
+  return { host, pages, encodes };
+}
+
+it("a zoomed headless page plans its video at the pixels it had before zoom", async () => {
+  vi.useFakeTimers();
+  // A dense screen shows the page at full pixels: both captures plan 1280x800.
+  const sharp: CaptureViewer = {
+    viewport: { width: 1280, height: 800, devicePixelRatio: 2, paused: false },
+    video: { codecs: ["avc1.42E033"] },
+    delivered: true,
+  };
+  const zoomedPage = fakePage();
+  const plainPage = fakePage();
+  const zoomed = recordingHost();
+  const plain = recordingHost();
+  const zoomedLive = new LiveCapture(
+    zoomedPage.cdp,
+    () => Date.now(),
+    () => {},
+    undefined,
+    () => ({ width: 1280, height: 800 }),
+    () => "tab-1",
+    () => 1,
+    () => ({ host: zoomed.host, page: zoomedPage.cdp }),
+    () => headlessPageSize({ viewport: { width: 1280, height: 800 }, zoom: 2 }, 1),
+  );
+  const plainLive = new LiveCapture(
+    plainPage.cdp,
+    () => Date.now(),
+    () => {},
+    undefined,
+    () => ({ width: 1280, height: 800 }),
+    () => "tab-1",
+    () => 1,
+    () => ({ host: plain.host, page: plainPage.cdp }),
+  );
+  await zoomedLive.start();
+  await plainLive.start();
+  zoomedLive.subscribe("phone", {}, sharp);
+  plainLive.subscribe("phone", {}, sharp);
+  await vi.advanceTimersByTimeAsync(500);
+  // source.page carries the zoomed CSS size at Chrome's device scale...
+  expect(zoomed.pages.at(-1)).toEqual({ width: 640, height: 400, scale: 2 });
+  // ...but plans the 1280x800 pixels the unzoomed page gets.
+  expect(plain.encodes[0]).toMatchObject({ width: 1280, height: 800 });
+  expect(zoomed.encodes[0]).toMatchObject({ width: 1280, height: 800 });
+  await zoomedLive.close();
+  await plainLive.close();
+});
+
+it("a page larger than the client takes reaches ace-media fitted keeping its pixels", async () => {
+  vi.useFakeTimers();
+  const page = fakePage();
+  const fitted = recordingHost();
+  const live = new LiveCapture(
+    page.cdp,
+    () => Date.now(),
+    () => {},
+    undefined,
+    () => ({ width: 1280, height: 800 }),
+    () => "tab-1",
+    () => 1,
+    () => ({ host: fitted.host, page: page.cdp }),
+    // Embedded at 25% zoom reports 5120 CSS pixels: the fitted page reaches ace-media.
+    () => ({ width: 5120, height: 3200, scale: 1 }),
+  );
+  await live.start();
+  live.subscribe(
+    "phone",
+    {},
+    {
+      viewport: { width: 1280, height: 800, devicePixelRatio: 2, paused: false },
+      video: { codecs: ["avc1.42E033"] },
+      delivered: true,
+    },
+  );
+  await vi.advanceTimersByTimeAsync(500);
+  // source.page carries the fitted size at the scale keeping the 5120x3200 pixels...
+  expect(fitted.pages.at(-1)).toEqual({ width: 4096, height: 2560, scale: 1.25 });
+  // ...planned against the longest frame the capture sends, and input scales back by 1.25.
+  expect(fitted.encodes[0]).toMatchObject({ width: 2560, height: 1600 });
+  expect(live.inputScale()).toBe(1.25);
+  await live.close();
+});
 it("a screencast picture captured before the tab's privacy changed never reaches the video; later ones carry their epoch", async () => {
   const page = fakePage();
   let frame: ((raw: unknown) => void) | undefined;
