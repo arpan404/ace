@@ -54,19 +54,24 @@ struct SpadeTab: View {
             .toolbar {
                 account
                 if !machines.isEmpty {
-                    ToolbarItemGroup(placement: .topBarTrailing) {
-                        Button { settings = settingsMachine.map(SpadeMachineChoice.init) } label: { AceIcon(.gear) }
+                    // Drawn as the home lists' bar (`InboxStack`): bar glyphs, one tight capsule.
+                    ToolbarItem(placement: .topBarTrailing) {
+                        HStack(spacing: AceTheme.Spacing.none) {
+                            Button { settings = settingsMachine.map(SpadeMachineChoice.init) } label: {
+                                Image(bar: .gear).barButton()
+                            }
                             .accessibilityLabel("Spade settings")
                             .accessibilityIdentifier("spade.openSettings")
-                        Menu {
-                            Button(action: newBot) { Label("New bot", ace: .robot) }
-                                .accessibilityIdentifier("spade.newBot")
-                            Button { grouping = true } label: { Label("New club", ace: .users) }
-                                .accessibilityIdentifier("spade.newGroup")
-                        } label: { AceIcon(.notePencil) }
-                            .accessibilityLabel("New")
-                            .accessibilityIdentifier("spade.new")
-                            .disabled(hosts.isEmpty)
+                            Menu {
+                                Button(action: newBot) { Label("New bot", ace: .robot) }
+                                    .accessibilityIdentifier("spade.newBot")
+                                Button { grouping = true } label: { Label("New club", ace: .users) }
+                                    .accessibilityIdentifier("spade.newGroup")
+                            } label: { Image(bar: .notePencil).barButton() }
+                                .accessibilityLabel("New")
+                                .accessibilityIdentifier("spade.new")
+                                .disabled(hosts.isEmpty)
+                        }
                     }
                 }
             }

@@ -350,6 +350,7 @@ export const tabIconSize = 26;
 export const barIcons: { name: string; weight: "regular" | "bold" }[] = [
   { name: "funnel-simple", weight: "regular" },
   { name: "note-pencil", weight: "regular" },
+  { name: "gear", weight: "regular" },
   { name: "dots-three", weight: "bold" },
   { name: "chat-circle", weight: "regular" },
   { name: "plus-minus", weight: "regular" },
