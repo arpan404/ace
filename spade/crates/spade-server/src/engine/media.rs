@@ -48,8 +48,8 @@ impl Engine {
         if self.store.group_for_conversation(id)?.is_some() {
             return Err(SendError::Group);
         }
-        // A helper hears only its task (ADR 0152).
-        if self.helper_of(id).is_some() {
+        // Internal conversations receive instructions through their parent.
+        if self.hidden_of(id).is_some() {
             return Err(SendError::Helper);
         }
         // Until the person chooses a model nothing could answer: the message is not posted.
@@ -76,10 +76,6 @@ impl Engine {
         });
         let message = memory::with_recall(self, id, message);
         let message = with_devices(message, &outgoing_devices);
-        // A reply to a lane's message goes to that lane, with no model call (ADR 0217 §2).
-        if let Some(routed) = self.route_reply(id, &message, outgoing.reply_to.as_deref()) {
-            return Ok(routed?);
-        }
         self.deliver(id, &message)?;
         Ok(())
     }

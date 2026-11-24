@@ -269,64 +269,6 @@ async fn an_answer_to_a_lanes_request_lands_in_main_and_the_lane_together_or_not
 }
 
 #[tokio::test]
-async fn a_reply_routed_to_a_lane_lands_in_main_and_the_lane_together_or_not_at_all() -> Result {
-    let routes = vec![route(
-        "Fix the March invoice",
-        vec![
-            Script::reply("Fixed it."),
-            Script::reply("Attached the PDF."),
-        ],
-    )];
-    let mut main = warm_up();
-    main.extend([
-        starts("t1", "Fix the March invoice"),
-        Script::reply("Started."),
-        Script::reply("The invoice is fixed."),
-        Script::reply("The PDF went too."),
-    ]);
-    let spade = Spade::start_routed(routes, main, Vec::new(), Options::default()).await?;
-    let (_, conversation) = warm_bot(&spade).await?;
-    spade.say(&conversation, "Fix the March invoice.").await?;
-    let events = wait_count(&spade, &conversation, "reply_finished", 3).await?;
-    let at = events
-        .iter()
-        .rposition(|e| e["type"] == "reply_finished")
-        .unwrap_or_default();
-    let lane_id = id_of(tasks(&spade, &conversation).await?.first());
-    refuse(
-        &spade,
-        "no_routed",
-        &format!(
-            "json_extract(NEW.body, '$.type') = 'user_message' \
-             AND NEW.conversation_id = '{lane_id}'"
-        ),
-    )?;
-    let body = json!({ "text": "Attach the PDF too.", "reply_to": format!("m{}", at + 1) });
-    let path = format!("/v1/conversations/{conversation}/messages");
-    let (status, _) = spade.post(&path, body.clone()).await?;
-    assert!(
-        status >= 500,
-        "the lane could not take it, so nothing was sent: {status}"
-    );
-    let events = spade.events(&conversation).await?;
-    assert_eq!(count(&events, "ask_routed"), 0, "{:?}", types(&events));
-    assert!(
-        !events.iter().any(|e| e["text"] == "Attach the PDF too."),
-        "main never keeps a message the lane didn't get"
-    );
-    allow(&spade, "no_routed")?;
-    let (status, reply) = spade.post(&path, body).await?;
-    assert_eq!(status, 202, "{reply}");
-    let lane_events = wait_count(&spade, &lane_id, "reply_finished", 2).await?;
-    assert!(
-        lane_events
-            .iter()
-            .any(|e| e["text"] == "Attach the PDF too.")
-    );
-    Ok(())
-}
-
-#[tokio::test]
 async fn main_steering_a_lane_reaches_it_as_the_bots_words_never_as_the_persons() -> Result {
     let routes = vec![route(
         "Fix the March invoice",

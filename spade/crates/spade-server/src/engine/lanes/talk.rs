@@ -1,6 +1,4 @@
-//! Talking to lanes (ADR 0217 §2, §3, §5): main's `task_message`, `task_stop` and `tasks`, a
-//! person's reply to a lane's message routed to that lane with no model call, and the person
-//! writing in a lane's own transcript.
+//! Main controls its task lanes with task_message, task_stop and tasks.
 
 use std::sync::Arc;
 
@@ -8,7 +6,7 @@ use serde_json::{Value, json};
 use spade_core::Event;
 use spade_core::event::Known;
 use spade_core::helper::{self, Stage};
-use spade_core::lane::{self, Routed};
+use spade_core::lane;
 use spade_core::tree;
 use spade_store::{StoreError, StoredHelper};
 
@@ -171,39 +169,6 @@ impl Engine {
         }
         self.announce(&row.parent);
         Ok(())
-    }
-
-    /// The person's message to main that replies to a lane's message goes to that lane (ADR 0217
-    /// §2), with no model call: main stores the person's bubble and `ask_routed`, the lane the
-    /// person's message. `None` when `reply_to` names no lane's message, so main takes it.
-    pub(in super::super) fn route_reply(
-        self: &Arc<Self>,
-        main: &str,
-        message: &Event,
-        reply_to: Option<&str>,
-    ) -> Option<Result<(), StoreError>> {
-        let replied = reply_to?;
-        let events = self.load(main).ok()?;
-        let lane_id = lane::replied_to(&events, replied)?;
-        let row = self.lane_row(&lane_id)?;
-        let title = self.lane_title(&lane_id);
-        // The lane hears the person's own words, trusted (ADR 0217 §2), without the quote of
-        // main's message that only made sense there.
-        let mut own = message.clone();
-        if let Event::Known(Known::UserMessage { reply_to, .. }) = &mut own {
-            *reply_to = None;
-        }
-        // Main keeps the person's bubble and where it went, the lane the message, in one write:
-        // a crash never leaves main saying it went while the lane never got it.
-        let sent = self.send_to_lane(&row, vec![own], |main_events| {
-            let routed = Event::Known(Known::AskRouted(Routed {
-                lane: lane_id.clone(),
-                title,
-                message: spade_core::chat_markup::id(main_events.len() as u64 + 1, 0),
-            }));
-            Some(vec![message.clone(), routed])
-        });
-        Some(sent)
     }
 
     /// `task_stop`: refused unless `because` names the person's message asking for it.

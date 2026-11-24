@@ -138,37 +138,34 @@ async fn two_independent_requests_run_as_two_lanes_while_main_answers_a_quick_qu
 }
 
 #[tokio::test]
-async fn a_reply_to_a_lanes_report_goes_to_that_lane_with_no_model_call_in_main() -> Result {
+async fn a_reply_to_a_task_report_reaches_main_and_direct_lane_messages_are_refused() -> Result {
     let routes = vec![route(
         "Fix the March invoice",
-        vec![
-            Script::reply("Fixed the VAT line and sent it."),
-            Script::reply("Attached the PDF and sent it again."),
-        ],
+        vec![Script::reply("Fixed the VAT line.")],
     )];
     let mut main = warm_up();
     main.extend([
         starts("t1", "Fix the March invoice"),
         Script::reply("Started a task for it."),
-        Script::reply("The invoice is fixed and sent to Dana."),
-        Script::reply("Done again: the PDF went too."),
+        Script::reply("The invoice is fixed."),
+        Script::reply("I will check the PDF."),
     ]);
     let spade = Spade::start_routed(routes, main, Vec::new(), Options::default()).await?;
     let (_, conversation) = warm_bot(&spade).await?;
     spade.say(&conversation, "Fix the March invoice.").await?;
-    // The lane reports, and main tells the person in its own words.
     let events = wait_count(&spade, &conversation, "reply_finished", 3).await?;
-    let (at, told) = events
+    let at = events
         .iter()
-        .enumerate()
-        .rev()
-        .find(|(_, e)| e["type"] == "reply_finished")
+        .rposition(|e| e["type"] == "reply_finished")
         .ok_or("no report reply")?;
-    assert_eq!(told["text"], "The invoice is fixed and sent to Dana.");
     let lane_id = id_of(tasks(&spade, &conversation).await?.first());
-    let asked_before = spade.fake.seen().len();
-    let replies_before = count(&events, "reply_started");
-
+    let (status, body) = spade
+        .post(
+            &format!("/v1/conversations/{lane_id}/messages"),
+            json!({ "text": "Send it to Dana." }),
+        )
+        .await?;
+    assert!(matches!(status, 400..=499), "{status}: {body}");
     let (status, body) = spade
         .post(
             &format!("/v1/conversations/{conversation}/messages"),
@@ -176,67 +173,15 @@ async fn a_reply_to_a_lanes_report_goes_to_that_lane_with_no_model_call_in_main(
         )
         .await?;
     assert_eq!(status, 202, "{body}");
-    // The lane takes it as the person's message and answers in its own context.
-    let lane_events = wait_count(&spade, &lane_id, "reply_finished", 2).await?;
-    let heard = lane_events
-        .iter()
-        .rev()
-        .find(|e| e["type"] == "user_message")
-        .cloned()
-        .unwrap_or_default();
-    assert_eq!(heard["text"], "Attach the PDF too.");
-    assert!(heard.get("from_agent").is_none(), "the person's own words");
-    // Main kept the person's bubble with where it went, and called no model for it: the one
-    // call since was the lane's.
-    let events = spade.events(&conversation).await?;
-    let routed = events
-        .iter()
-        .find(|e| e["type"] == "ask_routed")
-        .cloned()
-        .ok_or("main never said where the message went")?;
-    assert_eq!(routed["lane"], lane_id.as_str());
-    assert_eq!(routed["title"], "Fix the March invoice");
-    let at = events
-        .iter()
-        .position(|e| e["type"] == "ask_routed")
-        .unwrap_or_default();
-    assert_eq!(events[at - 1]["type"], "user_message");
-    assert_eq!(events[at - 1]["text"], "Attach the PDF too.");
-    // The lane's model call answered it; main's next reply is the one the lane's second report
-    // opens, never one for the message itself.
+    let events = wait_count(&spade, &conversation, "reply_finished", 4).await?;
+    assert!(events.iter().any(|e| e["text"] == "I will check the PDF."));
+    assert_eq!(count(&events, "ask_routed"), 0);
+    let lane_events = spade.events(&lane_id).await?;
     assert!(
-        spade.fake.seen()[asked_before]
-            .body
-            .to_string()
-            .contains(&lane("Fix the March invoice")),
-        "main made a model call for the routed message"
+        !lane_events
+            .iter()
+            .any(|e| e["text"] == "Attach the PDF too." || e["text"] == "Send it to Dana.")
     );
-    let events = wait_count(&spade, &conversation, "worker_reported", 2).await?;
-    let opened = events[at..]
-        .iter()
-        .position(|e| e["type"] == "reply_started")
-        .map(|n| at + n);
-    let reported = events[at..]
-        .iter()
-        .position(|e| e["type"] == "worker_reported")
-        .map(|n| at + n);
-    assert!(
-        opened.is_none_or(|opened| reported.is_some_and(|r| r < opened)),
-        "{:?}",
-        types(&events)
-    );
-    assert_eq!(count(&events[..at], "reply_started"), replies_before);
-    // When main next answers, it reads where the message went, so it never answers it itself.
-    wait_count(&spade, &conversation, "reply_finished", replies_before + 1).await?;
-    let mains_next = spade
-        .fake
-        .seen()
-        .into_iter()
-        .rev()
-        .find(|s| !s.body.to_string().contains(&lane("Fix the March invoice")))
-        .map(|s| s.body.to_string())
-        .unwrap_or_default();
-    assert!(mains_next.contains("<routed task="), "{mains_next}");
     Ok(())
 }
 
