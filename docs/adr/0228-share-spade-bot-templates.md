@@ -27,3 +27,66 @@ An export file or separate sharing service would require its own trust and insta
 ## Tests
 
 The focused tests cover privacy refusals in lessons, installation of distilled knowledge, paused heartbeat, stamp verification and replay, restart recovery, Store grant enforcement, both publish destinations, and the per-item review in chat. The Rust integration test uses Bun to send stamps through the daemon’s production HTTP client.
+
+## Required presence for publishing
+
+The desktop signer and account device registry are pending. Until they ship, the provisioned
+Spade key described above provides review integrity but gives the Store no proof of OS-backed
+presence.
+
+The desktop signer accepts only the canonical review challenge Spade produces after validating
+the final package and checklist. The challenge binds the package kind, publisher, name, version,
+archive hash, visibility, draft ID and the hash of the sorted checklist digests. Spade verifies
+the returned signature against an active account device key before authorizing the attempt. The
+Store resolves that key independently when publishing. A missing key or unavailable registry
+fails the request. An ace account person grant remains a separate gate.
+
+Extend ADR 0190's device enrollment rather than reusing the key that signs socket statements.
+A device's presence-protected review key belongs to the same account device record and has a
+distinct signing purpose. The cloud enrollment extends the fresh sign-in and proof of possession
+exchange. A publisher's Store credential determines which account can vouch for the device.
+Removing the device revokes the review key for subsequent publishes. The Store must retire
+legacy pinned seeds when it starts requiring registered device keys.
+
+- **macOS.** Prompt from the signed desktop app in the GUI session. Use a data-protection
+  keychain item with `.userPresence` and a fresh authentication context for every signature.
+  Use the package name in the system reason, such as “Publish ‘Markit’ to the ace Store.”
+  Keep Security framework calls in `spade-keychain-macos`. The signing host needs
+  `keychain-access-groups` and an embedded provisioning profile authorizing the app's access
+  group for `dev.ace.app`. The Developer ID identity's team is `5J88TLUP2J`. The checked-in
+  signing configuration does not include that entitlement or profile. Verify the shipped bundle
+  and the identity of the host executable that actually calls Security. A compromised entitled
+  host can misuse a seed once the OS has released it.
+- **Windows.** Use a Windows Hello credential to sign the challenge in the interactive desktop
+  session. Register the credential's public key and algorithm. A consent result used alongside
+  an ordinary exportable key would leave the key outside the Windows Hello boundary.
+  Credential protection depends on the device and its Windows Hello configuration.
+- **Linux.** Keep the signing key in a root-owned helper. The helper validates and holds the
+  canonical challenge before asking polkit for `auth_self` with no cached authorization. It
+  signs only that challenge after the desktop authentication agent returns success. The deb
+  needs install and removal hooks for the helper and policy. The AppImage needs an explicit
+  administrative install and removal command because its mount is temporary. The project
+  currently ships no rpm. Password re-entry provides weaker assurance than hardware-backed
+  presence. Root can sign, and a compromised graphical session can capture passwords or
+  mislead the person about the prompt.
+
+The gate targets unattended same-user processes, including processes with the daemon stamp
+secret. It cannot establish that the person understood the review, protect an already compromised
+trusted signer or OS, or stop someone who knows the device credential.
+
+### Manual acceptance checks
+
+Use a test account and isolated Store. On each system, sign in from the packaged desktop app
+and enroll the device. In Library, open a skill's share review, acknowledge each file, and select
+Publish. Cancel the first OS prompt and verify that ace refuses publishing and the draft remains
+unpublished. Repeat and approve, then start a different draft and confirm that the OS asks again.
+Remove the device in the account and verify that it cannot publish.
+
+- **Mac.** Use a provisioned Developer ID build on a Touch ID Mac. Verify the package name in
+  the dialog, then repeat with password fallback.
+- **Windows VM.** Set up Windows Hello PIN in Settings and use the signed desktop installer.
+  Verify the Windows Hello dialog. Disable Hello and confirm that publishing fails.
+- **Linux or Omarchy.** Install the helper and policy as administrator, using the deb or the
+  AppImage's explicit installer. Use an active session with a running polkit agent. Verify the
+  password challenge on consecutive publish attempts. Remove the helper and policy and confirm
+  that publishing fails.
