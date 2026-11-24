@@ -3,7 +3,14 @@ import { createECDH, generateKeyPairSync, randomBytes } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { afterEach, expect, it } from "vitest";
 import { pairingLinkProof } from "@ace/client/link-proof";
-import { DeviceId, SocketTicket, type Notification, type ServerMessage } from "@ace/protocol";
+import {
+  AgentId,
+  DeviceId,
+  SocketTicket,
+  ThreadId,
+  type Notification,
+  type ServerMessage,
+} from "@ace/protocol";
 import { connectClientViaRelay, startRelay, type ClientChannel } from "@ace/relay";
 import { keyPair } from "@ace/secure-channel";
 import { createPushGatewayTransport, NotificationWorker } from "@ace/notify";
@@ -17,6 +24,7 @@ import { notificationFixture } from "./notification-test-support.ts";
 import { accessRequest } from "./client-access.ts";
 import { fixture } from "./socket-test-support.ts";
 import { createDaemonNotifications, type DaemonNotifications } from "./notifications.ts";
+import { ChildLedger } from "./machines/child-ledger.ts";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -310,9 +318,9 @@ it("a push wakes a relay-only phone, which resumes an interrupted feed from its 
  * setup). The gateway is reached through `forward`, which also records every registration body
  * and can answer the capabilities route as an older gateway would.
  */
-async function activityDaemon(options: { capabilities?: boolean } = {}) {
+async function activityDaemon(options: { capabilities?: boolean; schedule?: boolean } = {}) {
   const apns = await startFakeApns();
-  const time = Date.parse("2026-11-24T12:00:00Z");
+  let time = Date.parse("2026-11-24T12:00:00Z");
   const now = () => time;
   const gateway = await startGateway(
     GatewayConfig.parse({
@@ -362,7 +370,10 @@ async function activityDaemon(options: { capabilities?: boolean } = {}) {
       (error) => errors.push(error),
       { push },
       0,
-      { liveActivity: { gateway: push, target, allowed: () => true } },
+      {
+        ...(options.schedule ? { now } : {}),
+        liveActivity: { gateway: push, target, allowed: () => true },
+      },
     );
     return { notifications: { ...notifications.service } };
   });
@@ -383,7 +394,20 @@ async function activityDaemon(options: { capabilities?: boolean } = {}) {
     ]);
     return notifications.tick();
   };
-  return { f, apns, gateway, settings, errors, notifications, registrations, raise };
+  return {
+    f,
+    apns,
+    gateway,
+    settings,
+    errors,
+    notifications,
+    registrations,
+    raise,
+    now,
+    advance: (ms: number) => {
+      time += ms;
+    },
+  };
 }
 
 const liveActivityOf = (startToken?: string, activityToken?: string) => ({
@@ -500,7 +524,10 @@ async function registerPhone(
     device,
     ...(liveActivity ? { liveActivity } : {}),
   } as never);
-  expect(await client.next()).toEqual({ type: "notification.register.result", requestId });
+  // A thread's earlier alert may still be on its way over the socket ahead of the reply.
+  let reply = await client.next();
+  while (reply.type === "notification") reply = await client.next();
+  expect(reply).toEqual({ type: "notification.register.result", requestId });
 }
 
 it("an older gateway gets no activity handles and alerts keep working", async () => {
@@ -752,5 +779,112 @@ it("unregistering or revoking a phone removes its tokens", async () => {
       (await daemon.notifications.service.liveActivityTargets()).length === 0 ? true : undefined,
     5000,
   );
+  expect(daemon.errors).toEqual([]);
+});
+
+it("pushes the latest machine state and ends only after its remote child and quiet window settle", async () => {
+  const daemon = await activityDaemon({ schedule: true });
+  const { f, notifications, apns, now, advance } = daemon;
+  const client = await f.connect();
+  expect(await client.next()).toMatchObject({ type: "welcome" });
+  await registerPhone(
+    client,
+    "activity",
+    { channel: "websocket", platform: "phone" },
+    liveActivityOf(startOf, activityOf),
+  );
+  const activityCalls = () =>
+    apns.calls.filter((call) => call.headers["apns-push-type"] === "liveactivity");
+  const delivered = async (count: number) => {
+    await notifications.tick();
+    const call = await poll(async () => activityCalls()[count - 1], 2500);
+    return {
+      headers: call.headers,
+      aps: JSON.parse(String(call.body)).aps as Record<string, unknown>,
+    };
+  };
+  const status = (value: import("@ace/protocol").ThreadStatus) =>
+    f.store.appendEvents(f.thread.id, [{ type: "thread.updated", status: value }], now());
+
+  status({ state: "working", agents: 1 });
+  const working = await delivered(1);
+  expect(working.headers).toMatchObject({
+    "apns-priority": "5",
+    "apns-topic": "app.ace.ios.push-type.liveactivity",
+  });
+  expect(working.aps).toMatchObject({
+    event: "update",
+    "content-state": { phase: "busy", working: 1 },
+  });
+
+  status({ state: "needs_you", interactions: 1 });
+  await notifications.tick();
+  expect(activityCalls()).toHaveLength(1);
+  advance(1000);
+  const asking = await delivered(2);
+  expect(asking.headers["apns-priority"]).toBe("10");
+  expect(asking.aps).toMatchObject({ event: "update", "content-state": { needsYou: 1 } });
+
+  const ledger = new ChildLedger(f.store);
+  const child = ThreadId.parse("remote-child");
+  ledger.insert({
+    id: child,
+    requestKey: "child-request",
+    parentThreadId: f.thread.id,
+    parentAgentId: AgentId.parse("root"),
+    machine: "remote",
+    role: "worker",
+    provider: "codex",
+    createdAt: now(),
+    view: undefined,
+    device: undefined,
+  });
+  status({ state: "done" });
+  advance(1000);
+  const childWorking = await delivered(3);
+  expect(childWorking.aps).toMatchObject({
+    event: "update",
+    "content-state": { needsYou: 0, working: 1 },
+  });
+  advance(120_000);
+  await notifications.tick();
+  expect(activityCalls()).toHaveLength(3);
+
+  ledger.writeView(child, "{}", true, now());
+  await notifications.tick();
+  advance(119_999);
+  await notifications.tick();
+  expect(
+    activityCalls().every((call) => JSON.parse(String(call.body)).aps.event === "update"),
+  ).toBe(true);
+  const count = activityCalls().length;
+  advance(1000);
+  const end = await delivered(count + 1);
+  expect(end.headers["apns-priority"]).toBe("10");
+  expect(end.aps).toMatchObject({
+    event: "end",
+    "dismissal-date": Number(end.aps.timestamp) + 900,
+    "content-state": { phase: "settled", done: 1, working: 0 },
+  });
+  expect(Number(end.aps.timestamp)).toBeGreaterThan(Number(childWorking.aps.timestamp));
+  await poll(
+    async () =>
+      (await notifications.service.liveActivityTargets()).length === 1 ? true : undefined,
+    2500,
+  );
+
+  await daemon.settings.set("notifications.remotePush", false, { kind: "global" });
+  await notifications.service.liveActivitySetting(false);
+  await registerPhone(
+    client,
+    "off",
+    { channel: "websocket", platform: "phone" },
+    liveActivityOf(startOf, activityOf),
+  );
+  status({ state: "working", agents: 1 });
+  advance(180_000);
+  await notifications.tick();
+  expect(activityCalls()).toHaveLength(count + 1);
+  expect(await notifications.service.liveActivityTargets()).toEqual([]);
   expect(daemon.errors).toEqual([]);
 });

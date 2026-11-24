@@ -29,6 +29,7 @@ export {
 export type {
   AccessPushTransport,
   ActivityAddress,
+  ActivitySender,
   ActivityRegistration,
   PushGatewayOptions,
   PushGatewayTarget,
@@ -51,6 +52,7 @@ export {
 export type {
   ActivityCounts,
   ActivityOrder,
+  ActivityPush,
   ActivityRow,
   ActivitySchedule,
 } from "./live-activity-schedule.ts";

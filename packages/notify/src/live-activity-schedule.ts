@@ -40,6 +40,14 @@ export interface ActivityOrder {
   seq: number;
   timestamp: number;
 }
+export type ActivityPush = {
+  v: 1;
+  timestamp: number;
+  priority: 5 | 10;
+  staleAfter: number;
+  state: ActivityCounts & { seq: number; at: number; phase: "busy" | "settled" };
+} & ({ event: "update" } | { event: "end"; dismissAfter: number });
+
 type Decision = { event: "update" | "end"; priority: 5 | 10 } | { at: number };
 
 /** Inbox classification with conservative fallbacks for work a row can present as quiet. */

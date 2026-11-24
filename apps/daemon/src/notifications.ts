@@ -9,7 +9,8 @@ import {
   type NotificationState,
 } from "@ace/notify";
 import type { DeviceId, Notification } from "@ace/protocol";
-import type { PushGatewayTarget } from "@ace/notify";
+import type { ActivitySender, PushGatewayTarget } from "@ace/notify";
+import { createActivityDelivery } from "./notification-activity-delivery.ts";
 import { activeDevice, allows } from "./devices.ts";
 import { createAckTracker } from "./notification-ack.ts";
 import {
@@ -86,7 +87,8 @@ interface Runtime {
    * a phone's tokens are then not stored, and #2760 has nothing to push with.
    */
   liveActivity?: {
-    gateway: LiveActivityGateway;
+    /** With `sendActivity` (ace's gateway), the machine's state is pushed to each activity. */
+    gateway: LiveActivityGateway & Partial<ActivitySender>;
     /** The push switch and gateway origin, read live (ADR 0106). */
     target: () => PushGatewayTarget | Promise<PushGatewayTarget>;
     /** Where Live Activities may not be used at all, such as an organization's host. */
@@ -560,6 +562,27 @@ export function createDaemonNotifications(
         },
       })
     : undefined;
+  const activitySender = runtime.liveActivity?.gateway;
+  /** Pushes this machine's state to each phone's Live Activity and ends it once settled (#2760). */
+  const activity =
+    registrar && activitySender?.sendActivity
+      ? createActivityDelivery({
+          store,
+          gateway: { sendActivity: activitySender.sendActivity.bind(activitySender) },
+          targets: () => registrar.targets(),
+          guard: () => (target) => registrar.eligible(target),
+          drop: (target) => registrar.drop(target),
+          requestSignal: () => deliveryLifetime.signal,
+          preferences: (device) => use((worker) => worker.getPreferences(device)),
+          now,
+          delay,
+          report,
+          signal,
+        })
+      : undefined;
+  /** The stored tokens changed: the delivery lane reads them again. */
+  const tokensChanged = <T>(result: Promise<T>): Promise<T> =>
+    result.finally(() => activity?.refresh());
   const service: NotificationAccess = {
     cursor: (abort) => use((worker) => worker.cursor(abort)),
     ingest: (events, coverage) => use((worker) => worker.ingest(events, coverage)),
@@ -570,7 +593,8 @@ export function createDaemonNotifications(
     getPreferences: (device) => use((worker) => worker.getPreferences(device)),
     preferences: (device, input) => use((worker) => worker.preferences(device, input)),
     notify: (notification) => use((worker) => worker.notify(notification)),
-    snooze: (thread, until) => use((worker) => worker.snooze(thread, until)),
+    snooze: (thread, until) =>
+      use((worker) => worker.snooze(thread, until)).finally(() => activity?.snooze(thread)),
     updatePresence: (session, device, update) =>
       use((worker) => worker.updatePresence(session, device, update)),
     acknowledge: (device, id) => {
@@ -585,16 +609,18 @@ export function createDaemonNotifications(
     },
     syncLiveActivity: (device, linked, input) =>
       registrar
-        ? registrar.sync(device, linked, input)
+        ? tokensChanged(registrar.sync(device, linked, input))
         : use((worker) => worker.syncLiveActivity(device, linked, input)),
     liveActivityTargets: () => (registrar ? registrar.targets() : Promise.resolve([])),
     clearLiveActivity: () =>
-      registrar ? registrar.clear() : use((worker) => worker.clearLiveActivity()),
+      registrar ? tokensChanged(registrar.clear()) : use((worker) => worker.clearLiveActivity()),
     dropLiveActivityToken: (address) =>
-      registrar ? registrar.drop(address) : use((worker) => worker.dropLiveActivityToken(address)),
+      registrar
+        ? tokensChanged(registrar.drop(address))
+        : use((worker) => worker.dropLiveActivityToken(address)),
     liveActivitySetting: (enabled) => {
       if (!registrar) return Promise.resolve();
-      return enabled ? registrar.resume() : registrar.clear();
+      return tokensChanged(enabled ? registrar.resume() : registrar.clear());
     },
     drain: () => use((worker) => worker.drain()),
     close: () => close(),
@@ -605,6 +631,7 @@ export function createDaemonNotifications(
     if (active) return;
     active = true;
     if (current) void run().catch(report);
+    activity?.refresh();
   };
   let stopped: Promise<void> | undefined;
   const stop = () => {
@@ -613,6 +640,7 @@ export function createDaemonNotifications(
     cancelResumeRetry?.();
     cancelResumeRetry = undefined;
     registrar?.stop();
+    activity?.stop();
     deliveryLifetime.abort();
     cancelTimer?.();
     disarmSleep();
@@ -640,7 +668,10 @@ export function createDaemonNotifications(
     async ready() {
       await awaken();
     },
-    tick: run,
+    async tick() {
+      await run();
+      await activity?.run();
+    },
     activate,
     setSender(sender) {
       send = sender;

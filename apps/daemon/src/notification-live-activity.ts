@@ -63,6 +63,8 @@ export interface LiveActivityRegistrar {
   drop(address: Pick<LiveActivityTarget, "token" | "environment" | "kind">): Promise<void>;
   /** After unregister or revoke: forget handles whose tokens the store no longer holds. */
   forgetMissing(): Promise<void>;
+  /** Whether a token may be pushed with right now: stored, unfenced and still authorized. */
+  eligible(target: Pick<LiveActivityTarget, "token" | "environment" | "kind" | "devices">): boolean;
   /** A device's cleanup started: no token it synced is used or registered until it is acked. */
   fenceDevice(device: DeviceId): void;
   /** The worker confirmed that device's cleanup: its remaining tokens may be used again. */
@@ -427,6 +429,15 @@ export function createLiveActivityRegistrar(options: LiveActivityOptions): LiveA
     clear,
     drop,
     forgetMissing,
+    eligible(address) {
+      return (
+        !stopped &&
+        !clearPending &&
+        !dropPending.has(addressKey(address)) &&
+        !hidden(address.devices) &&
+        (!authorize || authorize(address.devices))
+      );
+    },
     fenceDevice(device) {
       // A snapshot that began before the fence, or while it was set, must not survive its
       // removal: the revision makes that pass stale rather than recreating a deleted target.
