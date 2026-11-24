@@ -58,6 +58,9 @@ type RegistrationOutcome =
 type CapabilityOutcome =
   | { ok: true; kinds: ReadonlySet<KnownKind> }
   | { ok: false; retryAfterMs?: number };
+type HandleLookup =
+  | { ok: true; id: string; handle: CachedHandle }
+  | Extract<RegistrationOutcome, { ok: false }>;
 interface CachedHandle extends Handle {
   /** A hash of the token and environment, so `forgetActivity` never keeps the token itself. */
   address: string;
@@ -256,10 +259,10 @@ export function createPushGatewayTransport(
     address: Address | ActivityAddress,
     kind: KnownKind,
     signal: AbortSignal,
-  ) => {
+  ): Promise<HandleLookup> => {
     const id = handleKey(origin, address, kind);
     const cached = handles.get(id);
-    if (cached && cached.expiresAt - renewBeforeMs > now()) return { id, handle: cached };
+    if (cached && cached.expiresAt - renewBeforeMs > now()) return { ok: true, id, handle: cached };
     const invalidated = `${kind}\n${addressHash(address)}`;
     const forgotten = invalidations.get(invalidated) ?? 0;
     const epoch = forgetEpoch;
@@ -271,11 +274,11 @@ export function createPushGatewayTransport(
     // forgetActivity (or forget) may have run while the request was in flight. An activity
     // caller must not use a handle the daemon has already dropped; a fresh one comes next time.
     if (epoch !== forgetEpoch || (invalidations.get(invalidated) ?? 0) !== forgotten)
-      return kind === "alert" ? { id, handle: entry } : { ok: false, status: "retry" };
+      return kind === "alert" ? { ok: true, id, handle: entry } : { ok: false, status: "retry" };
     // Bounded: one entry per phone token and kind, capped like the device table.
     if (handles.size >= 256) handles.delete(handles.keys().next().value ?? "");
     handles.set(id, entry);
-    return { id, handle: entry };
+    return { ok: true, id, handle: entry };
   };
   const post = async (
     origin: string,
@@ -324,7 +327,7 @@ export function createPushGatewayTransport(
     try {
       for (let attempt = 0; attempt < 2; attempt++) {
         const found = await handleFor(target.origin, address, "alert", requestSignal);
-        if (!("handle" in found)) return found.status;
+        if (!found.ok) return found.status;
         const status = await post(target.origin, found.handle, address, sealed, requestSignal);
         // An unreadable or expired handle (the gateway rotated its key): register once more.
         if (status === 404 || status === 403) {
@@ -356,7 +359,7 @@ export function createPushGatewayTransport(
       if (signal.aborted) return { status: "retry" };
       const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
       const found = await handleFor(target.origin, address, address.kind, requestSignal);
-      if (!("handle" in found)) {
+      if (!found.ok) {
         if (found.status === "gone") return { status: "gone" };
         if (found.status === "failed") return { status: "failed" };
         return found.retryAfterMs === undefined
@@ -426,11 +429,14 @@ function statusResult(status: number): DeliveryResult {
   if (status === 429 || status >= 500 || status === 404 || status === 403) return "retry";
   return "failed";
 }
+/** The longest delay a JavaScript timer accepts without overflowing. */
+const maxTimerMs = 2 ** 31 - 1;
 function retryAfterMs(response: Response): number | undefined {
   const value = response.headers.get("retry-after");
   if (!value) return undefined;
   const seconds = Number(value);
-  return Number.isFinite(seconds) && seconds >= 0 ? Math.ceil(seconds * 1000) : undefined;
+  if (!Number.isFinite(seconds) || seconds < 0) return undefined;
+  return Math.min(maxTimerMs, Math.ceil(seconds * 1000));
 }
 async function boundedText(response: Response, limit: number): Promise<string | undefined> {
   const reader = response.body?.getReader();

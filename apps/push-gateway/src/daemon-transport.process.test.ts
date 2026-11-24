@@ -471,4 +471,10 @@ it("maps registration refusals without keeping or echoing the token", async () =
   expect(await answer("ee".repeat(32), new Response("", { status: 400 }))).toEqual({
     status: "failed",
   });
+  expect(
+    await answer(
+      "ff".repeat(32),
+      new Response("", { status: 429, headers: { "retry-after": "999999999999999999" } }),
+    ),
+  ).toEqual({ status: "retry", retryAfterMs: 2 ** 31 - 1 });
 });
