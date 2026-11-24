@@ -35,9 +35,11 @@ struct BackgroundHold: Equatable {
 
     init(enabled: Bool) { self.enabled = enabled }
 
-    /// `willResignActive`: the app may be about to leave the screen.
-    mutating func resignActive() -> [Effect] {
-        guard enabled, !holding else { return [] }
+    /// `willResignActive`: the app may be about to leave the screen. Background time is only
+    /// worth asking for while at least one machine's connection is live; with none (the
+    /// pairing screen of a fresh install) there is nothing to keep.
+    mutating func resignActive(connected: Bool) -> [Effect] {
+        guard enabled, connected, !holding else { return [] }
         holding = true
         return [.beginTask]
     }

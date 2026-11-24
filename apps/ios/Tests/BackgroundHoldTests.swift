@@ -5,7 +5,7 @@ import Testing
 @Suite @MainActor struct BackgroundHoldTests {
     @Test func leavingTheAppHoldsATaskAndReturningReleasesItAndChecksTheSockets() {
         var hold = BackgroundHold(enabled: true)
-        #expect(hold.resignActive() == [.beginTask])
+        #expect(hold.resignActive(connected: true) == [.beginTask])
         #expect(hold.enteredBackground() == [])
         #expect(hold.becameActive() == [.endTask, .wake])
     }
@@ -13,36 +13,43 @@ import Testing
         // UIKit grants the assertion asynchronously; asking only once in the background leaves
         // a window where iOS suspends the app first.
         var hold = BackgroundHold(enabled: true)
-        #expect(hold.resignActive() == [.beginTask])
+        #expect(hold.resignActive(connected: true) == [.beginTask])
         #expect(hold.enteredBackground() == [])
     }
     @Test func withBackgroundRefreshOffNothingIsHeldButTheReturnStillChecksTheSockets() {
         var hold = BackgroundHold(enabled: false)
-        #expect(hold.resignActive() == [])
+        #expect(hold.resignActive(connected: true) == [])
         #expect(hold.enteredBackground() == [])
         #expect(hold.becameActive() == [.wake])
     }
     @Test func aSwitcherPeekThatNeverLeavesTheScreenReleasesTheTaskWithoutWaking() {
         var hold = BackgroundHold(enabled: true)
-        #expect(hold.resignActive() == [.beginTask])
+        #expect(hold.resignActive(connected: true) == [.beginTask])
         #expect(hold.becameActive() == [.endTask])
     }
     @Test func iOSTakingTheGraceBackEndsTheTaskThenAndTheReturnOnlyWakes() {
         var hold = BackgroundHold(enabled: true)
-        _ = hold.resignActive()
+        _ = hold.resignActive(connected: true)
         _ = hold.enteredBackground()
         #expect(hold.expired() == [.endTask])
         #expect(hold.expired() == [])
         #expect(hold.becameActive() == [.wake])
     }
+    @Test func withNoMachineConnectedNoBackgroundTimeIsAskedFor() {
+        // The pairing screen of a fresh install, or every machine unreachable.
+        var hold = BackgroundHold(enabled: true)
+        #expect(hold.resignActive(connected: false) == [])
+        #expect(hold.enteredBackground() == [])
+        #expect(hold.becameActive() == [.wake])
+    }
     @Test func repeatedResignsHoldOneTask() {
         var hold = BackgroundHold(enabled: true)
-        #expect(hold.resignActive() == [.beginTask])
-        #expect(hold.resignActive() == [])
+        #expect(hold.resignActive(connected: true) == [.beginTask])
+        #expect(hold.resignActive(connected: true) == [])
     }
     @Test func turningTheSettingOffWhileAwayReleasesTheTask() {
         var hold = BackgroundHold(enabled: true)
-        _ = hold.resignActive()
+        _ = hold.resignActive(connected: true)
         _ = hold.enteredBackground()
         #expect(hold.setEnabled(false) == [.endTask])
         #expect(hold.becameActive() == [.wake])
@@ -50,7 +57,7 @@ import Testing
     @Test func theKeeperReleasesTheTaskWhenIOSExpiresItBeforeTheAppReturns() {
         var began = 0, ended: [Int] = [], woke = 0
         var expire: (@MainActor () -> Void)?
-        let keeper = BackgroundKeeper(enabled: true,
+        let keeper = BackgroundKeeper(enabled: true, connected: { true },
             begin: { handler in began += 1; expire = handler; return 7 }, end: { ended.append($0) }, wake: { woke += 1 })
         keeper.resignActive()
         keeper.enteredBackground()
@@ -60,5 +67,13 @@ import Testing
         #expect(began == 1)
         #expect(ended == [7])
         #expect(woke == 1)
+    }
+    @Test func theKeeperAsksForNothingWhileNoMachineIsConnected() {
+        var began = 0
+        let keeper = BackgroundKeeper(enabled: true, connected: { false },
+            begin: { _ in began += 1; return 7 }, end: { _ in }, wake: {})
+        keeper.resignActive()
+        keeper.enteredBackground()
+        #expect(began == 0)
     }
 }

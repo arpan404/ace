@@ -344,6 +344,8 @@ import Observation
         accountMachines.removeAll { $0.hostId == hostId }
         return nil
     }
+    /// At least one machine's connection is live right now.
+    var anyConnected: Bool { inbox.all.contains { $0.client.connection == "ready" } }
     /// Back from the background: a suspended socket may be dead without having closed, so every
     /// machine checks its own now instead of at its next heartbeat.
     /// A machine on its account relay checks whether its direct address answers again.
