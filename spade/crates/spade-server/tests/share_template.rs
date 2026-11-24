@@ -327,7 +327,7 @@ async fn template_draft_refuses_personal_data_and_bearer_cannot_publish() -> Res
         .ok_or("missing main agent")?;
     let (status, _) = spade.post(&format!("/v1/agents/{main}/knowledge"), json!({
         "topic": "personal",
-        "title": "Private workspace",
+        "title": "Private workspace 5219",
         "body": "Review the octagon prototype budget with festival organizers before signing contracts."
     })).await?;
     assert_eq!(status, 201);
@@ -336,6 +336,11 @@ async fn template_draft_refuses_personal_data_and_bearer_cannot_publish() -> Res
         json!("Discuss the octagon prototype budget with festival coordinators.");
     let (status, _, _) = signed(&spade, id, "authorize", &main_overlap).await?;
     assert_eq!(status, 422);
+    let mut title_overlap = review.clone();
+    title_overlap["task"] = json!("Use job reference 5219.");
+    let (status, refusal, _) = signed(&spade, id, "preview", &title_overlap).await?;
+    assert_eq!(status, 422, "{refusal}");
+
     let (status, _, _) = signed(&spade, id, "authorize", &review).await?;
     assert_eq!(status, 422, "missing acknowledgements must fail");
     let (status, preview, _) = signed(&spade, id, "preview", &review).await?;

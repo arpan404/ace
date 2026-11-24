@@ -175,6 +175,9 @@ test("a different checklist cannot mint a Store person grant", async () => {
       undefined,
       mint,
     ),
-  ).rejects.toThrow("proof differs from the reviewed checklist");
+  ).rejects.toMatchObject({
+    code: "conflict",
+    detail: expect.stringContaining("proof differs from the reviewed checklist"),
+  });
   expect(mint).not.toHaveBeenCalled();
 });
