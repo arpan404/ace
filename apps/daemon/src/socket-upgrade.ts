@@ -10,20 +10,19 @@ const refuseUpgrade = (socket: Duplex, status: string) =>
   );
 
 /**
- * The daemon's own address on this loopback listener (`http://127.0.0.1:<port>`, `localhost`
+ * The daemon's own address on its loopback listener (`http://127.0.0.1:<port>`, `localhost`
  * or `[::1]`): the origin of the web app it serves itself. Only literal loopback names count,
- * so a rebound DNS name pointing here is still refused.
+ * so a rebound DNS name pointing here is still refused. The port is the listener's public one:
+ * with the native transport that is its own port, never the internal server's.
  */
-function ownLoopbackOrigin(origin: string, listener: Server): boolean {
-  const address = listener.address();
-  if (!address || typeof address === "string") return false;
+export function ownLoopbackOrigin(origin: string, port: number): boolean {
   try {
     const url = new URL(origin);
     return (
       url.origin === origin &&
       url.protocol === "http:" &&
       ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) &&
-      Number(url.port) === address.port
+      Number(url.port) === port
     );
   } catch {
     return false;
@@ -93,7 +92,10 @@ export function admitUpgrades(
       isLocal,
       address,
       servesRenderer: options.servesRenderer === true,
-      ownOrigin: (origin) => ownLoopbackOrigin(origin, listener),
+      ownOrigin: (origin) => {
+        const bound = listener.address();
+        return bound !== null && typeof bound !== "string" && ownLoopbackOrigin(origin, bound.port);
+      },
       allowedOrigins: options.allowedOrigins,
       full: options.full,
       preAuth,

@@ -1,4 +1,3 @@
-import type { WebSocket } from "ws";
 import type { MainSocket } from "./main-socket.ts";
 import type { DeliveryRuntime } from "./delivery-runtime.ts";
 
@@ -29,6 +28,11 @@ interface Pending {
   address: string;
   cancel: () => void;
 }
+/** A slot promised to an upgrade whose handshake is still on the wire. */
+interface Held {
+  listener: Listener;
+  address: string;
+}
 function increment<K>(counts: Map<K, number>, key: K, by: number): void {
   const next = (counts.get(key) ?? 0) + by;
   if (next > 0) counts.set(key, next);
@@ -38,6 +42,10 @@ function increment<K>(counts: Map<K, number>, key: K, by: number): void {
 /**
  * Anonymous sockets get their own small budget, per listener and per remote address, and a
  * hello deadline. Authenticated sockets leave it, so silent peers cannot hold every slot.
+ *
+ * A native upgrade takes a slot before its handshake finishes (`reserve`) and keeps it until the
+ * socket is registered (`track`) or the upgrade is refused, abandoned or fails (`release`), so a
+ * burst cannot be admitted against capacity that another handshake already took.
  */
 export class PreAuthAdmission {
   private limits: PreAuthLimits;
@@ -45,9 +53,15 @@ export class PreAuthAdmission {
   private listeners = new Map<Listener, number>();
   private addresses = new Map<string, number>();
   private pending = new Map<MainSocket, Pending>();
+  private held = new Map<number, Held>();
+  private nextReservation = 0;
   constructor(limits: Partial<PreAuthLimits>, delay: DeliveryRuntime["delay"]) {
     this.limits = { ...defaultPreAuthLimits, ...limits };
     this.delay = delay;
+  }
+  /** Slots promised to native upgrades whose socket is not registered yet. */
+  get reserved(): number {
+    return this.held.size;
   }
   admits(listener: Listener, address: string): boolean {
     return (
@@ -55,22 +69,49 @@ export class PreAuthAdmission {
       (listener === "local" || (this.addresses.get(address) ?? 0) < this.limits.perAddress)
     );
   }
-  track(socket: WebSocket, listener: Listener, address: string): void {
+  /**
+   * Takes one pre-auth slot (and one socket slot) for an accepted upgrade, before its handshake
+   * finishes. The number returned names it to `release` or `track`.
+   */
+  reserve(listener: Listener, address: string): number {
+    const reservation = this.nextReservation++;
     increment(this.listeners, listener, 1);
     if (listener === "remote") increment(this.addresses, address, 1);
+    this.held.set(reservation, { listener, address });
+    return reservation;
+  }
+  /** Frees a reservation that never became a socket; an id this admission no longer holds is ignored. */
+  release(reservation: number): void {
+    const held = this.held.get(reservation);
+    if (held === undefined) return;
+    this.held.delete(reservation);
+    increment(this.listeners, held.listener, -1);
+    if (held.listener === "remote") increment(this.addresses, held.address, -1);
+  }
+  track(socket: MainSocket, listener: Listener, address: string, reservation?: number): void {
+    let entry: Held | undefined;
+    if (reservation !== undefined) {
+      entry = this.held.get(reservation);
+      if (entry !== undefined) this.held.delete(reservation);
+    }
+    if (entry === undefined) {
+      increment(this.listeners, listener, 1);
+      if (listener === "remote") increment(this.addresses, address, 1);
+      entry = { listener, address };
+    }
     const cancel = this.delay(() => {
       if (!this.pending.has(socket)) return;
-      this.release(socket);
+      this.releaseSocket(socket);
       socket.terminate();
     }, this.limits.helloMs);
-    this.pending.set(socket, { listener, address, cancel });
-    socket.once("close", () => this.release(socket));
+    this.pending.set(socket, { ...entry, cancel });
+    socket.once("close", () => this.releaseSocket(socket));
   }
   /** The socket proved a credential and no longer counts against the anonymous budget. */
   authenticated(socket: MainSocket): void {
-    this.release(socket);
+    this.releaseSocket(socket);
   }
-  private release(socket: MainSocket): void {
+  private releaseSocket(socket: MainSocket): void {
     const entry = this.pending.get(socket);
     if (!entry) return;
     this.pending.delete(socket);
