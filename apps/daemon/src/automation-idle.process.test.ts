@@ -210,6 +210,72 @@ test.concurrent.for(["run_once", "skip"] as const)(
   },
 );
 
+test.concurrent(
+  "a missed run_once waits for model readiness and then runs exactly once",
+  { timeout: 180_000 },
+  async ({ expect }) => {
+    const f = await idleDaemon({ seedModels: false, deferModels: true });
+    try {
+      let connection = await f.connect();
+      const due = Math.ceil((Date.now() + 2000) / 60_000) * 60_000;
+      const automation = {
+        ...f.definition("deferred-models", due),
+        missedRun: "run_once" as const,
+      };
+      expect(
+        await connection.ask({
+          type: "automation.put",
+          requestId: "save",
+          automation,
+          expectedRevision: null,
+        }),
+      ).toMatchObject({ ok: true });
+      // The scheduler stays off until this test enables it after the restart.
+      await f.daemon.settings.set("automations.enabled", false, { kind: "global" });
+      await f.stop();
+      await delay(Math.max(0, due - Date.now()) + 150);
+      await f.restart();
+      connection = await f.connect();
+      await f.daemon.settings.set("automations.enabled", true, { kind: "global" });
+      // Model admission is still running: nothing may be spent on a run that can't resolve its
+      // model, because a missed run_once only gets this one catch-up.
+      await delay(500);
+      expect(f.prompts).toEqual([]);
+      expect(f.daemon.store.listThreads()).toEqual([]);
+      expect(
+        (
+          await connection.ask({
+            type: "automation.inbox",
+            requestId: "held",
+            automationId: automation.id,
+            limit: 50,
+          })
+        ).inbox?.runs,
+      ).toEqual([]);
+      await f.admitModels();
+      await expect.poll(() => f.prompts, { timeout: 30_000 }).toEqual([automation.prompt]);
+      await expect
+        .poll(
+          async () =>
+            (
+              await connection.ask({
+                type: "automation.inbox",
+                requestId: "ran",
+                automationId: automation.id,
+                limit: 50,
+              })
+            ).inbox?.runs,
+        )
+        .toMatchObject([{ status: "succeeded" }]);
+      await delay(500);
+      expect(f.prompts).toEqual([automation.prompt]);
+      expect(f.daemon.store.listThreads()).toHaveLength(1);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
 test.concurrent("a manual retry and a committed deletion survive daemon restart without another execution", async ({
   expect,
 }) => {

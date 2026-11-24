@@ -140,6 +140,11 @@ export type DaemonOptions = {
   >[0]["spawn"];
   notificationChannels?: Omit<NotificationChannels, "websocket">;
   modelInstances?: readonly InstanceInput[];
+  /**
+   * Tests hold ace's model admission to prove work that needs a model waits for it; never set by
+   * the app. Model lists finish starting behind `services.modelsReady`.
+   */
+  modelsReady?: Promise<void>;
   workload?: HealthOptions["workload"];
   browser?: Omit<BrowserServiceOptions, "dataDir" | "onArtifact">;
   /** Outside MCP clients (ADR 0122), for tests: how client metadata is fetched, request lifetime. */
