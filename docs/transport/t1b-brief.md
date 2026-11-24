@@ -130,8 +130,12 @@ every run-time decision of remote access (`remote-runtime.ts`, `remote-direct.ts
     accept failure such as `EMFILE` repeats while it lasts. The Rust accept loop retries every 10 ms
     (`ACCEPT_RETRY`), so the binding reports the first failure of each OS error code per listener
     at once, then at most one line a minute per code with the count since, through the same `log`.
-13. **Window bits 8 is served as 9**, as Node's zlib does for raw deflate (its output for 8 and 9 is
-    byte for byte the same, and so is ours), and the answer still echoes `=8`, as `ws` does. Inflate
+13. **Window bits 8 is served as 9**, and the answer still echoes `=8`, as `ws` does. Node 26's
+    raw deflate writes the same bytes at 8 as at 9; ours is compatible with an 8-bit window for a
+    different reason: zlib-rs 0.6.8 at level 6 with a 9-bit window never emits a match distance
+    over 250 (512 minus its 262-byte lookahead), inside the 256 bytes RFC 7692 §7.2.1 lets a client
+    with `server_max_window_bits=8` rely on. The bytes need not equal Node's, and no test says they
+    do; T1b.3b's tests decode our output with a decoder that refuses any distance over 256. Inflate
     always uses a 15-bit window, which reads every stream a smaller window can produce and accepts
     what Node's raw inflater accepts at 8 (it does not refuse a distance beyond 256 within a
     message). Not a wire difference; recorded because the code does not do what the number says.
@@ -323,16 +327,10 @@ move, and every later change to `server.ts` is net zero or negative.
   a request through TLS reaches a local hyper target with `x-ace-hop-*` set from the real peer.
   The client in these tests is `tokio-rustls`'s `TlsConnector` with a custom verifier that checks
   the SPKI SHA-256 against the expected one, the way ace pins.
-  **`sni-listener.process`'s listener cases move here, not beside it**: its cases build the Node
-  listener and wire `ws` to `listener.http`'s `upgrade` event, which a Rust listener has no
-  equivalent of, so the file stays the Node listener's test (the off path until T7 deletes it) and
-  each of its cases gets one Rust test named after it in `remote/tests.rs`, with the paused clock:
-  "a client that stalls in the TLS handshake is disconnected, and the listener keeps serving",
-  "a client that finishes the handshake but never sends a request is disconnected", "an idle
-  keep-alive connection is closed after its keep-alive limit", "a WebSocket is not cut off by the
-  request deadlines" (through `RefuseUpgrades` replaced by a test handler that opens a socket), and
-  "closing drops waiting and idle connections at once and leaves WebSockets to their server",
-  which ends by binding the same port again. No other test of these limits is written.
+  **The listener's limits are not tested here.** `sni-listener.process`'s cases (handshake stall,
+  no request, idle keep-alive, a WebSocket not cut off, closing) are the proof for both listeners:
+  T1b.4 makes them run against whichever listener the switch selects, the same case off and on.
+  Rust gets no copy of them.
 - **Must not**: call `install_default` anywhere but `process_provider`; enable `ring`; read the
   clock in the resolver; log or format key bytes;
   bind the hop target anywhere but 127.0.0.1; touch the binding or TypeScript.
@@ -408,11 +406,19 @@ move, and every later change to `server.ts` is net zero or negative.
   `loadIdentity`), the limits, the per-boot hop secret (the loopback's, T1a.7:
   `transport.remote` needs `transport.loopback`), the internal server's port, and a
   `NativeUpgrade` built with `kind: "remote"`. **Evidence**: with `ACE_TRANSPORT_EVIDENCE` set it
-  appends a start line on bind and a close line when `close` resolves:
+  appends lifecycle lines as Rust reports them, `{ "pid", "listener", "port", "event" }` with
+  `event` one of `bind` (Rust bound; `port` is the bound one), `bind-failed` (with the OS `code` and
+  the requested port), `close-requested` (with `bound: false` when `close` ran before the bind
+  landed) and `close`, and the close line carries the counts:
   `{ "pid", "listener": "remote", "port", "event": "close", …handled() }`; `noteTransportStart` gains `listener`
   (`"loopback"` or `"remote"`) and `event` fields in every line, T1a's included, and the loopback
-  listener writes a close line with its own counts too. A start line only proves a bind; the close
-  line says what that listener, on that port, handled (T1b.5 reads both). It holds the public port with
+  listener writes the same lines with its own counts. A bind line only proves a bind; the close line
+  says what that listener, on that port, handled. **Per-case counts**: the shell keeps the live
+  native listeners of this process in one evidence registry (in `native-transport.ts`'s evidence
+  helper, created only when the variable is set, the only module state T1b adds, and never read by
+  logic), and `flushTransportEvidence()` appends one `handled` line per live listener with the
+  counts since its last line; T1b.5's case markers call it, so traffic lands in the case that made
+  it, not only in the close line of a fixture shared by several cases. It holds the public port with
   `tunnel.hold(port)` from bind to close (ADR 0194), and keeps the set of reservations admitted
   through this listener, releasing any still held when `close` resolves (never
   `preAuth.releaseAll()`, which would drop loopback's).
@@ -509,9 +515,8 @@ move, and every later change to `server.ts` is net zero or negative.
     `X-Ace-Hop-Servername` and `x-ace-hop-servername` (mixed case, both) are both removed and one
     from the handshake is added; with no SNI none is added; a client's `x-ace-hop-trust` in any case
     never goes upstream; every response-direction copy of the six, in any case, is removed.
-  - `driver.rs`'s timer tests (paused clock) for the trusted limit: 60 s after a trusted answer, 5 s
-    before it, none while a request is in flight; the untrusted and first-head cases are T1b.1a's
-    (moved from `sni-listener.process`).
+  - no Rust timer tests: the untrusted and first-head limits are `sni-listener.process`'s cases and
+    the trusted limit is `keepAliveCases`', each run against the selected listener from T1b.4.
   - `native-loopback.process.test.ts`'s guard table ("the proxy guard refuses everything that did
     not come through the hop, and only admits a valid hop") gains rows, both legs: a request-side
     `x-ace-hop-trust` (lower and mixed case); two servername values differing only in case; a
@@ -639,9 +644,12 @@ move, and every later change to `server.ts` is net zero or negative.
 
   What `ws` 8.22 on Node 26 does, measured for this brief: an offer of `server_max_window_bits=8`
   or `client_max_window_bits=8` is accepted and echoed as `=8`, and messages flow both ways intact;
-  Node's raw deflate at 8 writes the same bytes as at 9, and its raw inflater at 8 reads streams
-  with distances past 256. So the answer echoes the offer's value unchanged (negotiation above),
-  deflate is built with `deflate_window(…)`, and inflate always with 15 (recorded difference 13).
+  Node's raw inflater at 8 reads streams with distances past 256. So the answer echoes the offer's
+  value unchanged (negotiation above), deflate is built with `deflate_window(…)`, and inflate always
+  with 15 (recorded difference 13). Serving 8 as 9 is safe because zlib-rs 0.6.8 at level 6 caps
+  the match distance at 250 with a 9-bit window, which is within an 8-bit window's 256 bytes (RFC
+  7692 §7.2.1); that is a property of this backend at this level, so the tests check it against
+  every corpus rather than trusting it, and a flate2 or zlib-rs upgrade reruns them.
   Values outside 8–15 never get here: negotiation refused them with the 400.
 
 - **Codec**: raw deflate (`Compress::new_with_window_bits(Compression::new(6), false, deflate_window(…))`),
@@ -663,11 +671,23 @@ move, and every later change to `server.ts` is net zero or negative.
   fragmented compressed message; a corrupt stream; RSV1 on a continuation; a socket that never
   negotiated receiving uncompressed bulk; compression with window bits 10 read back by an inflater
   limited to 10; `deflate_window` for every value from 8 to 15 and `None`, each constructor built
-  without a panic, and 8's output byte-identical to 9's.
-  **The wire test for window 8** goes in `native-remote.process.test.ts` (both legs, so `ws` proves
-  the expected behaviour on the off leg): a `ws` client offering `server_max_window_bits=8`, and
-  another offering `client_max_window_bits=8`, each gets the answer echoing `=8` with both
-  no-context-takeover parameters, and a 13 KiB message goes each way intact. Then, off and on, each
+  without a panic. **No byte-equality assertion** against Node or between windows.
+  **An 8-bit-window decoder** (`deflate/tests/window8.rs`, test-only, written fresh from RFC 1951):
+  a raw-deflate decoder whose history is 256 bytes and which fails with `DistanceTooFar` on any
+  back-reference past it, the window a client that sent `server_max_window_bits=8` is entitled to
+  (RFC 7692 §7.2.1). It decodes, intact and without that error: the codec's output with
+  `deflate_window(Some(8))` for a repetitive corpus, a random one, a 200 KiB JSON transcript and a
+  message of exactly 1 MiB; and, **on the wire**, the payload of every RSV1 frame a real
+  `RemoteListener` sends to a raw client in an in-crate test that upgrades with
+  `Sec-WebSocket-Extensions: permessage-deflate; server_max_window_bits=8` and reads frames itself
+  (the answer echoes `=8`). A negative control proves the decoder discriminates: the same corpora
+  deflated with `deflate_window(Some(15))` must fail it.
+  **Interop with `ws`** goes in `native-remote.process.test.ts` (both legs, so `ws` itself shows the
+  expected answer on the off leg): a `ws` client offering `server_max_window_bits=8`, and another
+  offering `client_max_window_bits=8`, each gets the answer echoing `=8` with both
+  no-context-takeover parameters, and a 13 KiB message goes each way intact. (Node's inflater does
+  not enforce the 8-bit window, so this case proves negotiation and interop, not the window; the
+  decoder above proves the window.) Then, off and on, each
   alone: `remote-compression.server`, `remote-payloads.process`, `remote.server`,
   `native-remote.process`, and T1a.8's list on loopback (on leg).
 - **The unified feature graph**: flate2 with `zlib-rs` changes the backend for every flate2 user in
@@ -760,8 +780,16 @@ key)`, and **if that throws, log it and `clearTrusted()`**, so Rust never keeps 
     Tailscale certificate is served to new connections without restarting the listener", ":326 the
     pin gives way only to a trusted certificate for the exact ts.net name asked for") build through
     `testSniListener(…, certificate)`: they then prove renewal and the name rule through Rust;
-  - `sni-listener.process` stays the Node listener's test (its cases moved to Rust in T1b.1a), and
-    `tls-identity-node.process` runs its own Node TLS server: both pass on both legs and prove
+  - `sni-listener.process.test.ts`'s `start` (`:21`–`:52`) builds through `testSniListener` and a
+    second helper in `sni-test-support.ts`, `testSocketServer(listener, onOpen)`: with Node's
+    listener it wires `ws`'s `handleUpgrade` to `listener.http`'s `upgrade` event as the file does
+    today; with the native one it passes a `nativeUpgrade` wiring whose `opened` hands the socket
+    to `onOpen`. It returns `clients()` (the open sockets, `MainSocket`s), so the closing case's
+    `client.close(1001, "Daemon shutdown")` runs on either. The port-reuse step at the end of the
+    closing case (`:153`) builds through `testSniListener` too. The raw TLS and TCP clients stay as
+    they are. All five cases then run against the selected listener, once per leg, and nothing else
+    tests those limits;
+  - `tls-identity-node.process` runs its own Node TLS server: it passes on both legs and proves
     nothing about Rust.
     `native-remote.process.test.ts` gains only what no moved case covers: an expired Tailscale
     certificate leaves Rust at its expiry on the injected clock (native-only); an upgrade in flight
@@ -769,7 +797,7 @@ key)`, and **if that throws, log it and `clearTrusted()`**, so Rust never keeps 
     reported, and once freed the listener serves on the next retry (both legs, through
     `remote-runtime.ts:239`–`:243`).
 - **Tests (off, then on, each alone)**: `remote-runtime.server`, `tailscale-https.server`,
-  `remote-direct.process`, `machines/sni-keep-alive.process`,
+  `remote-direct.process`, `sni-listener.process`, `machines/sni-keep-alive.process`,
   `machines/sni-keep-alive-on-node.process`, `native-remote.process`, and `remote-restart.server`
   (Windows only: counted on the VM run).
 - **Must not**: move any decision of `remote-runtime.ts` or `remote-direct.ts` into Rust; make
@@ -789,26 +817,49 @@ key)`, and **if that throws, log it and `clearTrusted()`**, so Rust never keeps 
   `tools/perf-kit/src/isolated-daemon.ts` (passes `ACE_TRANSPORT`, `ACE_TRANSPORT_ADDON` and
   `ACE_TRANSPORT_EVIDENCE` from the bench's own environment into the daemon, refusing a set switch
   whose addon path is unset, relative or names no file, as T0.1's `daemonEnv` does); create
-  `native/daemon/crates/ace-transport/examples/autobahn_echo.rs` and
+  `scripts/transport-evidence-case.ts`, `native/daemon/crates/ace-transport/examples/autobahn_echo.rs` and
   `native/daemon/crates/ace-transport/autobahn/fuzzingclient.json`.
 - **Run**: `node scripts/t1a-proof.ts --switch=native,remote` over T1a.8's whole list (discovery
   unchanged), off leg with the three variables removed, on leg with `ACE_TRANSPORT=native,remote`.
   T1a.8's labels and exit rules apply, and **evidence must name the listener and port that handled
-  the work, not only a bind**:
+  the work, per case, not only a bind**. Each leg runs with
+  `--setupFiles scripts/transport-evidence-case.ts` (new): its `beforeEach` appends
+  `{ "event": "case", "name": <expect.getState().currentTestName>, "pid" }`, its `afterEach` calls
+  `flushTransportEvidence()` and appends `{ "event": "case-end" }`. A file's tests run in order in
+  one worker, so the lines between a case's markers are that case's, including those of a daemon
+  child that case started and stopped. The script then checks, per executed case:
   - every start line in a file's evidence has a close line with the same `pid`, `listener` and
     `port` (T1b.1b); a start without a close is `NONE`, since its counts are unknown;
-  - these files need a remote close line with `exchanges + upgrades > 0`: `remote.server`,
-    `remote-boundaries.server`, `remote-runtime.server`, `remote-compression.server`,
-    `tailscale-https.server`, `remote-payloads.process`, `access-cors.server`,
-    `ticket-allocation.server`, `remote-direct.process`, `machines/sni-keep-alive.process`,
-    `machines/sni-keep-alive-on-node.process`, `native-remote.process` (and `remote-restart.server`
-    on Windows); `remote-compression.server` and `native-remote.process` also need
-    `deflatedOut > 0` and `inflatedIn > 0`, `tailscale-https.server` needs
-    `trustedHandshakes > 0`, and `remote.server` needs `postQuantumHandshakes > 0` (its client is
-    Node's, which offers `X25519MLKEM768`, so this proves the hybrid is negotiated);
-  - every other file needs a loopback close line with `exchanges + upgrades > 0`, as T1a.8's
-    start line proved before;
-  - the printed table lists, per file, each listener and port with its counts.
+  - **traffic cases**: every case of `remote.server`, `remote-boundaries.server`,
+    `remote-runtime.server`, `remote-compression.server`, `tailscale-https.server`,
+    `remote-payloads.process`, `access-cors.server`, `ticket-allocation.server`,
+    `sni-listener.process`, `machines/sni-keep-alive.process`,
+    `machines/sni-keep-alive-on-node.process` and `native-remote.process` (and
+    `remote-restart.server` on Windows) needs, inside its own markers, a remote `handled` or
+    `close` line with `connections > 0` and, unless the case is listed below, `exchanges + upgrades > 0`; `remote-compression.server`'s "delivers a large thread…" and "closes a remote
+    socket whose message inflates past the payload limit" need `deflatedOut > 0` and `inflatedIn > 0` respectively; `tailscale-https.server`'s ts.net cases need `trustedHandshakes > 0`;
+    `remote.server`'s "consumes a socket ticket once and accepts it on a pinned WSS connection"
+    needs `postQuantumHandshakes > 0` (its client is Node's, which offers `X25519MLKEM768`);
+  - **lifecycle cases**, whose proof is what the listener did rather than traffic, each checked
+    against its own markers:
+
+    | Case                                                                                                                  | Evidence required in its window                                                                                                                              |
+    | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+    | `remote-direct.process` "a bind that finishes after remote access closed leaves nothing listening"                    | `bind` on port P only after the case's `remote.close()` ran (the gate holds it), then `close-requested` with `bound: true` and `close` on P, `connections` 0 |
+    | `remote-direct.process` "moving to Tailscale as remote access closes opens no listener and fetches no certificate"    | one `bind` (the LAN port), its `close`, and no second `bind`                                                                                                 |
+    | `native-remote.process` "a LAN port taken at start is reported, and once freed the listener serves on the next retry" | `bind-failed` with `EADDRINUSE` on P, then `bind` on P, then a `handled` line on P with `exchanges > 0`                                                      |
+    | `sni-listener.process` "closing drops waiting and idle connections at once and leaves WebSockets to their server"     | `close` on P, then a second `bind` on P (the port reuse)                                                                                                     |
+    | `sni-listener.process` "a client that stalls in the TLS handshake is disconnected, and the listener keeps serving"    | `connections > 0` and `exchanges > 0` on the one listener (the second client was served)                                                                     |
+
+  - **exempt cases** (no listener by design: pure TypeScript inside a listed file) are named in the
+    script with the reason, starting with `tailscale-https.server`'s "a Tailscale certificate that
+    expires while renewals fail stops being offered"; the reviewer confirms each;
+  - every other file keeps T1a.8's file-level rule, read from close lines: at least one loopback
+    `close` line with `exchanges + upgrades > 0`;
+  - every `bind` has a `close` with the same `pid`, `listener` and `port` before the file ends; a
+    case missing its evidence is `NONE`, and the run exits non-zero;
+  - the printed table lists, per file and case, each listener and port with its lifecycle events
+    and counts.
     macOS, Linux and the Windows VM.
 - **Autobahn** (the owner, 2026-11-24: yes, a local offline step, never CI). `autobahn_echo.rs` is
   a dev-only example (never built into the addon) that serves T1b.3a's framing and T1b.3b's
