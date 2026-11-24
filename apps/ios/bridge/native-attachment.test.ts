@@ -127,6 +127,24 @@ test("a web-sent image appears in the person's row as a thumbnail the phone can 
   expect(Buffer.from(thumbnail.data, "base64").subarray(1, 4).toString()).toBe("PNG");
 });
 
+test("a file past what the phone fetches whole shows as a row that doesn't open", async () => {
+  const clip: Attachment = {
+    sha256: "c".repeat(64),
+    bytes: 40 * 1024 * 1024,
+    mimeType: "video/mp4",
+    name: "walkthrough.mp4",
+    kind: "binary",
+  };
+  const { row } = await personsRow(
+    sentFromWeb("clips", [{ type: "text", text: "Watch" }], [clip, file]),
+    "clips",
+  );
+  expect(row.attachments).toMatchObject([
+    { name: "walkthrough.mp4", opens: false },
+    { name: "routes.txt", opens: true },
+  ]);
+});
+
 test("a message's file opens with its own bytes, and a file without a preview is never fetched to draw a row", async () => {
   const { owner, itemId } = await personsRow(
     sentFromWeb("files", [{ type: "text", text: "Read this" }], [file]),
