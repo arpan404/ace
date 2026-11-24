@@ -3,6 +3,7 @@ import { ClientError, type ClientCore } from "@ace/client";
 import {
   AppState,
   InteractionId,
+  LiveActivitySync,
   NotificationPreferences,
   ThreadId,
   type Notification,
@@ -48,6 +49,8 @@ export const NotificationAction = z.discriminatedUnion("type", [
     phone: PhoneNotificationPrefs.optional(),
     /** This phone's push token and key (`notification-address.ts`); null or absent: none. */
     push: PhonePush.nullable().optional(),
+    /** This phone's Live Activity tokens for this machine (ADR 0223); absent: no activity. */
+    liveActivity: LiveActivitySync.optional(),
   }),
   z.object({
     type: z.literal("notifications.feedApplied"),

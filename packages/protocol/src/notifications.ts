@@ -57,6 +57,9 @@ export const WebPushSubscription = z.object({
   auth: z.string().regex(/^[A-Za-z0-9_-]{22}$/),
 });
 export type WebPushSubscription = z.infer<typeof WebPushSubscription>;
+/** Apple says not to hard-code an APNs token's size; the gateway accepts 16 to 400 hex digits. */
+const apnsToken = z.string().regex(/^[a-fA-F0-9]{16,400}$/);
+const apnsEnvironment = z.enum(["sandbox", "production"]);
 /**
  * The phone's APNs token, for alerts through ace's push gateway (ADR 0106). The daemon
  * encrypts each alert to `p256dh`/`auth` (RFC 8291); only the phone can read it.
@@ -64,13 +67,25 @@ export type WebPushSubscription = z.infer<typeof WebPushSubscription>;
 export const PushNotificationAddress = z.object({
   channel: z.literal("push"),
   platform: z.literal("phone"),
-  /** Hex, variable length: Apple says not to hard-code its size. */
-  token: z.string().regex(/^[a-fA-F0-9]{16,400}$/),
-  environment: z.enum(["sandbox", "production"]),
+  token: apnsToken,
+  environment: apnsEnvironment,
   p256dh: WebPushSubscription.shape.p256dh,
   auth: WebPushSubscription.shape.auth,
 });
 export type PushNotificationAddress = z.infer<typeof PushNotificationAddress>;
+/**
+ * A phone's Live Activity tokens for one paired machine (ADR 0223): the push-to-start token and,
+ * while that machine's activity shows, its update token. `slot` (0 to 15) is the phone's own
+ * name for the machine. Omit the object to remove both tokens; null is not accepted.
+ */
+export const LiveActivitySync = z.object({
+  startToken: apnsToken.optional(),
+  activityToken: apnsToken.optional(),
+  environment: apnsEnvironment,
+  frequentUpdates: z.boolean(),
+  slot: z.number().int().min(0).max(15),
+});
+export type LiveActivitySync = z.infer<typeof LiveActivitySync>;
 export const NotificationAddress = z.discriminatedUnion("channel", [
   z.object({ channel: z.literal("websocket"), platform: z.enum(["desktop", "web", "phone"]) }),
   z.object({
@@ -143,6 +158,8 @@ export const NotificationRegister = z.object({
   type: z.literal("notification.register"),
   requestId: boundedId.optional(),
   device: NotificationAddress,
+  /** This phone's Live Activity tokens for the machine it is registering with (ADR 0223). */
+  liveActivity: LiveActivitySync.optional(),
 });
 export const NotificationRegisterResult = z.object({
   type: z.literal("notification.register.result"),

@@ -37,8 +37,8 @@
       "sha256": "3d4fd0fcd7d68a4e4db56b8f3a044480f3496c37d0b1c890de0b61924d5c1db3"
     },
     "requests.md": {
-      "bytes": 128532,
-      "sha256": "40467a689b1a1e10cef7d11769e89ee0eb0d8835f2346e874fdaa8ff03db3ddc"
+      "bytes": 128714,
+      "sha256": "1a1262d09b83fc12d9e51aa75b4e2718af576330381dd56f60c9c89e8735e88c"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -2756,6 +2756,10 @@
       "bytes": 384,
       "sha256": "7474a2f2e14d93d14e0785ef82ac10f92780bb06bce1debda661e4f5795e653e"
     },
+    "schema/LiveActivitySync.json": {
+      "bytes": 689,
+      "sha256": "7a7eb49538a0fc282cc8a33f0fd463180c25325ea6e2c960589f1b6319e2cbf3"
+    },
     "schema/LiveVideoStatus.json": {
       "bytes": 401,
       "sha256": "faf2c33e850d7fba23d6e469c0f7b49c36f80f4bf1b0058ce9bfd713acc6d20e"
@@ -3957,8 +3961,8 @@
       "sha256": "13ae64f09afc8eadacae6d6e018255571f06e58a9dae5cb26a366955126590f5"
     },
     "schema/NotificationRegister.json": {
-      "bytes": 493,
-      "sha256": "9950e24bdc662eab0e8b5cf10740927968f8ea8b4e4211b50c42cf8b0b43f95f"
+      "bytes": 590,
+      "sha256": "baa00256e24dce08975229936fff8ef3b150da663b0620d87eec62379a2f19b9"
     },
     "schema/NotificationRegisterResult.json": {
       "bytes": 415,
@@ -7013,10 +7017,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1424447,
-      "sha256": "69e37030d9c3078de0da55ad513bd6d650f2b7f5cfdf81dc1b4f96b3dfc8328b"
+      "bytes": 1425846,
+      "sha256": "816bbb7d0a0db4dc000a1a1d77c56d4696e08a66521f6041c690be35a10c041c"
     }
   },
-  "input": "53558d0059991b69eba5da2280946158ea4bbbe4d010cdd945eaf752f9ed162d",
+  "input": "a7c05c061ee4ed6a84eb106afedf34c53bab46a5ad52478e6c5036c1b7c0172a",
   "version": 1
 }
