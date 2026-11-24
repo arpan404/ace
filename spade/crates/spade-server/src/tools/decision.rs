@@ -17,10 +17,9 @@ impl Tool for DecisionLog {
             spec: ToolSpec {
                 name: DECISION_LOG.to_owned(),
                 description: "Record a choice you made for the person between real \
-                              alternatives they might have chosen differently (a library, an \
-                              approach, what to leave out), instead of stopping to ask. Say \
-                              what you chose, why, and the options you set aside. The person \
-                              reads it in your digest and can tell you to change course. Not \
+                              alternatives (a library, an approach, what to leave out) instead \
+                              of stopping to ask: what you chose, why, and what you set aside. \
+                              They read it in your digest and can tell you to change course. Not \
                               for routine steps."
                     .to_owned(),
                 schema: json!({ "type": "object",

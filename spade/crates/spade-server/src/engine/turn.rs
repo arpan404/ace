@@ -431,7 +431,7 @@ async fn model_step(
     let lead = route.first().cloned().unwrap_or(started_on);
     let images = engine.images_for(&lead);
     let system = engine.system_for(id);
-    let prompt = context::prompt_with(&system, engine.offered_tools(), events, &images)
+    let prompt = context::prompt_with(&system, engine.offered_for(id), events, &images)
         .session(id)
         .effort(engine.step_effort(id));
     // The person's asks close the prompt, after everything stored (ADR 0215 §2). A helper has

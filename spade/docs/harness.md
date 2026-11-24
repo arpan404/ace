@@ -160,21 +160,54 @@ ended: one line each with its id, state, title and the asks it owns, read from t
 
 ## Tools
 
-Spade's own tools are always offered in full, in name order: `web_search` (ace cloud search,
-then the model endpoint's own), `web_fetch` (one page as text, a window at a time, refusing local and private addresses),
-`todo`, `asks` (the person's asks, answered by Spade from the events, ADR 0215), `task_status` (the bot's task state; while `working`, Spade starts its next step after a
-reply, [autonomy.md](autonomy.md)), `sleep_until` and `wait_for` (the bot ends its turn and is
-woken at a time or by an event; with the deferred `wake_cancel` and the service tools, ADR 0160,
-autonomy.md), `research` (a background job that reads many sources and writes a cited report,
-[oversight.md](oversight.md)), `helper` (a background job that hands part of the work to a
-short-lived helper with a fresh context, in a hidden conversation of its own,
-[helpers.md](helpers.md)), the workspace tools, `shell` and `python` ([workspace.md](workspace.md);
-the system prompt's "How you work" tells the bot to write and run a short Python script for counting,
-data, files, conversions and charts rather than work them out, ADR 0220), and `skill_search`,
-`skill_load`, `skill_propose` and `skill_feedback`, over Spade's own skill store, which mirrors
-ace's library while ace is there and works without it (workspace.md, "Spade's skill store").
-Output from `web_search`,
-`web_fetch` and most of ace's tools is untrusted, so a write later in that turn asks.
+Every tool definition is paid for on every model call of every bot, so Spade offers up front only
+the tools a bot needs constantly, in name order, and defers the rest. Core: `web_search` (ace
+cloud search, then the model endpoint's own), `web_fetch` (one page as text, a window at a time,
+refusing local and private addresses), `todo`, `asks` (the person's asks, answered by Spade from
+the events, ADR 0215), `task_status`, `task_goal`, `task_plan`, `decision_log`, `task_update`
+(the bot's task state; while `working`, Spade starts its next step after a reply,
+[autonomy.md](autonomy.md)), `sleep_until` and `wait_for` (the bot ends its turn and is woken at a
+time or by an event, ADR 0160, autonomy.md), `research` (a background job that reads many sources
+and writes a cited report, [oversight.md](oversight.md)), `helper` (a background job that hands
+part of the work to a short-lived helper with a fresh context, in a hidden conversation of its
+own, [helpers.md](helpers.md)), the workspace tools, `shell` and `python`
+([workspace.md](workspace.md); the system prompt's "How you work" tells the bot to write and run a
+short Python script for counting, data, files, conversions and charts rather than work them out,
+ADR 0220), `skill_search` and `skill_load` over Spade's own skill store, which mirrors ace's
+library while ace is there and works without it (workspace.md, "Spade's skill store"), `ask_user`,
+`memory_save`, `memory_search`, `history_search`, `history_read`, `knowledge_search`,
+`document_read`, `share_file`, the lane tools (`task_start`, `task_message`, `task_stop`, `tasks`),
+and `tool_search` with `call_tool`, which are offered whenever anything is deferred.
+
+Deferred, found with `tool_search` and run through `call_tool`: `card_show`, `panel_update`,
+`notify`, `package_suggest`, `profile_update`, `club_add`, `skill_propose`, `skill_feedback`, the
+routine tools, `knowledge_write`, `episode_search`, `memory_update`, `memory_forget`, the
+typed-call tools (`contracts_find`, `contract_call`, `contract_return`), `bots_list`,
+`group_ask`, `wake_cancel`, the service tools, the worker tools (`worker_message`,
+`worker_status`, `worker_result`, `worker_stop`), the outward tools (`git_push`, `pr_comment`,
+`issue_comment`, `send_message`), `image_generate` and a package's code tools. Each is rare in a conversation; one a bot does need costs
+one `tool_search` round trip, once (see the pins below). Deferring changes only what is offered
+up front: a deferred tool can still be called by name, and every name stays in the runtime API
+(runtime.md). Output from `web_search`, `web_fetch` and most of ace's tools is untrusted, so a
+write later in that turn asks.
+
+**The stored list and learned pins.** A conversation keeps the tool list it was offered: it is
+worked out at its first model call and again only when a compaction republishes it, so the
+prompt's top stays byte-stable for the provider's cache (design.md, Caching). What is stored is the
+ordered definitions themselves (`spade_core::tools::snapshot`, one `tools.offer.<conversation>`
+setting per conversation), so a tool source coming, going or changing its schema never changes the
+bytes mid-conversation or after a restart. A lane or helper captures its bot's list as it stood
+when it started and keeps it: a parent compaction never changes a running one, and a helper's own
+compaction leaves its bot's list alone. A bot's list carries its learned pins: a deferred tool it
+ran twice is offered up front from its next list, at most 8, the most run first, ties by name.
+`spade_core::tools::pinning` keeps the tally per bot (`tools.uses.<agent>`, the 32 most run), and
+the engine records a use when a deferred tool actually runs. A new list is published in the same
+write as the compaction event it belongs to, and both settings are deleted with the conversation
+and the bot.
+
+`cargo test -p spade-server tool_tokens -- --nocapture` prints every offered tool's definition in
+characters and tokens (a token per four characters), largest first, with the total; the test fails
+past its budget, because the list is paid for on every call.
 
 ace's tools (threads, agents, browser, screen, automations) come from the daemon's MCP endpoint
 and can change while Spade runs. All of them are deferred: the model finds them with

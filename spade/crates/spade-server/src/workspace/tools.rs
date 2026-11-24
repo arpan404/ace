@@ -569,10 +569,10 @@ impl Tool for WorkspaceEdit {
     fn def(&self) -> ToolDef {
         def(
             "workspace_edit",
-            "Changes a file in your workspace: replaces `old` with `new`. Copy `old` exactly, \
-             with enough around it to appear once, or set replace_all to change every place. \
-             For several changes give edits (a list of old/new) instead: they apply in order, \
-             and if one can't, none do.",
+            "Change a file in your workspace: replace `old` with `new`. Copy `old` exactly, \
+             with enough around it to appear once, or set replace_all for every place. For \
+             several changes give edits (old/new pairs) instead: they apply in order, and if one \
+             can't, none do.",
             json!({ "type": "object",
                     "properties": { "path": { "type": "string" },
                                     "old": { "type": "string" },

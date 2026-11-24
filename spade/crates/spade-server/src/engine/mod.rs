@@ -54,6 +54,7 @@ mod media;
 mod memory;
 mod moves;
 mod notify;
+mod offer;
 pub mod onboarding;
 mod org;
 mod outbox;
@@ -171,9 +172,7 @@ use tokio::sync::{Notify, broadcast, watch};
 
 use crate::clock::{Clock, Ids};
 use crate::images::ImageStore;
-use crate::tools::{
-    BotMessage, BotsList, EngineHandle, HelperTool, MemoryTool, SkillLibrary, Toolbox,
-};
+use crate::tools::{EngineHandle, SkillLibrary, Toolbox};
 use turn_log::Stamps;
 
 /// Live state for one conversation.
@@ -387,45 +386,7 @@ impl Engine {
         let handle = EngineHandle::default();
         let adopt = setup.adopt;
         let keychain = setup.keychain;
-        let mut tools = setup
-            .tools
-            .with_tool(Arc::new(BotsList(handle.clone())))
-            .with_tool(Arc::new(BotMessage(handle.clone())))
-            // Typed calls between the person's bots (ADR 0200 §7).
-            .with_tool(Arc::new(crate::tools::ContractsFind(handle.clone())))
-            .with_tool(Arc::new(crate::tools::ContractCall(handle.clone())))
-            .with_tool(Arc::new(crate::tools::ContractReturn(handle.clone())))
-            .with_tool(Arc::new(HelperTool(handle.clone())))
-            // A bot's own task, name and face.
-            .with_tool(Arc::new(crate::tools::TaskUpdate(handle.clone())))
-            .with_tool(Arc::new(crate::tools::ProfileUpdate(handle.clone())))
-            .with_tool(Arc::new(crate::tools::ClubAdd(handle.clone())));
-        // `card_show` (ADR 0200 §5.1), unless Spade gave one that keeps images from workspaces.
-        if tools.get(spade_core::card::CARD_SHOW).is_none() {
-            tools = tools.with_tool(Arc::new(crate::tools::CardShow::new(handle.clone(), None)));
-        }
-        // `notify` and `package_suggest` (ADR 0200 §4.2, §8).
-        let tools = tools
-            .with_tool(Arc::new(crate::tools::Notify(handle.clone())))
-            .with_tool(Arc::new(crate::tools::PackageSuggest));
-        let mut tools = tools;
-        // `panel_update` (ADR 0200 §5.2): the state a packaged bot's panel shows.
-        tools = tools.with_tool(Arc::new(crate::tools::PanelUpdate(handle.clone())));
-        for tool in MemoryTool::all(&handle) {
-            tools = tools.with_tool(tool);
-        }
-        // A bot's knowledge base and its past episodes (ADR 0164).
-        for tool in crate::tools::KnowledgeTool::all(&handle) {
-            tools = tools.with_tool(tool);
-        }
-        let tools = crate::routines::with_tools(tools, &handle);
-        // `sleep_until`, `wait_for` and `wake_cancel` (ADR 0160).
-        let tools = crate::tools::with_wake_tools(tools, &handle);
-        let tools = crate::teams::with_tools(tools, &handle);
-        // A bot's tools for its workers (ADR 0161).
-        let tools = crate::tools::with_worker_tools(tools, &handle);
-        // Main's tools for its task lanes (ADR 0217).
-        let tools = crate::tools::with_task_tools(tools, &handle);
+        let tools = crate::tools::with_engine_tools(setup.tools, &handle);
         let data = setup.images.dir().parent().unwrap_or(setup.images.dir());
         let media = Arc::new(crate::media::Media::open(data));
         let decisions = classify::Decisions::new(data.join("classifier"));

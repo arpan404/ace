@@ -443,6 +443,13 @@ impl Store {
             "DELETE FROM conversations WHERE id = ?1",
             params![conversation],
         )?;
+        // What it was offered, and the deferred tools it ran (spade/docs/harness.md, Tools).
+        for key in [
+            spade_core::tools::snapshot::key(&conversation),
+            spade_core::tools::pinning::uses_key(id),
+        ] {
+            tx.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
+        }
         tx.commit()?;
         Ok(true)
     }
