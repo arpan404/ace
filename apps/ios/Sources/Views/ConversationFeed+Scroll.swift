@@ -66,20 +66,18 @@ extension ConversationFeed {
             if following { setFollowing(false) }
         }
         if intent.isolatingFling { return }
-        // The hold only moves a feed at rest; any scroll it didn't make (a finger, VoiceOver's
-        // three-finger swipe, Switch Control) ends it where the reader is.
-        if surface.running(.page), phase != .idle { endPageHold() }
+        // The hold only moves a feed at rest; any scroll it didn't make (a drag, VoiceOver's
+        // three-finger swipe, Switch Control) ends it where the reader is. A finger down isn't
+        // one yet: a tap leaves it running.
+        if surface.running(.page), phase != .idle, phase != .tracking { endPageHold() }
         switch phase {
         case .tracking:
-            readerMovedFeed()
-            settle.cancel()
-            viewport.cancelPending()
-            readerTookOver(proxy)
+            // A finger down may be a tap: it only holds the rows under it. Taking the feed from
+            // a landing or a settle waits for the drag (`.interacting`).
             model.beginReadingScroll()
-            intent.begin()
-            keep(.phase(.gesture), proxy: proxy)
-        // A quick drag can skip tracking: a new gesture is one that starts from rest.
-        case .interacting where old == .idle || old == .decelerating || old == .animating:
+        // A drag starts a new gesture, from rest, from a finger that was only down, from a
+        // fling it caught or from the feed's own animation.
+        case .interacting:
             readerMovedFeed()
             settle.cancel()
             viewport.cancelPending()
@@ -87,7 +85,7 @@ extension ConversationFeed {
             model.beginReadingScroll()
             intent.begin(); intent.active = true
             keep(.phase(.gesture), proxy: proxy)
-        case .interacting, .decelerating:
+        case .decelerating:
             intent.active = true
             keep(.phase(.gesture), proxy: proxy)
         case .idle:
@@ -96,6 +94,8 @@ extension ConversationFeed {
             let touched = intent.active
             intent.active = false
             model.endReadingScroll()
+            // A tap moved nothing: where the feed follows and what it holds stay as they were.
+            if old == .tracking, !touched { break }
             if touched {
                 let atEnd = intent.metrics.bottom <= AceDesign.Space.group
                 let live = reading.thread == nil || reading.joined
