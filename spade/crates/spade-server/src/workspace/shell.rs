@@ -210,7 +210,7 @@ pub trait Confine: Send + Sync {
     }
 
     /// Adds the credential guard when a Full access bot would otherwise launch unconfined.
-    fn outside_guard(&self, _home: &Path, required: bool) -> Result<Option<Launcher>, String> {
+    fn outside_guard(&self, _home: &Path, required: bool) -> Result<Option<OutsideGuard>, String> {
         if required {
             return Err("The outside credential guard is unavailable.".to_owned());
         }
@@ -267,6 +267,12 @@ const ADMIT_TIME: Duration = Duration::from_secs(10);
 /// Wraps `program args` in a run's sandbox: the program and arguments to start instead, and
 /// whether its environment must be carried past Spade's own program (`Launch::seals_env`).
 pub type Launcher = Box<dyn Fn(&Path, &[OsString]) -> Result<spade_sandbox::Launch, String> + Send>;
+
+/// A Full access outside launch with credential isolation and its own temporary directory.
+pub struct OutsideGuard {
+    pub launch: Launcher,
+    pub temp: PathBuf,
+}
 
 /// One run's sandbox: how to start it, what to add to its environment, and what to hold while
 /// it runs (its proxy ticket).
@@ -575,6 +581,7 @@ impl Shell {
             self.environment(home)
         };
         let mut seals_env = false;
+        let mut guarded_temp = None;
         let mut shell = match &confined {
             None => {
                 let guard = match (&self.confine, &job.by) {
@@ -589,7 +596,8 @@ impl Shell {
                 };
                 if let Some(guard) = guard {
                     let (program, args) = platform::shell_args(&self.env, command);
-                    let launched = guard(&program, &args)?;
+                    let launched = (guard.launch)(&program, &args)?;
+                    guarded_temp = Some(guard.temp);
                     seals_env = launched.seals_env;
                     platform::wrapped(launched.program, launched.args)
                 } else {
@@ -636,6 +644,16 @@ impl Shell {
         {
             run_env.retain(|(had, _)| *had != name);
             run_env.push((name, value));
+        }
+        if let Some(temp) = guarded_temp {
+            run_env.retain(|(name, _)| {
+                !matches!(name.as_str(), "TMPDIR" | "TMP" | "TEMP")
+                    && !spade_sandbox::run_env::credential_guard_drops(name)
+            });
+            let temp = temp.to_string_lossy();
+            for name in ["TMPDIR", "TMP", "TEMP"] {
+                run_env.push((name.to_owned(), temp.to_string()));
+            }
         }
         // A bot's command nothing holds: the one way it starts (ADR 0171, amendment 5), the last
         // await before the spawn.

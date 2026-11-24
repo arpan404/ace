@@ -375,17 +375,22 @@ through logged-in websites, ace coding agents, plugins, or bot code. Ace child
 agents follow ace's own permissions.
 
 Full access shell launches outside the workspace sandbox keep open network
-access on macOS and run under a Seatbelt credential-file guard. Linux and
+access on macOS and run under a Seatbelt credential guard. Linux and
 other platforms without this guard refuse those launches. Full access declines
 connector forms. An intervening write or new untrusted result invalidates a
 reusable allow. A stored escalation needs matching review context and a prior
 refusal to replay.
 
 
-The macOS guard blocks common execution brokers, LaunchServices and launchd
-lookups, Apple Events, and creation of symlinks. The workspace exception is
-limited to the bot's canonical workspace under Spade's data root. Known
-credential paths remain denied even inside that exception. Pre-existing hard
-links may expose credential files by an unlisted path. This is a selective
-guard. Other brokers, inherited IPC rights, and services reachable over the
-open network can still act outside the process tree.
+The macOS guard blocks common execution brokers and Apple Events. Guarded
+commands cannot read known credential files or reach the blocked Keychain and
+Spotlight services. The guard leaves trustd available for TLS and drops
+credential-named variables and agent sockets from the launch environment.
+
+Only the bot's canonical workspace under Spade's data root is reopened.
+Guarded outside commands get a workspace-owned `TMPDIR`. Symlinks can be
+created, and Seatbelt denies access through them to protected targets. Hard
+links from protected paths are denied. Pre-existing hard links may expose
+credentials through an unlisted path. Other services, inherited IPC rights,
+credentials under unlisted paths or variable names, and services reachable
+over the open network remain residual risks.

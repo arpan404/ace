@@ -32,7 +32,7 @@ impl Confine for Late {
         &self,
         home: &Path,
         required: bool,
-    ) -> std::result::Result<Option<spade_server::workspace::shell::Launcher>, String> {
+    ) -> std::result::Result<Option<spade_server::workspace::shell::OutsideGuard>, String> {
         self.0
             .get()
             .ok_or("the security service isn't set")?

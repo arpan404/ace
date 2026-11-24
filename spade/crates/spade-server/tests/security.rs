@@ -133,6 +133,50 @@ async fn full_access_requires_a_credential_guard_for_an_explicit_outside_command
 
 #[cfg(target_os = "macos")]
 #[tokio::test]
+async fn guarded_outside_shell_drops_injected_credentials_and_sets_workspace_temp() -> Result {
+    use spade_core::event::Authorized;
+    use spade_server::workspace::outside::{Bound, Warrant};
+    use spade_server::workspace::shell::{By, Job};
+    let w = world(true, vec![], |_| vec![]).await?;
+    full_access(&w).await?;
+    let workspace = w.workspaces.of(&w.bot)?.path()?;
+    let env = [
+        "SSH_AUTH_SOCK",
+        "GPG_AGENT_INFO",
+        "GH_TOKEN",
+        "AWS_SECRET_ACCESS_KEY",
+        "TMPDIR",
+        "KEEP_ME",
+    ]
+    .map(|name| (name.to_owned(), "fixture".to_owned()));
+    let ran = w.shell.run_job(Job {
+        dir: &workspace,
+        script: r#"[ -z "${SSH_AUTH_SOCK+x}${GPG_AGENT_INFO+x}${GH_TOKEN+x}${AWS_SECRET_ACCESS_KEY+x}" ] &&
+            [ -d "$TMPDIR" ] && printf '%s\n%s' "$TMPDIR" "$KEEP_ME" "#,
+        asked: None,
+        timeout: std::time::Duration::from_secs(10),
+        env: &env,
+        tee: None,
+        cleanup: None,
+        stdin: None,
+        kind: Kind::Command,
+        outside: true,
+        may_run_uncontained: true,
+        contained_only: false,
+        by: By::Bot(Some(Warrant {
+            limit: Authorized::Outside, bound: Bound::Nothing, credential_guard: true, incomplete: false,
+        })),
+        clean: false,
+        read_only: false,
+    }).await?;
+    let expected = workspace.canonicalize()?.join(spade_sandbox::policy::TEMP);
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+    assert_eq!(ran.stdout, format!("{}\nfixture", expected.display()));
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
 async fn full_access_outside_seatbelt_denies_indirect_credential_reads_and_writes() -> Result {
     let w = world(true, vec![], |at| {
         let alias = quoted(&at.root.join("ordinary-file"));
