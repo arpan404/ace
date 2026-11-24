@@ -25,7 +25,7 @@ import { BrandMark } from "@/components/ui/provider-icons.tsx";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { cn } from "@/lib/cn.ts";
-import { addEndpoint, setGatewayToken } from "./spade-api.ts";
+import { addEndpoint } from "./spade-api.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 import {
   buildAzureUrl,
@@ -195,7 +195,7 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
     setProblem(undefined);
     const extra = parseHeaderLines(headers);
     try {
-      const added = await addEndpoint(client, {
+      await addEndpoint(client, {
         name: name.trim(),
         format,
         base_url: url.trim(),
@@ -203,9 +203,12 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
         ...(session.trim() ? { session_header: session.trim() } : {}),
         ...(needsKey ? {} : { needs_key: false }),
         ...(props.presets.some((preset) => preset.id === from) ? { preset: from } : {}),
+        // Stored in the keychain with the endpoint, in the same request: a refusal leaves no
+        // half-made endpoint for a retry to add a second one beside.
+        ...(activeCloud === "cloudflare" && cfToken.trim()
+          ? { gateway_token: cfToken.trim() }
+          : {}),
       });
-      if (activeCloud === "cloudflare" && cfToken.trim())
-        await setGatewayToken(client, added.id, cfToken.trim());
       await cache.invalidateQueries({ queryKey: modelsKey });
       props.onClose();
     } catch (error) {

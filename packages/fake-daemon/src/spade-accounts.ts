@@ -96,6 +96,7 @@ export class FakeSpadeAccounts {
       needs_key: needsKey,
       key_set: false,
       key_source: null,
+      gateway_token_set: Boolean(body.gateway_token),
       provider: preset ? preset.id : null,
       auth: needsKey ? "key" : "none",
       account: null,

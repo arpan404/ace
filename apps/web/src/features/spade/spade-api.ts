@@ -190,6 +190,11 @@ export interface SpadeEndpointDraft {
   /** False for a local server that takes no key; true when absent. */
   needs_key?: boolean;
   preset?: string;
+  /**
+   * An authenticated gateway's own token, for a new endpoint: Spade keeps it in the keychain, and
+   * makes the whole create atomic (no endpoint exists if the keychain refuses it).
+   */
+  gateway_token?: string;
 }
 
 export async function addEndpoint(
@@ -301,6 +306,10 @@ export async function setGatewayToken(
   token: string,
 ): Promise<void> {
   await spadeHttp(target, "PUT", `/v1/keys/${segment(endpoint)}/gateway`, { body: { token } });
+}
+
+export async function removeGatewayToken(target: SpadeTarget, endpoint: string): Promise<void> {
+  await spadeHttp(target, "DELETE", `/v1/keys/${segment(endpoint)}/gateway`);
 }
 
 /** `endpoint/model` that turns recordings into words; null clears it (ADR 0134). */

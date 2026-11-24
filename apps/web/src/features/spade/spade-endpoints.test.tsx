@@ -76,11 +76,16 @@ test("a Cloudflare gateway's token is asked for beside the provider's key", asyn
     return endpoint;
   });
   expect(created.base_url).toBe("https://gateway.ai.cloudflare.com/v1/acct-1/my-gateway/compat/");
-  await waitFor(() =>
-    expect(spade.sent("PUT", `/v1/keys/${String(created.id)}/gateway`)).toEqual([
-      { token: "cf-token" },
-    ]),
-  );
+  // The token travels in the create itself, so a refusal can never leave an endpoint behind.
+  expect(spade.sent("POST", "/v1/endpoints")).toEqual([
+    {
+      name: "Cloudflare AI Gateway",
+      format: "openai-chat",
+      base_url: "https://gateway.ai.cloudflare.com/v1/acct-1/my-gateway/compat/",
+      gateway_token: "cf-token",
+    },
+  ]);
+  expect(spade.sent("PUT", `/v1/keys/${String(created.id)}/gateway`)).toEqual([]);
   // The token is no stored header: the endpoint carries none.
   expect(created.header_names).toEqual([]);
   expect(created.gateway_token_set).toBe(true);
