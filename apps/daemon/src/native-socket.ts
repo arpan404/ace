@@ -116,7 +116,9 @@ export class NativeSocket extends EventEmitter implements MainSocket {
         return;
       case "not-open":
         // The socket closed between the state check and the enqueue: as ws, nothing was
-        // queued, so the send takes the after-close path.
+        // queued, so the send takes the after-close path, reporting the state the socket
+        // actually reached rather than the OPEN this call saw.
+        this.#mirrorNativeState();
         this.#callbacks.delete(id);
         this.#sendAfterClose(bytes.byteLength, done);
         return;
@@ -131,6 +133,11 @@ export class NativeSocket extends EventEmitter implements MainSocket {
         this.#refuse(done, INVALID_UTF8);
         return;
     }
+  }
+
+  /** After a refused enqueue: CLOSED if the close event came, else CLOSING; never OPEN. */
+  #mirrorNativeState(): void {
+    this.#state = this.#handle.readyState() === CLOSED ? CLOSED : CLOSING;
   }
 
   /** A send that queued nothing: its callback fails on the next tick, as ws's does. */
