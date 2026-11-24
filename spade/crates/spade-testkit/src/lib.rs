@@ -80,6 +80,57 @@ pub struct Script {
     pub calls: Vec<FakeCall>,
     /// Thinking before the text, in order.
     pub thoughts: Vec<FakeThought>,
+    /// Holds this answer before its first frame until the gate opens.
+    pub gate: Option<Gate>,
+}
+
+/// A gate a scripted answer waits behind, so a test can hold a stream open and know exactly what
+/// had, or had not, happened while it was held. One-shot: once open, it stays open.
+#[derive(Debug, Clone)]
+pub struct Gate {
+    open: tokio::sync::watch::Sender<bool>,
+    holding: tokio::sync::watch::Sender<bool>,
+}
+
+impl Default for Gate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Gate {
+    pub fn new() -> Self {
+        Self {
+            open: tokio::sync::watch::channel(false).0,
+            holding: tokio::sync::watch::channel(false).0,
+        }
+    }
+
+    /// Holds an answer until [`Gate::open`], saying that something is being held.
+    async fn hold(&self) {
+        let _ = self.holding.send_replace(true);
+        let mut open = self.open.subscribe();
+        while !*open.borrow() {
+            if open.changed().await.is_err() {
+                return;
+            }
+        }
+    }
+
+    /// Lets every answer held behind it go.
+    pub fn open(&self) {
+        let _ = self.open.send_replace(true);
+    }
+
+    /// Waits until something is held behind it: the request has arrived and its answer waits.
+    pub async fn holding(&self) {
+        let mut holding = self.holding.subscribe();
+        while !*holding.borrow() {
+            if holding.changed().await.is_err() {
+                return;
+            }
+        }
+    }
 }
 
 impl Script {
@@ -97,7 +148,15 @@ impl Script {
             cache_write: 0,
             calls: Vec::new(),
             thoughts: Vec::new(),
+            gate: None,
         }
+    }
+
+    /// Holds this answer before its first frame until `gate` opens: what a test needs to see the
+    /// world while a stream has begun but its words have not arrived.
+    pub fn gated(mut self, gate: Gate) -> Self {
+        self.gate = Some(gate);
+        self
     }
 
     pub fn plain(mut self, text: &str) -> Self {
@@ -382,6 +441,9 @@ async fn answer(
     }
     if !script.hold.is_zero() {
         tokio::time::sleep(script.hold).await;
+    }
+    if let Some(gate) = &script.gate {
+        gate.hold().await;
     }
     if let (Some(body), false) = (&script.raw, streamed) {
         return json_response(body.clone());

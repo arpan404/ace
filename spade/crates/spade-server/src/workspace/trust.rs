@@ -51,19 +51,31 @@ impl Trust {
     }
 
     fn change(&self, edit: impl FnOnce(&mut Record)) {
+        if let Err(error) = self.try_change(edit) {
+            // Fail closed: a file whose trust was not recorded reads as untrusted.
+            tracing::warn!(%error, "a workspace's trust record was not written");
+        }
+    }
+
+    /// Applies `edit` to the record and says whether it was written, for callers that must not
+    /// go on when it was not.
+    fn try_change(&self, edit: impl FnOnce(&mut Record)) -> Result<(), String> {
         let _held = self
             .lock
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut record = self.read();
         edit(&mut record);
-        let written = serde_json::to_string(&record)
-            .map_err(std::io::Error::other)
-            .and_then(|text| crate::atomic::write_whole(&self.file, &text));
-        if let Err(error) = written {
-            // Fail closed: a file whose trust was not recorded reads as untrusted.
-            tracing::warn!(%error, "a workspace's trust record was not written");
-        }
+        let text = serde_json::to_string(&record).map_err(|error| error.to_string())?;
+        crate::atomic::write_whole(&self.file, &text).map_err(|error| error.to_string())
+    }
+
+    /// Forgets any trust record at `path`, and says whether the record was written: a caller
+    /// that must not let a file inherit an older one's trust fails closed on `Err`.
+    pub fn forget_path(&self, path: &str) -> Result<(), String> {
+        self.try_change(|record| {
+            record.files.remove(path);
+        })
     }
 
     /// Whether `path` has a trust record at all (its content still has to match it).

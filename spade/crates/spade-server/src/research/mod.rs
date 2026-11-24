@@ -17,7 +17,6 @@ use spade_core::routing::Role;
 use spade_core::tools::{Risk, ToolDef};
 use spade_models::{Effort, Prompt, ToolSpec};
 use spade_store::StoredHelper;
-use tokio::time::Instant;
 
 use crate::engine::{Admission, Engine};
 use crate::tools::{EngineHandle, Tool, ToolFuture, ToolOutput, parse};
@@ -123,14 +122,17 @@ impl Tool for ResearchTool {
                     "Research needs a model on one of the person's endpoints.",
                 );
             }
+            let budget = fixed.unwrap_or_else(|| args.depth.budget());
+            let deadline_ms =
+                engine.monotonic_ms() + i64::try_from(budget.time_ms).unwrap_or(i64::MAX);
             let run = Run {
                 engine: engine.clone(),
                 conversation: conversation.clone(),
                 job,
                 model,
                 effort: engine.role_effort(&conversation, Role::Helper),
-                budget: fixed.unwrap_or_else(|| args.depth.budget()),
-                started: Instant::now(),
+                budget,
+                deadline_ms,
                 stopped: None,
             };
             let output = run.go(&question, &workspaces, &bot).await;
@@ -149,7 +151,9 @@ struct Run {
     model: String,
     effort: Effort,
     budget: Budget,
-    started: Instant,
+    /// When the run's time budget is spent, on Spade's clock: one deadline for every wait, so
+    /// nothing here reads a clock of its own.
+    deadline_ms: i64,
     /// Why it stopped early, once it has.
     stopped: Option<String>,
 }
@@ -165,7 +169,8 @@ impl Run {
     }
 
     fn time_left(&self) -> Option<Duration> {
-        Duration::from_millis(self.budget.time_ms).checked_sub(self.started.elapsed())
+        let left = self.deadline_ms - self.engine.monotonic_ms();
+        (left > 0).then(|| Duration::from_millis(u64::try_from(left).unwrap_or(0)))
     }
 
     /// Whether another model call may start; records why not when it may not.
@@ -193,7 +198,8 @@ impl Run {
     {
         let prompt = prompt.session(&self.conversation).effort(self.effort);
         let limit = self.time_left()?;
-        let admitted = self.admit();
+        // The bot pays for it, but it is helper work on the helper model (ADR 0162).
+        let admitted = self.admit().for_role(Role::Helper);
         let answer = tokio::time::timeout(
             limit,
             self.engine.models().generate::<T>(&self.model, &prompt),
@@ -288,6 +294,17 @@ impl Run {
         let mut parts: Vec<Option<research::Part>> = (0..questions.len()).map(|_| None).collect();
         let mut started: Vec<(usize, StoredHelper)> = Vec::new();
         for (batch, range) in research::batches(questions.len()).into_iter().enumerate() {
+            // The deadline is checked before a batch is admitted: past it, nothing new starts.
+            if self.time_left().is_none() {
+                self.stopped = Some("the time budget".to_owned());
+                for n in range {
+                    parts[n] = Some(research::failed(
+                        &questions[n].question,
+                        "the research reached its time budget before this part started",
+                    ));
+                }
+                continue;
+            }
             for n in range {
                 let task = research::helper_task(question, &questions[n], self.budget.pages);
                 match self
@@ -304,8 +321,13 @@ impl Run {
             if batch == 0
                 && let Some((_, first)) = started.first()
             {
-                let limit = self.time_left().unwrap_or_default().min(STAGGER_WAIT);
-                let _ = self.engine.part_answering(first, limit).await;
+                // The stagger has its own deadline, inside the run's.
+                let stagger_ms = self.engine.monotonic_ms()
+                    + i64::try_from(STAGGER_WAIT.as_millis()).unwrap_or(i64::MAX);
+                let _ = self
+                    .engine
+                    .part_answering(first, stagger_ms.min(self.deadline_ms))
+                    .await;
             }
         }
         if started.is_empty() {
@@ -314,9 +336,9 @@ impl Run {
         let mut waiting = FuturesUnordered::new();
         for (n, helper) in started {
             let engine = self.engine.clone();
-            let limit = self.time_left().unwrap_or_default();
+            let deadline_ms = self.deadline_ms;
             waiting.push(async move {
-                let end = engine.wait_part_end(&helper, limit).await;
+                let end = engine.wait_part_end(&helper, deadline_ms).await;
                 (n, end)
             });
         }
@@ -352,22 +374,33 @@ impl Run {
         let stem = format!("{FOLDER}/{date}-{}", research::slug(title));
         let report = report.to_owned();
         tokio::task::spawn_blocking(move || {
-            // Created only where nothing is: a report written at the same moment under the
-            // same name takes the next suffix instead of replacing this one.
-            for n in 1..=MOST_SAME_NAME {
-                let path = if n == 1 {
-                    format!("{stem}.md")
-                } else {
-                    format!("{stem}-{n}.md")
-                };
-                if workspace
-                    .create_new(&path, &report)
-                    .map_err(|e| e.to_string())?
-                {
+            workspace.changing(|| {
+                // Created only where nothing is: a report written at the same moment under the
+                // same name takes the next suffix instead of replacing this one.
+                for n in 1..=MOST_SAME_NAME {
+                    let path = if n == 1 {
+                        format!("{stem}.md")
+                    } else {
+                        format!("{stem}-{n}.md")
+                    };
+                    // Reserve the name empty first, then take away any trust record an older
+                    // file at that path left, and only then write the words. A report is never
+                    // trusted, and a path that comes back never inherits its predecessor's
+                    // trust; a record that cannot be written stops the save (fail closed).
+                    if !workspace.create_new(&path, "").map_err(|e| e.to_string())? {
+                        continue;
+                    }
+                    if let Err(why) = workspace.trust().forget_path(&path) {
+                        let _ = workspace.delete(&path);
+                        return Err(format!(
+                            "its path's trust could not be cleared ({why}), so it was not saved"
+                        ));
+                    }
+                    workspace.write(&path, &report).map_err(|e| e.to_string())?;
                     return Ok(path);
                 }
-            }
-            Err(format!("{MOST_SAME_NAME} reports already have this name"))
+                Err(format!("{MOST_SAME_NAME} reports already have this name"))
+            })
         })
         .await
         .map_err(|_| "the file work stopped".to_owned())?
