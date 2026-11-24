@@ -3851,13 +3851,14 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"notification.feed"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":200} |
-| afterCursor | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| afterCursor | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| checkpoint | no | `true` |  |
 
 Example:
 
 ```json
 {
-  "afterCursor": 0,
+  "afterCursor": 1,
   "requestId": "example",
   "type": "notification.feed"
 }

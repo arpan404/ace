@@ -6,13 +6,21 @@ extension NotificationCoordinator {
     /// Every attached machine's rows, and the approvals whose rows still need the person. An
     /// approval whose row moved on is dropped here, so a stale one never gets buttons.
     func lockScreenInput() -> LockScreenHub.Input {
-        var waiting: Set<String> = []
+        var answered: Set<String> = []
+        var listed: Set<String> = []
+        let confirmed = Set(machines.filter { $0.model.inboxConfirmed && $0.model.listComplete }.map(\.hostId))
         let list = machines.map { entry in
             let rows = Array(entry.model.inbox.values)
-            for row in rows where row.look?.level == "needs-you" { waiting.insert(LockScreenBuilder.key(host: entry.hostId, thread: row.id)) }
-            return LockScreenBuilder.Machine(hostId: entry.hostId, rows: rows, online: entry.model.connection == "ready")
+            for row in rows where entry.model.inboxConfirmed {
+                let key = LockScreenBuilder.key(host: entry.hostId, thread: row.id)
+                listed.insert(key)
+                if row.confirmed == true, let look = row.look, look.level != "syncing",
+                   LockScreenBuilder.state(look) != "needs-you" { answered.insert(key) }
+            }
+            return LockScreenBuilder.Machine(hostId: entry.hostId, rows: rows, online: entry.model.inboxConfirmed)
         }
-        approvals = approvals.filter { waiting.contains($0.key) }
+        approvals = approvals.filter { !answered.contains($0.key) && (!confirmed.contains($0.value.hostId) || listed.contains($0.key)) }
+        approvalAlerts = approvalAlerts.filter { approvals[$0.value] != nil }
         withdrawAnswered()
         return (list, approvals)
     }
@@ -40,6 +48,7 @@ extension NotificationCoordinator {
         approvals[key] = LockRequest(hostId: hostId, threadId: alert.threadId, interactionId: interaction, approve: approve, deny: deny,
                                      sentence: request?.sentence ?? "An agent wants your approval", detail: request?.detail ?? "",
                                      code: request?.code ?? false, title: alert.title)
+        approvalAlerts = approvalAlerts.filter { $0.value != key }
         approvalAlerts[AlertContent.requestId(alert.id, hostId: hostId)] = key
         lockScreen.changed()
     }

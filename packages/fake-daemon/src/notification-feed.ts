@@ -22,6 +22,7 @@ export class FakeNotificationFeed {
   private unregistered = new Set<string>();
   private head = 0;
   private addresses = new Map<string, NotificationAddress>();
+  private checkpoints = new Map<string, number>();
   private acks: { device: string; id: string }[] = [];
   private pushRefused: "invalid_message" | "unsupported" | false = false;
   private rejections = 0;
@@ -95,7 +96,22 @@ export class FakeNotificationFeed {
       return true;
     }
     if (message.type !== "notification.feed") return false;
-    const after = message.afterCursor > this.head ? 0 : message.afterCursor;
+    const committed = this.checkpoints.get(device) ?? 0;
+    if (message.checkpoint) {
+      const cursor = message.afterCursor ?? committed;
+      const next = cursor <= this.head ? Math.max(cursor, committed) : committed;
+      this.checkpoints.set(device, next);
+      emit({
+        type: "notification.feed.result",
+        requestId: message.requestId,
+        cursor: next,
+        entries: [],
+        retracted: [],
+      });
+      return true;
+    }
+    const requested = message.afterCursor ?? committed;
+    const after = requested > this.head ? 0 : requested;
     emit({
       type: "notification.feed.result",
       requestId: message.requestId,

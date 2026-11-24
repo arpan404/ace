@@ -39,9 +39,18 @@ export type Operation =
   /** Computer use and simulators, refused for coding trees on org hosts (§10). */
   | "computer";
 
-export type Resource = { kind: "host" } | { kind: "tree"; ref: TreeRef } | { kind: "unplaced" };
+export type Resource =
+  | { kind: "host" }
+  | { kind: "tree"; ref: TreeRef }
+  /**
+   * A list across trees whose service keeps only what the socket may read, rechecking each
+   * entry against `tree.read` as it answers (the notification feed, ADR 0221).
+   */
+  | { kind: "filtered" }
+  | { kind: "unplaced" };
 
 export const host: Resource = { kind: "host" };
+export const filtered: Resource = { kind: "filtered" };
 export const unplaced: Resource = { kind: "unplaced" };
 export const tree = (ref: TreeRef): Resource => ({ kind: "tree", ref });
 
@@ -105,6 +114,8 @@ export function decide(
       if (operation === "host.meta" || operation === "host.admin" || operation === "host.shell")
         return orgAllows(principal.role, "host:shell") ? allow : deny("not_org_owner");
       if (!treeOperations.has(operation)) return deny("refused_on_org_host");
+      // Each entry is decided as a placed read, so reading the list itself reveals nothing.
+      if (resource.kind === "filtered") return operation === "tree.read" ? allow : deny("unplaced");
       if (resource.kind !== "tree") return deny("unplaced");
       const root = trees.root(resource.ref);
       const access = root === undefined ? undefined : trees.access(root);

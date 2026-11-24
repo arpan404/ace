@@ -1,5 +1,5 @@
 import { ThreadId } from "@ace/protocol";
-import { host, tree, unplaced, type Operation, type Resource } from "./decide.ts";
+import { filtered, host, tree, unplaced, type Operation, type Resource } from "./decide.ts";
 
 /*
  * What each socket message is, for the access policy (ADR 0209 §4.1, "JSON socket messages",
@@ -196,6 +196,12 @@ const threadOf = (value: unknown): ThreadId | undefined => {
 };
 
 /**
+ * Lists whose service filters every entry to the trees the socket may read (`filtered`). The
+ * notification feed rechecks each alert and retraction with the socket's `canReadThread`.
+ */
+const selfFiltering: ReadonlySet<string> = new Set(["notification.feed"]);
+
+/**
  * The resource a message names. A tree operation names the thread it carries (top level, in a
  * subscription's scope, a terminal's operation or a command's payload); one that names none
  * (a whole list, a search) can't be placed, and the policy refuses it to members until the access
@@ -203,6 +209,7 @@ const threadOf = (value: unknown): ThreadId | undefined => {
  */
 export function socketResource(message: { type: string }, operation: Operation): Resource {
   if (!operation.startsWith("tree.")) return host;
+  if (operation === "tree.read" && selfFiltering.has(message.type)) return filtered;
   const fields: Readonly<Record<string, unknown>> = message;
   const nested = (key: string) => Reflect.get(Object(fields[key]), "threadId");
   const payload = Reflect.get(Object(fields["command"]), "payload");

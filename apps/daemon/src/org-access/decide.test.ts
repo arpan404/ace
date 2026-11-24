@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ThreadId } from "@ace/protocol";
-import { decide, host, tree, unplaced, type Operation, type Resource } from "./decide.ts";
+import { decide, filtered, host, tree, unplaced, type Operation, type Resource } from "./decide.ts";
+import { socketOperation, socketResource } from "./socket-operations.ts";
 import { principal, type Principal } from "./principal.ts";
 import { structuralTrees, type TreeAccess, type TreeResolver } from "./trees.ts";
 
@@ -116,6 +117,11 @@ describe("decide", () => {
     ["a member may not stop another's tree", ann, "tree.stop", tree({ thread: theirs }), false],
     ["a tree with no access row is nobody's", ann, "tree.read", tree({ thread: bare }), false],
     ["a list names no tree", bo, "tree.read", unplaced, false],
+    ["a member reads a list filtered to what they may read", bo, "tree.read", filtered, true],
+    ["a filtered list changes nothing", bo, "tree.write", filtered, false],
+    ["the operator reads no filtered list", operator, "tree.read", filtered, false],
+    ["an agent reads no filtered list", annsAgent, "tree.read", filtered, false],
+    ["an admission reads no filtered list", admitted, "tree.read", filtered, false],
     ["an interaction can't be placed yet", ann, "tree.write", tree({ interaction: "i_1" }), false],
     ["members start no tree yet", ann, "tree.create", host, false],
     ["a member reaches Spade", bo, "spade", host, true],
@@ -173,5 +179,20 @@ describe("decide", () => {
     // Its own tree is still the agent's: the bearer was bound to it when it was minted.
     expect(allowed(annsAgent, "tree.write", tree({ thread: mine }), partA)).toBe(true);
     expect(allowed(annsAgent, "tree.read", tree({ thread: shared }), partA)).toBe(false);
+  });
+});
+
+describe("a member's catch-up feed on an org host", () => {
+  it("is let through: its service filters it to the trees the member may read", () => {
+    const feed = { type: "notification.feed", requestId: "wake", afterCursor: 4 };
+    const operation = socketOperation(feed);
+    expect(operation).toBe("tree.read");
+    expect(allowed(bo, operation, socketResource(feed, "tree.read"))).toBe(true);
+    expect(allowed(admitted, operation, socketResource(feed, "tree.read"))).toBe(false);
+  });
+
+  it("leaves other lists that name no tree refused until they filter too", () => {
+    const page = { type: "threads.page", requestId: "list" };
+    expect(allowed(bo, socketOperation(page), socketResource(page, "tree.read"))).toBe(false);
   });
 });

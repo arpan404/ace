@@ -16,8 +16,11 @@ enum BackgroundConnection {
             }
             return models
         }
+        let foregroundName = coordinator.machineName
         let machines = ProductionApp.machines(directory: directory, notifications: coordinator, now: coordinator.now)
-        await machines.load()
+        coordinator.machineName = { [weak machines] in foregroundName($0) ?? machines?.inbox.names[$0] }
+        coordinator.transientDirectory = machines
+        await machines.openInBackground()
         return machines.inbox.all.map(\.client)
     }
 }
@@ -41,12 +44,21 @@ extension NotificationCoordinator {
             return
         }
         let outcome = await perform(answer, threadId: threadId, hostId: hostId)
-        await report(outcome, for: answer, notificationId: notificationId, threadId: threadId, hostId: hostId)
+        await report(outcome, for: answer, notificationId: notificationId, threadId: threadId, hostId: localNotificationHost(hostId))
         await releaseTransient()
     }
     /// Sends one answer through the machine's bridge and waits for what became of it.
     func perform(_ answer: NotificationAnswer, threadId: String, hostId: String?) async -> NotificationPatch.ActionOutcome? {
-        guard let model = await session(hostId, budget: .seconds(10)) else { return .unreachable }
+        await holdTransient()
+        guard let model = await session(hostId, budget: .seconds(10)) else {
+            await letGoTransient()
+            return .unreachable
+        }
+        let result = await perform(answer, threadId: threadId, on: model)
+        await letGoTransient()
+        return result
+    }
+    private func perform(_ answer: NotificationAnswer, threadId: String, on model: ClientModel) async -> NotificationPatch.ActionOutcome? {
         // A view-only pairing answers nothing; the person answers on the computer.
         guard model.canOperate else { return .refused }
         let requestId = makeId()
@@ -69,61 +81,95 @@ extension NotificationCoordinator {
         guard let words = ActionNotice.words(outcome, for: answer) else { return }
         await notifier.notice(id: "action:\(notificationId)", threadId: threadId, title: words.title, body: words.body, hostId: hostId)
     }
-    /// BGAppRefreshTask: connect every paired machine briefly, fetch what a suspended app missed
-    /// from each at once, then let go. True when every reachable machine caught up in the budget.
+    /// Both iOS wake sources share one run and one time budget across every machine. A wake that
+    /// joins it and is cancelled (iOS took its time back) stops it too. Neither wake's report
+    /// waits on it past that wake's own deadline (`OSCompletion`).
     func backgroundCatchUp() async -> Bool {
+        if let refresh = backgroundWork {
+            return await withTaskCancellationHandler { await refresh.value } onCancel: { refresh.cancel() }
+        }
+        let refresh = Task { @MainActor in
+            await runBackgroundCatchUp()
+        }
+        backgroundWork = refresh
+        let caught = await withTaskCancellationHandler { await refresh.value } onCancel: { refresh.cancel() }
+        backgroundWork = nil
+        return caught
+    }
+    private func runBackgroundCatchUp() async -> Bool {
+        let budget = Task { @MainActor in
+            await sleep(.seconds(18))
+            guard !Task.isCancelled else { return }
+            backgroundWork?.cancel()
+        }
+        defer { budget.cancel() }
+        transientHolds += 1
+        let caught = await fetchInBackground()
+        await letGoTransient()
+        return caught
+    }
+    private func fetchInBackground() async -> Bool {
         if permission == .unknown { await refreshPermission() }
-        guard delivering else { return true }
+        guard !Task.isCancelled else { return false }
+        guard delivering || liveActivity else { return true }
         await openTransient()
-        let ready = await readyMachines(within: .seconds(10))
-        guard !ready.isEmpty else { await releaseTransient(); return false }
-        var waiters: [Waiter<Bool>] = []
-        for entry in ready {
+        let entries = machines
+        guard !Task.isCancelled, !entries.isEmpty else { return false }
+        let alerts = entries.filter { delivering($0.hostId) }
+        let waiters = alerts.map { entry in
             let waiter = Waiter<Bool>()
             expectFeed(waiter, from: entry.hostId)
-            waiters.append(waiter)
+            return (entry.hostId, waiter)
         }
+        defer { for (host, waiter) in waiters { stopExpectingFeed(waiter, from: host) } }
+        for entry in entries { entry.model.wake() }
         sync()
-        var caught = true
-        for waiter in waiters { caught = await waiter.wait(.seconds(10), sleep: sleep) == true && caught }
-        await releaseTransient()
-        return caught && ready.count == machines.count
+        while !Task.isCancelled {
+            let screenReady = !liveActivity || entries.allSatisfy { $0.model.inboxConfirmed }
+            if screenReady && waiters.allSatisfy({ $0.1.finished }) {
+                lockScreen.rebuild()
+                await lockScreen.settle()
+                return waiters.allSatisfy { $0.1.value == true }
+            }
+            await sleep(.milliseconds(100))
+        }
+        return false
     }
-    /// The machine's attached connection, or a short-lived one to every paired machine. Nil unless
-    /// that machine (the first, when none is named) is ready within the budget.
+    /// Only the authenticated machine named by the alert can answer it.
     func session(_ hostId: String? = nil, budget: Duration) async -> ClientModel? {
         await openTransient()
-        guard let current = client(hostId) ?? (hostId == nil ? nil : transient.first) else { return nil }
-        if current.connection != "ready" { current.retry() }
+        guard !machines.isEmpty else { return nil }
         var waited = Duration.zero
-        while current.connection != "ready", waited < budget {
+        var woken: ClientModel?
+        while !Task.isCancelled, waited < budget {
+            if let current = client(hostId) {
+                if current.connection == "ready" { return current }
+                if current !== woken { current.wake(); woken = current }
+            }
             await sleep(.milliseconds(100))
             waited += .milliseconds(100)
         }
-        return current.connection == "ready" ? current : nil
-    }
-    /// Every attached machine that is ready within one shared budget; slow ones don't hold up the rest.
-    private func readyMachines(within budget: Duration) async -> [(hostId: String, model: ClientModel, notifier: LocalNotifier)] {
-        for entry in machines where entry.model.connection != "ready" { entry.model.retry() }
-        var waited = Duration.zero
-        while machines.contains(where: { $0.model.connection != "ready" }), waited < budget {
-            await sleep(.milliseconds(100))
-            waited += .milliseconds(100)
-        }
-        return machines.filter { $0.model.connection == "ready" }
+        return nil
     }
     /// Opens short-lived connections to every paired machine when none is attached, once however
     /// many callers ask at the same time.
     func openTransient() async {
-        if let opening = transientOpening { await opening.value; return }
-        guard machines.isEmpty else { return }
-        let opening = Task { @MainActor in
-            let models = await BackgroundOpening.$active.withValue(true) { await connectInBackground(self) }
-            transient = models
-            transientOpening = nil
+        let opening: Task<Void, Never>
+        if let existing = transientOpening {
+            opening = existing
+        } else {
+            guard machines.isEmpty, !Task.isCancelled else { return }
+            opening = Task { @MainActor in
+                transient = await BackgroundOpening.$active.withValue(true) { await connectInBackground(self) }
+                transientOpening = nil
+            }
+            transientOpening = opening
         }
-        transientOpening = opening
-        await opening.value
+        await withTaskCancellationHandler { await opening.value } onCancel: {
+            Task { @MainActor in
+                if self.transientHolds == 1 { opening.cancel() }
+            }
+        }
     }
     /// Opens the short-lived connections, or joins those open, and keeps them until `letGoTransient`.
     func holdTransient() async {
@@ -140,16 +186,17 @@ extension NotificationCoordinator {
         await closeTransient()
     }
     func closeTransient() async {
+        transientDirectory?.stopBackgroundRoutes()
+        transientDirectory = nil
         let models = transient
         transient = []
-        for model in models {
-            detach(model)
-            await model.disconnectAndWait()
-        }
+        for model in models { releaseBackgroundMachine(model) }
+        for model in models { await model.disconnectAndWait() }
     }
     /// While the user looks at a thread, its own alerts stay out of the way; an alert whose
     /// banner is off (Settings › Notifications) goes to the list without showing over the app.
     func presentation(for threadId: String?, hostId: String? = nil, banner: Bool = true) -> UNNotificationPresentationOptions {
+        let hostId = localNotificationHost(hostId)
         // A machine turned off on this phone shows nothing, even a notification already on its way.
         if let hostId, MachinesModel.turnedOff(in: defaults).contains(hostId) { return [] }
         if foreground, let threadId, machines.contains(where: { ($0.hostId == hostId || hostId == nil) && $0.model.thread?.id == threadId }) { return [] }

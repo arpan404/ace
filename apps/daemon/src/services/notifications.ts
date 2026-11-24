@@ -57,9 +57,11 @@ export async function startNotifications(context: ServiceContext): Promise<void>
 }
 
 import type { SocketContext, SocketService } from "./socket.ts";
+import { visibleFeed } from "../notification-feed-view.ts";
 export function createNotificationsSession({
   options,
   authorize,
+  canReadThread,
   sessionId,
   onPresence,
   fail,
@@ -101,8 +103,17 @@ export function createNotificationsSession({
           return true;
         }
         try {
-          const feed = await options.notifications.feed(device, message.afterCursor);
-          send({ type: "notification.feed.result", requestId: message.requestId, ...feed });
+          // One phone reached directly and over its account relay reads one feed: its saved
+          // cursor covers both ids, so neither route's read can skip the other's alerts.
+          const linked = options.store.devices.linked(device, (options.now ?? Date.now)());
+          const feed = await options.notifications.feed(
+            device,
+            message.afterCursor,
+            message.checkpoint,
+            linked,
+          );
+          const visible = visibleFeed(feed, canReadThread);
+          send({ type: "notification.feed.result", requestId: message.requestId, ...visible });
         } catch {
           fail("notification_rejected", "Could not read missed notifications", false, correlation);
         }
