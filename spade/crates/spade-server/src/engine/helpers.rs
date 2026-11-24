@@ -131,7 +131,8 @@ impl Engine {
             .remove(id);
     }
 
-    /// The tools `id` may use: a helper's are its bot's, narrowed by its profile.
+    /// The tools `id` may use: a helper's are its bot's, narrowed by its profile. This is what a
+    /// call is checked against, not what the model is offered (see [`Engine::offered_tools`]).
     pub(super) fn registry_for(&self, id: &str) -> Registry {
         // A worker's tools are never more than its parent's (ADR 0161).
         let registry = self.narrow_registry(id, self.tools.registry_for(id));
@@ -140,29 +141,26 @@ impl Engine {
             Some(row) if row.profile == spade_core::lane::PROFILE => {
                 registry.retain(|def| !spade_core::lane::TOOLS.contains(&def.spec.name.as_str()))
             }
-            Some(helper) => profile_of(&helper).registry(registry),
+            Some(helper) => profile_of(&helper).allowed(registry),
             None => registry,
         }
     }
 
-    /// The tools the model is offered in `id`: the same list for every bot, and a helper's
-    /// narrower one.
-    pub(super) fn offered_for(&self, id: &str) -> Vec<spade_models::ToolSpec> {
-        // A lane is offered its bot's list byte for byte, so the two share the provider's cache
-        // (ADR 0217 §8); a lane's call to a lane tool is refused like any tool outside a grant.
-        match self.helper_of(id) {
-            Some(helper) => profile_of(&helper)
-                .registry(self.tools.registry())
-                .offered(),
-            None => self.tools.registry().offered(),
-        }
+    /// The tools the model is offered in any conversation: the same list for every bot, lane and
+    /// helper, so the provider's cache serves them all (docs/design.md, Caching). What a
+    /// conversation may run is narrowed where its calls are handled (ADR 0152, ADR 0161).
+    pub(super) fn offered_tools(&self) -> Vec<spade_models::ToolSpec> {
+        self.tools.registry().offered()
     }
 
-    /// The standing instructions for `id`: Spade's, or a helper's own.
+    /// The standing instructions for `id`. Every conversation starts from Spade's own, so a bot's,
+    /// a lane's and a helper's prompt top begins with the same bytes. A helper goes on with what
+    /// makes it a helper, pinned in its row when it was made (an old one with its old text, which
+    /// had no shared top): a restart rebuilds the same bytes either way.
     pub(super) fn system_for(&self, id: &str) -> String {
         match self.helper_of(id) {
-            Some(helper) => helper.system,
-            None => context::SYSTEM.to_owned(),
+            Some(helper) if !helper.system.is_empty() => helper.system,
+            _ => context::SYSTEM.to_owned(),
         }
     }
 
@@ -310,6 +308,8 @@ impl Engine {
         // it reaches the helper as the bot's message, which taints the helper's turn.
         let events = self.load(bot).unwrap_or_default();
         let tainted = !context::untrusted_in_view(&events, &self.registry_for(bot)).is_empty();
+        // The task alone is its first message: what makes it a helper is in its system prompt,
+        // after Spade's own rules, which outlives every compaction (docs/helpers.md).
         let mut message = Event::user_message(task);
         if tainted
             && let Event::Known(Known::UserMessage { from_agent, .. }) = &mut message
@@ -338,6 +338,7 @@ impl Engine {
             job: job.to_owned(),
             reply,
             profile: profile.name.clone(),
+            // Pinned, so a restart rebuilds the same bytes even if the profile changes.
             system: profile.system(),
             reads_only: profile.reads_only,
             tools: profile.tools.clone(),
