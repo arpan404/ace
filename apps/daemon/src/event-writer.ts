@@ -3,6 +3,7 @@ import { type Event, type EventPayload, type Thread, type ThreadId } from "@ace/
 import { storeWriterOn } from "@ace/provider-kit/native-switches";
 import { foldThread } from "./native-writer/fold.ts";
 import { createThread, storeEvent } from "./native-writer/events.ts";
+import { writeThreadColumns, type ColumnsWritten } from "./native-writer/thread-columns.ts";
 import { canonicalEvent } from "./canonical-event.ts";
 import { prepareRunClient } from "./run-client-storage.ts";
 import { liveMetadataChange } from "./thread-client-storage.ts";
@@ -11,6 +12,7 @@ import {
   threadColumnChanges,
   writtenColumns,
   type ColumnValue,
+  type ThreadColumn,
 } from "./thread-columns.ts";
 import { rebuildThread } from "./thread-row.ts";
 import { keepThreadRowConfirmed, threadRowConfirmed } from "./thread-row-trust.ts";
@@ -254,7 +256,24 @@ export class EventWriter {
     thread: Thread,
     payload: EventPayload,
   ): void {
-    const changes = threadColumnChanges(previous, thread, writtenColumns(payload));
+    const wanted = writtenColumns(payload);
+    const written = storeWriterOn("columns")
+      ? writeThreadColumns(this.source.db, previous, thread, wanted)
+      : this.writeColumns(previous, thread, wanted);
+    if (written?.revision === undefined) return;
+    const { thread: rebuilt, canonical } = rebuildThread(previous, written.row, written.parts);
+    if (written.confirmed && canonical)
+      keepThreadRowConfirmed((sql) => this.source.statement(sql), thread.id, written.revision);
+    if (previous) this.source.rememberThread(thread.id, written.revision, rebuilt, written.row);
+    else this.source.rememberCreatedThread(thread.id, written.revision, rebuilt, written.row);
+  }
+  /** The TypeScript path: the same writes, statement for statement. */
+  private writeColumns(
+    previous: FrozenThread | undefined,
+    thread: Thread,
+    wanted: readonly ThreadColumn[],
+  ): ColumnsWritten | undefined {
+    const changes = threadColumnChanges(previous, thread, wanted);
     if (!changes.hot.length && !changes.cold.length) return;
     // A new row is written whole here; an existing one keeps the columns this write leaves.
     const confirmed =
@@ -278,10 +297,6 @@ export class EventWriter {
       .statement("SELECT revision FROM sidebar_thread_revisions WHERE thread_id = ?")
       .get(thread.id)?.revision;
     if (typeof revision !== "number") return;
-    const { thread: rebuilt, canonical } = rebuildThread(previous, changes.row, changes.parts);
-    if (confirmed && canonical)
-      keepThreadRowConfirmed((sql) => this.source.statement(sql), thread.id, revision);
-    if (previous) this.source.rememberThread(thread.id, revision, rebuilt, changes.row);
-    else this.source.rememberCreatedThread(thread.id, revision, rebuilt, changes.row);
+    return { row: changes.row, parts: changes.parts, confirmed, revision };
   }
 }
