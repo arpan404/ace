@@ -159,14 +159,16 @@ export async function publishDraft(
 ): Promise<MarketPublishAnswer | undefined> {
   if (!(await consent.publish(draft))) return undefined;
   const { answer } = answerOf(
-    await ask({ op: "publish", request: { action: "draftPublish", id: draft.id } }),
-    "publish",
-  );
-  if (unlisted)
     await ask({
       op: "publish",
-      request: { action: "visibility", type: draft.type, name: draft.name, visibility: "unlisted" },
-    });
+      request: {
+        action: "draftPublish",
+        id: draft.id,
+        ...(unlisted && { visibility: "unlisted" }),
+      },
+    }),
+    "publish",
+  );
   return answer;
 }
 

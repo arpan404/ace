@@ -332,14 +332,7 @@ async function callsOf(
     case "registryWithdraw":
       return personCalls(action, { answer: "done", pending: "withdrawal" });
     case "visibility":
-      return [
-        {
-          method: "PUT",
-          path: `${entryPath(action)}/visibility`,
-          json: { visibility: action.visibility },
-          answer: "entry",
-        },
-      ];
+      return personCalls(action, { answer: "entry" });
     case "archive":
       return [
         {

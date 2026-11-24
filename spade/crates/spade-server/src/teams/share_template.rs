@@ -174,7 +174,7 @@ pub(crate) fn private_words(
                 .knowledge(owner, None)
                 .map_err(|e| e.to_string())?
                 .into_iter()
-                .map(|entry| entry.body),
+                .flat_map(|entry| [entry.title, entry.body]),
         );
     }
     words.extend(

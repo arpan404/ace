@@ -8,6 +8,7 @@ import { matchRoute } from "./routes.ts";
  * route in the table is one of them. A route renamed here, or one the table misspells, fails.
  */
 const requests: Record<keyof typeof personOnlyActions, [string, string][]> = {
+  visibility: [["PUT", "/v1/me/entries/spade-skill/measure/visibility"]],
   withdraw: [
     ["POST", "/v1/me/entries/suit/tarn/withdraw"],
     ["POST", "/v1/me/entries/suit/tarn/versions/1.0.0/withdraw"],

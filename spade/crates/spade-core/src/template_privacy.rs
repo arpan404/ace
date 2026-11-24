@@ -71,6 +71,31 @@ fn overlaps(text: &str, private: &[&str]) -> bool {
     })
 }
 
+fn distinctive(text: &str) -> impl Iterator<Item = &str> {
+    text.split(|c: char| !(c.is_alphanumeric() || matches!(c, '/' | '@' | '_' | '-')))
+        .filter(|token| {
+            token.chars().count() >= 3
+                && (token.chars().any(|c| c.is_ascii_digit())
+                    || token.contains(['/', '@'])
+                    || token.chars().skip(1).any(char::is_uppercase)
+                    || (text.find(token).is_some_and(|start| start > 0)
+                        && token.starts_with(char::is_uppercase)))
+        })
+}
+
+fn contains_token(text: &str, token: &str) -> bool {
+    text.match_indices(token).any(|(start, _)| {
+        !text[..start]
+            .chars()
+            .next_back()
+            .is_some_and(char::is_alphanumeric)
+            && !text[start + token.len()..]
+                .chars()
+                .next()
+                .is_some_and(char::is_alphanumeric)
+    })
+}
+
 /// Refuse recognizable personal data or credentials, including the caller's known private
 /// names, paths and verbatim notes. The package's own secret rules apply to all fields.
 pub fn contains_private_text(value: &Value, private: &[String]) -> bool {
@@ -85,18 +110,12 @@ pub fn contains_private_text(value: &Value, private: &[String]) -> bool {
                 (10..=15).contains(&digits)
             })
             || private.iter().any(|word| {
-                let word = word.trim().to_lowercase();
-                word.chars().count() >= 2
-                    && (lower.match_indices(&word).any(|(start, _)| {
-                        !lower[..start]
-                            .chars()
-                            .next_back()
-                            .is_some_and(char::is_alphanumeric)
-                            && !lower[start + word.len()..]
-                                .chars()
-                                .next()
-                                .is_some_and(char::is_alphanumeric)
-                    }) || overlaps(&lower, &phrase_words(&word)))
+                let normalized = word.trim().to_lowercase();
+                normalized.chars().count() >= 2
+                    && (contains_token(&lower, &normalized)
+                        || distinctive(word)
+                            .any(|token| contains_token(&lower, &token.to_lowercase()))
+                        || overlaps(&lower, &phrase_words(&normalized)))
             })
     }
 
@@ -145,6 +164,13 @@ mod tests {
             &json!({"task": "Measure a baseline and compare it with the next run."}),
             &private
         ));
+        let private_title = ["Discuss Zephyr 5219".to_owned()];
+        for text in ["Use zephyr for the report", "Use reference 5219"] {
+            assert!(contains_private_text(
+                &json!({"task": text}),
+                &private_title
+            ));
+        }
         let memory = vec!["Send the monthly rendering metrics from the cedar repository to our staging dashboard after release.".to_owned()];
         for text in [
             "Use the cedar repository for monthly rendering metrics.",

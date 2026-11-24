@@ -7,6 +7,7 @@ import type { MarketPublishAction } from "@ace/protocol/marketplace";
  * exact request. A route added for one of these actions is added here, so the two can't drift.
  */
 export const personOnlyActions = {
+  visibility: ["me-visibility"],
   withdraw: ["me-entry-withdraw", "me-version-withdraw"],
   transfer: ["me-transfer"],
   transferAnswer: ["me-transfer-accept", "me-transfer-decline"],

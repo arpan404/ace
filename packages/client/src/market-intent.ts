@@ -34,6 +34,12 @@ export function personMarketCall(action: MarketPublishAction): PersonMarketCall 
       return { method: "PUT", path: "/v1/me/profile", json: action.profile };
     case "changeHandle":
       return { method: "PUT", path: "/v1/me/handle", json: { handle: action.handle } };
+    case "visibility":
+      return {
+        method: "PUT",
+        path: `${entryPath(action)}/visibility`,
+        json: { visibility: action.visibility },
+      };
     case "withdraw":
       return {
         method: "POST",
