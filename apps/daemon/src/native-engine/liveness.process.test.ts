@@ -41,12 +41,14 @@ if (mode === "pending") {
   const timer = setTimeout(() => resolvePort(), 300);
   timer.unref();
   await call;
-  await engine.close();
+  // Readiness fails on a home without the probe (E5.3); close reports it and still shuts down.
+  await engine.close().catch(() => {});
   await store.close();
 } else if (mode === "closed") {
   const engine = new Engine(store, {});
   engine.ready().catch(() => {});
-  await engine.close();
+  // Readiness fails on a home without the probe (E5.3); close reports it and still shuts down.
+  await engine.close().catch(() => {});
   await store.close();
 } else {
   // Idle: built, never closed, nothing pending once readiness settles.

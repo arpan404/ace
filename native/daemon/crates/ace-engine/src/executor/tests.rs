@@ -481,3 +481,25 @@ fn after_shut_a_wake_posts_nothing() {
     assert_eq!(wake.push(Item::Wake(waker)), Push::Refused);
     assert_eq!(posts.count(), 0, "no notification after shut");
 }
+
+/// The pump's own cost, for the bench record: no-op runnables through one budget after another.
+/// It prints the rate instead of asserting a wall-clock bound, so a slow machine cannot fail it.
+#[test]
+fn the_pumps_rate_over_noop_runnables() {
+    let (exec, _posts) = executor();
+    let wanted = 100_000;
+    for _ in 0..wanted {
+        let task = exec.spawn(Lane::Work, async {});
+        task.detach();
+    }
+    let began = std::time::Instant::now();
+    let mut budget = Standard;
+    while exec.pump(&mut budget, &open) == Pump::Rearm {}
+    let elapsed = began.elapsed();
+    let polls = exec.stats().polls as f64;
+    eprintln!(
+        "pump: {:.0} runnables/ms ({polls} polls in {elapsed:?})",
+        polls / elapsed.as_secs_f64() / 1000.0
+    );
+    assert!(polls >= wanted as f64);
+}
