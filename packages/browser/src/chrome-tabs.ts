@@ -238,8 +238,8 @@ export class ChromeTabs {
   viewportSize(id = this.activeId): { width: number; height: number } {
     return { ...(this.tabs.get(id)?.viewport ?? this.viewport) };
   }
-  /** A tab's CSS size for live video: its device's size, or its pane's, at its page zoom. */
-  pageSize(id = this.activeId): { width: number; height: number } {
+  /** A tab's CSS size and scale for live video: its device's, or its pane's, at its zoom. */
+  pageSize(id = this.activeId): { width: number; height: number; scale: number } {
     const tab = this.tabs.get(id);
     if (!tab) throw new Error("Browser tab unavailable");
     return headlessPageSize(tab, this.deviceScaleFactor, this.viewerScale);

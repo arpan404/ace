@@ -253,10 +253,12 @@ export class LiveVideo {
   }
   private held = false;
   /** Opens, resizes or closes the capture for the views shown now; `page` is the page's CSS size. */
-  tick(page: { width: number; height: number }): void {
+  tick(page: { width: number; height: number; scale?: number }): void {
     if (this.held) return;
     const now = this.now();
-    this.page = { ...this.page, ...page };
+    // A scale the tick carries (a headless tab's device scale) replaces the attached one; with
+    // none the page keeps it, so backends without a CSS size of their own are unchanged.
+    this.page = { ...this.page, ...page, scale: page.scale ?? this.page.scale };
     const source = this.source;
     const showing = this.showing();
     if (!source || !showing.length) {

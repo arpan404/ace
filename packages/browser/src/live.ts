@@ -61,7 +61,7 @@ export class LiveCapture {
   private viewport: () => { width: number; height: number };
   private tab: () => string | undefined;
   private scale: () => number;
-  private pageSize: () => { width: number; height: number } | undefined;
+  private pageSize: () => { width: number; height: number; scale: number } | undefined;
   private closed = false;
   private generation = 0;
   /** Started by the session: capture may run. */
@@ -95,10 +95,10 @@ export class LiveCapture {
     /** The shown tab's video encoder; absent where the backend has none (no pictures). */
     videoSource: () => LiveVideoSource | undefined = () => undefined,
     /**
-     * The page's CSS size for the video, where it differs from the viewport (a headless tab
-     * at page zoom or emulating a device): what `source.page` carries. Absent: the viewport.
+     * The page's CSS size and scale for the video, where it differs from the viewport (a headless
+     * tab at page zoom or emulating a device): what `source.page` carries. Absent: the viewport.
      */
-    pageSize: () => { width: number; height: number } | undefined = () => undefined,
+    pageSize: () => { width: number; height: number; scale: number } | undefined = () => undefined,
   ) {
     this.videoSource = videoSource;
     this.video = new LiveVideo({ now, statusChanged: () => this.videoStatus() });
@@ -255,7 +255,7 @@ export class LiveCapture {
     this.video.resume();
   }
   private stepVideo(): void {
-    let viewport: { width: number; height: number };
+    let viewport: { width: number; height: number; scale?: number };
     try {
       // The video plans against the page's CSS size, which a headless tab reports where it
       // differs from the viewport (page zoom, an emulated device). The viewport still sizes

@@ -60,13 +60,15 @@ describe("the page size live video plans against", () => {
     expect(headlessPageSize({ viewport: { width: 1280, height: 800 } }, 2)).toEqual({
       width: 1280,
       height: 800,
+      scale: 2,
     });
   });
 
   it("a pane at 200% zoom is half its size in CSS pixels", () => {
-    expect(headlessPageSize({ viewport: { width: 1280, height: 800 }, zoom: 2 }, 2)).toEqual({
+    expect(headlessPageSize({ viewport: { width: 1280, height: 800 }, zoom: 2 }, 1)).toEqual({
       width: 640,
       height: 400,
+      scale: 2,
     });
   });
 
@@ -75,7 +77,7 @@ describe("the page size live video plans against", () => {
       viewport: { width: 1280, height: 800 },
       device: { width: 390, height: 844, deviceScaleFactor: 3, mobile: true },
     };
-    expect(headlessPageSize(metrics, 2)).toEqual({ width: 390, height: 844 });
+    expect(headlessPageSize(metrics, 2)).toEqual({ width: 390, height: 844, scale: 3 });
   });
 
   it("an emulated device at 125% zoom shrinks by the zoom", () => {
@@ -84,6 +86,6 @@ describe("the page size live video plans against", () => {
       zoom: 1.25,
       device: { width: 390, height: 844, deviceScaleFactor: 3, mobile: true },
     };
-    expect(headlessPageSize(metrics, 2)).toEqual({ width: 312, height: 675 });
+    expect(headlessPageSize(metrics, 2)).toEqual({ width: 312, height: 675, scale: 3.75 });
   });
 });

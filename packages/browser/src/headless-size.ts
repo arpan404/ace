@@ -84,16 +84,17 @@ export function headlessOverride(
 }
 
 /**
- * The page's CSS size for live video (`source.page`): Chrome's CSS viewport is the emulated
- * device's size, or the pane's, shrunk by the page zoom. What `headlessOverride` emulates.
+ * The page's size and scale for live video (`source.page`): Chrome's CSS viewport is the
+ * emulated device's size, or the pane's, shrunk by the page zoom, at the device scale factor
+ * Chrome renders it with. What `headlessOverride` emulates.
  */
 export function headlessPageSize(
   metrics: HeadlessMetrics,
   browserScale: number,
   viewerScale = browserScale,
-): { width: number; height: number } {
+): { width: number; height: number; scale: number } {
   const { override } = headlessOverride(metrics, browserScale, viewerScale);
-  return { width: override.width, height: override.height };
+  return { width: override.width, height: override.height, scale: override.deviceScaleFactor };
 }
 export async function sizeHeadlessTab(
   cdp: BrowserCdp,
