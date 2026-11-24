@@ -78,7 +78,7 @@ impl Tool for ProfileUpdate {
             },
             risk: Risk::Write,
             untrusted_output: false,
-            deferred: true,
+            deferred: false,
             background: false,
         }
     }

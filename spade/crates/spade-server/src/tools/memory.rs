@@ -200,7 +200,7 @@ impl Tool for AskUser {
                 "options": { "type": "array", "items": option,
                              "description": "choice/choices: 2-10." },
                 "other": { "type": "boolean",
-                           "description": "choice/choices: also take a message they type in the chat as their answer." },
+                           "description": "choice/choices: the card already takes free text; set this to also take a message typed in the chat." },
                 "min": { "type": "number",
                          "description": "choices: fewest picks (default 1); number: the least." },
                 "max": { "type": "number",
