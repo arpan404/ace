@@ -290,8 +290,9 @@ async fn drive(
                 if engine.note_overlaps(id) {
                     continue;
                 }
-                // A helper has no indexes: it starts from Spade's rules, its profile and its task
-                // alone. No step count or cost ends a turn (ADR 0158, ADR 0166); Stop does.
+                // A helper has no indexes: it works from its bot's prompt, with Spade's rules for
+                // helpers and its profile's instructions in its first message. No step count or
+                // cost ends a turn (ADR 0158, ADR 0166); Stop does.
                 let helper = engine.helper_of(id).is_some();
                 if !helper && super::index::if_needed(engine, id, &events).await {
                     continue;
@@ -430,7 +431,7 @@ async fn model_step(
     let lead = route.first().cloned().unwrap_or(started_on);
     let images = engine.images_for(&lead);
     let system = engine.system_for(id);
-    let prompt = context::prompt_with(&system, engine.offered_for(id), events, &images)
+    let prompt = context::prompt_with(&system, engine.offered_tools(), events, &images)
         .session(id)
         .effort(engine.step_effort(id));
     // The person's asks close the prompt, after everything stored (ADR 0215 §2). A helper has
