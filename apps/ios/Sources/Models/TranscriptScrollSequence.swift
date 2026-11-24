@@ -15,7 +15,8 @@ enum TranscriptScrollPhase: Sendable {
 /// - An animated jump lands what waits before it picks its target, so it aims at the window
 ///   it scrolls in.
 /// - A tap during the feed's own animated scroll leaves the animation's phase alone; only a
-///   drag takes the scroll from it.
+///   drag takes the scroll from it. The scroll rests once both the finger and the animation
+///   are done, whichever finishes first, and what was held under the tap lands then.
 struct TranscriptScrollSequence: Sendable {
     enum Event: Equatable, Sendable {
         /// A finger came down on the transcript.
@@ -52,16 +53,22 @@ struct TranscriptScrollSequence: Sendable {
     private(set) var holding = false
     /// A finger is down that no drag has taken yet.
     private var touched = false
+    /// The feed's animated scroll hasn't reported its end yet.
+    private var running = false
     /// Counts the feed's animated scrolls, so a late check can't end a later one.
     private var animation = 0
 
     /// An offset write now would land under a finger or a fling.
     var holdsWindow: Bool { phase.isReaders || touched }
 
+    /// What waits lands only at rest: a change held under a tap mid-animation waits for the
+    /// animation too.
+    private var keepsHolding: Bool { holdsWindow || phase == .animating }
+
     /// A window change arrived. True when it must wait; a change that moves nothing, or one
     /// made at rest, replaces whatever waited. `movesOffset` is asked only while holding.
     mutating func windowChange(movesOffset: () -> Bool) -> Bool {
-        holding = holdsWindow && movesOffset()
+        holding = (holdsWindow || holding && keepsHolding) && movesOffset()
         return holding
     }
 
@@ -78,10 +85,12 @@ struct TranscriptScrollSequence: Sendable {
             touched = false
             switch phase {
             case .tracking, .decelerating: if !scrolling { next = .idle }
-            case .animating: extra.append(.checkAnimation(animation))
+            case .animating:
+                if running { extra.append(.checkAnimation(animation)) } else { next = .idle }
             case .idle, .interacting: break
             }
         case .dragBegan:
+            running = false
             next = .interacting
         case .dragEnded(let decelerates):
             touched = false
@@ -92,11 +101,16 @@ struct TranscriptScrollSequence: Sendable {
             forcesLanding = true
         case .animationStarted:
             animation += 1
+            running = true
             next = .animating
         case .animationEnded:
-            if phase == .animating { next = .idle }
+            guard phase == .animating else { break }
+            running = false
+            if !touched { next = .idle }
         case .animationOverdue(let which):
-            if phase == .animating, which == animation, !touched { next = .idle }
+            guard phase == .animating, running, which == animation, !touched else { break }
+            running = false
+            next = .idle
         case .assistiveBegan:
             next = .interacting
         case .assistiveEnded:
@@ -104,7 +118,7 @@ struct TranscriptScrollSequence: Sendable {
         }
         phase = next
         var actions: [Action] = []
-        if holding, forcesLanding || !holdsWindow {
+        if holding, forcesLanding || !keepsHolding {
             holding = false
             actions += [.land, .report]
         }

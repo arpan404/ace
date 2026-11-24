@@ -98,7 +98,7 @@ import Testing
         #expect(ended == [.phase(old: .animating, new: .idle)])
     }
 
-    @Test func aWindowChangeHeldUnderATapMidAnimationLandsWhenTheFingerLifts() {
+    @Test func anAnimationEndingUnderAFingerLandsTheHeldChangeBeforeIdleOnceTheFingerLifts() {
         var sequence = TranscriptScrollSequence()
         _ = run(&sequence, .animationStarted, .touchDown)
         #expect(held(&sequence))
@@ -106,8 +106,30 @@ import Testing
         let ended = sequence.handle(.animationEnded)
         let up = sequence.handle(.touchUp(scrolling: false))
 
-        #expect(ended == [.phase(old: .animating, new: .idle)])
-        #expect(up == [.land, .report])
+        #expect(ended.isEmpty)
+        #expect(up == [.land, .report, .phase(old: .animating, new: .idle)])
+    }
+
+    @Test func aFingerLiftingMidAnimationLeavesTheHeldChangeWaitingForTheAnimationsEnd() {
+        var sequence = TranscriptScrollSequence()
+        _ = run(&sequence, .animationStarted, .touchDown)
+        #expect(held(&sequence))
+
+        let up = sequence.handle(.touchUp(scrolling: false))
+        let ended = sequence.handle(.animationEnded)
+
+        #expect(!up.contains(.land))
+        #expect(!up.contains { if case .phase = $0 { true } else { false } })
+        #expect(ended == [.land, .report, .phase(old: .animating, new: .idle)])
+    }
+
+    @Test func aChangeHeldUnderATapStillWaitsForTheAnimationWhenAnotherArrivesAfterTheLift() {
+        var sequence = TranscriptScrollSequence()
+        _ = run(&sequence, .animationStarted, .touchDown)
+        _ = held(&sequence)
+        _ = sequence.handle(.touchUp(scrolling: false))
+
+        #expect(held(&sequence))
     }
 
     @Test func anAnimationATapStoppedWithoutReportingItsEndEndsWhenOverdue() {
