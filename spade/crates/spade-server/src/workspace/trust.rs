@@ -71,6 +71,10 @@ impl Trust {
         self.read().files.contains_key(path)
     }
 
+    pub(super) fn hash_at(&self, path: &str) -> Option<String> {
+        self.read().files.remove(path)
+    }
+
     /// Whether the file at `path` holding content with `hash` is trusted.
     pub fn trusted(&self, path: &str, hash: &str) -> bool {
         self.read()

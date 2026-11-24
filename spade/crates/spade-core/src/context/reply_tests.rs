@@ -187,14 +187,12 @@ fn a_stop_that_repeats_the_last_steps_words_is_read_once_and_new_words_get_their
 
 fn teaches_short_messages(system: &str) {
     for needed in [
-        "texting a capable colleague",
-        "several short messages",
+        "<msg>",
         "one question at a time",
-        "<msg>Found 3 flights under €100.</msg>",
         "<msg reply=\"m7\">",
         "<doc title=\"Lisbon trip plan\">",
         "[m12]",
-        "Say so when you are unsure",
+        "unsure",
     ] {
         assert!(system.contains(needed), "missing {needed:?} in:\n{system}");
     }

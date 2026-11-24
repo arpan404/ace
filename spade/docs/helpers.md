@@ -26,11 +26,20 @@ whether it is (below).
 Each helper is a hidden conversation of its own, stored with a `helpers` row: its bot's
 conversation, the job (the `helper` call's id), the bot's reply that started it, the profile
 as it was then (name, standing instructions, reads-only, tool list) and the model. Kept whole, so
-its prompt rebuilds to the same bytes after a restart even if a plugin's profile changed.
+what it may run stays what it was after a restart even if a plugin's profile changed.
 
-- It starts with one `user_message`, the task, and nothing of the bot's conversation. Its system
-  prompt is `helper::RULES` and the profile's instructions; no skill index, no notes index, no
-  title, no cowork notes.
+- Its system prompt is Spade's own instructions (the bytes every conversation's prompt starts
+  with) followed by what makes it a helper: `helper::RULES`, then the profile's instructions. Its
+  offered tools are its bot's, in the same order. So the tool list and Spade's rules are a prefix
+  its bot's prompt has too, and the provider's cache serves both up to where the bot's own task
+  and indexes begin ([design.md](design.md), Caching).
+- Its first message is the task alone. Nothing else of the bot's conversation comes with it: no
+  skill index, no notes index, no title, no cowork notes, and no task of the bot's. The rules sit
+  above the conversation, so a compaction never cuts them.
+- The system text is pinned in the helper's row when it is made, so a restart rebuilds the same
+  bytes even if a plugin's profile changed. A helper stored before helpers shared their bot's
+  prompt keeps the text it pinned then (Spade's rules and its profile's instructions, without the
+  shared part), so it still resumes on the prompt it had.
 - It is driven by the same turn worker and `next_step` as any reply: it streams, retries a step
   that failed before anything streamed, compacts, pauses for updates and Stop
   (`turn_paused`), and resumes from its events when Spade starts. A helper cut off mid-step by a
@@ -85,7 +94,7 @@ What the result says, from `helper::ended`:
 
 ## Profiles
 
-| Profile   | Instructions                                                  | Tools                       |
+| Profile   | Instructions                                                  | May run                     |
 | --------- | ------------------------------------------------------------- | --------------------------- |
 | `explore` | find and read what the task needs; report it with its sources | risk `read` only            |
 | `general` | do the task; report what it did and found                     | the bot's, less those below |
@@ -94,9 +103,17 @@ Every profile leaves out `helper`, `ask_user`, `memory_save`, `memory_update`, `
 (and any tool of risk `memory`), `skill_propose`, `task_status`, `bot_message`, `group_ask`, and
 every background tool (`research`, ace's `wait`): a helper's answer is its last message, and a
 background result would arrive after it. Deferred tools (ace's, connectors') are narrowed the
-same way, so `explore` keeps read-only ace and connector tools. A call to a tool the profile
-leaves out is answered with a refusal and never run, checked before anything the turn loop
-answers itself (a helper's `ask_user` would wait on a question nobody sees).
+same way, so `explore` keeps read-only ace and connector tools.
+
+A profile narrows what a helper may run, not what the model is offered: every helper is offered
+its bot's tool list, so the tool list and Spade's rules are the same bytes as its bot's. A call to
+a tool the profile leaves out is answered with a refusal and never run, checked before anything
+the turn loop answers itself (a helper's `ask_user` would wait on a question nobody sees), and the
+same holds for a call made through `call_tool`. It reads "Refused: a helper cannot use _name_.
+Finish the task with your tools and answer." when its bot has the tool or no helper may have it,
+and "There is no tool named _name_." otherwise. `tool_search` searches what the profile allows, so
+a deferred tool outside it is never found. Nothing a helper could not do is possible because the
+list is wider.
 
 **Plugin agents' profiles.** `engine::ProfileSource` is the seam: `fn profiles(&self, agent:
 &str) -> Vec<Profile>`, set once with `Engine::set_profile_source`. A `Profile` has a name, a

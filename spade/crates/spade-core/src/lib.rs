@@ -62,6 +62,7 @@ pub mod transcript;
 pub mod tree;
 pub mod turn;
 pub mod wake;
+pub mod web_fetch;
 
 pub use event::{Event, FailureKind, ReplyEnd};
 pub use transcript::{Message, Outcome, Speaker, Transcript, TurnState};

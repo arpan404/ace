@@ -62,6 +62,32 @@ builds with budgets and caps, are read as raw data and fold to nothing ([ADR 016
   usually are). No call is timed out by the harness: one still running after the
   foreground window (`Limits.foreground`, 30 s) carries on as a background job with the same run,
   its call answered with the job id, and the turn goes on ([ADR 0158](../../docs/adr/0158-spade-no-fixed-step-or-time-limits.md)). A declined call returns "The person declined this action."
+- **While the step streams**, Anthropic closes each tool block, and Chat Completions closes
+  its calls with the tool-call finish reason. OpenAI Responses holds its item boundaries until a
+  real terminal event. A clean EOF without that event still uses the SDK's final reply and skips
+  early gating. Spade assigns conversation-unique ids before early work. The final provider
+  call list supplies the order and arguments for `step_finished`. The ordinary gate runs on
+  the stored step with current settings and can reuse early work only for an exact call match.
+- A workspace text or image read can start early in an existing workspace. Before using its
+  output, Spade checks the file's identity, size and modification time, and checks its trust
+  record again. Any change triggers a fresh read. Listings, searches and document reads wait
+  for storage. File opens use `O_NOATIME` on Linux where allowed. On macOS and where the flag
+  is unavailable, an ordinary read may update access time. Early and ordinary foreground work
+  share the same tool concurrency limit. Blocking file work keeps its slot until it exits,
+  even if Stop or a timeout cancels the caller.
+- An eligible early review sends the call and context to the person's configured review model
+  before the step is stored. Spade records spend against the conversation even if the step is
+  never stored. Each request settles once. Reusing its verdict adds no ledger entry, and a
+  cancelled request that may have been billed gets an estimate. The verdict stays in memory
+  until the stored gate asks the same question with the same reviewer, launch and binding.
+- Approvals, questions and effectful calls follow the stored step. Bots with plugin pre-tool
+  hooks or local plugin servers, packaged or shared bots, and app calls that need pins seeded
+  also wait. Stop, a cut stream, an immediate pause, or a crash discards early read results and
+  review verdicts for an unstored step. It leaves no call or approval event to recover. After
+  streaming starts, a failure never triggers an automatic resend. A planned pause can still
+  resume a cut step under the pause rules below. Recovery uses the log. An unstarted stored call
+  goes through the gate when the turn resumes, a stored review can be reused, and a stored start
+  without a result follows the existing unknown-outcome rules.
 - **Steering:** a message sent mid-turn is stored at once and the next model call sees it, placed
   after any running tools' results, and after the step it arrived during. A turn finishes only if
   nothing arrived after its last step's prompt was built (`seen`), checked under the same lock that
@@ -92,7 +118,8 @@ builds with budgets and caps, are read as raw data and fold to nothing ([ADR 016
   question the bot asked waits on the person, for a paused bot, a stopped reply, while Spade
   pauses, or for a helper. A reply whose last step has no words keeps its latest words.
 - **Call ids:** a provider may reuse ids across steps (`call_0` in every reply); a reused id is
-  replaced before the step is stored, so results and approvals never match the wrong call.
+  replaced before any early work or, for later calls, before the step is stored. Results and
+  approvals always use the assigned id.
 - **Background tools:** a tool marked `background` answers its call at once and runs as a job
   (with no time limit; Stop ends it). Its result is delivered like a message: it steers the open reply or starts a
   new one. Stop cancels jobs and records them stopped without starting a turn. After a restart a
@@ -116,14 +143,12 @@ builds with budgets and caps, are read as raw data and fold to nothing ([ADR 016
   say the account's quota or credit is used up: the person has to act, and the reply's failure
   says so.
 - **Waiting out an outage** (ADR 0158, ADR 0160): when those three tries are used up on a
-  failure that may pass (unreachable, `408`, `429`, `5xx`), or a stream is cut by one after it
-  started, the turn does not fail. It stores an outage wake, `wake_set {reply, purpose: {kind:
-outage, attempt, error}, due_ms}`, and waits for it: 1, 2, 4 … minutes, at most an hour, or
+  failure that may pass (unreachable, `408`, `429`, `5xx`), the turn stores an outage wake,
+  `wake_set {reply, purpose: {kind: outage, attempt, error}, due_ms}`, and waits for it: 1, 2, 4 … minutes, at most an hour, or
   the endpoint's longer `retry-after` (still at most an hour); the backoff starts again once a
   step of the turn finishes. When it fires (`wake_fired`, with no note) the step is sent again as
-  it was, and the three quick tries start again; what a cut stream had shown is dropped, as on a
-  resumed pause. As many rounds as it takes. The reply stays open and the bot reads as `sleeping`
-  with "The model is not answering; trying again at 14:05 (…)". Stop ends the wait and the
+  it was, and the three quick tries start again. As many rounds as it takes. The reply stays open
+  and the bot reads as `sleeping` with "The model is not answering; trying again at 14:05 (…)". Stop ends the wait and the
   reply; the person cancelling the wake ends the reply stopped; the person waking it, or writing
   (their message goes with the step), sends the step now. A pause ends the wait like any other,
   and after a pause or a restart the turn resumes and waits on the same wake. A helper's turn
@@ -160,21 +185,57 @@ ended: one line each with its id, state, title and the asks it owns, read from t
 
 ## Tools
 
-Spade's own tools are always offered in full, in name order: `web_search` (ace cloud search,
-then the model endpoint's own), `web_fetch` (one page as text, a window at a time, refusing local and private addresses),
-`todo`, `asks` (the person's asks, answered by Spade from the events, ADR 0215), `task_status` (the bot's task state; while `working`, Spade starts its next step after a
-reply, [autonomy.md](autonomy.md)), `sleep_until` and `wait_for` (the bot ends its turn and is
-woken at a time or by an event; with the deferred `wake_cancel` and the service tools, ADR 0160,
-autonomy.md), `research` (a background job that reads many sources and writes a cited report,
-[oversight.md](oversight.md)), `helper` (a background job that hands part of the work to a
-short-lived helper with a fresh context, in a hidden conversation of its own,
-[helpers.md](helpers.md)), the workspace tools, `shell` and `python` ([workspace.md](workspace.md);
-the system prompt's "How you work" tells the bot to write and run a short Python script for counting,
-data, files, conversions and charts rather than work them out, ADR 0220), and `skill_search`,
-`skill_load`, `skill_propose` and `skill_feedback`, over Spade's own skill store, which mirrors
-ace's library while ace is there and works without it (workspace.md, "Spade's skill store").
-Output from `web_search`,
-`web_fetch` and most of ace's tools is untrusted, so a write later in that turn asks.
+Every tool definition is paid for on every model call of every bot, so Spade offers up front only
+the tools a bot needs constantly, in name order, and defers the rest. Core: `web_search` (ace
+cloud search, then the model endpoint's own), `web_fetch` (saves a page's or PDF's full readable text as an
+immutable snapshot under `web/` in the bot's workspace and returns a bounded handle: title, URL, length,
+saved path, a heading outline with offsets and the first 4,000 characters; later calls with `offset` or
+`query` read the saved snapshot once its digest verifies, and any cache miss refetches; refuses local
+and private addresses; see media.md), `todo`, `asks` (the person's asks, answered by Spade from
+the events, ADR 0215), `task_status`, `task_goal`, `task_plan`, `decision_log`, `task_update`
+(the bot's task state; while `working`, Spade starts its next step after a reply,
+[autonomy.md](autonomy.md)), `sleep_until` and `wait_for` (the bot ends its turn and is woken at a
+time or by an event, ADR 0160, autonomy.md), `research` (a background job that reads many sources
+and writes a cited report, [oversight.md](oversight.md)), `helper` (a background job that hands
+part of the work to a short-lived helper with a fresh context, in a hidden conversation of its
+own, [helpers.md](helpers.md)), the workspace tools, `shell` and `python`
+([workspace.md](workspace.md); the system prompt's "How you work" tells the bot to write and run a
+short Python script for counting, data, files, conversions and charts rather than work them out,
+ADR 0220), `skill_search` and `skill_load` over Spade's own skill store, which mirrors ace's
+library while ace is there and works without it (workspace.md, "Spade's skill store"), `ask_user`,
+`memory_save`, `memory_search`, `history_search`, `history_read`, `knowledge_search`,
+`document_read`, `share_file`, the lane tools (`task_start`, `task_message`, `task_stop`, `tasks`),
+and `tool_search` with `call_tool`, which are offered whenever anything is deferred.
+
+Deferred, found with `tool_search` and run through `call_tool`: `card_show`, `panel_update`,
+`notify`, `package_suggest`, `profile_update`, `club_add`, `skill_propose`, `skill_feedback`, the
+routine tools, `knowledge_write`, `episode_search`, `memory_update`, `memory_forget`, the
+typed-call tools (`contracts_find`, `contract_call`, `contract_return`), `bots_list`,
+`group_ask`, `wake_cancel`, the service tools, the worker tools (`worker_message`,
+`worker_status`, `worker_result`, `worker_stop`), the outward tools (`git_push`, `pr_comment`,
+`issue_comment`, `send_message`), `image_generate` and a package's code tools. Each is rare in a conversation; one a bot does need costs
+one `tool_search` round trip, once (see the pins below). Deferring changes only what is offered
+up front: a deferred tool can still be called by name, and every name stays in the runtime API
+(runtime.md). Output from `web_search`, `web_fetch` and most of ace's tools is untrusted, so a
+write later in that turn asks.
+
+**The stored list and learned pins.** A conversation keeps the tool list it was offered: it is
+worked out at its first model call and again only when a compaction republishes it, so the
+prompt's top stays byte-stable for the provider's cache (design.md, Caching). What is stored is the
+ordered definitions themselves (`spade_core::tools::snapshot`, one `tools.offer.<conversation>`
+setting per conversation), so a tool source coming, going or changing its schema never changes the
+bytes mid-conversation or after a restart. A lane or helper captures its bot's list as it stood
+when it started and keeps it: a parent compaction never changes a running one, and a helper's own
+compaction leaves its bot's list alone. A bot's list carries its learned pins: a deferred tool it
+ran twice is offered up front from its next list, at most 8, the most run first, ties by name.
+`spade_core::tools::pinning` keeps the tally per bot (`tools.uses.<agent>`, the 32 most run), and
+the engine records a use when a deferred tool actually runs. A new list is published in the same
+write as the compaction event it belongs to, and both settings are deleted with the conversation
+and the bot.
+
+`cargo test -p spade-server tool_tokens -- --nocapture` prints every offered tool's definition in
+characters and tokens (a token per four characters), largest first, with the total; the test fails
+past its budget, because the list is paid for on every call.
 
 ace's tools (threads, agents, browser, screen, automations) come from the daemon's MCP endpoint
 and can change while Spade runs. All of them are deferred: the model finds them with

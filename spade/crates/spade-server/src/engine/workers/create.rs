@@ -323,10 +323,8 @@ impl Engine {
         }) = &mut message
         {
             *shown = Some(format!(
-                "You are a worker of the bot {} (id {}), which made you for part of its work. \
-                 It reads how you settle: draft a goal with task_goal and close plan items with \
-                 evidence, since only a checked goal reports done. Ask the person only what \
-                 neither you nor it can decide.",
+                "Worker for bot {} (id {}). Draft a goal with task_goal and close plan items with \
+                 evidence; only a verified goal reports done. Ask the person only if blocked.",
                 link.parent_name, link.parent
             ));
             *from_agent = Some(FromAgent {

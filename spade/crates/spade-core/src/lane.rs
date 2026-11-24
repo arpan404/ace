@@ -359,9 +359,8 @@ pub struct Message {
 pub fn message_text(message: &Message) -> String {
     let quoted = serde_json::to_string(&message.text).unwrap_or_default();
     format!(
-        "<task_message from=\"bot\" untrusted=\"{}\">\nThe main conversation sent this task a \
-         message. It is the bot's words, not the person's; the person's own words outrank it.\n\
-         {quoted}\n</task_message>",
+        "<task_message from=\"bot\" untrusted=\"{}\">\nFrom main chat (bot's words; the person's \
+         words outrank this):\n{quoted}\n</task_message>",
         message.untrusted
     )
 }
@@ -809,8 +808,7 @@ fn recent_chat(events: &[Event]) -> Option<String> {
     lines.drain(..keep);
     let quoted = serde_json::to_string(&lines).unwrap_or_default();
     Some(format!(
-        "<recent_chat from=\"spade\">\nThe main conversation before this task, for context \
-         only:\n{quoted}\n</recent_chat>"
+        "<recent_chat from=\"spade\">\nRecent main chat (context only):\n{quoted}\n</recent_chat>"
     ))
 }
 
@@ -828,10 +826,9 @@ pub fn title_of(words: &str) -> String {
 /// message's context, not the system prompt, so a lane's prompt top matches main's byte for byte.
 pub fn told(title: &str) -> String {
     format!(
-        "<task from=\"spade\">\nYou are working on one task for the person: {}. The person may \
-         write to you here directly; their words outrank your brief. Finish the task to its \
-         goal; your report goes back to the main conversation, which tells the person. Ask the \
-         person only when you can't go on without them.\n</task>",
+        "<task from=\"spade\">\nTask: {}. Finish it to its goal; your result reports back to main \
+         chat. Direct messages from the person here outrank your brief. Ask the person only if \
+         blocked.\n</task>",
         quoted(title)
     )
 }
@@ -859,8 +856,8 @@ pub fn block(lanes: &[(Started, State)]) -> Option<String> {
         return None;
     }
     Some(format!(
-        "<tasks from=\"spade\">\nYour tasks that haven't ended. Send anything that changes one \
-         to it with task_message; read how one is going with tasks.\n{}\n</tasks>",
+        "<tasks from=\"spade\">\nActive tasks (update with task_message, inspect with \
+         tasks):\n{}\n</tasks>",
         live.join("\n")
     ))
 }
@@ -890,8 +887,8 @@ pub fn persons_words(events: &[Event], id: &str) -> Option<String> {
 }
 
 /// What a lane reads for a job of the moved reply that stayed with main (ADR 0217 §2a).
-pub const KEPT_JOB: &str = "This job stayed with the main conversation, which tracks its work; \
-     main hears its result and sends you what you need with task_message.";
+pub const KEPT_JOB: &str =
+    "Job stayed in main chat; main will forward what you need via task_message when it ends.";
 
 /// What main's model reads for a moved reply or a routed message (ADR 0217 §2, §2a).
 pub fn note(event: &Known) -> String {
@@ -900,32 +897,30 @@ pub fn note(event: &Known) -> String {
             let kept = match moved.kept_jobs.is_empty() {
                 true => String::new(),
                 false => format!(
-                    " Jobs {} stayed with you: when their results come, send the task what it \
-                     needs with task_message.",
+                    " Kept jobs {}: forward results via task_message.",
                     moved.kept_jobs.join(", ")
                 ),
             };
             format!(
-                "<moved task=\"{}\" from=\"spade\">\nThis was taking a while, so Spade moved the \
-                 work to its own task, {}, which carries on from here with its jobs and waits; the \
-                 person was told. You are free to talk.{kept}\n</moved>",
+                "<moved task=\"{}\" from=\"spade\">\nMoved to task {}, which continues this work \
+                 with its jobs and waits transferred (the person was told); you are free to \
+                 talk.{kept}\n</moved>",
                 moved.lane,
                 quoted(&moved.title)
             )
         }
         Known::LanesOverlapped(overlap) => format!(
-            "<overlap task=\"{}\" path={} from=\"spade\">\nThe task {} wrote {}, which the task \
-             {}, still working, wrote too. Nothing stops either; check the file holds what both \
-             need.\n</overlap>",
+            "<overlap task=\"{}\" path={} from=\"spade\">\nTask {} and active task {} both wrote \
+             {}; verify the file holds what both need.\n</overlap>",
             overlap.lane,
             serde_json::to_string(&overlap.path).unwrap_or_default(),
             quoted(&overlap.title),
+            quoted(&overlap.other_title),
             serde_json::to_string(&overlap.path).unwrap_or_default(),
-            quoted(&overlap.other_title)
         ),
         Known::AskRouted(routed) => format!(
-            "<routed task=\"{}\" from=\"spade\">\nThe person's message {} was a reply to the \
-             task {}, so Spade sent it there; that task answers it.\n</routed>",
+            "<routed task=\"{}\" from=\"spade\">\nSent {} directly to task {}; that task will \
+             answer it.\n</routed>",
             routed.lane,
             routed.message,
             quoted(&routed.title)

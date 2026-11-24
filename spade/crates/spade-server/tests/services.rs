@@ -550,7 +550,11 @@ async fn a_file_wait_fires_when_the_file_changes() -> Result {
     spade
         .wait_for_count(&bot.conversation, "reply_finished", 2)
         .await?;
-    assert!(last_prompt(&spade).contains("What you waited for happened: out/result.txt changed."));
+    assert!(
+        last_prompt(&spade).contains("Condition met: out/result.txt changed."),
+        "{}",
+        last_prompt(&spade)
+    );
     Ok(())
 }
 

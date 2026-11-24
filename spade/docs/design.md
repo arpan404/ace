@@ -102,7 +102,9 @@ conversation always misses; every later call misses only on its new tail. The ru
 
 - The prompt is append-only. The tool list never changes within a conversation: deferred tools are
   revealed by `tool_search` results and called through a `call_tool` dispatcher, or by the
-  endpoint itself where it declares `native-tool-search`.
+  endpoint itself where it declares `native-tool-search`. A bot's learned pins (deferred tools it
+  keeps using) join the list at the start of its conversation or at a compaction, never in
+  between (harness.md, Tools).
 - Per-turn content (matching memories, the time, room context) rides with the new message, never
   at the top. The skill index is frozen per conversation; `skill_load` returns skill text at the
   tail.

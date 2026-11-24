@@ -156,7 +156,11 @@ async fn run(
         // The person's asks as they stand, so a fold after this starts here (ADR 0215).
         asks: Some(Box::new(engine.asks_of(id, events))),
     });
-    match engine.record(id, &event) {
+    // The prompt's top may change here, so the list the conversation is offered is worked out
+    // again and published with the compaction, both or neither (docs/design.md, Caching;
+    // docs/harness.md, Tools).
+    let offer = engine.offer_for_compaction(id);
+    match engine.record_with_offer(id, &event, &offer) {
         Ok(_) => true,
         Err(error) => {
             tracing::error!(%error, "could not store a compaction");
@@ -172,11 +176,11 @@ pub(super) fn age_if_due(engine: &Engine, id: &str, events: &[Event]) -> bool {
     if !engine.ages_results(id) {
         return false;
     }
-    // A stub points at `history_read`; a conversation not offered it keeps its results whole.
+    // A stub points at `history_read`; a conversation that cannot run it keeps its results whole.
     let readable = engine
-        .offered_for(id)
-        .iter()
-        .any(|tool| tool.name == spade_core::aging::READ_BACK);
+        .registry_for(id)
+        .get(spade_core::aging::READ_BACK)
+        .is_some();
     if !readable {
         return false;
     }

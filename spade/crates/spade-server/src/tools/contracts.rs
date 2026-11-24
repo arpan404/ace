@@ -20,7 +20,7 @@ fn def(name: &str, description: &str, schema: Value, risk: Risk, background: boo
         // A call's output is another bot's: the engine marks it untrusted when the callee read
         // anything untrusted during the call, as a helper's result is (ADR 0152 §6).
         untrusted_output: false,
-        deferred: false,
+        deferred: true,
         background,
     }
 }

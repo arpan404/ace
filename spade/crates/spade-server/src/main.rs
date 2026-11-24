@@ -12,17 +12,14 @@ use spade_server::config::Config;
 use spade_server::engine::{Engine, Limits, Setup};
 use spade_server::home::{Home, HomeError, new_token};
 use spade_server::images::ImageStore;
-use spade_server::learning::{Learning, SkillFeedback, SkillPropose};
+use spade_server::learning::Learning;
 use spade_server::presets;
-use spade_server::research::{LiveWeb, ResearchTool};
 use spade_server::skill_store::SkillStore;
 use spade_server::tools::{
-    AceLink, AceTarget, Asks, ConnectorSource, DecisionLog, EngineHandle, Retry, SkillLibrary,
-    SkillLoad, SkillSearch, TaskGoal, TaskPlan, TaskStatus, Todo, Tool, ToolSource, Toolbox,
-    WebFetch, WebSearch,
+    AceLink, AceTarget, ConnectorSource, EngineHandle, Retry, SkillLibrary, ToolSource, Toolbox,
 };
+use spade_server::workspace::Workspaces;
 use spade_server::workspace::shell::Shell;
-use spade_server::workspace::{Workspaces, workspace_tools};
 use spade_store::Store;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
@@ -368,19 +365,6 @@ async fn run() -> Result<(), Failure> {
     if let Some(link) = &ace {
         link.act_for(bots.clone());
     }
-    let mut core: Vec<Arc<dyn Tool>> = vec![
-        Arc::new(WebSearch {
-            search: search.clone(),
-            bots: bots.clone(),
-        }),
-        Arc::new(WebFetch(fetcher.clone())),
-        Arc::new(Todo),
-        Arc::new(TaskStatus),
-        Arc::new(TaskGoal),
-        Arc::new(TaskPlan),
-        Arc::new(DecisionLog),
-        Arc::new(Asks),
-    ];
     let workspaces = Workspaces::new(home.dir.join("workspace"));
     // Each bot's commands, services and plugin servers run in its OS sandbox, with their traffic
     // through Spade's egress proxy (ADR 0167). `SPADE_SANDBOX=off` turns it off for development:
@@ -425,15 +409,6 @@ async fn run() -> Result<(), Failure> {
     })
     .await;
     let shell = Shell::system().confined(security.clone());
-    // Deep research (ADR 0135), reading through the same backends and fetcher.
-    core.push(Arc::new(ResearchTool::new(
-        Arc::new(LiveWeb {
-            search: search.clone(),
-            fetcher,
-        }),
-        workspaces.clone(),
-        bots.clone(),
-    )));
     // Each bot's computer (ADR 0142): its terminal is where its shell commands run.
     let terminals = Terminals::new(
         home.dir.join("terminal"),
@@ -447,34 +422,9 @@ async fn run() -> Result<(), Failure> {
         terminals.clone(),
         Arc::new(SystemClock),
     );
-    core.extend(workspace_tools(
-        workspaces.clone(),
-        bots.clone(),
-        spade_server::computer::shell_commands(&terminals, shell.clone()),
-    ));
     // Bots' owned services (ADR 0160), through the same shell rules as `shell`.
     let services =
         spade_server::services::Services::new(workspaces.clone(), shell.clone(), bots.clone());
-    core.extend(spade_server::tools::service_tools(&services));
-    // Pushes, comments and messages with the person's sign-ins, outside the sandbox (ADR 0171).
-    core.extend(spade_server::tools::outward::outward_tools(
-        workspaces.clone(),
-        bots.clone(),
-        Arc::new(spade_server::tools::outward::SystemHost),
-        Arc::new(spade_server::tools::outward::SandboxStage::new(
-            shell.clone(),
-        )),
-        home.dir.join("outward"),
-    ));
-    core.extend(spade_server::media::tools::all(
-        workspaces.clone(),
-        bots.clone(),
-    ));
-    // Cards (ADR 0200 §5.1), whose image blocks name files in the bot's workspace.
-    core.push(Arc::new(spade_server::tools::CardShow::new(
-        bots.clone(),
-        Some(workspaces.clone()),
-    )));
     // Spade's own skill store (ADR 0151): ace's library mirrored with its files while ace is
     // there, skills written in Spade otherwise. Spade Cloud has the store with no ace.
     let upstream = ace
@@ -495,22 +445,21 @@ async fn run() -> Result<(), Failure> {
         Arc::new(SystemClock),
         library.clone(),
     ));
-    core.push(Arc::new(
-        SkillSearch::new(library.clone()).with_uses(bots.clone()),
-    ));
-    core.push(Arc::new(
-        SkillLoad::new(library.clone())
-            .with_notes(learned.clone(), bots.clone())
-            .with_workspaces(workspaces.clone(), bots.clone()),
-    ));
-    core.push(Arc::new(SkillPropose {
-        learning: learned.clone(),
+    let core = spade_server::tools::own_tools(spade_server::tools::Own {
+        search: search.clone(),
+        fetcher,
+        workspaces: workspaces.clone(),
         bots: bots.clone(),
-    }));
-    core.push(Arc::new(SkillFeedback {
+        commands: spade_server::computer::shell_commands(&terminals, shell.clone()),
+        services: services.clone(),
+        outward_scratch: home.dir.join("outward"),
+        host: Arc::new(spade_server::tools::outward::SystemHost),
+        stage: Arc::new(spade_server::tools::outward::SandboxStage::new(
+            shell.clone(),
+        )),
+        library: library.clone(),
         learning: learned.clone(),
-        bots: bots.clone(),
-    }));
+    });
     let skills: Option<Arc<dyn SkillLibrary>> = Some(library);
     let learning: Option<Arc<Learning>> = Some(learned);
     let mut tools = Toolbox::new(core).with_source(spade_server::media::tools::images(&bots));
@@ -667,6 +616,7 @@ async fn run() -> Result<(), Failure> {
         engine.set_market(link.clone());
     }
     engine.set_services(services.clone());
+    engine.set_workspaces(workspaces.clone());
     if let Some(link) = &ace {
         let agents = engine
             .agents()

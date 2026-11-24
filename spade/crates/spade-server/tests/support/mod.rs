@@ -48,6 +48,7 @@ pub struct FakeTool {
     pub images: Vec<Vec<u8>>,
     pub delay: Duration,
     pub calls: Arc<Mutex<Vec<Value>>>,
+    early_read: bool,
     /// Poses as a tool of one of the person's apps (ADR 0131); `true` when it annotates
     /// itself.
     pub app: Option<bool>,
@@ -86,6 +87,7 @@ impl FakeTool {
             images: Vec::new(),
             delay: Duration::ZERO,
             calls: Arc::default(),
+            early_read: false,
             app: None,
             declared: None,
             unplaced: false,
@@ -181,12 +183,34 @@ impl FakeTool {
         self
     }
 
+    pub fn early_read(mut self) -> Self {
+        self.early_read = true;
+        self
+    }
+
     pub fn calls(&self) -> Arc<Mutex<Vec<Value>>> {
         self.calls.clone()
     }
 }
 
 impl Tool for FakeTool {
+    fn run_early(
+        &self,
+        key: &str,
+        arguments: Value,
+        facts: &spade_server::tools::TurnFacts,
+    ) -> Option<spade_server::tools::EarlyReadFuture> {
+        self.early_read.then(|| {
+            let read = self.run_in(key, arguments, facts);
+            Box::pin(async move {
+                Some(spade_server::tools::EarlyRead {
+                    output: read.await,
+                    current: Box::new(|| true),
+                })
+            }) as spade_server::tools::EarlyReadFuture
+        })
+    }
+
     fn def(&self) -> ToolDef {
         self.def.clone()
     }
@@ -838,6 +862,9 @@ impl Spade {
         if let Some(plugins) = plugins {
             engine.set_profile_source(plugins.clone());
             engine.set_plugins(plugins);
+        }
+        if let Some(workspaces) = &options.workspaces {
+            engine.set_workspaces(workspaces.clone());
         }
         let state = AppState {
             engine: engine.clone(),

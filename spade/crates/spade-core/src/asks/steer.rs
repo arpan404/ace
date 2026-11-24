@@ -152,10 +152,9 @@ pub fn due(ledger: &Ledger, reply: &str) -> Option<Reminded> {
         })
         .collect();
     let note = format!(
-        "<steer_unanswered from=\"spade\">\nThe person wrote while you worked, and you haven't \
-         answered yet:\n{}\nBefore more work, tell them in a line what changes, and sort it with \
-         the asks tool (a steer that stops or replaces earlier work drops or changes those \
-         asks).\n</steer_unanswered>",
+        "<steer_unanswered from=\"spade\">\nUnanswered mid-turn message:\n{}\nReply in a line \
+         with what changes and update asks (drop or change superseded asks) before \
+         continuing.\n</steer_unanswered>",
         lines.join("\n")
     );
     Some(Reminded {

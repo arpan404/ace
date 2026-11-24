@@ -76,9 +76,8 @@ impl Tool for ResearchTool {
                 description: "Research a question in depth on the web: plans sub-questions, reads \
                               many sources, cross-checks them and writes a report with numbered \
                               sources into your workspace. Runs in the background; you get a \
-                              summary and the report's path. Use it for questions that need more \
-                              than a few pages; depth is quick (a few cents, about 6 pages), \
-                              standard (about 15) or deep (about 30)."
+                              summary and its path. For questions needing more than a few pages: \
+                              quick (about 6 pages), standard (about 15) or deep (about 30)."
                     .to_owned(),
                 schema: json!({ "type": "object",
                                 "properties": {

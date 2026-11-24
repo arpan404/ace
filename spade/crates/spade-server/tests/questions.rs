@@ -7,11 +7,9 @@ mod support;
 use std::time::Duration;
 
 use serde_json::{Value, json};
+use spade_core::question::DEFERRED;
 use spade_testkit::{Script, Seen};
 use support::{Result, Spade, types};
-
-const DEFERRED: &str = "The person will answer later. Go on without it where you can, or end \
-your reply saying what waits on it. Their answer will arrive as a <question_answer>.";
 
 fn title() -> Script {
     Script::reply("").plain(r#"{"title":"Trip"}"#)
