@@ -119,6 +119,12 @@ export function isolatedTestEnvironment(
     // boot hooks read them in workers, where every other ACE_* value stays scrubbed.
     ...(ambient.ACE_TRANSLATORS !== undefined ? { ACE_TRANSLATORS: ambient.ACE_TRANSLATORS } : {}),
     ...(ambient.ACE_SESSIONS !== undefined ? { ACE_SESSIONS: ambient.ACE_SESSIONS } : {}),
+    ...(ambient.ACE_SESSIONS_ADDON !== undefined
+      ? { ACE_SESSIONS_ADDON: ambient.ACE_SESSIONS_ADDON }
+      : {}),
+    ...(ambient.ACE_SUPERVISOR_ADDON !== undefined
+      ? { ACE_SUPERVISOR_ADDON: ambient.ACE_SUPERVISOR_ADDON }
+      : {}),
     ...(ambient.ACE_SUPERVISOR !== undefined ? { ACE_SUPERVISOR: ambient.ACE_SUPERVISOR } : {}),
     ...(ambient.ACE_ENGINE !== undefined ? { ACE_ENGINE: ambient.ACE_ENGINE } : {}),
     ...(ambient.ACE_CORE !== undefined ? { ACE_CORE: ambient.ACE_CORE } : {}),

@@ -60,7 +60,8 @@ const switchRows: readonly SwitchRow[] = [
   {
     variable: "ACE_SESSIONS",
     addons: [],
-    absent: "no shell loads a sessions addon yet",
+    absent:
+      "the daemon bench's only provider is claude, which has no native session; measure sessions with apps/daemon/bench/session-stream.ts",
   },
   {
     variable: "ACE_ENGINE",
