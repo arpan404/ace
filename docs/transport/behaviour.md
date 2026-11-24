@@ -112,6 +112,17 @@ allowed`. A request without an Origin (the CLI, native clients) is not refused f
   `Content-Length: 19`, but carries no body, because hyper forces a response to `HEAD` to zero
   length (`proto/h1/role.rs:974`–`:980`) and a `HEAD` response has no content (RFC 9110 §9.3.2). A
   `HEAD` upgrade first on a connection gets `ws`'s exact bytes, body included, through the raw path.
+- **Recorded difference (T1a.3's HTTP/1.0 upgrades on a reused connection)**: an upgrade candidate
+  whose request line is HTTP/1.0, arriving after an ordinary request on a keep-alive connection, is
+  refused with a `400` and the connection closes; Node hands it to the `upgrade` listener and `ws`
+  switches it. The bytes are `ws`'s `abortHandshake` form — `Connection: close`,
+  `Content-Type: text/html`, `Content-Length: 25`, body `Upgrade requires HTTP/1.1` — with hyper's
+  lower-case field names (the difference above) and its `HTTP/1.0` status line, because hyper
+  mirrors the request's version there (`proto/h1/conn.rs:708`). The refusal comes before
+  admission: nothing is reserved or opened, since hyper upgrades HTTP/1.1 only
+  (`proto/h1/role.rs:336`) and a `101` for any other version would leave the client with no socket
+  behind it. No ace client sends one (browsers, iOS and the CLI upgrade over HTTP/1.1), and an
+  upgrade first on a connection is unaffected: it gets `ws`'s `101` for any version, as Node does.
 
 ## 4. Liveness and idle
 

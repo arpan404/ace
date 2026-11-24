@@ -4,7 +4,9 @@
 //! and the daemon's own HTTP server actually see.
 
 use std::convert::Infallible;
+use std::future::Future;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -18,10 +20,14 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
 
-use crate::driver::RefuseUpgrades;
+use crate::driver::{RefuseUpgrades, UpgradeHandler, UpgradeIo};
 use crate::head;
 use crate::hop::HopSecret;
 use crate::proxy::ProxyTarget;
+use crate::upgrade::{
+    AdmissionDecision, AdmissionOutcome, SocketSink, UpgradeAdmission, UpgradeRequest,
+    WebSocketUpgrades,
+};
 
 use super::LoopbackListener;
 
@@ -120,6 +126,59 @@ async fn listener_with(
 
 async fn listener(upstream: SocketAddr, secret_hex: &str) -> LoopbackListener {
     listener_with(upstream, secret_hex, 64).await
+}
+
+/// A listener whose upgrades go to `upgrades`.
+async fn listener_for(upstream: SocketAddr, upgrades: Arc<dyn UpgradeHandler>) -> LoopbackListener {
+    let secret = Arc::new(HopSecret::from_hex(&"ab".repeat(32)).expect("a test secret"));
+    let target = ProxyTarget::new(upstream, secret).expect("a loopback target");
+    let addr: SocketAddr = "127.0.0.1:0".parse().expect("a test address");
+    LoopbackListener::bind_with(addr, target, upgrades, 64)
+        .await
+        .expect("the listener binds")
+}
+
+/// Admission that accepts every request, and records that it was asked.
+#[derive(Default)]
+struct AcceptingAdmission(Mutex<usize>);
+
+impl UpgradeAdmission for AcceptingAdmission {
+    fn admit(
+        &self,
+        _request: UpgradeRequest,
+    ) -> Pin<Box<dyn Future<Output = AdmissionOutcome> + Send>> {
+        *self.0.lock().expect("no poison") += 1;
+        Box::pin(async { AdmissionOutcome::Decided(AdmissionDecision::Accept { reservation: 1 }) })
+    }
+
+    fn writing(&self, _reservation: u64) -> bool {
+        true
+    }
+
+    fn release(&self, _reservation: u64) {}
+}
+
+/// The sink of a `101` that must never be written.
+#[derive(Default)]
+struct RecordingSink(Mutex<Vec<u64>>);
+
+impl SocketSink for RecordingSink {
+    fn opened(&self, reservation: u64, stream: Box<dyn UpgradeIo>, _user_agent: Option<String>) {
+        self.0.lock().expect("no poison").push(reservation);
+        drop(stream);
+    }
+}
+
+/// Read the internal server's answer to one request: `ok` ends it.
+async fn internal_answer(client: &mut TcpStream) -> Vec<u8> {
+    let mut answer = Vec::new();
+    while !answer.ends_with(b"ok") {
+        let mut chunk = [0u8; 256];
+        let read = client.read(&mut chunk).await.expect("the answer arrives");
+        assert_ne!(read, 0, "the answer arrives before the connection ends");
+        answer.extend_from_slice(&chunk[..read]);
+    }
+    answer
 }
 
 async fn client(addr: SocketAddr) -> TcpStream {
@@ -363,6 +422,57 @@ async fn an_upgrade_on_a_keep_alive_connection_gets_no_answer() {
         seen.lock().expect("no poison").len(),
         1,
         "the upgrade candidate never reached the internal server"
+    );
+}
+
+#[tokio::test]
+async fn an_http_1_0_upgrade_on_a_keep_alive_connection_is_refused_with_400() {
+    let (upstream, _) = internal_server().await;
+    let admission = Arc::new(AcceptingAdmission::default());
+    let sink = Arc::new(RecordingSink::default());
+    let upgrades: Arc<dyn UpgradeHandler> =
+        Arc::new(WebSocketUpgrades::new(admission.clone(), sink.clone()));
+    let bound = listener_for(upstream, upgrades).await;
+
+    let mut client = client(bound.local_addr()).await;
+    client
+        .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        .await
+        .expect("the first request is written");
+    internal_answer(&mut client).await;
+
+    // hyper upgrades HTTP/1.1 only: a 1.0 candidate here must never get a `101`
+    // that has no socket behind it.
+    client
+        .write_all(
+            b"GET / HTTP/1.0\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+        )
+        .await
+        .expect("the upgrade is written");
+
+    // `answer` reads to the end of the connection: the refusal closes it. hyper
+    // writes the status line on the request's version (`enforce_version`,
+    // `proto/h1/conn.rs:708`) and field names in lower case (the difference
+    // recorded in behaviour.md §3).
+    let response = String::from_utf8_lossy(&answer(&mut client).await).to_ascii_lowercase();
+    assert!(
+        response.starts_with("http/1.0 400 bad request\r\n"),
+        "{response}"
+    );
+    assert!(response.contains("connection: close"), "{response}");
+    assert!(
+        response.ends_with("upgrade requires http/1.1"),
+        "ws's refusal body, not a 101: {response}"
+    );
+    assert!(!response.contains("101"), "{response}");
+
+    assert!(
+        *admission.0.lock().expect("no poison") == 0,
+        "the version is refused before admission is asked"
+    );
+    assert!(
+        sink.0.lock().expect("no poison").is_empty(),
+        "no socket was opened"
     );
 }
 

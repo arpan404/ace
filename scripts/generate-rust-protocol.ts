@@ -17,7 +17,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,7 +45,11 @@ import {
   ScreenKey,
   ThreadId,
   ThreadStatus,
+  ThreadClientFields,
+  ThreadDetails,
+  ThreadProviderMetadata,
 } from "@ace/protocol";
+import { shapesSource } from "./rust-protocol-shapes.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -304,6 +308,40 @@ function generate(scratchDir: string): void {
   } else {
     writeFileSync(generated, formatted);
     console.log(`wrote ${generated}`);
+  }
+  // The shape table for the column encoders (porting guide 5.3b): the same schemas, walked by
+  // `rust-protocol-shapes.ts` instead of through JSON Schema, because `typify` can't describe
+  // Zod's stripping, defaults and key order.
+  const shapesDir = join(root, "native", "daemon", "crates", "ace-protocol", "src", "shapes");
+  const shapeFiles = shapesSource({
+    THREAD_CLIENT_COLUMN: ThreadClientFields.omit({ details: true }),
+    THREAD_DETAILS: ThreadDetails,
+    THREAD_PROVIDER_METADATA: ThreadProviderMetadata,
+  });
+  // Write every part first, so rustfmt can resolve `mod` from `mod.rs` in the scratch dir.
+  const rawPaths = [...shapeFiles].map(([name, source]) => {
+    const path = join(scratchDir, name);
+    writeFileSync(path, source);
+    return { name, path, target: join(shapesDir, name) };
+  });
+  for (const { name, path: rawPath, target } of rawPaths) {
+    runRustfmt(rawPath);
+    const shaped = readFileSync(rawPath, "utf8");
+    if (process.argv.includes("--check")) {
+      let committed = "";
+      try {
+        committed = readFileSync(target, "utf8");
+      } catch {
+        // Missing files are stale too, and the message below names them.
+      }
+      if (shaped !== committed)
+        throw new Error(`${target} is stale; run bun scripts/generate-rust-protocol.ts`);
+      console.log(`ace-protocol/src/shapes/${name} is fresh`);
+    } else {
+      mkdirSync(shapesDir, { recursive: true });
+      writeFileSync(target, shaped);
+      console.log(`wrote ${target}`);
+    }
   }
 }
 

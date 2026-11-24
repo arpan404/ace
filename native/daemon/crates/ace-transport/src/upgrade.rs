@@ -24,7 +24,7 @@ use std::io;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
-use http::StatusCode;
+use http::{StatusCode, Version};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio_util::sync::CancellationToken;
@@ -218,6 +218,12 @@ impl UpgradeHandler for WebSocketUpgrades {
         let admission = Arc::clone(&self.admission);
         let switching = Arc::clone(&self.switching);
         Box::pin(async move {
+            // A `101` on a version hyper does not upgrade would leave the client
+            // with no socket behind it, so this is refused before admission
+            // (Node would upgrade it; behaviour.md §3 records the difference).
+            if head.version != Version::HTTP_11 {
+                return UpgradeReply::Refuse(Refusal::UPGRADE_VERSION.response());
+            }
             let request = UpgradeRequest::from_head(&head, peer);
             let user_agent = request.user_agent.clone();
             let reservation = match decide(admission.as_ref(), request).await {

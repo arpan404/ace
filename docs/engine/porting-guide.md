@@ -768,8 +768,8 @@ Steps, in order:
 3. Define `PiWire`, with this state: `pending: IndexMap<String, Pending>` (at most 64);
    `seq: u64` (the `ace-<n>` counter); `writes: VecDeque<WriteRecord>` (each write handed to
    stdin and not yet acknowledged, in order: the redacted send text, the facade's promise id, the
-   correlation id if any, and `resume_deadlines_after: bool`); `dialogs: IndexMap<String, (Value, Option<String>)>`
-   (the dialog and its timer key); `waiting_on_human: bool`; `rollback: Option<(String, Option<bool>)>`;
+   correlation id if any, and `resume_deadlines_after: bool`); `dialogs: IndexMap<JsString, (String, Option<String>)>`
+   (the dialog's raw JSON text, an exact JavaScript string id, and its timer key); `waiting_on_human: bool`; `rollback: Option<(String, Option<bool>)>`;
    `closed: bool`; `stdin_failed: Option<String>`; the stderr `DroppedNotes`; and
    `queued_bytes: usize`, the write budget. The limit is `2 * 1024 * 1024`, Pi's today
    (`new RpcWriter(proc.stdin, 2 * 1024 * 1024)`, `rpc.ts:43`; the check is
@@ -823,11 +823,11 @@ Steps, in order:
        pub fn stderr_dropped(&mut self, line: DroppedLine) -> Vec<Effect>;
        pub fn timer(&mut self, key: &str) -> Vec<Effect>;         // "deadline:<id>", "dialog:<id>", "notes"
        pub fn note(&mut self, json: &str) -> Vec<Effect>;         // the facade's lifecycle notes
-       /// The dialog as received, without consuming it (resolve() validates it first).
-       pub fn peek_dialog(&self, id: &str) -> Option<ace_json::Value>;
+       /// The dialog's raw JSON text as received, without consuming it (resolve() validates it first).
+       pub fn peek_dialog(&self, id: &JsString) -> Option<String>;
        /// resolve()'s reservation (session.ts:435-436): remove the dialog and CancelTimer its
        /// expiry. False when it is no longer pending.
-       pub fn take_dialog(&mut self, id: &str) -> (bool, Vec<Effect>);
+       pub fn take_dialog(&mut self, id: &JsString) -> (bool, Vec<Effect>);
        pub fn dialog_count(&self) -> usize;                       // for idle(), session.ts:328
        pub fn expect_rollback(&mut self, id: String);
        pub fn rollback_result(&self) -> Option<bool>;
@@ -842,8 +842,9 @@ Steps, in order:
    `stdout_line` and `stderr_line` would), flushes the stderr drop notes, then `close`s, and ends
    with `Drained`.
 6. Keep these orders, statement by statement:
-   - in `stdout_line`: redact, then the `recv` frame, then correlation and settling
-     (`rpc.ts:49`–`:62`), then the session's inspection (rollback acknowledgement, dialog, fatal);
+   - in `stdout_line`: redact, then `ProviderPayload`'s admission, then the `recv` frame, then
+     correlation and settling (`rpc.ts:49`–`:62`), then the session's inspection (rollback
+     acknowledgement, dialog, fatal);
    - the mismatch message (`:59`);
    - a new dialog cancels every pending deadline (`pauseDeadlines`, `:95`–`:98`); deadlines are
      re-armed only after a successful answer write, and only when no dialog is left
@@ -856,8 +857,20 @@ Steps, in order:
    `ace_supervisor::budget::DroppingGate::new(1 MiB)`. Lines split on CR and LF, as `lineReader`
    does. These are today's numbers (rule 10).
 
-- **Tests**: none new; E3-pi.2's files prove it. `cargo test -p ace-adapter-pi` still passes
-  (E1's cases).
+- **Raw fields, not a decoded tree.** `stdout_line` admits like `ProviderPayload` (the 1 MiB byte
+  bound, `JSON.parse`, then 32,768 nodes counted over the parsed tree in one linear pass, so
+  duplicate keys collapse as JavaScript does). The frame is the redacted line as received, a
+  response's `data` settles as its raw JSON text, and a dialog is stored as its raw text keyed by
+  its exact JavaScript id. No typed or depth-limited decode runs in the wire.
+- **Byte feeds and framing.** `PiWire::stdout_bytes` and `stderr_bytes` own both framers (elision
+  then `JsonLines` on LF/CRLF for stdout; `DroppingGate` on CR/LF for stderr) and return the
+  resulting effects; `finish` is the only place the framers end. E3-pi.2's
+  `OutputConsumer::output` hands each chunk to the matching feed and must not frame it again (no
+  elision, `JsonLines` or gate in `io.rs`).
+- **Tests**: the tables in `session/wire/tests.rs` cover the 64 cap and seq, the exact frame and
+  queue byte bounds, one settlement and one charge release across ack/failure/close, dialog and
+  rollback effect order, chunked framing through drain, and payload admission (byte, structural,
+  deep and lone-surrogate cases); E3-pi.2's files prove the wiring.
 - **Must not**: spawn, read the clock, set a timer or touch the filesystem; use `serde_json`;
   change `translate/`; turn any `Uncertain` into a `Refused`.
 - **Reviewer checks**: diff each method against its TypeScript lines; every message is today's
@@ -881,10 +894,10 @@ Steps, in order:
    effects with the rest, so the request settles through the queue and the binding call still
    returns normally.
 3. **`OutputConsumer` for `PiSessionCore`**:
-   - `output(Stdout | Stderr, bytes, delivered)`: run the bytes through that stream's framer,
-     feed each finished line to `stdout_line` or `stderr_line` (one input per line, step 2), then
-     call `gate.answer(delivered)`, which checks and pauses in one step (E3.0c, step 2). When the
-     gate later opens, it resumes the stream.
+   - `output(Stdout | Stderr, bytes, delivered)`: hand the bytes to the wire's `stdout_bytes`
+     (stdout) or `stderr_bytes` (stderr) — the wire already frames them, so do not frame again —
+     then call `gate.answer(delivered)`, which checks and pauses in one step (E3.0c, step 2).
+     When the gate later opens, it resumes the stream.
    - `stdin_written()` → `wire.stdin_written()`; `stdin_error(e)` → `wire.stdin_error(&e.message)`.
    - `exit(_)`: call `gate.exited()`, then publish `ArmTimer { key: "cutoff", ms: 1000 }`.
    - `end(_)`: nothing; an end is not the barrier.
@@ -1070,13 +1083,16 @@ No test reboots a home with a Pi thread, so the owner allows one new test for it
    native session id. Then **two** restarts, boots 1 and 2. After each one:
    1. the thread's stored native session id is unchanged;
    2. the reopened session resumed it. The fake loads `source.jsonl` at every start
-      (`testing/fake-pi.ts:18`), so matching ids alone prove nothing. Assert, from the frames
-      the engine stored for this boot, a `send` frame `{ type: "switch_session", sessionPath }`
-      whose `sessionPath` is boot 0's `sessionFile`, answered `{ cancelled: false }`, followed by
-      a `get_state` reply with the same `sessionFile` and `sessionId` as boot 0 (the restore of
-      `session.ts:332`–`:341`);
+      (`testing/fake-pi.ts:18`), so matching ids alone prove nothing. Pi frames are not
+      persisted (the Cursor-only journal, `repository.ts:725`–`:731`), so record each frame only
+      after the commit `ctx.onFrame` returns has resolved: a frame counts only once the engine
+      ingested it. From those frames assert a `send` frame
+      `{ type: "switch_session", sessionPath }` whose `sessionPath` is boot 0's `sessionFile`,
+      answered `{ cancelled: false }`, followed by a `get_state` reply with the same
+      `sessionFile` and `sessionId` as boot 0 (the restore of `session.ts:332`–`:341`);
    3. a new message to the thread produces a reply and the thread settles, so the continuation
-      works.
+      works. After each boot, read back through the Store's public thread reads each stored
+      reply, its settled run and the native session id committed with them.
       Under `ACE_NATIVE_CROSS=ACE_SESSIONS`, boots 0, 1 and 2 alternate backends, so both swaps
       (native→TypeScript and TypeScript→native) are checked in one run.
 4. The file is allowlisted already: it is the Pi cross-mode list below, and ADR 0223 §8's E3

@@ -47,6 +47,15 @@ impl Refusal {
         message: "Invalid Sec-WebSocket-Protocol header",
         version_field: false,
     };
+    /// hyper upgrades HTTP/1.1 only (`proto/h1/role.rs:336`), so an HTTP/1.0
+    /// candidate that arrives later on a keep-alive connection is refused here
+    /// rather than answered with a `101` that has no socket behind it. Node
+    /// would upgrade it; no ace client sends one (behaviour.md §3 records it).
+    pub(super) const UPGRADE_VERSION: Self = Self {
+        status: StatusCode::BAD_REQUEST,
+        message: "Upgrade requires HTTP/1.1",
+        version_field: false,
+    };
     /// `completeUpgrade`'s `abortHandshake(socket, 503)` when the server closes.
     pub(super) const CLOSING: Self = Self {
         status: StatusCode::SERVICE_UNAVAILABLE,

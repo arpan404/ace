@@ -7,7 +7,7 @@
 // test target every export reads as unused.
 #![cfg_attr(test, allow(dead_code))]
 
-mod child;
+pub(crate) mod child;
 mod inventory;
 mod journal;
 mod sink;

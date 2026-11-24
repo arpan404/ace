@@ -120,6 +120,10 @@ export function isolatedTestEnvironment(
     ...(ambient.ACE_STORE_WRITER !== undefined
       ? { ACE_STORE_WRITER: ambient.ACE_STORE_WRITER }
       : {}),
+    // The starting-off cross run's writer parts: the off boots alternate on these.
+    ...(ambient.ACE_STORE_WRITER_CROSS !== undefined
+      ? { ACE_STORE_WRITER_CROSS: ambient.ACE_STORE_WRITER_CROSS }
+      : {}),
     ...(ambient.ACE_STORE_WRITER_EVIDENCE !== undefined
       ? { ACE_STORE_WRITER_EVIDENCE: ambient.ACE_STORE_WRITER_EVIDENCE }
       : {}),

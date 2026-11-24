@@ -907,6 +907,18 @@ fn strip_measurement(value: &Json, removed: &mut bool) -> Json {
         if let Some(repeat) = stripped.get("repeat").cloned() {
             stripped.insert("repeat".to_owned(), strip_repeat(&repeat, removed));
         }
+        for key in ["hitches", "longTasks"] {
+            if let Some(Json::Array(gaps)) = stripped.get(key).cloned() {
+                stripped.insert(
+                    key.to_owned(),
+                    Json::Array(
+                        gaps.iter()
+                            .map(|gap| strip_interaction_gap(gap, removed))
+                            .collect(),
+                    ),
+                );
+            }
+        }
     }
     stripped
 }

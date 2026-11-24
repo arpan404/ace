@@ -307,13 +307,16 @@ implementation, `RefuseUpgrades`, closes the connection without an answer. T1a.3
      it to the `upgrade` handler too). The service sees it (a request with `Upgrade` and
      `upgrade` among the `Connection` tokens) and runs the same `UpgradeHandler` decision path in
      its hyper form (T1a.3): the same order, statuses, header set, header values and bodies, with
-     the reservation and state machine of T1a.5. Two differences are allowed, both recorded:
+     the reservation and state machine of T1a.5. Three differences are allowed, all recorded:
      field-name case, since hyper writes names in lower case and HTTP treats them as equal (RFC
-     9110 §5.1); and a `HEAD` upgrade on a keep-alive connection, which gets `ws`'s 405 status and
+     9110 §5.1); a `HEAD` upgrade on a keep-alive connection, which gets `ws`'s 405 status and
      headers but no body, because hyper 1.12 forces a `HEAD` response's body to zero length
      (`proto/h1/role.rs:974`–`:980`) and a response to `HEAD` carries no content (RFC 9110
-     §9.3.2), so a conforming client reads none. A `HEAD` upgrade first on a connection still
-     gets `ws`'s exact bytes through the raw path. A drop
+     §9.3.2), so a conforming client reads none; and a candidate whose request line is not
+     HTTP/1.1, which is refused with `ws`'s `400` before admission and closes the connection, never
+     a `101`, because hyper upgrades HTTP/1.1 only (`proto/h1/role.rs:336`) and no ace client sends
+     one (behaviour.md §3 has the bytes). A `HEAD` upgrade first on a connection still gets `ws`'s
+     exact bytes through the raw path, and so does an HTTP/1.0 candidate there, as on Node. A drop
      returns an error from the service, which ends the connection with no response
      (`proto/h1/dispatch.rs:365` in hyper 1.12 propagates it; a unit test pins that no bytes are
      written). An accepted upgrade returns the `101` response, and `hyper::upgrade::on(request)`
@@ -432,7 +435,9 @@ implementation, `RefuseUpgrades`, closes the connection without an answer. T1a.3
   decisions in the same order and returns them as `UpgradeReply`: `Drop`; `Refuse` with the same
   status, headers and body as the raw bytes above, except a `HEAD` request's 405, whose body hyper
   sends as zero bytes (the recorded difference of T1a.2 step 4: `proto/h1/role.rs:974`–`:980`, RFC
-  9110 §9.3.2); `Switch` with the `101` and the same headers.
+  9110 §9.3.2); `Switch` with the `101` and the same headers. One refusal comes before admission:
+  a candidate whose request line is not HTTP/1.1 is `Refuse` with `ws`'s `400 Bad Request` and the
+  connection closes, never a `Switch` (behaviour.md §3 records the bytes).
   `switched` then hands the upgraded stream on, or reports that hyper's upgrade failed.
 - **Tests**: unit tests for the decision table (inputs → exact bytes). **Must not**: start framing
   (T1a.4's), negotiate extensions.
@@ -780,38 +785,34 @@ relayed?, reservation?)` checks `cleanups.size + reserved - (reservation === und
 
 ### T1b: the remote listeners (switch `ACE_TRANSPORT=native,remote`, default off)
 
-Briefed in full after T1a merges and T1b.0 reports, because the TLS listeners carry
-per-connection state T1a doesn't have (`sni-listener.ts`'s trusted keep-alive, `:36`–`:50` and
-`:83`–`:173`; outside MCP clients' Tailscale identity, `external-mcp/server.ts:251`–`:300`). The
-tasks, in order:
+Briefed in full in [t1b-brief.md](t1b-brief.md) (kept apart so this guide stays under 1,500
+lines); its tasks are written like T1a's and take this guide's rules and commands unchanged. T1b.0,
+the deflate spike, reported in [t1b0-deflate-spike.md](t1b0-deflate-spike.md): our own RFC 7692
+extension over `flate2`, on our own framing. The tasks, in order:
 
-1. **T1b.0 Deflate spike (a written report, no merge)**: ADR 0226 answer 1. Candidate crates with
-   RFC 7692 server support, each with its licence, maintenance and whether it supports
-   no-context-takeover per message and a post-inflate limit; a throwaway prototype against
-   `remote-compression.server.process.test.ts`. `tungstenite` 0.30 refuses RSV1 frames
-   (`src/protocol/mod.rs:643`).
-2. **T1b.1 TLS termination**: `rustls` 0.23.46 (Apache-2.0 OR ISC OR MIT) with
-   `default-features = false, features = ["ring", "std", "tls12", "logging"]`, and
-   `tokio-rustls` 0.26.6 (MIT OR Apache-2.0) also with `default-features = false, features =
-["ring", "tls12", "logging"]`, because its defaults enable `aws_lc_rs`; `ring` 0.17 (Apache-2.0
-   AND ISC, allowed) selected explicitly as the process's crypto provider; `cargo tree -e features
--i aws-lc-rs` must print nothing and `cargo deny check` pass on the resolved graph. The key and
-   certificate TypeScript already loads from `tls/` (`tls-identity.ts`) passed as PEM bytes, never
-   regenerated (pin continuity); SNI with the Tailscale certificate.
-3. **T1b.2 Per-connection state and peer identity** through the proxy hop (trusted keep-alive,
-   Tailscale peer), with the remote chain unchanged.
-4. **T1b.3 Per-message deflate** as the spike decided, with allowlisted outbound compression and the
-   1 MiB post-inflate cap.
-5. **T1b.4 Run-time toggling** (`remote-runtime.ts`, `remote-direct.ts`) of the native remote
-   listeners, with `remoteStarted`'s semantics.
+1. **T1b.1a** Rust: TLS termination (`rustls` 0.23.46 and `tokio-rustls` 0.26.6 on aws-lc-rs with
+   `prefer-post-quantum`, installed as the process provider), the pinned identity as PEM bytes,
+   SNI with the Tailscale certificate, and one `RemoteListener` for the static and run-time
+   listeners. **Changed 2026-11-24 (the owner)**: the earlier rule here was ring only, no
+   aws-lc-rs. `X25519MLKEM768` is negotiated today (Node 26 with Bun, Node with Node), and
+   Chromium 131+ and iOS 26 offer it by default; ring has no ML-KEM, so ring only would downgrade
+   those connections. Now `ring` must not appear in the feature graph, and `cargo deny` and the
+   release builds (CMake where aws-lc-sys needs it; prebuilt NASM on Windows) gate the task.
+2. **T1b.1b** The `NativeRemote` binding, its TypeScript shell, and the static listener
+   (`options.remote`), with the native listeners' wiring moved out of `server.ts`.
+3. **T1b.2** Per-connection state and peer identity through the hop: the trusted keep-alive, the
+   TLS server name and the peer address, with the remote chain unchanged.
+4. **T1b.3a** Our own WebSocket framing for both listeners (beside T1b.1), then **T1b.3b**
+   per-message deflate on the remote listeners: `ws`'s negotiation, the 1,024-byte threshold, the
+   outbound allowlist left in TypeScript and the 1 MiB post-inflate cap.
+5. **T1b.4** Run-time toggling through `remoteDirect`'s listener factory, with `remoteStarted`'s
+   semantics.
+6. **T1b.5** The proof run (T1a.8's list with `native,remote`, after T1a.8 merges; evidence of
+   what each listener and port handled, not only that it bound), Autobahn as a local offline step,
+   and the paired benches (head-of-line and slow-link, direct path).
 
-Proof of Rust TLS termination: the files that dial the daemon's remote listener with the real
-client and its pinned fingerprint (`remote.server`, `remote-boundaries.server`,
-`remote-runtime.server`, `remote-restart.server`, `remote-compression.server`,
-`tailscale-https.server`, `remote-direct.process`, `remote-payloads.process`, `access-cors.server`,
-`ticket-allocation.server`), off and on, with evidence; `tls-identity-node.process` and any other
-file that runs its own Node TLS server prove nothing about Rust and are not on the list. Bench:
-items 5 and 6 of "Measurements to schedule", direct path, paired as for T1a.
+The brief lists the recorded differences from `ws` and the Node/Bun TLS stack, the failure modes
+on restart and reconnect, and the owner's decisions of 2026-11-24.
 
 ### T2: hello, authentication, devices (needs T1, store phase 5's writer default-on)
 
@@ -864,6 +865,36 @@ reader pool (one read transaction for rows and watermark; a cancelled read drops
 sends nothing). When a wire read goes default-on, its JavaScript callers move to a facade parsing
 the Rust bytes in the same release; the TypeScript shaper remains only as the switch-off path and is
 deleted, with the switch, one release later.
+
+**The sidebar's window rules, from main (PR #2737, `ace/fix-chats-vanish-under-project-filter`,
+9578c8ed06).** A Rust sidebar or thread-list read must carry them exactly, and the TypeScript tests
+that encode them are its proof with the switch on: `sidebar-index-chats.test.ts`,
+`sidebar-pagination.process.test.ts`, `chat-projects.process.test.ts` and
+`external-mcp/grants.process.test.ts`.
+
+1. The scope has `withChats`, which only the app's own subscription sets
+   (`sidebar-subscription.ts`). With a project and `withChats`, the window is the project's threads
+   plus every chat thread, each once: a chat project picked as the project isn't doubled.
+   Per-project `counts` are unchanged. `total` is that union, and it's the same on the index path
+   and the SQL path.
+2. Every other caller keeps the strict project query, byte for byte, notably external MCP
+   `ace_threads_list`. A project-limited grant never sees a chat, or a cursor that points at one.
+3. The live index keeps a `chat` fact per thread (`EXISTS` on `workspace_metadata` with
+   `kind = 'chat'`) and a chats list per kind (paged, active, archived). A project window merges the
+   two lists, reading at most `limit` from each.
+4. The SQL page for a project with `withChats` is two arms in `UNION ALL`, each `ORDER BY activity
+DESC, id ASC LIMIT limit + 1`. Arm 1 is the project's own threads, on
+   `sidebar_columns_paged_project` (archived: `_archived_project`), with no temp sort. Arm 2 is chats
+   outside the project: `IN (SELECT workspace_id FROM workspace_metadata WHERE kind = 'chat' AND
+workspace_id != ?)`. The outer query orders by a `sidebar_order` alias and applies the limit.
+   Both arms use the full explicit projection, so `sidebar_revision` and `row_trusted` survive.
+   Active and COUNT use `IN (SELECT ? UNION SELECT ... kind = 'chat')`. Page and summary cache keys
+   include `withChats`.
+5. Reclassification: `setKind` in project storage (`registerChat`, `registerSpade`) bumps
+   `sidebar_thread_revisions` for the workspace's threads only when chat membership flips. It writes
+   no events and no thread columns. After the commit it calls the in-process
+   `store.chatMembership.changed(workspaceId)` (`ChatMembership` in `sidebar-revisions.ts`), and
+   live subscriptions read their window again.
 
 ### T5: HTTP routes (needs T1 and ADR 0225 M2)
 

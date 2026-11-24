@@ -16,9 +16,12 @@
  * `typescript` per `ACE_GIT_CROSS_START`, for `scripts/native-cross.ts`. Boot _n_
  * of a root takes the switch's value for even _n_ and the opposite for odd
  * _n_; _n_ comes from the append-only log at `ACE_NATIVE_CROSS_LOG` (one JSON
- * line per boot: root, _n_, switch, backend, pid), counted under an advisory
- * lock so sibling processes count the same boots. `ACE_STORE` and
- * `ACE_SUPERVISOR` take a value only at a new process's boot. Translators and
+ * line per boot: root, _n_, switch, the backend boot _n_ asked for, the backend
+ * actually in effect for that open, pid), counted under an advisory lock so
+ * sibling processes count the same boots. `ACE_STORE`, `ACE_SUPERVISOR` and
+ * `ACE_STORE_WRITER` take a value only at a new process's boot, so a second
+ * open in the same process runs the first boot's backend: the log's effective
+ * value is what the gate asserts, not the requested one. Translators and
  * sessions created after a boot take its backend.
  */
 import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -107,42 +110,62 @@ if (crossSwitch !== undefined && !crossLog)
 const store = process.env.ACE_STORE === "native";
 
 /**
- * `ACE_STORE_WRITER`, a comma list of `fold`, `sequences`, `events`, `live`,
- * `transactions` (porting guide rule 9). Off by default. It needs
+ * `ACE_STORE_WRITER`, a comma list of `fold`, `sequences`, `events`, `columns`,
+ * `live`, `transactions` (porting guide rule 9). Off by default. It needs
  * `ACE_STORE=native` and refuses to start without it, and each part refuses
  * to start without the parts before it in that list.
  */
-export type StoreWriterPart = "fold" | "sequences" | "events" | "live" | "transactions";
+export type StoreWriterPart = "fold" | "sequences" | "events" | "columns" | "live" | "transactions";
 
 /** The writer parts in canonical log order. */
 const writerPartsOrder: readonly StoreWriterPart[] = [
   "fold",
   "sequences",
   "events",
+  "columns",
   "live",
   "transactions",
 ];
 
-function parseWriterParts(value: string | undefined): ReadonlySet<StoreWriterPart> {
+function parseWriterParts(
+  value: string | undefined,
+  name = "ACE_STORE_WRITER",
+): ReadonlySet<StoreWriterPart> {
   const asked = new Set<StoreWriterPart>();
   for (const part of (value ?? "").split(",")) {
-    const name = part.trim();
-    if (!name) continue;
-    if (!(writerPartsOrder as readonly string[]).includes(name))
-      throw new Error(`ACE_STORE_WRITER names an unknown part: ${name}`);
-    asked.add(name as StoreWriterPart);
+    const partName = part.trim();
+    if (!partName) continue;
+    if (!(writerPartsOrder as readonly string[]).includes(partName))
+      throw new Error(`${name} names an unknown part: ${partName}`);
+    asked.add(partName as StoreWriterPart);
   }
   return asked;
 }
 
+/** Refuses a part without the parts before it in `writerPartsOrder`, naming both. */
+function checkWriterPrefixes(parts: ReadonlySet<StoreWriterPart>, name: string): void {
+  for (let index = 1; index < writerPartsOrder.length; index++) {
+    const part = writerPartsOrder[index] as StoreWriterPart;
+    const need = writerPartsOrder[index - 1] as StoreWriterPart;
+    if (parts.has(part) && !parts.has(need)) throw new Error(`${name}=${part} needs ${need}`);
+  }
+}
+
 const writerPartsValue = parseWriterParts(process.env.ACE_STORE_WRITER);
 if (writerPartsValue.size > 0 && !store) throw new Error("ACE_STORE_WRITER needs ACE_STORE=native");
-for (let index = 1; index < writerPartsOrder.length; index++) {
-  const part = writerPartsOrder[index] as StoreWriterPart;
-  const need = writerPartsOrder[index - 1] as StoreWriterPart;
-  if (writerPartsValue.has(part) && !writerPartsValue.has(need))
-    throw new Error(`ACE_STORE_WRITER=${part} needs ${need}`);
-}
+checkWriterPrefixes(writerPartsValue, "ACE_STORE_WRITER");
+/**
+ * The parts a starting-off cross run alternates on with (`scripts/native-cross.ts`), checked
+ * like `ACE_STORE_WRITER` itself: it is read when the switch is off, so it names a boot's
+ * off-side value rather than a second live switch.
+ */
+const writerCrossValue = parseWriterParts(
+  process.env.ACE_STORE_WRITER_CROSS,
+  "ACE_STORE_WRITER_CROSS",
+);
+if (writerCrossValue.size > 0 && !store)
+  throw new Error("ACE_STORE_WRITER_CROSS needs ACE_STORE=native");
+checkWriterPrefixes(writerCrossValue, "ACE_STORE_WRITER_CROSS");
 const offender =
   crossSwitch === "ACE_SUPERVISOR" || crossSwitch === "ACE_SESSIONS" || crossSwitch === "ACE_ENGINE"
     ? crossSwitch
@@ -262,7 +285,14 @@ const bootBackend: Partial<Record<CrossSwitch, string>> = {};
 /** Process-wide switches fix their value at the process's first boot. */
 const processBoot: Partial<Record<CrossSwitch, string>> = {};
 
-type BootLine = { root: string; n: number; switch: CrossSwitch; backend: string; pid: number };
+type BootLine = {
+  root: string;
+  n: number;
+  switch: CrossSwitch;
+  backend: string;
+  effective: string;
+  pid: number;
+};
 
 function readLog(log: string): BootLine[] {
   let text: string;
@@ -358,13 +388,20 @@ function opposite(name: CrossSwitch, backend: string): string {
       return gitPartsOrder.filter((part) => !backend.split(",").includes(part)).join(",");
     case "ACE_STORE_WRITER":
       // The writer's parts are prefix-closed, so a complement would refuse to
-      // start. Alternation is on versus off: a set run goes off, an empty run
-      // takes the smallest part, so both boots stay valid.
+      // start. Alternation is on versus off: a set run goes off, and an empty
+      // run takes `ACE_STORE_WRITER_CROSS` (the starting-on run's value, from
+      // `scripts/native-cross.ts`) or the smallest part on its own, so the
+      // starting-off run alternates with the same parts the other run used.
       if (backend.length > 0) return "";
-      return "fold";
+      return process.env.ACE_STORE_WRITER_CROSS ?? "fold";
     default:
       return backend === "native" ? "typescript" : "native";
   }
+}
+
+/** The switches that fix their value at a process's first boot and never again (ADR 0222, constraint 2). */
+function processFixed(name: CrossSwitch): boolean {
+  return name === "ACE_STORE" || name === "ACE_SUPERVISOR" || name === "ACE_STORE_WRITER";
 }
 
 /** Records a boot of `root` for the cross switch and remembers its backend. */
@@ -375,14 +412,21 @@ function noteBoot(root: string, kinds: readonly CrossSwitch[]): void {
   locked(crossLog, () => {
     const fresh = readLog(crossLog);
     const n = fresh.filter((line) => line.root === root && line.switch === name).length;
-    const backend = n % 2 === 0 ? envBackend(name) : opposite(name, envBackend(name));
+    const requested = n % 2 === 0 ? envBackend(name) : opposite(name, envBackend(name));
+    let effective: string;
+    if (processFixed(name)) {
+      // A process-wide switch keeps what it took at this process's first
+      // boot; a later open here runs that value whatever this boot asked for.
+      effective = processBoot[name] ?? requested;
+      processBoot[name] = effective;
+    } else {
+      bootBackend[name] = requested;
+      effective = requested;
+    }
     appendFileSync(
       crossLog,
-      `${JSON.stringify({ root, n, switch: name, backend, pid: process.pid })}\n`,
+      `${JSON.stringify({ root, n, switch: name, backend: requested, effective, pid: process.pid })}\n`,
     );
-    if (name === "ACE_STORE" || name === "ACE_SUPERVISOR" || name === "ACE_STORE_WRITER")
-      processBoot[name] ??= backend;
-    else bootBackend[name] = backend;
   });
 }
 
@@ -517,6 +561,15 @@ export function storeWriterParts(): ReadonlySet<StoreWriterPart> {
 /** Whether new `EventWriter` folds serve `part` natively. */
 export function storeWriterOn(part: StoreWriterPart): boolean {
   return currentWriterParts().has(part);
+}
+
+/**
+ * A writer part list as the log and a report write it: `parseWriterParts`'s rules, then
+ * canonical order, without repeats. `undefined` and `""` are the empty list.
+ */
+export function canonicalWriterParts(value: string | undefined): string {
+  const asked = parseWriterParts(value);
+  return writerPartsOrder.filter((part) => asked.has(part)).join(",");
 }
 
 /**

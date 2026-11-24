@@ -4,6 +4,10 @@
 //! the shells parse back into `GitError` so `instanceof` holds. Behaviour
 //! lives in `ace-git`; G1 and later replace each probe with the port.
 
+// napi-derive registers this module's exports only outside test builds, so in
+// the lib test target every export reads as unused.
+#![cfg_attr(test, allow(dead_code))]
+
 pub mod bridge;
 pub mod checkpoints;
 pub mod core;

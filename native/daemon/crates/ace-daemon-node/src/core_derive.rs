@@ -2,6 +2,10 @@
 //! The core's stateless answers over a state snapshot: statuses, deadlines and the two rules
 //! the protocol shares. They translate handles and errors only; behaviour lives in `ace-core`.
 
+// napi-derive registers this module's exports only outside test builds, so in
+// the lib test target every export reads as unused.
+#![cfg_attr(test, allow(dead_code))]
+
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use napi_derive::napi;

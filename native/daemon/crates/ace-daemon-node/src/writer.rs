@@ -1,19 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The binding for phase 5 (docs/store/porting-guide.md). One method per task; 5.1 owns
-//! `fold_thread`, 5.2b owns `sequences` and 5.3a owns `event_writer`. The fold does not touch
-//! the connection; the sequences and event-writer handles hold the same `Arc<Connection>` the
-//! database does.
+//! `fold_thread`, 5.2b owns `sequences`, 5.3a owns `event_writer`, 5.3b-2 owns
+//! `thread_column_writer`, 5.4a owns `compact_deltas` and `live_retry_delay`, 5.4b owns
+//! `live_buffer` (`writer/live.rs`), and 5.5 owns `transaction_stack`
+//! (`writer/transaction.rs`). Only the sequences, event-writer, column-writer and transaction
+//! handles touch the connection they hold; the fold, the compaction and the buffer never do.
 
-use ace_projection::{FoldEvent, update_thread};
+use ace_projection::{Column, FoldEvent, update_thread};
 use ace_store::Connection;
 use ace_store::writer::events::{EventRow, EventWriter, NewThreadRow, WriteError};
+use ace_store::writer::live::compact::compact_deltas;
+use ace_store::writer::live::retry::retry_delay;
 use ace_store::writer::sequences::{SequenceError, Sequences};
+use ace_store::writer::thread_columns::{ThreadColumnWriter, Written, written_json};
 use napi::{Env, Status};
 use napi_derive::napi;
 use std::sync::Arc;
 
 use crate::json_bind;
 use crate::{NativeDatabase, fail};
+
+mod live;
+mod transaction;
 
 #[napi]
 impl NativeDatabase {
@@ -66,13 +74,88 @@ impl NativeDatabase {
             writer,
         })
     }
+
+    /// The thread column writer, with its fixed reads prepared on this connection.
+    #[napi(catch_unwind)]
+    pub fn thread_column_writer(&self) -> napi::Result<NativeThreadColumnWriter> {
+        let writer = ThreadColumnWriter::new(self.connection()).map_err(fail)?;
+        Ok(NativeThreadColumnWriter {
+            connection: Arc::clone(self.connection()),
+            writer,
+        })
+    }
+
+    /// Adjacent `item.delta` events into one row each: the events as JSON text in, the rows as
+    /// JSON text out, in the later event's key order and with lone surrogates intact. The parsed
+    /// events are moved into the compaction, never cloned.
+    #[napi(catch_unwind)]
+    pub fn compact_deltas(&self, env: Env, events: String) -> napi::Result<String> {
+        let value = json_bind::parse(&env, &events)?;
+        let items = match value {
+            ace_json::Value::Array(items) => items,
+            _ => {
+                return Err(napi::Error::from_reason(
+                    "compactDeltas: events is not an array",
+                ));
+            }
+        };
+        let mut maps = Vec::with_capacity(items.len());
+        for item in items.into_iter() {
+            match item {
+                ace_json::Value::Object(map) => maps.push(map),
+                _ => {
+                    return Err(napi::Error::from_reason(
+                        "compactDeltas: an event is not an object",
+                    ));
+                }
+            }
+        }
+        let rows: Vec<ace_json::Value> = compact_deltas(maps)
+            .into_iter()
+            .map(ace_json::Value::Object)
+            .collect();
+        Ok(ace_json::to_string(&ace_json::Value::Array(rows.into())))
+    }
+
+    /// The delay before the attempt that follows the `failures`-th consecutive failure. A
+    /// deadline for the caller's scheduler, never a timer in Rust.
+    #[napi(catch_unwind)]
+    pub fn live_retry_delay(&self, failures: u32) -> u32 {
+        u32::try_from(retry_delay(failures)).unwrap_or(u32::MAX)
+    }
+
+    /// The live buffer's state, empty and unarmed. It owns no timer and touches no SQL, so the
+    /// shell creates it before `migrate` runs.
+    #[napi(catch_unwind)]
+    pub fn live_buffer(&self) -> live::NativeLiveBuffer {
+        live::NativeLiveBuffer::empty()
+    }
+
+    /// The transaction stack for this connection (task 5.5). Its frames run on the connection,
+    /// so a nested savepoint sees the same open transaction the TypeScript store holds.
+    #[napi(catch_unwind)]
+    pub fn transaction_stack(&self) -> transaction::NativeTransactionStack {
+        transaction::NativeTransactionStack::new(Arc::clone(self.connection()))
+    }
 }
 
 /// A writer failure: SQLite's own error keeps `errcode`, the rest keeps the TS message.
 fn write_error(error: WriteError) -> napi::Error {
     match error {
         WriteError::Sqlite(error) => fail(error),
-        WriteError::WorkspaceUnregistered => napi::Error::from_reason(error.to_string()),
+        WriteError::WorkspaceUnregistered | WriteError::Column(_) => {
+            napi::Error::from_reason(error.to_string())
+        }
+    }
+}
+
+/// Parse a JSON text that must be an object.
+fn object(env: &Env, text: &str, name: &str) -> napi::Result<ace_json::Map> {
+    match json_bind::parse(env, text)? {
+        ace_json::Value::Object(map) => Ok(map),
+        _ => Err(napi::Error::from_reason(format!(
+            "writeThread: {name} is not an object"
+        ))),
     }
 }
 
@@ -218,5 +301,48 @@ impl NativeEventWriter {
         self.writer
             .store_event(self.connection.as_ref(), &row)
             .map_err(write_error)
+    }
+}
+
+/// The thread column writes behind `ACE_STORE_WRITER=columns` (task 5.3b-2).
+#[napi]
+pub struct NativeThreadColumnWriter {
+    connection: Arc<Connection>,
+    writer: ThreadColumnWriter,
+}
+
+#[napi]
+impl NativeThreadColumnWriter {
+    /// `writeThread` through the revision read: null when no column changed, else the written
+    /// row, its parts, the pre-write confirmation and the revision.
+    #[napi(catch_unwind)]
+    pub fn write(
+        &mut self,
+        env: Env,
+        previous: Option<String>,
+        next: String,
+        wanted: Vec<String>,
+    ) -> napi::Result<Option<String>> {
+        let previous = match previous {
+            Some(text) => Some(object(&env, &text, "previous")?),
+            None => None,
+        };
+        let next = object(&env, &next, "next")?;
+        let mut columns = Vec::with_capacity(wanted.len());
+        for name in &wanted {
+            match Column::from_name(name) {
+                Some(column) => columns.push(column),
+                None => {
+                    return Err(napi::Error::from_reason(format!(
+                        "writeThread: unknown column {name}"
+                    )));
+                }
+            }
+        }
+        let written: Option<Written> = self
+            .writer
+            .write(self.connection.as_ref(), previous.as_ref(), &next, &columns)
+            .map_err(write_error)?;
+        Ok(written.map(|written| written_json(&written)))
     }
 }
