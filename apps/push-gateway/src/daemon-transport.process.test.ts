@@ -81,13 +81,13 @@ async function setup(
       auth: phone.auth,
     },
   });
-  const state = { enabled: true };
+  const state = { enabled: true, origin: "http://127.0.0.1:1" };
   const privateKey = signingKeyPem();
   const transport = createPushGatewayTransport(
     {
       privateKey,
       hostId: "HOST",
-      target: () => ({ enabled: state.enabled, origin: "http://127.0.0.1:1" }),
+      target: () => ({ enabled: state.enabled, origin: state.origin }),
     },
     clock.now,
     forward,
@@ -418,6 +418,51 @@ it("does not cache a handle whose token was forgotten while it registered", asyn
     status: "registered",
   });
   expect(registrationCount).toBe(2);
+});
+
+it("does not treat a delayed 410 from a replaced gateway as gone", async () => {
+  const deferred: { release?: () => void } = {};
+  const gate = new Promise<void>((resolve) => {
+    deferred.release = resolve;
+  });
+  let registrationCount = 0;
+  const { state, transport } = await setup({
+    async intercept(url) {
+      if (url.pathname !== "/v1/registrations") return undefined;
+      registrationCount++;
+      if (registrationCount !== 1) return undefined;
+      await gate;
+      return new Response("", { status: 410 });
+    },
+  });
+  const pending = transport.registerActivity(activityAddress, signal());
+  await vi.waitFor(() => expect(registrationCount).toBe(1));
+  state.origin = "http://127.0.0.1:2";
+  deferred.release?.();
+  expect(await pending).toEqual({ status: "retry" });
+});
+
+it("does not treat a 410 as gone after the caller aborted", async () => {
+  const deferred: { release?: () => void } = {};
+  const gate = new Promise<void>((resolve) => {
+    deferred.release = resolve;
+  });
+  let registrationCount = 0;
+  const { transport } = await setup({
+    async intercept(url) {
+      if (url.pathname !== "/v1/registrations") return undefined;
+      registrationCount++;
+      if (registrationCount !== 1) return undefined;
+      await gate;
+      return new Response("", { status: 410 });
+    },
+  });
+  const controller = new AbortController();
+  const pending = transport.registerActivity(activityAddress, controller.signal);
+  await vi.waitFor(() => expect(registrationCount).toBe(1));
+  controller.abort();
+  deferred.release?.();
+  expect(await pending).toEqual({ status: "retry" });
 });
 
 it("shares one capability probe and registration between concurrent requests", async () => {

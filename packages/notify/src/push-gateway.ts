@@ -360,7 +360,13 @@ export function createPushGatewayTransport(
       const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
       const found = await handleFor(target.origin, address, address.kind, requestSignal);
       if (!found.ok) {
-        if (found.status === "gone") return { status: "gone" };
+        if (found.status === "gone") {
+          // A delayed 410 belongs to the gateway that was active when the request started.
+          const current = await options.target();
+          if (signal.aborted || !current.enabled || current.origin !== target.origin)
+            return { status: "retry" };
+          return { status: "gone" };
+        }
         if (found.status === "failed") return { status: "failed" };
         return found.retryAfterMs === undefined
           ? { status: "retry" }
