@@ -85,8 +85,16 @@ function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
   );
 }
 
+/**
+ * A throw's message, or fixed text when it cannot be described without throwing: `String()` on a
+ * null-prototype object throws, and the reporter must never throw.
+ */
 function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  try {
+    return error instanceof Error ? error.message : String(error);
+  } catch {
+    return "a callback threw a value that could not be described";
+  }
 }
 
 /**
