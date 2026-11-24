@@ -1,6 +1,6 @@
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { type Event, type EventPayload, type Thread, type ThreadId } from "@ace/protocol";
-import { updateThread } from "@ace/projection";
+import { foldThread } from "./native-writer/fold.ts";
 import { canonicalEvent } from "./canonical-event.ts";
 import { prepareRunClient } from "./run-client-storage.ts";
 import { liveMetadataChange } from "./thread-client-storage.ts";
@@ -167,7 +167,7 @@ export class EventWriter {
       const liveChange = liveMetadataChange(this.source.db, thread, event.payload, event.at);
       if (liveChange) followup = liveChange;
       if (!delta) {
-        updateThread(thread, event);
+        foldThread(this.source.db, thread, event);
         this.writeThread(checkout?.base, thread, event.payload);
         this.source.needsYou.observe(thread);
       }
