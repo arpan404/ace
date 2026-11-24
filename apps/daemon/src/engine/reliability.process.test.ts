@@ -159,13 +159,44 @@ test("a committed unattempted send waits after restart and runs after explicit r
 
 test("an intent with uncertain provider delivery is reported after restart without replay", async () => {
   const frames = scriptFrames();
-  // The send reaches the provider and the daemon dies before its reply, so ace cannot tell
-  // whether the input ran. A copy of the live store is a crash, not a graceful close, which
-  // would settle the send itself.
   const h = track(await harness([{ on: "send" }], frames));
-  const id = await h.create();
+  const provider = h.adapter;
+  const observed = Promise.withResolvers<void>();
+  const held = Promise.withResolvers<void>();
+  let sends = 0;
+  h.registry.register(
+    {
+      ...provider,
+      async openSession(ctx) {
+        const session = await provider.openSession(ctx);
+        return {
+          ...session,
+          async send(parts, delivery, commandId) {
+            // The provider has the input; the daemon dies before it answers.
+            if (commandId !== "uncertain-send") return session.send(parts, delivery, commandId);
+            sends++;
+            observed.resolve();
+            await held.promise;
+          },
+        };
+      },
+    },
+    { installed: true, auth: "logged_in", loginHint: "unused" },
+  );
+  const receipt = h.command(
+    { type: "thread.create", workspaceId: h.workspace, provider: "codex", input },
+    "device",
+    "uncertain-send",
+  );
+  expect(receipt.ok).toBe(true);
+  const id = receipt.threadId;
+  if (!id) throw new Error("Missing created thread");
+  // Copy only once the send is in the provider's hands and before any reply can acknowledge it:
+  // a graceful close would settle the send, and a send step that returned would retire it.
+  await observed.promise;
   const { store: restartedStore } = await crashCopy(h);
-  expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(1);
+  held.resolve();
+  expect(sends).toBe(1);
   expect(
     Object.values(transcript(restartedStore, id).items).some(
       (item) => item.type === "notice" && item.detail?.includes("execution is uncertain"),
