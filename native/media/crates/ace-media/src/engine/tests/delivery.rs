@@ -914,6 +914,31 @@ fn a_views_bytes_in_flight_cover_its_round_trip_and_one_tail_loss_stall() {
     );
 }
 
+/// A browser view's delivered video header: the page size it maps clicks in, beside the
+/// encoded pixels. None when no browser video reached the view, or the client would reject it.
+fn browser_video_header(effects: &[Effect]) -> Option<(u32, u32, u16, u16)> {
+    let mut assembler = Assembler::new();
+    binaries(effects).iter().find_map(|p| {
+        let envelope = assembler.push(p).ok().flatten()?;
+        if envelope.kind != 2 {
+            return None;
+        }
+        media_core::headers::decode_video(envelope.meta, envelope.payload)
+            .ok()
+            .map(|v| (v.width, v.height, v.coded_width, v.coded_height))
+    })
+}
+
+/// A browser keyframe of `coded` encoded pixels with `display` display pixels.
+fn browser_key(n: u8, coded: (u16, u16), display: (u16, u16)) -> MediaFrame {
+    let mut key = h264(true, n, 1, Vec::new());
+    key.width = coded.0;
+    key.height = coded.1;
+    key.display_width = display.0;
+    key.display_height = display.1;
+    key
+}
+
 #[test]
 fn a_browser_view_header_gives_the_page_css_size_beside_the_coded_size() {
     let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
@@ -924,26 +949,64 @@ fn a_browser_view_header_gives_the_page_css_size_beside_the_coded_size() {
         &[],
         NOW,
     );
-    let mut key = h264(true, 0, 1, Vec::new());
-    key.width = 1280;
-    key.height = 800;
-    key.display_width = 1280;
-    key.display_height = 800;
-    let effects = ingest(&mut engine, 1, key, NOW);
-    let mut assembler = Assembler::new();
-    let header = binaries(&effects).iter().find_map(|p| {
-        let envelope = assembler.push(p).ok().flatten()?;
-        if envelope.kind != 2 {
-            return None;
-        }
-        media_core::headers::decode_video(envelope.meta, envelope.payload)
-            .ok()
-            .map(|v| (v.width, v.height, v.coded_width, v.coded_height))
-    });
-    let Some((width, height, coded_width, coded_height)) = header else {
+    let effects = ingest(
+        &mut engine,
+        1,
+        browser_key(0, (1280, 800), (1280, 800)),
+        NOW,
+    );
+    let Some((width, height, coded_width, coded_height)) = browser_video_header(&effects) else {
         panic!("no browser video reached the view");
     };
     assert_eq!((width, height), (640, 400));
+    assert_eq!((coded_width, coded_height), (1280, 800));
+}
+
+#[test]
+fn a_browser_view_header_scales_an_oversized_page_to_fit_what_the_client_takes() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    // At 25% zoom the desktop reports 5120x3200; the client rejects sides outside 100..=4096,
+    // so both scale together to fit, keeping the aspect.
+    send(
+        &mut engine,
+        json!({ "type": "source.page", "source": "s1", "width": 5120, "height": 3200, "scale": 1 }),
+        &[],
+        NOW,
+    );
+    let effects = ingest(
+        &mut engine,
+        1,
+        browser_key(0, (1280, 800), (1280, 800)),
+        NOW,
+    );
+    let Some((width, height, coded_width, coded_height)) = browser_video_header(&effects) else {
+        panic!("no browser video reached the view");
+    };
+    assert_eq!((width, height), (4096, 2560));
+    assert_eq!((coded_width, coded_height), (1280, 800));
+}
+
+#[test]
+fn a_browser_view_header_scales_a_tiny_page_up_to_what_the_client_takes() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    // A 40x30 page scales up together until the smaller side clears 100, keeping the 4:3
+    // aspect as far as rounding allows.
+    send(
+        &mut engine,
+        json!({ "type": "source.page", "source": "s1", "width": 40, "height": 30, "scale": 1 }),
+        &[],
+        NOW,
+    );
+    let effects = ingest(
+        &mut engine,
+        1,
+        browser_key(0, (1280, 800), (1280, 800)),
+        NOW,
+    );
+    let Some((width, height, coded_width, coded_height)) = browser_video_header(&effects) else {
+        panic!("no browser video reached the view");
+    };
+    assert_eq!((width, height), (133, 100));
     assert_eq!((coded_width, coded_height), (1280, 800));
 }
 
