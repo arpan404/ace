@@ -13,6 +13,7 @@ import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { Readable, Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
+import { z } from "zod";
 import { supervisorBackend } from "./native-switches.ts";
 
 /** A byte event from the native child, in arrival order. */
@@ -238,6 +239,47 @@ function parseExit(data: Uint8Array): { code: number | null; signal: string | nu
   };
 }
 
+/** Node's `code`, `errno` and `syscall` on a stream failure. */
+interface StreamFailure extends Error {
+  code?: string;
+  errno?: number;
+  syscall?: string;
+}
+
+/** A failed stdin write, as `NodeIoError::to_json` writes it. */
+const StdinFailure = z.object({
+  syscall: z.string(),
+  message: z.string(),
+  code: z.string().optional(),
+  errno: z.number().optional(),
+});
+
+/** The parsed stdin failure, or undefined for a payload that is not one. */
+function parseStdinFailure(text: string): z.infer<typeof StdinFailure> | undefined {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  const parsed = StdinFailure.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/**
+ * The error node's own write raises for the same failure: `write EPIPE` with
+ * `code` and `errno`, or the supervisor's text when the errno has no name.
+ */
+function stdinError(data: Uint8Array): StreamFailure {
+  const text = Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString();
+  const failure = parseStdinFailure(text);
+  const error: StreamFailure = new Error(failure?.message ?? text);
+  if (failure?.code !== undefined) error.code = failure.code;
+  if (failure?.errno !== undefined) error.errno = failure.errno;
+  if (failure?.syscall !== undefined) error.syscall = failure.syscall;
+  return error;
+}
+
 /** A readable that is already ended: stdio the shell never observes. */
 function endedReadable(): Readable {
   const stream = new Readable({ read: () => {} });
@@ -391,7 +433,7 @@ export class NativeChildProcess
       return undefined;
     }
     if (kind === "stdin-error") {
-      const error = new Error(bytes.toString());
+      const error = stdinError(bytes);
       const written = this.written;
       this.written = undefined;
       // A closed reader surfaces the failure the way node's does.

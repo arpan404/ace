@@ -7,6 +7,7 @@
 //! write completed.
 #![allow(unsafe_code)]
 
+use crate::errors::NodeIoError;
 use crate::pump::StdinMessage;
 use crate::spawn::EventSink;
 use std::sync::Mutex;
@@ -211,7 +212,7 @@ impl StdinPipe {
                 Ok(()) => sink.stdin_written(),
                 Err(error) => {
                     if !self.aborted() {
-                        sink.stdin_error(error.to_string());
+                        sink.stdin_error(NodeIoError::new("write", &error));
                     }
                     break;
                 }
