@@ -67,7 +67,6 @@ struct BlockSeqSpan: Decodable, Equatable, Sendable {
     }
 
     /// Retained spacer IDs are capped; beyond that the oldest are dropped.
-    /// The resident window holds at most ~400 blocks.
     static let maxMeasured = 1_000
     static let maxSpacers = 1_200
     /// Compact distant segments are capped; adjacent ones coalesce.

@@ -7,29 +7,23 @@ import CoreGraphics
 /// A table fits the room it has whenever its minimums do: columns that fit keep their natural
 /// width, so short labels never wrap, and the wide prose columns share what is left in
 /// proportion to their text, wrapping inside it, none past its minimum or past `share` of the
-/// room while another column still needs some. When the minimums alone overflow, the columns
-/// share the room by their minimums and long words wrap inside their cells: a table is never
-/// wider than the room, so nothing on a phone has to scroll sideways.
+/// room while another column still needs some. When the minimums alone overflow, no column's
+/// minimum counts for more than an equal share of the room, so one long name can't crowd the
+/// prose to a word a line; its pieces wrap inside its cell instead. A table is never wider than
+/// the room, so nothing on a phone has to scroll sideways.
 enum MarkdownTableColumns {
     /// The most of the room one column takes while another is narrower than its text.
     static let share: CGFloat = 0.6
 
     static func widths(natural: [CGFloat], minimum: [CGFloat], available: CGFloat) -> [CGFloat] {
         let natural = natural.map { ceil(max(0, $0)) }
-        let minimum = natural.indices.map { min(natural[$0], ceil(max(0, $0 < minimum.count ? minimum[$0] : 0))) }
+        var minimum = natural.indices.map { min(natural[$0], ceil(max(0, $0 < minimum.count ? minimum[$0] : 0))) }
         guard !natural.isEmpty else { return [] }
         if !available.isFinite || available <= 0 || natural.reduce(0, +) <= available { return natural }
         let cap = natural.count > 1 ? (available * share).rounded(.down) : available
-        // Too many columns or too long a token for the room: each column gets its share of the
-        // room by its widest word, and the words wrap inside it.
-        let minimums = minimum.reduce(0, +)
-        if minimums > available {
-            var used: CGFloat = 0
-            return minimum.indices.map { column in
-                let width = column == minimum.count - 1 ? available - used : (available * minimum[column] / minimums).rounded(.down)
-                used += width
-                return width
-            }
+        if minimum.reduce(0, +) > available {
+            let equal = (available / CGFloat(natural.count)).rounded(.down)
+            minimum = minimum.map { min($0, equal) }
         }
 
         var widths = [CGFloat?](repeating: nil, count: natural.count)
