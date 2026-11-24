@@ -7,6 +7,7 @@ import {
   type PushAccessPayload,
   type PushAlertPayload,
 } from "@ace/protocol";
+import type { LiveActivityTarget } from "./live-activity.ts";
 import { encryptWebPush, p256SigningKey, vapidAuthorization } from "./webpush-crypto.ts";
 import type { DeliveryResult, NotificationTransport } from "./service.ts";
 
@@ -26,16 +27,53 @@ export interface PushGatewayOptions {
 /** The plaintext budget that keeps every body under the gateway's 2,800-byte limit. */
 export const pushPlaintextBudget = 2600;
 const renewBeforeMs = 24 * 60 * 60_000;
+const capabilityLifetimeMs = 60 * 60_000;
 const Registration = z.object({
   handle: z.string().regex(/^[A-Za-z0-9_-]{16,1024}$/),
   expiresAt: z.number().int().nonnegative(),
 });
+const Capabilities = z.object({ kinds: z.array(z.string().max(64)) });
+/** The part of a stored Live Activity target a gateway registration needs. */
+export type ActivityAddress = Pick<LiveActivityTarget, "token" | "environment" | "kind">;
+/**
+ * What became of an activity registration: `unsupported` is a gateway that doesn't advertise the
+ * kind (or an older gateway with no capabilities route), `disabled` is push off on this machine.
+ */
+export type ActivityRegistration =
+  | { status: "registered"; handle: string; expiresAt: number }
+  | { status: "unsupported" | "disabled" | "gone" | "failed" }
+  | { status: "retry"; retryAfterMs?: number };
+export interface PushGatewayTransport extends NotificationTransport, AccessPushTransport {
+  registerActivity(address: ActivityAddress, signal: AbortSignal): Promise<ActivityRegistration>;
+  /** Drop the cached handle for a token that was removed or whose handle the gateway refused. */
+  forgetActivity(address: ActivityAddress): void;
+  forget(): void;
+}
 type Handle = z.infer<typeof Registration>;
 type Address = Extract<NotificationDevice["address"], { channel: "push" }>;
+type KnownKind = "alert" | "liveactivity" | "start";
+type RegistrationOutcome =
+  | { ok: true; handle: Handle }
+  | { ok: false; status: "gone" | "retry" | "failed"; retryAfterMs?: number };
+type CapabilityOutcome =
+  | { ok: true; kinds: ReadonlySet<KnownKind> }
+  | { ok: false; retryAfterMs?: number };
+interface CachedHandle extends Handle {
+  /** A hash of the token and environment, so `forgetActivity` never keeps the token itself. */
+  address: string;
+  kind: KnownKind;
+}
+const knownKinds = new Set<string>(["alert", "liveactivity", "start"]);
+const isKnownKind = (kind: string): kind is KnownKind => knownKinds.has(kind);
 
-function handleKey(origin: string, address: Address): string {
+function addressHash(address: Address | ActivityAddress): string {
   return createHash("sha256")
-    .update(`${origin}\n${address.environment}\n${address.token.toLowerCase()}`)
+    .update(`${address.environment}\n${address.token.toLowerCase()}`)
+    .digest("base64url");
+}
+function handleKey(origin: string, address: Address | ActivityAddress, kind: KnownKind): string {
+  return createHash("sha256")
+    .update(`${origin}\n${kind}\n${addressHash(address)}`)
     .digest("base64url");
 }
 /**
@@ -98,10 +136,16 @@ export function createPushGatewayTransport(
   now: () => number,
   request: typeof fetch = fetch,
   random: (size: number) => Buffer = systemRandom,
-): NotificationTransport & AccessPushTransport & { forget(): void } {
+): PushGatewayTransport {
   const key = p256SigningKey(options.privateKey);
-  const handles = new Map<string, Handle>();
+  const handles = new Map<string, CachedHandle>();
   const tokens = new Map<string, { value: string; at: number }>();
+  const capabilities = new Map<string, { kinds: ReadonlySet<KnownKind>; at: number }>();
+  const capabilityProbes = new Map<string, Promise<CapabilityOutcome>>();
+  const registrations = new Map<string, Promise<RegistrationOutcome>>();
+  /** Per-token counters so a forgotten registration can't land in the cache afterwards. */
+  const invalidations = new Map<string, number>();
+  let forgetEpoch = 0;
   const authorization = (origin: string) => {
     const at = now();
     let token = tokens.get(origin);
@@ -111,36 +155,127 @@ export function createPushGatewayTransport(
     }
     return token.value;
   };
+  const probeCapabilities = async (
+    origin: string,
+    signal: AbortSignal,
+  ): Promise<CapabilityOutcome> => {
+    const response = await request(new URL("/v1/capabilities", origin), {
+      method: "GET",
+      redirect: "error",
+      signal,
+    });
+    // An older gateway has no capabilities route: it sends alerts only, as before.
+    if (response.status === 404) {
+      await response.body?.cancel();
+      return { ok: true, kinds: new Set(["alert"]) };
+    }
+    if (response.status !== 200) {
+      const delay = retryAfterMs(response);
+      await response.body?.cancel();
+      return delay === undefined ? { ok: false } : { ok: false, retryAfterMs: delay };
+    }
+    const text = await boundedText(response, 4096);
+    const parsed = text === undefined ? undefined : Capabilities.safeParse(safeJson(text));
+    if (!parsed?.success) return { ok: false };
+    const kinds = new Set<KnownKind>();
+    for (const kind of parsed.data.kinds) if (isKnownKind(kind)) kinds.add(kind);
+    return { ok: true, kinds };
+  };
+  const capabilitiesFor = async (origin: string): Promise<CapabilityOutcome> => {
+    const at = now();
+    const cached = capabilities.get(origin);
+    if (cached && at >= cached.at && at - cached.at < capabilityLifetimeMs)
+      return { ok: true, kinds: cached.kinds };
+    const pending = capabilityProbes.get(origin);
+    if (pending) return pending;
+    // One probe per origin, with its own deadline: one caller aborting doesn't starve another.
+    const probe = probeCapabilities(origin, AbortSignal.timeout(10_000))
+      .then((outcome) => {
+        if (!outcome.ok) return outcome;
+        // Bounded: one entry per gateway origin.
+        if (capabilities.size >= 64) capabilities.delete(capabilities.keys().next().value ?? "");
+        capabilities.set(origin, { kinds: outcome.kinds, at: now() });
+        return outcome;
+      })
+      .finally(() => capabilityProbes.delete(origin));
+    capabilityProbes.set(origin, probe);
+    return probe;
+  };
   const register = async (
     origin: string,
-    address: Address,
+    address: Address | ActivityAddress,
+    kind: KnownKind,
     signal: AbortSignal,
-  ): Promise<Handle | DeliveryResult> => {
+  ): Promise<RegistrationOutcome> => {
+    // Old daemons and gateways keep the alert body exactly as it was.
+    const body =
+      kind === "alert"
+        ? { token: address.token, environment: address.environment }
+        : { token: address.token, environment: address.environment, kind };
     const response = await request(new URL("/v1/registrations", origin), {
       method: "POST",
       redirect: "error",
       signal,
       headers: { "content-type": "application/json", authorization: authorization(origin) },
-      body: JSON.stringify({ token: address.token, environment: address.environment }),
+      body: JSON.stringify(body),
     });
     if (response.status !== 201) {
+      const delay = retryAfterMs(response);
       await response.body?.cancel();
-      return statusResult(response.status);
+      if (response.status === 410) return { ok: false, status: "gone" };
+      if (response.status === 429 || response.status >= 500)
+        return delay === undefined
+          ? { ok: false, status: "retry" }
+          : { ok: false, status: "retry", retryAfterMs: delay };
+      // Alerts keep their old mapping. An activity registration refused this way is permanent.
+      if (response.status === 404 || (response.status === 403 && kind === "alert"))
+        return { ok: false, status: "retry" };
+      return { ok: false, status: "failed" };
     }
     const text = await boundedText(response, 4096);
     const parsed = text === undefined ? undefined : Registration.safeParse(safeJson(text));
-    return parsed?.success ? parsed.data : "retry";
+    return parsed?.success ? { ok: true, handle: parsed.data } : { ok: false, status: "retry" };
   };
-  const handleFor = async (origin: string, address: Address, signal: AbortSignal) => {
-    const id = handleKey(origin, address);
+  const registerOnce = (
+    origin: string,
+    address: Address | ActivityAddress,
+    kind: KnownKind,
+    signal: AbortSignal,
+  ) => {
+    const id = handleKey(origin, address, kind);
+    const pending = registrations.get(id);
+    if (pending) return pending;
+    const registration = register(origin, address, kind, signal).finally(() =>
+      registrations.delete(id),
+    );
+    registrations.set(id, registration);
+    return registration;
+  };
+  const handleFor = async (
+    origin: string,
+    address: Address | ActivityAddress,
+    kind: KnownKind,
+    signal: AbortSignal,
+  ) => {
+    const id = handleKey(origin, address, kind);
     const cached = handles.get(id);
     if (cached && cached.expiresAt - renewBeforeMs > now()) return { id, handle: cached };
-    const fresh = await register(origin, address, signal);
-    if (typeof fresh === "string") return fresh;
-    // Bounded: one entry per phone token, capped like the device table.
+    const invalidated = `${kind}\n${addressHash(address)}`;
+    const forgotten = invalidations.get(invalidated) ?? 0;
+    const epoch = forgetEpoch;
+    const fresh = await registerOnce(origin, address, kind, signal);
+    // The caller may have gone away while sharing this registration with another caller.
+    if (signal.aborted) return { ok: false, status: "retry" };
+    if (!fresh.ok) return fresh;
+    const entry: CachedHandle = { ...fresh.handle, address: addressHash(address), kind };
+    // forgetActivity (or forget) may have run while the request was in flight. An activity
+    // caller must not use a handle the daemon has already dropped; a fresh one comes next time.
+    if (epoch !== forgetEpoch || (invalidations.get(invalidated) ?? 0) !== forgotten)
+      return kind === "alert" ? { id, handle: entry } : { ok: false, status: "retry" };
+    // Bounded: one entry per phone token and kind, capped like the device table.
     if (handles.size >= 256) handles.delete(handles.keys().next().value ?? "");
-    handles.set(id, fresh);
-    return { id, handle: fresh };
+    handles.set(id, entry);
+    return { id, handle: entry };
   };
   const post = async (
     origin: string,
@@ -188,8 +323,8 @@ export function createPushGatewayTransport(
     const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
     try {
       for (let attempt = 0; attempt < 2; attempt++) {
-        const found = await handleFor(target.origin, address, requestSignal);
-        if (typeof found === "string") return found;
+        const found = await handleFor(target.origin, address, "alert", requestSignal);
+        if (!("handle" in found)) return found.status;
         const status = await post(target.origin, found.handle, address, sealed, requestSignal);
         // An unreadable or expired handle (the gateway rotated its key): register once more.
         if (status === 404 || status === 403) {
@@ -202,6 +337,48 @@ export function createPushGatewayTransport(
     } catch {
       return "retry";
     }
+  };
+  const registerActivity = async (
+    address: ActivityAddress,
+    signal: AbortSignal,
+  ): Promise<ActivityRegistration> => {
+    if (signal.aborted) return { status: "retry" };
+    try {
+      const target = await options.target();
+      // Push is off on this machine: no handle is registered for a push that won't happen.
+      if (!target.enabled) return { status: "disabled" };
+      const supported = await capabilitiesFor(target.origin);
+      if (!supported.ok)
+        return supported.retryAfterMs === undefined
+          ? { status: "retry" }
+          : { status: "retry", retryAfterMs: supported.retryAfterMs };
+      if (!supported.kinds.has(address.kind)) return { status: "unsupported" };
+      if (signal.aborted) return { status: "retry" };
+      const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
+      const found = await handleFor(target.origin, address, address.kind, requestSignal);
+      if (!("handle" in found)) {
+        if (found.status === "gone") return { status: "gone" };
+        if (found.status === "failed") return { status: "failed" };
+        return found.retryAfterMs === undefined
+          ? { status: "retry" }
+          : { status: "retry", retryAfterMs: found.retryAfterMs };
+      }
+      return {
+        status: "registered",
+        handle: found.handle.handle,
+        expiresAt: found.handle.expiresAt,
+      };
+    } catch {
+      return { status: "retry" };
+    }
+  };
+  const forgetActivity = (address: ActivityAddress) => {
+    const hash = addressHash(address);
+    const wanted = `${address.kind}\n${hash}`;
+    if (invalidations.size >= 256) invalidations.delete(invalidations.keys().next().value ?? "");
+    invalidations.set(wanted, (invalidations.get(wanted) ?? 0) + 1);
+    for (const [id, entry] of handles)
+      if (entry.kind === address.kind && entry.address === hash) handles.delete(id);
   };
   return {
     send(device, notificationInput, signal) {
@@ -232,9 +409,14 @@ export function createPushGatewayTransport(
         signal,
       );
     },
+    registerActivity,
+    forgetActivity,
     forget() {
+      forgetEpoch++;
       handles.clear();
       tokens.clear();
+      capabilities.clear();
+      invalidations.clear();
     },
   };
 }
@@ -243,6 +425,12 @@ function statusResult(status: number): DeliveryResult {
   if (status === 410) return "gone";
   if (status === 429 || status >= 500 || status === 404 || status === 403) return "retry";
   return "failed";
+}
+function retryAfterMs(response: Response): number | undefined {
+  const value = response.headers.get("retry-after");
+  if (!value) return undefined;
+  const seconds = Number(value);
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.ceil(seconds * 1000) : undefined;
 }
 async function boundedText(response: Response, limit: number): Promise<string | undefined> {
   const reader = response.body?.getReader();
