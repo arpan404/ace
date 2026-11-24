@@ -1,4 +1,4 @@
-# 0223: An iPhone connection never visibly drops for a quick reconnect
+# 0224: An iPhone connection never visibly drops for a quick reconnect
 
 Status: proposed. Date: 2026-11-24. Extends [ADR 0115](0115-one-device-one-machine.md) (one
 machine over direct and relay) and [ADR 0221](0221-ios-background-refresh-over-relay.md).
