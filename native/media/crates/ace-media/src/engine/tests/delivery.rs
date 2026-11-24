@@ -17,6 +17,12 @@ fn watched(target: Value) -> Engine {
 
 /// `watched`, with a view that decodes `codecs`, best first.
 fn watched_decoding(target: Value, codecs: Value) -> Engine {
+    watched_view(target, codecs, false)
+}
+
+/// `watched_decoding`, with `local`: whether the view is on this machine, as the daemon tells
+/// ace-media for a viewer on its loopback listener (the desktop app).
+fn watched_view(target: Value, codecs: Value, local: bool) -> Engine {
     let mut engine = engine();
     open_tab(&mut engine, "s1", 1, 3);
     hello(&mut engine, 1, 3);
@@ -29,11 +35,33 @@ fn watched_decoding(target: Value, codecs: Value) -> Engine {
                 "owner": owner("phone", pairing(1)), "issued": 2, "source": "s1",
                 "target": target, "codecs": codecs,
                 "viewport": { "width": 390, "height": 844, "dpr": 3, "scale": 1 },
-                "local": false, "audio": false }),
+                "local": local, "audio": false }),
         &[],
         NOW,
     );
     engine
+}
+
+/// The view's client shows everything it has been given: one cumulative ack, numbered far
+/// ahead of the view's own sequence counter.
+fn shown(engine: &mut Engine, now: Now) {
+    engine.media_message(
+        CONNECTION,
+        &json!({ "type": "browser.ack", "threadId": "t1", "sequence": 4_000_000_000_u64,
+                 "video": true })
+        .to_string(),
+        now,
+    );
+}
+
+/// The view's rate and dropped count as `viewer.stats` last reported them.
+fn reported(effects: &[Effect]) -> Option<(f64, u64)> {
+    effects.iter().rev().find_map(|e| match e {
+        Effect::Normal(FromMedia::ViewerStats { rate, dropped, .. }) => {
+            Some((f64::from(*rate), dropped.get()))
+        }
+        _ => None,
+    })
 }
 
 fn binaries(effects: &[Effect]) -> Vec<Vec<u8>> {
@@ -1164,6 +1192,158 @@ fn a_browser_view_header_follows_the_announced_page_closest_to_each_frames_shape
         browser_video_header(&portrait),
         Some((800, 1280, 800, 1280))
     );
+}
+
+/// What one view got through a renderer that keeps up, stalls, and then catches up.
+struct Stalled {
+    /// Its rate as `viewer.stats` last reported it.
+    rate: f64,
+    /// Its losses, as `viewer.stats` counted them.
+    dropped: u64,
+    /// The bit rate of the last encode planned for it.
+    planned: u32,
+    /// Frames of the burst after the stalls that reached its connection, and how many went in.
+    sent: usize,
+    published: usize,
+}
+
+/// Drives one view of `t1` through: a renderer a millisecond behind (so the path's round trip
+/// is 1 ms), five stalls where frames go unacked past their deadline and are let go as losses,
+/// then a burst of a keyframe and twenty deltas with no acks. `local`: the view is on this
+/// machine, as `viewer.open` says for the desktop app.
+fn stalled(local: bool) -> Stalled {
+    let mut engine = watched_view(
+        json!({ "kind": "browser", "threadId": "t1" }),
+        json!(["avc1.42E033"]),
+        local,
+    );
+    let first = ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), at(1_000));
+    let Some(plan) = wants(&first).pop() else {
+        panic!("the first unit plans the view");
+    };
+    let mut planned = plan[0].bitrate;
+    let mut now = 1_100;
+    for n in 1..=10_u8 {
+        // The renderer keeps up: every frame acked a millisecond after it went.
+        ingest(&mut engine, 1, h264(n == 1, n, 1, Vec::new()), at(now));
+        shown(&mut engine, at(now + 1));
+        now += 50;
+    }
+    let mut effects = Vec::new();
+    for cycle in 0..5_u8 {
+        // A stall: a keyframe and five deltas, then nothing until well past the fanout's
+        // deadline (a round trip plus a second's slack), so each tick lets them go as a loss.
+        effects.extend(ingest(
+            &mut engine,
+            1,
+            h264(true, 20 + cycle, 1, Vec::new()),
+            at(now),
+        ));
+        for n in 1..=5_u8 {
+            effects.extend(ingest(
+                &mut engine,
+                1,
+                h264(false, 30 + cycle * 5 + n, 1, Vec::new()),
+                at(now),
+            ));
+        }
+        let stall = now + 3_000;
+        while now < stall {
+            now += 100;
+            engine.tick(at(now));
+        }
+        effects.extend(engine.effects());
+        // The client catches up, long after every chunk was due.
+        shown(&mut engine, at(now));
+        now += 100;
+    }
+    if let Some(last) = wants(&effects).pop() {
+        planned = last[0].bitrate;
+    }
+    // The burst: what a busy renderer's backlog costs the picture.
+    let mut sent = 0;
+    let published = 21_usize;
+    for n in 0..published {
+        let mut unit = h264(n == 0, n as u8, 1, Vec::new());
+        unit.payload.resize(2_000, n as u8);
+        sent += binaries(&ingest(&mut engine, 1, unit, at(now))).len();
+        now += 50;
+    }
+    effects.extend(engine.effects());
+    engine.tick(at(now + 1_000));
+    effects.extend(engine.effects());
+    let (rate, dropped) = reported(&effects).unwrap_or_else(|| panic!("no stats"));
+    Stalled {
+        rate,
+        dropped,
+        planned,
+        sent,
+        published,
+    }
+}
+
+#[test]
+fn a_local_views_late_acks_keep_its_rate_and_every_frame_while_a_remote_views_cut() {
+    let here = stalled(true);
+    let remote = stalled(false);
+    // A view on this machine is paced at the local rate from the first picture, whatever its
+    // renderer does: 16 Mbit/s, which plans an encode at the picture's ceiling (~10.6 Mbit/s
+    // for the test's 1170 x 2532 unit).
+    assert_eq!(here.rate, 16_000_000.0, "the local view's rate");
+    assert!(here.dropped > 0, "the local view lost chunks");
+    assert!(
+        here.planned >= 10_000_000,
+        "the local view's plan: {}",
+        here.planned
+    );
+    // Its bytes in flight stay at the local rate's backlog, so every frame of the burst went.
+    assert_eq!(here.sent, here.published, "the local view got every frame");
+    // The same late acks on a view over a real link cut it to the floor, and the plan shrinks
+    // with it: the behaviour ADR 0149 asks for.
+    assert!(
+        remote.rate <= 300_000.0,
+        "the remote view's rate: {}",
+        remote.rate
+    );
+    assert!(
+        remote.planned <= 500_000,
+        "the remote view's plan: {}",
+        remote.planned
+    );
+    assert!(
+        remote.sent < remote.published,
+        "the remote view's window: {} of {}",
+        remote.sent,
+        remote.published
+    );
+}
+
+#[test]
+fn a_local_views_stats_report_the_fixed_local_rate() {
+    let mut engine = watched_view(
+        json!({ "kind": "browser", "threadId": "t1" }),
+        json!(["avc1.42E033"]),
+        true,
+    );
+    ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), at(1_000));
+    // Ten frames go unacked, then their acks arrive seconds late: on this machine that is a
+    // busy renderer, not a congested link, so the reported rate never moves.
+    for n in 1..=10_u8 {
+        ingest(
+            &mut engine,
+            1,
+            h264(n == 1, n, 1, Vec::new()),
+            at(1_000 + u64::from(n) * 50),
+        );
+    }
+    engine.tick(at(5_000));
+    let mut effects: Vec<Effect> = engine.effects().collect();
+    shown(&mut engine, at(6_000));
+    engine.tick(at(7_000));
+    effects.extend(engine.effects());
+    let (rate, dropped) = reported(&effects).unwrap_or_else(|| panic!("no stats"));
+    assert!(dropped > 0, "the chunks went unacked past their deadline");
+    assert_eq!(rate, 16_000_000.0);
 }
 
 #[test]

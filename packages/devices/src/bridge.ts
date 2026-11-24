@@ -53,6 +53,12 @@ export interface DevicePeer {
   agentExists(threadId: string, agentId: string): boolean;
   send(message: DeviceServerMessage): Promise<void>;
   /**
+   * This connection is on this machine: the daemon's loopback listener decided that, never a
+   * client's claim. A view on this machine is paced at the local rate (ADR 0149: no link to
+   * estimate), and ace-media's other pictures go the same way.
+   */
+  local?: boolean;
+  /**
    * The connection's binary stream (`@ace/browser/stream`): writes one binary message (a stream
    * piece) and reports the transport's backlog. Only a person's screenshots go here; live
    * pictures come from ace-media on the client's media connection (X3).
@@ -112,7 +118,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
       codecs: operation.codecs ?? ["avc1.42E033"],
       // A phone-sized pane until the viewer's `stream.configure` says its size.
       viewport: viewViewport({ width: 390, height: 844, devicePixelRatio: 3 }),
-      local: false,
+      local: peer.local === true,
       audio: false,
       ...(link ? { link } : {}),
       shows: showsDevice(deviceId),
