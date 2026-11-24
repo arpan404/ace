@@ -17,10 +17,10 @@ impl Tool for TaskStatus {
                 name: TASK_STATUS.to_owned(),
                 description: "Say where the task you are working on stands. `working`: more to \
                               do now, and Spade starts your next step itself after you reply. \
-                              `waiting`: waiting on something outside (save a routine to check \
-                              back). `blocked_on_person`: you need the person (ask with \
-                              ask_user). `done`: finished. Set `working` when you start a task \
-                              with several steps, and `done` when it is finished."
+                              `waiting`: on something outside (save a routine to check back). \
+                              `blocked_on_person`: you need the person (ask with ask_user). \
+                              `done`: finished. Set `working` when a task takes several steps, \
+                              and `done` when it is finished."
                     .to_owned(),
                 schema: json!({ "type": "object",
                                 "properties": {

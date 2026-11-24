@@ -17,11 +17,11 @@ impl Tool for TaskGoal {
             spec: ToolSpec {
                 name: TASK_GOAL.to_owned(),
                 description: "Start a task of several steps by drafting its goal: a short title \
-                              and the criteria for done, each one something evidence can show \
-                              (a test passes, a page answers, a file holds X). Spade keeps the \
-                              person's own words as the goal. Once set, only the person can \
-                              change it; a separate check reads your evidence against these \
-                              criteria when you set task_status done."
+                              and the criteria for done, each something evidence can show (a \
+                              test passes, a page answers, a file holds X). The person's own \
+                              words are kept too. Once set, only the person can change it, and a \
+                              check reads your evidence against these criteria when you set \
+                              task_status done."
                     .to_owned(),
                 schema: json!({ "type": "object",
                                 "properties": {
@@ -50,12 +50,9 @@ impl Tool for TaskPlan {
             "properties": {
                 "kind": { "type": "string", "enum": ["output", "file", "url"] },
                 "call": { "type": "string",
-                          "description": "output: the id of a call or background job whose \
-                                          result shows the item done (a command, a test run, \
-                                          a fetched page)." },
+                          "description": "output: the call or job whose result shows it done." },
                 "path": { "type": "string",
-                          "description": "file: a file a call in this conversation wrote or \
-                                          read." },
+                          "description": "file: a file a call here wrote or read." },
                 "url": { "type": "string", "description": "url: a link, like a pull request." } },
             "required": ["kind"] });
         ToolDef {

@@ -24,7 +24,7 @@ use spade_store::Store;
 
 /// A token budget for the fixed prompt's tool list. It is paid on every model call of every bot,
 /// so a change that grows it needs a reason (docs/harness.md, Tools).
-const BUDGET: usize = 10_000;
+const BUDGET: usize = 6_200;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 

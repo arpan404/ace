@@ -49,7 +49,7 @@ fn def(name: &str, description: &str, schema: Value) -> ToolDef {
         },
         risk: Risk::Read,
         untrusted_output: false,
-        deferred: false,
+        deferred: true,
         background: false,
     }
 }
