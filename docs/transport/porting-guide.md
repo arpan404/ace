@@ -790,9 +790,14 @@ lines); its tasks are written like T1a's and take this guide's rules and command
 the deflate spike, reported in [t1b0-deflate-spike.md](t1b0-deflate-spike.md): our own RFC 7692
 extension over `flate2`, on our own framing. The tasks, in order:
 
-1. **T1b.1a** Rust: TLS termination (`rustls` 0.23.46 and `tokio-rustls` 0.26.6 with ring only,
-   no aws-lc-rs), the pinned identity as PEM bytes, SNI with the Tailscale certificate, and one
-   `RemoteListener` for the static and run-time listeners.
+1. **T1b.1a** Rust: TLS termination (`rustls` 0.23.46 and `tokio-rustls` 0.26.6 on aws-lc-rs with
+   `prefer-post-quantum`, installed as the process provider), the pinned identity as PEM bytes,
+   SNI with the Tailscale certificate, and one `RemoteListener` for the static and run-time
+   listeners. **Changed 2026-11-24 (the owner)**: the earlier rule here was ring only, no
+   aws-lc-rs. `X25519MLKEM768` is negotiated today (Node 26 with Bun, Node with Node), and
+   Chromium 131+ and iOS 26 offer it by default; ring has no ML-KEM, so ring only would downgrade
+   those connections. Now `ring` must not appear in the feature graph, and `cargo deny` and the
+   release builds (CMake where aws-lc-sys needs it; prebuilt NASM on Windows) gate the task.
 2. **T1b.1b** The `NativeRemote` binding, its TypeScript shell, and the static listener
    (`options.remote`), with the native listeners' wiring moved out of `server.ts`.
 3. **T1b.2** Per-connection state and peer identity through the hop: the trusted keep-alive, the
@@ -802,11 +807,12 @@ extension over `flate2`, on our own framing. The tasks, in order:
    outbound allowlist left in TypeScript and the 1 MiB post-inflate cap.
 5. **T1b.4** Run-time toggling through `remoteDirect`'s listener factory, with `remoteStarted`'s
    semantics.
-6. **T1b.5** The proof run (T1a.8's list with `native,remote`, remote evidence required for the
-   remote files) and the paired benches (head-of-line and slow-link, direct path).
+6. **T1b.5** The proof run (T1a.8's list with `native,remote`, after T1a.8 merges; evidence of
+   what each listener and port handled, not only that it bound), Autobahn as a local offline step,
+   and the paired benches (head-of-line and slow-link, direct path).
 
 The brief lists the recorded differences from `ws` and the Node/Bun TLS stack, the failure modes
-on restart and reconnect, and the owner's open questions.
+on restart and reconnect, and the owner's decisions of 2026-11-24.
 
 ### T2: hello, authentication, devices (needs T1, store phase 5's writer default-on)
 
