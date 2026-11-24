@@ -487,15 +487,41 @@ pub enum FrameRef { Js(u32), Native(Box<ace_adapter_api::Frame>) }
   `max_active_threads + retiring_count()`, it stops, evicts and removes the oldest actors without
   a reserved slot, in insertion order, until there is room. Still full is
   `Engine actor capacity exceeded`. A new actor takes `released_thread` and `latest_generation`.
-- **Waking the mailbox.** Sealing, enqueueing and arming a timer wake the actor's mailbox task
-  **directly** (`waker.wake_by_ref()` on the waker it registered), not through `defer`. The
-  mailbox is not transactional state in TypeScript either: `tail` survives a rolled-back
-  transaction, and an op sealed inside one still runs (`actor.ts:198`–`:252`). A deferred wake
-  that a rollback dropped would strand the op. A direct wake runs nothing inline: the task runs
-  in a later pump, and the pump never runs inside a transaction, so it always runs after that
-  transaction has committed or rolled back. This is the actor's one exception to E5.1's
-  "sync entries start work through `defer`". It wakes an existing task and spawns nothing, and
-  the reviewer checks that it is the only one.
+- **Waking the mailbox, and what a rollback takes with it.** Mailbox work falls into two kinds,
+  and only the first may bypass `defer`:
+  - **Work that does not depend on the enclosing transaction.** This covers a batch sealed from
+    frames a session handed over, a batch sealed by its timer or by a flush, a timer's tick, and
+    arming a timer. A frame was received from the provider whatever the caller's transaction does,
+    and its acknowledgement already waits on its own fold, which runs later outside any transaction
+    (step 9). Such work is pushed at once and wakes the mailbox task **directly**
+    (`waker.wake_by_ref()` on the waker it registered). A direct wake only schedules a poll: the
+    task runs in a later pump, and the pump never runs inside a transaction, so it runs after the
+    enclosing transaction has committed or rolled back. If that transaction rolls back, the batch
+    is still folded and acknowledged, as TypeScript's `tail` would fold it (`actor.ts:198`–`:252`).
+  - **Work that depends on the receipt**, which is every generic `enqueue(run)` made while a
+    transaction is open (a command's or a port's follow-up, `rootAgent`'s tick, a stop or steer
+    step). Its closure may have captured state the transaction has not committed. So `enqueue`
+    seals the pending frames at once (they are the first kind). Then, inside an open transaction,
+    it pushes a **staged slot** at the call's place in the mailbox, which keeps its order and
+    counts toward `queued`, and hands the op to `core.defer(Deferred::Spawn(Lane::Work, admit))`.
+    `admit` owns the op. When the outermost transaction commits, it is released and spawned, and
+    when it runs it fills the slot and wakes the mailbox. If the transaction rolls back, it is
+    dropped, and its guard marks the slot discarded, subtracts the slot's count, runs
+    `update_pressure` and wakes the mailbox, which skips the slot. A parked mailbox that reaches a
+    slot still pending waits for it. Outside a transaction, `enqueue` pushes the op at once, as
+    the first kind does.
+- **A new actor's first poll.** `get_or_create` inside an open transaction inserts the actor marked
+  `provisional` and defers its mailbox task: `core.defer(Deferred::Spawn(Lane::Work, mailbox))`.
+  On commit the task is spawned, registers its waker and gets its first poll in a later pump. On
+  rollback the deferred future is dropped, and its guard removes the provisional actor from
+  `Actors` (dropping any pending frames, acknowledged with `Done`, as a stopped actor's are) and
+  unregisters nothing, since nothing was registered. A discarded actor is never polled and has no
+  waker. Outside a transaction the task is spawned at once. Until its task exists, a direct wake
+  of a provisional actor is a no-op; the spawned task's first poll runs `catch_up` and takes
+  whatever was queued.
+- These are the actor's only exceptions to E5.1's "sync entries start work through `defer`": direct
+  wakes of an existing task for work of the first kind, which spawn nothing. The reviewer checks
+  that no receipt-dependent op and no actor creation goes through them.
 - `stop(core, thread)`: `actor.ts:599`–`:608`. Seal first, set `stopped`, release all leases,
   disarm, clear pressure, resolve every drain. Dropping the actor also unregisters its waker
   (correction 4) and drops its mailbox task.
@@ -823,11 +849,19 @@ reached the one transaction stack (E5.1 decision 4, correction 8 here):
   events are encoded once, by Rust, with `ace_json`, and are never rebuilt as JavaScript objects
   except where the shell's publication already builds them.
 - **The pumped flush.** With a native engine attached, the shell's deadline timer (`live.ts`, the
-  75 ms and 1 s deadlines the buffer returns) does not flush inline. It calls the engine's
-  `flush_due()`, a synchronous entry that spawns one flush task on `Lane::Work`, deferred through
-  `defer` (it starts work), and coalesces when one is already queued. The task runs the shell's
-  flush from the pump, so no other transaction is open (E5.1 step 2's `Busy` check), and the
-  flush's own transaction is a top-level one on the shared stack. The flushes the store makes
+  75 ms and 1 s deadlines the buffer returns, and the retry delay a failed attempt arms) does not
+  run its attempt inline. It calls the engine's `flush_due()`, a synchronous entry that spawns
+  one flush task on `Lane::Work`, deferred through `defer` (it starts work), and coalesces when one
+  is already queued. The task runs from the pump, so no other transaction is open (E5.1 step 2's
+  `Busy` check), and the flush's own transaction is a top-level one on the shared stack. **The task
+  calls the scheduled-attempt path, `StoreStream.scheduled()` (`store-stream.ts:233`–`:244`),
+  exposed to the hook as `runScheduled()`. It never calls the public `flush()` (`:221`).** The
+  difference matters on retry: while a failed batch is pinned, `flush()` throws `waiting()` without
+  attempting (`:223`), so a retry routed through it would never run, and the batch would stay
+  pinned with every writer waiting on it. `scheduled()` rearms when writes are held, attempts
+  otherwise (`attempt()` retries a recovering batch, or isolates and quarantines after
+  `quarantineAfter` strikes), and swallows the attempt's error after the attempt has reported it
+  and armed the next retry. The flush task therefore never fails. Seam test 18 proves it. The flushes the store makes
   itself are unchanged: before a transaction begins (`store.ts`'s `transactionHost().flush`),
   when the buffer is full, and on `flushLiveWrites()`. With no engine attached (the switch off),
   no hook is set and the timer flushes inline as today, byte for byte. That is one optional hook
@@ -855,14 +889,23 @@ reached the one transaction stack (E5.1 decision 4, correction 8 here):
     the engine synchronously (a JavaScript translator can call a facade read). None of them runs
     inside `with_state`, and the actor's own bookkeeping is re-read after each of them.
 11. `actorFrame` can be called from inside an op, if a port the op called makes the session emit
-    a frame synchronously. It only appends to `pending` and may seal. Sealing queues an op behind
-    the running one and defers its wake. Nothing runs inline.
-12. The live flush runs as a pump task (step 16). Inside its transaction the shell calls E5.3's
-    `persist` and `committed` back as synchronous entries, and those never run a task. A flush the
-    store starts itself (before a transaction begins) does the same, inside that call.
+    a frame synchronously, or from inside any open transaction. It only appends to `pending` and
+    may seal. A sealed frame batch is work of the first kind (step 7): it is queued behind the
+    running op at once and wakes the mailbox directly, and a rollback of the enclosing transaction
+    does not discard it. Nothing runs inline. A generic `enqueue` made in the same place is staged
+    and deferred instead (step 7).
+12. The live flush runs as a pump task (step 16). The shell calls E5.3's snapshot back in a fixed
+    order (`store-stream.ts:296`–`:335`): **`persist` runs inside the flush's transaction**, before
+    it commits, so the thread's header and records commit with the batch's rows (and roll back
+    with them); **`committed` runs after the outermost commit**, from the transaction's
+    `committed` outcome, after the buffer has retired the batch. It never runs on a savepoint's
+    release or after a rollback, which only rearms (`rolledBack`). Both are synchronous entries
+    and never run a task. A flush the store starts itself (before a transaction begins) keeps the
+    same order inside that call. A retried batch calls `persist` again only for the threads
+    `:324` names.
 13. No borrow of `ActorDeps.translators` is held across a translator call (step 7).
-14. The actor's mailbox wakes are direct and its other wakes go through `defer` (step 7). The
-    reviewer checks that the direct wakes are the only exception.
+14. Direct wakes only for work that does not depend on the enclosing transaction. Receipt-dependent
+    `enqueue`s and new actors' tasks go through `defer` and are discarded on rollback (step 7).
 
 ## Proof
 
@@ -999,9 +1042,25 @@ the switch on:
     `translate` calls the probe to attach a new session to the same thread. Afterwards the actor
     translates with the new translator, the old one is not put back, and nothing reports
     `Reentrant`.
-15. "an op sealed inside a rolled-back transaction still runs": `onFrame` and a flush-triggered
-    seal inside a `store.atomic` that throws; the batch is still committed and acknowledged
-    afterwards, as in TypeScript (step 7, "Waking the mailbox").
+15. "a frame batch sealed inside a rolled-back transaction is still folded and acknowledged":
+    `onFrame` and a flush-triggered seal inside a `store.atomic` that throws. Afterwards the batch
+    is committed and its promise resolves (step 7, first kind).
+16. "an enqueue made inside a rolled-back transaction never runs, and one inside a committed
+    transaction runs in its call order": two `store.atomic`s, each with a frame and then an
+    `enqueue`, the first throwing. Only the second op runs, after the frames sealed before it, and
+    `backlog()` returns to zero. A direct wake for `enqueue` makes the first op run, and the test
+    fails.
+17. "an actor created inside a rolled-back transaction is discarded and never polled":
+    `rootAgent` (which creates the actor and applies a tick) inside a `store.atomic` that throws.
+    Afterwards `liveThreadIds()` lacks the thread, `probe.turns()` shows no poll of its task, and
+    no waker is registered for it. The same call inside a committed transaction leaves the actor
+    live with its tick applied.
+18. (step 16) "a live batch whose first attempt fails is retried as a pump task and stored": the
+    probe snapshot's `persist` throws a busy error once. The retry timer fires and the task runs
+    `runScheduled` (not `flush()`), which stores the batch. `persist` ran inside the retry's
+    transaction and `committed` after its commit, in that order, and a writer waiting on
+    `writable()` proceeds. Routing the retry through `flush()` leaves the batch pinned, and the
+    test times out.
 
 ## Benches
 
@@ -1073,8 +1132,13 @@ the switch on:
   polled both receivers. Replacing the poll with `try_recv` makes seam tests 4b and 4c fail.
 - An op that settled a JavaScript acknowledgement ends the turn (seam test 13).
 - The translator is taken out and put back only if its session is still current (seam test 14).
-- The live buffer is the connection's one buffer, and with the engine attached its deadline flush
-  runs as a pump task. With the engine off the store's files behave exactly as before.
+- The live buffer is the connection's one buffer, and with the engine attached its deadline and
+  retry attempts run as a pump task through `runScheduled`, never through `flush()`. With the
+  engine off the store's files behave exactly as before.
+- Snapshot order: `persist` inside the flush's transaction, `committed` after the outermost commit.
+- Rollback scope: frame batches and ticks wake directly; receipt-dependent `enqueue`s are staged
+  and deferred; an actor created in a rolled-back transaction is discarded and never polled (seam
+  tests 15–17).
 - `released_thread` is E5.3's, `cursor_record` is called only for a non-empty journal, and
   `latest_generation`'s row says E5.4 reads both indexed maxima.
 - The coalescer checks the in-between signal's own agent, and the raw walk visits siblings last
