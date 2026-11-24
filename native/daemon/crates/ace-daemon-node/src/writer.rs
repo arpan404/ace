@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The binding for phase 5 (docs/store/porting-guide.md). One method per task; 5.1 owns
 //! `fold_thread`, 5.2b owns `sequences`, 5.3a owns `event_writer`, 5.3b-2 owns
-//! `thread_column_writer`, 5.4a owns `compact_deltas` and `live_retry_delay`, and 5.4b owns
-//! `live_buffer` (`writer/live.rs`). Only the sequences, event-writer and column-writer handles
-//! touch the connection they hold; the fold, the compaction and the buffer never do.
+//! `thread_column_writer`, 5.4a owns `compact_deltas` and `live_retry_delay`, 5.4b owns
+//! `live_buffer` (`writer/live.rs`), and 5.5 owns `transaction_stack`
+//! (`writer/transaction.rs`). Only the sequences, event-writer, column-writer and transaction
+//! handles touch the connection they hold; the fold, the compaction and the buffer never do.
 
 use ace_projection::{Column, FoldEvent, update_thread};
 use ace_store::Connection;
@@ -20,6 +21,7 @@ use crate::json_bind;
 use crate::{NativeDatabase, fail};
 
 mod live;
+mod transaction;
 
 #[napi]
 impl NativeDatabase {
@@ -127,6 +129,13 @@ impl NativeDatabase {
     #[napi(catch_unwind)]
     pub fn live_buffer(&self) -> live::NativeLiveBuffer {
         live::NativeLiveBuffer::empty()
+    }
+
+    /// The transaction stack for this connection (task 5.5). Its frames run on the connection,
+    /// so a nested savepoint sees the same open transaction the TypeScript store holds.
+    #[napi(catch_unwind)]
+    pub fn transaction_stack(&self) -> transaction::NativeTransactionStack {
+        transaction::NativeTransactionStack::new(Arc::clone(self.connection()))
     }
 }
 
