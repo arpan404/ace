@@ -128,7 +128,7 @@ fn helper_request(spade: &Spade) -> Option<Value> {
         .seen()
         .into_iter()
         .map(|seen| seen.body)
-        .find(|body| body.to_string().contains("You are a helper Spade started"))
+        .find(|body| body.to_string().contains(spade_core::helper::RULES))
 }
 
 #[tokio::test]
@@ -483,11 +483,7 @@ async fn a_helper_takes_as_many_steps_as_its_task_needs_and_its_cost_is_the_bots
         .fake
         .seen()
         .iter()
-        .filter(|seen| {
-            seen.body
-                .to_string()
-                .contains("You are a helper Spade started")
-        })
+        .filter(|seen| seen.body.to_string().contains(spade_core::helper::RULES))
         .count();
     assert_eq!(helper_steps, 41);
     let found = helpers(&spade, &conversation).await?;

@@ -578,15 +578,12 @@ pub fn report_text(report: &Report) -> String {
         return lane_report_text(report);
     }
     let next = match report.state {
-        ReportState::Done => "Read its checked outcome with worker_result.",
+        ReportState::Done => "Read verified outcome with worker_result.",
         ReportState::Finished => {
-            "Check its outcome with worker_result before you rely on it; message it with \
-             worker_message if it should carry on."
+            "Check outcome with worker_result; use worker_message if more work is needed."
         }
-        ReportState::NeedsYou => {
-            "Only the person can answer it. Carry on with other work, or wait for it."
-        }
-        ReportState::Failed => "Decide whether to message it to try again, or stop it.",
+        ReportState::NeedsYou => "Waiting on the person; continue other work or wait.",
+        ReportState::Failed => "Message it to retry, or stop it.",
         ReportState::Stopped | ReportState::Stopping | ReportState::Other => "",
     };
     let mut text = format!(
@@ -631,15 +628,10 @@ pub fn report_untrusted(report: &Report) -> bool {
 fn lane_report_text(report: &Report) -> String {
     let next = match report.state {
         ReportState::Done | ReportState::Finished => {
-            "Tell the person what it did in a sentence or two, with its evidence; read more with \
-             tasks."
+            "Summarize outcome and evidence for the person; use tasks for details."
         }
-        ReportState::NeedsYou => {
-            "It waits on the person: their answer shows in this chat's request strip."
-        }
-        ReportState::Failed => {
-            "Tell the person it stopped early and why, in a sentence; they can try it again."
-        }
+        ReportState::NeedsYou => "Waiting on the person in this chat's request strip.",
+        ReportState::Failed => "Tell the person why it stopped; they can retry it.",
         ReportState::Stopped | ReportState::Stopping | ReportState::Other => "",
     };
     let mut text = format!(

@@ -280,7 +280,7 @@ async fn a_long_task_ages_old_results_in_batches_and_the_stub_says_how_to_get_on
         .collect();
     let last = steps.last().cloned().unwrap_or(Value::Null);
     let results = tool_texts(&last);
-    assert!(results[0].starts_with("[Aged out"), "{:.200}", results[0]);
+    assert!(results[0].starts_with("[Aged:"), "{:.200}", results[0]);
     assert!(
         !results[0].contains("ZEBRA-0"),
         "the aged page is out of the prompt"
@@ -383,10 +383,10 @@ async fn a_helper_following_a_stub_reads_its_own_history_back() -> Result {
         .seen()
         .iter()
         .map(|seen| seen.body.to_string())
-        .filter(|body| body.contains("You are a helper Spade started"))
+        .filter(|body| body.contains(spade_core::helper::RULES))
         .collect();
     assert!(
-        helper_bodies.iter().any(|b| b.contains("[Aged out")),
+        helper_bodies.iter().any(|b| b.contains("[Aged:")),
         "the helper's old results aged"
     );
     let last = helper_bodies.last().cloned().unwrap_or_default();

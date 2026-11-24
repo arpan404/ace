@@ -904,7 +904,7 @@ async fn a_plugin_agent_is_a_helper_profile_of_the_bots_allowed_it_until_the_plu
         .seen()
         .into_iter()
         .map(|seen| seen.body)
-        .find(|body| body.to_string().contains("You are a helper Spade started"))
+        .find(|body| body.to_string().contains(spade_core::helper::RULES))
         .ok_or("the helper made no request")?;
     assert!(
         request.to_string().contains("Review the diff closely."),

@@ -114,12 +114,10 @@ pub fn due(events: &[Event]) -> Option<usize> {
 /// size, and how to read it again word for word (`seq` is its position for `history_read`).
 pub fn stub(name: &str, arguments: &Value, content: &str, seq: u64) -> String {
     format!(
-        "[Aged out to keep this conversation's prompt small: {name} returned {} characters \
-         here, called with {}. Read it again word for word with history_read \
-         {{\"from\": {seq}, \"count\": 1}}, find it with history_search, or call the tool again \
-         for a fresh copy.]",
-        content.chars().count(),
+        "[Aged: {name}({}) returned {} chars. Re-read via history_read \
+         {{\"from\": {seq}, \"count\": 1}}, history_search, or re-run.]",
         crate::compaction::brief(arguments),
+        content.chars().count(),
     )
 }
 

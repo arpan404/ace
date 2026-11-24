@@ -23,7 +23,7 @@ pub fn warm_up() -> Vec<Script> {
 
 /// The words only a lane's own calls carry: what Spade tells it about its task.
 pub fn lane(title: &str) -> String {
-    format!("one task for the person: {title}.")
+    format!("Task: {title}")
 }
 
 pub fn route(title: &str, scripts: Vec<Script>) -> Route {
