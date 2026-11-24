@@ -33,6 +33,13 @@ fn weight_of_bytes(bytes: f64) -> f64 {
     bytes * 8.0 + EVENT_OVERHEAD
 }
 
+/// `overfull`'s charge for a batch of `bytes`: eight times its JSON bytes plus the size
+/// guard's headroom, exactly the TypeScript's `bytes * 8 + 4096`. A batch that has not been
+/// admitted yet takes no per-row cost, unlike a buffered event.
+fn admission_charge(bytes: f64) -> f64 {
+    bytes * 8.0 + ADMISSION_HEADROOM
+}
+
 /// One buffered event, as the buffer holds it.
 #[derive(Debug)]
 struct Entry {
@@ -136,10 +143,10 @@ impl Buffer {
 
     /// Whether a batch of `bytes` must drain the buffer first; `Never` for one that cannot fit.
     pub fn admission(&self, bytes: f64) -> Admission {
-        if weight_of_bytes(bytes) + ADMISSION_HEADROOM > CEILING_WEIGHT {
+        if admission_charge(bytes) > CEILING_WEIGHT {
             return Admission::Never;
         }
-        if self.weight + weight_of_bytes(bytes) + ADMISSION_HEADROOM > CEILING_WEIGHT {
+        if self.weight + admission_charge(bytes) > CEILING_WEIGHT {
             return Admission::Drain;
         }
         Admission::Admit
@@ -256,8 +263,10 @@ impl Buffer {
         let everything =
             gone.len() >= self.threads.len() && gone.iter().all(|thread| self.has(thread));
         if everything {
-            self.entries.clear();
-            self.threads.clear();
+            // A long streamed answer grows these to their peak: once the batch is emptied, a
+            // fresh pair of vectors hands that memory back instead of keeping it pinned.
+            self.entries = Vec::new();
+            self.threads = Vec::new();
             self.weight = 0.0;
         } else {
             self.threads.retain(|thread| !gone.contains(thread));

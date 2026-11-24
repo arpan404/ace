@@ -56,10 +56,14 @@ fn the_buffer_asks_for_a_flush_at_64_kib_and_refuses_a_batch_past_8_mib() {
         pinned(&mut buffer, "a", index as f64 + 1.0, 57.0);
     }
     assert!(buffer.full());
-    // A batch that still fits drains, and one that could never fit is refused outright.
+    // A batch charges `bytes * 8 + 4096`, with no per-row cost of its own: 8,376,000 plus
+    // 12,288 still fits 8 MiB, and one row's 512 bytes more would have drained it. A byte
+    // over the exact ceiling drains it.
     let mut near = Buffer::new();
-    pinned(&mut near, "a", 1.0, 1_047_000.0);
-    assert_eq!(near.admission(1024.0), Admission::Drain);
+    pinned(&mut near, "a", 1.0, 1_046_936.0);
+    assert_eq!(near.admission(1024.0), Admission::Admit);
+    assert_eq!(near.admission(1064.0), Admission::Admit);
+    assert_eq!(near.admission(1065.0), Admission::Drain);
     assert_eq!(near.admission(8_000_000.0), Admission::Never);
     let empty = Buffer::new();
     assert_eq!(empty.admission(1024.0), Admission::Admit);

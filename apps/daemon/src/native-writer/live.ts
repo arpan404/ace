@@ -67,23 +67,23 @@ function binding(db: DatabaseSync): NativeLive {
   return handle;
 }
 
-/** The native live part ran at least once in this process (the proof's evidence file). */
-let evidenceWritten = false;
+/** The evidence lines already written in this process, by kind (the proof's evidence file). */
+const evidence = new Set<string>();
 
-/** Appends one line to `ACE_STORE_WRITER_EVIDENCE` on the first native live call, when set. */
-function recordEvidence(): void {
-  if (evidenceWritten) return;
+/** Appends one line to `ACE_STORE_WRITER_EVIDENCE` the first time `kind` runs, when set. */
+function recordEvidence(kind: string): void {
+  if (evidence.has(kind)) return;
   const path = process.env.ACE_STORE_WRITER_EVIDENCE;
   if (path === undefined) return;
-  evidenceWritten = true;
-  appendFileSync(path, `${process.pid} live\n`);
+  evidence.add(kind);
+  appendFileSync(path, `${process.pid} ${kind}\n`);
 }
 
 /** `compactDeltas` with the switch off; with it on, the Rust compaction. */
 export function compactDeltas(db: DatabaseSync, events: Event[]): Event[] {
   if (!storeWriterOn("live")) return compactDeltasTypeScript(events);
   const text = nativeCall(() => binding(db).compactDeltas(JSON.stringify(events)));
-  recordEvidence();
+  recordEvidence("live");
   return JSON.parse(text) as Event[];
 }
 
@@ -91,7 +91,7 @@ export function compactDeltas(db: DatabaseSync, events: Event[]): Event[] {
 export function retryDelay(db: DatabaseSync, failures: number): number {
   if (!storeWriterOn("live")) return liveWriteRetryDelay(failures);
   const ms = nativeCall(() => binding(db).liveRetryDelay(failures));
-  recordEvidence();
+  recordEvidence("live");
   return ms;
 }
 
@@ -126,7 +126,6 @@ export class NativeLiveBuffer implements LiveBuffer {
     this.options = privateOptions;
     this.encodings = privateOptions.encodings ?? new EventEncodings();
     this.handle = nativeCall(() => binding(privateOptions.db).liveBuffer());
-    recordEvidence();
   }
   get failed(): boolean {
     return this.call((buffer) => buffer.failed());
@@ -177,6 +176,7 @@ export class NativeLiveBuffer implements LiveBuffer {
     const pairs: number[] = [];
     for (const event of events) pairs.push(event.seq, this.encodings.bytes(event));
     const ms = this.call((buffer) => buffer.append(thread, pairs));
+    recordEvidence("live");
     this.snapshots.set(thread, snapshot);
     for (const event of events) this.events.push(event);
     if (ms !== null) this.arm(ms);
@@ -201,11 +201,13 @@ export class NativeLiveBuffer implements LiveBuffer {
   /** Quarantine: forget a thread's events and snapshot without storing them. */
   discard(thread: ThreadId): void {
     const removal = this.removal((buffer) => buffer.discard(thread));
+    recordEvidence("live-discard");
     this.settle([thread], removal);
   }
   /** A failed attempt keeps the batch pinned and schedules the next one; returns its delay. */
   retry(): number {
     const ms = this.call((buffer) => buffer.retry());
+    recordEvidence("live-retry");
     this.arm(ms);
     return ms;
   }
@@ -235,11 +237,9 @@ export class NativeLiveBuffer implements LiveBuffer {
     if (this.call((buffer) => buffer.stop())) this.disarm();
     this.wake();
   }
-  /** One call into the addon: the evidence line appears only after it succeeds. */
+  /** One call into the addon. Each caller records its own evidence once the call succeeded. */
   private call<T>(run: (buffer: NativeBuffer) => T): T {
-    const result = nativeCall(() => run(this.handle));
-    recordEvidence();
-    return result;
+    return nativeCall(() => run(this.handle));
   }
   private removal(run: (buffer: NativeBuffer) => string): Removal {
     return JSON.parse(this.call(run)) as Removal;
