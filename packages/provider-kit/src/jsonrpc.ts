@@ -67,8 +67,13 @@ type Inspected =
   | { kind: "request"; raw: unknown; id: RpcId; method: string; params: unknown }
   | { kind: "notification"; raw: unknown; method: string; params: unknown }
   | { kind: "response"; raw: unknown; id: RpcId; result: unknown; error: unknown };
-/** One received line's shape; the native one classifies, then this parses once. */
-type RpcInspector = (line: string) => Inspected;
+/**
+ * One received line's shape. `observe` hands the parsed frame to the observer and answers false
+ * once it has thrown (the peer is then closed, and the line is not acted on). The TypeScript
+ * path calls it after the parse and before the classification, as the peer always has; the
+ * native one answers in Rust, so its frame reaches the observer straight after.
+ */
+type RpcInspector = (line: string, observe: (raw: unknown) => boolean) => Inspected | undefined;
 
 /**
  * The peer's error as the rejection's message. The raw frame is already with
@@ -82,14 +87,18 @@ function rpcErrorMessage(error: unknown): string {
   }
 }
 
-/** Today's parse and classification, kept for the switch's off side. */
-function typeScriptInspect(line: string): Inspected {
+/** Today's parse, the observer's look, then classification: the switch's off side. */
+function typeScriptInspect(
+  line: string,
+  observe: (raw: unknown) => boolean,
+): Inspected | undefined {
   let raw: unknown;
   try {
     raw = JSON.parse(line);
   } catch {
     return { kind: "unparsable", raw: undefined };
   }
+  if (!observe(raw)) return undefined;
   if (!isEnvelope(raw)) return { kind: "malformed", raw };
   const message = raw;
   const id = message["id"];
@@ -107,6 +116,13 @@ function typeScriptInspect(line: string): Inspected {
       error: message["error"],
     };
   return { kind: "malformed", raw };
+}
+
+/** The native classifier answers the whole frame at once; the observer sees it straight after. */
+function observedNatively(line: string, observe: (raw: unknown) => boolean): Inspected | undefined {
+  const inspected = nativeInspect(line);
+  if (inspected.kind === "unparsable") return inspected;
+  return observe(inspected.raw) ? inspected : undefined;
 }
 
 /** Lenient stdio framing: extension methods and absent jsonrpc tags are accepted. */
@@ -141,7 +157,7 @@ export class JsonRpcPeer {
     byteLimit(options.maxExplicitIds ?? 4096, "maxExplicitIds");
     byteLimit(options.maxQueuedBytes ?? 32 * 1024 * 1024, "maxQueuedBytes");
     this.#owner = rpcOwner(proc.stdin, options);
-    this.#inspect = supervisorBackend() === "native" ? nativeInspect : typeScriptInspect;
+    this.#inspect = supervisorBackend() === "native" ? observedNatively : typeScriptInspect;
     this.#schedule = options.schedule ?? scheduleDeadline;
     this.#process = proc;
     this.#options = options;
@@ -279,21 +295,23 @@ export class JsonRpcPeer {
       signal ? AbortSignal.any([signal, this.#outgoing.signal]) : this.#outgoing.signal,
     );
   }
-  #receive = (line: string): void => {
-    const inspected = this.#inspect(line);
-    if (inspected.kind === "unparsable") {
-      this.#options.onMalformed?.(line);
-      return;
-    }
+  /** The observer's look at a frame; false once it has thrown, with the peer closed. */
+  #observe = (raw: unknown): boolean => {
     try {
-      this.#options.onFrame?.("recv", inspected.raw);
+      this.#options.onFrame?.("recv", raw);
+      return true;
     } catch (error) {
       const failure = asError(error);
       this.close(failure);
       this.#report(failure);
-      return;
+      return false;
     }
-    if (inspected.kind === "malformed") {
+  };
+  #receive = (line: string): void => {
+    const inspected = this.#inspect(line, this.#observe);
+    // Undefined: the observer threw, so the peer is closed and the frame is not acted on.
+    if (inspected === undefined) return;
+    if (inspected.kind === "unparsable" || inspected.kind === "malformed") {
       this.#options.onMalformed?.(line);
       return;
     }

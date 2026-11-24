@@ -58,6 +58,8 @@ type Flight = {
   id: number;
   pid?: number;
   group?: LeaderGroup;
+  /** The spawn's kernel start: the identity the native supervisor's handle is taken by. */
+  start?: string | undefined;
   stopping: boolean;
   /** Set when the worker sent a reply this thread can't read; the probe fails with it. */
   failure?: Error;
@@ -84,7 +86,7 @@ export function createProbeThread(
   const stop = (flight: Flight) => {
     const first = !flight.stopping;
     flight.stopping = true;
-    if (flight.pid !== undefined) stopGroup(flight.pid, flight.group);
+    if (flight.pid !== undefined) stopGroup(flight.pid, flight.group, flight.start);
     try {
       worker.postMessage({ type: "stop", id: flight.id });
     } catch {
@@ -107,7 +109,7 @@ export function createProbeThread(
   };
   const fail = (error: Error) => {
     for (const flight of flights.values()) {
-      if (flight.pid !== undefined) stopGroup(flight.pid, flight.group);
+      if (flight.pid !== undefined) stopGroup(flight.pid, flight.group, flight.start);
       end(flight);
       flight.done.reject(error);
     }
@@ -148,6 +150,8 @@ export function createProbeThread(
     if (message.data.type === "spawned") {
       const { pid, unique, start } = message.data;
       flight.pid = pid;
+      // Kept on the flight: a dead worker's probe is still stopped through this identity.
+      flight.start = start;
       const group =
         start === undefined || supervisorBackend() === "native"
           ? undefined
@@ -166,7 +170,7 @@ export function createProbeThread(
       }
       // Owned by pid now; the admission that covered the gap is no longer needed.
       flight.release();
-      if (flight.stopping) stopGroup(pid, group);
+      if (flight.stopping) stopGroup(pid, group, start);
       return;
     }
     const { type: _type, id: _id, ...exit } = message.data;
