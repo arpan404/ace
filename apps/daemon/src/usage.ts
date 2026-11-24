@@ -80,6 +80,12 @@ export interface UsageReplayFailure {
 export const usageFillingBacklog = 4096;
 /** How long a read waits for the replay to reach the head it captured. */
 export const usageSettleMs = 250;
+/**
+ * Commits wake the replay at most once per window. A replay's own read flushes live writes and
+ * can commit, so an immediate wake lets a commit's read cause the next commit; the live-write
+ * buffer's 75 ms flush window bounds the wait, and `usageSettleMs` absorbs it for a reading client.
+ */
+export const usageReplayWakeMs = 100;
 /** A thread's events read per main-thread slice when its session totals are read directly. */
 const sessionSliceEvents = 256;
 /** Failed background replay retries 1 s, 2 s, 4 s ... capped, then waits for new data. */
@@ -135,7 +141,7 @@ export function createDaemonUsage(
   let failures = 0;
   let retry: (() => void) | undefined;
   let running: Promise<void> | undefined;
-  let scheduled: NodeJS.Immediate | undefined;
+  let scheduled: (() => void) | undefined;
   let counted: unknown;
   const replay = () => {
     void catchUp().catch((error: unknown) => {
@@ -156,7 +162,10 @@ export function createDaemonUsage(
       replay();
     }, milliseconds);
   };
-  /** New usage data wakes replay at once, unless a failing replay is backing off. */
+  /**
+   * New usage data wakes replay within one coalescing window, so a burst of commits causes one
+   * replay rather than one per commit, unless a failing replay is backing off.
+   */
   const schedule = () => {
     if (stopped || scheduled || retry) return;
     if (failures > usageReplayBackoff.attempts) {
@@ -165,10 +174,10 @@ export function createDaemonUsage(
       return;
     }
     if (failures > 0) return;
-    scheduled = setImmediate(() => {
+    scheduled = replayTimer.delay(() => {
       scheduled = undefined;
       replay();
-    });
+    }, usageReplayWakeMs);
   };
   const catchUp = (): Promise<void> => {
     if (stopped) return Promise.reject(new Error("Usage service closed"));
@@ -285,7 +294,8 @@ export function createDaemonUsage(
       unsubscribe();
       retry?.();
       retry = undefined;
-      if (scheduled) clearImmediate(scheduled);
+      scheduled?.();
+      scheduled = undefined;
       try {
         await running;
       } finally {
