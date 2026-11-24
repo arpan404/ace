@@ -4,96 +4,20 @@
 //! shell's answers (a stream that is full, an exit it has heard) go back to
 //! the crate. Behaviour lives in `ace_supervisor::child`.
 
+use super::sink::{Events, Sink, TsfnSink};
 use super::{bind_error, guarded, input_error, runtime};
 use ace_supervisor::child::{SupervisedChild, spawn_child};
-use ace_supervisor::errors::NodeIoError;
+use ace_supervisor::divert::{DivertTarget, Diverted};
 use ace_supervisor::signal::SignalName;
-use ace_supervisor::spawn::{Delivered, EventSink, OutputStream, RawExit, SpawnSpec, StdioMode};
-use napi::bindgen_prelude::{FnArgs, Uint8Array};
-use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
+use ace_supervisor::spawn::{OutputStream, SpawnSpec, StdioMode};
+use napi::bindgen_prelude::Uint8Array;
 use napi_derive::napi;
 use std::sync::Arc;
 
-/// The shell's event listener: `(kind, data)`; for output it returns
-/// whether its stream wants more.
-type Events = ThreadsafeFunction<FnArgs<(String, Uint8Array)>, Option<bool>>;
-
-#[derive(Clone)]
-struct TsfnSink {
-    events: Arc<Events>,
-}
-
-impl TsfnSink {
-    fn send(&self, kind: &str, data: Vec<u8>) {
-        let _ = self.events.call(
-            Ok(FnArgs::from((kind.to_owned(), Uint8Array::new(data)))),
-            ThreadsafeFunctionCallMode::NonBlocking,
-        );
-    }
-}
-
-fn exit_json(exit: &RawExit) -> Vec<u8> {
-    let code = exit
-        .code
-        .map_or_else(|| "null".to_owned(), |code| code.to_string());
-    let signal = exit
-        .signal
-        .as_ref()
-        .map_or_else(|| "null".to_owned(), |signal| format!("\"{signal}\""));
-    format!("{{\"code\":{code},\"signal\":{signal}}}").into_bytes()
-}
-
-impl EventSink for TsfnSink {
-    fn output(&self, stream: OutputStream, bytes: Vec<u8>, delivered: Delivered) {
-        let kind = match stream {
-            OutputStream::Stdout => "stdout",
-            OutputStream::Stderr => "stderr",
-        };
-        // The answer runs on the JS thread right after the listener; a
-        // listener that throws stays an uncaught exception.
-        let _ = self.events.call_with_return_value(
-            Ok(FnArgs::from((kind.to_owned(), Uint8Array::new(bytes)))),
-            ThreadsafeFunctionCallMode::NonBlocking,
-            move |more, _env| {
-                let more = more?;
-                delivered.taken(more.unwrap_or(true));
-                Ok(())
-            },
-        );
-    }
-
-    fn end(&self, stream: OutputStream) {
-        let kind = match stream {
-            OutputStream::Stdout => "stdout-end",
-            OutputStream::Stderr => "stderr-end",
-        };
-        self.send(kind, Vec::new());
-    }
-
-    fn exit(&self, exit: RawExit) {
-        self.send("exit", exit_json(&exit));
-    }
-
-    fn close(&self, exit: RawExit) {
-        self.send("close", exit_json(&exit));
-    }
-
-    fn stdin_written(&self) {
-        self.send("stdin-written", Vec::new());
-    }
-
-    fn stdin_error(&self, error: NodeIoError) {
-        self.send("stdin-error", error.to_json().into_bytes());
-    }
-
-    fn hold_limit(&self) {
-        self.send("hold-limit", Vec::new());
-    }
-
-    fn held(&self, message: String) {
-        self.send("held", message.into_bytes());
-    }
-}
+/// What a diverted child's stdin, output and stop controls are owned by.
+const STDIN_OWNED: &str = "stdin is owned by the native session";
+/// The output methods a diverted child refuses; its consumer pauses and closes.
+const OUTPUT_OWNED: &str = "output is owned by the native session";
 
 /// A spawn request from the shell. `env` is the child's whole environment.
 #[derive(Debug, serde::Deserialize)]
@@ -142,9 +66,23 @@ fn stream(kind: &str) -> napi::Result<OutputStream> {
     }
 }
 
-/// Spawns a supervised child; its events arrive on `events` in order.
+/// A Rust session's sink and controls for a diverted child (E3.0b): its
+/// consumer takes the bytes, answers each delivery and owns stdin and the
+/// pumps. Only the session bindings make one, never JavaScript.
+#[napi]
+pub struct NativeOutputTarget {
+    target: DivertTarget,
+}
+
+/// Spawns a supervised child; its events arrive on `events` in order. With a
+/// `target` the child's pipes go to that session's consumer instead (E3.0b),
+/// and `target.ports` is filled before this returns.
 #[napi(catch_unwind)]
-pub fn supervisor_spawn(spec_json: String, events: Events) -> napi::Result<NativeChild> {
+pub fn supervisor_spawn(
+    spec_json: String,
+    events: Events,
+    target: Option<&NativeOutputTarget>,
+) -> napi::Result<NativeChild> {
     guarded("supervisor spawn", || {
         let spec: SpecJson = serde_json::from_str(&spec_json).map_err(input_error)?;
         let spec = SpawnSpec {
@@ -160,11 +98,22 @@ pub fn supervisor_spawn(spec_json: String, events: Events) -> napi::Result<Nativ
             stdout: stdio_mode(&spec.stdout)?,
             stderr: stdio_mode(&spec.stderr)?,
         };
-        let sink = TsfnSink {
-            events: Arc::new(events),
+        let shell = TsfnSink::new(events);
+        let (sink, diverted) = match target {
+            Some(target) => (
+                Sink::Diverted(Diverted::new(shell, Arc::clone(&target.target.consumer))),
+                true,
+            ),
+            None => (Sink::Shell(shell), false),
         };
-        let child = spawn_child(&spec, sink, runtime()?.handle()).map_err(bind_error)?;
-        Ok(NativeChild { child })
+        let child = spawn_child(
+            &spec,
+            sink,
+            runtime()?.handle(),
+            target.map(|target| &target.target),
+        )
+        .map_err(bind_error)?;
+        Ok(NativeChild { child, diverted })
     })
 }
 
@@ -172,6 +121,8 @@ pub fn supervisor_spawn(spec_json: String, events: Events) -> napi::Result<Nativ
 #[napi]
 pub struct NativeChild {
     child: SupervisedChild,
+    /// The pipes belong to a Rust session: JS's stdin and flow calls refuse.
+    diverted: bool,
 }
 
 #[napi]
@@ -186,6 +137,9 @@ impl NativeChild {
     #[napi(catch_unwind)]
     pub fn write_stdin(&self, data: Uint8Array) -> napi::Result<()> {
         guarded("supervisor stdin write", || {
+            if self.diverted {
+                return Err(napi::Error::from_reason(STDIN_OWNED));
+            }
             self.child.write_stdin(data.to_vec()).map_err(bind_error)
         })
     }
@@ -212,6 +166,9 @@ impl NativeChild {
     #[napi(catch_unwind)]
     pub fn resume_output(&self, kind: String) -> napi::Result<()> {
         guarded("supervisor output resume", || {
+            if self.diverted {
+                return Err(napi::Error::from_reason(OUTPUT_OWNED));
+            }
             self.child.resume_output(stream(&kind)?);
             Ok(())
         })
@@ -221,6 +178,9 @@ impl NativeChild {
     #[napi(catch_unwind)]
     pub fn close_output(&self, kind: String) -> napi::Result<()> {
         guarded("supervisor output close", || {
+            if self.diverted {
+                return Err(napi::Error::from_reason(OUTPUT_OWNED));
+            }
             self.child.close_output(stream(&kind)?);
             Ok(())
         })

@@ -126,6 +126,9 @@ pub struct Flow {
     changed: Notify,
     closed: CancellationToken,
     budget: Arc<OutputBudget>,
+    /// A diverted child's consumer hears `end` when the flow closes too, not
+    /// only at EOF; unset for every stream the shell owns.
+    end_on_close: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Default)]
@@ -137,6 +140,10 @@ struct FlowState {
     /// The pipe hung up: what is left in it is read past the allowance, so
     /// EOF (and `close`) arrive though nobody reads.
     draining: bool,
+    /// Resumes handed to the pump. A chunk paused on receipt only if no
+    /// resume arrived after it was delivered, so a resume racing
+    /// `taken(false)` is never lost (E3.0b).
+    resumes: u64,
 }
 
 impl Flow {
@@ -146,6 +153,7 @@ impl Flow {
             changed: Notify::new(),
             closed: CancellationToken::new(),
             budget,
+            end_on_close: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -157,9 +165,29 @@ impl Flow {
         }
     }
 
+    /// A chunk was received and its consumer wants no more: pause, unless a
+    /// resume arrived after that chunk was delivered (`Delivered::new`). The
+    /// check and the pause are one critical section, the same one `resume`
+    /// updates, so neither can slip between them (E3.0b).
+    pub(crate) fn pause_unless_resumed_since(&self, generation: u64) {
+        if let Ok(mut state) = self.state.lock()
+            && state.resumes == generation
+        {
+            state.paused = true;
+        }
+    }
+
+    /// The resume count when a chunk starts delivery.
+    pub(crate) fn resume_generation(&self) -> u64 {
+        self.state.lock().map_or(0, |state| state.resumes)
+    }
+
     /// The shell's stream wants more: what it read ahead goes back to the pool.
     pub fn resume(&self) {
+        // Counted and cleared under one lock, so a pause decided from an
+        // older generation is undone here and a later one sees this resume.
         if let Ok(mut state) = self.state.lock() {
+            state.resumes += 1;
             state.paused = false;
         }
         self.give_back();
@@ -179,6 +207,18 @@ impl Flow {
     pub fn close(&self) {
         self.closed.cancel();
         self.give_back();
+    }
+
+    /// A diverted child's consumer keeps hearing `end` when the flow closes:
+    /// `OutputControl::close` sets this before it calls `close` (E3.0b).
+    pub(crate) fn mark_end_on_close(&self) {
+        self.end_on_close
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Whether a closed pump still emits `end` before it returns.
+    fn ends_on_close(&self) -> bool {
+        self.end_on_close.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     pub(crate) fn delivered(&self) {
@@ -262,7 +302,13 @@ pub async fn pump_output<E: EventSink, R: tokio::io::AsyncRead + Unpin + HangUp>
             let at_cap = flow.at_paused_cap();
             tokio::select! {
                 () = flow.changed.notified() => {}
-                () = flow.closed.cancelled() => return,
+                () = flow.closed.cancelled() => {
+                    // A diverted child's consumer still hears `end` (E3.0b).
+                    if flow.ends_on_close() {
+                        sink.end(stream);
+                    }
+                    return;
+                }
                 // At the cap: probe the pipe without consuming. Hung up with
                 // nothing left is EOF; hung up with bytes left drains them
                 // within the budget.
@@ -281,6 +327,9 @@ pub async fn pump_output<E: EventSink, R: tokio::io::AsyncRead + Unpin + HangUp>
             read = reader.read(&mut buffer[..room]) => read,
             () = flow.closed.cancelled() => {
                 flow.read(room, 0, admit);
+                if flow.ends_on_close() {
+                    sink.end(stream);
+                }
                 return;
             }
         };

@@ -36,6 +36,7 @@ import {
   nativeKillWindowsTree,
   nativeSpawnChild,
   NativeChildProcess,
+  type NativeOutputTarget,
   type SpawnedChild,
 } from "./native-process.ts";
 import { childGroup, stopRetainedGroup, type LeaderGroup } from "./leader-group.ts";
@@ -86,6 +87,12 @@ export type SpawnOptions = {
   /** Durable resource ownership brackets the native spawn, including the crash gap. */
   lease?: ProcessLease;
   outputFlow?: OutputFlow;
+  /**
+   * A Rust session's consumer for the child's pipes (E3.0b). With it, the
+   * child's stdout, stderr and stdin belong to the session, and the returned
+   * streams carry no data. Requires `ACE_SUPERVISOR=native`.
+   */
+  nativeOutput?: NativeOutputTarget;
   command: string;
   args?: readonly string[];
   cwd?: string;
@@ -151,6 +158,9 @@ function spawnOwned(
   // No process groups exist on Windows; stop the whole tree with taskkill instead.
   const windows = (options.platform ?? process.platform) === "win32";
   const native = supervisorBackend() === "native";
+  // A Rust session can only take a child's pipes from the native supervisor.
+  if (options.nativeOutput !== undefined && !native)
+    throw new Error("nativeOutput needs ACE_SUPERVISOR=native");
   const killTree = options.windowsKillTree ?? (native ? nativeKillWindowsTree : killWindowsTree);
   let group: LeaderGroup | undefined;
   const stopRetained = (pid: number, graceMs: number) =>
@@ -194,6 +204,7 @@ function spawnOwned(
       hide: true,
       contain: windows && options.windowsJobFactory === undefined,
       ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
+      ...(options.nativeOutput === undefined ? {} : { nativeOutput: options.nativeOutput }),
     });
   const pid = child.pid;
   // The TypeScript backend's group, read at spawn; the native child is its own group handle.

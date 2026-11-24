@@ -10,6 +10,7 @@
 mod child;
 mod inventory;
 mod journal;
+mod sink;
 mod system;
 mod tree;
 
