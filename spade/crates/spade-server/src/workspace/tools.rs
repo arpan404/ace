@@ -4,6 +4,7 @@
 //! and works only in that bot's folder.
 
 use std::sync::Arc;
+
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -14,7 +15,7 @@ use spade_models::ToolSpec;
 use super::shell::Shell;
 use super::shell_tool::ShellTool;
 use super::{PathError, Workspace, Workspaces};
-use crate::tools::{EngineHandle, Tool, ToolFuture, ToolOutput, TurnFacts, parse};
+use crate::tools::{EarlyReadFuture, EngineHandle, Tool, ToolFuture, ToolOutput, TurnFacts, parse};
 
 /// The shell's deadline when the model names none. The model may name any longer one (ADR
 /// 0158); a command still running after the engine's foreground window moves to the background
@@ -157,17 +158,15 @@ pub(super) fn shown_def(
 
 /// Runs file work off the async threads and turns its error into words for the model.
 fn blocking(
-    place: &Place,
-    key: &str,
+    workspace: Result<Workspace, ToolOutput>,
     work: impl FnOnce(Workspace) -> Result<ToolOutput, PathError> + Send + 'static,
 ) -> ToolFuture {
-    let workspace = place.workspace(key);
     Box::pin(async move {
         let workspace = match workspace {
             Ok(workspace) => workspace,
             Err(output) => return output,
         };
-        tokio::task::spawn_blocking(move || work(workspace))
+        crate::tools::work_budget::blocking(move || work(workspace))
             .await
             .unwrap_or_else(|_| Err(PathError::Io("the file work stopped".to_owned())))
             .unwrap_or_else(|error| ToolOutput::error(error.to_string()))
@@ -206,11 +205,17 @@ impl Tool for WorkspaceList {
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
+        self.read(self.0.workspace(key), arguments)
+    }
+}
+
+impl WorkspaceList {
+    fn read(&self, workspace: Result<Workspace, ToolOutput>, arguments: Value) -> ToolFuture {
         let args: ListArgs = match parse(arguments) {
             Ok(args) => args,
             Err(output) => return Box::pin(async move { output }),
         };
-        blocking(&self.0, key, move |workspace| {
+        blocking(workspace, move |workspace| {
             let listing = workspace.list(&args.path)?;
             // Names are content too: trusted only when every entry shown is a trusted file.
             let trusted = workspace.listing_trusted(&listing);
@@ -270,11 +275,38 @@ impl Tool for WorkspaceRead {
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
+        self.read(self.0.workspace(key), arguments)
+    }
+
+    fn run_early(
+        &self,
+        key: &str,
+        arguments: Value,
+        _facts: &TurnFacts,
+    ) -> Option<EarlyReadFuture> {
+        let workspace = self.0.workspace(key).ok()?.existing();
+        let args: ReadArgs = parse(arguments).ok()?;
+        Some(Box::pin(async move {
+            crate::tools::work_budget::blocking(move || {
+                super::early_read::sample(
+                    workspace,
+                    &args.path,
+                    args.offset.unwrap_or(1),
+                    args.limit.unwrap_or(super::files::READ_LINES),
+                )
+            })
+            .await
+            .ok()?
+        }))
+    }
+}
+
+impl WorkspaceRead {
+    fn read(&self, workspace: Result<Workspace, ToolOutput>, arguments: Value) -> ToolFuture {
         let args: ReadArgs = match parse(arguments) {
             Ok(args) => args,
             Err(output) => return Box::pin(async move { output }),
         };
-        let workspace = self.0.workspace(key);
         let engine = self.0.bots.get();
         Box::pin(async move {
             let workspace = match workspace {
@@ -282,7 +314,7 @@ impl Tool for WorkspaceRead {
                 Err(output) => return output,
             };
             let path = args.path.clone();
-            let read = tokio::task::spawn_blocking(move || {
+            let read = crate::tools::work_budget::blocking(move || {
                 let path = workspace.normal(&path)?;
                 let read = match super::reading::shape(&workspace.head(&path)?) {
                     super::reading::Shape::Image => {
@@ -374,7 +406,7 @@ impl Tool for WorkspaceSearch {
             Err(output) => return Box::pin(async move { output }),
         };
         let name = output_name(key);
-        blocking(&self.0, key, move |workspace| {
+        blocking(self.0.workspace(key), move |workspace| {
             let needle = super::matching::Needle::new(&args.text, args.regex, args.ignore_case)
                 .map_err(PathError::Io)?;
             let only = args
@@ -421,11 +453,17 @@ impl Tool for WorkspaceFind {
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
+        self.read(self.0.workspace(key), arguments)
+    }
+}
+
+impl WorkspaceFind {
+    fn read(&self, workspace: Result<Workspace, ToolOutput>, arguments: Value) -> ToolFuture {
         let args: FindArgs = match parse(arguments) {
             Ok(args) => args,
             Err(output) => return Box::pin(async move { output }),
         };
-        blocking(&self.0, key, move |workspace| {
+        blocking(workspace, move |workspace| {
             let glob = super::matching::Glob::new(&args.pattern).map_err(PathError::Io)?;
             let (found, note) = workspace.find(&args.path, &glob)?;
             let start = workspace.normal(&args.path)?;
@@ -497,7 +535,7 @@ impl Tool for WorkspaceWrite {
         };
         let untrusted = turn.untrusted.clone();
         let (place, key) = (self.0.clone(), key.to_owned());
-        blocking(&self.0, &key.clone(), move |workspace| {
+        blocking(self.0.workspace(&key), move |workspace| {
             let path = workspace.normal(&args.path)?;
             // Checked and written under the workspace's file lock, so the person's write can't
             // land between (ADR 0143).
@@ -605,7 +643,7 @@ impl Tool for WorkspaceEdit {
         };
         let untrusted = turn.untrusted.clone();
         let (place, key) = (self.0.clone(), key.to_owned());
-        blocking(&self.0, &key.clone(), move |workspace| {
+        blocking(self.0.workspace(&key), move |workspace| {
             let path = workspace.normal(&path)?;
             workspace.changing(|| {
                 if let Some(yielded) = place.yields(&key, &path) {

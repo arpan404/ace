@@ -62,6 +62,32 @@ builds with budgets and caps, are read as raw data and fold to nothing ([ADR 016
   usually are). No call is timed out by the harness: one still running after the
   foreground window (`Limits.foreground`, 30 s) carries on as a background job with the same run,
   its call answered with the job id, and the turn goes on ([ADR 0158](../../docs/adr/0158-spade-no-fixed-step-or-time-limits.md)). A declined call returns "The person declined this action."
+- **While the step streams**, Anthropic closes each tool block, and Chat Completions closes
+  its calls with the tool-call finish reason. OpenAI Responses holds its item boundaries until a
+  real terminal event. A clean EOF without that event still uses the SDK's final reply and skips
+  early gating. Spade assigns conversation-unique ids before early work. The final provider
+  call list supplies the order and arguments for `step_finished`. The ordinary gate runs on
+  the stored step with current settings and can reuse early work only for an exact call match.
+- A workspace text or image read can start early in an existing workspace. Before using its
+  output, Spade checks the file's identity, size and modification time, and checks its trust
+  record again. Any change triggers a fresh read. Listings, searches and document reads wait
+  for storage. File opens use `O_NOATIME` on Linux where allowed. On macOS and where the flag
+  is unavailable, an ordinary read may update access time. Early and ordinary foreground work
+  share the same tool concurrency limit. Blocking file work keeps its slot until it exits,
+  even if Stop or a timeout cancels the caller.
+- An eligible early review sends the call and context to the person's configured review model
+  before the step is stored. Spade records spend against the conversation even if the step is
+  never stored. Each request settles once. Reusing its verdict adds no ledger entry, and a
+  cancelled request that may have been billed gets an estimate. The verdict stays in memory
+  until the stored gate asks the same question with the same reviewer, launch and binding.
+- Approvals, questions and effectful calls follow the stored step. Bots with plugin pre-tool
+  hooks or local plugin servers, packaged or shared bots, and app calls that need pins seeded
+  also wait. Stop, a cut stream, an immediate pause, or a crash discards early read results and
+  review verdicts for an unstored step. It leaves no call or approval event to recover. After
+  streaming starts, a failure never triggers an automatic resend. A planned pause can still
+  resume a cut step under the pause rules below. Recovery uses the log. An unstarted stored call
+  goes through the gate when the turn resumes, a stored review can be reused, and a stored start
+  without a result follows the existing unknown-outcome rules.
 - **Steering:** a message sent mid-turn is stored at once and the next model call sees it, placed
   after any running tools' results, and after the step it arrived during. A turn finishes only if
   nothing arrived after its last step's prompt was built (`seen`), checked under the same lock that
@@ -92,7 +118,8 @@ builds with budgets and caps, are read as raw data and fold to nothing ([ADR 016
   question the bot asked waits on the person, for a paused bot, a stopped reply, while Spade
   pauses, or for a helper. A reply whose last step has no words keeps its latest words.
 - **Call ids:** a provider may reuse ids across steps (`call_0` in every reply); a reused id is
-  replaced before the step is stored, so results and approvals never match the wrong call.
+  replaced before any early work or, for later calls, before the step is stored. Results and
+  approvals always use the assigned id.
 - **Background tools:** a tool marked `background` answers its call at once and runs as a job
   (with no time limit; Stop ends it). Its result is delivered like a message: it steers the open reply or starts a
   new one. Stop cancels jobs and records them stopped without starting a turn. After a restart a
@@ -116,14 +143,12 @@ builds with budgets and caps, are read as raw data and fold to nothing ([ADR 016
   say the account's quota or credit is used up: the person has to act, and the reply's failure
   says so.
 - **Waiting out an outage** (ADR 0158, ADR 0160): when those three tries are used up on a
-  failure that may pass (unreachable, `408`, `429`, `5xx`), or a stream is cut by one after it
-  started, the turn does not fail. It stores an outage wake, `wake_set {reply, purpose: {kind:
-outage, attempt, error}, due_ms}`, and waits for it: 1, 2, 4 … minutes, at most an hour, or
+  failure that may pass (unreachable, `408`, `429`, `5xx`), the turn stores an outage wake,
+  `wake_set {reply, purpose: {kind: outage, attempt, error}, due_ms}`, and waits for it: 1, 2, 4 … minutes, at most an hour, or
   the endpoint's longer `retry-after` (still at most an hour); the backoff starts again once a
   step of the turn finishes. When it fires (`wake_fired`, with no note) the step is sent again as
-  it was, and the three quick tries start again; what a cut stream had shown is dropped, as on a
-  resumed pause. As many rounds as it takes. The reply stays open and the bot reads as `sleeping`
-  with "The model is not answering; trying again at 14:05 (…)". Stop ends the wait and the
+  it was, and the three quick tries start again. As many rounds as it takes. The reply stays open
+  and the bot reads as `sleeping` with "The model is not answering; trying again at 14:05 (…)". Stop ends the wait and the
   reply; the person cancelling the wake ends the reply stopped; the person waking it, or writing
   (their message goes with the step), sends the step now. A pause ends the wait like any other,
   and after a pause or a restart the turn resumes and waits on the same wake. A helper's turn

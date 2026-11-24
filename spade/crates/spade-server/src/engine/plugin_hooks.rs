@@ -174,6 +174,16 @@ fn open_outside(
     })
 }
 
+/// Pre-tool hooks and local server startup can change the inputs to the stored gate.
+pub(super) async fn can_gate_while_streaming(engine: &Engine, id: &str) -> bool {
+    match plugins_of(engine, id) {
+        Some((plugins, agent)) => {
+            !plugins.has_hooks(&agent, hooks::PRE_TOOL_USE).await && !plugins.has_servers(&agent)
+        }
+        None => true,
+    }
+}
+
 /// The plugins and the conversation's bot, when it has any plugin.
 fn plugins_of(engine: &Engine, id: &str) -> Option<(Arc<Plugins>, String)> {
     let plugins = engine.plugins()?.clone();
