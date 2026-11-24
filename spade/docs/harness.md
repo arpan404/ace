@@ -161,7 +161,11 @@ ended: one line each with its id, state, title and the asks it owns, read from t
 ## Tools
 
 Spade's own tools are always offered in full, in name order: `web_search` (ace cloud search,
-then the model endpoint's own), `web_fetch` (one page as text, a window at a time, refusing local and private addresses),
+then the model endpoint's own), `web_fetch` (saves a page's or PDF's full readable text to the
+bot's workspace at `web/<host>-<short-hash>.md` and returns a compact handle: title, URL, total
+length, saved path, heading outline with character offsets, and the first 4,000-character window;
+subsequent `offset` or lexical `query` calls in the same conversation read from the saved file
+instead of re-fetching; refuses local and private addresses),
 `todo`, `asks` (the person's asks, answered by Spade from the events, ADR 0215), `task_status` (the bot's task state; while `working`, Spade starts its next step after a
 reply, [autonomy.md](autonomy.md)), `sleep_until` and `wait_for` (the bot ends its turn and is
 woken at a time or by an event; with the deferred `wake_cancel` and the service tools, ADR 0160,
