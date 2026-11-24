@@ -5,14 +5,13 @@ import { Agent, AgentItem, EventPayload, type Event, type ServerMessage } from "
 import { afterEach, expect, test } from "vitest";
 import { createDevThread } from "./commands.ts";
 import { Store } from "./store.ts";
+import { answerText, snapshotText, stream } from "./store-cross-test-support.ts";
 import { subscribe } from "./subscription.ts";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => {
   for (const close of cleanup.splice(0).toReversed()) close();
 });
-const unpinned = { persist() {}, committed() {} };
-
 function setup() {
   const home = mkdtempSync(join(tmpdir(), "ace-live-writes-"));
   cleanup.push(() => rmSync(home, { recursive: true, force: true }));
@@ -72,24 +71,6 @@ const delta = (append: string): EventPayload =>
     field: "text",
     append,
   });
-function stream(store: Store, threadId: Event["threadId"], payloads: EventPayload[]): void {
-  store.prepareLiveWrite(Buffer.byteLength(JSON.stringify(payloads)));
-  store.bufferLiveWrite(threadId, payloads, 1000, unpinned);
-}
-function answerText(events: Event[]): string {
-  return events
-    .map((event) =>
-      event.payload.type === "item.delta" && event.payload.itemId === "answer"
-        ? event.payload.append
-        : "",
-    )
-    .join("");
-}
-function snapshotText(store: Store, id: Event["threadId"]): string {
-  const item = store.snapshotThread(id).items.answer;
-  if (item?.type !== "message") throw new Error("Missing answer");
-  return item.parts.map((part) => (part.type === "text" ? part.text : "")).join("");
-}
 
 test.each<[string, EventPayload, object]>([
   [
@@ -120,7 +101,7 @@ test.each<[string, EventPayload, object]>([
     ]);
     state.store.appendEvents(state.thread.id, [{ type: "thread.updated", title: "Later write" }]);
     expect(state.store.getThread(state.thread.id)?.title).toBe("Later write");
-    expect(snapshotText(state.store, state.thread.id)).toBe("hello");
+    expect(snapshotText(state.store, state.thread.id, "answer")).toBe("hello");
     await state.reopen();
     const stored = state.store
       .readEvents({ afterSeq: first - 1, limit: 100 })
@@ -171,7 +152,7 @@ test("deltas published before a held batch reach subscribers once and match the 
     { type: "thread.updated", title: "Boundary" },
   ]);
   expect(state.errors).toEqual([]);
-  expect(answerText(state.live)).toBe("abcd");
+  expect(answerText(state.live, "answer")).toBe("abcd");
   // A client resuming at any delivered cursor converges on the same text.
   for (const cursor of cursors) {
     const messages: ServerMessage[] = [];
@@ -184,18 +165,21 @@ test("deltas published before a held batch reach subscribers once and match the 
       (message) => messages.push(message),
     );
     stop();
-    let resumed = answerText(state.live.filter((event) => event.seq <= cursor));
+    let resumed = answerText(
+      state.live.filter((event) => event.seq <= cursor),
+      "answer",
+    );
     for (const message of messages) {
       if (message.type === "snapshot") {
         const item = message.view.kind === "thread" ? message.view.items.answer : undefined;
         resumed =
           item?.type === "message" && item.parts[0]?.type === "text" ? item.parts[0].text : "";
-      } else if (message.type === "events") resumed += answerText(message.events);
+      } else if (message.type === "events") resumed += answerText(message.events, "answer");
     }
     expect(resumed).toBe("abcd");
   }
   await state.reopen();
-  expect(snapshotText(state.store, state.thread.id)).toBe("abcd");
+  expect(snapshotText(state.store, state.thread.id, "answer")).toBe("abcd");
 });
 
 test("a snapshot whose newest item exceeds the snapshot budget still shows that item", () => {

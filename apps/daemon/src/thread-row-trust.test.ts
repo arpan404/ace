@@ -6,6 +6,7 @@ import type { ThreadId } from "@ace/protocol";
 import { afterEach, expect, it } from "vitest";
 import { createDevThread } from "./commands.ts";
 import { Store } from "./store.ts";
+import { confirmedSql } from "./store-cross-test-support.ts";
 import { threadRowsPerBatch } from "./stored-trust-pass.ts";
 import { confirmedPerOpen } from "./thread-row-trust.ts";
 
@@ -83,8 +84,6 @@ const forgeStamp =
   "INSERT OR REPLACE INTO thread_row_trust SELECT thread_id, revision, 1 FROM sidebar_thread_revisions WHERE thread_id = ?";
 /** Change every threads row outside the writer, so each takes a new, unconfirmed revision. */
 const touchAll = "UPDATE threads SET title = title || '.'";
-const confirmedSql =
-  "SELECT COUNT(*) AS n FROM thread_row_trust AS trust JOIN sidebar_thread_revisions AS current ON current.thread_id = trust.thread_id AND current.revision = trust.revision";
 const confirmedCount = (db: DatabaseSync) => Number(db.prepare(confirmedSql).get()?.n);
 const confirmed = (db: DatabaseSync, id: ThreadId) =>
   db.prepare(`${confirmedSql} WHERE trust.thread_id = ?`).get(id)?.n === 1;
