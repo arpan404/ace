@@ -81,9 +81,13 @@ extension NotificationCoordinator {
         guard let words = ActionNotice.words(outcome, for: answer) else { return }
         await notifier.notice(id: "action:\(notificationId)", threadId: threadId, title: words.title, body: words.body, hostId: hostId)
     }
-    /// Both iOS wake sources share one run and one time budget across every machine.
+    /// Both iOS wake sources share one run and one time budget across every machine. A wake that
+    /// joins it and is cancelled (iOS took its time back) stops it too. Neither wake's report
+    /// waits on it past that wake's own deadline (`OSCompletion`).
     func backgroundCatchUp() async -> Bool {
-        if let refresh = backgroundWork { return await refresh.value }
+        if let refresh = backgroundWork {
+            return await withTaskCancellationHandler { await refresh.value } onCancel: { refresh.cancel() }
+        }
         let refresh = Task { @MainActor in
             await runBackgroundCatchUp()
         }
