@@ -41,6 +41,7 @@ import { MarketOrgId, MarketVerificationProof, Signed } from "./marketplace-sign
  */
 
 export const PublishAccepted = z.object({
+  shareId: z.uuidv7().optional(),
   status: z.literal("pending"),
   type: MarketEntryType,
   name: MarketEntryName,

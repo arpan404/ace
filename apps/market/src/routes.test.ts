@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { matchRoute } from "./routes.ts";
 
+const share = "019adfd4-3a58-7bed-92a8-2d919dc241ab";
 const hash = "a".repeat(64);
 
 describe("routing", () => {
@@ -13,6 +14,9 @@ describe("routing", () => {
       "/v1/entries/spade-bot/inbox/1.2.0-beta.1",
       { kind: "version", type: "spade-bot", name: "inbox", version: "1.2.0-beta.1" },
     ],
+    ["GET", `/i/${share}`, { kind: "share", id: share }],
+    ["GET", `/v1/i/${share}/versions/1.0.0`, { kind: "share", id: share, release: "1.0.0" }],
+    ["GET", `/v1/i/${share}/objects/${hash}`, { kind: "share", id: share, hash }],
     ["GET", `/v1/objects/${hash}`, { kind: "object", hash }],
     [
       "POST",
@@ -91,6 +95,8 @@ describe("routing", () => {
     ["an encoded path", "/v1/entries/suit/..%2Fsecret"],
     ["a trailing segment", "/v1/index/more"],
     ["a page path", "/suit/tarn"],
+    ["a skill slug in a share link", "/i/my-skill"],
+    ["a UUIDv4 in a share link", "/i/019adfd4-3a58-4bed-92a8-2d919dc241ab"],
     ["a draft id of the wrong shape", "/v1/me/drafts/../../x"],
     ["a fifth listing picture", "/v1/me/entries/suit/tarn/previews/4"],
     ["an unknown action on a version", "/v1/me/entries/suit/tarn/versions/1.0.0/delete"],

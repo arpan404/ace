@@ -1,3 +1,5 @@
+import { fromCatalogues } from "./store/databases.ts";
+import { shareable } from "./share-id.ts";
 import type { Route } from "./routes.ts";
 import type { Context } from "./context.ts";
 import { objectKey } from "./context.ts";
@@ -65,14 +67,40 @@ export async function readRoute(
     // A public name is never a registry's stored one: these reach the public market only.
     case "entry": {
       const page = await entryPage(dbs, route.type, route.name);
-      if (!page) return notFound();
-      const { row: _row, ...body } = page;
+      if (!page || (page.unlisted && shareable(route.type))) return notFound();
+      const { row: _row, shareId: _id, ...body } = page;
       return tagged(request, body);
     }
     case "version": {
       const db = dbs.catalogue(route.type);
-      const signed = db ? await signedVersion(db, route) : undefined;
+      const signed = db ? await signedVersion(db, route, { public: true }) : undefined;
       return signed ? tagged(request, signed) : notFound();
+    }
+    case "share": {
+      if (route.hash) return object(request, route.hash, "public", context, route.id);
+      const keys = await fromCatalogues(dbs, async ({ db }) => {
+        const key = await db
+          .prepare(
+            "SELECT type, name FROM entries WHERE share_id = ?1 AND visibility = 'unlisted' AND audience = 'public'",
+          )
+          .bind(route.id)
+          .first<{ type: string; name: string }>();
+        return key ? [{ db, ...key }] : [];
+      });
+      const key = keys[0];
+      if (keys.length !== 1 || !key) return notFound();
+      if (route.release) {
+        const signed = await signedVersion(
+          key.db,
+          { ...key, version: route.release },
+          { shareId: route.id },
+        );
+        return signed ? tagged(request, signed, true) : notFound();
+      }
+      const page = await entryPage(dbs, key.type, key.name);
+      if (!page || !page.unlisted || page.shareId !== route.id) return notFound();
+      const { row: _row, ...body } = page;
+      return tagged(request, body, true);
     }
     case "withdrawn": {
       const list = await withdrawnList(dbs.lists);
@@ -94,9 +122,10 @@ export async function object(
   hash: string,
   audience: string,
   context: Context,
+  shareId?: string,
 ): Promise<Response> {
-  const copies = await listedWithHash(context.dbs, hash, audience);
-  const members = audience !== "public";
+  const copies = await listedWithHash(context.dbs, hash, audience, shareId);
+  const members = audience !== "public" || shareId !== undefined;
   if (copies.length === 0) return notFound();
   const headers = {
     "content-type": "application/x-tar",

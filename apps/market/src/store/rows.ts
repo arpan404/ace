@@ -14,6 +14,7 @@ import type {
  */
 
 export interface EntryTable {
+  share_id: string | null;
   type: string;
   name: string;
   publisher: string;

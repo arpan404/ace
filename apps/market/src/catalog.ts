@@ -108,7 +108,7 @@ export async function featuredEntries(dbs: Databases): Promise<EntryRow[]> {
 
 /**
  * An entry's page, if it has a signed version: with its listing edit's links and pictures, and
- * whether it is unlisted. An unlisted entry's page still answers, so a direct link installs it.
+ * whether it is unlisted. Route handlers enforce access to the page.
  */
 export async function entryPage(dbs: Databases, type: string, name: string) {
   const db = dbs.catalogue(type);
@@ -139,5 +139,6 @@ export async function entryPage(dbs: Databases, type: string, name: string) {
     links: manage.listing?.links ?? [],
     previews: manage.listing?.previews ?? [],
     unlisted: manage.visibility === "unlisted",
+    shareId: joined.share_id,
   };
 }

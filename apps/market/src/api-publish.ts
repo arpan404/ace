@@ -1,3 +1,4 @@
+import { shareId, shareable } from "./share-id.ts";
 import { isShareTemplate } from "./route-keys.ts";
 import { maxArchiveBytes, writeArchive } from "@ace/marketplace";
 import type { CheckedEntry } from "@ace/marketplace/checks";
@@ -145,6 +146,10 @@ async function storeScanned(
     published: context.now,
     listing: checked.listing,
     visibility,
+    shareId:
+      visibility === "unlisted" && shareable(key.type)
+        ? shareId(context.now, crypto.getRandomValues(new Uint8Array(10)))
+        : undefined,
     state: fate === "hold" ? "held" : "pending",
     verdict: scan.verdict,
     scanned: scan.scanner,
@@ -163,6 +168,7 @@ async function storeScanned(
       hash: checked.hash,
       held: fate === "hold",
       ...(visibility === undefined ? {} : { visibility }),
+      ...(stored.shareId && { shareId: stored.shareId }),
       scan,
     },
     201,
@@ -587,7 +593,7 @@ export async function draftRoute(
       if (url.searchParams.has("visibility") && !visibility)
         return failure(400, "invalid", "Visibility is listed or unlisted.");
       const reviewed = MarketHash.safeParse(url.searchParams.get("reviewed")).data;
-      if (isShareTemplate(draft)) {
+      if (isShareTemplate(draft) || (draft.type === "spade-skill" && visibility === "unlisted")) {
         if (!authed.personAction) return personGrantNeeded();
         if (context.now - authed.claims.authAt > reauthMs)
           return failure(401, "reauth", "Sign in again to do this.");
@@ -663,7 +669,13 @@ async function publishDraft(
     // Stored already, by this publish cut off before the draft went: finish it.
     await deletePublishedDraft(publishers, context.env.OBJECTS, draft.id, draft.hash);
     return json(
-      { status: "pending", ...key, hash: draft.hash, ...(visibility ? { visibility } : {}) },
+      {
+        status: "pending",
+        ...key,
+        hash: draft.hash,
+        ...(visibility ? { visibility } : {}),
+        ...(existing.share_id && { shareId: existing.share_id }),
+      },
       200,
     );
   }

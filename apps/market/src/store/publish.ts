@@ -40,7 +40,7 @@ export async function storedVersion(
 ) {
   const row = await db
     .prepare(
-      `SELECT v.hash, v.size, v.published, v.listed, v.state, e.visibility, e.publisher
+      `SELECT v.hash, v.size, v.published, v.listed, v.state, e.visibility, e.publisher, e.share_id
         FROM versions v JOIN entries e ON e.type = v.type AND e.name = v.name
         WHERE v.type = ?1 AND v.name = ?2 AND v.version = ?3`,
     )
@@ -52,6 +52,7 @@ export async function storedVersion(
       listed: number;
       state: string;
       publisher: string;
+      share_id: string | null;
       visibility: "listed" | "unlisted";
     }>();
   return row ? { ...row, listed: row.listed === 1 } : undefined;
@@ -135,11 +136,13 @@ export async function storePending(
     scanned?: number | undefined;
     changelog?: string | undefined;
     visibility?: "listed" | "unlisted" | undefined;
+    shareId?: string | undefined;
   },
 ): Promise<{
   owner: string | undefined;
   hash: string | undefined;
   visibility?: "listed" | "unlisted";
+  shareId?: string;
   written: boolean;
 }> {
   const values = [
@@ -161,10 +164,16 @@ export async function storePending(
   const [, version] = await db.batch([
     db
       .prepare(
-        `INSERT INTO entries (type, name, publisher, title, visibility)
-          VALUES (?1, ?2, ?3, ?2, ?4) ON CONFLICT DO NOTHING`,
+        `INSERT INTO entries (type, name, publisher, title, visibility, share_id)
+          VALUES (?1, ?2, ?3, ?2, ?4, ?5) ON CONFLICT DO NOTHING`,
       )
-      .bind(input.type, input.name, input.publisher, input.visibility ?? "listed"),
+      .bind(
+        input.type,
+        input.name,
+        input.publisher,
+        input.visibility ?? "listed",
+        input.shareId ?? null,
+      ),
     db
       .prepare(
         `INSERT INTO versions (type, name, version, hash, size, published, listing, state,
@@ -190,6 +199,7 @@ export async function storePending(
     owner: stored?.publisher ?? owner,
     hash: stored?.hash,
     ...(stored && { visibility: stored.visibility }),
+    ...(stored?.share_id && { shareId: stored.share_id }),
     written: (version?.meta.changes ?? 0) === 1,
   };
 }

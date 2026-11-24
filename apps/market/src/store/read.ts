@@ -118,12 +118,19 @@ export async function versionsOf(
 export async function signedVersion(
   db: D1Database,
   key: { type: string; name: string; version: string },
+  access?: { public: true } | { shareId: string },
 ) {
+  const publicRead = access && "public" in access;
+  const shareId = access && "shareId" in access ? access.shareId : null;
   const row = await db
     .prepare(
-      "SELECT manifest, review FROM versions WHERE type = ?1 AND name = ?2 AND version = ?3 AND listed = 1",
+      `SELECT v.manifest, v.review FROM versions v JOIN entries e ON e.type = v.type AND e.name = v.name
+        WHERE v.type = ?1 AND v.name = ?2 AND v.version = ?3 AND v.listed = 1
+          AND CASE WHEN ?5 IS NOT NULL THEN e.share_id = ?5 AND e.visibility = 'unlisted' AND e.audience = 'public'
+            WHEN ?4 = 1 THEN e.visibility != 'unlisted' OR e.type NOT IN ('spade-bot', 'spade-skill')
+            ELSE 1 END`,
     )
-    .bind(key.type, key.name, key.version)
+    .bind(key.type, key.name, key.version, publicRead ? 1 : 0, shareId)
     .first<{ manifest: string | null; review: string | null }>();
   if (!row?.manifest) return undefined;
   return {
@@ -150,15 +157,19 @@ export async function listedWithHash(
   dbs: Databases,
   hash: string,
   audience: string,
+  shareId?: string,
 ): Promise<ListedCopy[]> {
   return fromCatalogues(dbs, async ({ db }) => {
     const { results } = await db
       .prepare(
         `SELECT v.type, v.name, v.version, v.published, e.audience FROM versions v
           JOIN entries e ON e.type = v.type AND e.name = v.name
-          WHERE v.hash = ?1 AND v.listed = 1 AND e.audience = ?2`,
+          WHERE v.hash = ?1 AND v.listed = 1 AND e.audience = ?2
+            AND CASE WHEN ?3 IS NOT NULL THEN e.share_id = ?3 AND e.visibility = 'unlisted'
+              ELSE e.visibility != 'unlisted' OR e.type NOT IN ('spade-bot', 'spade-skill')
+                OR e.audience != 'public' END`,
       )
-      .bind(hash, audience)
+      .bind(hash, audience, shareId ?? null)
       .all<ListedCopy>();
     return results;
   });

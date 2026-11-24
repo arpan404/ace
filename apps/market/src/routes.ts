@@ -1,3 +1,4 @@
+import { MarketShareId, MarketVersion } from "@ace/protocol/marketplace";
 import {
   entryKey,
   get,
@@ -23,6 +24,16 @@ export type { EntryKey, Matched, Methods, Route, VersionKey } from "./route-keys
 /** The catalog's and Discover's paths: `/v1/<first>/…`. */
 function publicPath(parts: readonly string[]): Methods | undefined {
   const [, first, a, b, c, ...rest] = parts;
+  if (first === "i") {
+    const id = MarketShareId.safeParse(a).data;
+    if (!id) return undefined;
+    if (parts.length === 3) return get({ kind: "share", id });
+    const version = b === "versions" && MarketVersion.safeParse(c).data;
+    const digest = b === "objects" && hash(c);
+    if (parts.length === 5 && version) return get({ kind: "share", id, release: version });
+    if (parts.length === 5 && digest) return get({ kind: "share", id, hash: digest });
+    return undefined;
+  }
   if (rest.length > 0) return undefined;
   const only = (count: number) => parts.length === count;
   switch (first) {
@@ -79,6 +90,7 @@ function publishPath(parts: readonly string[]): Methods | undefined {
 /** Every method `pathname` takes, with the route each names. */
 export function routesFor(pathname: string): Methods | undefined {
   const parts = pathname.split("/").slice(1);
+  if (parts[0] === "i" && parts.length === 2) return publicPath(["v1", ...parts]);
   if (parts[0] !== "v1") return undefined;
   if (parts.length > 9) return undefined;
   switch (parts[1]) {

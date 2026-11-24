@@ -201,18 +201,44 @@ describe("versions", () => {
 });
 
 describe("visibility, archive and pins", () => {
-  it("an unlisted entry leaves the index and search, while its page and object still answer", async () => {
-    await live("quiet-skill");
-    expect(await searchNames(market, "quiet")).toContain("spade-skill/quiet-skill");
-    await me("PUT", `${entryPath("quiet-skill")}/visibility`, { visibility: "unlisted" });
+  it("an unlisted skill leaves search and serves its page and bytes only through its id", async () => {
+    const upload = skill("quiet-skill");
+    const draft = await createDraft(market, "acct_maker", upload);
+    expect(draft.status).toBe(201);
+    const { id: draftId, hash } = await jsonOf<{ id: string; hash: string }>(draft);
+    const publishPath = `/v1/me/drafts/${draftId}/publish?${new URLSearchParams({
+      publisher: maker.id,
+      template: upload.name,
+      version: upload.version,
+      reviewed: hash,
+      visibility: "unlisted",
+    })}`;
+    expect((await me("POST", publishPath)).status).toBe(401);
+    const person = bearerOf("acct_maker", { action: await intentOf("POST", publishPath) });
+    const accepted = await market.fetch(publishPath, { method: "POST", headers: person });
+    expect(accepted.status).toBe(201);
+    const receipt = await jsonOf<{ shareId: string }>(accepted);
+    await approveHeld(market, upload.type, upload.name, upload.version);
+    await sign(market, upload, { id: maker.id, name: maker.handle });
     expect(await indexNames(market)).not.toContain("spade-skill/quiet-skill");
-    expect(await searchNames(market, "quiet")).not.toContain("spade-skill/quiet-skill");
-    const shown = await page("quiet-skill");
-    expect(shown.unlisted).toBe(true);
-    const versions = await jsonOf<{ versions: { hash: string }[] }>(
-      await market.fetch("/v1/entries/spade-skill/quiet-skill"),
+    const own = await jsonOf<{ summary: { shareId: string } }>(
+      await me("GET", entryPath("quiet-skill")),
     );
-    expect((await market.fetch(`/v1/objects/${versions.versions[0]?.hash}`)).status).toBe(200);
+    const id = own.summary.shareId;
+    expect(id).toBe(receipt.shareId);
+    expect(id).toMatch(/^[\da-f]{8}-[\da-f]{4}-7[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/);
+    expect((await market.fetch("/v1/entries/spade-skill/quiet-skill")).status).toBe(404);
+    expect((await market.fetch("/v1/entries/spade-skill/quiet-skill/1.0.0")).status).toBe(404);
+    expect(await searchNames(market, "quiet-skill")).not.toContain("spade-skill/quiet-skill");
+    const versions = await jsonOf<{ unlisted: boolean; versions: { hash: string }[] }>(
+      await market.fetch(`/v1/i/${id}`),
+    );
+    expect(versions.unlisted).toBe(true);
+    expect((await market.fetch(`/v1/i/${id}/versions/1.0.0`)).status).toBe(200);
+    expect((await market.fetch(`/v1/objects/${versions.versions[0]?.hash}`)).status).toBe(404);
+    expect((await market.fetch(`/v1/i/${id}/objects/${versions.versions[0]?.hash}`)).status).toBe(
+      200,
+    );
     await me("PUT", `${entryPath("quiet-skill")}/visibility`, { visibility: "listed" });
     expect(await indexNames(market)).toContain("spade-skill/quiet-skill");
   });
@@ -250,28 +276,49 @@ describe("visibility, archive and pins", () => {
         })
       ).status,
     ).toBe(403);
-    expect((await me("POST", base)).status).toBe(409);
-    expect((await me("POST", url("b".repeat(64), "unlisted"))).status).toBe(409);
+    expect((await me("POST", base)).status).toBe(401);
+    expect((await me("POST", path)).status).toBe(401);
+    const wrongHash = url("b".repeat(64), "unlisted");
+    expect(
+      (
+        await market.fetch(wrongHash, {
+          method: "POST",
+          headers: bearerOf("acct_maker", { action: await intentOf("POST", wrongHash) }),
+        })
+      ).status,
+    ).toBe(409);
     const person = bearerOf("acct_maker", { action: await intentOf("POST", path) });
     expect(
       (await market.fetch(url(hash, "listed"), { method: "POST", headers: person })).status,
     ).toBe(401);
     const accepted = await market.fetch(path, { method: "POST", headers: person });
     expect(accepted.status).toBe(201);
-    expect(await jsonOf(accepted)).toMatchObject({ hash, visibility: "unlisted" });
+    const receipt = await jsonOf<{ hash: string; visibility: string; shareId: string }>(accepted);
+    expect(receipt).toMatchObject({ hash, visibility: "unlisted" });
+    expect(receipt.shareId).toMatch(
+      /^[\da-f]{8}-[\da-f]{4}-7[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/,
+    );
     expect((await market.fetch(path, { method: "POST", headers: person })).status).toBe(401);
     const retry = await createDraft(market, "acct_maker", upload);
     expect(retry.status).toBe(201);
     const retryDraft = await jsonOf<{ id: string }>(retry);
+    const otherVisibility = url(hash, "listed", `/v1/me/drafts/${retryDraft.id}/publish`);
     expect(
-      (await me("POST", url(hash, "listed", `/v1/me/drafts/${retryDraft.id}/publish`))).status,
+      (
+        await market.fetch(otherVisibility, {
+          method: "POST",
+          headers: bearerOf("acct_maker", { action: await intentOf("POST", otherVisibility) }),
+        })
+      ).status,
     ).toBe(409);
     await approveHeld(market, upload.type, name, "1.0.0");
     await sign(market, upload, { id: maker.id, name: maker.handle });
     expect(await indexNames(market)).not.toContain(`spade-bot/${name}`);
     expect(await searchNames(market, "Flight")).not.toContain(`spade-bot/${name}`);
+    expect((await market.fetch(`/v1/entries/spade-bot/${name}`)).status).toBe(404);
+    expect((await market.fetch(`/v1/entries/spade-bot/${name}/1.0.0`)).status).toBe(404);
     const shown = await jsonOf<{ unlisted: boolean; versions: { hash: string }[] }>(
-      await market.fetch(`/v1/entries/spade-bot/${name}`),
+      await market.fetch(`/i/${receipt.shareId}`),
     );
     expect(
       (
@@ -282,7 +329,8 @@ describe("visibility, archive and pins", () => {
     ).toBe(403);
     expect(shown.unlisted).toBe(true);
     expect(shown.versions[0]?.hash).toBe(hash);
-    expect((await market.fetch(`/v1/objects/${hash}`)).status).toBe(200);
+    expect((await market.fetch(`/v1/objects/${hash}`)).status).toBe(404);
+    expect((await market.fetch(`/v1/i/${receipt.shareId}/objects/${hash}`)).status).toBe(200);
   });
 
   it("an archived entry leaves the index and the profile", async () => {

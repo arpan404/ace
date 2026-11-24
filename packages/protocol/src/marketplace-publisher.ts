@@ -121,6 +121,8 @@ export const MarketOwnVersion = z.strictObject({
 });
 export type MarketOwnVersion = z.infer<typeof MarketOwnVersion>;
 
+export const MarketShareId = z.uuidv7();
+
 export const MarketVisibility = z.enum(["listed", "unlisted"]);
 export type MarketVisibility = z.infer<typeof MarketVisibility>;
 
@@ -148,6 +150,7 @@ export const MarketOwnEntrySummary = z.strictObject({
   status: MarketVersionStatus.optional(),
   versions: z.number().int().nonnegative(),
   visibility: MarketVisibility,
+  shareId: MarketShareId.optional(),
   archived: z.boolean(),
   pinned: z.boolean(),
   reviewed: z.boolean(),

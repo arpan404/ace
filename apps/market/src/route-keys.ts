@@ -32,6 +32,7 @@ export type Route =
   | { kind: "official" }
   | { kind: "notices" }
   | { kind: "discover" }
+  | { kind: "share"; id: string; release?: string; hash?: string }
   | ({ kind: "entry" } & EntryKey)
   | ({ kind: "version" } & VersionKey)
   | { kind: "object"; hash: string }

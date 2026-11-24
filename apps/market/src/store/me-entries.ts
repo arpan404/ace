@@ -1,3 +1,4 @@
+import { shareId, shareable } from "../share-id.ts";
 import type {
   MarketAppeal,
   MarketEntryRef,
@@ -85,6 +86,7 @@ function summaryOf(
     ...(newest ? { version: newest.version, status: versionStatus(newest).status } : {}),
     versions: versions.length,
     visibility: manage.visibility,
+    ...(manage.visibility === "unlisted" && row.share_id && { shareId: row.share_id }),
     archived: manage.archived,
     pinned: pins.has(ref(row)),
     reviewed: row.reviewed === 1,
@@ -245,7 +247,18 @@ async function setEntry(
 }
 
 export const setVisibility = (db: D1Database, key: Owned, visibility: string, now: number) =>
-  setEntry(db, key, "visibility = ?4", [visibility], now);
+  setEntry(
+    db,
+    key,
+    "visibility = ?4, share_id = CASE WHEN ?4 = 'unlisted' THEN COALESCE(share_id, ?5) ELSE NULL END",
+    [
+      visibility,
+      visibility === "unlisted" && shareable(key.type)
+        ? shareId(now, crypto.getRandomValues(new Uint8Array(10)))
+        : null,
+    ],
+    now,
+  );
 export const setArchived = (db: D1Database, key: Owned, archived: boolean, now: number) =>
   setEntry(db, key, "archived = ?4", [archived ? 1 : 0], now);
 export const setLatestPick = (db: D1Database, key: Owned, version: string | null, now: number) =>
