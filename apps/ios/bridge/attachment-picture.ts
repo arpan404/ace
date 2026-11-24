@@ -35,6 +35,10 @@ export function originalDrawsIn(file: { mimeType: string; name: string; bytes: n
   return drawnAsPicture(file) && file.bytes <= heicOriginalLimit;
 }
 
+/** The most of one file the phone fetches to open it (the SDK's own ceiling): past it, a file
+ * shows as a row that doesn't open, never as one that fails when tapped. */
+export const originalOpenLimit = 32 * 1024 * 1024;
+
 /** The most of a picture the phone draws inline; a larger one is a file the person opens. */
 export const pictureInlineLimit = 8 * 1024 * 1024;
 
