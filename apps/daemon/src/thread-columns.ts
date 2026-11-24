@@ -1,4 +1,5 @@
 import { ThreadClientFields, ThreadDetails, ThreadProviderMetadata } from "@ace/protocol";
+import type { EventPayload } from "@ace/protocol";
 import type { ThreadPart } from "./thread-row.ts";
 import type { FrozenThread } from "./thread-cache.ts";
 
@@ -79,6 +80,8 @@ const comparisons: Partial<Record<ThreadColumn, (thread: ReadonlyThread) => stri
   details: (thread) => JSON.stringify(thread.details) ?? "",
 };
 const columnNames = Object.keys(columns) as ThreadColumn[];
+/** Every column, in the table's order (what `columnNames` holds). */
+export const threadColumnNames: readonly ThreadColumn[] = columnNames;
 /** Columns of the large, rarely changing values kept in thread_cold rather than threads. */
 const coldColumns = new Set<ThreadColumn>(["details", "capabilities"]);
 
@@ -121,4 +124,46 @@ export function threadColumnChanges(
     if (changes.parts.has(columns[name].part) && !(name in changes.row))
       changes.row[name] = columns[name].encode(previous ?? next);
   return changes;
+}
+
+const updated: ThreadColumn[] = [
+  "workspace_id",
+  "title",
+  "status",
+  "updated_at",
+  "archived_at",
+  "root_agent_id",
+  "provider",
+  "transitions",
+  "provider_metadata",
+  "capabilities",
+  // Any event may fold client fields (a status change sets activitySeq), so all are checked.
+  "client",
+  "details",
+];
+/** The columns an event may write. Others keep their stored value, whatever it folded. */
+export function writtenColumns(payload: EventPayload): ThreadColumn[] {
+  if (payload.type === "item.delta") return [];
+  const wanted = [...updated];
+  if (
+    payload.type === "thread.created" ||
+    (payload.type === "thread.updated" &&
+      (payload.effectiveCapabilities !== undefined ||
+        payload.acpSupport !== undefined ||
+        payload.acp !== undefined))
+  )
+    wanted.push("acp");
+  return wanted;
+}
+
+/** What `writeThread`'s cold upsert binds after `thread_id`: details, then capabilities. */
+export function coldRowValues(
+  previous: ReadonlyThread | undefined,
+  changes: ThreadColumnChanges,
+): [ColumnValue, ColumnValue] {
+  const value = (name: ThreadColumn) => {
+    const change = changes.cold.find(([column]) => column === name);
+    return change ? change[1] : previous ? threadColumnValue(previous, name) : null;
+  };
+  return [value("details"), value("capabilities")];
 }

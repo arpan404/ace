@@ -21,6 +21,12 @@ execFileSync("bun", ["scripts/store-vectors.ts", "--check"], {
   cwd: root,
   stdio: "inherit",
 });
+// The column encoders' vectors (porting guide 5.3b): every fold pair plus the shape cases,
+// with what SQLite's binder accepts.
+execFileSync("bun", ["scripts/column-vectors.ts", "--check"], {
+  cwd: root,
+  stdio: "inherit",
+});
 // The transport's route table (ADR 0226): message types come from the protocol schemas, owners
 // from `scripts/transport-owners.ts`. Committed and regenerated here, so a new message type
 // can't reach the daemon without an owner.
