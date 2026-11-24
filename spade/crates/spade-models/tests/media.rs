@@ -131,3 +131,38 @@ async fn an_anthropic_format_endpoint_is_refused_for_media() -> Result {
     assert!(fake.seen().is_empty());
     Ok(())
 }
+
+#[tokio::test]
+async fn a_media_error_never_echoes_the_bare_gateway_token() -> Result {
+    const TOKEN: &str = "cf-aig-media-secret";
+    let echo = json!({ "error": { "message": format!("gateway refused {TOKEN}") } });
+    let fake =
+        spade_testkit::FakeModelList::start(400, echo.to_string(), std::time::Duration::ZERO)
+            .await?;
+    let models = models(&fake.root, Format::OpenAiChat)?;
+    models.set_endpoints(vec![Endpoint {
+        gateway_token: true,
+        id: "mine".into(),
+        name: "Mine".into(),
+        format: Format::OpenAiChat,
+        base_url: fake.root.clone(),
+        needs_key: true,
+        key_env: None,
+        headers: Vec::new(),
+        session_header: None,
+        sign_in: None,
+        models: vec![model("painter", vec![Capability::ImageGeneration])],
+    }]);
+    models.set_gateway_keys(Keys::new(|_| Some(TOKEN.to_owned())));
+    let error = models
+        .generate_image("mine/painter", "a red kite", None)
+        .await
+        .err()
+        .ok_or("the image should have been refused")?;
+    let said = error.to_string();
+    assert!(
+        said.contains("400") && !said.contains(TOKEN),
+        "the bare gateway token reached the error: {said}"
+    );
+    Ok(())
+}

@@ -33,12 +33,7 @@ pub(crate) struct Target {
 
 impl Target {
     pub(crate) fn secrets(&self) -> Vec<&str> {
-        let mut secrets: Vec<&str> = self
-            .endpoint
-            .headers
-            .iter()
-            .map(|(_, v)| v.as_str())
-            .collect();
+        let mut secrets = crate::scrub::header_secrets(&self.endpoint);
         secrets.extend(self.key.as_deref());
         secrets
     }

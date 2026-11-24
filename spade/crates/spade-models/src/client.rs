@@ -89,8 +89,10 @@ struct Resolved {
     streamed_only: bool,
     /// For a signed-in account: it, and the credential this call carries.
     signed: Option<Signed>,
-    /// Every token this call sent so far (the first, and one a refresh gave).
-    sent: Vec<String>,
+    /// Every secret this call sends and what came back must not repeat: its key or gateway token
+    /// (bare and as `Bearer <token>`), and an account's tokens so far (the first, and one a
+    /// refresh gave).
+    secrets: Vec<String>,
 }
 
 impl Resolved {
@@ -116,7 +118,7 @@ impl Resolved {
             streamed_only: self.streamed_only,
             signed: self.signed.clone(),
             held: None,
-            secrets: self.sent.clone(),
+            secrets: self.secrets.clone(),
         }
     }
 }
@@ -254,7 +256,8 @@ impl Models {
 
     /// The endpoint as a call sends it: with its gateway token, when one waits in the keychain
     /// for it, as `cf-aig-authorization: Bearer <token>`. The token is never stored with the
-    /// endpoint (ADR 0119), and it is scrubbed from what a request says as any header's value is.
+    /// endpoint (ADR 0119). Both the header's value and the bare token are taken out of what a
+    /// listing, media, search or chat error says, alongside the key.
     pub(crate) async fn sending(&self, endpoint: Endpoint) -> Endpoint {
         if !endpoint.gateway_token {
             return endpoint;
@@ -374,7 +377,7 @@ impl Models {
                         return Err(error);
                     }
                     resolved.target.auth = AuthData::from_single(credential.token.clone());
-                    resolved.sent.push(credential.token.clone());
+                    resolved.secrets.push(credential.token.clone());
                     resolved.signed = Some(Signed {
                         credential,
                         ..signed
@@ -412,7 +415,9 @@ impl Models {
             .client
             .exec_chat(call.target, request(prompt, false), Some(&call.options))
             .await
-            .map_err(|error| failure::read(&call.reference, &error, false))?;
+            .map_err(|error| {
+                failure::read_scrubbed(&call.reference, &error, false, &call.secrets)
+            })?;
         let usage = usage(&response.usage);
         let calls: Vec<ToolCall> = response
             .content
@@ -482,7 +487,9 @@ impl Models {
             .client
             .exec_chat(call.target, request(prompt, false), Some(&options))
             .await
-            .map_err(|error| failure::read(&call.reference, &error, false))?;
+            .map_err(|error| {
+                failure::read_scrubbed(&call.reference, &error, false, &call.secrets)
+            })?;
         let cost = usage(&response.usage);
         let text = response.first_text().ok_or_else(|| ModelError::Empty {
             model: call.reference.clone(),
@@ -522,7 +529,7 @@ impl Models {
             let tap = activity.clone();
             call.options = call.options.with_raw_frame_fn(move |_, _| tap.touch());
             let model = call.reference.clone();
-            let secrets = std::mem::take(&mut call.secrets);
+            let secrets = call.secrets.clone();
             let raw = Box::pin(self.open_stream(call, prompt, format).await?);
             // The call's own tokens never get out, whatever the backend echoes.
             let stream: Deltas = Box::pin(crate::scrub::stream(raw, secrets));
@@ -544,6 +551,7 @@ impl Models {
         format: Option<genai::chat::ChatResponseFormat>,
     ) -> Result<impl Stream<Item = Result<Delta, ModelError>> + Send + use<>, ModelError> {
         let signed = call.signed.is_some();
+        let secrets = call.secrets.clone();
         let mut options = call.options;
         if let Some(format) = format {
             options = options.with_response_format(format);
@@ -561,7 +569,9 @@ impl Models {
                 Some(&options),
             )
             .await
-            .map_err(|error| failure::read_as(&call.reference, &error, false, signed))?;
+            .map_err(|error| {
+                failure::read_scrubbed_as(&call.reference, &error, false, signed, &secrets)
+            })?;
         let reference = call.reference;
         // Whether the endpoint began a successful answer: a failure before that never reached a
         // model and may be sent again; one after it is the model's.
@@ -598,8 +608,8 @@ impl Models {
                     }
                     // Start, heartbeats and partial tool-call chunks carry nothing the caller needs.
                     Ok(_) => None,
-                    Err(error) => Some(vec![Err(failure::read_as(
-                        &reference, &error, answered, signed,
+                    Err(error) => Some(vec![Err(failure::read_scrubbed_as(
+                        &reference, &error, answered, signed, &secrets,
                     ))]),
                 };
                 std::future::ready(delta)
@@ -620,6 +630,10 @@ impl Models {
             None => None,
         };
         let endpoint = self.sending(endpoint).await;
+        let mut secrets: Vec<String> = crate::scrub::header_secrets(&endpoint)
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
         let auth = if let Some((credential, _)) = &signed {
             AuthData::from_single(credential.token.clone())
         } else if endpoint.needs_key {
@@ -630,6 +644,9 @@ impl Models {
                     endpoint: endpoint.id.clone(),
                     var: endpoint.key_env.clone(),
                 })?;
+            // The key itself, not only the `Bearer` a request carries it as: an endpoint can echo
+            // either.
+            secrets.push(key.clone());
             AuthData::from_single(key)
         } else {
             // The SDK's OpenAI path needs some key; local servers ignore this one.
@@ -654,7 +671,8 @@ impl Models {
             endpoint: endpoint.clone(),
             credential: credential.clone(),
         });
-        if let Some((_, extra)) = signed {
+        if let Some((credential, extra)) = signed {
+            secrets.push(credential.token.clone());
             headers.extend(extra);
         }
         options = options.with_extra_headers(Headers::from(headers));
@@ -676,10 +694,7 @@ impl Models {
             ),
             effort,
             streamed_only,
-            sent: token
-                .iter()
-                .map(|signed| signed.credential.token.clone())
-                .collect(),
+            secrets,
             signed: token,
         })
     }

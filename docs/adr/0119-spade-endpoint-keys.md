@@ -130,6 +130,7 @@ under extra headers had it stored as ordinary endpoint config. The same rule now
   on that path forgets it. The endpoint keeps only whether a token is there, so no API answer or
   database row ever holds it.
 - **Every call carries it.** Calls, model lists and media calls on that endpoint send
-  `cf-aig-authorization: Bearer <token>` beside the endpoint's key, and scrub the token from
-  anything an endpoint or error says, as with the key. A stored token blocks a base URL change to
-  another origin, and deleting the endpoint deletes the token.
+  `cf-aig-authorization: Bearer <token>` beside the endpoint's key. What an endpoint or an error
+  says loses both the header's value and the bare token (and the key, bare as well as in
+  `Bearer <key>`), so an endpoint echoing only the token shows nothing. A stored token blocks a
+  base URL change to another origin, and deleting the endpoint deletes the token.

@@ -8,6 +8,7 @@ use std::collections::VecDeque;
 use futures_util::{Stream, StreamExt};
 use serde_json::Value;
 
+use crate::catalog::Endpoint;
 use crate::error::ModelError;
 use crate::prompt::{Delta, Thought, ToolCall};
 
@@ -144,10 +145,31 @@ fn pass(held: &mut String, piece: &str, secrets: &[String]) -> String {
     all[..cut].to_owned()
 }
 
-fn hidden(text: &str, secrets: &[String]) -> String {
+/// `text` with every one of `secrets` taken out.
+pub(crate) fn hidden(text: &str, secrets: &[String]) -> String {
     secrets.iter().fold(text.to_owned(), |text, secret| {
         text.replace(secret.as_str(), HIDDEN)
     })
+}
+
+/// Every secret a call on `endpoint` carries that an answer or an error could echo: each stored
+/// header's value, and the credential inside an authorization header (`Bearer <token>`), since an
+/// endpoint sometimes echoes only the token. The key a call read is added by its caller.
+pub(crate) fn header_secrets(endpoint: &Endpoint) -> Vec<&str> {
+    let mut secrets = Vec::new();
+    for (_, value) in &endpoint.headers {
+        secrets.push(value.as_str());
+        let Some((scheme, token)) = value.split_once(' ') else {
+            continue;
+        };
+        let token = token.trim();
+        if !token.is_empty()
+            && (scheme.eq_ignore_ascii_case("bearer") || scheme.eq_ignore_ascii_case("basic"))
+        {
+            secrets.push(token);
+        }
+    }
+    secrets
 }
 
 /// A typed answer's text with every secret taken out of its decoded strings too: JSON may spell
