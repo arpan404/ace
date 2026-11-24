@@ -55,7 +55,26 @@ async fn list(State(state): State<AppState>) -> Response {
         Ok(connectors) => connectors,
         Err(response) => return *response,
     };
-    Json(json!({ "catalogue": hub.listed().await, "connectors": connectors })).into_response()
+    let catalogue = with_setups(&hub, hub.listed().await);
+    Json(json!({ "catalogue": catalogue, "connectors": connectors })).into_response()
+}
+
+/// Each catalogue entry with its client-ID setup steps and this daemon's loopback callback, when
+/// the entry ships steps (ADR 0197).
+fn with_setups(hub: &Connectors, entries: Vec<spade_connect::Listed<'_>>) -> Vec<Value> {
+    entries
+        .into_iter()
+        .map(|listed| {
+            let id = listed.entry.id.as_str();
+            let mut shown = json!(listed);
+            if let (Some(setup), Some(redirect)) = (hub.setup(id), hub.callback(id)) {
+                let mut value = json!(setup);
+                value["redirect"] = Value::String(redirect);
+                shown["setup"] = value;
+            }
+            shown
+        })
+        .collect()
 }
 
 /// `?need=`: the catalogue apps that fit a need or a bot's task, best first, by words alone

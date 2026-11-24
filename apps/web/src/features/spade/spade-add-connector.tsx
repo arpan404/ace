@@ -83,6 +83,7 @@ export function AddConnectorDialog(props: {
                         catalogue={entry.id}
                         notes={entry.notes}
                         keyUrl={entry.keyUrl}
+                        setup={entry.setup}
                         ready={entry.ready}
                         ways={waysOf(entry)}
                         added={props.added.get(entry.id)}

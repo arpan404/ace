@@ -148,6 +148,7 @@ fn spade_with_apps(
         addresses: spade_connect::Addresses::system(),
         client_metadata,
         apps,
+        setups: spade_connect::setups::shipped(),
         tick: TICK,
         cloud,
     })?;

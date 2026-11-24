@@ -604,6 +604,7 @@ async fn connectors_survive_a_restart_and_reopen_from_the_keychain() -> Result {
         addresses: spade_connect::Addresses::system(),
         client_metadata: None,
         apps: Vec::new(),
+        setups: spade_connect::Setups::default(),
         tick: Duration::from_secs(1),
         cloud: None,
     })?;
