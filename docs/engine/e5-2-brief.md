@@ -17,7 +17,16 @@ the acknowledgement; flow control; overflow and poisoning; the actor's deadline 
 pure frame helpers the repository calls (coalescing, capping, the streamed-byte measure, attachment
 echoes and correlations, the streaming fold). It ports no repository, queue, delivery or session
 behaviour. Those reach the actor through two traits this brief fixes (step 6), whose methods fail
-with `NotPorted` naming their owner until that owner lands.
+with `NotPorted` naming their owner until that owner lands. It also moves the engine's live
+writes onto the connection's one live buffer, with that buffer's flush run by the pump (step 16).
+
+Revised 2026-11-24 after review (gpt-6.2-sol). The mailbox task now polls its timer receivers,
+so an idle actor cannot strand its last batch or tick (decision 3). A JavaScript acknowledgement
+ends the pump turn, which keeps continuation order (decision 5). The live buffer is the shared
+one and its flush is a pump task (step 16). The translator is taken out for each call, never
+borrowed across one (step 7). Byte and echo parity is tightened (steps 3 and 4), and the native
+path carries the bridge's payload limits and per-frame flow mirroring (steps 12 and 13). The
+owner's decisions are recorded at the end.
 
 ## Branch
 
@@ -40,28 +49,44 @@ Never rebase. Branch: `ace/rust-engine-e5-2`.
    verdict, and the JavaScript translator reads the object itself (step 13). A frame from a native
    session is an `ace_adapter_api::Frame` and never becomes a JavaScript object (ADR 0223 §7,
    "Native both"). The batching, acknowledgement and flow-control code is one code path for both.
-3. **A batch's boundary is the firing instant, not the pump.** The TypeScript seals a batch
-   synchronously inside the batch timer's callback (`actor.ts:340`) and enqueues a tick inside the
-   actor timer's (`:565`). In Rust a timer firing only completes its `Timer::fired` oneshot
-   (E5.1 step 5). So every synchronous entry into an actor (`frame`, `enqueue`, `flush`, `stop`,
-   `quarantine`) first runs `catch_up`. That step checks both oneshots with `try_recv`: a fired
-   actor timer enqueues its tick, which seals first, and a fired batch timer seals. The mailbox
-   task runs the same step when it is polled. A frame that arrives after a firing but before the
-   next pump therefore lands in the next batch, exactly as in TypeScript. If both timers fired,
-   the result is the same in either order: `enqueue` seals before it queues the tick.
+3. **A batch's boundary is the firing instant, not the pump, and a firing always wakes the
+   actor.** The TypeScript seals a batch synchronously inside the batch timer's callback
+   (`actor.ts:340`) and enqueues a tick inside the actor timer's (`:565`). In Rust a timer
+   firing only completes its `Timer::fired` oneshot (E5.1 step 5, binding `engine/ports.rs:258`),
+   and that send wakes only a task that has **polled** the receiver. So both halves are needed:
+   - **Synchronous catch-up.** Every synchronous entry into an actor (`frame`, `enqueue`, `flush`,
+     `stop`, `quarantine`) first runs `catch_up`, which checks both receivers with `try_recv`: a
+     fired actor timer enqueues its tick, which seals first, and a fired batch timer seals. A frame
+     that arrives after a firing but before the next pump therefore lands in the next batch,
+     exactly as in TypeScript. If both timers fired, the result is the same in either order:
+     `enqueue` seals before it queues the tick.
+   - **The mailbox task polls both receivers.** `try_recv` registers no waker. So every time the
+     mailbox task is about to park, it polls both receivers that state holds, with its own
+     `Context` (`poll_unpin(cx)` inside a short `with_state` closure; polling a oneshot neither
+     awaits nor calls a port). That registers its waker, so a firing wakes it even when no frame,
+     flush or tick ever follows. A sync entry that arms a new timer wakes the task directly, so
+     the task polls the new receiver (step 9, "Waking the mailbox"). On waking, the task runs the
+     same `catch_up`. Without this an idle actor would
+     strand its last batch, its acknowledgement and its tick (seam tests 4b and 4c).
 4. **One JavaScript promise per batch.** Every frame a TypeScript session hands over while a batch
    is open gets that batch's promise. The TypeScript makes one per frame (`actor.ts:336`), but no
-   caller compares them, all settle at the same point with the same outcome, and a 256-frame
-   batch then costs one napi deferred instead of 256. The paths that settle at once (a stale
-   generation, a poisoned actor, a full mailbox) get their own promise, as today.
-5. **Acknowledgements run after the turn's JavaScript.** A batch's promise is settled from the
-   pump, and its JavaScript continuations (the session's `committed` step,
-   `engine/sessions.ts:685`–`:697`) run in the microtasks after that pump turn, after any later op
-   the same turn ran. The contract holds: a promise resolves only after its batch committed or was
-   accepted into the live buffer, and rejects if it did not. In TypeScript a later batch's op
-   could not run before the earlier acknowledgement's continuation. Nothing in behaviour.md
-   depends on that order, and E5.1 owner decision 2 accepted the same shift for timers. This is
-   open question 2.
+   caller compares them, and all of them settle at the same point with the same outcome. A
+   256-frame batch then costs one napi deferred instead of 256. The handle avoids converting the
+   frame object, but the binding still reads each frame's envelope fields one by one, so the bench
+   measures both sparse batches (one frame each) and full ones (256), with the shell's encoding and
+   Rust's parsing included (Benches). The paths that settle at once (a stale generation, a
+   poisoned actor, a full mailbox) get their own promise, as today.
+5. **A JavaScript acknowledgement ends the pump turn.** Continuation order is kept. In TypeScript
+   a batch's acknowledgement continuation (the session's `committed` step, which emits the
+   runtime command metadata only while the generation is current,
+   `engine/sessions.ts:685`–`:697`) runs before the next mailbox op, so an exit queued behind the
+   batch (`:702`, an `enqueue`) cannot retire the generation first. A promise settled from the pump
+   has its continuations run only when the pump's napi call returns. So when an op settles a
+   batch acknowledgement that has a JavaScript promise, the mailbox task asks the executor to end
+   the turn (correction 9): no further runnable starts, the pump returns `Rearm`, the microtasks
+   run, and the next op runs in the next macrotask. An acknowledgement with only native senders
+   does not end the turn. The cost is one macrotask per JavaScript-acknowledged batch, and the
+   bench reports it.
 6. **Facts cross as JSON.** A TypeScript translator's facts reach Rust as one `JSON.stringify` per
    batch, parsed with `ace_json`. That drops what `JSON.stringify` drops (fields set to
    `undefined`), and nothing downstream can tell: every consumer either stores the facts as JSON
@@ -71,33 +96,33 @@ Never rebase. Branch: `ace/rust-engine-e5-2`.
    (`core/src/status.ts:459`–`:461`), so identity changes exactly when the value does, and Rust
    compares values.
 
-## Corrections to E5.1 (the only lines E5.2 writes outside its own files)
+## Corrections to E5.1
 
-E5.1 is still in review. Fold these into E5.1's next review round if it has not merged; otherwise
-E5.2 makes them in its first commit, exactly as listed, and an E5.1 reviewer signs that commit off.
+**Fixed in E5.1's open review, not by E5.2** (owner decision 7). E5.2 relies on them
+and does not edit them:
 
-1. **`flush` must seal and flush actors.** `Engine.flush` calls `actor.flush()` on every actor
+1. **`flush` seals and flushes actors.** `Engine.flush` calls `actor.flush()` on every actor
    before and after the worker wait (`index.ts:1414`, `:1416`), and that is what seals pending
    frames and flushes the live buffer. E5.1's `flush_to_quiescence` (`lib.rs:358`) only checks
-   quiescence, so a test that flushes after `onFrame` would see nothing stored. Add
-   `actor::flush_all(self, exclude).await?` at the top of each loop iteration, and again after
-   the worker waiters are joined.
-2. **`flush` raises `flush_depth`.** `index.ts:1407` increments `flushDepth` for the whole flush,
-   and the actor's `draining()` reads it to seal at once (`actor.ts:342`). `start_flush`'s task
-   must increment `state.flush_depth` on entry and decrement it on every exit path (a guard).
-3. **Close's actor steps.** `close_sequence` (`lib.rs`, after the readiness wait) gains the two
-   actor steps of `index.ts:1439`–`:1442` and `:1459`–`:1463`, as declared functions:
-   `actor::close_flush(core).await` (flush each actor, then E5.8's capture; until E5.8 the capture
-   is `recovery::capture_restart`, `NotPorted` and reported once), then, after sessions close (E5.6),
-   `actor::close_stop(core).await` (flush, `stop`, abort). Both run under the 4.5 s deadline.
-4. **`unregister_waker(thread)`** beside `register_waker` (`lib.rs:321`). An actor's mailbox task
-   registers its waker once and removes it when the actor is dropped; without removal, the map
-   grows with every thread ever active.
-5. **The wake log is the probe's.** `Core.wakes` (`lib.rs`, pushed in `record_wake`) grows with
-   every wake for the engine's lifetime. E5.2 wakes once per batch, so in production that is
-   memory proportional to history (ADR 0170). Keep it only under `#[cfg(feature = "engine-probe")]`.
+   quiescence. It calls the declared `actor::flush_all(core, exclude)` at those two points, and
+   E5.2 fills that function in.
+2. **`flush` raises `flush_depth`** for its whole run, as `index.ts:1407` does (`start_flush`,
+   `lib.rs:536`), because the actor's `draining()` reads it to seal at once (`actor.ts:342`).
+3. **Close's actor steps**: the declared `actor::close_flush(core)` and `actor::close_stop(core)`
+   at `index.ts:1439`–`:1442` and `:1459`–`:1463`'s places, under the 4.5 s deadline. E5.2 fills
+   them in.
+4. **Waker growth.** `register_waker` (`lib.rs:321`) gains `unregister_waker`. Actors are the
+   first to register, so growth starts with E5.2, and E5.2 calls `unregister_waker` when an actor
+   is dropped.
+5. **The wake log** (`Core.wakes`, `record_wake`, `lib.rs:338`) already grows with every wake. It
+   becomes probe-only or bounded.
+
+If E5.1 merges without one of these, E5.2 stops and reports it; it does not patch E5.1's files.
+
+**E5.2's own seams in E5.1's files** (an E5.1 reviewer signs off each commit):
+
 6. **The actor's dependencies need a home outside `State`.** Add one field to `Core`:
-   `pub actor_deps: RefCell<Rc<actor::ActorDeps>>`, set to `actor::ActorDeps::production()` in
+   `pub actor_deps: RefCell<Rc<actor::ActorDeps>>`, set to `actor::ActorDeps::production(..)` in
    `Engine::new`. It holds ports, so it cannot live in `State` (E5.1 step 4); the probe replaces
    it (step 15).
 7. **The probe hook's signature.** E5.1's `attachSession()` takes no arguments
@@ -105,9 +130,15 @@ E5.2 makes them in its first commit, exactly as listed, and an E5.1 reviewer sig
    E5.2 replaces both with the signature in step 15, deletes the stub from `probe.rs` and adds
    `#[cfg(feature = "engine-probe")] pub mod probe_actor;` to `engine/mod.rs`. The E5.1 brief
    said `probe_actor.rs` was declared; it was not.
-8. **The live store's port.** The facade's constructor (`native-engine/engine.ts`) passes the
-   `Store` to `liveStorePort(store, native)` from `native-engine/frames.ts` (step 13), one line,
-   and that function's unsubscribe joins the facade's terminal cleanup.
+8. **The live buffer's handle.** The engine reaches the connection's one live buffer the way it
+   reaches the shared transaction stack (step 16). The facade's constructor
+   (`native-engine/engine.ts`) calls `liveStorePort(store, native)` from `native-engine/frames.ts`,
+   one line, and that function's unsubscribe joins the facade's terminal cleanup.
+9. **Ending a turn on request.** `Executor::end_turn()` (`executor.rs`) sets a `Cell<bool>` that
+   the pump checks between polls: once set, no further runnable starts, the claim moves to
+   `Scheduled`, and `pump` returns `Rearm` (the same path as a spent budget), clearing the flag.
+   The executor test table gains a row: "a task that ends the turn stops the turn after its poll,
+   and the rest runs in the next one".
 
 Nothing else in E5.1's files changes.
 
@@ -211,7 +242,9 @@ with the inputs written as `Envelope` values. `null as unknown as Frame` is `is_
 - `coalesce_facts(&[Value]) -> Vec<Value>`: `delta-batch.ts:4`–`:35`, unit for unit. Adjacent
   `item.delta`s with the same `agent`, `item` and `field` merge while
   `utf8_len(previous.append) + utf8_len(next.append) ≤ 4096`. A `signal` between two such deltas
-  is dropped under the same bound, and every other boundary is kept. The merge is
+  is dropped under the same bound only when **its own `agent` equals the previous delta's** (and
+  the next delta's agent, item and field match the previous one's, `delta-batch.ts:13`–`:22`). A
+  signal of another agent, or one with no agent, is kept, and so is every other boundary. The merge is
   `{ ...previous, append: previous.append + fact.append }`: clone the previous map and replace
   `append` **in place** (an `ace_json::Map` insert on an existing key keeps its position), so key
   order matches. Join the appends with `JsString::push_js`, never through `str`.
@@ -223,8 +256,11 @@ with the inputs written as `Envelope` values. `null as unknown as Frame` is `is_
   `normalize_ace_call`, then `raw` is capped in the first branch that applies. Each spread is an
   in-place replacement. `cap_raw` is the store's `capRaw` (E5.3 passes it).
 - `read_raw_blob(conn, id: &str) -> Result<Option<Vec<u8>>, EngineError>`: `raw.ts:43`–`:53`.
-  An empty id is `EngineError::InvalidRawBlobId` (the TypeScript throws zod's error; the binding
-  maps this one to a `TypeError` whose message is `Invalid raw blob id`, open question 5). Look
+  `readRawBlob` is a callable facade member (`index.ts:1402`), so its empty-id error stays exactly
+  today's. The facade shell runs the same `z.string().min(1).parse(id)` before it calls the
+  binding (a boundary check, ADR 0125), so `readRawBlob("")` throws the same `ZodError`. Rust
+  still refuses an empty id, with `EngineError::InvalidRawBlobId`, which is unreachable from
+  JavaScript. Look
   in `blobs` first, then `engine_raw_blobs`, as `SELECT bytes FROM … WHERE id=?` through
   `ace-store`'s statement cache. A value that is not a blob is `Invalid stored raw blob`.
 
@@ -253,8 +289,16 @@ with the inputs written as `Envelope` values. `null as unknown as Frame` is `is_
   replaced in place or appended, in that order.
 - `attachment_payload(value: &Value, replace: &mut dyn FnMut(&str, &JsString) -> JsString) -> Value`:
   `attachment-payload.ts`, iterative on a heap stack (no recursion; depth is unbounded, as
-  `ace_json` promises). A string inside an array gets the key `""`, not its parent's. Objects keep
-  their key order, `__proto__` as an ordinary key.
+  `ace_json` promises). **The visiting order is the TypeScript's, because `replace` has effects:**
+  `sanitize`'s `find` inserts into the `attachments` map, and that map's order is the output's.
+  The stack is LIFO, and each container pushes its children in forward order
+  (`attachment-payload.ts:25`–`:31` for arrays, `:39`–`:50` for objects). Siblings are therefore
+  visited **last first**, each subtree depth-first before the sibling before it. Rust uses one
+  `Vec` stack the same way, pushing children forward and popping from the end. Visiting forward
+  changes the attachment order for a payload that echoes two uploads, and the test below catches
+  it. The output keeps each container's original key and element order, whatever the visiting
+  order. A string inside an array gets the key `""`, not its parent's. `__proto__` is an ordinary
+  key.
 - `Correlations` over the connection, `attachment-correlations.ts:10`–`:63`:
   - `open(conn)` runs the TypeScript's DDL text **byte for byte**, the same string with the same
     whitespace, in one transaction. SQLite stores that text in `sqlite_master`, so a home created
@@ -262,15 +306,18 @@ with the inputs written as `Envelope` values. `null as unknown as Frame` is `is_
     existing home it does no history-sized work (ADR 0170). It runs where the TypeScript runs it:
     when the repository is built (E5.3 calls `Correlations::open`).
   - `remember(thread, intent, attachments)`: at most 64 entries, each upserted as in `:30`–`:34`.
-    The JSON column is `ace_json::to_string` of the attachment as received, which is what
-    `JSON.stringify` of the zod-parsed value writes, because the caller (delivery, E5.5) passes it
-    already in schema order.
+    The TypeScript writes `JSON.stringify` of `Attachment.array().max(64).parse(attachments)`
+    (`:28`), which is schema order with unknown keys dropped. Rust does that projection itself
+    with the same function `get` uses, never trusting the caller's order, and refuses more than
+    64 entries or a non-conforming entry before writing anything. Delivery (E5.5) calls `remember`
+    and `remember_paths` in their own transaction **before the send**, as `delivery.ts:149`–`:153`
+    does, so an echo that arrives right after the send always finds its correlation.
   - `get(thread, hash) -> Result<Option<Value>, EngineError>`: the TypeScript runs the stored JSON
     through `Attachment.parse`, which returns the **schema's key order** and drops unknown keys
     (rule 8). Rust rebuilds the map in `Attachment`'s order (`packages/protocol/src/context.ts:138`–`:157`:
     `sha256, bytes, mimeType, name, kind, delivery, width, height, thumbnailAvailable`), keeping
     only those keys that are present. A row that is not that shape is
-    `EngineError::InvalidStoredAttachment` (open question 5).
+    `EngineError::InvalidStoredAttachment` (owner decision 5).
   - `remember_paths` (≤ 64, path 1 to 4096 units) and `can_read` (the thread exists, is not
     deleted, and has the path) as `:42`–`:62`. Nothing in the engine calls `can_read` today
     (`services/cli-requests.ts` takes its own `canRead`), so port it, and E5.5 checks whether
@@ -333,12 +380,29 @@ borrow held (E5.1 re-entrancy rule 2). `ActorRepo`, each method with its TypeScr
 | `engine_queue_fact(thread) -> Option<Value>`                           | `repo.engineQueueFact`, `:518`                                                                                                           | E5.4  |
 | `queue_paused(thread) -> bool`                                         | `repo.queue.get(id).paused`, `:470`                                                                                                      | E5.4  |
 | `queued_count(thread)`                                                 | `repo.queuedCount`, `index.ts:799`                                                                                                       | E5.4  |
-| `latest_generation(thread)`                                            | `max(pending.latestGeneration, interactions.latestGeneration)`, `index.ts:556`–`:559`                                                    | E5.4  |
+| `latest_generation(thread)`                                            | `max(pending.latestGeneration, interactions.latestGeneration)`, `index.ts:556`–`:559`; see below                                         | E5.4  |
 | `mark_yielded_end(thread, facts) -> Vec<Value>`                        | `markYieldedEnd`, `:466`–`:472`; with no yield recorded it returns the facts unchanged, which is correct before E5.5 sets any            | E5.5  |
 | `session_instance(thread) -> Option<String>`                           | `repo.session(id).instanceId`, `:498`                                                                                                    | E5.6  |
 | `reserved_slot(thread)`, `retiring_count()`                            | `index.ts:533`–`:536`                                                                                                                    | E5.6  |
-| `released_thread(thread) -> bool`                                      | `releasedThread(getThread(id))`, `index.ts:555`                                                                                          | E5.10 |
-| `cursor_record(thread, entries)`                                       | `writeCursorRecord`, `:475`–`:491`                                                                                                       | E5.8  |
+| `released_thread(thread) -> bool`                                      | `releasedThread(getThread(id))`, `index.ts:555`; a stored-row read, moved forward so E5.6 can create actors                              | E5.3  |
+| `cursor_record(thread, entries)`                                       | `writeCursorRecord`, `:475`–`:491`; called only with a non-empty journal (below)                                                         | E5.8  |
+
+Three of these are on the path every actor takes, so their owners must not leave them unported
+past E5.6, which is the first item that opens real sessions:
+
+- **`latest_generation`** (owner decision 4). Actor creation reads it, so E5.4
+  implements it without waiting for E5.7's ledger behaviour. It takes the indexed maximum of both
+  sources on the same connection: `pending.latestGeneration` and
+  `SELECT COALESCE(MAX(generation),0) FROM engine_interaction_requests WHERE thread_id=?`
+  (`interaction-ledger.ts:49`, served by `engine_requests_generation`). The legacy backfill writes
+  `NULL` generations (`:23`–`:30`), which `MAX` ignores, as today. E5.4 also makes sure the ledger
+  table and its index exist on a fresh home, with the TypeScript's DDL text byte for byte
+  (`:11`–`:18`), before the first actor is created.
+- **`released_thread`** moves to E5.3. It is a read of the stored thread row, and E5.10 would be
+  too late for E5.6's proof.
+- **`cursor_record`** is called only when the batch's journal is non-empty. Only a Cursor SDK
+  thread ever has entries (`actor.ts:457`–`:464`), and the TypeScript's `trimStep` runs only then
+  (`:490`), so every other thread never reaches E5.8's unported method.
 
 `ActorLinks`, the effects elsewhere:
 
@@ -350,21 +414,19 @@ borrow held (E5.1 re-entrancy rule 2). `ActorRepo`, each method with its TypeScr
 | `diagnostic(thread, raw)`                   | `this.diagnostic` → `onProviderDiagnostic` (`:495`)                                     | E5.6  |
 | `release_leases(tokens)`                    | each lease's `release()` (`:159`–`:163`)                                                | E5.5  |
 
-`LiveStore` (the TypeScript `Store`'s write gates and live buffer, which stay in TypeScript
-(`store.ts:563`–`:577`, `:851`–`:884`) and which E5.2 owns because its acknowledgement depends
-on them): `history_writing()`, `live_write_blocked()`, `writable_now()` (open question 3),
-`writable() -> LocalBoxFuture<Result<(), PortError>>`, `prepare_live_write(bytes)`,
-`buffer_live_write(thread, events_json, at, snapshot: BufferedSnapshotHandle)`,
-`flush_live_writes()`, and `is_store_retry(&EngineError) -> bool` (the shell's `isStoreRetry`,
-`store-busy.ts:27`, applied to the JavaScript error a port threw; for an `ace_store::Error` it is
-busy or disk-full). E5.3's `stream` calls `prepare_live_write` and `buffer_live_write`. Its
-`BufferedSnapshotHandle` wraps E5.3's `persist` and `committed` callbacks as JavaScript
-functions, which the store's flush calls as synchronous entries.
+`LiveStore`, the store's write gates and live buffer, which E5.2 owns because the
+acknowledgement depends on them (step 16 is the whole of it): `writable_now()`, `writable()`,
+`history_writing()`, `live_write_blocked()`, `prepare_live_write(bytes)`,
+`buffer_live_write(tx, thread, events, at, snapshot)`, `flush_due()`, and
+`is_store_retry(&EngineError) -> bool`. That last one is `isStoreRetry` (`store-busy.ts:27`): for
+an `ace_store::Error` it means busy or disk full; for a JavaScript error a port threw, the shell's
+function decides. E5.3's `stream` calls `prepare_live_write` and `buffer_live_write`, with its
+`persist` and `committed` steps as the snapshot (step 16).
 
 `production()` builds `ActorDeps` from three `Unported` structs. Each method returns
 `EngineError::not_ported("<method>", "E5.<n>")`. `wake`, `expire` and `diagnostic` return nothing,
 so they report it once per call through `ports.report`; none is a silent no-op. `LiveStore`'s
-production implementation is E5.2's own (the binding, step 12). Each owner replaces only its
+production implementation is E5.2's own (step 16). Each owner replaces only its
 methods' bodies in `deps.rs`, so no two items edit the same function.
 
 ### 7. The actor's state, and `with_state` (`actor/state.rs`, `actor/mod.rs`)
@@ -386,12 +448,12 @@ pub struct Actor {
     pending: Vec<Pending>,                  // Pending { frame: FrameRef, generation, bytes }
     pending_bytes: usize,
     pending_ack: Option<BatchAck>,          // the open batch's acknowledgement (decision 4)
-    batch_timer: Option<Timer>,
+    batch_timer: Option<Timer>,             // key + `fired` receiver, polled by the mailbox task (decision 3)
     overflowed: bool, pressure: bool,
     drains: Vec<oneshot::Sender<()>>,
     mailbox: VecDeque<Op>,                  // sealed batches and enqueued operations
     running: bool,                          // an op is mid-run (holds `queued` until it ends)
-    timer: Option<(Timer, ArmedTimer)>,
+    timer: Option<(Timer, ArmedTimer)>,     // likewise
     stopped: bool,
     mailbox_task: Option<TaskId>,
 }
@@ -400,9 +462,16 @@ pub enum FrameRef { Js(u32), Native(Box<ace_adapter_api::Frame>) }
 
 - **What lives in state.** All of the above is plain data. The translator is not: a JavaScript
   translator is a port, and a native one may be large and is borrowed during translation. It lives
-  in `ActorDeps.translators` (step 6). Whoever attaches the session (E5.6, or the probe) sets it
-  and clears it. Translation borrows it with `try_borrow_mut`, so an attach that re-enters during
-  a translation gets `Reentrant`, never a panic. The session, its
+  in `ActorDeps.translators` (step 6) as `(generation, ActorTranslator)`, which whoever attaches
+  the session (E5.6, or the probe) sets and clears. **No borrow of that map is ever held across a
+  translator call** (ADR 0223 §4, "JS ports during a step"), because a JavaScript translator can
+  re-enter the engine and attach or detach a session. So a translation, tick or
+  `next_deadline` first takes the translator **out** (`borrow_mut().remove(thread)`, the borrow
+  ending with the statement), calls it with no borrow held, and puts it back **only if** the map
+  has no entry for the thread and the actor's generation still equals the one stored with it.
+  Otherwise the session was replaced or retired during the call, and the taken translator is
+  dropped, which leaves the new one in place. While it is out, a lookup finds no translator,
+  which is what TypeScript's `this.translator?.` gives for a detached session. The session, its
   lifetime and the steer yield are E5.6's and E5.5's state in their own `State` fields, keyed by
   thread.
 - **The rules.** Every read or change of an `Actor` is one `core.with_state(|s| …)` closure that
@@ -418,6 +487,15 @@ pub enum FrameRef { Js(u32), Native(Box<ace_adapter_api::Frame>) }
   `max_active_threads + retiring_count()`, it stops, evicts and removes the oldest actors without
   a reserved slot, in insertion order, until there is room. Still full is
   `Engine actor capacity exceeded`. A new actor takes `released_thread` and `latest_generation`.
+- **Waking the mailbox.** Sealing, enqueueing and arming a timer wake the actor's mailbox task
+  **directly** (`waker.wake_by_ref()` on the waker it registered), not through `defer`. The
+  mailbox is not transactional state in TypeScript either: `tail` survives a rolled-back
+  transaction, and an op sealed inside one still runs (`actor.ts:198`–`:252`). A deferred wake
+  that a rollback dropped would strand the op. A direct wake runs nothing inline: the task runs
+  in a later pump, and the pump never runs inside a transaction, so it always runs after that
+  transaction has committed or rolled back. This is the actor's one exception to E5.1's
+  "sync entries start work through `defer`". It wakes an existing task and spawns nothing, and
+  the reviewer checks that it is the only one.
 - `stop(core, thread)`: `actor.ts:599`–`:608`. Seal first, set `stopped`, release all leases,
   disarm, clear pressure, resolve every drain. Dropping the actor also unregisters its waker
   (correction 4) and drops its mailbox task.
@@ -468,19 +546,29 @@ TypeScript's `commit = this.tail` does (`:430`): it is queued as a settle-only m
   actor is stopped or overflowed it returns false. If the op would pass `max_queued_frames` or
   `max_queued_bytes`, it sets `overflowed`, queues the overflow op (step 11; it is not counted in
   `queued`) and returns false. Otherwise it adds to `queued` and `queued_bytes`, runs
-  `update_pressure`, pushes the op, and calls `core.defer(Deferred::Wake(thread, Lane::Work))`.
-  The wake runs after the outermost commit, or at once outside a transaction (E5.1 step 3).
+  `update_pressure`, pushes the op, and wakes the mailbox task directly (step 7, "Waking the
+  mailbox").
   `enqueue(run)` is `seal`, then `accept_operation(run wrapped in core.store.atomic, 0, 1)`
   (`actor.ts:191`–`:197`).
 - **One mailbox task per actor**, spawned on `Lane::Work` when the actor is created. It registers
   its waker with `core.register_waker(thread, …)` and loops: `catch_up`, then take the front op.
-  With no op it parks (`Pending`). With an op it runs `run_when_writable`, then settles, then
-  **yields once** before the next op. That yield puts the task back in the work queue, so one busy
-  thread never runs two ops in one poll, and the E5.1 fairness rule and budget hold across actors.
-- `run_when_writable` (`actor.ts:254`–`:266`): while not poisoned, check
-  `live.writable_now()`, and when it is false, await `live.writable()`. Then run the op. On an
-  error `live.is_store_retry` accepts, await `ports.set_timer(100.0).fired` and retry. Any other
-  error goes to `fail`.
+  With no op, it polls both timer receivers (decision 3) and parks. With an op it runs
+  `run_when_writable`, then settles. If the settle resolved or rejected a batch acknowledgement
+  that has a JavaScript promise, it calls `core.executor.end_turn()` (decision 5, correction 9)
+  before it yields. Then it **yields once** before the next op. That yield puts the task back in
+  the work queue, so one busy thread never runs two ops in one poll, and the E5.1 fairness rule
+  and budget hold across actors. The turn's end is what keeps the order of
+  `engine/sessions.ts:685`–`:711`: the session's `committed` continuation, which emits runtime
+  command metadata only while the generation is current, runs before an exit op queued behind
+  the batch can retire that generation.
+- `run_when_writable` (`actor.ts:254`–`:266`), owner decision 3: loop while not
+  poisoned. If `live.writable_now()`, run the op. Otherwise await `live.writable()` and go round
+  again, so the predicate is **re-checked after the wait, in the turn that runs the op**. The
+  wait resolves in one macrotask and the task runs in a later one, and maintenance or history
+  publication may have started between them, which is why `Store.write` re-checks at
+  `store.ts:888`. `writable_now` is the shared predicate of step 16. On an error
+  `live.is_store_retry` accepts, await `ports.set_timer(100.0).fired` and go round again. Any
+  other error goes to `fail`.
 - **The outermost rule.** Before an op runs, `core.store.is_open()` must be false. The pump never
   runs inside a transaction (E5.1 step 2's `Busy`), so every transaction an op opens is outermost,
   and its commit is the one the acknowledgement waits for. If the check ever finds a transaction
@@ -501,9 +589,11 @@ TypeScript's `commit = this.tail` does (`:430`): it is queued as a settle-only m
   switch.
 - **When it resolves.** For a committed batch it resolves after the op's last transaction
   committed: `repo.apply`'s own, plus `sync_queue`'s second one on the non-SDK path, or the one
-  `atomic` that wraps an SDK or Cursor batch. For established deltas it resolves after
-  `repo.stream` accepted them into the live buffer and returned true, **before the buffer
-  flushes**. It never resolves on the buffer's flush, and never on a savepoint's release.
+  `atomic` that wraps an SDK or Cursor batch (`actor.ts:389`–`:426`, `:430`). For established
+  deltas it resolves after `repo.stream` accepted them into the live buffer and returned true,
+  **before the buffer flushes** (porting guide, "For every E5 item"). It never resolves on the
+  buffer's flush, and never on a savepoint's release. Its JavaScript continuations run before the
+  next op (decision 5).
 - `backlog(thread) -> (frames, bytes)` is `queued + pending.len()` and
   `queued_bytes + pending_bytes`.
 - `flush(core, thread) -> future` (`actor.ts:589`–`:598`): `catch_up`, `seal`, await `writable`,
@@ -525,8 +615,9 @@ TypeScript's `commit = this.tail` does (`:430`): it is queued as a settle-only m
    1. `status_before` is set once, on the first attempt, from `repo.status`.
    2. `translated` is set once: `translate_batch(live frames, cursor_sdk)`. A retry after a rollback
       reuses it and never translates again (translators keep state).
-   3. `repo.cursor_record(thread, translated.journal)` runs on every attempt, because the record
-      rolled back with the rest.
+   3. `repo.cursor_record(thread, translated.journal)` runs on every attempt **when the journal is
+      non-empty**, because the record rolled back with the rest. An empty journal (every thread but
+      a Cursor SDK one) calls nothing, as `actor.ts:476`–`:490` writes nothing and skips `trimStep`.
    4. `tool_boundary`: any fact is an `item.upsert` of a `tool_call` draft, or a `background.started`.
       `command_running` = `tool_boundary && repo.running_foreground_command`.
    5. `streamed` is set once: `!cursor_sdk && repo.stream(thread, facts, now)`.
@@ -588,9 +679,13 @@ fact then goes through `attachment_echo`, whose lookup is `Correlations::get(thr
 - `wait(core, thread) -> future` (`:87`–`:90`): await `live.writable()`, then, if `pressure`,
   await a drain sender added to `drains`.
 - **For a TypeScript session** the context's `outputFlow` is `{ paused, wait }` over these two
-  (step 13). **For a native session** E5.6 mirrors `paused` into the session's `ReadGate` after
-  each delivered batch, and calls `set_paused(false)` when `wait` resolves (ADR 0223 §7 rule 4).
-  E5.2 exposes both functions and changes nothing in the gate.
+  (step 13). **For a native session** the direct path mirrors `paused` into the session's
+  `ReadGate` **after each delivered frame**, exactly as the bridge's `mirrorFlow` does
+  (`native-session-bridge.ts:120`–`:137`, called per frame at `:165`). On the first paused
+  answer it calls `set_paused(true)` once and arms one `wait`. When that resolves, if still
+  marked paused, it calls `set_paused(false)`. An unpaused answer while marked paused also calls
+  `set_paused(false)`. E5.2 writes this mirror as `actor::NativeFlow` beside `paused` and `wait`,
+  and E5.6 calls it. It changes nothing in the gate.
 
 ### 13. How frames enter (binding `engine/actor.rs`, `engine/js_translator.rs`; shell `native-engine/actor.ts`, `native-engine/frames.ts`)
 
@@ -634,28 +729,43 @@ frame's data in Rust (`cursor_record`, the `{kind: "send"}` test): the helper re
 `cursor-sdk` thread.
 
 **A native session** (E3 done for that provider). The session's tokio task publishes onto its
-`EventQueue` (E3.0c step 1). E5.6 drains it on the JS thread with
-`take_batch(256, 262144)` and, for each `SessionEvent::Frame`, calls
-`actor::frame(core, thread, generation, FrameInput { frame: FrameRef::Native(..), envelope: from the typed frame, channel_sdk, measure: Certified { bytes: text.len() } })`.
-`text.len()` is the UTF-8 length of the redacted text, which is what `ProviderPayload.bytes` is
-for the bridge's frames (`provider-kit/src/payload.ts:16`). The bridge always attaches a
-certificate (E3.0c step 6), so the byte count matches TypeScript's byte for byte. Callbacks and
-the exit stay behind the frames before them, because E5.6 handles the queue's events in order
-and an exit is an `enqueue`, which seals first (ADR 0223 §7 rule 3). The translator is the
-provider's Rust `Box<dyn ace_adapter_api::Translator>`. E5.2 writes no code on this path except
-`actor::frame` and the `Native` variants, and proves it with a Rust test that feeds `FrameRef::Native`
-frames through a probe actor (seam test 12).
+`EventQueue` (E3.0c step 1). E5.6 drains it on the JS thread with `take_batch(256, 262144)` and,
+for each `SessionEvent::Frame`, calls `actor::native_frame(core, thread, generation, event, now, started)`,
+which E5.2 writes. It does what the bridge's `frame()` (`native-session-bridge.ts:145`–`:166`)
+does, in the same order, without building a JavaScript object:
 
-**`liveStorePort(store, native)`** (shell `native-engine/frames.ts`, binding `engine/frames.rs`)
-implements `LiveStore` over the TypeScript `Store`'s public methods, subscribes to
-`onLiveWriteQuarantine`, and returns its unsubscribe for the facade's terminal cleanup
-(correction 8). `is_store_retry` calls `isStoreRetry` on the JavaScript error a port kept.
+1. **Payload limits, as `ProviderPayload` enforces them** (`provider-kit/src/payload.ts:4`,
+   `:11`–`:40`). The text must be at most `maxProviderPayloadBytes` (1 MiB) of UTF-8, valid JSON
+   (`ace_json::parse`), and at most 32,768 value nodes, counted as the constructor counts them
+   (every value popped, containers and primitives alike). A frame that fails any of these is
+   handled as the bridge handles the throw (`:278`–`:284`): one warning line,
+   `native session frame event failed: <message>` with the constructor's message
+   (`Provider payload exceeds byte limit`, `Provider payload exceeds structural limit`, or the
+   parse error), and the frame is skipped. It gets no acknowledgement, no flow mirror and no
+   effect on the actor, and the rest of the batch goes on.
+2. `t = max(0, round(now − started))` from the adapter's injected clock, read at delivery on
+   the JS thread, as `:157` computes it.
+3. `actor::frame` with `FrameRef::Native`, an envelope built from the typed fields, and
+   `Measure::Certified { bytes: text.len() }`: the bridge always attaches a certificate whose
+   `bytes` is the text's UTF-8 length (`payload.ts:16`), so the count matches byte for byte.
+4. The acknowledgement goes to E5.6's tracker, which calls `ReadGate::fail` when it rejects
+   (`:163`).
+5. `NativeFlow::mirror` (step 12), per frame.
+
+Callbacks and the exit stay behind the frames before them, because E5.6 handles the queue's
+events in order and an exit is an `enqueue`, which seals first (ADR 0223 §7 rule 3). The
+translator is the provider's Rust `Box<dyn ace_adapter_api::Translator>`. Seam test 12 proves
+this path with a Rust test.
+
+**The live store** is step 16.
 
 ### 14. Facade members (binding `engine/actor.rs`, shell `native-engine/actor.ts`)
 
 In E5.1's table, E5.2 fills these, each in E5.2's `#[napi] impl NativeEngine` block:
 
 - `liveThreadIds()` (R): the actors' ids in insertion order (`index.ts:1049`).
+- `readRawBlob(id)` keeps its shell-side `z.string().min(1).parse(id)` (step 3), whoever fills
+  the member (E5.3).
 - `workload()` (R): `activeSessions` counts actors with `session_attached`. `engine.frames` and
   `engine.frameBytes` sum `backlog`, and `engine.queuedSends` sums `repo.queued_count` (E5.4;
   until then the call throws `NativeEngineIncomplete("queued sends count lands in E5.4")`).
@@ -688,11 +798,56 @@ interface ProbeSession {
 event per call, `{ type: "probe.batch", facts: <n> }`, through `core.store.atomic` and
 `Tx::append_events` (the event shape E5.1's probe `write` step uses), and records whether the
 transaction was outermost. `stream` returns true when `spec.stream` is `"deltas"` and every fact
-is an `item.delta` or `signal`. It then calls `prepare_live_write` and `buffer_live_write` with
-one probe event and a snapshot whose `persist` and `committed` only record. `status` returns a
+is an `item.delta` or `signal`. It then calls `prepare_live_write` and `buffer_live_write` (the
+shared buffer of step 16) with one probe event and a snapshot whose `persist` and `committed` only
+record. `status` returns a
 counter the test can bump, and every other method returns a fixed, recorded answer. `ProbeLinks`
 records each call. That is scripting, not thread behaviour, so E5.1's must-not holds. E5.3 deletes
 `ProbeRepo`'s `stream` and `apply` when its own repository can stand in.
+
+### 16. The live buffer on the shared stack, flushed by the pump (`frames/live.rs`; store shell `native-writer/live.ts`, `store-stream.ts`)
+
+ADR 0223 §5 (`:300`–`:306`): the Rust engine calls `ace_store` directly on the shared stack, its
+streamed deltas included, and "the live buffer's flush is a task on the owning thread, run by the
+pump, so it is never inside another transaction". So `LiveStore` is not a port onto a second
+buffer. It reaches the connection's **one** live buffer, the one `native-writer/live.ts` drives
+behind `ACE_STORE_WRITER=live` (which `transactions` implies, E5.1's prerequisite), the way E5.1
+reached the one transaction stack (E5.1 decision 4, correction 8 here):
+
+- **One buffer, one order.** The binding hands the engine a handle to the connection's
+  `NativeLiveBuffer`, the same instance the shell uses. `buffer_live_write` appends the engine's
+  events to it in the order the engine produced them, interleaved with any TypeScript appends in
+  call order. The shell keeps its entry list, and a Rust-sourced entry holds a token for its
+  snapshot: at the flush, the shell calls `persist(token)` and `committed(token)` back as
+  synchronous engine entries (E5.3's `persist` and `committed`, `repository.ts:396`–`:409`). The
+  events are encoded once, by Rust, with `ace_json`, and are never rebuilt as JavaScript objects
+  except where the shell's publication already builds them.
+- **The pumped flush.** With a native engine attached, the shell's deadline timer (`live.ts`, the
+  75 ms and 1 s deadlines the buffer returns) does not flush inline. It calls the engine's
+  `flush_due()`, a synchronous entry that spawns one flush task on `Lane::Work`, deferred through
+  `defer` (it starts work), and coalesces when one is already queued. The task runs the shell's
+  flush from the pump, so no other transaction is open (E5.1 step 2's `Busy` check), and the
+  flush's own transaction is a top-level one on the shared stack. The flushes the store makes
+  itself are unchanged: before a transaction begins (`store.ts`'s `transactionHost().flush`),
+  when the buffer is full, and on `flushLiveWrites()`. With no engine attached (the switch off),
+  no hook is set and the timer flushes inline as today, byte for byte. That is one optional hook
+  in `store-stream.ts`, set and cleared by `liveStorePort`.
+- **The writable predicate, shared** (owner decision 3). `Store.writableNow()` is the
+  exact condition `writable()` returns on: not held, not writing history, and no failed live
+  batch (`store.ts:855`–`:884`). `writable()` is rewritten to loop on it, so there is one
+  predicate, not two copies. `Store.write`'s own re-check (`:888`) is unchanged.
+  `LiveStore::writable_now` calls it.
+- `history_writing`, `live_write_blocked`, `writable` and `prepare_live_write` go through the
+  shell's public methods. `liveStorePort` subscribes to `onLiveWriteQuarantine` and calls
+  `actor::quarantine`.
+- **Files and review.** `native-writer/live.ts`, `store-stream.ts` and `store.ts` (the hook,
+  `writableNow`, and the buffer handle on the binding's connection) are the store's, and a store
+  reviewer signs off that commit. The switch-off proof is the store's Task 5.4 list with
+  `ACE_STORE_WRITER=fold,sequences,events,columns,live,transactions`, each file alone and
+  unchanged, plus `live-write-buffer.process` and `signal-batching.process` with the engine off.
+- **Order of landing.** Everything else in E5.2 (the moved cases, the frame helpers, the actor and
+  the seam tests except those marked "step 16") does not depend on this step and lands first.
+  This step lands before E5.3's `stream` is wired, and E5.6's proof needs it.
 
 ## Re-entrancy (in addition to E5.1's nine rules)
 
@@ -702,8 +857,12 @@ records each call. That is scripting, not thread behaviour, so E5.1's must-not h
 11. `actorFrame` can be called from inside an op, if a port the op called makes the session emit
     a frame synchronously. It only appends to `pending` and may seal. Sealing queues an op behind
     the running one and defers its wake. Nothing runs inline.
-12. The store's live flush calls E5.3's `persist` and `committed` callbacks as synchronous entries,
-    inside the store's own transaction, which runs outside the pump. They never run a task.
+12. The live flush runs as a pump task (step 16). Inside its transaction the shell calls E5.3's
+    `persist` and `committed` back as synchronous entries, and those never run a task. A flush the
+    store starts itself (before a transaction begins) does the same, inside that call.
+13. No borrow of `ActorDeps.translators` is held across a translator call (step 7).
+14. The actor's mailbox wakes are direct and its other wakes go through `defer` (step 7). The
+    reviewer checks that the direct wakes are the only exception.
 
 ## Proof
 
@@ -727,6 +886,11 @@ and the storage row, by E5.3, E5.4 and E5.6.
 | storage row (`live-write-buffer`, `live-write-quarantine`, `storage-behaviour`, …)   | fails naming E5.3/E5.6       | E5.6, `startup-quarantine` at E5.8 |
 | `engine/attachment-echo.process` (an E1 file too)                                    | fails naming E5.5/E5.6       | E5.6                               |
 | `engine/reliability.process`                                                         | fails naming E5.6            | E5.6–E5.8                          |
+
+**Order of landing.** The moved (b) cases, the frame helpers, the actor and every seam test not
+marked "step 16" land first; step 16 and its seam test follow. E5.6's proof also needs E5.3's
+`released_thread` (moved forward from E5.10) and the empty-journal skip of `cursor_record`, so a
+thread that is not Cursor's never reaches E5.8.
 
 **Switch off, byte-identical**: each alone, unchanged and passing: `engine/actor-timer.test.ts`,
 `frame-envelope.test.ts`, `fact-bytes.test.ts`, `signal-batching.process.test.ts`,
@@ -762,12 +926,19 @@ New Rust tests (behaviour nothing covers directly today; the commit says so):
 
 - `frames/bytes.rs`: "`utf8_len` counts a lone surrogate as three bytes, as Buffer.byteLength does".
 - `frames/coalesce.rs`: "adjacent deltas merge up to 4096 bytes and keep the previous fact's key
-  order"; "a signal between two mergeable deltas is dropped and any other boundary is kept"; "a
-  lone-surrogate append counts three bytes toward the bound".
+  order"; "a signal between two mergeable deltas is dropped only when it is the deltas' own agent's,
+  and any other boundary is kept" (rows: same agent, other agent, no agent); "a lone-surrogate
+  append counts three bytes toward the bound".
 - `frames/attachments.rs`: "an echo with no thread-owned upload is returned untouched"; "a matched
   part is removed and the attachment appended in first-match order"; "a base64 value without
   padding hashes as Node decodes it"; "a deeply nested raw field is walked without recursion"
-  (depth 100,000).
+  (depth 100,000); "a raw payload echoing two uploads lists them in the TypeScript's visiting
+  order, last sibling first" (two sibling `path` fields; visiting forward makes it fail).
+- `frames/correlations.rs`: "remember writes each attachment in schema order without unknown
+  keys, whatever order it was given in".
+- `actor/intake.rs` (Rust, through the probe actor): "a native frame over 1 MiB, over 32,768
+  nodes, or not JSON is skipped with the bridge's warning and leaves the actor untouched", and
+  "the native flow mirror pauses once and resumes when the wait resolves, per frame".
 - `frames/correlations.rs` over a temp `ace-store`: "a stored attachment comes back in schema key
   order without unknown keys"; "opening twice leaves `sqlite_master` with the TypeScript's DDL text".
 - `frames/stream.rs`: "the snapshot is prepared and finished around every fact, a rejected one
@@ -783,13 +954,21 @@ the switch on:
    are pending before the batch timer fires; after `batchClock.advance(1)` and a flush, the store
    holds the one probe event, the log shows `outermost: true`, and all three promises resolved in
    arrival order. (`signal-batching` `:160`)
-2. "established deltas are acknowledged when the live buffer accepts them, before it flushes":
+2. (step 16) "established deltas are acknowledged when the live buffer accepts them, before it flushes":
    `stream: "deltas"`; the promise resolves while `store.hasLiveWrite(thread)` is still true;
-   after `flushLiveWrites` the probe snapshot recorded `persist` then `committed`. (`signal-batching` `:114`)
+   after the buffer's deadline the flush ran as a pump task (no transaction open at its start) and
+   the probe snapshot recorded `persist` then `committed`. (`signal-batching` `:114`, `:186`)
 3. "a batch seals at 256 frames or 256 KiB without waiting for its timer": 256 small frames, then
    two frames of 130 KiB; the batch clock is never advanced, and the log shows batches of 256 and 2.
 4. "a frame that arrives after the batch timer fired joins the next batch": fire the timer, then
    call `onFrame` before any pump; the log shows two batches. Sealing in the pump makes it fail.
+   - 4b. "a batch whose timer fires with no later frame, flush or tick is still committed and
+     acknowledged": one frame, then only `batchClock.advance(1)` and macrotasks (never `flush`,
+     never another frame). The promise resolves and the probe event is stored. A mailbox task that
+     only uses `try_recv` never wakes, and the test times out.
+   - 4c. "an actor tick that fires on an idle actor runs": arm the actor timer through a translator
+     deadline, then only advance the `ManualClock` and let macrotasks run. The tick op ran and
+     applied `[…translator.tick(now), {type: "tick"}]`.
 5. "intake pauses at 256 queued frames and resumes at 64": `limits.maxQueuedFrames: 1024`, the store
    held for writes so no op can run, and frames each sealed by advancing the batch clock.
    `outputFlow.paused()` is false at 255 and true at 256. Releasing the hold drains, and `wait()`
@@ -812,6 +991,17 @@ the switch on:
 12. "native frames batch and acknowledge as TypeScript ones do": a Rust test in
     `engine/probe_actor.rs` (feature `engine-probe`) feeding `FrameRef::Native` frames through the
     same probe actor; batches and acknowledgements match case 1.
+13. "a batch's acknowledgement continuation runs before an exit queued behind it retires the
+    generation": a batch, then (before any pump) an `enqueue` that retires the generation, as
+    `onExit` does. The promise's `.then` records `generation === current`, and it records `true`.
+    It reads `false` if the turn does not end at the acknowledgement. (`engine/sessions.ts:685`–`:711`)
+14. "a session replaced during translation keeps the new translator": the JavaScript translator's
+    `translate` calls the probe to attach a new session to the same thread. Afterwards the actor
+    translates with the new translator, the old one is not put back, and nothing reports
+    `Reentrant`.
+15. "an op sealed inside a rolled-back transaction still runs": `onFrame` and a flush-triggered
+    seal inside a `store.atomic` that throws; the batch is still committed and acknowledged
+    afterwards, as in TypeScript (step 7, "Waking the mailbox").
 
 ## Benches
 
@@ -823,23 +1013,36 @@ the switch on:
 - **Head-of-line.** `bench/head-of-line.ts --runs=3` needs sends (E5.5, E5.6). E5.1 recorded the
   switch-off baseline. E5.2 adds nothing to it and runs it after E5.6, against E5.1's baseline,
   under the `live` bulk: `stopAck` and `sendReceipt` p50, p99 and max, plus the event-loop delay.
-  The figure E5.2's design can move is the mailbox's per-op yield (step 9), so report the
-  binding's longest poll and count of polls over 16 ms beside `stopAck`.
-- **The actor's own cost, now.** From seam case 3's run, report frames acknowledged per
-  millisecond through a probe actor (one figure, as E5.1 reported the pump's), and the share of
-  batches that hit the 256-frame bound. No new bench file.
+  The figures E5.2's design can move are the mailbox's per-op yield and the turn it ends at each
+  JavaScript acknowledgement (step 9), so report the binding's longest poll, its count of polls
+  over 16 ms, and the turns per second under `live`, beside `stopAck`.
+- **The actor's own cost, now: sparse and full batches** (owner decision 6). The shared
+  promise saves deferreds, but the binding still reads every frame's envelope fields, and the
+  shell encodes and Rust parses the facts. So measure both shapes, end to end, switch off and on,
+  through the same scripted translator: **sparse** batches (one frame per batch, the batch clock
+  advanced after each) and **full** batches (256 frames per batch). For each, report the
+  per-frame cost of `onFrame` (shell measure, binding field reads, the call), of translation (the
+  JavaScript batch helper, its `JSON.stringify`, and `ace_json::parse` in Rust), and of the
+  acknowledgement (one deferred per batch, plus the turn ended at it, decision 5). Report wall
+  time per 10,000 frames with p50 and p99 per batch, and the macrotasks per batch. Switch off is
+  the TypeScript actor driven the same way through `engine/test-support.ts`'s harness. Run it as
+  one timed case in `native-engine/actor.test.ts` that prints and asserts nothing about speed, or
+  as `bench/live-write-buffer.ts` with `--sparse` and `--full` flags if that bench can host it
+  without a session. No new bench file.
 
 ## Files (all yours; nothing else except the E5.1 corrections)
 
-- `native/daemon/crates/ace-engine/src/actor/{mod,state,deps,intake,mailbox,fold,failure,flow,timer,leases,rules}.rs`
-  (replacing `actor.rs`) and `frames/{mod,bytes,envelope,coalesce,raw,attachments,attachment_payload,correlations,stream}.rs`
+- `native/daemon/crates/ace-engine/src/actor/{mod,state,deps,intake,native,mailbox,fold,failure,flow,timer,leases,rules}.rs`
+  (replacing `actor.rs`) and `frames/{mod,bytes,envelope,coalesce,raw,attachments,attachment_payload,correlations,stream,live}.rs`
   (replacing `frames.rs`).
 - `ace-engine/Cargo.toml`: `indexmap` (the TypeScript `Map` order, rule 8), `sha2` and `base64`
   (image hashes), the versions already in `native/daemon/Cargo.lock`, each with a comment saying
   why.
 - `native/daemon/crates/ace-daemon-node/src/engine/{actor,frames,js_translator,probe_actor}.rs`.
 - `apps/daemon/src/native-engine/{actor,frames}.ts` and `actor.test.ts`.
-- The E5.1 corrections above, and nothing else in E5.1's files.
+- E5.2's seams in E5.1's files (corrections 6–9), and nothing else in E5.1's files.
+- The store's files of step 16 (`native-writer/live.ts`, `store-stream.ts`, `store.ts`), with a
+  store reviewer on that commit.
 - Every file under 400 lines; none over 1,500 (`bun run check:size`).
 
 ## Must not
@@ -853,6 +1056,9 @@ the switch on:
 - Give the probe a fold, or make an unported trait method succeed silently.
 - Use `serde_json`, `str::len` on JavaScript strings, or `HashMap` where TypeScript iterates a `Map`.
 - Change `engine/*.ts`, the store's formats, `engineSchemaVersion` 9, or the DDL text.
+- Poll a timer receiver only with `try_recv`, keep a borrow of the translator map across a
+  translator call, or flush the live buffer from a timer callback while a native engine is attached.
+- Patch E5.1's corrections 1–5 in E5.2's branch.
 - Run the full suite, `bun run check`, `test:process` or any tier; one file at a time (rule 3).
 
 ## Reviewer checks
@@ -863,42 +1069,38 @@ the switch on:
 - Acknowledgement rows: committed batch after its last commit, streamed batch on acceptance,
   refused batch rejects after the ops before it, poisoned or overflowed at settle time rejects.
   Moving the settle to after `flush_live_writes` makes seam case 2 fail.
-- `catch_up` runs at the top of every sync entry and every mailbox poll.
+- `catch_up` runs at the top of every sync entry and every mailbox poll, and the parked task has
+  polled both receivers. Replacing the poll with `try_recv` makes seam tests 4b and 4c fail.
+- An op that settled a JavaScript acknowledgement ends the turn (seam test 13).
+- The translator is taken out and put back only if its session is still current (seam test 14).
+- The live buffer is the connection's one buffer, and with the engine attached its deadline flush
+  runs as a pump task. With the engine off the store's files behave exactly as before.
+- `released_thread` is E5.3's, `cursor_record` is called only for a non-empty journal, and
+  `latest_generation`'s row says E5.4 reads both indexed maxima.
+- The coalescer checks the in-between signal's own agent, and the raw walk visits siblings last
+  first.
+- The native path enforces `ProviderPayload`'s limits with the bridge's warning, and mirrors flow
+  per frame.
 - Merges and spreads replace keys in place, and `Correlations::get` returns schema order.
 - `json_string_bytes`, `utf8_len` and `streamed_facts_bytes` work in UTF-16 units.
 - `deps.rs`'s `Unported` methods each name the right owner; no owner's method has a body in E5.2.
 - With the switch off, `git diff origin/ace/daemon-rust-rewrite -- apps/daemon/src/engine` is empty.
 
-## Open questions, with recommendations
+## Owner decisions (2026-11-24, after review by gpt-6.2-sol)
 
-1. **Who edits `deps.rs` later?** Each owner (E5.3, E5.4, E5.5, E5.6, E5.8, E5.10) replaces only
-   its methods' bodies in `ActorDeps::production` and the `Unported` impls. The alternative, each
-   owner providing its own trait object registered at construction, needs a registration hook in
-   E5.1's `Core`. _Recommend_ the one-function edit; the table in step 6 is the contract, and
-   E5.3's and E5.4's briefs cite it.
-2. **Acknowledgement continuations after the turn (decision 5).** _Recommend_ accepting it, as
-   timers were accepted (E5.1 owner decision 2). The mailbox's per-op yield keeps each op in its
-   own poll, so ops of different threads interleave. If a (a) file at E5.6 shows an order
-   dependency, end the turn after an op that settled a JavaScript acknowledgement, which costs one
-   macrotask per batch.
-3. **`writable_now`.** `Store.writable()` is async, and the write hold it checks is private
-   (`store.ts:858`). Awaiting it for every op would add a macrotask per batch. _Recommend_ a
-   three-line public `Store.writableNow(): boolean` (`!writes.isHeld() && !historyWriting &&
-   !streaming.buffer.failed`) in `store.ts`, in E5.2's first commit, signed off by a store
-   reviewer. Without it, `run_when_writable` awaits `writable()` every time, and the per-op cost
-   shows in the seam figure.
-4. **`latest_generation` needs the interaction ledger (E5.7).** Actor creation reads it
-   (`index.ts:556`–`:559`), so with E5.7 unlanded, E5.6's sessions could not open. _Recommend_
-   that E5.4's implementation reads the ledger's generation column directly (a stored read, no
-   ledger behaviour), so actor creation needs only E5.4. Settle it in E5.4's brief.
-5. **Error text for rows ace wrote that fail validation.** `readRawBlob("")` and a malformed stored
-   attachment throw zod errors whose text the Rust cannot reproduce. Both need an id that is never
-   empty, or a row ace never writes (ADR 0125). _Recommend_ the fixed messages of steps 3 and 4,
-   recorded in behaviour.md §4 as known differences on corrupt input only.
-6. **One promise per batch (decision 4).** _Recommend_ keeping it, and the bench figure shows the
-   saving. If a reviewer finds a caller that compares acknowledgement identity, fall back to one
-   promise per frame, settled in arrival order.
-7. **Should the E5.1 corrections go into E5.1's open review?** _Recommend_ yes for corrections 1–5
-   (they are E5.1 bugs whatever E5.2 does: a flush that never flushes the actors, a flush that
-   never raises `flush_depth`, unbounded waker and wake-log growth). Corrections 6–8 are E5.2's
-   seams and land with it.
+1. **Owner-tagged traits and the live-store port stay**, with the live store on the shared stack
+   and its flush run by the pump (step 16). Each later owner replaces only its methods' bodies in
+   `deps.rs`.
+2. **Continuation order is kept**: a JavaScript acknowledgement ends the pump turn (decision 5,
+   correction 9).
+3. **One writable predicate**, `Store.writableNow()`, shared by `writable()`, and re-checked after
+   the wait in the turn that runs the op (step 9, step 16).
+4. **`latest_generation` is E5.4's**, safe once E5.4 makes sure the ledger table and index exist
+   on a fresh home: the indexed maximum of both sources on the same connection, with the legacy
+   backfill's `NULL`s ignored (step 6).
+5. **Corrupt-row error text may differ** (a malformed stored attachment). The callable empty-id
+   error of `readRawBlob` stays exactly today's (step 3).
+6. **One promise per batch**, measured on sparse and full batches with encoding and parsing
+   included (Benches).
+7. **E5.1's flush, `flush_depth`, waker and wake-log gaps are fixed in E5.1's open review**
+   (corrections 1–5). E5.2 relies on them and does not patch them.
