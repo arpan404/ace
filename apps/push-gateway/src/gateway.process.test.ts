@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { createHash, createPrivateKey, randomBytes, verify } from "node:crypto";
+import { createCipheriv, createHash, createPrivateKey, randomBytes, verify } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { z } from "zod";
@@ -59,6 +59,10 @@ afterAll(async () => {
 
 const auth = (key = daemonKey, aud = audience) =>
   vapidAuthorization(key, aud, undefined, Date.now());
+const daemonHash = () =>
+  createHash("sha256")
+    .update(Buffer.from(p256PublicPoint(daemonKey), "base64url"))
+    .digest("base64url");
 const register = (body: unknown, authorization = auth()) =>
   fetch(`${origin}/v1/registrations`, {
     method: "POST",
@@ -66,8 +70,8 @@ const register = (body: unknown, authorization = auth()) =>
     body: JSON.stringify(body),
   });
 const Registered = z.object({ handle: z.string(), expiresAt: z.number() });
-const handleFor = async (deviceToken: string, environment = "production") => {
-  const response = await register({ token: deviceToken, environment });
+const handleFor = async (deviceToken: string, environment = "production", kind?: string) => {
+  const response = await register({ token: deviceToken, environment, kind });
   expect(response.status).toBe(201);
   return Registered.parse(await response.json()).handle;
 };
@@ -87,6 +91,37 @@ const push = (
     },
     body: new Uint8Array(options.body ?? record()),
   });
+
+it("advertises its supported handle kinds without authorization", async () => {
+  const response = await fetch(`${origin}/v1/capabilities`);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ kinds: ["alert", "liveactivity", "start"] });
+});
+
+it("still sends alerts from handles made before registrations carried a kind", async () => {
+  const legacyToken = "bc".repeat(32);
+  const nonce = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", sealKey, nonce);
+  cipher.setAAD(Buffer.from("ace-push-handle-v1"));
+  const sealed = cipher.update(
+    JSON.stringify({ t: legacyToken, e: "production", d: daemonHash(), x: Date.now() + 60_000 }),
+  );
+  const handle = Buffer.concat([nonce, sealed, cipher.final(), cipher.getAuthTag()]).toString(
+    "base64url",
+  );
+  expect((await push(handle)).status).toBe(201);
+  expect(apns.calls.at(-1)?.headers).toMatchObject({
+    ":path": `/3/device/${legacyToken}`,
+    "apns-push-type": "alert",
+  });
+});
+
+it.each(["start", "liveactivity"])("refuses an encrypted alert from a %s handle", async (kind) => {
+  const handle = await handleFor("91".repeat(32), "production", kind);
+  const before = apns.calls.length;
+  expect((await push(handle)).status).toBe(403);
+  expect(apns.calls).toHaveLength(before);
+});
 
 it("forwards an encrypted alert to APNs with a verifiable provider token and fixed visible text", async () => {
   const handle = await handleFor(token);
@@ -217,12 +252,15 @@ it("limits pushes per phone", async () => {
 });
 
 it("rejects an expired handle even when it is otherwise well-formed", async () => {
-  const daemon = createHash("sha256")
-    .update(Buffer.from(p256PublicPoint(daemonKey), "base64url"))
-    .digest("base64url");
   const expired = sealHandle(
     sealKey,
-    { token, environment: "production", daemon, expiresAt: Date.now() - 1000 },
+    {
+      token,
+      environment: "production",
+      daemon: daemonHash(),
+      expiresAt: Date.now() - 1000,
+      kind: "alert",
+    },
     randomBytes(12),
   );
   const before = apns.calls.length;

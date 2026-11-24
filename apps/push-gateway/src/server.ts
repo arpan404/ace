@@ -6,7 +6,7 @@ import { createApnsClient, ApnsToken, type ApnsClient } from "@ace/notify/apns-c
 import { IpBudget } from "@ace/relay";
 import { daemonIdentity } from "./auth.ts";
 import type { GatewayConfig } from "./config.ts";
-import { openHandle, sealHandle } from "./handles.ts";
+import { HandleKind, openHandle, sealHandle } from "./handles.ts";
 import { GoneTokens, HourlyLimit } from "./limits.ts";
 import { alertPush, maxBody } from "./payload.ts";
 
@@ -24,6 +24,7 @@ export interface Gateway {
 const RegistrationBody = z.object({
   token: ApnsToken,
   environment: z.enum(["sandbox", "production"]),
+  kind: HandleKind.default("alert"),
 });
 const goneReasons = new Set(["BadDeviceToken", "DeviceTokenNotForTopic", "Unregistered"]);
 const ipKeys = new IpBudget();
@@ -83,6 +84,8 @@ export async function startGateway(
       response.end("ok");
       return;
     }
+    if (request.method === "GET" && url.pathname === "/v1/capabilities")
+      return reply("capabilities", 200, { kinds: HandleKind.options });
     const pushMatch = /^\/v1\/push\/([A-Za-z0-9_-]{1,1024})$/.exec(url.pathname);
     const route = url.pathname === "/v1/registrations" ? "register" : pushMatch ? "push" : "";
     if (!route || request.method !== "POST") return reply("unknown", 404);
@@ -102,16 +105,13 @@ export async function startGateway(
       const expiresAt = now + config.handleLifetimeMs;
       const key = config.sealKeys[0];
       if (!key) return reply(route, 500);
-      const sealed = sealHandle(
-        key,
-        { token: parsed.data.token, environment: parsed.data.environment, daemon, expiresAt },
-        runtime.random(12),
-      );
+      const sealed = sealHandle(key, { ...parsed.data, daemon, expiresAt }, runtime.random(12));
       return reply(route, 201, { handle: sealed, expiresAt });
     }
     const registration = openHandle(config.sealKeys, pushMatch?.[1] ?? "");
     if (!registration || registration.expiresAt <= now) return reply(route, 404);
     if (registration.daemon !== daemon) return reply(route, 403);
+    if (registration.kind !== "alert") return reply(route, 403);
     const hash = tokenHash(registration.token);
     if (gone.has(hash, now)) return reply(route, 410);
     const push = alertPush(request.headers, body, now);
