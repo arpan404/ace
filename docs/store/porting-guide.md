@@ -1273,10 +1273,13 @@ does `generated.rs`, and the vectors prove that the table and the walk give Zod'
   generator can import them.
 
 Not in scope: the `encodeThreadClient` calls in `thread-client-storage.ts` (`:86`, `:118`,
-`:150`, live metadata; they move with 5.3c), the sidebar index (`sidebar-columns.ts`: triggers on
-`threads`, which fire on Rust's writes unchanged), status (`status-store.ts`, 5.3c) and the
-creation row (5.3a's `createThread`; on creation `writeThread` writes the other columns, as
-today).
+`:150`, live metadata; they move with 5.3c), the sidebar index, status and the creation row. The
+sidebar index listens to revision rows, not to the columns: its triggers fire on
+`sidebar_thread_revisions` (`sidebar-columns.ts:114`), which the `threads` and `thread_cold`
+triggers bump on Rust's writes as they do on the TS's, so nothing about it changes. Status and
+its side tables stay TypeScript (`this.source.status.persist`, `event-writer.ts:202`;
+`status-store.ts` moves in 5.3c). The creation row is 5.3a's `createThread`; on creation
+`writeThread` writes the other columns, as today.
 
 **The columns**, 16, in the table's order, with their parts: `id`, `workspace_id`, `title`,
 `provider`, `created_at`, `updated_at`, `archived_at`, `imported`, `root_agent_id` (`base`),
@@ -1325,7 +1328,10 @@ key's place; there are two today, `ThreadDetails.workspaceChange.lossy` (`true`)
   revision, and the part decoders parse the written column with the same schema
   (`thread-row.ts:45` for client, `:49` for details, `:69` for acp). So the same invalid value
   throws a `ZodError` before the append's transaction commits, and the write rolls back as it does
-  today. Constraints (lengths, patterns, integers, URL formats, `refine`) are not ported.
+  today. Constraints (lengths, patterns, integers, URL formats, `refine`) are not ported. The owner
+  accepts this only while `rebuildThread` is TypeScript (2026-11-23). When Zod leaves the write
+  path (ADR 0223 E5, or ADR 0226's port of the decode), Rust must validate these columns itself
+  before writing, and that task's brief owns it.
 - Two divergences remain, both only for a thread that isn't canonical. The writer folds canonical
   events into threads decoded from validated or confirmed rows (ADR 0125), so neither can happen
   in the daemon: the `ZodError`'s path starts inside the column rather than the thread; and an
@@ -1377,8 +1383,10 @@ The generator half is `scripts/rust-protocol-shapes.ts` (new, pure),
 anything whose output the table can't describe, so a later schema change fails
 `check:daemon-native` instead of drifting: `pipe` and `transform`, `catch`, `prefault`,
 `nonoptional`, `lazy`, `intersection`, `tuple`, `map`, `set`, `date`, `bigint`, `custom` and any
-type it doesn't name; an object with a catchall (`passthrough`, `strict`, `catchall`); a check of
-kind `overwrite` (`trim`, `toLowerCase`, `normalize` change the output); a `z.union` with an
+type it doesn't name; coercion (`z.coerce.*`, any def with `coerce: true`) and codecs
+(`z.codec`, `z.stringbool`); an object with a catchall (`passthrough`, `strict`, `catchall`); any
+check that normalizes, which Zod 4 runs as kind `overwrite` (`trim`, `toLowerCase`,
+`toUpperCase`, `normalize`, `slugify` and any other), since each changes the output; a `z.union` with an
 option that isn't `Copy`; a record whose key schema has a closed set of values or isn't a string;
 `.optional()` anywhere but directly on an object field, or wrapped in or around `.default()`; a
 default that isn't a JSON primitive; a discriminated union whose options aren't objects or whose
@@ -1496,9 +1504,16 @@ parses fresh copies and records:
   changes: null | { row, hot, cold: [[column, value], ...], parts: [names], coldRow: [value, value] | null } }
 ```
 
-A value is `["text", s]`, `["number", String(n)]`, `["null"]`, or `["rejected"]` when the TS
-throws (a `ZodError`, or a field SQLite can't bind). `changes` is null when `threadColumnChanges`
-throws, and `coldRow` is `coldRowValues` when `cold` is not empty. Numbers are recorded as
+A value is `["text", s]`, `["number", String(n)]`, `["null"]`, `["rejected"]` when
+`threadColumnValue` throws (a `ZodError`), or `["unstorable"]` when it returns a value SQLite
+won't bind. `threadColumnValue` never binds (`thread-columns.ts:90`), so catching its throws
+can't find unstorable values; a real statement decides instead. For every value it returns, the
+generator runs `new DatabaseSync(":memory:").prepare("SELECT ?").get(value)` with Bun's
+`node:sqlite`, the binder of the off-mode store (the addon's shell, `native-sqlite.ts`,
+reproduces its errors), and records `["unstorable"]` when that throws. `ColumnError::NotStorable`
+must match exactly the values this oracle refuses: if it binds a kind the column table calls
+unstorable (a boolean, say), or refuses one the table stores, stop and report it rather than
+guessing. `changes` is null when `threadColumnChanges` throws, and `coldRow` is `coldRowValues` when `cold` is not empty. Numbers are recorded as
 `String(n)`, so oxfmt never rewrites them. Before writing, the generator checks that every
 `fieldSamples` value parses with its field's schema to the same JSON text, and exits non-zero
 otherwise. `--check` regenerates in memory and fails on any difference; `check-daemon-native.ts`
@@ -1506,8 +1521,9 @@ runs it after `store-vectors.ts --check`.
 
 `crates/ace-projection/tests/column_vectors.rs` (the `allow` line of `tests/vectors.rs`) checks,
 for every case: each `values` entry that isn't rejected equals `column_value` (text by UTF-16
-units, a number by `ace_json`'s printing against `String(n)`, null), and a rejected one returns
-without panicking. When `changes` is not null, `column_changes` with `wanted` mapped through
+units, a number by `ace_json`'s printing against `String(n)`, null); an unstorable one is
+`Err(ColumnError::NotStorable(column))`, and every `NotStorable` Rust returns is recorded
+unstorable; a rejected one returns without panicking. When `changes` is not null, `column_changes` with `wanted` mapped through
 `Column::from_name` gives the same `row`, `hot`, `cold` and `parts` in the same order, and
 `cold_row_values` the same `coldRow`; when it is null, `column_changes` returns without
 panicking.
@@ -1518,8 +1534,10 @@ Cases that must be present (the reviewer counts them):
   `writtenColumns` of its event's payload (`previous` null for `thread.created`): the pairs the
   writer sees after a fold, with their lone surrogates, split pairs, `1e21`, `1.5e-7`, `-0`,
   `2^53 - 1` and array-index keys; its schema-invalid payloads give `rejected` values;
-- for each field of the three shapes, absent to present, present to absent, and one value to
-  another (client and acp fields at the thread's top level, details fields inside `details`);
+- for each field of the three shapes, absent to present, present to absent, and one legal value
+  to another (client and acp fields at the thread's top level, details fields inside `details`).
+  A field that accepts only one value gets absent and present only: `autoSettle` accepts only
+  `false` and `settleWhenDone` only `true` (`thread-client.ts:109`, `:114`);
   `null` at every nullable path (`details.branch`, `head`, `upstream`, `linkedPr`,
   `workspace.icon`, `workspace.defaultIcon`, `pullRequestWorkspace.headRepository`,
   `live.rootRunId`, `live.contextMeter.limit`, `movedFrom.links.linkedPr`); `null` on one
@@ -1530,7 +1548,11 @@ Cases that must be present (the reviewer counts them):
   `effectiveCapabilities.permissions`: all stripped;
 - defaults: `workspaceChange` without `lossy` (`true` at its place, after `error`) and with
   `lossy: false`; `acpSupport` without `subagentSessions` (`false` after `modeSelection`) and with
-  `true`;
+  `true`; and `null` at both (`workspaceChange.lossy: null`, `acpSupport.subagentSessions: null`),
+  which a default never replaces: the generator asserts that the TS rejects both (`["rejected"]`)
+  and exits non-zero if it doesn't;
+- unstorable values, judged by the bind oracle: `title` and `created_at` each absent, a boolean,
+  an object and an array, and `status` absent;
 - key order: every object level given in reverse schema order; `live.options` with keys out of
   order, an array-index key and `__proto__` (dropped);
 - discriminated unions: every option of `snoozeWake` (`needs_you`, `pr`) and `snoozeWoke`
@@ -1568,7 +1590,8 @@ add a test other than the vector test.
 `src/writer/mod.rs`, `src/writer/events.rs` for `WriteError::Column` only,
 `src/writer/thread_columns.rs` new), `native/daemon/crates/ace-daemon-node/src/writer.rs`,
 `native/daemon/Cargo.lock`, `apps/daemon/src/native-writer/thread-columns.ts` (new),
-`apps/daemon/src/event-writer.ts` (`writeThread`, `:252` to `:289`, and imports). Nothing else.
+`apps/daemon/src/event-writer.ts` (`writeThread`, `:252` to `:289`, and imports),
+`apps/daemon/src/thread-row-trust.test.ts` (the one new case below). Nothing else.
 
 **Rust** `crates/ace-store/src/writer/thread_columns.rs`:
 
@@ -1692,6 +1715,28 @@ reads the same as stored), `stored-trust-pass.test.ts`, `thread-cold.test.ts`,
 evidence stays empty never wrote a thread through the store; the PR names it rather than dropping
 it. If a file fails only with `columns` on, stop and report the test; don't change it.
 
+**The one new test: a value Zod rejects rolls the write back.** The rejected vectors only show
+that Rust survives such a value, and none of the files above makes Zod reject a column write, so
+add one case to `thread-row-trust.test.ts`, named "a thread write Zod rejects leaves the row, its
+revision and its trust stamp as they were". It uses the file's `setup`, `thread` and `forgeStamp`
+helpers:
+
+1. Create a thread. In `raw`, run
+   `UPDATE threads SET client = json_set(COALESCE(client, '{}'), '$.autoSettle', json('true')) WHERE id = ?`
+   (`autoSettle` accepts only `false`), then `forgeStamp`, so the next open reads the row as
+   stored, invalid value included, as the existing "a confirmed row is read as stored" case does.
+2. Open, and read with `peek`: the `client` text, the revision in `sidebar_thread_revisions`,
+   the `thread_row_trust` row and the number of `events` rows.
+3. Expect
+   `store.appendEvents(id, [{ type: "thread.client.updated", changes: { pinned: true } }], 2)`
+   to throw a `ZodError` (Zod's class, imported from `zod`).
+4. Read the same four values again and expect each unchanged.
+
+In the TS modes the encoder throws before any write; with `columns` on, Rust writes the copied
+value, `rebuildThread` throws, and the transaction must undo the column, the revision bump and
+anything done to the stamp. The case runs in all three modes with the rest of the file; it fails
+if Rust's write survives, if `rebuildThread` is skipped, or if the throw is lost.
+
 **Cross gate** (ADR 0223 §8). The opposite of a set `ACE_STORE_WRITER` is off, so a home written
 with `columns` on boots next with the TS writer, and back:
 
@@ -1718,14 +1763,17 @@ rolls back.
 
 **Do not:** move `rebuildThread`, `keepThreadRowConfirmed` or the `remember*` calls; send the
 payload across; call the native writer for `item.delta` (`writeThread` already isn't reached);
-keep a thread or a previous encoding in Rust between calls; change any SQL text; add a test.
+keep a thread or a previous encoding in Rust between calls; change any SQL text; add any test
+but the case above.
 
 **Reviewer checks, for both steps:** the encodings and the change loop against
 `thread-columns.ts` line by line; the shape walk against the Zod behaviour above, and the
 generator's refusals present; every vector case listed is there and the sample check runs;
 `shapes.rs` and `columns.json` regenerate unchanged; no value goes through `serde_json` or a
 `typify` struct; the statement order of `write` against `writeThread`, and the SQL texts byte for
-byte; `rebuildThread` still runs on every Rust write that returns a revision; the proof files
+byte; `rebuildThread` still runs on every Rust write that returns a revision, and the new
+rollback case passes in all three modes; every unstorable vector is `NotStorable` and nothing
+else is; the proof files
 pass in all three modes, with the evidence line; the cross gate passes both ways; bench numbers
 on and off in the PR; `cargo fmt --check`, `cargo clippy --all-targets`, `cargo test` and
 `check:daemon-native` pass.
