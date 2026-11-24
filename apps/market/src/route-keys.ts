@@ -159,3 +159,8 @@ export const put = (route: Route): Methods => ({ PUT: route });
 
 export const patch = (route: Route): Methods => ({ PATCH: route });
 export const del = (route: Route): Methods => ({ DELETE: route });
+
+/** Share cards use a generated name and always publish their first version. */
+export function isShareTemplate(entry: { type: string; name: string }): boolean {
+  return entry.type === "spade-bot" && /^template-[0-9a-f]{32}$/.test(entry.name);
+}

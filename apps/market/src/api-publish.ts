@@ -1,3 +1,4 @@
+import { isShareTemplate } from "./route-keys.ts";
 import { maxArchiveBytes, writeArchive } from "@ace/marketplace";
 import type { CheckedEntry } from "@ace/marketplace/checks";
 import { handleProblem, skeleton } from "@ace/marketplace/profile";
@@ -11,9 +12,16 @@ import {
   MarketVersion,
   WithdrawRequest,
   type MarketScanReport,
-  type MarketVisibility,
+  MarketVisibility,
 } from "@ace/protocol/marketplace";
-import { authenticate, notYours, type Authed, type AuthedPublisher } from "./auth.ts";
+import {
+  authenticate,
+  notYours,
+  personGrantNeeded,
+  reauthMs,
+  type Authed,
+  type AuthedPublisher,
+} from "./auth.ts";
 import { draftKey, draftReportKey, objectKey, versionReportKey, type Context } from "./context.ts";
 import type { Env } from "./env.ts";
 import { failure, json, readCapped, readJson, refused } from "./http.ts";
@@ -143,7 +151,8 @@ async function storeScanned(
     ...(changelog ? { changelog } : {}),
   });
   if (stored.owner !== publisher.id) return notYours();
-  if (stored.hash === undefined) return changed();
+  if (stored.hash === undefined || (visibility !== undefined && stored.visibility !== visibility))
+    return changed();
   if (stored.hash !== checked.hash) return reused();
   await putReport(context.env.OBJECTS, versionReportKey(key), scan);
   return json(
@@ -153,6 +162,7 @@ async function storeScanned(
       name: shownName(key.name),
       hash: checked.hash,
       held: fate === "hold",
+      ...(visibility === undefined ? {} : { visibility }),
       scan,
     },
     201,
@@ -174,6 +184,8 @@ export async function publish(
   key: EntryKey,
   context: Context,
 ): Promise<Response> {
+  if (isShareTemplate(key))
+    return failure(403, "forbidden", "Publish this template from its review card.");
   const db = context.dbs.catalogue(key.type);
   const publishers = context.dbs.publishers;
   const authed = await authenticate(request, context, { org: "publisher" });
@@ -571,27 +583,29 @@ export async function draftRoute(
       if (!(await deleteDraft(db, context.env.OBJECTS, draft.id))) return claimed();
       return json({ status: "done" });
     case "me-draft-publish": {
+      const visibility = MarketVisibility.safeParse(url.searchParams.get("visibility")).data;
+      if (url.searchParams.has("visibility") && !visibility)
+        return failure(400, "invalid", "Visibility is listed or unlisted.");
       const reviewed = MarketHash.safeParse(url.searchParams.get("reviewed")).data;
-      if (isShareTemplate(draft) && reviewed !== draft.hash)
-        return failure(409, "conflict", "Publish this template from its review card.");
-      if (url.searchParams.has("visibility") && url.searchParams.get("visibility") !== "unlisted")
-        return failure(400, "invalid", "Visibility must be unlisted when supplied.");
-      return publishDraft(
-        context,
-        publisher,
-        draft,
-        url.searchParams.has("visibility") ? "unlisted" : undefined,
-        reviewed,
-      );
+      if (isShareTemplate(draft)) {
+        if (!authed.personAction) return personGrantNeeded();
+        if (context.now - authed.claims.authAt > reauthMs)
+          return failure(401, "reauth", "Sign in again to do this.");
+        if (
+          !visibility ||
+          reviewed !== draft.hash ||
+          url.searchParams.get("publisher") !== publisher.id ||
+          url.searchParams.get("template") !== draft.name ||
+          url.searchParams.get("version") !== draft.version ||
+          draft.version !== "1.0.0"
+        )
+          return changed();
+      }
+      return publishDraft(context, publisher, draft, visibility, reviewed);
     }
     default:
       return undefined;
   }
-}
-
-/** Share cards use a generated name and always publish their first version. */
-function isShareTemplate(draft: DraftTable): boolean {
-  return draft.type === "spade-bot" && /^template-[0-9a-f]{32}$/.test(draft.name);
 }
 
 /**
@@ -619,7 +633,9 @@ async function publishDraft(
   if (
     draft.scan_state !== "done" ||
     (reviewed !== undefined && reviewed !== draft.hash) ||
-    (isShareTemplate(draft) && draft.version !== "1.0.0")
+    draft.version !== read.version ||
+    draft.name !== read.name ||
+    draft.type !== read.type
   )
     return changed();
   const db = context.dbs.catalogue(draft.type);
@@ -633,14 +649,23 @@ async function publishDraft(
   const key = { type: draft.type, name: draft.name, version: draft.version };
   const owner = await ownerOf(db, key.type, key.name);
   if (owner !== undefined && owner !== publisher.id) return notYours();
-  if (visibility === "unlisted" && owner !== undefined && !(await isUnlisted(db, key)))
-    return failure(409, "conflict", "That name already belongs to a listed entry.");
+  if (
+    visibility &&
+    owner !== undefined &&
+    (visibility === "unlisted") !== (await isUnlisted(db, key))
+  )
+    return failure(409, "conflict", "That name already has different visibility.");
   const existing = await storedVersion(db, key);
   if (existing && existing.state !== "blocked") {
+    if (existing.publisher !== publisher.id) return notYours();
+    if (visibility && existing.visibility !== visibility) return changed();
     if (existing.hash !== draft.hash) return reused();
     // Stored already, by this publish cut off before the draft went: finish it.
     await deletePublishedDraft(publishers, context.env.OBJECTS, draft.id, draft.hash);
-    return json({ status: "pending", ...key, hash: draft.hash }, 200);
+    return json(
+      { status: "pending", ...key, hash: draft.hash, ...(visibility ? { visibility } : {}) },
+      200,
+    );
   }
   const checked = await draftChecked(context, draft);
   if (!checked) return failure(409, "conflict", "The draft's archive is missing; upload it again.");

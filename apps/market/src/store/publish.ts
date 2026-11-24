@@ -37,24 +37,24 @@ export async function ownerOf(
 export async function storedVersion(
   db: D1Database,
   key: { type: string; name: string; version: string },
-): Promise<
-  { hash: string; size: number; published: number; listed: boolean; state: string } | undefined
-> {
+) {
   const row = await db
     .prepare(
-      "SELECT hash, size, published, listed, state FROM versions WHERE type = ?1 AND name = ?2 AND version = ?3",
+      `SELECT v.hash, v.size, v.published, v.listed, v.state, e.visibility, e.publisher
+        FROM versions v JOIN entries e ON e.type = v.type AND e.name = v.name
+        WHERE v.type = ?1 AND v.name = ?2 AND v.version = ?3`,
     )
     .bind(key.type, key.name, key.version)
-    .first<{ hash: string; size: number; published: number; listed: number; state: string }>();
-  return row
-    ? {
-        hash: row.hash,
-        size: row.size,
-        published: row.published,
-        listed: row.listed === 1,
-        state: row.state,
-      }
-    : undefined;
+    .first<{
+      hash: string;
+      size: number;
+      published: number;
+      listed: number;
+      state: string;
+      publisher: string;
+      visibility: "listed" | "unlisted";
+    }>();
+  return row ? { ...row, listed: row.listed === 1 } : undefined;
 }
 
 /**
@@ -136,7 +136,12 @@ export async function storePending(
     changelog?: string | undefined;
     visibility?: "listed" | "unlisted" | undefined;
   },
-): Promise<{ owner: string | undefined; hash: string | undefined; written: boolean }> {
+): Promise<{
+  owner: string | undefined;
+  hash: string | undefined;
+  visibility?: "listed" | "unlisted";
+  written: boolean;
+}> {
   const values = [
     input.type,
     input.name,
@@ -181,7 +186,12 @@ export async function storePending(
     ownerOf(db, input.type, input.name),
     storedVersion(db, input),
   ]);
-  return { owner, hash: stored?.hash, written: (version?.meta.changes ?? 0) === 1 };
+  return {
+    owner: stored?.publisher ?? owner,
+    hash: stored?.hash,
+    ...(stored && { visibility: stored.visibility }),
+    written: (version?.meta.changes ?? 0) === 1,
+  };
 }
 
 /**

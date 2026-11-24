@@ -1,8 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { writeArchive } from "@ace/marketplace";
 import { samplePackage, sampleSkill } from "@ace/marketplace/testing";
 import { approveHeld, asSigner, startMarket, type Market, catalogueOf } from "./testing/harness.ts";
 import {
   asAccount,
+  bearerOf,
+  intentOf,
   createDraft,
   draftAndPublish,
   establishedPublisher,
@@ -220,12 +223,49 @@ describe("visibility, archive and pins", () => {
     const created = await createDraft(market, "acct_maker", upload);
     expect(created.status).toBe(201);
     const { id, hash } = await jsonOf<{ id: string; hash: string }>(created);
-    const path = `/v1/me/drafts/${id}/publish`;
-    expect((await me("POST", path)).status).toBe(409);
+    const base = `/v1/me/drafts/${id}/publish`;
+    const url = (reviewed: string, visibility: string, draft = base) =>
+      `${draft}?${new URLSearchParams({
+        publisher: maker.id,
+        template: name,
+        version: "1.0.0",
+        reviewed,
+        visibility,
+      })}`;
+    const path = url(hash, "unlisted");
     expect(
-      (await me("POST", `${path}?reviewed=${"b".repeat(64)}&visibility=unlisted`)).status,
+      (
+        await market.fetch(path, {
+          method: "POST",
+          headers: bearerOf("acct_maker"),
+        })
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await market.fetch(`/v1/publish/spade-bot/${name}/versions?version=1.0.0`, {
+          method: "POST",
+          headers: { ...bearerOf("acct_maker"), "content-type": "application/octet-stream" },
+          body: writeArchive(upload.files),
+        })
+      ).status,
+    ).toBe(403);
+    expect((await me("POST", base)).status).toBe(409);
+    expect((await me("POST", url("b".repeat(64), "unlisted"))).status).toBe(409);
+    const person = bearerOf("acct_maker", { action: await intentOf("POST", path) });
+    expect(
+      (await market.fetch(url(hash, "listed"), { method: "POST", headers: person })).status,
+    ).toBe(401);
+    const accepted = await market.fetch(path, { method: "POST", headers: person });
+    expect(accepted.status).toBe(201);
+    expect(await jsonOf(accepted)).toMatchObject({ hash, visibility: "unlisted" });
+    expect((await market.fetch(path, { method: "POST", headers: person })).status).toBe(401);
+    const retry = await createDraft(market, "acct_maker", upload);
+    expect(retry.status).toBe(201);
+    const retryDraft = await jsonOf<{ id: string }>(retry);
+    expect(
+      (await me("POST", url(hash, "listed", `/v1/me/drafts/${retryDraft.id}/publish`))).status,
     ).toBe(409);
-    expect((await me("POST", `${path}?reviewed=${hash}&visibility=unlisted`)).status).toBe(201);
     await approveHeld(market, upload.type, name, "1.0.0");
     await sign(market, upload, { id: maker.id, name: maker.handle });
     expect(await indexNames(market)).not.toContain(`spade-bot/${name}`);
@@ -233,6 +273,13 @@ describe("visibility, archive and pins", () => {
     const shown = await jsonOf<{ unlisted: boolean; versions: { hash: string }[] }>(
       await market.fetch(`/v1/entries/spade-bot/${name}`),
     );
+    expect(
+      (
+        await me("PUT", `/v1/me/entries/spade-bot/${name}/visibility`, {
+          visibility: "listed",
+        })
+      ).status,
+    ).toBe(403);
     expect(shown.unlisted).toBe(true);
     expect(shown.versions[0]?.hash).toBe(hash);
     expect((await market.fetch(`/v1/objects/${hash}`)).status).toBe(200);

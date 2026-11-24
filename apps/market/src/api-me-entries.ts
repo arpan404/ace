@@ -1,3 +1,4 @@
+import { isShareTemplate } from "./route-keys.ts";
 import { sha256Hex } from "@ace/marketplace";
 import { stripImage } from "@ace/marketplace/image";
 import { linkProblem } from "@ace/marketplace/profile";
@@ -147,6 +148,8 @@ export async function meEntryRoute(
     case "me-visibility": {
       const parsed = MarketVisibilitySet.safeParse(await readJson(request, 4 * 1024));
       if (!parsed.success) return invalid("Visibility is listed or unlisted.");
+      if (isShareTemplate(key) && parsed.data.visibility === "listed")
+        return failure(403, "forbidden", "A template can be listed only from its review card.");
       return settled(await setVisibility(db, key, parsed.data.visibility, now));
     }
     case "me-archived": {
