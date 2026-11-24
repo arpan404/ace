@@ -4,7 +4,7 @@
 //! listeners. T0 owns the skeleton; T1a.2 owns the loopback listener, the
 //! connection driver, the HTTP proxy hop and the guard on the hop's headers;
 //! T1b.1a adds the stream seam, the connection limits, the shared accept loop
-//! and TLS.
+//! and TLS with the remote listener.
 
 mod accept;
 pub mod conn_io;
@@ -17,6 +17,7 @@ pub mod listener;
 pub mod peer;
 pub mod prefixed;
 pub mod proxy;
+pub mod remote;
 pub mod socket;
 pub mod tls;
 pub mod upgrade;
@@ -31,6 +32,7 @@ pub use listener::LoopbackListener;
 pub use peer::Peer;
 pub use prefixed::{Prefixed, TimedIo};
 pub use proxy::ProxyTarget;
+pub use remote::RemoteListener;
 pub use socket::{SendResult, SocketEvent, SocketEvents, SocketHandle, underflow_count};
 pub use tls::{SniResolver, TlsIdentity, process_provider};
 pub use upgrade::{
