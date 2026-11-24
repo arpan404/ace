@@ -196,11 +196,20 @@ fn id(value: &str) -> Id {
 
 impl Delivery {
     /// Removes a view, remembering the last sequence it used for its connection and target.
+    /// A retired view's planned encode loses its keyframe cut: the cut was computed against
+    /// the viewer set's minimum link share, which the membership change invalidates. A cut
+    /// that is still warranted comes back on the next oversized keyframe (whose oversized
+    /// bytes still go); a local-only survivor is never stuck at a remote viewer's cut rate.
     fn retire_view(&mut self, key: &str) -> Option<View> {
         let view = self.views.remove(key)?;
         let at = (view.connection.clone(), target_key(&view.target));
         let last = self.sequences.entry(at).or_default();
         *last = (*last).max(view.sequence);
+        if let Some(encode) = view.encode {
+            if let Some(facts) = self.sources.get_mut(&view.source) {
+                facts.cut.remove(&encode);
+            }
+        }
         Some(view)
     }
 

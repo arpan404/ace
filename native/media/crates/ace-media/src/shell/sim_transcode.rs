@@ -5,36 +5,47 @@
 //! encoder's units become the same Annex B frames the reader passes through, under the encode's
 //! id.
 //!
-//! Rate control is the browser encoder's (ADR 0088): the transcode opens its session in
-//! quantizer mode and, once the source has been still ~300 ms, encodes the last decoded
-//! picture again as a sharp keyframe at `settled()`'s quantizer (`sim_still`). A
-//! VideoToolbox session has no per-frame QP, and an in-place Min/Max-QP reconfigure with
-//! frames flowing hangs the next encode inside VideoToolbox's synchronous XPC property
-//! confirmation (sampled: mach_msg trap in
-//! `RemoteVideoEncoder_CopySupportedPropertyDictionary`, 0% CPU, never returns) — so the
-//! session keeps one quantizer for the whole stream and only the settle refresh
-//! reconfigures, once per still spell when the encoder has drained. A size change opens
-//! a new stream.
-use super::sim_still::StillControl;
+//! Rate control follows the browser encoder's settle (ADR 0088) with two sessions, because a
+//! VideoToolbox session has no per-frame QP and mutating a live session's Min/Max-QP hangs
+//! the next encode inside its synchronous XPC property confirmation (sampled: mach_msg trap
+//! in `RemoteVideoEncoder_CopySupportedPropertyDictionary`, 0% CPU, never returns):
+//! - motion runs the decode + encode session in plain bitrate mode at the planned bitrate,
+//!   so link adaptation and in-place bitrate retargeting keep working;
+//! - the still refresh uses a separate encode session in quantizer mode at `settled()`'s
+//!   quantizer, opened lazily and kept while its size and QP stay the same (a QP change
+//!   opens a new session rather than reconfiguring). Its IDR carries its own parameter sets,
+//!   and motion re-keys with its own parameter sets before any delta goes out after one, so
+//!   the two sessions' deltas never interleave.
+use super::sim_split::{Session, Split};
 use crate::serve_sim::{Record, Translator};
 use media_codec::{Codec, CodecError, EncodeSpec as Spec, EncodedUnit, Encoder, RateControl, Size};
-use media_vt::VtTranscoder;
+use media_vt::{VtEncoder, VtTranscoder};
 use media_wire::capability::{Acceleration, Backend, SourceStep, Step};
 use media_wire::control::EncodeSpec;
 use media_wire::frame::MediaFrame;
 
+/// The still-refresh encode session: one quantizer, one size, never reconfigured.
+struct Refresh {
+    encoder: VtEncoder,
+    size: Size,
+    qp: u8,
+}
+
 pub struct Transcode {
     inner: VtTranscoder,
+    refresh: Option<Refresh>,
     out: Translator,
     id: u32,
-    force_key: bool,
     /// The decoder has had a keyframe: it can't start from a delta.
     primed: bool,
-    /// Fixed quantizer when the wire spec names one; otherwise `still` drives the session.
-    fixed_qp: Option<u8>,
-    still: Option<StillControl>,
-    /// The quantizer the encoder session currently runs at.
-    applied_qp: u8,
+    split: Split,
+    /// The last spec applied to the motion session (wired for tests: the refresh path must
+    /// never touch it).
+    motion_spec: Spec,
+    /// The last avcC each session's keyframes carried (wired for tests: the refresh IDR is
+    /// published with its own parameter sets).
+    motion_avcc: Option<Vec<u8>>,
+    refresh_avcc: Option<Vec<u8>>,
     size: Size,
     fps: u32,
 }
@@ -47,7 +58,16 @@ fn even_size(wire: &EncodeSpec) -> Size {
     }
 }
 
-fn spec_for(size: Size, fps: u32, qp: u8) -> Spec {
+fn motion_spec_for(size: Size, fps: u32, bitrate: u32) -> Spec {
+    Spec {
+        codec: Codec::H264,
+        size,
+        fps,
+        rate: RateControl::Bitrate(bitrate.max(1)),
+    }
+}
+
+fn refresh_spec_for(size: Size, fps: u32, qp: u8) -> Spec {
     Spec {
         codec: Codec::H264,
         size,
@@ -56,55 +76,22 @@ fn spec_for(size: Size, fps: u32, qp: u8) -> Spec {
     }
 }
 
-fn spec(wire: &EncodeSpec) -> Spec {
-    let size = even_size(wire);
-    let fps = wire.fps.clamp(1, 240);
-    match wire.quantizer {
-        Some(q) => Spec {
-            codec: Codec::H264,
-            size,
-            fps,
-            rate: RateControl::Quantizer(q.clamp(18, 51) as u8),
-        },
-        None => Spec {
-            codec: Codec::H264,
-            size,
-            fps,
-            rate: RateControl::Bitrate(wire.bitrate.max(1)),
-        },
-    }
-}
-
 impl Transcode {
     pub fn new(wire: &EncodeSpec) -> Result<Self, CodecError> {
         let size = even_size(wire);
         let fps = wire.fps.clamp(1, 240);
-        if let Some(q) = wire.quantizer {
-            let qp = q.clamp(18, 51) as u8;
-            return Ok(Self {
-                inner: VtTranscoder::new(&spec(wire))?,
-                out: Translator::default(),
-                id: wire.id,
-                force_key: true,
-                primed: false,
-                fixed_qp: Some(qp),
-                still: None,
-                applied_qp: qp,
-                size,
-                fps,
-            });
-        }
-        let mut still = StillControl::new(f64::from(wire.bitrate.max(1)), f64::from(fps));
-        let qp = still.next_qp(true);
+        let motion_spec = motion_spec_for(size, fps, wire.bitrate);
+        let bitrate = f64::from(wire.bitrate.max(1));
         Ok(Self {
-            inner: VtTranscoder::new(&spec_for(size, fps, qp))?,
+            inner: VtTranscoder::new(&motion_spec)?,
+            refresh: None,
             out: Translator::default(),
             id: wire.id,
-            force_key: true,
             primed: false,
-            fixed_qp: None,
-            still: Some(still),
-            applied_qp: qp,
+            split: Split::new(bitrate, f64::from(fps)),
+            motion_spec,
+            motion_avcc: None,
+            refresh_avcc: None,
             size,
             fps,
         })
@@ -114,64 +101,31 @@ impl Transcode {
     pub fn configure(&mut self, wire: &EncodeSpec) -> Result<(), CodecError> {
         let size = even_size(wire);
         let fps = wire.fps.clamp(1, 240);
-        if let Some(q) = wire.quantizer {
-            let qp = q.clamp(18, 51) as u8;
-            self.inner.configure(&spec(wire))?;
-            self.id = wire.id;
-            self.force_key = true;
-            self.fixed_qp = Some(qp);
-            self.still = None;
-            self.applied_qp = qp;
-            self.size = size;
-            self.fps = fps;
-            return Ok(());
-        }
-        let bitrate = f64::from(wire.bitrate.max(1));
+        let bitrate = wire.bitrate.max(1);
+        self.split.retarget(f64::from(bitrate), f64::from(fps));
         if size != self.size {
-            // A new size is a new stream: fresh rate control starting at a keyframe.
-            let mut still = StillControl::new(bitrate, f64::from(fps));
-            let qp = still.next_qp(true);
-            self.inner.configure(&spec_for(size, fps, qp))?;
-            self.still = Some(still);
-            self.applied_qp = qp;
-        } else if let Some(still) = self.still.as_mut() {
-            still.retarget(bitrate, f64::from(fps));
+            // A new size is a new stream on the motion session; the still clock and any
+            // refresh session for the old size go with it.
+            self.inner.configure(&motion_spec_for(size, fps, bitrate))?;
+            self.split = Split::new(f64::from(bitrate), f64::from(fps));
+            self.refresh = None;
+        } else {
+            // Same size: the stream continues, the bitrate takes effect in place.
+            self.inner.configure(&motion_spec_for(size, fps, bitrate))?;
         }
+        self.motion_spec = motion_spec_for(size, fps, bitrate);
         self.id = wire.id;
-        self.force_key = true;
+        self.split.request_key();
         self.size = size;
         self.fps = fps;
         Ok(())
     }
 
     pub fn key(&mut self) {
-        self.force_key = true;
+        self.split.request_key();
     }
 
-    fn drain(&mut self, frames: &mut Vec<MediaFrame>) -> Result<(), CodecError> {
-        while let Some(unit) = self.inner.encoder().poll_result()? {
-            let key = unit.key;
-            let bytes = unit.data.len();
-            if let Some(description) = unit.description.clone() {
-                let _ = self.out.frame(Record::Description(description));
-            }
-            let record = if key {
-                Record::Key(unit.data)
-            } else {
-                Record::Delta(unit.data)
-            };
-            if let Ok(Some(mut frame)) = self.out.frame(record) {
-                frame.encode = self.id;
-                frames.push(frame);
-            }
-            if let Some(still) = self.still.as_mut() {
-                still.observe(bytes, key);
-            }
-        }
-        Ok(())
-    }
-
-    /// One unit of serve-sim's stream in; whatever the encoder has finished out, as frames.
+    /// One unit of serve-sim's stream in; whatever the encoders have finished out, as frames.
     /// `now_ms` is the shell's monotonic clock, for the still refresh only.
     pub fn push(
         &mut self,
@@ -183,41 +137,16 @@ impl Transcode {
         // reader opens a fresh subscription, whose first unit is one).
         if !self.primed {
             if !unit.key {
-                return self.drain(frames);
+                return Ok(());
             }
             self.primed = true;
         }
-        if self.fixed_qp.is_some() {
-            let force = self.force_key;
-            match self.inner.push(unit, force) {
-                Ok(reached) => {
-                    if reached {
-                        self.force_key = false;
-                    }
-                }
-                // The encoder is behind: this picture is skipped; the stream stays decodable
-                // because the decoder still took every unit before it.
-                Err(CodecError::Backpressure) => {}
-                Err(error) => return Err(error),
-            }
-            return self.drain(frames);
-        }
-        let now = now_ms as f64;
-        if let Some(still) = self.still.as_mut() {
-            still.note_input(unit.data.len(), unit.key, now);
-        }
-        let force = self.force_key;
-        // The session keeps one quantizer for the whole stream: an in-place Min/Max-QP
-        // reconfigure with frames flowing hangs the next encode inside VideoToolbox's
-        // synchronous XPC property confirmation (sampled: mach_msg trap in
-        // RemoteVideoEncoder_CopySupportedPropertyDictionary, 0% CPU, never returns).
-        // `still` still tracks every input and output so `settled()` can name the sharp
-        // refresh quantizer; only the refresh reconfigures, once per still spell when the
-        // encoder has drained.
+        let (session, force) = self.split.input(unit.data.len(), unit.key, now_ms as f64);
+        debug_assert_eq!(session, Session::Motion);
         match self.inner.push(unit, force) {
             Ok(reached) => {
                 if reached {
-                    self.force_key = false;
+                    self.split.motion_reached();
                 }
             }
             // The encoder is behind: this picture is skipped; the stream stays decodable
@@ -225,16 +154,76 @@ impl Transcode {
             Err(CodecError::Backpressure) => {}
             Err(error) => return Err(error),
         }
-        self.drain(frames)?;
+        self.drain_motion(frames)?;
+        self.drain_refresh(frames)?;
         self.refresh_if_still(now_ms, frames)?;
         Ok(())
     }
 
-    /// Units the encoder finished on its own threads, plus a still refresh when due.
-    /// The shell calls this on its idle path too, with no new input.
+    /// Units the encoders finished on their own threads, plus a still refresh when due.
     pub fn poll(&mut self, now_ms: u64, frames: &mut Vec<MediaFrame>) -> Result<(), CodecError> {
-        self.drain(frames)?;
+        self.drain_motion(frames)?;
+        self.drain_refresh(frames)?;
         self.refresh_if_still(now_ms, frames)?;
+        Ok(())
+    }
+
+    /// The motion session's finished units out, as frames. While waiting for the post-refresh
+    /// IDR, deltas are dropped so the two sessions' deltas never interleave; every published
+    /// keyframe carries that session's own parameter sets.
+    fn drain_motion(&mut self, frames: &mut Vec<MediaFrame>) -> Result<(), CodecError> {
+        while let Some(unit) = self.inner.encoder().poll_result()? {
+            let key = unit.key;
+            let bytes = unit.data.len();
+            if !self.split.motion_out(key) {
+                continue;
+            }
+            if key {
+                if let Some(description) = unit.description.clone() {
+                    self.motion_avcc = Some(description.clone());
+                    let _ = self.out.frame(Record::Description(description));
+                }
+                let record = Record::Key(unit.data);
+                if let Ok(Some(mut frame)) = self.out.frame(record) {
+                    frame.encode = self.id;
+                    frames.push(frame);
+                }
+            } else {
+                let record = Record::Delta(unit.data);
+                if let Ok(Some(mut frame)) = self.out.frame(record) {
+                    frame.encode = self.id;
+                    frames.push(frame);
+                }
+            }
+            self.split.observe(bytes, key);
+        }
+        Ok(())
+    }
+
+    /// A pending refresh IDR out, as a frame with its own parameter sets.
+    fn drain_refresh(&mut self, frames: &mut Vec<MediaFrame>) -> Result<(), CodecError> {
+        let Some(refresh) = self.refresh.as_mut() else {
+            return Ok(());
+        };
+        while let Some(unit) = refresh.encoder.poll_result()? {
+            if !unit.key {
+                continue;
+            }
+            let bytes = unit.data.len();
+            if let Some(description) = unit.description.clone() {
+                self.refresh_avcc = Some(description.clone());
+                let _ = self.out.frame(Record::Description(description));
+            }
+            let record = Record::Key(unit.data);
+            if let Ok(Some(mut frame)) = self.out.frame(record) {
+                frame.encode = self.id;
+                frames.push(frame);
+            }
+            self.split.observe(bytes, true);
+            // The refresh IDR is out: motion must re-key before any delta goes out.
+            self.split.did_refresh();
+            break;
+        }
         Ok(())
     }
 
@@ -243,44 +232,71 @@ impl Transcode {
         now_ms: u64,
         frames: &mut Vec<MediaFrame>,
     ) -> Result<(), CodecError> {
-        if self.fixed_qp.is_some() || !self.inner.encoder().has_room() {
+        let Some((Session::Refresh, qp)) = self.split.tick(now_ms as f64) else {
+            return Ok(());
+        };
+        if self.refresh.as_ref().is_some_and(|r| !r.encoder.has_room()) {
             return Ok(());
         }
-        let qp = match self.still.as_mut() {
-            Some(still) => match still.should_refresh(now_ms as f64) {
-                Some(qp) => qp,
-                None => return Ok(()),
-            },
-            None => return Ok(()),
-        };
-        if qp != self.applied_qp {
-            self.inner
-                .encoder()
-                .configure(&spec_for(self.size, self.fps, qp))?;
-            self.applied_qp = qp;
+        let reuse = self
+            .refresh
+            .as_ref()
+            .is_some_and(|r| r.size == self.size && r.qp == qp);
+        if !reuse {
+            // A QP change opens a new session rather than reconfiguring: mutating a live
+            // session's QP hangs the next encode (see the module docs).
+            let mut encoder = VtEncoder::new();
+            encoder.configure(&refresh_spec_for(self.size, self.fps, qp))?;
+            self.refresh = Some(Refresh {
+                encoder,
+                size: self.size,
+                qp,
+            });
         }
+        let Some(refresh) = self.refresh.as_mut() else {
+            return Ok(());
+        };
         let Some(surface) = self.inner.last_surface() else {
             return Ok(());
         };
         // Our own clock: a still frame encoded again needs a later timestamp than last time.
         let pts_us = now_ms.saturating_mul(1_000).max(1);
         let picture = surface.into_picture(pts_us)?;
-        match self.inner.encoder().encode(picture, true) {
-            Ok(()) => {
-                // The refresh is the owed keyframe when one was asked for.
-                self.force_key = false;
-            }
+        match refresh.encoder.encode(picture, true) {
+            Ok(()) => {}
             Err(CodecError::Backpressure) => return Ok(()),
             Err(error) => return Err(error),
         }
-        self.drain(frames)?;
+        self.drain_refresh(frames)?;
         Ok(())
     }
 
-    /// Finishes what the encoder holds (the stream is ending).
+    /// Finishes what the encoders hold (the stream is ending).
     pub fn flush(&mut self, frames: &mut Vec<MediaFrame>) -> Result<(), CodecError> {
         self.inner.encoder().flush()?;
-        self.drain(frames)
+        self.drain_motion(frames)?;
+        if let Some(refresh) = self.refresh.as_mut() {
+            refresh.encoder.flush()?;
+        }
+        self.drain_refresh(frames)?;
+        Ok(())
+    }
+
+    /// The last spec applied to the motion session (wired for tests).
+    #[cfg(test)]
+    pub(crate) fn motion_spec(&self) -> Spec {
+        self.motion_spec.clone()
+    }
+
+    /// The last avcC each session's keyframes carried (wired for tests).
+    #[cfg(test)]
+    pub(crate) fn motion_avcc(&self) -> Option<Vec<u8>> {
+        self.motion_avcc.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn refresh_avcc(&self) -> Option<Vec<u8>> {
+        self.refresh_avcc.clone()
     }
 
     /// The steps it runs, as the source reports them: decode, scale and encode in hardware when

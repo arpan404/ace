@@ -27,6 +27,8 @@ mod shutdown;
 #[cfg(test)]
 mod shutdown_tests;
 #[cfg(target_os = "macos")]
+mod sim_split;
+#[cfg(target_os = "macos")]
 mod sim_still;
 #[cfg(target_os = "macos")]
 mod sim_transcode;
