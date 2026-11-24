@@ -261,7 +261,7 @@ struct InboxList: View {
                     }
                 }
                 .padding(.top, AceDesign.Space.section * 2)
-            } else if inbox.sessions.contains(where: { ["fatal", "offline", "reconnecting"].contains($0.client.connection) }) {
+            } else if inbox.sessions.contains(where: { ["fatal", "offline", "reconnecting"].contains($0.client.shownConnection) }) {
                 EmptyState(icon: .wifiSlash, title: inbox.showsMachineNames ? "Can't reach your machines" : "Can't reach your machine",
                            line: "Your threads appear once it's back.") {
                     Button("Retry") { for session in inbox.sessions { session.client.retry() } }

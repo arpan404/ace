@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// The machines the inbox can't reach right now, as the header names them. Built from each
-/// session's own connection state; the rows keep their own confirmation and never read fresh.
+/// session's shown connection state (`ConnectionGrace`: a reconnect that succeeds in a few
+/// seconds is never named); the rows keep their own confirmation and never read fresh.
 struct InboxConnectionProblem: Hashable {
     /// The machine's name when one is out, else how many.
     let text: String
@@ -11,18 +12,18 @@ struct InboxConnectionProblem: Hashable {
     let identifier: String
 
     @MainActor static func of(_ inbox: MachineInbox) -> InboxConnectionProblem? {
-        let out = inbox.sessions.filter { $0.client.connection != "ready" }
+        let out = inbox.sessions.filter { $0.client.shownConnection != "ready" }
         guard let first = out.first else { return nil }
-        let trying = out.allSatisfy { ["connecting", "starting", "reconnecting"].contains($0.client.connection) }
+        let trying = out.allSatisfy { ["connecting", "starting", "reconnecting"].contains($0.client.shownConnection) }
         let named = inbox.showsMachineNames ? inbox.name(first.hostId) : "your machine"
         let subject = out.count > 1 ? "\(out.count) machines" : named
-        let fatal = out.contains { $0.client.connection == "fatal" }
+        let fatal = out.contains { $0.client.shownConnection == "fatal" }
         // Stopped only to be asked for its machine code: reachable, waiting for the person.
-        let asking = out.allSatisfy { $0.client.connection == "fatal" && $0.client.machineCodeAsk != nil }
+        let asking = out.allSatisfy { $0.client.shownConnection == "fatal" && $0.client.machineCodeAsk != nil }
         let text = asking ? (out.count > 1 ? "\(subject) need their machine codes"
                              : inbox.showsMachineNames ? "\(named) needs its machine code" : "Your machine needs its machine code")
             : fatal ? "Can't reach \(subject)"
-            : out.allSatisfy({ ["connecting", "starting"].contains($0.client.connection) }) ? "Connecting to \(subject)"
+            : out.allSatisfy({ ["connecting", "starting"].contains($0.client.shownConnection) }) ? "Connecting to \(subject)"
             : trying ? "Reconnecting to \(subject)"
             : out.count > 1 ? "\(subject) offline" : inbox.showsMachineNames ? "\(named) is offline" : "Your machine is offline"
         let identifier = inbox.showsMachineNames && out.count == 1 ? "inbox.connection.\(inbox.name(first.hostId))" : "inbox.connection"

@@ -75,8 +75,17 @@ import QuartzCore
     private(set) var usageChoices: [UsageChoice] = []
     var pending: [String: PendingRow] = [:]
     var connection = "connecting" {
-        didSet { if oldValue == "ready", connection != "ready" { connectionEpoch &+= 1 } }
+        didSet {
+            if oldValue == "ready", connection != "ready" { connectionEpoch &+= 1 }
+            if oldValue != connection { showConnection() }
+        }
     }
+    /// The connection as the screens' words and dots show it: a reconnect stays out of sight for
+    /// a few seconds (`ConnectionGrace`). Only for display; anything that acts reads `connection`.
+    private(set) var shownConnection = "connecting"
+    @ObservationIgnored private var grace = ConnectionGrace()
+    @ObservationIgnored private var graceCheck: (@MainActor () -> Void)?
+    @ObservationIgnored private let schedule: RouteScheduler
     /// The daemon socket while ready, as the bridge names it. It changes with every reconnect,
     /// even one whose drop and recovery reached the phone as a single "ready".
     @ObservationIgnored private var socket: Int? {
@@ -306,9 +315,24 @@ import QuartzCore
     @ObservationIgnored var streamedUpdates = 0
 
     init(now: @escaping () -> Double, frames frameTiming: FrameTiming = .live,
-         checkpoints: @escaping InboxCheckpoint.Reader = InboxCheckpoint.background, makeRuntime: @escaping ClientSessionFactory = {
+         checkpoints: @escaping InboxCheckpoint.Reader = InboxCheckpoint.background,
+         schedule: @escaping RouteScheduler = RouteRetries.sleeping, makeRuntime: @escaping ClientSessionFactory = {
         ClientRuntime(target: $0, storageURL: $1, receive: $2, fail: $3)
-    }) { self.now = now; self.frameTiming = frameTiming; self.checkpoints = checkpoints; self.makeRuntime = makeRuntime; liveActivity = ThreadLiveActivity(now: { Date(timeIntervalSince1970: now() / 1000) }) }
+    }) { self.now = now; self.frameTiming = frameTiming; self.schedule = schedule; self.checkpoints = checkpoints; self.makeRuntime = makeRuntime; liveActivity = ThreadLiveActivity(now: { Date(timeIntervalSince1970: now() / 1000) }) }
+    /// The real state moved: the shown one follows, or holds for the grace and looks again then.
+    private func showConnection() {
+        graceCheck?()
+        graceCheck = nil
+        if let at = grace.changed(connection, at: now()) {
+            graceCheck = schedule(at - now()) { [weak self] in
+                guard let self else { return }
+                graceCheck = nil
+                grace.elapsed(at: now())
+                if shownConnection != grace.shown { shownConnection = grace.shown }
+            }
+        }
+        if shownConnection != grace.shown { shownConnection = grace.shown }
+    }
     func connect(target: ConnectionTarget, directory: URL, itemLimit: Int = 200) async {
         runtimeEpoch += 1
         connectionEpoch &+= 1

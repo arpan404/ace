@@ -118,7 +118,7 @@ struct AccountSheet: View {
         let client = inbox.client(host)
         let name = entry?.displayName ?? inbox.name(host)
         let unsupported = machines?.unsupported.contains(host) == true
-        let words = MachineConnectionWords.of(state: client?.connection, status: client?.machineStatus?.status,
+        let words = MachineConnectionWords.of(state: client?.shownConnection, status: client?.machineStatus?.status,
                                               needsPairing: unsupported, off: machines?.isOff(host) == true)
         let connected = words.display.token == "done"
         let trying = words.trying

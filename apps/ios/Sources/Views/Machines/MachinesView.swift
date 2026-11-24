@@ -164,7 +164,7 @@ struct ConnectionDot: View {
         name = entry?.displayName ?? inbox.name(hostId)
         needsPairing = machines?.unsupported.contains(hostId) ?? false
         off = machines?.isOff(hostId) ?? false
-        let words = MachineConnectionWords.of(state: client?.connection, status: client?.machineStatus?.status,
+        let words = MachineConnectionWords.of(state: client?.shownConnection, status: client?.machineStatus?.status,
                                               needsPairing: needsPairing, off: off)
         connection = words.display
         trying = words.trying
