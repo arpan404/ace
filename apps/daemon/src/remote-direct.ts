@@ -126,6 +126,8 @@ export function remoteDirect(deps: {
               log: (failure) => options.log?.(failure),
             })
           : undefined;
+        // A listener that serves the certificate from somewhere else (Rust, T1b.4) follows it.
+        listener?.trust?.(trusted);
       }
       if (!listener) {
         // Browsers asking for the ts.net name get Tailscale's trusted certificate; every other
@@ -140,6 +142,7 @@ export function remoteDirect(deps: {
           delay: options.runtime?.delay ?? systemDeliveryRuntime.delay,
           log: (error) => options.log?.(error),
         });
+        server.trust?.(trusted);
         deps.attach(server.http);
         let bound: number;
         try {

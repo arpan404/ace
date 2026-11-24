@@ -39,6 +39,11 @@ observes, and must hold unchanged with any `ACE_TRANSPORT`, `ACE_HTTP`, `ACE_REL
   WebSocket. **Remote listeners** when remote access is on: the pinned-TLS LAN listener, the
   Tailscale HTTPS listener with SNI (`sni-listener.ts`, `tailscale-certificate.ts`), each started by
   `remote-runtime.ts` and togglable at run time; and **relay** channels (§10).
+- **Under `ACE_TRANSPORT=native,remote`** each run-time listener is Rust's
+  (`native-sni-listener.ts`): it terminates TLS and HTTP and forwards to its own internal server
+  through the hop, and every upgrade is decided by the same admission TypeScript runs for `ws`.
+  `remote-runtime.ts` and `remote-direct.ts` still decide every open, move and close, and Tailscale's
+  certificate is pushed to Rust whenever the one TypeScript serves changes.
 - Listening never waits for remote access: `remoteStarted.direct` settles once the LAN and
   Tailscale listener started or failed, `networks` once every network did; both settle on close and
   never reject (`server.ts:101`–`:106`).
@@ -163,6 +168,11 @@ expired`, `1009` for an oversized message, `1011 service_unavailable` when finis
   (`server-socket-close.ts:26`–`:32`).
 - A session's cleanup runs before the wire goodbye; a revoked device's sessions get `revoked()`
   while the socket is still open, then close (`services/socket.ts`).
+- **Recorded difference (T1b.4, an upgrade that finishes while its listener retires)**: turning
+  remote access off, or moving the listener to another address, retires the listener with deadline 0. An upgrade whose `101` was still being written when the retire began is terminated as soon as
+  it is registered; with `node:tls` such a socket could survive the retire
+  (`sni-listener.ts:172`–`:180` dropped it from `owned`), which was never intended. A daemon
+  shutdown gives it `1001 Daemon shutdown` instead, as every other socket gets.
 - Closes worth explaining are logged without identifying a person or device: heartbeat loss,
   limits, auth, daemon-initiated closes; unauthenticated ordinary closes (`1000`, `1001`, `1005`)
   are not (`socket-liveness.ts:24`–`:71`).

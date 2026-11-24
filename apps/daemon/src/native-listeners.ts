@@ -10,9 +10,11 @@ import {
   type NativeLoopbackHandle,
   type NativeRemoteLimits,
 } from "@ace/provider-kit/native-transport";
+import type { DeliveryRuntime } from "./delivery-runtime.ts";
 import { bindListener as bind, closeListener } from "./listener.ts";
 import type { MainSocket } from "./main-socket.ts";
 import { startNativeRemote, type NativeRemoteListener } from "./native-remote.ts";
+import { nativeSniListeners } from "./native-sni-listener.ts";
 import {
   nativeUpgrade,
   ownReservations,
@@ -21,6 +23,7 @@ import {
 } from "./native-upgrade.ts";
 import { urlHost } from "./network.ts";
 import { proxyGuard } from "./proxy-guard.ts";
+import type { SniListener, SniListenerOptions } from "./sni-listener.ts";
 
 /** How long a listener may take to decide an upgrade: `socket-admission.ts`'s hello window. */
 const ADMIT_TIMEOUT_MS = 5_000;
@@ -222,10 +225,6 @@ export interface NativeRemoteStart {
   identity: { key: Buffer; cert: Buffer };
   /** The paired-device chain the hop forwards to; native only. */
   requests?: RequestListener | undefined;
-  /** Admission's wiring, minus the listener's own kind, `wss` and socket set; native only. */
-  admission?: Omit<NativeUpgradeWiring, "kind" | "wss" | "sockets"> | undefined;
-  /** The socket server this listener's `connection` event reaches: `remoteWss`; native only. */
-  wss?: WebSocketServer | undefined;
   /** Binds the TypeScript `https` listener; absent when `native`. */
   bind?: (() => Promise<number>) | undefined;
   log(error: Error): void;
@@ -252,14 +251,31 @@ export interface NativeListenersStart {
   closeSocket(socket: MainSocket): void;
   /** Stops admission before a failed start unwinds, as shutdown does. */
   startDraining(): void;
+  /** Whether the run-time listener (LAN, Tailscale) is Rust's: the switch's `remote`. */
+  nativeRemote: boolean;
+  /** Admission's wiring, minus a listener's own kind, `wss` and socket set. */
+  admission: Omit<NativeUpgradeWiring, "kind" | "wss" | "sockets">;
+  /** The socket server a remote upgrade's `connection` reaches: `remoteWss`. */
+  remoteWss: WebSocketServer;
   remote?: NativeRemoteStart | undefined;
 }
+
+/** The clock a run-time listener measures its certificate's expiry on: the daemon's own. */
+export type ListenerClock = Pick<DeliveryRuntime, "delay" | "now">;
 
 /** The listeners a start produced, plus where clients reach them. */
 export interface StartedNativeListeners extends NativeListeners {
   port: number;
   internalHttpUrl?: string | undefined;
   remoteOrigin?: string | undefined;
+  /**
+   * Makes the run-time listener for `remoteDirect`, once the daemon's clock is known: one listener
+   * per address it serves, Rust terminating and TypeScript deciding (T1b.4). Absent with the
+   * switch off, so `remoteDirect` builds the `node:tls` one as it always did.
+   */
+  remoteListener?:
+    | ((clock: ListenerClock) => (options: SniListenerOptions) => SniListener)
+    | undefined;
 }
 
 /**
@@ -300,17 +316,16 @@ export async function startNativeListeners(
       if (remoteConfig.native) {
         if (options.hopSecret === undefined)
           throw new Error("ACE_TRANSPORT=native,remote needs the loopback listener's hop secret");
-        const { requests, admission, wss } = remoteConfig;
-        if (requests === undefined || admission === undefined || wss === undefined)
-          throw new Error("The native remote listener has no hop target or admission");
+        const { requests } = remoteConfig;
+        if (requests === undefined) throw new Error("The native remote listener has no hop target");
         remote = await startNativeStaticRemote({
           host: remoteConfig.host,
           port: remoteConfig.port,
           identity: remoteConfig.identity,
           hopSecret: options.hopSecret,
           requests,
-          admission,
-          wss,
+          admission: options.admission,
+          wss: options.remoteWss,
           sockets: options.sockets,
           holdPort: (bound) => options.tunnel.hold(bound),
           track: (server) => options.tunnel.track(server),
@@ -324,12 +339,32 @@ export async function startNativeListeners(
       }
       remoteOrigin = `https://${urlHost(remoteConfig.advertisedHost)}:${remotePort}`;
     }
+    // The run-time listener's factory: LAN and Tailscale, made afresh at each address. It reads
+    // the clock the caller hands it, so nothing here reads one.
+    const hopSecret = options.hopSecret;
+    const remoteListener =
+      options.nativeRemote && hopSecret !== undefined
+        ? (clock: ListenerClock) =>
+            nativeSniListeners({
+              secret: hopSecret,
+              upgrades: nativeUpgrade({
+                ...options.admission,
+                kind: "remote",
+                wss: options.remoteWss,
+                sockets: options.sockets,
+              }),
+              delay: clock.delay,
+              now: clock.now,
+              tunnel: options.tunnel,
+            }).make
+        : undefined;
     return {
       port,
       ...(internalHttpUrl === undefined ? {} : { internalHttpUrl }),
       ...(remoteOrigin === undefined ? {} : { remoteOrigin }),
       ...(loopback === undefined ? {} : { loopback }),
       ...(remote === undefined ? {} : { remote }),
+      ...(remoteListener === undefined ? {} : { remoteListener }),
     };
   } catch (error) {
     // Transactional start: a later bind's failure unwinds what this call already started, so its
