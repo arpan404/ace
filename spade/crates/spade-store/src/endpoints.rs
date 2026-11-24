@@ -24,6 +24,9 @@ pub struct StoredEndpoint {
     pub created_ms: i64,
     /// How it signs in when not with a key (ADR 0214); never a token.
     pub sign_in: Option<StoredSignIn>,
+    /// Whether its gateway token is in the keychain: a second secret beside the key, never a
+    /// header stored here (ADR 0119).
+    pub gateway_token: bool,
     pub models: Vec<StoredModel>,
 }
 
@@ -82,7 +85,7 @@ impl Store {
         let connection = self.lock()?;
         let mut statement = connection.prepare(
             "SELECT id, name, format, base_url, headers, session_header, needs_key, key_env,
-                    created_ms, preset, sign_in
+                    created_ms, preset, sign_in, gateway_token
              FROM endpoints ORDER BY created_ms, id",
         )?;
         let mut endpoints = statement
@@ -99,6 +102,7 @@ impl Store {
                     created_ms: row.get(8)?,
                     preset: row.get(9)?,
                     sign_in: sign_in_from(row.get(10)?),
+                    gateway_token: row.get::<_, i64>(11)? != 0,
                     models: Vec::new(),
                 })
             })?
@@ -149,8 +153,8 @@ impl Store {
         let inserted = tx.execute(
             "INSERT OR IGNORE INTO endpoints
              (id, name, format, base_url, headers, session_header, needs_key, key_env, created_ms,
-              preset, sign_in)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+              preset, sign_in, gateway_token)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 endpoint.id,
                 endpoint.name,
@@ -162,7 +166,8 @@ impl Store {
                 endpoint.key_env,
                 endpoint.created_ms,
                 endpoint.preset,
-                sign_in_json(endpoint.sign_in.as_ref())
+                sign_in_json(endpoint.sign_in.as_ref()),
+                i64::from(endpoint.gateway_token)
             ],
         )?;
         if inserted == 0 {
@@ -179,7 +184,8 @@ impl Store {
     pub fn update_endpoint(&self, endpoint: &StoredEndpoint) -> Result<bool> {
         let changed = self.lock()?.execute(
             "UPDATE endpoints SET name = ?2, format = ?3, base_url = ?4, headers = ?5,
-                    session_header = ?6, needs_key = ?7, key_env = ?8, sign_in = ?9
+                    session_header = ?6, needs_key = ?7, key_env = ?8, sign_in = ?9,
+                    gateway_token = ?10
              WHERE id = ?1",
             params![
                 endpoint.id,
@@ -190,7 +196,8 @@ impl Store {
                 endpoint.session_header,
                 endpoint.needs_key,
                 endpoint.key_env,
-                sign_in_json(endpoint.sign_in.as_ref())
+                sign_in_json(endpoint.sign_in.as_ref()),
+                i64::from(endpoint.gateway_token)
             ],
         )?;
         Ok(changed > 0)
@@ -207,6 +214,15 @@ impl Store {
             params![id, at_ms],
         )?;
         tx.commit()?;
+        Ok(changed > 0)
+    }
+
+    /// Deletes an endpoint row and its saved models, retiring nothing: for undoing a create that
+    /// never became the person's, so a retry takes the same id. Returns whether it existed.
+    pub fn forget_endpoint(&self, id: &str) -> Result<bool> {
+        let changed = self
+            .lock()?
+            .execute("DELETE FROM endpoints WHERE id = ?1", params![id])?;
         Ok(changed > 0)
     }
 
@@ -239,6 +255,39 @@ impl Store {
             return Ok(false);
         }
         put_model_in(&tx, endpoint, model)?;
+        tx.commit()?;
+        Ok(true)
+    }
+
+    /// Saves `models` on `endpoint` only while it has none saved yet, all in one transaction:
+    /// the list a new or empty account brings never replaces a model the person saved while the
+    /// list was read. Returns whether they were saved; `false` when the endpoint is gone or has a
+    /// model already, and then nothing is written.
+    pub fn put_listed_models(&self, endpoint: &str, models: &[StoredModel]) -> Result<bool> {
+        let mut connection = self.lock()?;
+        let tx = connection.transaction()?;
+        let exists = tx
+            .query_row(
+                "SELECT 1 FROM endpoints WHERE id = ?1",
+                params![endpoint],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if !exists {
+            return Ok(false);
+        }
+        let saved: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM models WHERE endpoint_id = ?1",
+            params![endpoint],
+            |row| row.get(0),
+        )?;
+        if saved > 0 {
+            return Ok(false);
+        }
+        for model in models {
+            put_model_in(&tx, endpoint, model)?;
+        }
         tx.commit()?;
         Ok(true)
     }

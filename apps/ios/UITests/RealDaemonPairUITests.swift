@@ -41,7 +41,7 @@ import XCTest
         for _ in 0..<12 where !first.exists { app.swipeUp() }
         XCTAssertTrue(first.waitForExistence(timeout: 20))
         first.tap()
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 20))
         expectation(for: NSPredicate(format: "value == 'Ready'"), evaluatedWith: transcript)
         waitForExpectations(timeout: 30)

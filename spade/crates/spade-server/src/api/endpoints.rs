@@ -14,7 +14,9 @@ use serde_json::{Value, json};
 
 use super::body::{Body, present};
 use super::{AppState, off_thread, problem};
-use crate::engine::{EndpointError, EndpointInput, EndpointView, ModelInput, Standing};
+use crate::engine::{
+    EndpointError, EndpointInput, EndpointView, ModelInput, Standing, is_credential_header,
+};
 
 #[derive(Deserialize)]
 pub(super) struct EndpointBody {
@@ -33,6 +35,9 @@ pub(super) struct EndpointBody {
     needs_key: Option<bool>,
     #[serde(default)]
     preset: Option<String>,
+    /// Kept in the keychain with the new endpoint, never in its stored headers (ADR 0119).
+    #[serde(default)]
+    gateway_token: Option<String>,
 }
 
 impl EndpointBody {
@@ -45,6 +50,7 @@ impl EndpointBody {
             session_header: self.session_header,
             needs_key: self.needs_key,
             preset: self.preset,
+            gateway_token: self.gateway_token,
         }
     }
 }
@@ -147,11 +153,23 @@ fn endpoint_json(
         "base_url": e.base_url,
         // On this computer: offered before any other (ADR 0205 §1).
         "local": local,
-        "session_header": e.session_header,
-        "header_names": e.headers.iter().map(|(name, _)| name.clone()).collect::<Vec<_>>(),
+        // A credential header is never answered, even one an older build stored plain: what it
+        // held is no longer sent (ADR 0119).
+        "session_header": e
+            .session_header
+            .as_deref()
+            .filter(|name| !is_credential_header(name)),
+        "header_names": e
+            .headers
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .filter(|name| !is_credential_header(name))
+            .collect::<Vec<_>>(),
         "needs_key": e.needs_key,
         "key_set": key_set,
         "key_source": source,
+        // Whether a gateway token waits in the keychain for its calls (never the token).
+        "gateway_token_set": e.gateway_token,
         // ADR 0214: the provider it is an account of, how it signs in, and who uses it.
         "provider": crate::engine::Engine::provider_of(e),
         "auth": match &e.sign_in {

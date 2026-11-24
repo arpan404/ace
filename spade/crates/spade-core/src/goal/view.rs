@@ -192,12 +192,9 @@ pub fn pinned(events: &[Event]) -> Option<String> {
         .map(|c| format!("{}. {}", c.id, quoted(&c.text, 500)))
         .collect();
     Some(format!(
-        "Your goal, plan and progress, as they stood at the last compaction (Spade keeps these; \
-         later changes are in the conversation). Only the person can change the goal and its \
-         criteria. Close items with task_plan and evidence; when you set task_status done, a \
-         separate check reads the evidence against the criteria.\n<goal title=\"{}\">\n\
-         <person_words>{}</person_words>\n<done_when>\n{}\n</done_when>\n<plan>\n{}\n</plan>\n\
-         </goal>\n[x] verified, [~] closed and not yet checked, [>] working, [!] blocked.",
+        "Goal and plan at last compaction (newer updates are in the conversation):\n\
+         <goal title=\"{}\">\n<person_words>{}</person_words>\n<done_when>\n{}\n</done_when>\n\
+         <plan>\n{}\n</plan>\n</goal>\n[x] verified, [~] closed, [>] working, [!] blocked.",
         quoted(&task.goal.title, 300),
         quoted(&task.goal.text, 4_000),
         criteria.join("\n"),

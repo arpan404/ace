@@ -270,11 +270,7 @@ impl Translator {
             codec: 1,
             encode: 0,
             epoch: 0,
-            codec_string: if key {
-                config.codec.clone()
-            } else {
-                String::new()
-            },
+            codec_string: config.codec.clone(),
             description: Vec::new(),
             extension: Vec::new(),
             payload,

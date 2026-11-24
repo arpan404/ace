@@ -30,7 +30,7 @@ impl Tool for PanelUpdate {
             },
             risk: Risk::Read,
             untrusted_output: false,
-            deferred: false,
+            deferred: true,
             background: false,
         }
     }

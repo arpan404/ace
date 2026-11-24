@@ -102,8 +102,9 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
   // Showing this panel tab shows its daemon tab, here and on the person's other devices. Only
   // the shown one asks: a tab that merely mounts (switch churn, list reconciliation) must not
   // reselect the daemon behind the shown tab's back. When the daemon later shows another tab,
-  // the panel follows it instead.
-  const reachable = !!live && live.status !== "paused";
+  // the panel follows it instead. A paused browser still hears which tab is shown: viewing it
+  // resumes the session and wakes the tab, so the select is sent even while paused.
+  const reachable = !!live;
   const scope = useScopeWorkspace(threadId);
   const panelShown = pane ? (pane.focused ?? true) : scope.active === tabKey("browser", ownId);
   useEffect(() => {
@@ -324,14 +325,15 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
   else if (page.loading || unopened) content = <Opening download={page.download} />;
   else if (live && shown && !blank)
     // No picture yet: the first keyframe is on its way, unless this client can't decode any or
-    // nothing will deliver it (the view says why).
+    // nothing will deliver it (the view says why). Never a spinner for a page that already
+    // loaded: a loaded page with no picture says why, instead of saying it is opening.
     content =
       page.decodesVideo === false ? (
         <NoVideo />
       ) : page.undelivered ? (
         <NoLiveVideo reason={page.undelivered} />
       ) : (
-        <Opening download={page.download} />
+        <NoLiveVideo reason="Live video isn't showing yet." />
       );
   else content = <StartPage suggestions={page.suggestions} disabled={offline} onGo={page.go} />;
 

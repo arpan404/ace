@@ -46,7 +46,7 @@ impl Tool for GroupAsk {
             risk: Risk::Read,
             // Another bot's answer can carry what it read anywhere.
             untrusted_output: true,
-            deferred: false,
+            deferred: true,
             background: false,
         }
     }

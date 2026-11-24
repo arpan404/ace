@@ -205,6 +205,14 @@ For long runs and Instruments sessions, fixture builds take `--spike-open ID` (o
 once its row is listed) and `--spike-items 200` (the paired app's 200-item window). Launch with
 `-ace-frame-trace` to log late frames while a thread is open; the sampler never runs otherwise.
 
+For the inverted transcript fling comparison, add `-ace-fling-trace` and open
+`ios-reading`. The `fling` category under `dev.ace.perf` logs release velocity, travel, content
+growth, geometry cadence, feed and row body evaluations, proxy requests, and explicit UIKit
+offset writes over each deceleration. Repeat from a fresh launch with `-ace-fling-no-anchors`
+to disable the size-change anchor and SwiftUI's automatic offset adjustment. A third run
+with `-ace-fling-isolate` also stops feed placement and paging after the first touch. All three
+runs use the same flipped scroll view.
+
 ## Ownership and bounds
 
 - `bridge/` imports only package public exports. `ClientCore` owns protocol decoding,

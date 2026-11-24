@@ -65,4 +65,31 @@ import Testing
         anchor.windowHoldEnded()
         #expect(anchor.keepsEnd, "only a hold the window started is let go")
     }
+
+    @Test func aBarGrowingUnderAFollowingFeedHoldsTheBottomUntilTheHoldEnds() {
+        var anchor = TranscriptGrowthAnchor()
+        let held = anchor.roomGrowing(following: true, by: 44)
+        #expect(held)
+        #expect(anchor.keepsEnd)
+        anchor.windowHoldEnded()
+        #expect(!anchor.keepsEnd)
+    }
+
+    @Test func aBarGrowingHoldsNothingForAReaderAwayFromTheEndOrAShrinkingBar() {
+        var anchor = TranscriptGrowthAnchor()
+        let away = anchor.roomGrowing(following: false, by: 44)
+        let shrinking = anchor.roomGrowing(following: true, by: -20)
+        #expect(!away)
+        #expect(!shrinking)
+        #expect(!anchor.keepsEnd)
+    }
+
+    @Test func aBarGrowingLeavesTheOpeningsOwnHoldToTheOpening() {
+        var anchor = TranscriptGrowthAnchor()
+        anchor.opened(atEnd: true)
+        let held = anchor.roomGrowing(following: true, by: 44)
+        #expect(!held, "the opening already holds the bottom")
+        anchor.windowHoldEnded()
+        #expect(anchor.keepsEnd, "and the bar's end never lets it go")
+    }
 }

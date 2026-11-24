@@ -63,6 +63,7 @@ fn models(root: &str) -> Result<Models> {
         "1.2.3",
     )?;
     models.set_endpoints(vec![Endpoint {
+        gateway_token: false,
         id: "chatgpt-a1".to_owned(),
         name: "ChatGPT".to_owned(),
         format: Format::OpenAiResponses,

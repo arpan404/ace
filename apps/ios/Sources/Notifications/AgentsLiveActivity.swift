@@ -27,12 +27,12 @@ enum AgentsActivityPlan {
         guard allowed else { return running ? .end : .none }
         if summary.busy { return running ? .update : foreground ? .start : .none }
         guard running else { return .none }
-        if let quietSince, now.timeIntervalSince(quietSince) >= quietGrace { return .end }
+        if summary.current, let quietSince, now.timeIntervalSince(quietSince) >= quietGrace { return .end }
         return .update
     }
     /// When quiet began: kept while quiet, cleared by anything busy.
     static func quietSince(_ summary: LockSummary, previous: Date?, now: Date) -> Date? {
-        summary.busy ? nil : previous ?? now
+        summary.busy || !summary.current ? nil : previous ?? now
     }
     /// Whether to send `summary` now: changed content goes at once; the same content only once
     /// `renewEvery` has passed since it was last sent.

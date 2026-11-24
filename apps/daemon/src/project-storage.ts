@@ -177,13 +177,12 @@ export class ProjectStorage {
   }
   /** Register a chat's folder as a hidden `chat` project (ADR 0099). */
   registerChat(path: string, name: string): Project {
-    const workspace = this.store.atomic((db) => {
-      const id = this.store.createWorkspace(path, name, this.now());
-      db.prepare(
-        "INSERT INTO workspace_metadata(workspace_id,kind) VALUES (?,'chat') ON CONFLICT(workspace_id) DO UPDATE SET kind='chat'",
-      ).run(id);
-      return this.get(id);
+    const { workspace, reclassified } = this.store.atomic((db) => {
+      const workspaceId = this.store.createWorkspace(path, name, this.now());
+      const changed = this.setKind(db, workspaceId, "chat");
+      return { workspace: this.get(workspaceId), reclassified: changed };
     });
+    if (reclassified) this.store.chatMembership.changed(workspace.id);
     this.emit({ type: "workspace.changed", change: "added", workspaceId: workspace.id, workspace });
     return workspace;
   }
@@ -192,14 +191,36 @@ export class ProjectStorage {
    * removed. Clients never see it: it is left out of every list and announces no change.
    */
   registerSpade(path: string): WorkspaceId {
-    return this.store.atomic((db) => {
-      const id = this.store.createWorkspace(path, "Spade", this.now());
-      db.prepare(
-        "INSERT INTO workspace_metadata(workspace_id,kind) VALUES (?,'spade') ON CONFLICT(workspace_id) DO UPDATE SET kind='spade'",
-      ).run(id);
-      db.prepare("DELETE FROM workspace_unregistered WHERE workspace_id=?").run(id);
-      return id;
+    const { id, reclassified } = this.store.atomic((db) => {
+      const workspaceId = this.store.createWorkspace(path, "Spade", this.now());
+      const changed = this.setKind(db, workspaceId, "spade");
+      db.prepare("DELETE FROM workspace_unregistered WHERE workspace_id=?").run(workspaceId);
+      return { id: workspaceId, reclassified: changed };
     });
+    if (reclassified) this.store.chatMembership.changed(id);
+    return id;
+  }
+  /**
+   * Set a workspace's hidden kind. Becoming or leaving a chat changes which windows list its
+   * threads (ADR 0099): each thread's row revision is bumped as a thread write's would be, so
+   * the sidebar's triggers recompute its chat fact. No thread row or event changes: live lists
+   * are told after commit (`ChatMembership`), so a reclassification never reads as
+   * activity. A kind change that is already the workspace's, or has nothing to do with chats,
+   * does no work. Returns whether chat membership flipped.
+   */
+  private setKind(db: DatabaseSync, id: WorkspaceId, kind: "chat" | "spade"): boolean {
+    const was = db
+      .prepare("SELECT kind FROM workspace_metadata WHERE workspace_id=?")
+      .get(id)?.kind;
+    db.prepare(
+      "INSERT INTO workspace_metadata(workspace_id,kind) VALUES (?,?) ON CONFLICT(workspace_id) DO UPDATE SET kind=excluded.kind",
+    ).run(id, kind);
+    if ((was === "chat") === (kind === "chat")) return false;
+    this.forThreads(id, (threadId) => {
+      db.prepare("DELETE FROM sidebar_thread_revisions WHERE thread_id=?").run(threadId);
+      db.prepare("INSERT INTO sidebar_thread_revisions(thread_id) VALUES (?)").run(threadId);
+    });
+    return true;
   }
   /** Unregister a project without touching its threads; a chat's last thread already went. */
   forget(id: WorkspaceId): void {

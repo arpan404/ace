@@ -105,6 +105,45 @@ const text = (epoch: number, id: string) =>
     .map((frame) => (frame.row as { text?: string } | null)?.text)
     .at(-1);
 
+test("paging an 8,000-item thread bounds resident rows and per-page traffic", async () => {
+  const { client } = await longThread(8000, (index) => `History ${index}. `.padEnd(140, "x"));
+  const read = reader(client, phoneWindow);
+  let previous = await read("hold");
+  const reads = [];
+  for (const operation of [
+    ...Array<"older">(25).fill("older"),
+    ...Array<"newer">(5).fill("newer"),
+  ]) {
+    const mark = native.frames.length;
+    const started = performance.now();
+    const state = await read(operation);
+    const page = native.frames.slice(mark).filter(readingFrame);
+    if (operation === "older") {
+      expect(state.beforeSeq).not.toBeNull();
+      expect(state.beforeSeq ?? Infinity).toBeLessThan(previous.beforeSeq ?? Infinity);
+    } else {
+      expect(state.afterSeq ?? -Infinity).toBeGreaterThan(previous.afterSeq ?? -Infinity);
+    }
+    previous = state;
+    reads.push({
+      rows: state.count,
+      bytes: Buffer.byteLength(JSON.stringify(page)),
+      ms: performance.now() - started,
+      reset: page.some((patch) => patch.type === "thread.reset"),
+    });
+    expect(state.active).toBe(true);
+    native.frames.length = 0;
+  }
+  const peak = Math.max(...reads.map((page) => page.rows));
+  const bytes = Math.max(...reads.map((page) => page.bytes));
+  console.info(
+    `history: ${peak} resident rows, ${bytes} peak patch bytes, ${reads.reduce((sum, page) => sum + page.ms, 0).toFixed(0)} ms for 30 pages including ACKs`,
+  );
+  expect(reads.every((page) => !page.reset)).toBe(true);
+  expect(peak).toBeLessThanOrEqual(600); // 400 history items plus the live tail, when joined.
+  expect(bytes).toBeLessThan(300_000);
+});
+
 test("reading far back keeps the window Swift holds within its item bound", async () => {
   const { client } = await longThread(1500);
   const read = reader(client);
@@ -157,7 +196,7 @@ test("each page's rows reach Swift before the read says it settled", async () =>
 });
 
 test("history read back once stays loaded through a return to the end and a second read back", async () => {
-  const { client } = await longThread(1500);
+  const { client } = await longThread(350);
   const read = reader(client, phoneWindow);
   const reads = vi.spyOn(client, "itemsWindow");
   await read("hold");
@@ -166,7 +205,7 @@ test("history read back once stays loaded through a return to the end and a seco
   expect(state.hasOlder).toBe(false);
   const loaded = held(-1);
   expect(loaded[0]).toBe(message(0));
-  expect(loaded.at(-1)).toBe(message(1499));
+  expect(loaded.at(-1)).toBe(message(349));
   expect(contiguous(loaded)).toBe(true);
   const asked = reads.mock.calls.length;
   // Back down to the end, then up again over the same history, twice.
@@ -181,7 +220,7 @@ test("history read back once stays loaded through a return to the end and a seco
 
 test("an older page only adds rows above the ones the reader holds", async () => {
   const { client } = await longThread(1500);
-  const read = reader(client, phoneWindow);
+  const read = reader(client, { ...phoneWindow, capacity: 800 });
   await read("hold");
   await read("older");
   const before = held(-1);

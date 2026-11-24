@@ -32,6 +32,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
         static let muted = "ace.notifications.mutedMachines"
         static let liveActivity = "ace.lockScreen.liveActivity"
         static let bridgePosted = "ace.notifications.bridgePosted"
+        static let pushHosts = "ace.notifications.pushHosts"
     }
     /// The bridge notifications remembered per machine, newest last; older ones have long gone.
     static let bridgePostedLimit = 256
@@ -66,6 +67,8 @@ struct SystemAuthorizer: NotificationAuthorizer {
     /// Opens short-lived connections to every paired machine when no UI exists (a background launch).
     @ObservationIgnored let connectInBackground: @MainActor (NotificationCoordinator) async -> [ClientModel]
     @ObservationIgnored var transient: [ClientModel] = []
+    @ObservationIgnored var transientDirectory: MachinesModel?
+    @ObservationIgnored var backgroundWork: Task<Bool, Never>?
     /// The background opening under way, reserved before it starts: a second caller joins it and
     /// the app's own attach waits for it to finish, then closes what it opened.
     @ObservationIgnored var transientOpening: Task<Void, Never>?
@@ -92,6 +95,8 @@ struct SystemAuthorizer: NotificationAuthorizer {
     @ObservationIgnored var machineName: (String) -> String? = { _ in nil }
     /// This phone's push address (ADR 0106), once iOS gave a token; every machine's sync carries it.
     @ObservationIgnored var push: PushRegistration?
+    /// Encrypted pushes name the daemon even when the directory keys it by its relay id.
+    @ObservationIgnored private var pushHosts: [String: String]
     /// Asks iOS for a push token (`registerForRemoteNotifications`); the app delegate sets it.
     @ObservationIgnored var requestPushToken: @MainActor () -> Void = {}
 
@@ -111,9 +116,11 @@ struct SystemAuthorizer: NotificationAuthorizer {
         phone = PhoneNotificationPrefs.load(defaults)
         liveActivity = defaults.object(forKey: Keys.liveActivity) as? Bool ?? true
         bridgePosted = defaults.dictionary(forKey: Keys.bridgePosted) as? [String: [String]] ?? [:]
+        pushHosts = defaults.dictionary(forKey: Keys.pushHosts) as? [String: String] ?? [:]
         self.lockScreen = LockScreenHub(edges: lockScreenEdges ?? .inert, now: { Date(timeIntervalSince1970: now() / 1000) }, sleep: sleep)
         self.lockScreen.allowed = liveActivity
         self.lockScreen.read = { [weak self] in self?.lockScreenInput() ?? ([], [:]) }
+        desk.pushHost = { [weak self] host in self?.pushHosts[host] }
         LockScreenActions.handler = { [weak self] request, allow in await self?.answer(request, allow: allow) }
     }
 
@@ -127,8 +134,9 @@ struct SystemAuthorizer: NotificationAuthorizer {
             if let opening = transientOpening { await opening.value }
             if transient.contains(where: { $0 !== model }) { await closeTransient() }
         }
-        // The machine as the phone keys it, whichever route this connection takes.
+        // A route change for the same machine keeps its ledger and in-progress feed.
         let machine = target.scope
+        if machines.contains(where: { $0.hostId == machine.hostId && $0.model === model }) { return }
         let scope = SHA256.hash(data: Data("\(machine.hostId)\u{0}\(machine.deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
         let ledger = LocalNotifier(center: center, hostId: machine.hostId, desk: desk)
         ledger.bind(LedgerStore(scope: scope, defaults: defaults))
@@ -147,24 +155,27 @@ struct SystemAuthorizer: NotificationAuthorizer {
         // runtime, and asking the system must not hold back a launch's first connection.
         Task { await refreshPermission() }
     }
-    func detach(_ model: ClientModel) {
+    func detach(_ model: ClientModel) { detach(model, removingMachine: true) }
+    func releaseBackgroundMachine(_ model: ClientModel) { detach(model, removingMachine: false) }
+
+    private func detach(_ model: ClientModel, removingMachine: Bool) {
         guard let index = machines.firstIndex(where: { $0.model === model }) else { return }
         model.notificationSink = nil
         feeds.removeValue(forKey: machines[index].hostId)?.forEach { $0.finish(false) }
         machines[index].notifier.invalidate()
-        withdrawBridgeAlerts(machines[index].hostId)
+        if removingMachine { withdrawBridgeAlerts(machines[index].hostId) }
         machines.remove(at: index)
         model.liveActivity.onChange = nil
         model.liveActivity.onShow = nil
         model.onOpenThread = nil
         model.outside.onAccessState = nil
-        lockScreen.changed()
+        if removingMachine { lockScreen.changed() }
     }
     /// A machine turned off on this phone: its notifications are withdrawn, its approvals leave
     /// the Live Activity, and the lock screen and widgets rebuild without it, not even "as of".
     func turnedOff(_ hostId: String) {
         // Alerts it already handed over don't land after the clear, whenever their task runs.
-        for entry in machines where entry.hostId == hostId { entry.notifier.invalidate() }
+        for entry in machines where entry.hostId == hostId { entry.notifier.mute() }
         desk.clear(hostId: hostId)
         withdrawBridgeAlerts(hostId)
         approvals = approvals.filter { $0.value.hostId != hostId }
@@ -174,8 +185,21 @@ struct SystemAuthorizer: NotificationAuthorizer {
         lockScreen.rebuild()
     }
     func client(_ hostId: String?) -> ClientModel? {
-        guard let hostId else { return model }
+        guard let hostId = localNotificationHost(hostId) else { return model }
         return machines.first { $0.hostId == hostId }?.model
+    }
+    func localNotificationHost(_ hostId: String?) -> String? {
+        guard let hostId, !machines.contains(where: { $0.hostId == hostId }) else { return hostId }
+        let aliases = pushHosts.keys.filter { pushHosts[$0] == hostId }
+        let attached = machines.filter { pushHosts[$0.hostId] == hostId }
+        if attached.count == 1 { return attached.first?.hostId }
+        return aliases.count == 1 ? aliases.first : hostId
+    }
+    private func rememberPushHost(_ daemonHostId: String, for hostId: String) {
+        let alias = daemonHostId == hostId ? nil : daemonHostId
+        guard pushHosts[hostId] != alias else { return }
+        pushHosts[hostId] = alias
+        defaults.set(pushHosts, forKey: Keys.pushHosts)
     }
     /// Patches from the machine with no host (tests, older callers) go to the first machine.
     func receive(_ patch: NotificationPatch) { receive(patch, from: machines.first?.hostId ?? "") }
@@ -199,21 +223,35 @@ struct SystemAuthorizer: NotificationAuthorizer {
         case .run(let alert):
             guard delivering(hostId), alert.delivery?.post != false else { return }
             post(.run(alert, hostId: hostId), from: hostId)
-        case .feed(let cursor, let entries, let retracted):
+        case .feed(let cursor, let entries, let retracted, let feedId):
             for alert in entries { note(alert, from: hostId) }
             forget(retracted, from: hostId)
-            guard let ledger = entry?.notifier else { return }
+            guard let entry else { return }
             let posting = delivering(hostId)
+            let generation = entry.model.runtimeGeneration
             Task {
                 // Off or not allowed: advance past what was missed without posting it later.
+                let ledger = entry.notifier
                 await ledger.catchUp(cursor: cursor, entries: posting ? entries : [], retracted: retracted)
-                feeds.removeValue(forKey: hostId)?.forEach { $0.finish(true) }
+                guard entry.model.runtimeGeneration == generation,
+                      machines.contains(where: { $0.notifier === ledger }), ledger.valid else { return }
+                if let feedId {
+                    entry.model.notificationAction(["type": "notifications.feedApplied", "feedId": feedId])
+                } else {
+                    completeFeed(hostId)
+                }
             }
-        case .connected:
+        case .feedComplete: completeFeed(hostId)
+        case .connected(let daemonHostId):
             if let entry {
+                if let daemonHostId { rememberPushHost(daemonHostId, for: hostId) }
                 entry.notifier.connected()
                 sync(entry.model, ledger: entry.notifier, hostId: entry.hostId)
                 connectedForAccess(entry.model, hostId: entry.hostId)
+                if let link = pendingLink, localNotificationHost(link.hostId) == hostId {
+                    entry.model.deepLink = link.threadId
+                    pendingLink = nil
+                }
             }
         case .config(let preferences): preferencesByMachine[hostId] = preferences
         case .action(let id, let outcome):
@@ -254,7 +292,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
         lockScreen.foreground = active
         lockScreen.changed()
         sync()
-        if !active, delivering { BackgroundRefresh.schedule() }
+        if !active, delivering || liveActivity { BackgroundRefresh.schedule() }
     }
 
     // MARK: Permission
@@ -328,9 +366,17 @@ struct SystemAuthorizer: NotificationAuthorizer {
 
     // MARK: Waiting on the bridge
 
+    private func completeFeed(_ hostId: String) {
+        feeds.removeValue(forKey: hostId)?.forEach { $0.finish(true) }
+    }
+
     /// Register before sending, so a fast reply can't be missed.
     func expect(_ id: String, _ waiter: Waiter<NotificationPatch.ActionOutcome>) { outcomes[id] = waiter }
     func expectFeed(_ waiter: Waiter<Bool>, from hostId: String) { feeds[hostId, default: []].append(waiter) }
+    func stopExpectingFeed(_ waiter: Waiter<Bool>, from hostId: String) {
+        feeds[hostId]?.removeAll { $0 === waiter }
+        if feeds[hostId]?.isEmpty == true { feeds.removeValue(forKey: hostId) }
+    }
 }
 
 /// A one-shot result with a deadline. Main-actor only.
@@ -339,6 +385,8 @@ struct SystemAuthorizer: NotificationAuthorizer {
     private var done = false
     private var result: T?
     var latest: T?
+    var finished: Bool { done }
+    var value: T? { result }
     func finish(_ value: T?) {
         guard !done else { return }
         done = true

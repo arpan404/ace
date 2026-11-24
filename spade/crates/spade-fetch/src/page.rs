@@ -1,7 +1,7 @@
 //! Paging through extracted text, and which content types Spade reads. Pure.
 
 /// How many characters one page holds unless asked otherwise.
-pub const DEFAULT_PAGE_CHARS: usize = 20_000;
+pub const DEFAULT_PAGE_CHARS: usize = 4_000;
 
 /// A window of a page's extracted text, counted in characters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

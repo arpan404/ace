@@ -5,14 +5,16 @@ import {
   NotificationDevice,
   NotificationAddress,
   NotificationPreferences,
-  NotificationFeed,
   PresenceUpdate,
 } from "@ace/protocol/notifications";
 import { DeviceId, ThreadId } from "@ace/protocol/ids";
 
 import { MetadataEvent } from "./metadata.ts";
+import { InboxFeed } from "./inbox.ts";
 
 const seq = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+/** Most other ids one device reads its feed with: an install's account device and its pairings. */
+export const linkedLimit = 16;
 export const WorkerCall = z.discriminatedUnion("method", [
   z.object({ method: z.literal("cursor") }),
   z.object({ method: z.literal("getPreferences"), device: DeviceId.and(z.string().max(200)) }),
@@ -60,7 +62,12 @@ export const WorkerCall = z.discriminatedUnion("method", [
   z.object({
     method: z.literal("feed"),
     device: DeviceId.and(z.string().max(200)),
-    afterCursor: seq,
+    afterCursor: seq.optional(),
+    checkpoint: z.literal(true).optional(),
+    linked: z
+      .array(DeviceId.and(z.string().max(200)))
+      .max(linkedLimit)
+      .optional(),
   }),
 ]);
 export type WorkerCall = z.infer<typeof WorkerCall>;
@@ -94,7 +101,7 @@ const FromWorker = z.discriminatedUnion("type", [
     value: z
       .union([
         seq,
-        NotificationFeed,
+        InboxFeed,
         NotificationPreferences,
         /** `pushAddresses`: devices with a push address that may be alerted now. */
         z.array(NotificationDevice).max(128),

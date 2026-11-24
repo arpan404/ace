@@ -72,6 +72,10 @@ import UIKit
         self.link = link
     }
 
+    /// Something besides the rows changed size or place: kept in the run's trace as `[text]`, between
+    /// the frames, so a jump can be read against what moved under it. Never a frame, never a jump.
+    func note(_ text: String) { run?.trace.append("[\(text)]") }
+
     /// The feed was hidden or frozen (`true`), or shown again.
     func covered(_ value: Bool) { covered = value }
 
@@ -85,7 +89,7 @@ import UIKit
         }
         let frame = link?.duration ?? 1.0 / 60
         let seen = visible()
-        let offset = Double(scroller?.layer.presentation()?.bounds.minY ?? scroller?.contentOffset.y ?? 0)
+        let offset = -Double(scroller?.layer.presentation()?.bounds.minY ?? scroller?.contentOffset.y ?? 0)
         defer {
             self.run = run
             if now >= run.until { finish() }
@@ -160,9 +164,8 @@ import UIKit
             guard let window = view.window else { continue }
             if scroller == nil { scroller = Self.scrollView(above: view) }
             let layer = view.layer.presentation() ?? view.layer
-            let top = Double(layer.convert(CGPoint.zero, to: nil).y)
-            let bottom = top + Double(layer.bounds.height)
-            if bottom > 0, top < Double(window.bounds.height) { seen[id] = top }
+            let drawn = layer.convert(layer.bounds, to: nil)
+            if drawn.maxY > 0, drawn.minY < window.bounds.height { seen[id] = Double(drawn.minY) }
         }
         return seen
     }
@@ -234,6 +237,12 @@ enum TranscriptJumpHooks {
         if PerfProbe.enabled { TranscriptJumpProbe.shared.begin(name, hidden: hidden, span: span) }
         #endif
     }
+    /// A named change to the room around the rows (the bar, a spacer), noted in the open run's trace.
+    @MainActor static func note(_ text: @autoclosure () -> String) {
+        #if ACE_FIXTURE
+        if PerfProbe.enabled { TranscriptJumpProbe.shared.note(text()) }
+        #endif
+    }
     /// The feed is frozen over (`true`) or shown again.
     @MainActor static func covered(_ value: Bool) {
         #if ACE_FIXTURE
@@ -260,7 +269,7 @@ enum TranscriptJumpHooks {
         }
         #endif
     }
-    @MainActor static func scrolling(_ phase: ScrollPhase) {
+    @MainActor static func scrolling(_ phase: TranscriptScrollPhase) {
         #if ACE_FIXTURE
         guard PerfProbe.enabled else { return }
         let letter: String
@@ -270,7 +279,6 @@ enum TranscriptJumpHooks {
         case .interacting: letter = "n"
         case .decelerating: letter = "d"
         case .animating: letter = "a"
-        @unknown default: letter = "?"
         }
         TranscriptJumpProbe.shared.scrolling(letter)
         #endif

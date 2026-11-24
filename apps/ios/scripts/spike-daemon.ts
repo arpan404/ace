@@ -582,6 +582,17 @@ const server = Bun.serve<SpikeSocketData>({
       ]);
       return Response.json({ finished });
     }
+    // A fresh answer streaming on ios-stream, so a test that needs a live thread starts from one
+    // whatever an earlier test finished or left; the answer it replaced is finished.
+    if (path === "/stream/restart" && request.method === "POST") {
+      const finished = streamKey;
+      streamKey = `stream-${++answers}`;
+      daemon.apply("ios-stream", [
+        facts.finish("root", finished),
+        facts.message("root", streamKey, "assistant", "Starting over:", false),
+      ]);
+      return Response.json({ finished, streaming: streamKey });
+    }
     if (path === "/control" && request.method === "POST") {
       online = Control.parse(await request.json()).online;
       if (!online) for (const socket of connections.keys()) socket.close(1001);

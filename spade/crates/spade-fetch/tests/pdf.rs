@@ -65,6 +65,11 @@ async fn a_pdf_reads_as_its_text_a_window_at_a_time() -> Result {
         .fetch(&format!("http://{addr}/"), Page::default())
         .await?;
     assert!(all.text.contains(words), "{}", all.text);
+    let full = fetcher.fetch_page(&format!("http://{addr}/")).await?;
+    assert_eq!(full.content_type, "application/pdf");
+    assert_eq!(full.title.as_deref(), Some("page.pdf"));
+    assert_eq!(full.pages, Some(1));
+    assert!(full.text.contains(words), "{}", full.text);
     Ok(())
 }
 

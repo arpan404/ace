@@ -6,7 +6,6 @@ import { z } from "zod";
 import {
   NotificationAddress,
   NotificationDevice,
-  NotificationFeed,
   NotificationPreferences,
   type Notification,
   type DeviceId,
@@ -18,6 +17,7 @@ import type { NotificationState, NotificationTransport } from "./service.ts";
 import {
   WorkerCall,
   WorkerConfig,
+  linkedLimit,
   notifyWireShape,
   type FromWorker,
   type ToWorker,
@@ -27,6 +27,7 @@ const NoticeWindows = z.array(z.object({ after: z.number(), before: z.number() }
 const PushDevices = z.array(NotificationDevice);
 import { metadata, type MetadataEvent } from "./metadata.ts";
 import type { NoticeWindow } from "./sleep-boundary.ts";
+import { InboxFeed } from "./inbox.ts";
 
 /** A message that claims to be a worker reply: an object with a string `type`. */
 function isWireFrame(input: unknown): boolean {
@@ -455,8 +456,21 @@ export class NotificationWorker {
     await this.checked({ method: "presence", session, device, update });
   }
   /** Catch-up for a client that missed live delivery while suspended. */
-  async feed(device: DeviceId, afterCursor: number): Promise<NotificationFeed> {
-    return NotificationFeed.parse(await this.checked({ method: "feed", device, afterCursor }));
+  async feed(
+    device: DeviceId,
+    afterCursor?: number,
+    checkpoint?: true,
+    linked?: readonly DeviceId[],
+  ): Promise<InboxFeed> {
+    return InboxFeed.parse(
+      await this.checked({
+        method: "feed",
+        device,
+        afterCursor,
+        checkpoint,
+        ...(linked?.length ? { linked: linked.slice(0, linkedLimit) } : {}),
+      }),
+    );
   }
   async disconnect(session: string): Promise<void> {
     await this.checked({ method: "disconnect", session });

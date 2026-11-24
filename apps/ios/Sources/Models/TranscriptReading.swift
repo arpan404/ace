@@ -222,7 +222,7 @@ struct ThreadFocus: Equatable {
         // window's hold is a reconnect rebuild, whose rows do land together.
         let turnsOnly = thread != nil && !isStale && (operation == "hold" || operation == "follow")
         let movesRows = operation != "live" && !turnsOnly
-        if movesRows { model.holdReading() }
+        if movesRows { model.holdReading(older: operation == "older") }
         request = Task {
             defer { if generation == version { loading = false } }
             do {
@@ -245,6 +245,7 @@ struct ThreadFocus: Equatable {
             return
         }
         applyReply(reply, operation: operation, now: model.now())
+        if operation == "older" { model.olderReadingReplied(reply) }
         ThreadOpenTrace.page(operation, items: reply.count, blocks: thread?.screen.blockOrder.count ?? 0, seconds: CACurrentMediaTime() - asked)
     }
     /// The current read failed: what it held is applied, and nothing is coming to land, so

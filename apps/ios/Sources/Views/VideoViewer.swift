@@ -36,16 +36,30 @@ struct VideoViewer: View {
     let title: String
     let url: URL
     let mimeType: String
+    /// Tells the owner of `url` when a share of it starts and ends, so it isn't removed mid-share.
+    var onShare: (Bool) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer?
+    @State private var failed = false
+    @State private var sharing = false
     var body: some View {
         VStack(spacing: AceTheme.Spacing.none) {
             HStack {
-                MediaShareButton(item: url, title: title)
+                Button("Share") { sharing = true; onShare(true) }
+                    .shareChip()
                 Spacer()
                 MediaDoneButton { dismiss() }
             }
-            if let player { SystemPlayer(player: player, label: title) }
+            if failed {
+                Spacer()
+                Text("This video couldn't be played.")
+                    .aceFont(AceTheme.Typography.body, relativeTo: .body)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, AceDesign.Space.margin)
+                    .accessibilityIdentifier("media.video.failed")
+                Spacer()
+            } else if let player { SystemPlayer(player: player, label: title) }
             else { Spacer() }
         }
         .background(AceDesign.Surface.media.ignoresSafeArea())
@@ -53,11 +67,23 @@ struct VideoViewer: View {
         .accessibilityAction(.escape) { dismiss() }
         .task {
             guard player == nil else { return }
-            let player = AVPlayer(playerItem: AVPlayerItem(asset: VideoPreview.asset(url, mimeType: mimeType)))
+            let item = AVPlayerItem(asset: VideoPreview.asset(url, mimeType: mimeType))
+            let player = AVPlayer(playerItem: item)
             self.player = player
             player.play()
+            for await status in item.publisher(for: \.status).values where status == .failed {
+                failed = true
+                break
+            }
         }
-        .onDisappear { player?.pause() }
+        .sheet(isPresented: $sharing) {
+            let onShare = onShare
+            ShareSheet(url: url) { onShare(false) }
+        }
+        .onDisappear {
+            player?.pause()
+            player?.replaceCurrentItem(with: nil)
+        }
     }
 }
 

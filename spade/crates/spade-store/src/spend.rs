@@ -34,11 +34,14 @@ impl Store {
         if crate::gate::arriving(&connection, crate::gate::CONVERSATION, conversation)? {
             return Err(crate::StoreError::NoConversation(conversation.to_owned()));
         }
-        connection.execute(
+        let added = connection.execute(
             "INSERT INTO spend (conversation_id, model, role, cost_micros, at_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+             SELECT id, ?2, ?3, ?4, ?5 FROM conversations WHERE id = ?1",
             params![conversation, model, role, cost, now_ms],
         )?;
+        if added == 0 {
+            return Err(crate::StoreError::NoConversation(conversation.to_owned()));
+        }
         Ok(())
     }
 
@@ -100,6 +103,13 @@ mod tests {
     fn spend_adds_up_by_role_from_the_given_time_and_plain_records_count_as_main() -> Result<()> {
         let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("temp dir: {e}"));
         let store = Store::open(&dir.path().join("spade.sqlite"))?;
+        store.create_conversation("a", 0)?;
+        store.create_conversation("b", 0)?;
+        assert!(matches!(
+            store.record_spend_as("missing", "e/fast", "review", 1, 1),
+            Err(crate::StoreError::NoConversation(_))
+        ));
+        assert!(store.spent_by_role("missing", 0)?.is_empty());
         store.record_spend("a", "e/strong", 1_000, 100)?;
         store.record_spend_as("a", "e/fast", "helper", 200, 150)?;
         store.record_spend_as("a", "e/fast", "helper", 300, 250)?;

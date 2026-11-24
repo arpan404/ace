@@ -58,7 +58,7 @@ enum TranscriptCorrection: Equatable, Sendable {
 /// One native viewport controller. Pure: gestures, scrolls, jumps, row changes
 /// and layout revisions in; mode plus correction intent out. SwiftUI supplies
 /// geometry and performs the scrolls. No timers, no I/O, inject the clock.
-/// Owns the follow mode, scroll direction, semantic anchor (with item identity
+/// Owns the follow mode, semantic anchor (with item identity
 /// and deletion successor) and the bounded pending-correction budget.
 struct TranscriptViewportController: Equatable, Sendable {
     private(set) var mode: TranscriptMode = .following
@@ -74,8 +74,6 @@ struct TranscriptViewportController: Equatable, Sendable {
     /// the frame settles within tolerance, on budget exhaustion, or by gesture.
     private(set) var sessionAnchor: TranscriptHeldAnchor?
     private(set) var revision = TranscriptLayoutRevision.default
-    /// Last scroll direction: -1 up, 1 down, 0 still.
-    private(set) var direction = 0
     /// Resident row keys as last seen, for successor search.
     private var lastKeys: [String] = []
 
@@ -174,7 +172,6 @@ struct TranscriptViewportController: Equatable, Sendable {
             topInset: topInset, bottomInset: bottomInset, rowHeight: rowHeight)
     }
 
-    mutating func noteDirection(_ value: Int) { direction = value }
 
     /// Rows changed: follow the end, or hold the held row where it was.
     /// `locate` resolves a row key (or, failing that, an item identity when

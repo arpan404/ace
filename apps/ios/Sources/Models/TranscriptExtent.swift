@@ -138,11 +138,17 @@ struct BlockSeqSpan: Decodable, Equatable, Sendable {
         recomputeTotals()
     }
 
+    func hasMeasuredNewerRows(_ rawIDs: Set<String>) -> Bool {
+        rawIDs.allSatisfy { heights["block:\($0)"] != nil }
+    }
+
     func needsContent(top: Double, bottom: Double) -> Bool {
         (before > 0 && top < before) || (after > 0 && bottom < after)
     }
 
-    func edge(top: Double, bottom: Double, ahead: Double, direction: Int) -> Movement? {
+    func edge(top: Double, bottom: Double, viewport: Double, minimumAhead: Double, direction: Int) -> Movement? {
+        // The upstream read should be in flight before an upward fling reaches the first row.
+        let ahead = max(minimumAhead, viewport * (direction < 0 ? 2.5 : 1.5))
         if direction < 0, top - before < ahead { return .older }
         if direction > 0, bottom - after < ahead { return .newer }
         return nil
@@ -161,6 +167,9 @@ struct BlockSeqSpan: Decodable, Equatable, Sendable {
         let previous = Set(resident)
         let kept = Set(change.ids)
         let evicted = Set(change.evicted)
+        let firstKept = resident.firstIndex { kept.contains($0) }
+        let lastKept = resident.lastIndex { kept.contains($0) }
+        var droppedMeasurements = Set<String>()
         let estimate = estimateHeight()
         let (newFirst, newLast) = windowRange(ids: change.ids, spans: change.spans,
                                               beforeSeq: change.beforeSeq, afterSeq: change.afterSeq)
@@ -172,7 +181,7 @@ struct BlockSeqSpan: Decodable, Equatable, Sendable {
                     measuredTotal -= old
                     measuredCount -= 1
                 }
-                measureOrder.removeAll { $0 == id }
+                droppedMeasurements.insert(id)
                 continue
             }
             let height = heights[id] ?? estimate
@@ -187,13 +196,11 @@ struct BlockSeqSpan: Decodable, Equatable, Sendable {
                 continue
             }
             // No span: nearby positional retention, bounded by the spacer cap.
-            let first = resident.firstIndex { kept.contains($0) }
-            let last = resident.lastIndex { kept.contains($0) }
-            if let first, index < first {
+            if let firstKept, index < firstKept {
                 retainLeading(id, height: height)
-            } else if let last, index > last {
+            } else if let lastKept, index > lastKept {
                 retainTrailing(id, height: height)
-            } else if first == nil {
+            } else if firstKept == nil {
                 if change.movement == .older {
                     retainTrailing(id, height: height)
                 } else {
@@ -201,14 +208,14 @@ struct BlockSeqSpan: Decodable, Equatable, Sendable {
                 }
             }
         }
+        if !droppedMeasurements.isEmpty { measureOrder.removeAll { droppedMeasurements.contains($0) } }
+        spacerOrder.removeAll { kept.contains($0.id) }
         for id in change.ids {
             if let height = leading.removeValue(forKey: id) {
                 before = max(0, before - height)
-                spacerOrder.removeAll { !$0.trailing && $0.id == id }
             }
             if let height = trailing.removeValue(forKey: id) {
                 after = max(0, after - height)
-                spacerOrder.removeAll { $0.trailing && $0.id == id }
             }
             if !previous.contains(id), let span = change.spans?[Self.raw(id)] {
                 rehydrate(span: span, height: heights[id] ?? estimate)
@@ -220,9 +227,10 @@ struct BlockSeqSpan: Decodable, Equatable, Sendable {
             segments.removeAll()
             residentFirst = nil
             residentLast = nil
+        } else {
+            if let newFirst { residentFirst = newFirst }
+            if let newLast { residentLast = newLast }
         }
-        updateResidentRange(ids: change.ids, spans: change.spans,
-                            beforeSeq: change.beforeSeq, afterSeq: change.afterSeq)
         trimSpacers()
         // Explicit cursors ground retained space: when the bridge reports fewer
         // distant rows than retained, the hydrated ranges stop describing
@@ -401,14 +409,6 @@ struct BlockSeqSpan: Decodable, Equatable, Sendable {
         let first = known.map(\.first).min() ?? beforeSeq.map { $0 + 1 }
         let last = known.map(\.last).max() ?? afterSeq
         return (first, last)
-    }
-
-    private func updateResidentRange(ids: [String], spans: [String: BlockSeqSpan]?,
-                                     beforeSeq: Int?, afterSeq: Int?) {
-        let (first, last) = windowRange(ids: ids, spans: spans, beforeSeq: beforeSeq, afterSeq: afterSeq)
-        if first != nil { residentFirst = first }
-        if last != nil { residentLast = last }
-        if ids.isEmpty { residentFirst = nil; residentLast = nil }
     }
 
     // MARK: - Internals

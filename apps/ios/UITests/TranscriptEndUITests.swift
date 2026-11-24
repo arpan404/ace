@@ -4,11 +4,14 @@ import XCTest
 /// empty stretch past or before them, and following the end keeps it in view. Runs against the spike fixture;
 /// `TEST_RUNNER_ACE_IOS_SPIKE_PORT` selects its port.
 @MainActor final class TranscriptEndUITests: XCTestCase, @unchecked Sendable {
-    override func setUp() { continueAfterFailure = false }
+    override func setUp() async throws {
+        continueAfterFailure = false
+        try await FixtureStream.restart()
+    }
 
     func testReadingOlderMessagesStaysVisibleAndStillWhileTheTailStreams() async throws {
         let app = open("ios-stream")
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         let tail = try await newest(in: app)
         XCTAssertTrue(tail.waitForExistence(timeout: 30))
         for _ in 0..<8 { transcript.fling(older: true) }
@@ -26,7 +29,7 @@ import XCTest
 
     func testScrollToEndAfterReadingFarBackShowsTheNewestMessage() async throws {
         let app = open("ios-stream")
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         let tail = try await newest(in: app)
         XCTAssertTrue(tail.waitForExistence(timeout: 30))
         // Far enough back that the history window opens and slides older.
@@ -38,7 +41,7 @@ import XCTest
 
     func testScrollToEndAfterReadingAFewScreensUpShowsTheNewestMessage() async throws {
         let app = open("ios-stream")
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         let tail = try await newest(in: app)
         XCTAssertTrue(tail.waitForExistence(timeout: 30))
         for _ in 0..<3 { transcript.fling(older: true) }
@@ -52,7 +55,7 @@ import XCTest
     /// while the text under it grows; once the answer finishes, that status goes from the same row.
     func testTheStreamingAnswerSaysWritingUntilItFinishes() async throws {
         // A fresh answer, short whatever ran before, so reading its text stays quick.
-        try await post("/stream/finish", "{}")
+        try await FixtureStream.restart()
         let app = open("ios-stream")
         let id = try await lastAnswer()
         let tail = app.descendants(matching: .any)["message.answer.\(id)"]
@@ -82,7 +85,7 @@ import XCTest
     /// and stays, still, through the streaming; tapping it reaches the end and it goes.
     func testScrollToEndShowsWhileScrolledUpAndStaysThroughTheStream() {
         let app = open("ios-stream")
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         waitForReady(transcript)
         let jump = app.buttons["Scroll to end"]
         XCTAssertFalse(jump.exists, "no Scroll to end at the end")
@@ -108,7 +111,7 @@ import XCTest
     /// transcript, above the composer as it rides the keyboard, and away at the end.
     func testScrollToEndStaysRightThroughTheKeyboard() {
         let app = open("ios-stream")
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         waitForReady(transcript)
         let jump = app.buttons["Scroll to end"]
         let input = app.textViews["composer.input"]
@@ -139,7 +142,7 @@ import XCTest
     /// as it closes: the transcript's inset and the composer move together.
     func testTheNewestLineStaysJustAboveTheComposerAsTheKeyboardOpensAndCloses() {
         let app = open("ios-stream")
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         waitForReady(transcript)
         assertEndInView(app, "before the keyboard")
         app.textViews["composer.input"].tap()
@@ -156,7 +159,7 @@ import XCTest
     /// (`KeyboardDriftProbe`), changes by a few points at most.
     func testTheNewestLineAndTheComposerMoveAsOneWithTheKeyboard() {
         let app = open("ios-log-long", probe: true)
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         waitForReady(transcript)
         app.textViews["composer.input"].tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
@@ -189,7 +192,7 @@ import XCTest
     /// the newest lines stay drawn just above the composer, never scrolled off into empty space.
     func testFollowingTheEndThroughToolBurstsKeepsTheNewestLinesInView() async throws {
         let app = open("ios-burst")
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 30))
         let composer = app.textViews["composer.input"]
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
@@ -212,7 +215,7 @@ import XCTest
     /// throughout, never the loading placeholder or an empty feed, and still ends at the newest lines.
     func testTheTranscriptStaysOnScreenThroughReconnectsWhileTheAgentWorks() async throws {
         let app = open("ios-burst")
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 30))
         for _ in 0..<4 { _ = try await sendBurst() }
         sleep(2)
@@ -283,7 +286,7 @@ import XCTest
     /// The live end is drawn and on screen within a moment, and stays there: the answer's own last
     /// line sits at the transcript's end, just above the composer, not somewhere under it.
     private func assertAtTheEnd(_ app: XCUIApplication, _ when: String) async throws {
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         let ready = expectation(for: NSPredicate(format: "value == %@", "Ready"), evaluatedWith: transcript)
         await fulfillment(of: [ready], timeout: 10)
         let message = try await newest(in: app)

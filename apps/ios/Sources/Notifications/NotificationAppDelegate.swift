@@ -44,6 +44,22 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
         coordinator.registeredForPush(nil)
     }
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                     fetchCompletionHandler completion: @escaping @Sendable (UIBackgroundFetchResult) -> Void) {
+        guard !SpikeConfiguration.unpaired, application.applicationState != .active,
+              let body = PushAlert.ciphertext(userInfo), let key = PushKeyStore.appGroup?.read(),
+              let plaintext = PushCrypto.decrypt(body, key: key), let push = PushAlert.read(plaintext) else {
+            completion(.noData)
+            return
+        }
+        // UIKit can wake the app before the extension finishes. The same alert should never
+        // interrupt twice even if the feed reaches the app first.
+        coordinator.desk.recordWakePush(push.pushedId)
+        coordinator.scene(active: false)
+        // Reported once, by its own deadline: never held by a refresh another wake started.
+        let done = BackgroundRefresh.completion(coordinator) { completion($0 ? .newData : .failed) }
+        Task { @MainActor in done.finish(await coordinator.backgroundCatchUp()) }
+    }
     // The completion-handler forms, called back on the main thread: UIKit's handlers update the
     // app's snapshot and must run there. The async forms are resumed off the main thread when the
     // method isn't on the main actor, and UIKit stops the app (a tapped notification crashed it).
@@ -80,19 +96,27 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
 /// alerts and disconnects inside the task's time budget.
 enum BackgroundRefresh {
     static let identifier = "app.ace.ios.notifications.refresh"
+    /// iOS gives either wake about 30 seconds. The shared refresh stops itself at 18
+    /// (`backgroundCatchUp`); the report goes by 25 whatever the refresh is still doing.
+    static let reportBy: Duration = .seconds(25)
+
+    @MainActor static func completion(_ coordinator: NotificationCoordinator, report: @escaping (Bool) -> Void) -> OSCompletion {
+        OSCompletion(budget: reportBy, now: coordinator.now, sleep: coordinator.sleep, report: report)
+    }
 
     @MainActor static func register(_ coordinator: NotificationCoordinator) {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: .main) { task in
             nonisolated(unsafe) let task = task
             MainActor.assumeIsolated {
+                if UIApplication.shared.applicationState != .active { coordinator.scene(active: false) }
                 schedule()
-                let work = Task { @MainActor in
-                    let caught = await coordinator.backgroundCatchUp()
-                    task.setTaskCompleted(success: caught)
-                }
+                let done = completion(coordinator) { task.setTaskCompleted(success: $0) }
+                let work = Task { @MainActor in done.finish(await coordinator.backgroundCatchUp()) }
+                // Failure goes to iOS at once; the refresh's own cleanup runs on without holding it.
                 task.expirationHandler = {
+                    if Thread.isMainThread { MainActor.assumeIsolated { done.expire() } }
+                    else { Task { @MainActor in done.expire() } }
                     work.cancel()
-                    Task { @MainActor in await coordinator.releaseTransient() }
                 }
             }
         }

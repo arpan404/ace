@@ -7,6 +7,17 @@ private let fingerprint = DaemonCertificate.pin
 
 /// One machine per daemon on the phone, whatever routes reach it (ADR 0115).
 @Suite(.timeLimit(.minutes(1))) @MainActor struct MachineRoutesTests {
+    @Test func aBackgroundWakeTriesTheRememberedRelayBeforeAnUnreachableDirectAddress() {
+        var route = MachineRoutePlan(direct: true, relay: true, purpose: .background)
+        #expect(route.current == .relay)
+        #expect(route.connection("reconnecting", at: 1000) == .probeDirect)
+        #expect(route.probed(answered: false, at: 1000) == .stay)
+        #expect(route.current == .relay)
+        #expect(route.connection("fatal", at: 2000) == .probeDirect)
+        #expect(route.probed(answered: true, at: 2000) == .open(.direct))
+        #expect(MachineRoutePlan(direct: true, relay: false, purpose: .background).current == .direct)
+    }
+
     @Test func aDaemonReachedOverLANAndTailscaleIsOneMachineOnThePhone() async throws {
         let account = FakeAccountDirectory([AceMachine(hostId: relayKey, name: "studio", platform: "darwin", lastSeenAt: 1)])
         let fixture = try MachinesFixture(machines: [studio(paths: allPaths)], account: account)

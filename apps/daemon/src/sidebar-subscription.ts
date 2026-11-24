@@ -50,7 +50,9 @@ export function sidebarSubscription(
   placement: SidebarPlacement,
   reads?: DeviceReads,
 ): SidebarSubscription {
-  const { resume, ...scope } = options;
+  const { resume, ...optionsWindow } = options;
+  // The client's own thread list: a project's window also carries every chat (ADR 0099).
+  const scope = { ...optionsWindow, withChats: true };
   /** A row as this device is sent it: with its read cursor when the daemon has the device's. */
   const stamp = (entry: ThreadListEntry): ThreadListEntry =>
     reads ? { ...entry, readState: reads.read(entry.id) } : entry;
@@ -81,9 +83,8 @@ export function sidebarSubscription(
     epoch: placement.epoch,
     attention,
   });
-  const deliver = (events: Event[]) => {
-    if (stopped || !events.some(isSidebarEvent)) return;
-    const changed = new Set(events.filter(isSidebarEvent).map((event) => event.threadId));
+  /** Re-read the window and send the rows it gained, moved or lost. */
+  const resend = (changed: ReadonlySet<string>) => {
     const current = store.sidebarPage({ ...scope, limit }, undefined, {
       entries: selected,
       changed,
@@ -120,6 +121,10 @@ export function sidebarSubscription(
       window,
     });
   };
+  const deliver = (events: Event[]) => {
+    if (stopped || !events.some(isSidebarEvent)) return;
+    resend(new Set(events.filter(isSidebarEvent).map((event) => event.threadId)));
+  };
   /** What places threads changed (the sort, the seen baseline): send only the threads that moved. */
   const replace = () => {
     if (stopped || initializing || !window) return;
@@ -147,6 +152,15 @@ export function sidebarSubscription(
   const stopListening = store.subscribe((events) => {
     if (initializing) queued.push(...events);
     else deliver(events);
+  });
+  // A workspace became or stopped being a chat: its threads joined or left this window with no
+  // thread event to deliver, so re-read the ones already held. New members arrive in the read.
+  const stopChats = store.chatMembership?.on((workspaceId) => {
+    if (stopped || initializing || !window) return;
+    const changed = new Set<string>();
+    for (const [threadId, entry] of selected)
+      if (entry.workspaceId === workspaceId) changed.add(threadId);
+    resend(changed);
   });
   const stopPlacing = placement.subscribe(replace);
   /** This device marked a row read: send that row again with its cursor. */
@@ -204,6 +218,7 @@ export function sidebarSubscription(
     queued = [];
   } catch (error) {
     stopListening();
+    stopChats?.();
     stopPlacing();
     stopReading?.();
     throw error;
@@ -212,6 +227,7 @@ export function sidebarSubscription(
     stop() {
       stopped = true;
       stopListening();
+      stopChats?.();
       stopPlacing();
       stopReading?.();
     },

@@ -1,16 +1,20 @@
 import { spadeMostInRoute } from "@ace/ui-core/spade-chat";
-import { XIcon } from "@ace/icons";
-import { useId, useState, type ReactNode } from "react";
-import { SettingAddRow, SettingRow } from "@/components/setting-row.tsx";
+import { PlusIcon, XIcon } from "@ace/icons";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
+import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
-import { Beside, fault, Refusal } from "./spade-settings-rows.tsx";
+import { fault, Refusal } from "./spade-settings-rows.tsx";
+
+/** Shared 3-column desktop grid for role rows (Role | Model | Thinking) and their header. */
+export const roleGridColumns =
+  "grid grid-cols-1 gap-2 @min-[580px]:grid-cols-[minmax(140px,1fr)_minmax(200px,240px)_196px] @min-[580px]:items-center @min-[580px]:gap-3";
 
 /**
- * One role's route in Settings (ADR 0205 §2): its model, then up to three it falls back to, in
- * order, when one can't answer (off, rate-limited, out of quota). Only the person's endpoints'
- * models: a route never holds a subscription. Each change saves the whole list; a refusal (a
- * model that can't call tools on a role that needs them) says why under the row.
+ * One role's route in Settings (ADR 0205 §2): its model, optional thinking effort beside it,
+ * and up to three fallbacks nested directly under the model column so every role stays one
+ * self-contained block inside `SettingCard`.
  */
 export function RouteSettingRow(props: {
   title: string;
@@ -45,49 +49,88 @@ export function RouteSettingRow(props: {
   const first = route[0] ?? "";
   const rest = route.slice(1);
   const room = first !== "" && route.length < spadeMostInRoute;
+  const hasTree = rest.length > 0 || room;
   return (
-    <>
-      <SettingRow
-        title={props.title}
-        description={refusal ? <Refusal>{refusal}</Refusal> : props.description}
-        htmlFor={id}
-        density="compact"
+    <div {...part("settings-row")} className="@container py-2.5">
+      <div
+        className={
+          props.beside
+            ? roleGridColumns
+            : "grid grid-cols-1 gap-2 @min-[580px]:grid-cols-[minmax(140px,1fr)_minmax(200px,240px)] @min-[580px]:items-center @min-[580px]:gap-3"
+        }
       >
-        <Beside beside={props.beside}>
-          <SpadeModelPicker
-            id={id}
-            label={props.title}
-            className={props.beside ? "w-(--setting-select-width)" : undefined}
-            value={first}
-            none={props.none}
-            follows={props.follows}
-            forBots={props.forBots}
-            onChange={(value) => void choose(value ? [value, ...rest] : [])}
-          />
-        </Beside>
-      </SettingRow>
-      {rest.map((model, at) => (
-        <FallbackRow
-          key={model}
-          title={props.title}
-          at={at + 2}
-          model={model}
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <label
+            htmlFor={id}
+            className="w-fit rounded-sm text-ui font-medium text-foreground focus-ring"
+          >
+            {props.title}
+          </label>
+          {(refusal || props.description) && (
+            <span className="max-w-prose text-xs leading-relaxed text-subtle-foreground">
+              {refusal ? <Refusal>{refusal}</Refusal> : props.description}
+            </span>
+          )}
+        </div>
+        <SpadeModelPicker
+          id={id}
+          label={props.title}
+          className="w-full"
+          value={first}
+          none={props.none}
+          follows={props.follows}
           forBots={props.forBots}
-          onChange={(value) =>
-            void choose(route.map((each, index) => (index === at + 1 ? value : each)))
-          }
-          onRemove={() => void choose(route.filter((_, index) => index !== at + 1))}
+          onChange={(value) => void choose(value ? [value, ...rest] : [])}
         />
-      ))}
-      {room && (
-        <AddFallback title={props.title} forBots={props.forBots} route={route} choose={choose} />
+        {props.beside}
+      </div>
+
+      {hasTree && (
+        <div
+          className={cn(
+            "mt-2",
+            props.beside &&
+              "@min-[580px]:grid @min-[580px]:grid-cols-[minmax(140px,1fr)_minmax(200px,240px)_196px] @min-[580px]:gap-3",
+          )}
+        >
+          <div
+            className={cn(
+              "flex flex-col gap-1.5",
+              props.beside
+                ? "@min-[580px]:col-start-2 @min-[580px]:col-span-2"
+                : "@min-[580px]:ml-auto @min-[580px]:w-fit",
+            )}
+          >
+            {rest.map((model, at) => (
+              <FallbackItem
+                key={model}
+                title={props.title}
+                at={at + 2}
+                model={model}
+                forBots={props.forBots}
+                onChange={(value) =>
+                  void choose(route.map((each, index) => (index === at + 1 ? value : each)))
+                }
+                onRemove={() => void choose(route.filter((_, index) => index !== at + 1))}
+              />
+            ))}
+            {room && (
+              <AddFallback
+                title={props.title}
+                forBots={props.forBots}
+                route={route}
+                choose={choose}
+              />
+            )}
+          </div>
+        </div>
       )}
-    </>
+    </div>
   );
 }
 
-/** The route's model at position `at` (2 to 4): what serves when the ones before can't. */
-function FallbackRow(props: {
+/** One fallback entry inside the role's chain (position 2 to 4). */
+function FallbackItem(props: {
   title: string;
   at: number;
   model: string;
@@ -98,26 +141,34 @@ function FallbackRow(props: {
   const id = useId();
   const label = `${props.title}, fallback ${props.at - 1}`;
   return (
-    <SettingRow title="If it can't answer" htmlFor={id} density="compact" variant="route-fallback">
-      <div className="flex items-center gap-1">
-        <SpadeModelPicker
-          id={id}
-          label={label}
-          value={props.model}
-          forBots={props.forBots}
-          onChange={(value) => {
-            if (value) props.onChange(value);
-          }}
-        />
-        <Button size="xs" variant="ghost" aria-label={`Remove ${label}`} onClick={props.onRemove}>
-          <XIcon aria-hidden size={14} />
-        </Button>
-      </div>
-    </SettingRow>
+    <div {...part("settings-row", undefined, "route-fallback")} className="flex items-center gap-2">
+      <label htmlFor={id} className="w-24 shrink-0 text-xs text-subtle-foreground">
+        If it can't answer
+      </label>
+      <SpadeModelPicker
+        id={id}
+        label={label}
+        className="min-w-0 flex-1 max-w-64"
+        value={props.model}
+        forBots={props.forBots}
+        onChange={(value) => {
+          if (value) props.onChange(value);
+        }}
+      />
+      <Button
+        size="xs"
+        variant="ghost"
+        aria-label={`Remove ${label}`}
+        className="shrink-0 text-subtle-foreground hover:text-foreground"
+        onClick={props.onRemove}
+      >
+        <XIcon aria-hidden size={14} />
+      </Button>
+    </div>
   );
 }
 
-/** Adds a model to the end of the route, picked from the person's endpoints. */
+/** Inline trigger to append another fallback to the role's chain. */
 function AddFallback(props: {
   title: string;
   forBots: boolean;
@@ -125,13 +176,46 @@ function AddFallback(props: {
   choose(next: string[]): Promise<void>;
 }) {
   const [adding, setAdding] = useState(false);
+  const addRef = useRef<HTMLButtonElement>(null);
+  const editRef = useRef<HTMLDivElement>(null);
+  const restoreFocus = useRef(false);
   const id = useId();
-  if (!adding) return <SettingAddRow onClick={() => setAdding(true)}>Add a fallback</SettingAddRow>;
+  // Opening the picker puts the keyboard in it; cancelling puts it back on the button that
+  // opened it, which the edit replaced.
+  useEffect(() => {
+    if (!adding) {
+      if (!restoreFocus.current) return;
+      restoreFocus.current = false;
+      addRef.current?.focus();
+      return;
+    }
+    editRef.current?.querySelector<HTMLElement>("button")?.focus();
+  }, [adding]);
+  if (!adding)
+    return (
+      <button
+        ref={addRef}
+        type="button"
+        onClick={() => setAdding(true)}
+        className="inline-flex h-6 w-fit items-center gap-1.5 rounded-sm px-1 text-xs text-subtle-foreground transition-colors duration-(--motion-fast) hover:text-foreground focus-ring"
+      >
+        <PlusIcon aria-hidden size={12} />
+        Add a fallback
+      </button>
+    );
   return (
-    <SettingRow title="If it can't answer" htmlFor={id} density="compact" variant="route-fallback">
+    <div
+      ref={editRef}
+      {...part("settings-row", undefined, "route-fallback")}
+      className="flex items-center gap-2"
+    >
+      <label htmlFor={id} className="w-24 shrink-0 text-xs text-subtle-foreground">
+        If it can't answer
+      </label>
       <SpadeModelPicker
         id={id}
         label={`${props.title}, a new fallback`}
+        className="min-w-0 flex-1 max-w-60"
         value=""
         none="Choose a model"
         forBots={props.forBots}
@@ -140,6 +224,18 @@ function AddFallback(props: {
           if (value) void props.choose([...props.route, value]);
         }}
       />
-    </SettingRow>
+      <Button
+        size="xs"
+        variant="ghost"
+        aria-label="Cancel adding fallback"
+        className="shrink-0 text-subtle-foreground hover:text-foreground"
+        onClick={() => {
+          restoreFocus.current = true;
+          setAdding(false);
+        }}
+      >
+        <XIcon aria-hidden size={14} />
+      </Button>
+    </div>
   );
 }

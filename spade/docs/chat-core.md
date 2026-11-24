@@ -135,7 +135,7 @@ reply records its cost in the usage ledger. It is information only: Spade has no
 | Variable                | Default | Meaning                                                        |
 | ----------------------- | ------- | -------------------------------------------------------------- |
 | `SPADE_DATA_DIR`        | `data`  | Where `spade.sqlite` and `token` live                          |
-| `SPADE_PARALLEL_TOOLS`  | `16`    | Tool calls of one step run at once                             |
+| `SPADE_PARALLEL_TOOLS`  | `16`    | Concurrent foreground tool calls, including early work         |
 | `SPADE_HELPERS_AT_ONCE` | `16`    | Helpers of one bot run at once                                 |
 | `SPADE_CONTEXT_TOKENS`  | unset   | Compact before this many prompt tokens even on a larger window |
 | model settings          |         | See README                                                     |

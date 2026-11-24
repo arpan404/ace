@@ -212,3 +212,35 @@ it("an action for an option the approval doesn't offer sends nothing", async () 
   expect(of("notifications.action")[0]).toMatchObject({ outcome: "stale" });
   expect(interactions()[0]?.state).toBe("pending");
 });
+
+it("reconnects from the last cursor Swift applied while a new feed is still outstanding", async () => {
+  let hold = false;
+  const { daemon, act, sync, of, settle } = await phone(undefined, undefined, () => !hold);
+  expect(of("notifications.connected")[0]).toMatchObject({ daemonHostId: daemon.hostId });
+  sync(true);
+  await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(1));
+  hold = true;
+  daemon.notify(alert("n:missed"));
+  sync(true);
+  await vi.waitFor(() => expect(lastFeed(of)).toMatchObject({ entries: [{ id: "n:missed" }] }));
+
+  const outstanding = lastFeed(of);
+  daemon.disconnectAll();
+  await vi.waitFor(() => expect(of("notifications.connected")).toHaveLength(2));
+  sync(true, 0);
+  // A newer feed may only replace this one after Swift commits it. The reconnect cannot
+  // substitute an empty reply from a cursor known only to the bridge.
+  await settle();
+  expect(lastFeed(of)).toBe(outstanding);
+  act({ type: "notifications.feedApplied", feedId: outstanding?.feedId });
+  await vi.waitFor(() => expect(lastFeed(of)).toMatchObject({ entries: [] }));
+});
+
+it("a member whose registration the org host refuses still catches up, so a wake can finish", async () => {
+  const { daemon, sync, of } = await phone();
+  daemon.notify(alert("n:shared"));
+  // An organization's host keeps phone registration from members (ADR 0209); their feed answers.
+  daemon.refuseRequests("forbidden", "notification.register");
+  sync(true);
+  await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(1));
+});

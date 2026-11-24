@@ -84,7 +84,22 @@ impl Engine {
         if let Some(plugins) = self.plugins() {
             plugins.forget(agent);
         }
+        let pruned: Vec<String> = self
+            .store
+            .agent(agent)?
+            .map(|row| {
+                let mut conversations = vec![row.conversation.clone()];
+                conversations.extend(self.helper_conversations(&row.conversation));
+                conversations
+            })
+            .unwrap_or_default();
         self.store.delete_agent(agent)?;
+        if let Some(workspaces) = self.workspaces()
+            && !pruned.is_empty()
+            && let Err(error) = workspaces.prune_web_fetch_conversations(agent, &pruned)
+        {
+            tracing::warn!(%error, %agent, "web_fetch snapshot index was not pruned for unfinished install");
+        }
         if let Some(security) = self.security() {
             security.forget(agent);
         }

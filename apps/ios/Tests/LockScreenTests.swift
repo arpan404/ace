@@ -102,6 +102,24 @@ import Testing
         #expect(port.ended.count == 1 && !port.running)
     }
 
+    @Test func aColdWakeKeepsTheLastWidgetCountsUntilAMachineConfirms() throws {
+        let working = try row("a", level: "active", icon: "working", since: 0)
+        let saved = LockScreenBuilder.summary([.init(hostId: "studio", rows: [working], online: true)], requests: [:], now: t0)
+        var writes: [LockSummary] = []
+        let hub = LockScreenHub(edges: .init(activity: FakeActivity(), writeSnapshot: { writes.append($0) },
+                                             reloadWidgets: {}, readSnapshot: { saved }),
+                                now: { self.t0.addingTimeInterval(60) }, sleep: { _ in })
+        hub.foreground = false
+        hub.rebuild()
+        #expect(writes.last?.rows.first?.id == "a")
+        #expect(writes.last?.current == false)
+        #expect(writes.last?.updatedAt == t0)
+        hub.read = { ([.init(hostId: "studio", rows: [], online: true)], [:]) }
+        hub.rebuild()
+        #expect(writes.last?.current == true)
+        #expect(writes.last?.rows.isEmpty == true)
+    }
+
     @Test func theWidgetsSnapshotIsRewrittenOnlyWhenWhatItShowsChanges() throws {
         var writes: [LockSummary] = []
         var reloads = 0

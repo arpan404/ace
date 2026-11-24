@@ -176,3 +176,50 @@ async fn preset_facts_are_inherited_not_copied_so_shipped_corrections_reach_an_i
     );
     Ok(())
 }
+
+#[test]
+fn every_shipped_gpt_6_model_carries_openais_long_context_tier() -> Result {
+    // OpenAI bills a request of more than 272,000 input tokens at twice the input and cache rates
+    // and one and a half times the output, for the whole request. Every GPT-6 model Spade ships
+    // says so, with the rates from its own model page (checked 2026-11-23).
+    let catalogue = presets::shipped()?;
+    let models = catalogue
+        .endpoints()
+        .iter()
+        .flat_map(|endpoint| endpoint.models.iter());
+    let mut checked = Vec::new();
+    for model in models.filter(|model| model.id.starts_with("gpt-6")) {
+        let price = model.price.ok_or(format!("{} has no price", model.id))?;
+        let tier = price
+            .long_context
+            .ok_or(format!("{} has no long-context tier", model.id))?;
+        assert_eq!(tier.above, 272_000, "{}", model.id);
+        assert_eq!(tier.input, price.input * 2.0, "{} input", model.id);
+        assert_eq!(tier.output, price.output * 1.5, "{} output", model.id);
+        assert_eq!(
+            tier.cache_read,
+            price.cache_read.map(|rate| rate * 2.0),
+            "{} cached input",
+            model.id
+        );
+        assert_eq!(
+            tier.cache_write,
+            price.cache_write.map(|rate| rate * 2.0),
+            "{} cache writes",
+            model.id
+        );
+        checked.push(model.id.clone());
+    }
+    for id in [
+        "gpt-6.2-sol",
+        "gpt-6.2-astra",
+        "gpt-6.1-terra",
+        "gpt-6.1-sol",
+        "gpt-6-astra",
+        "gpt-6-sol",
+        "gpt-6-luna",
+    ] {
+        assert!(checked.iter().any(|each| each == id), "{id} is missing");
+    }
+    Ok(())
+}

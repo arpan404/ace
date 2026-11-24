@@ -75,6 +75,12 @@ struct AttachmentLine: Codable, Sendable, Equatable, Hashable {
 /// One transcript block as `@ace/ui-core` groups it. Items are referenced by id; their rows
 /// stream separately, so a delta never rebuilds a block.
 struct BlockRow: Codable, Sendable, Equatable {
+    func sameExceptPosition(as other: Self) -> Bool {
+        var positioned = self
+        positioned.index = other.index
+        return positioned == other
+    }
+
     struct Work: Codable, Sendable, Equatable {
         let label: String
         let counts: String
@@ -169,7 +175,7 @@ struct BlockRow: Codable, Sendable, Equatable {
         /// Ms since 1970; nil when no time is shown.
         let since: Double?
     }
-    let index: Int?
+    var index: Int?
     let kind: String
     let items: [String]
     let headed: Bool

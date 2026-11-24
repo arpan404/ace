@@ -870,14 +870,25 @@ export class EmbeddedPage implements ViewPage {
     this.appliedZoom = zoom;
     if (!this.contents.isDestroyed() && this.contents.getZoomFactor() !== zoom)
       this.contents.setZoomFactor(zoom);
-    if (this.target && this.placed)
-      this.place({
-        window: this.home,
-        bounds: this.target.bounds,
-        visible: true,
-        zoom: this.appZoom,
-        device: this.target.device,
-      });
+    if (this.placed) {
+      if (this.target)
+        this.place({
+          window: this.home,
+          bounds: this.target.bounds,
+          visible: true,
+          zoom: this.appZoom,
+          device: this.target.device,
+        });
+      return;
+    }
+    // A view the panel does not show takes its layout again at the zoom now applied, as the
+    // unplaced branches of `resize` and `relayout` leave it: a phone its own layout, an agent's
+    // size at the size asked, and a parked view its box, whose CSS size follows the zoom.
+    const log = (error: unknown) => this.options.log(String(error));
+    if (this.touchDevice) void this.relayout().catch(log);
+    else if (this.agentSize)
+      void this.resize(this.agentSize.width, this.agentSize.height).catch(log);
+    else this.emit("ace.viewport", this.viewport());
   }
 
   /**
@@ -977,15 +988,22 @@ export class EmbeddedPage implements ViewPage {
   viewport() {
     if (this.touchDevice) return { ...this.touchDevice };
     if (this.agentSize && !this.placed) return this.agentSize;
-    return this.target
-      ? (this.target.device ?? {
-          width: Math.round(this.target.bounds.width / this.target.zoom),
-          height: Math.round(this.target.bounds.height / this.target.zoom),
-        })
-      : {
-          width: this.options.view.getBounds().width,
-          height: this.options.view.getBounds().height,
-        };
+    if (!this.target) {
+      // No placement sized this view: its box holds its CSS pixels at the zoom applied now.
+      const bounds = this.options.view.getBounds();
+      return {
+        width: Math.round(bounds.width / this.appliedZoom),
+        height: Math.round(bounds.height / this.appliedZoom),
+      };
+    }
+    if (this.target.device) return this.target.device;
+    // A view the panel does not show keeps its box while zoom changes how many CSS pixels it
+    // holds: its size is the one it has now, not the one at its last placement.
+    const zoom = this.placed ? this.target.zoom : this.appliedZoom;
+    return {
+      width: Math.round(this.target.bounds.width / zoom),
+      height: Math.round(this.target.bounds.height / zoom),
+    };
   }
 
   url(): string {

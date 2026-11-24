@@ -130,6 +130,7 @@ it("forwards an encrypted alert to APNs with a verifiable provider token and fix
     aps: {
       alert: { title: "ace", body: "New activity" },
       "mutable-content": 1,
+      "content-available": 1,
       "interruption-level": "active",
       sound: "default",
     },

@@ -288,6 +288,23 @@ impl KeyStore {
         Ok(removed)
     }
 
+    /// The token an authenticated gateway asks for with an endpoint's calls (Cloudflare AI
+    /// Gateway's `cf-aig-authorization`), if stored: account `gateway:<endpoint>`. A second
+    /// secret beside the key, never a header stored with the endpoint (ADR 0119).
+    pub fn gateway_token(&self, endpoint: &str) -> Result<Option<String>, KeyError> {
+        self.read(&gateway_account(endpoint)?)
+    }
+
+    /// Stores the gateway token for `endpoint`, replacing any earlier one.
+    pub fn set_gateway_token(&self, endpoint: &str, token: &str) -> Result<(), KeyError> {
+        self.write(&gateway_account(endpoint)?, checked(token)?)
+    }
+
+    /// Forgets the gateway token for `endpoint`. Returns whether there was one.
+    pub fn delete_gateway_token(&self, endpoint: &str) -> Result<bool, KeyError> {
+        self.remove(&gateway_account(endpoint)?)
+    }
+
     fn write_lock(&self, account: &str) -> Arc<Mutex<()>> {
         let mut locks = self.writing.lock().unwrap_or_else(|p| p.into_inner());
         locks.entry(account.to_owned()).or_default().clone()
@@ -305,6 +322,13 @@ fn endpoint_account(endpoint: &str) -> Result<String, KeyError> {
         return Err(KeyError::Invalid("the endpoint id is empty"));
     }
     Ok(format!("endpoint:{endpoint}"))
+}
+
+fn gateway_account(endpoint: &str) -> Result<String, KeyError> {
+    if endpoint.trim().is_empty() {
+        return Err(KeyError::Invalid("the endpoint id is empty"));
+    }
+    Ok(format!("gateway:{endpoint}"))
 }
 
 fn connector_account(id: &str, kind: &str) -> Result<String, KeyError> {

@@ -220,7 +220,10 @@ const feedCursor = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const NotificationFeedRequest = z.object({
   type: z.literal("notification.feed"),
   requestId: boundedId,
-  afterCursor: feedCursor,
+  /** Omit to read from this authenticated device's last committed checkpoint. */
+  afterCursor: feedCursor.optional(),
+  /** Persist afterCursor after applying its page. A checkpoint reply carries no alerts. */
+  checkpoint: z.literal(true).optional(),
 });
 export const NotificationFeedEntry = z.object({ cursor: feedCursor, notification: Notification });
 export type NotificationFeedEntry = z.infer<typeof NotificationFeedEntry>;

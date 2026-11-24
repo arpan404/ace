@@ -377,16 +377,42 @@ async fn tools_are_offered_and_a_call_comes_back_in_every_format() -> Result {
 
 #[tokio::test]
 async fn a_streamed_tool_call_arrives_whole_before_done_in_every_format() -> Result {
-    let fake = FakeProvider::start_with(Script::reply("Let me check").chunks(3).call(
-        "call_7",
-        "get_weather",
-        json!({ "city": "Kathmandu", "units": "metric" }),
-    ))
+    let release = std::sync::Arc::new(tokio::sync::Notify::new());
+    let fake = FakeProvider::start_with(
+        Script::reply("Let me check")
+            .chunks(3)
+            .call(
+                "call_7",
+                "get_weather",
+                json!({ "city": "Kathmandu", "units": "metric" }),
+            )
+            .hold_stream_end(release.clone()),
+    )
     .await?;
     let models = models(&fake)?;
     let prompt = Prompt::ask("Weather?").tools(vec![weather_tool()]);
     for reference in ["chat/kimi", "resp/sol", "msgs/haiku"] {
-        let stream = models.stream(reference, &prompt).await?;
+        let mut stream = std::pin::pin!(models.stream(reference, &prompt).await?);
+        if reference == "resp/sol" {
+            assert!(matches!(stream.next().await, Some(Ok(Delta::Text(_)))));
+            release.notify_one();
+        }
+        let closed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while let Some(delta) = stream.next().await {
+                match delta? {
+                    Delta::CallClosed(call) => {
+                        return Ok::<_, Box<dyn std::error::Error + Send + Sync>>(call);
+                    }
+                    Delta::Done { .. } => break,
+                    _ => {}
+                }
+            }
+            Err("stream ended before a tool-call boundary".into())
+        })
+        .await??;
+        if reference != "resp/sol" {
+            release.notify_one();
+        }
         let deltas: Vec<Delta> = stream
             .collect::<Vec<_>>()
             .await
@@ -399,7 +425,7 @@ async fn a_streamed_tool_call_arrives_whole_before_done_in_every_format() -> Res
                 _ => None,
             })
             .collect();
-        assert_eq!(calls.len(), 1, "{reference}: {deltas:?}");
+        assert_eq!(calls, vec![&closed], "{reference}: {deltas:?}");
         assert_eq!(calls[0].id, "call_7", "{reference}");
         assert_eq!(
             calls[0].arguments,
@@ -412,6 +438,32 @@ async fn a_streamed_tool_call_arrives_whole_before_done_in_every_format() -> Res
         );
     }
     Ok(())
+}
+
+#[tokio::test]
+async fn a_responses_stream_without_its_terminal_frame_finishes_without_early_calls() -> Result {
+    let fake = FakeProvider::start_with(
+        Script::reply("Let me check")
+            .call("call_7", "get_weather", json!({ "city": "Kathmandu" }))
+            .omit_stream_end(),
+    )
+    .await?;
+    let models = models(&fake)?;
+    let prompt = Prompt::ask("Weather?").tools(vec![weather_tool()]);
+    let mut stream = std::pin::pin!(models.stream("resp/sol", &prompt).await?);
+    let mut text = String::new();
+    while let Some(delta) = stream.next().await {
+        match delta? {
+            Delta::CallClosed(_) => panic!("started an early call without a terminal frame"),
+            Delta::Text(piece) => text.push_str(&piece),
+            Delta::Done { .. } => {
+                assert_eq!(text, "Let me check");
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
+    Err("clean EOF did not finish".into())
 }
 
 #[tokio::test]
@@ -536,5 +588,41 @@ async fn a_stream_cut_after_the_endpoint_answered_is_never_sent_again() -> Resul
             .ok_or("it answered")?;
         assert!(!error.transient(), "{reference}: {error:?}");
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_refused_call_never_echoes_the_bare_key_or_gateway_token() -> Result {
+    const KEY: &str = "sk-chat-secret-4417";
+    const TOKEN: &str = "cf-aig-chat-secret-4417";
+    let echo = json!({ "error": { "message": format!("refused key {KEY} and token {TOKEN}") } });
+    let fake =
+        spade_testkit::FakeModelList::start(401, echo.to_string(), Default::default()).await?;
+    let presets = Catalog::from_json(&json!({ "endpoints": [] }).to_string())?;
+    let models = Models::new(presets, Keys::new(|_| Some(KEY.to_owned())), "test")?;
+    models.set_gateway_keys(Keys::new(|_| Some(TOKEN.to_owned())));
+    models.set_endpoints(vec![spade_models::Endpoint {
+        gateway_token: true,
+        id: "gw".into(),
+        name: "Gateway".into(),
+        format: spade_models::Format::OpenAiChat,
+        base_url: fake.root.clone(),
+        needs_key: true,
+        key_env: None,
+        headers: Vec::new(),
+        session_header: None,
+        sign_in: None,
+        models: vec![spade_models::Model::unknown("m")],
+    }]);
+    let error = models
+        .chat("gw/m", &Prompt::ask("hi"))
+        .await
+        .err()
+        .ok_or("the call should have failed")?;
+    let said = error.to_string();
+    assert!(
+        !said.contains(KEY) && !said.contains(TOKEN),
+        "a bare secret reached the error: {said}"
+    );
     Ok(())
 }

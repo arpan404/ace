@@ -16,14 +16,13 @@ impl Tool for Asks {
             spec: ToolSpec {
                 name: ASKS.to_owned(),
                 description: "Keep the <asks> block, your working memory of what the person \
-                              asked, in one call with a list of changes. For an ask (by its \
-                              id, m12): open (sort it as one ask, or reopen it), split (into \
-                              2-8 asks), done, dropped, changed (text: the new wording), \
-                              waiting (on: person, job or time) or chat (nothing to do), each \
-                              with a short reason. standing records an instruction that holds \
-                              until the person lifts it (from: their message's id; text: the \
-                              instruction); lift ends one when the person says so (standing: its id, s1; from: \
-                              their later message's id)."
+                              asked, with one list of changes. For an ask by id (m12): open \
+                              (sort it as an ask, or reopen it), split (into 2-8), done, \
+                              dropped, changed (text: new wording), waiting (on: person, job or \
+                              time) or chat (nothing to do), each with a short reason. standing \
+                              records an instruction that holds until lifted (from: their \
+                              message's id; text: the instruction); lift ends one when the \
+                              person says so (standing: its id, s1; from: their later message)."
                     .to_owned(),
                 schema: json!({ "type": "object",
                     "properties": { "changes": { "type": "array", "minItems": 1, "items": {

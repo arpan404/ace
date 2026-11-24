@@ -508,10 +508,7 @@ pub fn judged(judgment: &Judgment) -> Outcome {
 
 /// What a refused call's result tells the bot. Not an error: nothing failed.
 pub fn refused(reason: &str) -> String {
-    format!(
-        "Not run: {reason} Don't work around this. Find another way, or ask the person with \
-         ask_user if this step is truly needed."
-    )
+    format!("Not run: {reason} Don't work around this. Find another way or ask with ask_user.")
 }
 
 /// What the reviewer is shown.

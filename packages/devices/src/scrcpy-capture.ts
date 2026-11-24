@@ -235,6 +235,10 @@ export async function scrcpyCapture(options: {
   let forwarded = 0;
   const media = options.media;
   let scrcpyPaths: DeviceVideoPaths | undefined;
+  const closeScrcpyPaths = () => {
+    scrcpyPaths?.close();
+    scrcpyPaths = undefined;
+  };
   /** One D1 handshake's waiters: greeted, then ready with the device name. */
   type ScrcpyHandshake = {
     greeted: PromiseWithResolvers<void>;
@@ -311,7 +315,7 @@ export async function scrcpyCapture(options: {
           schedule: (callback, ms) => runtime.after(ms, callback),
         })
       : undefined);
-  /** A unit off scrcpy's video socket: to ace-media while routed there, else dropped. */
+  /** A unit off scrcpy's video socket: to ace-media while it carries the capture, else to the viewer. */
   const forwardVideo = (unit: VideoUnit) => {
     const number = forwarded++;
     if (awaitingKey && unit.keyframe) {
@@ -321,11 +325,14 @@ export async function scrcpyCapture(options: {
       awaitingKey = undefined;
     }
     if (forward && !forward.closed) {
-      forward.write(scrcpyFrame(unit, number));
+      // The frame depicts the native display at the encode's size, so the client's
+      // width/scale is the display input uses.
+      forward.write(scrcpyFrame(unit, displayFor(unit.width, unit.height), number));
       return;
     }
-    // Opens the source in ace-media, which points the capture at its ingest once it has it.
-    pathsFor();
+    // Opens the source in ace-media, which points the capture at its ingest once it has it. A
+    // build without ace-media has no source and no ingest to reach: its viewers get the units.
+    if (!pathsFor()) publishVideo(unit);
   };
   /** D1: the tunnel the current handshake runs on, for failure texts. */
   let activeTunnel: ScrcpyTunnel | undefined;
@@ -618,20 +625,23 @@ export async function scrcpyCapture(options: {
     let paths: DeviceVideoPaths | undefined;
     const box = (maxSize: number) => maxSize || longEdge;
     const wanted = profileFor(settings, transport, scid());
-    const frames = options.host
-      ? await startHostFrames({
-          ...options.host,
-          display: { width: shortEdge, height: longEdge },
-          box: box(wanted.maxSize),
-          bitrate: wanted.bitrate,
-          runtime,
-          env: options.env,
-          failed: (error) => {
-            if (current) lost(current, error);
-          },
-          ingestClosed: () => paths?.ingestClosed(),
-        }).catch(() => undefined)
-      : undefined;
+    // Only ace-media carries a host-encoded picture (`emulator-frames`); without it, scrcpy's
+    // video is the one path there is, and the capture publishes it itself.
+    const frames =
+      options.host && media
+        ? await startHostFrames({
+            ...options.host,
+            display: { width: shortEdge, height: longEdge },
+            box: box(wanted.maxSize),
+            bitrate: wanted.bitrate,
+            runtime,
+            env: options.env,
+            failed: (error) => {
+              if (current) lost(current, error);
+            },
+            ingestClosed: () => paths?.ingestClosed(),
+          }).catch(() => undefined)
+        : undefined;
     if (frames && media)
       paths = new DeviceVideoPaths({
         media,
@@ -673,7 +683,13 @@ export async function scrcpyCapture(options: {
       early.close();
     }
     pathsD1 = wantD1;
-    if (!wantD1) pathsFor();
+    // One source for the picture, whichever carries it. With the host encoder it is
+    // `emulator-frames`, so a scrcpy source opened for an earlier run (one that streamed its
+    // video) is closed, never left for a view to bind. Without it, scrcpy's video is the one
+    // path there is: the daemon's own forward needs its source before the first keyframe
+    // (D1's source opens below, once the tunnel's port is known).
+    if (frames) closeScrcpyPaths();
+    else if (!wantD1) pathsFor();
     if (wantD1 && media) {
       // D1: ace-media reads the video socket itself. The daemon keeps the server, the
       // forward and control; video arrives on egress once the handshake finishes.
@@ -926,7 +942,7 @@ export async function scrcpyCapture(options: {
     pending?.writer.close();
     pending?.failed(new Error("Device capture stopped"));
     forward = undefined;
-    scrcpyPaths?.close();
+    closeScrcpyPaths();
     const results = await Promise.allSettled([disconnect(current)]);
     terminated = true;
     const errors = results.flatMap((result) =>
@@ -941,10 +957,9 @@ export async function scrcpyCapture(options: {
     });
 
   // The source opens in ace-media before the device sends its first keyframe, so that one
-  // is the first unit forwarded. With the switch on, the D1 handshake opens it instead,
-  // once the tunnel's port is known.
+  // is the first unit forwarded (or the scrcpy server does, with no source at all; with the
+  // switch on, the D1 handshake opens it once the tunnel's port is known).
   try {
-    if (scrcpyVideoBackend() !== "native") pathsFor();
     await connect();
     options.signal?.throwIfAborted();
     unwatch = platform.watchCaptureTransport(device, serial, (error) => fail(error));
@@ -1044,15 +1059,19 @@ export async function scrcpyCapture(options: {
 }
 
 /** A scrcpy unit as the MediaFrame the daemon forwards: the producer stamp keeps its sequence. */
-function scrcpyFrame(unit: VideoUnit, sequence: number): MediaFrame {
+export function scrcpyFrame(
+  unit: VideoUnit,
+  display: { width: number; height: number },
+  sequence: number,
+): MediaFrame {
   return {
     kind: 1,
     flags: unit.keyframe ? 1 : 0,
     ageUs: 0,
     width: unit.width,
     height: unit.height,
-    displayWidth: unit.width,
-    displayHeight: unit.height,
+    displayWidth: display.width,
+    displayHeight: display.height,
     scale: 1000,
     rotation: 0,
     codec: 1,

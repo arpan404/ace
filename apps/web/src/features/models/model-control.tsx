@@ -1,6 +1,6 @@
 import "@/styles/model-control.css";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
-import { effortLabel, effortShortLabel, speedLabel } from "@ace/ui-core";
+import { chipModelName, effortLabel, effortShortLabel, speedLabel } from "@ace/ui-core";
 import { CaretDownIcon, ClockIcon } from "@ace/icons";
 import { Suspense, useEffect, useEffectEvent, useState, type ReactElement } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
@@ -100,7 +100,7 @@ export function ModelControl(props: {
           )}
           {!view.label && view.catalog === "loading" && <Spinner />}
           <span data-slot="model-name" className="min-w-0 flex-1 truncate text-foreground">
-            {view.label ?? view.placeholder}
+            {view.label ? chipModelName(view.provider, view.label) : view.placeholder}
           </span>
           {view.unavailable && (
             <span className="shrink-0 text-xs text-status-failed">Unavailable</span>

@@ -367,3 +367,46 @@ it("a view on a media connection shows the session's video whether its helper en
   expect(intent?.shows(producer("screen", state.sessionId))).toBe(true);
   expect(intent?.shows(producer("screen-pictures", "another-session"))).toBe(false);
 });
+
+it("a view on this machine is opened as local, and one over a relay as remote", async () => {
+  const test = await manager({ FAKE_V2: "1" });
+  cleanups.push(test.close);
+  const state = await ready(test.screen);
+  // The desktop app on the Mac itself, on the daemon's loopback listener: its view is paced at
+  // the local rate, so ace-media is told the view is local (never the client's own claim).
+  const here = fakeDelivery();
+  const local = screenConnection(test.screen, new Simulators("linux"), "human-1", {
+    send: () => {},
+    local: true,
+    delivery: { owner: () => phoneOwner, port: () => here.port },
+  });
+  cleanups.push(async () => local.close());
+  await local.request({
+    type: "screen.request",
+    requestId: "here",
+    operation: {
+      op: "subscribe",
+      sessionId: state.sessionId,
+      media: { connection: "mc_aaaaaaaaaaaa" },
+    },
+  });
+  expect([...here.views.values()].map((view) => view.local)).toEqual([true]);
+
+  // A phone over the relay: the same view, remote.
+  const away = fakeDelivery();
+  const remote = screenConnection(test.screen, new Simulators("linux"), "human-2", {
+    send: () => {},
+    delivery: { owner: () => phoneOwner, port: () => away.port },
+  });
+  cleanups.push(async () => remote.close());
+  await remote.request({
+    type: "screen.request",
+    requestId: "away",
+    operation: {
+      op: "subscribe",
+      sessionId: state.sessionId,
+      media: { connection: "mc_bbbbbbbbbbbb" },
+    },
+  });
+  expect([...away.views.values()].map((view) => view.local)).toEqual([false]);
+});

@@ -219,3 +219,22 @@ async fn a_compressed_page_reads_as_its_text() -> Result {
     assert!(got.text.starts_with("# Hello"));
     Ok(())
 }
+
+#[tokio::test]
+async fn fetch_page_returns_full_text_while_default_window_stays_compact() -> Result {
+    let addr = start().await?;
+    let full = local()
+        .fetch_page(&format!("http://{addr}/just-under"))
+        .await?;
+    assert_eq!(full.text.chars().count(), MOST_BYTES);
+    assert_eq!(full.pages, None);
+
+    let paged = local()
+        .fetch(&format!("http://{addr}/just-under"), Page::default())
+        .await?;
+    assert_eq!(paged.text.chars().count(), spade_fetch::DEFAULT_PAGE_CHARS);
+    assert_eq!(paged.text.chars().count(), 4_000);
+    assert_eq!(paged.next_offset, Some(4_000));
+    assert_eq!(paged.total_chars, MOST_BYTES);
+    Ok(())
+}
