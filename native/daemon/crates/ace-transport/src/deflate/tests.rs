@@ -21,6 +21,10 @@ fn answer(offer: &str) -> Result<Option<Deflate>, Malformed> {
     negotiate(Some(offer.as_bytes()))
 }
 
+/// The table's expected answers are `ws` 8.22's own, produced once by running
+/// its `extension.parse`, `PerMessageDeflate.accept` and `extension.format` with
+/// `remoteDeflate`'s options (`compression-policy.ts:61`–`:69`) in a scratch
+/// script, then pasted here. Re-running that script is how a reviewer checks them.
 #[test]
 fn the_answer_is_the_offers_parameters_then_both_no_context_takeover_flags() {
     let table: &[(&str, &str)] = &[
