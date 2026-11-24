@@ -46,10 +46,11 @@ pub const DELIVERY_MESSAGES: u64 = 64;
 pub const OUTBOUND_MESSAGES: u64 = 16_384;
 /// `ws`'s `closeTimeout`: an unanswered local close is destroyed and reported `1006`.
 pub const CLOSE_TIMEOUT: Duration = Duration::from_secs(30);
-/// Queued pong payload bytes may not pass this. `ws` has no bound; 16 MiB is four
-/// times the outbox's 4 MiB resync threshold, so the slow-link policy always acts
-/// first and this only stops a peer that outruns every policy from growing memory
-/// without end. Past it the socket closes with 1008 (recorded in the porting guide).
+/// Queued pong memory may not pass this: each pong's frame bytes plus its queue
+/// entry. `ws` has no bound; 16 MiB is four times the outbox's 4 MiB resync
+/// threshold, so the policy normally acts first and this only stops a peer that
+/// outruns it from growing memory without end. Past it the socket closes with
+/// 1008 (recorded in the porting guide).
 pub const CONTROL_BYTES: u64 = 16 * 1024 * 1024;
 
 /// `ws`'s ready states, as `readyState` reports them.
@@ -68,9 +69,17 @@ struct Own {
 struct Queued {
     frame: Frame,
     own: Option<Own>,
+    /// What `bufferedAmount` grows by: a pong's frame bytes, a send's payload
+    /// plus the outbox's per-message overhead.
     charge: u64,
+    /// What the pong memory ceiling counts: frame bytes plus the entry itself.
+    memory: u64,
     control: bool,
 }
+
+/// A queued pong's own allocation, counted against [`CONTROL_BYTES`] beside its
+/// frame bytes so empty pings are bounded too.
+pub const CONTROL_ENTRY_BYTES: u64 = std::mem::size_of::<Queued>() as u64;
 
 /// The socket's state, its outbound queue and its events under one lock, so a
 /// `send` checks `OPEN`, charges and enqueues as one step and nothing is emitted
@@ -124,19 +133,26 @@ impl Shared {
     }
 
     /// Queues one control frame the reader owes (a pong), with no `Sent`: control
-    /// frames answer the peer, they are not one of the owner's sends. Its charge
-    /// is exactly the payload bytes, which is what `ws` counts for a pong (no
-    /// per-message overhead), and reading never stops for it. False when the
-    /// queued pong bytes would pass [`CONTROL_BYTES`]: the caller closes with 1008.
+    /// frames answer the peer, they are not one of the owner's sends. `bufferedAmount`
+    /// grows by the 2-byte header plus payload, which is what `ws` reports; the
+    /// memory ceiling also counts the queue entry. Reading never stops for a pong.
+    /// False when the queued memory would pass [`CONTROL_BYTES`]: the caller closes
+    /// with 1008.
     fn control(&self, opcode: Opcode, payload: Vec<u8>) -> bool {
-        let charge = payload.len() as u64;
+        let charge = 2 + payload.len() as u64;
+        let memory = charge + CONTROL_ENTRY_BYTES;
         let inner = lock(&self.inner);
         let Some(outbound) = inner.outbound.as_ref() else {
             return true;
         };
-        let queued = self.control_bytes.fetch_add(charge, Ordering::Relaxed) + charge;
+        // `ws`'s `pong` returns for a socket that is no longer OPEN
+        // (websocket.js:412-426), so a ping after `close()` gets no reply.
+        if inner.state != OPEN {
+            return true;
+        }
+        let queued = self.control_bytes.fetch_add(memory, Ordering::Relaxed) + memory;
         if queued > CONTROL_BYTES {
-            self.control_bytes.fetch_sub(charge, Ordering::Relaxed);
+            self.control_bytes.fetch_sub(memory, Ordering::Relaxed);
             return false;
         }
         self.buffered.fetch_add(charge, Ordering::Relaxed);
@@ -150,11 +166,12 @@ impl Shared {
                 frame,
                 own: None,
                 charge,
+                memory,
                 control: true,
             })
             .is_err()
         {
-            debit(&self.control_bytes, charge);
+            debit(&self.control_bytes, memory);
             debit(&self.buffered, charge);
         }
         true
@@ -187,17 +204,24 @@ impl Shared {
 
     /// Releases a frame's charge without completing it; `finish` reports the
     /// `Sent` once sealed, and the owner's taking it is what releases `pending`.
-    fn release(&self, charge: u64, control: bool) {
+    fn release(&self, charge: u64, memory: u64, control: bool) {
         debit(&self.buffered, charge);
         if control {
-            debit(&self.control_bytes, charge);
+            debit(&self.control_bytes, memory);
         }
     }
 
     /// One queued frame is done: release its charge, its control slot, and the
     /// one `Sent` a data send owes.
-    fn settle(&self, own: Option<Own>, charge: u64, control: bool, error: Option<String>) {
-        self.release(charge, control);
+    fn settle(
+        &self,
+        own: Option<Own>,
+        charge: u64,
+        memory: u64,
+        control: bool,
+        error: Option<String>,
+    ) {
+        self.release(charge, memory, control);
         if let Some(own) = own {
             self.sent(own.id, error);
         }

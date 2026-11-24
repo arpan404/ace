@@ -92,6 +92,7 @@ impl SocketHandle {
             frame,
             own,
             charge: length,
+            memory: 0,
             control: false,
         }) {
             Ok(()) => SendResult::Queued,
@@ -138,6 +139,7 @@ impl SocketHandle {
                 frame,
                 own: None,
                 charge: 0,
+                memory: 0,
                 control: false,
             });
         }

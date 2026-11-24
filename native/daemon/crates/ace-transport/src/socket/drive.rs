@@ -198,12 +198,13 @@ async fn write(mut sink: Sink, shared: Arc<Shared>, mut queued: mpsc::UnboundedR
                 if close {
                     shared.close_flushed();
                 }
-                shared.settle(item.own, item.charge, item.control, None);
+                shared.settle(item.own, item.charge, item.memory, item.control, None);
             }
             Ok(Err(error)) => {
                 shared.settle(
                     item.own,
                     item.charge,
+                    item.memory,
                     item.control,
                     Some(not_open(shared.state())),
                 );
@@ -219,7 +220,7 @@ async fn write(mut sink: Sink, shared: Arc<Shared>, mut queued: mpsc::UnboundedR
             // The frame is owed a `Sent`, which `finish` reports once the state
             // is sealed.
             Err(ending) => {
-                shared.release(item.charge, item.control);
+                shared.release(item.charge, item.memory, item.control);
                 // The interrupted frame may be the local close itself. It counts
                 // as sent: `finish` flushes what is in flight, and a second close
                 // must never follow it.
@@ -316,6 +317,7 @@ async fn finish(
         shared.settle(
             item.own,
             item.charge,
+            item.memory,
             item.control,
             Some(not_open(shared.state())),
         );
