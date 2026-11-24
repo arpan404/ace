@@ -264,6 +264,9 @@ async function fixture(token = "secret") {
   const frames: Frame[] = [];
   const failures: unknown[] = [];
   const started: string[] = [];
+  /** The sources ace-media is given for the device, in the order it gets them. */
+  const sources: string[] = [];
+  const loopback = await loopbackMedia(cleanup);
   const capture: DeviceCapture = await scrcpyCapture({
     device: android,
     streamId: "stream",
@@ -287,7 +290,12 @@ async function fixture(token = "secret") {
     failure: (error) => failures.push(error),
     host: { grpc: { port: emulator.port, token }, encoder, directory: root },
     // Video comes only through ace-media: a loopback stands in for it.
-    media: await loopbackMedia(cleanup),
+    media: {
+      attach: (producer) => {
+        sources.push(producer.origin.kind);
+        return loopback.attach(producer);
+      },
+    },
   });
   cleanup.push(() => capture.stop());
   const encoded = async () =>
@@ -295,11 +303,11 @@ async function fixture(token = "secret") {
       .split("\n")
       .filter(Boolean)
       .map((line) => JSON.parse(line) as { op: string; bitrate?: number });
-  return { capture, device, emulator, frames, failures, started, encoded, root };
+  return { capture, device, emulator, frames, failures, started, encoded, root, sources };
 }
 
 it("an emulator encoded on the host streams the helper's H.264, and scrcpy runs control only", async () => {
-  const { frames, started, emulator } = await fixture();
+  const { frames, started, emulator, sources } = await fixture();
   const key = await until(() => frames.find((frame) => frame.header.keyframe));
   // The picture fits the box ace asked the emulator for; its scale is against the display.
   const box = emulator.requests[0]?.box ?? 0;
@@ -320,6 +328,9 @@ it("an emulator encoded on the host streams the helper's H.264, and scrcpy runs 
   expect(servers[0]).toContain("video=false");
   expect(servers[0]).not.toContain("video_codec");
   expect(emulator.requests[0]).toMatchObject({ authorized: true });
+  // One source for the device, the one that carries its picture: a view binds a source that
+  // streams, never a control-only server's empty one.
+  expect(sources).toEqual(["emulator-frames"]);
 });
 
 it("a tap reaches the control socket in the host picture's pixels", async () => {
