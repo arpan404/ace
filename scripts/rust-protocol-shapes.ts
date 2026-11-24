@@ -1,14 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
- * Writes `native/daemon/crates/ace-protocol/src/shapes.rs`, the shape table the column
- * encoders use (ADR 0222, porting guide 5.3b): what each Zod object keeps, in schema order,
- * with the defaults it inserts. `generate-rust-protocol.ts` writes it from the same schemas
- * `generated.rs` comes from, so `packages/protocol` stays the one source of truth.
- *
- * The walk throws, naming the schema path, on any construct whose output the table can't
- * describe, so a later schema change fails `check:daemon-native` instead of drifting. See
- * `docs/store/porting-guide.md` step 5.3b-1 for the refusal list.
+ * Writes the `ace-protocol/src/shapes/` table (porting guide 5.3b): what each Zod object
+ * keeps, with its defaults, split by root. The walk throws, naming the path, on any
+ * construct whose output the table can't describe.
  */
 
 import { z } from "zod";
@@ -25,6 +20,8 @@ type Node =
 interface Plan {
   readonly fields: { key: string; presence: Presence; shape: Node }[];
   readonly name: string;
+  readonly root: string;
+  file: string;
 }
 
 type Presence = { kind: "required" } | { kind: "optional" } | { kind: "default"; text: string };
@@ -108,6 +105,7 @@ class Planner {
   readonly objects = new Map<z.ZodType, Plan>();
   readonly order: Plan[] = [];
   readonly used = new Set<string>();
+  root = "";
 
   /** The object node for `schema`, filling its fields the first time it is reached. */
   object(schema: z.ZodType, name: string, path: string): Node {
@@ -121,7 +119,7 @@ class Planner {
     let unique = name;
     for (let suffix = 2; this.used.has(unique); suffix += 1) unique = `${name}_${suffix}`;
     this.used.add(unique);
-    const plan: Plan = { name: unique, fields: [] };
+    const plan: Plan = { name: unique, fields: [], root: this.root, file: "" };
     this.objects.set(schema, plan);
     this.order.push(plan);
     for (const [key, field] of Object.entries(shape)) {
@@ -227,11 +225,18 @@ class Planner {
       const fieldDef = defOf(field);
       if (fieldDef.type !== "literal")
         return fail(optionPath, `the discriminator \`${key}\` is not a literal`);
-      const values = (fieldDef as { values?: unknown[] }).values;
-      const value = values?.[0];
-      if (typeof value !== "string")
-        return fail(optionPath, `the discriminator \`${key}\` is not a string literal`);
-      planned.push({ literal: JSON.stringify(value), shape: this.shape(option, optionPath) });
+      const values = (fieldDef as { values?: unknown[] }).values ?? [];
+      if (values.length === 0)
+        return fail(optionPath, `the discriminator \`${key}\` has no literal value`);
+      const shape = this.shape(option, optionPath);
+      for (const value of values) {
+        if (typeof value !== "string")
+          return fail(optionPath, `the discriminator \`${key}\` is not a string literal`);
+        const literal = JSON.stringify(value);
+        if (planned.some((plannedOption) => plannedOption.literal === literal))
+          fail(path, `the discriminated union has a duplicate tag ${literal}`);
+        planned.push({ literal, shape });
+      }
     }
     return { kind: "tagged", key, options: planned };
   }
@@ -264,21 +269,25 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function shapeExpr(node: Node): string {
+function shapeExpr(node: Node, file: string): string {
   switch (node.kind) {
     case "copy":
       return "Shape::Copy";
-    case "object":
-      return `Shape::Object(&${node.plan.name}_FIELDS)`;
+    case "object": {
+      const name = `${node.plan.name}_FIELDS`;
+      return node.plan.file === file
+        ? `Shape::Object(&${name})`
+        : `Shape::Object(&crate::shapes::${node.plan.file}::${name})`;
+    }
     case "array":
-      return `Shape::Array(&${shapeExpr(node.inner)})`;
+      return `Shape::Array(&${shapeExpr(node.inner, file)})`;
     case "record":
-      return `Shape::Record(&${shapeExpr(node.inner)})`;
+      return `Shape::Record(&${shapeExpr(node.inner, file)})`;
     case "nullable":
-      return `Shape::Nullable(&${shapeExpr(node.inner)})`;
+      return `Shape::Nullable(&${shapeExpr(node.inner, file)})`;
     case "tagged": {
       const options = node.options
-        .map((option) => `(${rustString(option.literal)}, ${shapeExpr(option.shape)})`)
+        .map((option) => `(${rustString(option.literal)}, ${shapeExpr(option.shape, file)})`)
         .join(", ");
       return `Shape::Tagged { key: ${rustString(node.key)}, options: &[${options}] }`;
     }
@@ -296,42 +305,95 @@ function presenceExpr(presence: Presence): string {
   }
 }
 
-/**
- * The source of `shapes.rs` for the given roots, keyed by the Rust static's name. Throws,
- * naming the schema path, when a root reaches a construct the table can't describe.
- */
-export function shapesSource(roots: Record<string, z.ZodType>): string {
+/** Splits each root's plans into files small enough for rustfmt to keep under 400 lines. */
+function chunks(
+  roots: string[],
+  plans: Plan[],
+): { file: string; plans: Plan[]; roots: string[] }[] {
+  const found: { file: string; plans: Plan[]; roots: string[] }[] = [];
+  for (const root of roots) {
+    const group = plans.filter((plan) => plan.root === root);
+    const base = snake(root).toLowerCase();
+    let plansInFile: Plan[] = [];
+    let estimated = 0;
+    let index = 1;
+    const flush = () => {
+      const file = index === 1 ? base : `${base}_${index}`;
+      for (const plan of plansInFile) plan.file = file;
+      found.push({ file, plans: plansInFile, roots: [] });
+      plansInFile = [];
+      estimated = 0;
+      index += 1;
+    };
+    for (const plan of group) {
+      const cost = plan.fields.length * 6 + 12;
+      if (plansInFile.length > 0 && estimated + cost > 320) flush();
+      plansInFile.push(plan);
+      estimated += cost;
+    }
+    if (plansInFile.length > 0) flush();
+  }
+  return found;
+}
+
+/** The table's files, keyed by name under `ace-protocol/src/shapes/`; throws naming the path. */
+export function shapesSource(roots: Record<string, z.ZodType>): Map<string, string> {
   const planner = new Planner();
   const rootNodes: [string, Node][] = [];
-  for (const [name, schema] of Object.entries(roots)) {
+  const names = Object.keys(roots);
+  for (const name of names) {
+    const schema = roots[name];
     const def = defOf(schema);
     if (def.type !== "object") fail(name, "a root is not an object");
-    const node = planner.object(schema, name, name);
-    rootNodes.push([name, node]);
+    planner.root = name;
+    rootNodes.push([name, planner.object(schema, name, name)]);
   }
   const depth = Math.max(0, ...rootNodes.map(([, node]) => planner.depth(node)));
-  const lines: string[] = [
+  const files = chunks(names, planner.order);
+  for (const entry of rootNodes)
+    if (entry[1].kind === "object")
+      files.find((chunk) => chunk.file === entry[1].plan.file)?.roots.push(entry);
+  const head = [
     "// SPDX-License-Identifier: Apache-2.0",
     "// Generated by scripts/generate-rust-protocol.ts -- do not edit.",
-    "// The shape table for the thread column encoders (porting guide 5.3b): what each Zod",
-    `// parse keeps, in schema order, with the defaults it inserts. Depth ${depth}: the deepest`,
-    "// Shape nesting, which bounds the walk; the walk follows this table, never the value.",
-    "",
-    "use crate::shape::{Field, Presence, Shape};",
+    "// The shape table for the thread column encoders (porting guide 5.3b).",
     "",
   ];
-  for (const plan of planner.order) {
-    lines.push(`static ${plan.name}_FIELDS: [Field; ${plan.fields.length}] = [`);
-    for (const field of plan.fields) {
-      lines.push(
-        `    Field { key: ${rustString(field.key)}, presence: ${presenceExpr(
-          field.presence,
-        )}, shape: ${shapeExpr(field.shape)} },`,
-      );
+  const module = [
+    ...head,
+    "// Split by root so no file outgrows the source limit.",
+    "// What Zod's parse keeps, in schema order, with the defaults it inserts.",
+    `// Depth ${depth}: the deepest Shape nesting, which bounds the walk; the walk follows`,
+    "// this table, never the value.",
+    "",
+  ];
+  for (const chunk of files)
+    module.push(
+      `mod ${chunk.file};`,
+      ...chunk.roots.map(([root]) => `pub use ${chunk.file}::${root};`),
+    );
+  const result = new Map([["mod.rs", `${module.join("\n").trimEnd()}\n`]]);
+  for (const chunk of files) {
+    const lines = [
+      ...head,
+      `// Part ${chunk.file}.`,
+      "use crate::shape::{Field, Presence, Shape};",
+      "",
+    ];
+    for (const plan of chunk.plans) {
+      lines.push(`pub(crate) static ${plan.name}_FIELDS: [Field; ${plan.fields.length}] = [`);
+      for (const field of plan.fields) {
+        lines.push(
+          `    Field { key: ${rustString(field.key)}, presence: ${presenceExpr(
+            field.presence,
+          )}, shape: ${shapeExpr(field.shape, chunk.file)} },`,
+        );
+      }
+      lines.push("];", "");
     }
-    lines.push("];", "");
+    for (const [root, node] of chunk.roots)
+      lines.push(`pub static ${root}: Shape = ${shapeExpr(node, chunk.file)};`, "");
+    result.set(`${chunk.file}.rs`, `${lines.join("\n").trimEnd()}\n`);
   }
-  for (const [name, node] of rootNodes)
-    lines.push(`pub static ${name}: Shape = ${shapeExpr(node)};`, "");
-  return `${lines.join("\n").trimEnd()}\n`;
+  return result;
 }
