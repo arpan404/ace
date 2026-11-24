@@ -79,15 +79,50 @@ function ensureWasmTarget(): void {
 
 const target = "wasm32-unknown-unknown";
 
+/** The `wasm-bindgen` crate version the lockfile resolves, which the CLI must match exactly. */
+function lockedBindgen(): string {
+  const lock = readFileSync(join(daemon, "Cargo.lock"), "utf8");
+  for (const block of lock.split("[[package]]")) {
+    if (!/^\s*name = "wasm-bindgen"\s*$/m.test(block)) continue;
+    const version = /^\s*version = "([^"]+)"\s*$/m.exec(block)?.[1];
+    if (version !== undefined) return version;
+  }
+  throw new Error("native/daemon/Cargo.lock pins no wasm-bindgen");
+}
+
+/**
+ * wasm-bindgen refuses glue built against another schema version, so a mismatched CLI fails
+ * after a full cargo build with a message that names neither the fix nor both versions. Check
+ * before building.
+ */
+function checkBindgen(locked: string): void {
+  let installed = "";
+  try {
+    installed =
+      /(\d+\.\d+\.\d+)/.exec(
+        execFileSync("wasm-bindgen", ["--version"], {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }),
+      )?.[1] ?? "";
+  } catch {
+    installed = "";
+  }
+  const install = `cargo install wasm-bindgen-cli --version ${locked}`;
+  if (installed === "")
+    throw new Error(
+      `wasm-bindgen CLI not found; native/daemon/Cargo.lock pins ${locked}. Install it with \`${install}\``,
+    );
+  if (installed !== locked)
+    throw new Error(
+      `wasm-bindgen CLI is ${installed} but native/daemon/Cargo.lock pins ${locked}. Install the matching CLI with \`${install}\``,
+    );
+}
+
 function build(out: string, bindgenTarget: "web" | "nodejs"): void {
   cargo(["build", "--release", "--target", target, "-p", "ace-core-wasm"]);
   const wasm = join(daemon, "target", target, "release", "ace_core_wasm.wasm");
   if (!existsSync(wasm)) throw new Error(`expected ${wasm}`);
-  try {
-    execFileSync("wasm-bindgen", ["--version"], { stdio: "ignore" });
-  } catch {
-    throw new Error("wasm-bindgen CLI not found: install it with `cargo install wasm-bindgen-cli`");
-  }
   execFileSync("wasm-bindgen", [wasm, "--out-dir", out, "--target", bindgenTarget], {
     stdio: "inherit",
   });
@@ -99,6 +134,9 @@ function build(out: string, bindgenTarget: "web" | "nodejs"): void {
   }
   console.log(`wrote ${out} (${bindgenTarget})`);
 }
+
+const locked = lockedBindgen();
+checkBindgen(locked);
 
 ensureWasmTarget();
 
