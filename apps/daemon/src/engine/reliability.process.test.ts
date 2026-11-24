@@ -172,9 +172,12 @@ test("an intent with uncertain provider delivery is reported after restart witho
         return {
           ...session,
           async send(parts, delivery, commandId) {
-            // The provider has the input; the daemon dies before it answers.
-            if (commandId !== "uncertain-send") return session.send(parts, delivery, commandId);
+            // The provider has the input; the daemon dies before it answers. Only the first
+            // attempt is held: a replayed delivery still reaches the scripted session, so a
+            // recovery that tried to send again can't block the crash copy's flush.
+            const first = commandId === "uncertain-send" && sends === 0;
             sends++;
+            if (!first) return session.send(parts, delivery, commandId);
             observed.resolve();
             await held.promise;
           },
@@ -193,9 +196,14 @@ test("an intent with uncertain provider delivery is reported after restart witho
   if (!id) throw new Error("Missing created thread");
   // Copy only once the send is in the provider's hands and before any reply can acknowledge it:
   // a graceful close would settle the send, and a send step that returned would retire it.
-  await observed.promise;
-  const { store: restartedStore } = await crashCopy(h);
-  held.resolve();
+  let restartedStore!: Store;
+  try {
+    await observed.promise;
+    ({ store: restartedStore } = await crashCopy(h));
+  } finally {
+    // Even a failed copy must not leave the first send (and teardown) waiting on `held`.
+    held.resolve();
+  }
   expect(sends).toBe(1);
   expect(
     Object.values(transcript(restartedStore, id).items).some(
