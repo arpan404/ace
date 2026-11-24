@@ -38,6 +38,10 @@ const known = new Set([
 
 /** Fields only version 3 reads; on a version 2 recipe they are kept as raw data, unused. */
 const v3Only = new Set([
+  "knowledge",
+  "heartbeat",
+  "model_roles",
+  "plugin_commands",
   "requires",
   "uses",
   "triggers",
@@ -240,7 +244,7 @@ export function recipeNeeds(recipe: Recipe): MarketNeed[] {
       key: `plugin:${plugin.slice(13)}`,
       kind: "plugin" as const,
       label: plugin.slice(13),
-      why: "The recipe brings it.",
+      why: recipe.plugin_commands?.[plugin]?.join(", ").slice(0, 500) || "The recipe brings it.",
       required: true,
     })),
   ];

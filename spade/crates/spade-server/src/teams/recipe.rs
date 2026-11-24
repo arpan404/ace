@@ -343,6 +343,7 @@ fn furnish(
             .start_with_personality(id, personality)
             .map_err(|why| invalid(format!("its personality wasn't set: {why}")))?;
     }
+    super::template_setup::furnish(engine, id, recipe, input.time_zone.clone())?;
     // Schedule, event and webhook triggers become routines (ADR 0200 §3.5); a webhook's secret
     // is made here, never shipped.
     let mut routine_ids = BTreeMap::new();
@@ -419,6 +420,17 @@ fn furnish(
         .map_err(|why| invalid(why.to_string()))?;
     }
     if input.start_routines {
+        if recipe.heartbeat.is_some() {
+            routines::set_heartbeat(
+                engine,
+                id,
+                routines::HeartbeatInput {
+                    enabled: Some(true),
+                    ..Default::default()
+                },
+            )
+            .map_err(|why| invalid(format!("the heartbeat didn't start: {why}")))?;
+        }
         for (name, routine) in &routine_ids {
             routines::update(
                 engine,

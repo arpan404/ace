@@ -59,6 +59,10 @@ const known = new Set([
   "style",
   "personality",
   "model",
+  "knowledge",
+  "heartbeat",
+  "model_roles",
+  "plugin_commands",
   "uses",
   "triggers",
   "skills",
@@ -397,6 +401,10 @@ export function readPackage(
     problems.push(problem("package.routines", "a package has at most 32 routines"));
   if (new Set(names).size !== names.length)
     problems.push(problem("package.routines", "each routine has a name of its own"));
+  for (const plugin of Object.keys(recipe.plugin_commands ?? {})) {
+    if (!recipe.plugins.includes(plugin))
+      problems.push(problem("package.field", "Plugin commands must name a declared plugin"));
+  }
   const keys = recipe.effects.map(effectKey);
   if (new Set(keys).size !== keys.length)
     problems.push(problem("effects.twice", "an effect is declared twice"));

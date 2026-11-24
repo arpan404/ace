@@ -50,7 +50,9 @@ pub fn contains_private_text(value: &Value, private: &[String]) -> bool {
         match value {
             Value::String(text) => text_is_private(text, private),
             Value::Array(items) => items.iter().any(|item| strings(item, private)),
-            Value::Object(fields) => fields.values().any(|item| strings(item, private)),
+            Value::Object(fields) => fields
+                .iter()
+                .any(|(key, item)| text_is_private(key, private) || strings(item, private)),
             _ => false,
         }
     }

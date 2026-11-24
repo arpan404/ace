@@ -19,6 +19,9 @@ import { marketPublishOperations, marketPublishResults } from "./marketplace-pub
 import { SpadePersonality } from "./marketplace-catalog.ts";
 import {
   PackageCodeImport,
+  PackageHeartbeat,
+  PackageKnowledgePage,
+  PackageModelRoles,
   PackageEffectWord,
   PackageGrant,
   PackageLimits,
@@ -256,6 +259,9 @@ const MarketReviewBodySchema = z.discriminatedUnion("type", [
     routines: z.array(MarketRoutineRow).max(32),
     tools: z.array(z.string().max(64)).max(64).optional(),
     notes: z.array(z.string().max(2000)).max(50),
+    knowledge: z.array(PackageKnowledgePage).max(32).optional(),
+    heartbeat: PackageHeartbeat.optional(),
+    modelRoles: PackageModelRoles.optional(),
     personality: SpadePersonality.optional(),
     /** Skills and plugins it brings, each reviewed in its own section (`readReview`). */
     brings: z

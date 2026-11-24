@@ -32,3 +32,5 @@ mod code_tests;
 mod tests;
 #[cfg(test)]
 mod update_tests;
+
+pub mod playbooks;

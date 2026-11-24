@@ -49,7 +49,7 @@ impl Tool for TemplateDraft {
         ToolDef {
             spec: ToolSpec {
                 name: "template_draft".to_owned(),
-                description: "Draft a private shareable template of yourself. First review your memories, skills, routines and apps. Explain what transfers and what stays personal. Propose generalized instructions and notes, never copy personal material. Name reusable skills to include (save new skills with skill_propose first). Only the person can publish the card.".to_owned(),
+                description: "Draft a private template as capable as you are. Review your own task, personality, memory, skills and their files, routines and heartbeat, model roles, apps and plugins, panels and contracts. Use knowledge_search and knowledge_read for what you know and episode_search for what worked and failed on past goals. Distil both into separate reusable knowledge pages: kind playbook for methods, lesson for insights from episodes. Rewrite notes and task for a new owner. Leave personal names, places, accounts, repositories, history and raw source records behind, and explain what stays. Include skill names or Store ids, generalized schedule and event routine suggestions, a heartbeat checklist if useful, and portable surface files and contract definitions. Plugin commands stay with their plugins. Only the person can publish.".to_owned(),
                 schema: json!({
                     "type": "object", "additionalProperties": false,
                     "required": ["description", "task"],
@@ -58,6 +58,19 @@ impl Tool for TemplateDraft {
                         "description": {"type":"string"},
                         "task": {"type":"string"},
                         "skills": {"type":"array", "items":{"type":"string"}, "maxItems":32},
+                        "knowledge": {"type":"array", "maxItems":32, "items":{
+                            "type":"object", "additionalProperties":false,
+                            "required":["kind","topic","title","body"],
+                            "properties":{"kind":{"enum":["playbook","lesson"]},"topic":{"type":"string"},"title":{"type":"string"},"body":{"type":"string"}}
+                        }},
+                        "heartbeat":{"type":"object", "additionalProperties":false, "required":["every_minutes","checklist"],
+                            "properties":{"every_minutes":{"type":"integer","minimum":5,"maximum":1440},"checklist":{"type":"string"}}},
+                        "surfaces":{"type":"array","maxItems":16,"items":{"type":"object","required":["definition","text"],
+                            "properties":{"definition":{"type":"object"},"text":{"type":"string"}}}},
+                        "event_routines":{"type":"array","maxItems":32,"items":{"type":"object","required":["kind","name","instruction"],
+                            "properties":{"kind":{"enum":["event","webhook"]},"name":{"type":"string"},"instruction":{"type":"string"},"event":{"enum":["thread.finished","thread.failed","thread.needs_you"]}}}},
+                        "contracts":{"type":"array","maxItems":16,"items":{"type":"object"}},
+                        "effects":{"type":"array","maxItems":32,"items":{"type":"object"}},
                         "notes": {"type":"array", "items":{"type":"string"}, "maxItems":50},
                         "routines": {"type":"array", "maxItems":32, "items":{
                             "type":"object", "additionalProperties":false,

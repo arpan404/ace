@@ -41,10 +41,14 @@ Version 3 knows these fields:
 | `style` | `{accent}`: one colour, like `#2F7BEA`. |
 | `personality` | `{tone, humour, emoji}`. |
 | `model` | `fast` or `capable` (the default): a kind of model, never a model of its own. |
+| `model_roles` | The capability class, fast or capable, for each named model role. |
+| `knowledge` | Starting playbooks and lessons as topic, title, body and kind. |
+| `heartbeat` | A suggested heartbeat with every_minutes and checklist. The new owner chooses whether to start it. |
 | `uses` | The `runtime` modules the bot uses; its tools are narrowed to them. Missing means every module. |
 | `triggers` | What starts the bot's work (below). Missing means `message`. |
 | `skills` | Skills by reference. |
 | `plugins` | Plugins by reference, which the person accepts on their own. |
+| `plugin_commands` | Names of commands needed from declared plugins. This grants no permissions. |
 | `needs` | `{tools?, connectors?}`: built-in tools and connected apps it needs. |
 | `effects` | What it may do beyond reading and its own things: the ceiling ([effects](effects.md)). |
 | `limits` | `spend_alert {usd_per_day}`, `workers_at_once`, `workspace_mb`: an alert line and bounds, never a stop. |

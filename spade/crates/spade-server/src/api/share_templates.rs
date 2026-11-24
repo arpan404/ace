@@ -6,6 +6,7 @@ use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use spade_core::package::playbooks::Page;
 
 use super::{AppState, problem};
 use crate::teams::share_template::{self, Draft, Schedule};
@@ -22,6 +23,12 @@ struct Review {
     routines: Vec<Schedule>,
     connectors: Vec<String>,
     visibility: String,
+    knowledge: Option<Vec<Page>>,
+    include_heartbeat: Option<bool>,
+    event_routines: Option<Vec<String>>,
+    surfaces: Option<Vec<String>>,
+    contracts: Option<Vec<String>>,
+    plugins: Option<Vec<String>>,
 }
 
 fn revision(draft: &Draft) -> String {
@@ -188,6 +195,21 @@ fn apply_review(state: &AppState, draft: &mut Draft, review: Review) -> Result<(
         trigger["kind"] = json!("schedule");
         triggers.push(trigger);
     }
+    if let Some(original) = draft.recipe["triggers"].as_array() {
+        triggers.extend(
+            original
+                .iter()
+                .filter(|trigger| {
+                    matches!(trigger["kind"].as_str(), Some("event" | "webhook"))
+                        && review.event_routines.as_ref().is_none_or(|names| {
+                            trigger["name"]
+                                .as_str()
+                                .is_some_and(|name| names.iter().any(|id| id == name))
+                        })
+                })
+                .cloned(),
+        );
+    }
     let recipe = &mut draft.recipe;
     recipe["name"] = json!(review.name.trim());
     recipe["blurb"] = json!(review.description.trim());
@@ -196,6 +218,39 @@ fn apply_review(state: &AppState, draft: &mut Draft, review: Review) -> Result<(
     recipe["skills"] = json!(review.skills);
     recipe["triggers"] = Value::Array(triggers);
     recipe["needs"]["connectors"] = Value::Array(needs);
+    if let Some(knowledge) = review.knowledge {
+        recipe["knowledge"] = json!(knowledge);
+    }
+    if let Some(fields) = recipe.as_object_mut() {
+        if review.include_heartbeat == Some(false) {
+            fields.remove("heartbeat");
+        }
+        retain_items(fields.get_mut("surfaces"), review.surfaces.as_deref(), "id");
+        retain_items(
+            fields.get_mut("contracts"),
+            review.contracts.as_deref(),
+            "name",
+        );
+        if let Some(plugins) = review.plugins {
+            if let Some(items) = fields.get_mut("plugins").and_then(Value::as_array_mut) {
+                items.retain(|item| {
+                    item.as_str()
+                        .is_some_and(|name| plugins.iter().any(|id| id == name))
+                });
+            }
+            if let Some(commands) = fields
+                .get_mut("plugin_commands")
+                .and_then(Value::as_object_mut)
+            {
+                commands.retain(|name, _| plugins.contains(name));
+            }
+        }
+    }
+    draft.surface_files.retain(|file| {
+        recipe["surfaces"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item["file"] == file.path))
+    });
     let names = share_template::private_words(
         &state.engine,
         &draft.bot,
@@ -203,7 +258,18 @@ fn apply_review(state: &AppState, draft: &mut Draft, review: Review) -> Result<(
         &share_template::system_words(),
     )?;
     share_template::check(recipe, &names)?;
+    share_template::check_files(draft, &names)?;
     Ok(())
+}
+
+fn retain_items(value: Option<&mut Value>, selected: Option<&[String]>, field: &str) {
+    if let (Some(items), Some(selected)) = (value.and_then(Value::as_array_mut), selected) {
+        items.retain(|item| {
+            item[field]
+                .as_str()
+                .is_some_and(|name| selected.iter().any(|id| id == name))
+        });
+    }
 }
 
 #[derive(Deserialize)]

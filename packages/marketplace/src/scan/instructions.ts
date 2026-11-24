@@ -1,3 +1,4 @@
+import { packageInstructions } from "./package-instructions.ts";
 import type { MarketScanFinding } from "@ace/protocol/marketplace";
 import type { ScanInput } from "./index.ts";
 import type { ScriptLanguage } from "./script-view.ts";
@@ -128,6 +129,7 @@ function sourcesOf(
     for (const [index, note] of recipe.notes.entries()) add(`recipe:note/${index + 1}`, note);
     for (const routine of recipe.routines)
       add(`recipe:routine/${routine.name}`, routine.instruction);
+    for (const { label, text } of packageInstructions(recipe)) add(`recipe:${label}`, text);
   }
   if (input.type === "spade-plugin" && input.listing.description)
     add("plugin:description", input.listing.description);

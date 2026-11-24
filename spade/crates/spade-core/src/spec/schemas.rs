@@ -77,6 +77,41 @@ pub fn bot() -> Value {
                 "accent": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" } } }),
         ),
         ("personality", json!({ "type": "object" })),
+        (
+            "knowledge",
+            list(
+                32,
+                json!({
+                    "type": "object", "additionalProperties": false, "required": ["topic", "title", "body", "kind"],
+                    "properties": {
+                        "topic": named_text(64), "title": named_text(200), "body": named_text(8000),
+                        "kind": { "enum": ["playbook", "lesson"] },
+                    },
+                }),
+            ),
+        ),
+        (
+            "heartbeat",
+            json!({
+                "type": "object", "additionalProperties": false, "required": ["every_minutes", "checklist"],
+                "properties": { "every_minutes": {"type": "integer", "minimum": 5, "maximum": 1440}, "checklist": named_text(4000) },
+            }),
+        ),
+        (
+            "model_roles",
+            json!({
+                "type": "object",
+                "propertyNames": {"enum": ["task", "helper", "verify", "review", "compact", "title"]},
+                "additionalProperties": {"enum": ["fast", "capable"]},
+            }),
+        ),
+        (
+            "plugin_commands",
+            json!({
+                "type": "object", "maxProperties": 16,
+                "additionalProperties": list(64, named_text(120)),
+            }),
+        ),
         ("model", json!({ "enum": ["fast", "capable"] })),
         (
             "uses",

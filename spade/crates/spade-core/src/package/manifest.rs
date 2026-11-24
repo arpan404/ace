@@ -69,7 +69,7 @@ pub(crate) const EXECUTIONS: [&str; 8] = [
     "commands",
     "command",
 ];
-pub(crate) const KNOWN_V3: [&str; 26] = [
+pub(crate) const KNOWN_V3: [&str; 30] = [
     "$schema",
     "format",
     "version",
@@ -82,10 +82,14 @@ pub(crate) const KNOWN_V3: [&str; 26] = [
     "style",
     "personality",
     "model",
+    "model_roles",
+    "knowledge",
+    "heartbeat",
     "uses",
     "triggers",
     "skills",
     "plugins",
+    "plugin_commands",
     "needs",
     "effects",
     "limits",
@@ -258,6 +262,12 @@ pub struct Manifest {
     pub personality: Option<Personality>,
     /// `fast` or `capable`, never a model id.
     pub model: String,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub model_roles: std::collections::BTreeMap<String, super::playbooks::ModelClass>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub knowledge: Vec<super::playbooks::Page>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heartbeat: Option<super::playbooks::Heartbeat>,
     /// Runtime modules it uses; `None` for all of them.
     pub uses: Option<Vec<String>>,
     /// Built-in tools it is narrowed to (`needs.tools`); `None` for all.
@@ -265,6 +275,8 @@ pub struct Manifest {
     pub triggers: Vec<PackageTrigger>,
     pub skills: Vec<String>,
     pub plugins: Vec<String>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub plugin_commands: std::collections::BTreeMap<String, Vec<String>>,
     /// Apps it names in `needs.connectors`, by catalogue id or https address.
     pub connectors: Vec<String>,
     pub effects: Vec<Declared>,
@@ -514,11 +526,31 @@ impl Reader<'_> {
             style: if version == 3 { self.style() } else { None },
             personality: self.personality(),
             model,
+            model_roles: if version == 3 {
+                super::playbooks::roles(self.fields, &mut self.problems)
+            } else {
+                Default::default()
+            },
+            knowledge: if version == 3 {
+                super::playbooks::pages(self.fields, &mut self.problems)
+            } else {
+                Vec::new()
+            },
+            heartbeat: if version == 3 {
+                super::playbooks::heartbeat(self.fields, &mut self.problems)
+            } else {
+                None
+            },
             uses: if version == 3 { self.uses() } else { None },
             tools,
             triggers,
             skills: self.refs("skills"),
             plugins: self.refs("plugins"),
+            plugin_commands: if version == 3 {
+                super::playbooks::commands(self.fields, &mut self.problems)
+            } else {
+                Default::default()
+            },
             connectors: connectors(&needs),
             effects,
             contracts,

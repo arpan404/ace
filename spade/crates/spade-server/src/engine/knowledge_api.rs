@@ -133,11 +133,39 @@ impl Engine {
             author: None,
             now_ms: self.now_ms(),
         };
+        self.keep_knowledge(new)
+    }
+
+    /// A reviewed package supplies starting knowledge the new bot can refine.
+    pub(crate) fn add_package_page(
+        &self,
+        agent: &str,
+        page: &spade_core::package::playbooks::Page,
+    ) -> Result<(StoredEntry, bool), KnowledgeError> {
+        use spade_core::package::playbooks::PageKind;
+        let id = self.ids.next("k");
+        self.keep_knowledge(NewEntry {
+            id: &id,
+            agent,
+            topic: &page.topic,
+            title: page.title.trim(),
+            body: page.body.trim(),
+            kind: match page.kind {
+                PageKind::Playbook => Kind::Howto,
+                PageKind::Lesson => Kind::Finding,
+            },
+            source: SourceKind::Bot,
+            source_detail: None,
+            trust: Trust::Trusted,
+            author: Some(agent),
+            now_ms: self.now_ms(),
+        })
+    }
+
+    fn keep_knowledge(&self, new: NewEntry<'_>) -> Result<(StoredEntry, bool), KnowledgeError> {
+        let limit = self.knowledge_limit(new.agent);
         let mut digests = || self.ids.next("k");
-        match self
-            .store
-            .write_knowledge(new, self.knowledge_limit(&agent.id), &mut digests)?
-        {
+        match self.store.write_knowledge(new, limit, &mut digests)? {
             Written::New { entry, .. } => Ok((entry, true)),
             Written::Exists(entry) => Ok((entry, false)),
             Written::Full => Err(KnowledgeError::Full),

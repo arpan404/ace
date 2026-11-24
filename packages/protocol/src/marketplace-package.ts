@@ -203,6 +203,39 @@ export const PackageCode = z.strictObject({
 });
 export type PackageCode = z.infer<typeof PackageCode>;
 
+export const PackageKnowledgePage = z.strictObject({
+  topic: z
+    .string()
+    .regex(/^[a-z0-9]+(?:[-/][a-z0-9]+)*$/)
+    .max(64),
+  title: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .regex(/^[^\r\n]+$/),
+  body: z.string().trim().min(1).max(8000),
+  kind: z.enum(["playbook", "lesson"]),
+});
+export const PackageHeartbeat = z.strictObject({
+  every_minutes: z.number().int().min(5).max(1440),
+  checklist: z.string().trim().min(1).max(4000),
+});
+export const PackageModelRoles = z
+  .partialRecord(
+    z.enum(["task", "helper", "verify", "review", "compact", "title"]),
+    z.enum(["fast", "capable"]),
+  )
+  .refine((roles) =>
+    Object.keys(roles).every((role) =>
+      ["task", "helper", "verify", "review", "compact", "title"].includes(role),
+    ),
+  );
+export const PackagePluginCommands = z.record(
+  z.string().regex(/^spade-plugin\/[a-z0-9][a-z0-9.-]{0,63}$/),
+  z.array(z.string().min(1).max(120)).max(64),
+);
+
 /** The version 3 fields a read recipe carries; a version 2 recipe has none of them. */
 export const packageFields = {
   /** The Spade Agent Format version it was written for (ADR 0201 §1); missing reads as `1.0`. */
@@ -220,6 +253,10 @@ export const packageFields = {
     .array(z.string().regex(/^tests\/[A-Za-z0-9._-]+\.json$/))
     .max(64)
     .default([]),
+  knowledge: z.array(PackageKnowledgePage).max(32).optional(),
+  heartbeat: PackageHeartbeat.optional(),
+  model_roles: PackageModelRoles.optional(),
+  plugin_commands: PackagePluginCommands.optional(),
   style: z.strictObject({ accent: z.string().regex(/^#[0-9a-fA-F]{6}$/) }).optional(),
   surfaces: z.array(PackageSurface).max(16).optional(),
   /** What a result is held to before it counts as done (ADR 0204 §3); checked by `checkProblems`. */

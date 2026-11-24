@@ -1,3 +1,4 @@
+import { packageInstructions } from "./package-instructions.ts";
 import type { EntryRule } from "./rule.ts";
 import type { ScanInput } from "./index.ts";
 import { scanText } from "./decode.ts";
@@ -41,6 +42,7 @@ function instructionsOf(input: ScanInput): Instruction[] {
     for (const [index, note] of recipe.notes.entries()) add(`Its note ${index + 1}`, note, false);
     for (const routine of recipe.routines)
       add(`Its routine ${routine.name}`, routine.instruction, false);
+    for (const { label, text } of packageInstructions(recipe)) add(`Its ${label}`, text, false);
   }
   if (input.type === "spade-skill" || input.type === "spade-bot" || input.type === "spade-plugin")
     for (const file of input.files) {

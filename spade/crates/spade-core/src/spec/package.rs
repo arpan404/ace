@@ -9,7 +9,7 @@ use crate::routine;
 /// What each field of a version 3 `bot.json` is. Every field the reader knows has a line here,
 /// and only those: the writer refuses otherwise, so a field can't be added to the reader and
 /// left out of the spec.
-const FIELDS: [(&str, &str); 26] = [
+const FIELDS: [(&str, &str); 30] = [
     (
         "$schema",
         "The address of the format's JSON Schema, for editors; it changes nothing a runtime does.",
@@ -70,6 +70,22 @@ const FIELDS: [(&str, &str); 26] = [
         "Scenario files in the package ([distribution](distribution.md)).",
     ),
     ("notes", "Starting notes the bot keeps."),
+    (
+        "knowledge",
+        "Starting playbooks and lessons as topic, title, body and kind.",
+    ),
+    (
+        "heartbeat",
+        "A suggested heartbeat with every_minutes and checklist. The new owner chooses whether to start it.",
+    ),
+    (
+        "model_roles",
+        "The capability class, fast or capable, for each named model role.",
+    ),
+    (
+        "plugin_commands",
+        "Names of commands needed from declared plugins. This grants no permissions.",
+    ),
     (
         "pricing",
         "`{kind: \"free\"}`; missing reads as free, and any other price is refused.",

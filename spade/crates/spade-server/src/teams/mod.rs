@@ -94,3 +94,7 @@ impl Default for Shared {
         }
     }
 }
+
+mod template_setup;
+
+mod share_contents;

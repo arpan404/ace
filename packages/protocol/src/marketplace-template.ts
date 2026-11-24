@@ -1,5 +1,11 @@
 import { z } from "zod";
 import { MarketHash } from "./marketplace-base.ts";
+import {
+  PackageHeartbeat,
+  PackageKnowledgePage,
+  PackageModelRoles,
+  PackagePluginCommands,
+} from "./marketplace-package.ts";
 import { MarketVisibility } from "./marketplace-publisher.ts";
 
 export const ShareTemplateId = z.string().regex(/^template_[a-z0-9_]{1,64}$/);
@@ -16,9 +22,23 @@ const Connector = z.object({
   required: z.boolean(),
 });
 
+const File = z.object({
+  path: z.string().min(1).max(512),
+  text: z.string().max(512 * 1024),
+  executable: z.boolean(),
+});
+const References = z.array(z.string().max(120)).max(32);
+const Knowledge = z.array(PackageKnowledgePage).max(32);
+
 export const ShareTemplateReview = z.strictObject({
   revision: MarketHash,
   visibility: MarketVisibility,
+  knowledge: Knowledge.optional(),
+  include_heartbeat: z.boolean().optional(),
+  event_routines: References.optional(),
+  surfaces: References.optional(),
+  contracts: References.optional(),
+  plugins: References.optional(),
   name: z.string().min(1).max(80),
   description: z.string().min(1).max(300),
   task: z.string().min(1).max(20_000),
@@ -30,6 +50,7 @@ export const ShareTemplateReview = z.strictObject({
 
 export const ShareTemplateDraft = z.object({
   bot: z.string(),
+  surface_files: z.array(File).max(16).default([]),
   left_out: z.array(z.string()).max(64),
   recipe: z.looseObject({
     format: z.literal("spade-bot"),
@@ -38,6 +59,20 @@ export const ShareTemplateDraft = z.object({
     blurb: z.string(),
     task: z.string(),
     face: z.unknown().optional(),
+    style: z.object({ accent: z.string().regex(/^#[0-9a-fA-F]{6}$/) }).optional(),
+    knowledge: Knowledge.optional(),
+    heartbeat: PackageHeartbeat.optional(),
+    model_roles: PackageModelRoles.optional(),
+    plugin_commands: PackagePluginCommands.optional(),
+    plugins: References.optional(),
+    surfaces: z
+      .array(z.looseObject({ id: z.string(), file: z.string() }))
+      .max(16)
+      .optional(),
+    contracts: z
+      .array(z.looseObject({ name: z.string() }))
+      .max(16)
+      .optional(),
     model: z.enum(["capable", "fast"]),
     skills: Skills,
     notes: Notes,
@@ -46,6 +81,13 @@ export const ShareTemplateDraft = z.object({
         z.discriminatedUnion("kind", [
           z.object({ kind: z.literal("message") }),
           Schedule.extend({ kind: z.literal("schedule") }),
+          z.object({
+            kind: z.literal("event"),
+            name: z.string(),
+            instruction: z.string(),
+            event: z.string(),
+          }),
+          z.object({ kind: z.literal("webhook"), name: z.string(), instruction: z.string() }),
         ]),
       )
       .max(33),
@@ -55,7 +97,8 @@ export const ShareTemplateDraft = z.object({
     .array(
       z.object({
         reference: z.string().regex(/^skills\/[a-z0-9][a-z0-9-]{0,63}$/),
-        text: z.string().max(16_000),
+        text: z.string().max(512 * 1024),
+        files: z.array(File).max(512).default([]),
       }),
     )
     .max(32),

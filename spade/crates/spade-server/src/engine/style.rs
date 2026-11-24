@@ -28,7 +28,7 @@ impl Engine {
     }
 
     /// What the agent view shows as `style`: the person's choice, else its package's, else none.
-    pub(super) fn style_of(&self, agent: &spade_store::Agent) -> Value {
+    pub(crate) fn style_of(&self, agent: &spade_store::Agent) -> Value {
         if agent.kind == MAIN {
             return Value::Null;
         }
