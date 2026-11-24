@@ -14,3 +14,8 @@ pub trait ConnIo: AsyncRead + AsyncWrite + Unpin + Send + 'static {}
 
 impl ConnIo for TcpStream {}
 impl ConnIo for TlsStream<TcpStream> {}
+
+// The driver's tests need a connection they can fill up on purpose: a duplex of
+// a few bytes is the only way to make a `101` stall without a real slow peer.
+#[cfg(test)]
+impl ConnIo for tokio::io::DuplexStream {}

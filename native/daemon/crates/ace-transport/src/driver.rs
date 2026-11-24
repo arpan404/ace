@@ -27,7 +27,7 @@ use crate::conn_io::ConnIo;
 use crate::head::{self, RequestHead};
 use crate::limits::ConnectionLimits;
 use crate::peer::Peer;
-use crate::prefixed::{Prefixed, TimedIo};
+use crate::prefixed::{Prefixed, TimedIo, WriteTimeout};
 use crate::proxy::{
     ConnectionState, ExchangeDeadline, ProxyService, ProxyTarget, RequestActivity, Stop,
 };
@@ -191,10 +191,12 @@ pub(crate) async fn serve(
     }
 
     // hyper parses the first head itself: it gets everything the peek read.
-    let mut io = Prefixed::new(Bytes::from(buf), stream, limits.upgrade_write);
     // A remote connection's HTTP writes are unbounded, as Node leaves them; a
-    // loopback one keeps T1a's write timeout on every write.
-    io.set_write_timeout(http_write);
+    // loopback one keeps T1a's write timeout on every write. The bound is shared
+    // so the upgrade handler can arm it for the `101` or a refusal, and drop it
+    // again once the socket is a WebSocket (T1b.1a).
+    let write = WriteTimeout::new(http_write);
+    let io = Prefixed::sharing(Bytes::from(buf), stream, write.clone());
     let first_target = head.target;
     serve_hyper(
         TokioIo::new(io),
@@ -204,6 +206,7 @@ pub(crate) async fn serve(
         shutdown,
         grace,
         limits,
+        write,
         first_target,
     )
     .await;
@@ -218,6 +221,7 @@ async fn serve_hyper(
     shutdown: CancellationToken,
     grace: Grace,
     limits: ConnectionLimits,
+    write: WriteTimeout,
     first_target: String,
 ) {
     let activity = RequestActivity::new();
@@ -234,6 +238,8 @@ async fn serve_hyper(
             activity: Arc::clone(&activity),
             deadlines: Arc::clone(&deadlines),
             exchange: limits.exchange,
+            write,
+            upgrade_write: limits.upgrade_write,
             first_target: Some(first_target),
         },
     );
@@ -252,11 +258,11 @@ async fn serve_hyper(
         // Forwarded responses carry the internal server's own Date; refusals
         // carry none, as today.
         .auto_date_header(false);
-    // A later head's deadline, when the listener has one. The first head was
-    // already read under `first_head`, so this only bounds the rest.
-    if let Some(head) = limits.head {
-        builder.header_read_timeout(head);
-    }
+    // A later head's deadline. The first head was already read under
+    // `first_head`, so this only bounds the rest; `None` must be set explicitly,
+    // because hyper's own default is 30 s, which would cut the SNI listener's
+    // longer trusted idle window short (T1b.1a).
+    builder.header_read_timeout(limits.head);
     let connection = builder.serve_connection(io, service).with_upgrades();
     tokio::pin!(connection);
 
@@ -296,6 +302,9 @@ async fn refuse(stream: Box<dyn ConnIo>, bytes: &'static [u8], write_timeout: Du
     let _ = io.write_all(bytes).await;
     let _ = io.flush().await;
 }
+
+#[cfg(test)]
+mod tests;
 
 enum ReadHead {
     /// A parsed head and the bytes it took.

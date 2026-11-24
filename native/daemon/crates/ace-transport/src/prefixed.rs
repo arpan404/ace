@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //! `Prefixed` hands a connection on with the bytes the driver already read, and
 //! `TimedIo` bounds every write on it: a write or flush that makes no progress
-//! for the connection's write timeout fails, which is the only timeout on a
-//! WebSocket `101` (T1a.2, T1a.5).
+//! for the connection's write timeout fails. The bound is a shared
+//! [`WriteTimeout`], so the connection's upgrade handler changes the same value
+//! the stream reads (T1b.1a): it is armed while a `101` or a refusal is written
+//! and disarmed once a WebSocket owns the socket (T1a.2, T1a.5).
 
 use std::io;
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -17,31 +20,68 @@ use tokio::time::Sleep;
 /// fails. The driver passes it in; nothing else bounds a `101`.
 pub const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// A stream whose writes and flushes are bounded by `timeout`, when it has one.
-/// Reads pass through untouched: they are bounded by the HTTP header timeout
-/// instead. A remote listener disarms it before the stream reaches hyper, whose
-/// writes Node never bounds (T1b.1a).
+/// How long writes may stall, shared between a connection's I/O and whoever
+/// decides what is being written (T1b.1a).
+///
+/// `None` is unbounded: a remote connection's HTTP, whose writes Node never
+/// bounds, and a live WebSocket. `Some(timeout)` bounds the next write that
+/// makes no progress, which is what a `101` or a refusal gets and nothing else.
+#[derive(Debug, Clone)]
+pub struct WriteTimeout(Arc<Mutex<Option<Duration>>>);
+
+impl WriteTimeout {
+    pub fn new(timeout: Option<Duration>) -> Self {
+        Self(Arc::new(Mutex::new(timeout)))
+    }
+
+    pub fn get(&self) -> Option<Duration> {
+        *self.0.lock().unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    pub fn set(&self, timeout: Option<Duration>) {
+        *self.0.lock().unwrap_or_else(|poison| poison.into_inner()) = timeout;
+    }
+}
+
+/// A stream whose writes and flushes are bounded by its [`WriteTimeout`], when
+/// that has one. Reads pass through untouched: they are bounded by the HTTP
+/// header timeout instead.
 #[derive(Debug)]
 pub struct TimedIo<S> {
     inner: S,
-    timeout: Option<Duration>,
+    write: WriteTimeout,
     deadline: Option<Pin<Box<Sleep>>>,
+    /// The bound the armed `deadline` was built from, so a changed bound
+    /// re-arms rather than keeping the old one.
+    armed_with: Option<Duration>,
 }
 
 impl<S> TimedIo<S> {
     pub fn new(inner: S, timeout: Duration) -> Self {
+        Self::sharing(inner, WriteTimeout::new(Some(timeout)))
+    }
+
+    /// A stream bounded by a policy its owner and its peers share.
+    pub fn sharing(inner: S, write: WriteTimeout) -> Self {
         Self {
             inner,
-            timeout: Some(timeout),
+            write,
             deadline: None,
+            armed_with: None,
         }
     }
 
     /// Bound the writes from now on, or (`None`) let them run as long as the
-    /// peer takes. Clears any deadline the previous bound had armed.
+    /// peer takes.
     pub fn set_timeout(&mut self, timeout: Option<Duration>) {
-        self.timeout = timeout;
+        self.write.set(timeout);
         self.deadline = None;
+        self.armed_with = None;
+    }
+
+    /// The shared bound, for the code that decides what is being written.
+    pub fn write_timeout(&self) -> WriteTimeout {
+        self.write.clone()
     }
 
     /// The stream underneath, for the cases that write a refusal before
@@ -58,23 +98,27 @@ impl<S> TimedIo<S> {
         cx: &mut Context<'_>,
         ready: Poll<io::Result<T>>,
     ) -> Poll<io::Result<T>> {
-        let Some(timeout) = self.timeout else {
+        let Some(timeout) = self.write.get() else {
             self.deadline = None;
+            self.armed_with = None;
             return ready;
         };
         match ready {
             Poll::Ready(outcome) => {
                 self.deadline = None;
+                self.armed_with = None;
                 Poll::Ready(outcome)
             }
             Poll::Pending => {
-                if self.deadline.is_none() {
+                if self.deadline.is_none() || self.armed_with != Some(timeout) {
                     self.deadline = Some(Box::pin(tokio::time::sleep(timeout)));
+                    self.armed_with = Some(timeout);
                 }
                 if let Some(deadline) = self.deadline.as_mut()
                     && deadline.as_mut().poll(cx).is_ready()
                 {
                     self.deadline = None;
+                    self.armed_with = None;
                     return Poll::Ready(Err(io::Error::new(
                         io::ErrorKind::TimedOut,
                         "write made no progress within the connection's write timeout",
@@ -152,9 +196,22 @@ impl<S> Prefixed<S> {
         }
     }
 
+    /// A stream whose writes share `write` with its owner.
+    pub fn sharing(prefix: Bytes, stream: S, write: WriteTimeout) -> Self {
+        Self {
+            prefix,
+            inner: TimedIo::sharing(stream, write),
+        }
+    }
+
     /// Bound the writes from now on, or (`None`) leave them unbounded.
     pub fn set_write_timeout(&mut self, timeout: Option<Duration>) {
         self.inner.set_timeout(timeout);
+    }
+
+    /// The shared write bound, for the code that decides what is written.
+    pub fn write_timeout(&self) -> WriteTimeout {
+        self.inner.write_timeout()
     }
 }
 

@@ -40,6 +40,7 @@ use crate::error::TransportError;
 use crate::head::{self, RequestHead};
 use crate::hop::{self, HopSecret};
 use crate::peer::Peer;
+use crate::prefixed::WriteTimeout;
 
 /// The loopback listener's exchange deadline, from the service call to the last
 /// byte of the answer: Node's `requestTimeout` bounds receiving the whole request
@@ -414,6 +415,11 @@ pub struct ConnectionState {
     /// The whole exchange's deadline; None on a listener with no request
     /// timeout (T1b.1a's `ConnectionLimits::exchange`).
     pub exchange: Option<Duration>,
+    /// The connection's write bound, armed for a `101` or a refusal and dropped
+    /// once the upgrade leaves HTTP (T1b.1a).
+    pub write: WriteTimeout,
+    /// The bound a `101` or a refusal is written under.
+    pub upgrade_write: Duration,
     /// The first request head's target, exactly as the driver read it. hyper's
     /// `Uri` fills "/" into a pathless absolute form, so only the head the
     /// driver parsed can be forwarded byte for byte.
@@ -436,6 +442,10 @@ struct Exchange {
     /// The whole exchange's deadline; None on a listener with no request
     /// timeout (T1b.1a's `ConnectionLimits::exchange`).
     exchange: Option<Duration>,
+    /// The connection's write bound (T1b.1a).
+    write: WriteTimeout,
+    /// The bound a `101` or a refusal is written under.
+    upgrade_write: Duration,
 }
 
 /// The service hyper's server runs for ordinary requests and for upgrade
@@ -460,6 +470,8 @@ impl ProxyService {
                 deadlines: state.deadlines,
                 first_target: Arc::new(Mutex::new(state.first_target)),
                 exchange: state.exchange,
+                write: state.write,
+                upgrade_write: state.upgrade_write,
             },
         }
     }
@@ -506,16 +518,30 @@ async fn upgrade(
     match reply {
         // hyper ends the connection with no response when the service fails.
         UpgradeReply::Drop => Err(ProxyError::Dropped),
-        UpgradeReply::Refuse(refusal) => Ok(answered(refusal, in_flight)),
+        UpgradeReply::Refuse(refusal) => {
+            // The refusal is written by hyper under the connection's write bound,
+            // as `ws` bounds its own `abortHandshake`; it closes the connection,
+            // so the bound is never left armed for a later request.
+            exchange.write.set(Some(exchange.upgrade_write));
+            Ok(answered(refusal, in_flight))
+        }
         UpgradeReply::Switch(answer, reservation) => {
             // The `101` is written by hyper after this returns; only then can
-            // the upgrade resolve. Nothing bounds it but the stream's write
-            // timeout.
+            // the upgrade resolve. The connection's write bound is armed for it,
+            // so a client that never reads cannot hold a close deadline (which
+            // the armed upgrade stops from firing) open forever.
+            exchange.write.set(Some(exchange.upgrade_write));
             let switching = hyper::upgrade::on(req);
             let upgrades = Arc::clone(&exchange.upgrades);
+            let write = exchange.write.clone();
             tokio::spawn(async move {
                 let stream: Option<Box<dyn UpgradeIo>> = match switching.await {
-                    Ok(upgraded) => Some(Box::new(TokioIo::new(upgraded))),
+                    Ok(upgraded) => {
+                        // The socket is a WebSocket now; hyper's HTTP loop never
+                        // touches it again and Node bounds no WebSocket write.
+                        write.set(None);
+                        Some(Box::new(TokioIo::new(upgraded)))
+                    }
                     Err(_) => None,
                 };
                 upgrades.switched(reservation, stream);

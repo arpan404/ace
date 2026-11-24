@@ -203,6 +203,10 @@ impl UpgradeHandler for WebSocketUpgrades {
             if answer(&mut stream, &acceptance.bytes()).await.is_err() {
                 return;
             }
+            // The `101` was the last thing the connection's write timeout
+            // bounded: the socket is a WebSocket from here, and Node bounds no
+            // WebSocket write (T1b.1a).
+            stream.set_write_timeout(None);
             sink.opened(reservation, Box::new(stream), user_agent);
             settle.disarm();
         })
