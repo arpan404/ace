@@ -470,3 +470,75 @@ async fn a_research_result_makes_the_rest_of_the_turn_untrusted() -> Result {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn stop_on_the_bot_stops_the_helpers_the_research_started() -> Result {
+    let pages = site().await?;
+    // The first helper answers; the other two are still working when the person stops.
+    let setup = setup(&pages, budget(60_000), Some(Duration::from_secs(10))).await?;
+    setup.spade.say(&setup.conversation, MESSAGE).await?;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let found = helpers(&setup.spade, &setup.conversation).await?;
+        if found.len() == 3 && found.iter().any(|h| h["state"] == "working") {
+            break;
+        }
+        if Instant::now() > deadline {
+            return Err(format!("the helpers never ran: {found:?}").into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let (status, _) = setup
+        .spade
+        .post(
+            &format!("/v1/conversations/{}/stop", setup.conversation),
+            json!({}),
+        )
+        .await?;
+    assert_eq!(status, 202);
+    // The research job ends as stopped, and so does every helper it started.
+    let events = setup
+        .spade
+        .wait_for_count(&setup.conversation, "job_finished", 1)
+        .await?;
+    let stopped = events
+        .iter()
+        .find(|e| e["type"] == "job_finished")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(stopped["name"], "research");
+    assert!(
+        stopped["content"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("Stopped by the person"),
+        "{stopped}"
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let found = helpers(&setup.spade, &setup.conversation).await?;
+        if found.iter().all(|h| h["state"] == "ended") {
+            break;
+        }
+        if Instant::now() > deadline {
+            return Err(format!("helpers kept running: {found:?}").into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    // The result opened no reply.
+    let asked = setup.spade.fake.seen().len();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        setup
+            .spade
+            .events(&setup.conversation)
+            .await?
+            .iter()
+            .filter(|e| e["type"] == "reply_started")
+            .count(),
+        1,
+        "no reply opened after the stop"
+    );
+    assert_eq!(setup.spade.fake.seen().len(), asked);
+    Ok(())
+}

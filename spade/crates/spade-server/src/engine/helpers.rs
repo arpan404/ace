@@ -371,7 +371,7 @@ impl Engine {
             // Stop stores its marker under this lock, then stops the helpers it finds: a helper
             // is either made before the marker, and found, or sees it here and is never made.
             match self.load(bot) {
-                Ok(events) if spade_core::turn::job_stopped(&events, base) => {
+                Ok(events) if stopped(&events, base) => {
                     return Err(ToolOutput::error(context::JOB_STOPPED));
                 }
                 Ok(_) => {}
@@ -984,6 +984,21 @@ impl Engine {
         }
         Ok(Some(shown))
     }
+}
+
+/// Whether a stop was stored for `job`, or for the job it is a part of: research stores its part
+/// helpers under `<research job>/<n>`, and a stop on the research stops them too, so one is never
+/// made after it.
+fn stopped(events: &[Event], job: &str) -> bool {
+    let base = routing::base_job(job);
+    if spade_core::turn::job_stopped(events, base) {
+        return true;
+    }
+    base.split_once('/').is_some_and(|(parent, n)| {
+        !n.is_empty()
+            && n.bytes().all(|b| b.is_ascii_digit())
+            && spade_core::turn::job_stopped(events, parent)
+    })
 }
 
 /// The rows of `rows` that are helpers, not lanes.

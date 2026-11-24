@@ -316,3 +316,25 @@ fn names_and_addresses() {
     assert_eq!(cut("abcdef", 4), "abc…");
     assert_eq!(cut("abc", 4), "abc");
 }
+
+#[test]
+fn a_part_shows_its_first_findings_and_the_sources_are_the_ones_shown() {
+    let text = format!(
+        "Answer.\nFindings:\n{}",
+        (1..=5)
+            .map(|n| format!("- Claim {n} — https://a.dev/{n}\n"))
+            .collect::<String>()
+    );
+    let part = read_reply("Q", &text, &[]);
+    assert_eq!(part.findings.len(), 5, "kept for the summary");
+    let report = assemble("T", None, &[part], None);
+    for n in 1..=FINDINGS_PER_PART {
+        assert!(
+            report.contains(&format!("Claim {n} — <https://a.dev/{n}>")),
+            "{report}"
+        );
+    }
+    assert!(!report.contains("Claim 4"), "{report}");
+    let sources = report.split("## Sources\n\n").nth(1).unwrap_or("");
+    assert_eq!(sources.lines().count(), FINDINGS_PER_PART, "{sources}");
+}

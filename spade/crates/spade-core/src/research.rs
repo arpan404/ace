@@ -503,13 +503,13 @@ pub fn assemble(
     }
     out.push_str("\n\n## Findings\n\n");
     let mut any = false;
-    for part in parts.iter().filter(|part| !part.findings.is_empty()) {
+    for (part, findings) in groups(parts) {
         any = true;
         out.push_str(&format!(
             "### {}\n\n",
             cut(&single_line(&part.question), HEADING_CHARS)
         ));
-        for finding in part.findings.iter().take(FINDINGS_PER_PART) {
+        for finding in findings {
             out.push_str(&format!("- {} — <{}>", finding.claim, finding.url));
             if let Some(saved) = &finding.saved {
                 out.push_str(&format!(" _(saved: {saved})_"));
@@ -534,7 +534,7 @@ pub fn assemble(
     out.push_str(&confidence(parts));
     out.push_str("\n\n## Sources\n\n");
     let mut sources: Vec<(String, Option<String>)> = Vec::new();
-    for finding in parts.iter().flat_map(|part| &part.findings) {
+    for finding in parts.iter().flat_map(shown) {
         if !sources
             .iter()
             .any(|(url, _)| url_key(url) == url_key(&finding.url))
@@ -553,6 +553,19 @@ pub fn assemble(
         out.push_str("No pages were cited.\n");
     }
     out
+}
+
+/// The findings a part shows: its first few, the rest left for its answer and the summary.
+fn shown(part: &Part) -> impl Iterator<Item = &Finding> {
+    part.findings.iter().take(FINDINGS_PER_PART)
+}
+
+/// The parts with findings, each with what it shows, in the order they were asked.
+fn groups(parts: &[Part]) -> impl Iterator<Item = (&Part, Vec<&Finding>)> {
+    parts
+        .iter()
+        .filter(|part| !part.findings.is_empty())
+        .map(|part| (part, shown(part).collect()))
 }
 
 /// The answer when the summary call gave none: each helper's own, joined and cut.
@@ -684,7 +697,7 @@ pub fn result(report: &str, path: &str, parts: &[Part]) -> String {
     let answered = parts.iter().filter(|part| part.failure.is_none()).count();
     let mut urls: Vec<String> = parts
         .iter()
-        .flat_map(|part| &part.findings)
+        .flat_map(shown)
         .map(|finding| finding.url.clone())
         .collect();
     urls.sort_unstable();
