@@ -46,6 +46,15 @@ import UIKit
         self.animating = animating
     }
 
+    /// Where the layout places the entry `id` now, in the feed's screen coordinates
+    /// (`TranscriptScrollAxis`): on screen or not, measured or estimated. Nil when the layout
+    /// doesn't hold it or the scroll view isn't attached.
+    func screenFrame(of id: String) -> CGRect? {
+        guard let scroller, let physical = locate?(id) else { return nil }
+        let origin = TranscriptScrollAxis.origin(offset: scroller.contentOffset.y, viewport: scroller.bounds.height)
+        return TranscriptScrollAxis.row(physical).offsetBy(dx: 0, dy: origin)
+    }
+
     /// Calls `settle` with each drawn frame's time until it says the feed has settled, then
     /// `done`. The same `run` already going ends first, without its `done`; the other run is
     /// left alone.

@@ -148,17 +148,20 @@ extension ConversationFeed {
             let retainedNewer = Set(reply.evictedTrailing ?? [])
             let metrics = intent.metrics
             let bottom = metrics.viewport - metrics.bottomInset
+            // Every frame comes from the collection's layout, which places each entry whether
+            // or not a cell has shown it yet.
+            let frame = { (id: String) in surface.screenFrame(of: "block:\(id)") }
             guard extent.hasMeasuredNewerRows(retainedNewer),
-                  retainedNewer.allSatisfy({ id in
-                      guard let frame = anchor.keeper.frames.frame("block:\(id)") else { return true }
-                      return frame.minY >= bottom
-                  }) else { return false }
+                  retainedNewer.allSatisfy({ id in frame(id).map { $0.minY >= bottom } ?? true }) else { return false }
             // Protect the viewport and half a screen ahead. A turn cut by the previous page
             // can regroup further ahead without changing the coordinates of these rows.
             let ahead = metrics.topInset - metrics.viewport / 2
-            let oldestProtected = shown.screen.blockOrder.first { id in
-                guard let frame = anchor.keeper.frames.frame("block:\(id)") else { return false }
-                return frame.minY < bottom && frame.maxY > ahead
+            let oldestProtected: String?
+            switch TranscriptHistoryAppend.oldestProtected(
+                shown.screen.blockOrder.filter { shown.screen.blocks[$0] != nil }, frame: frame, ahead: ahead, bottom: bottom) {
+            case .unknown: return false
+            case .all: oldestProtected = nil
+            case .block(let id): oldestProtected = id
             }
             return TranscriptHistoryAppend.preservesRows(patches, replacing: base, shown: shown,
                                                         oldestProtected: oldestProtected, retainedNewer: retainedNewer)

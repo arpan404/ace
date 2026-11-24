@@ -1,8 +1,33 @@
+import CoreGraphics
 import Foundation
 
 /// An older page may fill or regroup rows ahead of the viewport during a fling. The rows
 /// between the viewport and the live edge keep their order and size, or leave measured space.
 enum TranscriptHistoryAppend {
+    /// Where the protected rows start (`oldestProtected`).
+    enum ProtectedStart: Equatable, Sendable {
+        /// A block in the window has no frame yet: the protected rows can't be told apart, so the
+        /// page waits.
+        case unknown
+        /// No block meets the protected band: every row is protected.
+        case all
+        case block(String)
+    }
+
+    /// The oldest block of `order` (oldest first) whose frame on screen meets `ahead..<bottom`:
+    /// the viewport and the half screen ahead of a fling. `frame` is the collection layout's,
+    /// which places every entry, so a partial turn just past the screen's top that no cell has
+    /// shown yet is still protected.
+    static func oldestProtected(_ order: [String], frame: (String) -> CGRect?, ahead: CGFloat,
+                                bottom: CGFloat) -> ProtectedStart {
+        var start = ProtectedStart.all
+        for id in order {
+            guard let frame = frame(id) else { return .unknown }
+            if case .all = start, frame.minY < bottom, frame.maxY > ahead { start = .block(id) }
+        }
+        return start
+    }
+
     @MainActor static func preservesRows(_ patches: [BridgePatch], replacing base: ThreadModel,
                                         shown: ThreadModel, oldestProtected: String?, retainedNewer: Set<String>) -> Bool {
         let before = shown.screen.blockOrder

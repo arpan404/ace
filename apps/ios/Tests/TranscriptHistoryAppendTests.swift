@@ -1,3 +1,4 @@
+import CoreGraphics
 import Testing
 @testable import Ace
 
@@ -24,6 +25,27 @@ import Testing
 
         #expect(!TranscriptHistoryAppend.preservesRows(page, replacing: model, shown: model,
                                                       oldestProtected: "reader", retainedNewer: []))
+    }
+
+    @Test func theRowsHalfAScreenAheadAreProtectedFromTheLayoutsFramesThoughNoCellShowedThem() {
+        // An 800-point viewport: the band runs from half a screen past its top to its bottom.
+        let frames: [String: CGRect] = [
+            "partial": CGRect(x: 0, y: -1_200, width: 320, height: 500),
+            "ahead": CGRect(x: 0, y: -700, width: 320, height: 600),
+            "reader": CGRect(x: 0, y: -100, width: 320, height: 600),
+            "newest": CGRect(x: 0, y: 500, width: 320, height: 400),
+        ]
+        let order = ["partial", "ahead", "reader", "newest"]
+
+        #expect(TranscriptHistoryAppend.oldestProtected(order, frame: { frames[$0] }, ahead: -400, bottom: 800)
+            == .block("ahead"))
+    }
+
+    @Test func aPageWaitsWhenARowInTheWindowHasNoFrame() {
+        let frames: [String: CGRect] = ["reader": CGRect(x: 0, y: 0, width: 320, height: 600)]
+
+        #expect(TranscriptHistoryAppend.oldestProtected(["ahead", "reader"], frame: { frames[$0] }, ahead: -400,
+                                                        bottom: 800) == .unknown)
     }
 
     private func historyWindow() -> ThreadModel {
