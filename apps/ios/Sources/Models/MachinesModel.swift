@@ -63,9 +63,11 @@ import Observation
     @ObservationIgnored private var backgroundClosed = false
     /// A look at a machine's route its plan asked for later (`MachineRoutePlan`).
     @ObservationIgnored private var retries: RouteRetries
-    /// When the runtimes hear the phone went offline (`OfflineHold`), and its look-again timer.
+    /// When the runtimes hear the phone went offline (`OfflineHold`), its look-again timer, and
+    /// the monotonic clock (ms) it counts on.
     @ObservationIgnored private var offlineHold = OfflineHold()
     @ObservationIgnored private var pathTimer: RouteRetries
+    @ObservationIgnored private let monotonic: () -> Double
     /// The phone is on Wi-Fi: until the first reading, as if it were (`MachineRoutePlan.wifi`).
     @ObservationIgnored private(set) var onWiFi = true
     /// Account runtimes' saved sends moving into the paired machines they turned out to be.
@@ -85,11 +87,11 @@ import Observation
     init(access: any MachineAccess, account: (any AccountDirectory)? = nil, storage: URL, defaults: UserDefaults = .standard,
          itemLimit: Int = 200, now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 }, installId: String? = nil,
          probe: @escaping (ConnectionTarget) async -> Bool = DirectProbe.answers,
-         schedule: @escaping RouteScheduler = RouteRetries.sleeping,
+         schedule: @escaping RouteScheduler = RouteRetries.sleeping, monotonic: @escaping () -> Double = RouteRetries.monotonic,
          moveSends: @escaping SendAdoptions.Move = SendAdoptions.durable,
          makeClient: @escaping @MainActor () -> ClientModel) {
         self.access = access; self.account = account; self.storage = storage; self.defaults = defaults; self.itemLimit = itemLimit; self.makeClient = makeClient
-        self.installId = installId; self.probe = probe; clock = now
+        self.installId = installId; self.probe = probe; clock = now; self.monotonic = monotonic
         retries = RouteRetries(schedule: schedule)
         pathTimer = RouteRetries(schedule: schedule)
         adoptions = SendAdoptions(defaults: defaults, storage: storage, move: moveSends)
@@ -378,7 +380,7 @@ import Observation
     func network(online: Bool, interfaceChanged: Bool) {
         // A path down for a moment never reaches the runtimes: a socket that lives through it
         // stays, and one that died retries by itself (`OfflineHold`).
-        tell(offlineHold.path(online: online, at: clock()))
+        tell(offlineHold.path(online: online, at: monotonic()))
         if online { pathTimer.cancel(Self.pathKey) }
         // A new interface (Wi-Fi, cellular, Tailscale) can reach a host the old one couldn't,
         // and a socket still ready on the old one may be dead without having closed: a ready
@@ -394,9 +396,9 @@ import Observation
             pathTimer.cancel(Self.pathKey)
             for session in inbox.all { session.client.network(online) }
         case .check(let at):
-            pathTimer.set(Self.pathKey, after: at - clock()) { [weak self] in
+            pathTimer.set(Self.pathKey, after: at - monotonic()) { [weak self] in
                 guard let self else { return }
-                tell(offlineHold.elapsed(at: clock()))
+                tell(offlineHold.elapsed(at: monotonic()))
             }
         }
     }

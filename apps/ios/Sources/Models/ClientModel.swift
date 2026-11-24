@@ -86,6 +86,8 @@ import QuartzCore
     @ObservationIgnored private var grace = ConnectionGrace()
     @ObservationIgnored private var graceCheck: (@MainActor () -> Void)?
     @ObservationIgnored private let schedule: RouteScheduler
+    /// The grace's clock (ms): monotonic, unlike `now`, which stamps what the screens show.
+    @ObservationIgnored private let monotonic: () -> Double
     /// The daemon socket while ready, as the bridge names it. It changes with every reconnect,
     /// even one whose drop and recovery reached the phone as a single "ready".
     @ObservationIgnored private var socket: Int? {
@@ -316,19 +318,24 @@ import QuartzCore
 
     init(now: @escaping () -> Double, frames frameTiming: FrameTiming = .live,
          checkpoints: @escaping InboxCheckpoint.Reader = InboxCheckpoint.background,
-         schedule: @escaping RouteScheduler = RouteRetries.sleeping, makeRuntime: @escaping ClientSessionFactory = {
+         schedule: @escaping RouteScheduler = RouteRetries.sleeping, monotonic: @escaping () -> Double = RouteRetries.monotonic,
+         makeRuntime: @escaping ClientSessionFactory = {
         ClientRuntime(target: $0, storageURL: $1, receive: $2, fail: $3)
-    }) { self.now = now; self.frameTiming = frameTiming; self.schedule = schedule; self.checkpoints = checkpoints; self.makeRuntime = makeRuntime; liveActivity = ThreadLiveActivity(now: { Date(timeIntervalSince1970: now() / 1000) }) }
+    }) { self.now = now; self.frameTiming = frameTiming; self.schedule = schedule; self.monotonic = monotonic; self.checkpoints = checkpoints; self.makeRuntime = makeRuntime; liveActivity = ThreadLiveActivity(now: { Date(timeIntervalSince1970: now() / 1000) }) }
     /// The real state moved: the shown one follows, or holds for the grace and looks again then.
     private func showConnection() {
         graceCheck?()
         graceCheck = nil
-        if let at = grace.changed(connection, at: now()) {
-            graceCheck = schedule(at - now()) { [weak self] in
+        lookAgain(grace.changed(connection, at: monotonic()))
+    }
+    /// Shows the grace's state, and while it still hides a reconnect, looks again at `at`. A
+    /// timer that wakes before `at` finds it still hidden and is set again.
+    private func lookAgain(_ at: Double?) {
+        if let at {
+            graceCheck = schedule(at - monotonic()) { [weak self] in
                 guard let self else { return }
                 graceCheck = nil
-                grace.elapsed(at: now())
-                if shownConnection != grace.shown { shownConnection = grace.shown }
+                lookAgain(grace.elapsed(at: monotonic()))
             }
         }
         if shownConnection != grace.shown { shownConnection = grace.shown }

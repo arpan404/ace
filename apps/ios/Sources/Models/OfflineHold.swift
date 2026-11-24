@@ -5,7 +5,8 @@ import Foundation
 /// otherwise close every socket at once, even one that would have lived through the blip. So
 /// the runtimes hear "offline" only once the path has stayed down for `hold`, and "online"
 /// at once. While held, a socket that really died still closes and retries by itself; one
-/// that is still healthy keeps going. Pure: times are ms.
+/// that is still healthy keeps going. Pure: times are ms on a monotonic clock, so a wall clock
+/// set forward never tells the runtimes early.
 struct OfflineHold: Equatable, Sendable {
     /// How long the path must stay down before the runtimes are told (ms).
     static let hold: Double = 4_000

@@ -8,7 +8,8 @@ import Foundation
 ///
 /// Only the words and the dot read this. Everything that acts on the connection (sends, reads,
 /// confirming a row as done) keeps reading the real state, so nothing is settled from stale
-/// data while the grace hides a reconnect (AGENTS.md priority 1). Pure: times are ms.
+/// data while the grace hides a reconnect (AGENTS.md priority 1). Pure: times are ms on a
+/// monotonic clock, so a wall clock set back or forward never stretches or cuts the grace.
 struct ConnectionGrace: Equatable, Sendable {
     /// How long a reconnect stays out of sight (ms).
     static let grace: Double = 6_000
@@ -28,8 +29,9 @@ struct ConnectionGrace: Equatable, Sendable {
         return settle(at: now)
     }
 
-    /// Time passed: a hidden reconnect that ran past the grace shows.
-    mutating func elapsed(at now: Double) { _ = settle(at: now) }
+    /// Time passed: a hidden reconnect that ran past the grace shows. Returns when to look again
+    /// while it is still hidden, as a timer that woke early does.
+    @discardableResult mutating func elapsed(at now: Double) -> Double? { settle(at: now) }
 
     private mutating func settle(at now: Double) -> Double? {
         if actual == "ready" || actual == "fatal" || shown != "ready" {
