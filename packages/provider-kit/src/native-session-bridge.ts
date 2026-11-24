@@ -10,6 +10,7 @@
  * lands, so a reply never overtakes the frame that carried it.
  */
 
+import { warnSafely } from "./native-process.ts";
 import { ProviderPayload } from "./payload.ts";
 
 /** How the frame's data reads; the engine-api `Frame`'s `dir`. */
@@ -82,6 +83,10 @@ function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
   return (
     typeof value === "object" && value !== null && typeof Reflect.get(value, "then") === "function"
   );
+}
+
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**
@@ -184,9 +189,19 @@ export function sessionBridge(
     const [key, ms] = fields;
     if (typeof key !== "string" || typeof ms !== "number")
       throw new TypeError("native session timer is malformed");
+    // A re-armed key replaces its timer: the old handle is cancelled first, or it
+    // could still call `hooks.timer` after this one stands for the same key.
+    const previous = timers.get(key);
+    if (previous !== undefined) {
+      timers.delete(key);
+      previous();
+    }
     timers.set(
       key,
-      hooks.schedule(() => hooks.timer(key), ms),
+      hooks.schedule(() => {
+        if (closed) return;
+        hooks.timer(key);
+      }, ms),
     );
   }
 
@@ -202,7 +217,13 @@ export function sessionBridge(
   /** The terminal barrier: every frame, callback and settle arrived before it. */
   function drained(): void {
     closed = true;
-    for (const cancel of timers.values()) cancel();
+    for (const cancel of timers.values()) {
+      try {
+        cancel();
+      } catch (error) {
+        warnSafely(`native session timer cancellation failed: ${describe(error)}`);
+      }
+    }
     timers.clear();
     for (const entry of pending.values()) entry.reject(new Error("session closed"));
     pending.clear();
@@ -244,7 +265,17 @@ export function sessionBridge(
     if (!Array.isArray(parsed)) throw new TypeError("native session batch is not an array");
     for (const event of parsed) {
       if (closed) return;
-      handle(event);
+      // Each event stands alone: a throw in one must not skip the rest of its
+      // batch, and skipping `Drained` above all would leave the session's
+      // promises unsettled and its exit unhooked.
+      try {
+        handle(event);
+      } catch (error) {
+        const kind: unknown = Array.isArray(event) ? event[0] : undefined;
+        warnSafely(
+          `native session ${typeof kind === "string" ? kind : "unknown"} event failed: ${describe(error)}`,
+        );
+      }
     }
   }
 

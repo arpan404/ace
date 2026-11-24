@@ -18,9 +18,11 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::OnceLock;
 
 /// The addon's tokio runtime (two workers): pumps, waiters and stop tasks.
+/// Sessions post their event batches on it too, so the addon keeps one pool
+/// (E3.0c, review).
 static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
-fn runtime() -> napi::Result<&'static tokio::runtime::Runtime> {
+pub(crate) fn runtime() -> napi::Result<&'static tokio::runtime::Runtime> {
     if let Some(runtime) = RUNTIME.get() {
         return Ok(runtime);
     }

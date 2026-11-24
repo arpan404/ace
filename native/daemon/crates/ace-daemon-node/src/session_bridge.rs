@@ -13,7 +13,9 @@ use napi::Status;
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
+
+use crate::supervisor::runtime;
 
 /// The most frames one call carries, and the most frame text.
 const BATCH_FRAMES: usize = 256;
@@ -21,28 +23,6 @@ const BATCH_BYTES: usize = 256 * 1024;
 
 /// The facade's callback: one encoded batch of `[[kind, ...fields], ...]`.
 type Events = ThreadsafeFunction<String, ()>;
-
-/// The addon's session runtime: the posting tasks wait and wake here; the
-/// shell's thread never waits on it (ADR 0223 §4, "I/O runs on tokio").
-static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-
-fn runtime() -> napi::Result<&'static tokio::runtime::Runtime> {
-    if let Some(runtime) = RUNTIME.get() {
-        return Ok(runtime);
-    }
-    let built = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(2)
-        .thread_name("ace-session")
-        .enable_all()
-        .build()
-        .map_err(|error| {
-            napi::Error::from_reason(format!("session runtime failed to start: {error}"))
-        })?;
-    let _ = RUNTIME.set(built);
-    RUNTIME
-        .get()
-        .ok_or_else(|| napi::Error::from_reason("session runtime failed to start"))
-}
 
 /// What the posting task and the port's methods share.
 struct PortState {
