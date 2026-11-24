@@ -3,13 +3,15 @@ import { get } from "node:https";
 import { connect as connectTcp, type Socket } from "node:net";
 import { connect as connectTls, type TLSSocket } from "node:tls";
 import { afterEach, expect, test } from "vitest";
-import { WebSocket, WebSocketServer } from "ws";
+import { WebSocket } from "ws";
 import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import { tlsFixtureHome } from "./process-test-support.ts";
-import { sniListener, type SniLimits } from "./sni-listener.ts";
+import { testSniListener, testSocketServer } from "./sni-test-support.ts";
+import type { SniLimits } from "./sni-listener.ts";
 import { loadIdentity } from "./tls-identity.ts";
 
-// Real TLS sockets: the deadlines and close behaviour live in Node's and Bun's socket layers.
+// Real TLS sockets: the deadlines and close behaviour live in Node's and Bun's socket layers, and
+// in Rust's on the native leg, which every case here runs against too.
 const identity = loadIdentity(tlsFixtureHome());
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -21,27 +23,24 @@ const minute = 60_000;
 /** A listener answering 204, with WebSocket upgrades on `/`, bound to 127.0.0.1. */
 async function start(limits: Partial<SniLimits>) {
   const errors: Error[] = [];
-  const listener = sniListener({
+  const listener = testSniListener({
     tls: identity,
     requests: (_request, response) => response.writeHead(204).end(),
     delay: systemDeliveryRuntime.delay,
     log: (error) => errors.push(error),
     limits,
   });
-  const wss = new WebSocketServer({ noServer: true });
-  listener.http.on("upgrade", (request, socket, head) =>
-    wss.handleUpgrade(request, socket, head, (ws) => ws.send("welcome")),
-  );
+  const server = testSocketServer(listener, (socket) => socket.send("welcome"));
   const port = await listener.listen("127.0.0.1", 0);
   let closed = false;
   cleanups.push(async () => {
-    for (const client of wss.clients) client.terminate();
+    for (const client of server.clients()) client.terminate();
     if (!closed) await listener.close();
-    wss.close();
+    server.close();
   });
   return {
     port,
-    wss,
+    server,
     errors,
     close: async () => {
       closed = true;
@@ -145,12 +144,12 @@ test("closing drops waiting and idle connections at once and leaves WebSockets t
   // The WebSocket server still owns its socket, so clients get its close code, not 1006.
   expect(ws.readyState).toBe(WebSocket.OPEN);
   const closed = once(ws, "close");
-  for (const client of listener.wss.clients) client.close(1001, "Daemon shutdown");
+  for (const client of listener.server.clients()) client.close(1001, "Daemon shutdown");
   const [code] = await closed;
   expect(code).toBe(1001);
 
   // The port is free again.
-  const again = sniListener({
+  const again = testSniListener({
     tls: identity,
     requests: (_request, response) => response.writeHead(204).end(),
     delay: systemDeliveryRuntime.delay,

@@ -16,7 +16,7 @@ import { tlsFixtureHome } from "./process-test-support.ts";
 import { fixture, token } from "./socket-test-support.ts";
 import { loadIdentity, publicKeyFingerprint } from "./tls-identity.ts";
 import { trustedCertificate } from "./tailscale-certificate.ts";
-import { sniListener } from "./sni-listener.ts";
+import { testSniListener } from "./sni-test-support.ts";
 import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import { X509Certificate } from "node:crypto";
 
@@ -299,15 +299,15 @@ test("a renewed Tailscale certificate is served to new connections without resta
   });
   cleanups.push(() => certificate.stop());
   const pinned = loadIdentity(tlsFixtureHome());
-  const listener = sniListener({
-    tls: {
-      ...pinned,
-      SNICallback: (servername, done) => done(null, certificate.select(servername)),
+  const listener = testSniListener(
+    {
+      tls: { ...pinned },
+      requests: (_request, response) => response.writeHead(204).end(),
+      delay: systemDeliveryRuntime.delay,
+      log: () => {},
     },
-    requests: (_request, response) => response.writeHead(204).end(),
-    delay: systemDeliveryRuntime.delay,
-    log: () => {},
-  });
+    certificate,
+  );
   const port = await listener.listen("127.0.0.1", 0);
   cleanups.push(() => listener.close());
   await certificate.ready;
