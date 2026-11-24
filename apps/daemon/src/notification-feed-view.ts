@@ -19,3 +19,24 @@ export function visibleFeed(
     retracted: feed.retracted.filter((entry) => reads(entry.threadId)).map((entry) => entry.id),
   };
 }
+
+/**
+ * A member's feed on an organization's host: as `visibleFeed`, but the cursor stops at the newest
+ * entry the member's own device holds, so it cannot be watched rising with the host's other
+ * alerts. A phone that sees nothing new keeps its checkpoint. Pure.
+ */
+export function memberFeed(
+  feed: InboxFeed,
+  reads: (thread: ThreadId) => boolean,
+): NotificationFeed {
+  const visible = visibleFeed(feed, reads);
+  return { ...visible, cursor: Math.min(feed.cursor, feed.seen) };
+}
+
+/**
+ * The ids to hand the notification worker, which keeps at most `limit`. `linked` is ordered
+ * most recently seen first, so what is cut is the stalest; `cut` says how many. Pure.
+ */
+export function capLinked<T>(linked: readonly T[], limit: number): { ids: T[]; cut: number } {
+  return { ids: linked.slice(0, limit), cut: Math.max(0, linked.length - limit) };
+}
