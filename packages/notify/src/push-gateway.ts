@@ -351,12 +351,16 @@ export function createPushGatewayTransport(
       // Push is off on this machine: no handle is registered for a push that won't happen.
       if (!target.enabled) return { status: "disabled" };
       const supported = await capabilitiesFor(target.origin);
+      // A slow probe can outlive a settings change: never register a token with the old gateway.
+      const active = await options.target();
+      if (signal.aborted) return { status: "retry" };
+      if (!active.enabled) return { status: "disabled" };
+      if (active.origin !== target.origin) return { status: "retry" };
       if (!supported.ok)
         return supported.retryAfterMs === undefined
           ? { status: "retry" }
           : { status: "retry", retryAfterMs: supported.retryAfterMs };
       if (!supported.kinds.has(address.kind)) return { status: "unsupported" };
-      if (signal.aborted) return { status: "retry" };
       const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
       const found = await handleFor(target.origin, address, address.kind, requestSignal);
       if (!found.ok) {

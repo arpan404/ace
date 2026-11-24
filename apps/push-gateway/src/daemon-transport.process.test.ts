@@ -465,6 +465,56 @@ it("does not treat a 410 as gone after the caller aborted", async () => {
   expect(await pending).toEqual({ status: "retry" });
 });
 
+it("does not register with an origin replaced while its capability probe was pending", async () => {
+  const deferred: { release?: () => void } = {};
+  const gate = new Promise<void>((resolve) => {
+    deferred.release = resolve;
+  });
+  let probes = 0;
+  let registrationCount = 0;
+  const { state, transport } = await setup({
+    async intercept(url) {
+      if (url.pathname === "/v1/registrations") registrationCount++;
+      if (url.pathname !== "/v1/capabilities") return undefined;
+      probes++;
+      if (probes !== 1) return undefined;
+      await gate;
+      return undefined;
+    },
+  });
+  const pending = transport.registerActivity(activityAddress, signal());
+  await vi.waitFor(() => expect(probes).toBe(1));
+  state.origin = "http://127.0.0.1:2";
+  deferred.release?.();
+  expect(await pending).toEqual({ status: "retry" });
+  expect(registrationCount).toBe(0);
+});
+
+it("returns disabled when push is switched off during the capability probe", async () => {
+  const deferred: { release?: () => void } = {};
+  const gate = new Promise<void>((resolve) => {
+    deferred.release = resolve;
+  });
+  let probes = 0;
+  let registrationCount = 0;
+  const { state, transport } = await setup({
+    async intercept(url) {
+      if (url.pathname === "/v1/registrations") registrationCount++;
+      if (url.pathname !== "/v1/capabilities") return undefined;
+      probes++;
+      if (probes !== 1) return undefined;
+      await gate;
+      return undefined;
+    },
+  });
+  const pending = transport.registerActivity(activityAddress, signal());
+  await vi.waitFor(() => expect(probes).toBe(1));
+  state.enabled = false;
+  deferred.release?.();
+  expect(await pending).toEqual({ status: "disabled" });
+  expect(registrationCount).toBe(0);
+});
+
 it("shares one capability probe and registration between concurrent requests", async () => {
   let probes = 0;
   let registrationCount = 0;
