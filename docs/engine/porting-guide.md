@@ -1386,9 +1386,18 @@ first all-green run of `main-integration.process` is at E5.8 and of `engine.proc
 not with E5.2 to E5.4 (they open sessions, deliver, restart and stop background tasks);
 `adapters.ts` stays TypeScript. Its step 12 is the test seam and the per-item proof order.
 
+<<<<<<< HEAD
 E5.3's builder brief is [e5-3-brief.md](e5-3-brief.md): engine rows on the store's connection,
 event rows through the store's writer, migrations staying TypeScript, the lazy record section in
 `ace-core`, and the sliced startup scan.
+=======
+
+E5.2's builder brief is [e5-2-brief.md](e5-2-brief.md). It corrects this table's E5.2 row:
+`signal-batching`, `sdk-burst`, `streaming-behaviour` and the storage row open real sessions, so
+they are first green at E5.6, not with E5.2. E5.2's own proof is the seam and its Rust tests. It
+also fixes the `ActorRepo` and `ActorLinks` traits that E5.3 to E5.10 implement for the actor.
+
+> > > > > > > origin/ace/rust-engine-e5-2-brief
 
 | Item                                     | TypeScript replaced                                                                                                                                                                                                                                                                                                                                                                                                  | Rust (`ace-engine/src/`)                                                                                                  | (a) files that prove it (behaviour.md §19 rows)                                                                                                   | (b) cases to move                                                                                                                                                                          |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
