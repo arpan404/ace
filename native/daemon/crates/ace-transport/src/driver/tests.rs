@@ -101,7 +101,7 @@ async fn a_later_head_after_thirty_seconds_is_still_served() {
         let (stream, _) = listener.accept().await.expect("a connection");
         let peer = Peer::of(&stream).expect("the socket's addresses");
         driver::serve(
-            Box::new(stream),
+            crate::conn_state::Accepted::new(Box::new(stream), None),
             peer,
             hop_target(upstream),
             Arc::new(RefuseUpgrades),
@@ -153,7 +153,7 @@ async fn a_stalled_101_ends_the_connection_within_the_upgrade_write_bound() {
         Arc::new(Dropping),
     ));
     let serving = tokio::spawn(driver::serve(
-        Box::new(server),
+        crate::conn_state::Accepted::new(Box::new(server), None),
         peer,
         hop_target(upstream),
         upgrades,

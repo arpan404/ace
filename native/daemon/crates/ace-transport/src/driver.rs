@@ -24,6 +24,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
 
 use crate::conn_io::ConnIo;
+use crate::conn_state::{Accepted, ConnState, SharedConnState};
 use crate::head::{self, RequestHead};
 use crate::limits::ConnectionLimits;
 use crate::peer::Peer;
@@ -157,7 +158,7 @@ impl UpgradeHandler for RefuseUpgrades {
 /// Serve one accepted connection until it closes.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn serve(
-    mut stream: Box<dyn ConnIo>,
+    accepted: Accepted,
     peer: Peer,
     target: ProxyTarget,
     upgrades: Arc<dyn UpgradeHandler>,
@@ -167,6 +168,10 @@ pub(crate) async fn serve(
     http_write: Option<Duration>,
     stats: Arc<Stats>,
 ) {
+    let Accepted {
+        io: mut stream,
+        state,
+    } = accepted;
     let mut buf = Vec::with_capacity(1024);
     let read = tokio::select! {
         // A connection that has sent nothing is idle: closing the listener drops
@@ -210,6 +215,7 @@ pub(crate) async fn serve(
         limits,
         write,
         first_target,
+        state,
         stats,
     )
     .await;
@@ -226,6 +232,7 @@ async fn serve_hyper(
     limits: ConnectionLimits,
     write: WriteTimeout,
     first_target: String,
+    state: SharedConnState,
     stats: Arc<Stats>,
 ) {
     let activity = RequestActivity::new();
@@ -245,6 +252,9 @@ async fn serve_hyper(
             write,
             upgrade_write: limits.upgrade_write,
             first_target: Some(first_target),
+            state: Arc::clone(&state),
+            keep_alive: limits.keep_alive,
+            trusted_keep_alive: limits.trusted_keep_alive,
             stats,
         },
     );
@@ -290,14 +300,26 @@ async fn serve_hyper(
             // An idle keep-alive connection closes like Node's. The head
             // deadline above already bounds the wait for the first head, and
             // every start and finish restarts this window, so the arm must stay
-            // enabled: a disabled arm is never woken again. T1b.2 selects the
-            // longer trusted window once a request on the connection has
-            // authenticated; until then only the untrusted one applies.
-            _ = activity.wait_idle(limits.keep_alive), if !closing => {
+            // enabled: a disabled arm is never woken again. Once a request on
+            // the connection has authenticated, the listener's longer trusted
+            // window applies; until then only the untrusted one does.
+            _ = activity.wait_idle(|| idle_limit(&state, &limits)), if !closing => {
                 closing = true;
                 connection.as_mut().graceful_shutdown();
             }
         }
+    }
+}
+
+/// The idle window a connection gets now: the listener's longer trusted one
+/// after a request on it authenticated, else its ordinary keep-alive. A
+/// listener with no trusted window (loopback, the static remote listener)
+/// never reads the trust marker.
+fn idle_limit(state: &ConnState, limits: &ConnectionLimits) -> Duration {
+    if state.trusted() {
+        limits.trusted_keep_alive.unwrap_or(limits.keep_alive)
+    } else {
+        limits.keep_alive
     }
 }
 

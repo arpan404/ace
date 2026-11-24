@@ -13,6 +13,7 @@ use tokio::net::TcpStream;
 
 use crate::accept::{Accepting, Acceptor, Admitted, DEFAULT_MAX_TCP_CONNECTIONS};
 use crate::conn_io::ConnIo;
+use crate::conn_state::Accepted;
 use crate::driver::UpgradeHandler;
 use crate::error::TransportError;
 use crate::limits::ConnectionLimits;
@@ -106,6 +107,6 @@ impl Acceptor for Loopback {
     }
 
     fn admit(&self, stream: TcpStream, _peer: Peer) -> Admitted {
-        Box::pin(async move { Some(Box::new(stream) as Box<dyn ConnIo>) })
+        Box::pin(async move { Some(Accepted::new(Box::new(stream) as Box<dyn ConnIo>, None)) })
     }
 }

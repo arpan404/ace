@@ -8,6 +8,7 @@
 
 mod accept;
 pub mod conn_io;
+pub mod conn_state;
 pub mod driver;
 pub mod error;
 pub mod frame;
@@ -26,6 +27,7 @@ pub mod upgrade;
 
 pub use accept::ErrorSink;
 pub use conn_io::ConnIo;
+pub use conn_state::{Accepted, ConnState};
 pub use driver::{Grace, RefuseUpgrades, UpgradeHandler, UpgradeIo, UpgradeReply};
 pub use error::TransportError;
 pub use head::RequestHead;

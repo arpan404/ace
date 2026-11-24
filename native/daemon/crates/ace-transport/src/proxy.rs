@@ -35,6 +35,7 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+use crate::conn_state::SharedConnState;
 use crate::driver::{Grace, UpgradeHandler, UpgradeIo, UpgradeReply};
 use crate::error::TransportError;
 use crate::head::{self, RequestHead};
@@ -219,8 +220,10 @@ impl RequestActivity {
     /// Resolve once no request has been in flight for `idle`, which is Node's
     /// `keepAliveTimeout` for a connection waiting on its next request. The
     /// window starts when the last request started or ended, so a change during
-    /// the wait moves it rather than shortening it.
-    pub async fn wait_idle(&self, idle: Duration) {
+    /// the wait moves it rather than shortening it. `idle` is read again after
+    /// every change, so a connection that authenticated while a request was in
+    /// flight switches to the trusted window.
+    pub async fn wait_idle(&self, idle: impl Fn() -> Duration) {
         loop {
             let notified = self.notify.notified();
             tokio::pin!(notified);
@@ -237,7 +240,7 @@ impl RequestActivity {
                 .lock()
                 .unwrap_or_else(|poison| poison.into_inner());
             tokio::select! {
-                _ = tokio::time::sleep_until(since + idle) => {
+                _ = tokio::time::sleep_until(since + idle()) => {
                     if self.in_flight.load(Ordering::SeqCst) == 0
                         && self.changes.load(Ordering::SeqCst) == changes
                     {
@@ -425,6 +428,13 @@ pub struct ConnectionState {
     /// `Uri` fills "/" into a pathless absolute form, so only the head the
     /// driver parsed can be forwarded byte for byte.
     pub first_target: Option<String>,
+    /// What the connection knows: its TLS name, and whether a request on it
+    /// authenticated (T1b.2). Shared with its requests.
+    pub state: SharedConnState,
+    /// The listener's idle window, and the longer one after authentication
+    /// (None: the trust marker is ignored).
+    pub keep_alive: Duration,
+    pub trusted_keep_alive: Option<Duration>,
     /// This listener's counters (T1b.1b): one per exchange answered.
     pub stats: Arc<Stats>,
 }
@@ -449,6 +459,11 @@ struct Exchange {
     write: WriteTimeout,
     /// The bound a `101` or a refusal is written under.
     upgrade_write: Duration,
+    /// The connection's state: its TLS name and its trust (T1b.2).
+    state: SharedConnState,
+    /// The listener's idle window before and after authentication.
+    keep_alive: Duration,
+    trusted_keep_alive: Option<Duration>,
     /// This listener's counters (T1b.1b).
     stats: Arc<Stats>,
 }
@@ -477,6 +492,9 @@ impl ProxyService {
                 exchange: state.exchange,
                 write: state.write,
                 upgrade_write: state.upgrade_write,
+                state: state.state,
+                keep_alive: state.keep_alive,
+                trusted_keep_alive: state.trusted_keep_alive,
                 stats: state.stats,
             },
         }
@@ -594,6 +612,7 @@ async fn forward(
         &head,
         &exchange.target.secret,
         &exchange.peer,
+        exchange.state.servername(),
         req.into_body(),
     )?;
     let response = before(deadline, sender.send_request(request))
@@ -601,7 +620,30 @@ async fn forward(
         .map_err(ProxyError::Request)?;
 
     let (mut parts, body) = response.into_parts();
-    parts.headers = header_map(hop::response_headers(&header_pairs(&parts.headers)));
+    let received = header_pairs(&parts.headers);
+    // A handler says a request on this connection authenticated with the trust
+    // marker, which never reaches the client. Only a listener with a trusted
+    // window reads it; the static listener drops it like any reserved field.
+    if exchange.trusted_keep_alive.is_some() && hop::trust_requested(&received) {
+        exchange.state.mark_trusted();
+    }
+    parts.headers = header_map(hop::response_headers(&received));
+    let idle = if exchange.state.trusted() {
+        exchange.trusted_keep_alive.unwrap_or(exchange.keep_alive)
+    } else {
+        exchange.keep_alive
+    };
+    // `Keep-Alive` is hop-by-hop, so the internal server's copy was dropped
+    // above; the listener answers it itself from the connection's trust, as
+    // `sni-listener.ts:96`-`:100` and `:49` do. Node's floor of the limit in
+    // seconds, never a fraction. A decimal timeout is always a valid header
+    // value; if it ever were not, omitting the answer is safer than ending the
+    // exchange.
+    if let Ok(timeout) = HeaderValue::from_str(&format!("timeout={}", idle.as_secs())) {
+        parts
+            .headers
+            .insert(HeaderName::from_static("keep-alive"), timeout);
+    }
     let answer = in_flight.track(body, ProxyError::Body, Some(upstream));
     Ok(Response::from_parts(parts, answer.boxed_unsync()))
 }
@@ -624,6 +666,7 @@ fn build_request(
     head: &RequestHead,
     secret: &HopSecret,
     peer: &Peer,
+    servername: Option<&str>,
     body: Incoming,
 ) -> Result<Request<Incoming>, ProxyError> {
     let method = Method::from_bytes(head.method.as_bytes()).map_err(|_| ProxyError::Target)?;
@@ -631,7 +674,12 @@ fn build_request(
     let mut request = Request::new(body);
     *request.method_mut() = method;
     *request.uri_mut() = target;
-    *request.headers_mut() = header_map(hop::request_headers(&head.headers, secret, peer));
+    *request.headers_mut() = header_map(hop::request_headers(
+        &head.headers,
+        secret,
+        peer,
+        servername,
+    ));
     Ok(request)
 }
 
