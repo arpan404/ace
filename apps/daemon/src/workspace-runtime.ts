@@ -885,16 +885,13 @@ export class WorkspaceRuntime {
         : undefined;
       // Awaited below; a failed file read must not leave it unhandled.
       void reviewer?.catch(() => {});
-      const { files, truncated } = await this.git.changedFiles(root, gitStatusLimit);
-      const state = await this.git.sourceControlState(root, gitStatusLimit);
-      // A commit made after this read must not reuse an older HEAD as its expected one.
-      const head = await this.git.resolveCommit({ worktree: root, ref: "HEAD" }).catch(() => null);
+      const state = await this.git.sourceControlStatus(root, gitStatusLimit);
       const hooks = reviewer ? await reviewer : "run";
       return wrap({
         kind: "gitStatus",
-        truncated: truncated || state.truncated,
-        files,
-        head,
+        truncated: state.truncated,
+        files: state.files,
+        head: state.head,
         hooks,
         staged: state.staged,
         unstaged: state.unstaged,
