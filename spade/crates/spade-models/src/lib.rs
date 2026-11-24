@@ -8,6 +8,7 @@ pub mod base_url;
 pub mod catalog;
 pub mod chatgpt;
 mod client;
+mod closed_calls;
 pub mod config;
 mod effort;
 mod error;

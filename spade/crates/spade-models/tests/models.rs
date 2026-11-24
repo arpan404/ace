@@ -399,6 +399,14 @@ async fn a_streamed_tool_call_arrives_whole_before_done_in_every_format() -> Res
                 _ => None,
             })
             .collect();
+        let closed: Vec<_> = deltas
+            .iter()
+            .filter_map(|delta| match delta {
+                Delta::CallClosed(call) => Some(call),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(closed, calls, "{reference}: {deltas:?}");
         assert_eq!(calls.len(), 1, "{reference}: {deltas:?}");
         assert_eq!(calls[0].id, "call_7", "{reference}");
         assert_eq!(

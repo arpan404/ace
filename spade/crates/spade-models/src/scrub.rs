@@ -78,6 +78,13 @@ impl<S> State<S> {
                     self.out.push_back(Ok(Delta::Reasoning(ready)));
                 }
             }
+            Ok(Delta::CallClosed(call)) => {
+                self.flush();
+                self.out.push_back(Ok(Delta::CallClosed(ToolCall {
+                    arguments: hidden_value(call.arguments, &self.secrets),
+                    ..call
+                })));
+            }
             Ok(Delta::Call(call)) => {
                 self.flush();
                 self.out.push_back(Ok(Delta::Call(ToolCall {

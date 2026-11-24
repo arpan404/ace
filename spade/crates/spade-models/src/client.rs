@@ -518,6 +518,7 @@ impl Models {
             .with_capture_tool_calls(true)
             .with_capture_content(true)
             .with_capture_reasoning_content(true);
+        let (options, closed) = crate::closed_calls::tap(options);
         let response = self
             .client
             .exec_chat_stream(
@@ -531,7 +532,7 @@ impl Models {
         // Whether the endpoint began a successful answer: a failure before that never reached a
         // model and may be sent again; one after it is the model's.
         let mut answered = false;
-        Ok(response
+        let stream = response
             .stream
             .filter_map(move |event| {
                 // The SDK starts every stream with `Start` before the request is even sent, so
@@ -569,7 +570,33 @@ impl Models {
                 };
                 std::future::ready(delta)
             })
-            .flat_map(futures_util::stream::iter))
+            .flat_map(futures_util::stream::iter);
+        Ok(futures_util::stream::unfold(
+            (Box::pin(stream), closed, None),
+            |(mut stream, mut closed, mut buffered)| async move {
+                let item = if let Ok(call) = closed.try_recv() {
+                    Some(Ok(Delta::CallClosed(call)))
+                } else if buffered.is_some() {
+                    buffered.take()
+                } else {
+                    tokio::select! {
+                        biased;
+                        Some(call) = closed.recv() => Some(Ok(Delta::CallClosed(call))),
+                        item = stream.next() => {
+                            // One SDK poll can consume a close frame and return the final
+                            // reply. Deliver that close before the final call list.
+                            if let Ok(call) = closed.try_recv() {
+                                buffered = item;
+                                Some(Ok(Delta::CallClosed(call)))
+                            } else {
+                                item
+                            }
+                        }
+                    }
+                };
+                item.map(|item| (item, (stream, closed, buffered)))
+            },
+        ))
     }
 
     /// `reference` resolved for a call of `prompt`.
@@ -688,7 +715,7 @@ async fn fold(
                 reply.usage = usage;
                 reply.thoughts = thoughts;
             }
-            Delta::Reasoning(_) => {}
+            Delta::Reasoning(_) | Delta::CallClosed(_) => {}
         }
     }
     if reply.text.is_empty() && reply.calls.is_empty() {
