@@ -1,8 +1,9 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createCipheriv, createHash, createPrivateKey, randomBytes, verify } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { request } from "node:http";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { p256PublicPoint, vapidAuthorization } from "@ace/notify/webpush-crypto";
 import { sealHandle } from "./handles.ts";
@@ -303,8 +304,72 @@ it("rejects malformed activity JSON and oversized requests without sending to AP
   });
   expect(response.status).toBe(400);
   expect((await activity(activityHandle, "x".repeat(1023))).status).toBe(413);
+  const chunkedStatus = await new Promise<number | undefined>((resolve, reject) => {
+    const stream = request(
+      `${origin}/v1/activity/${activityHandle}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: auth() },
+      },
+      (response) => {
+        response.resume();
+        resolve(response.statusCode);
+      },
+    );
+    stream.once("error", reject);
+    stream.write(" ".repeat(512));
+    stream.end(" ".repeat(513));
+  });
+  expect(chunkedStatus).toBe(413);
   expect(apns.calls).toHaveLength(before);
 });
+
+it.each([
+  ["liveactivity", "fa", update, 240],
+  ["start", "fb", start, 12],
+] as const)(
+  "limits %s sends and keeps the budget on re-registration",
+  async (kind, byte, body, limit) => {
+    const activityToken = byte.repeat(32);
+    const handle = await handleFor(activityToken, "production", kind);
+    const before = apns.calls.length;
+    for (let i = 0; i < limit; i++) {
+      expect((await activity(handle, body)).status).toBe(201);
+    }
+    const renewedHandle = await handleFor(activityToken.toUpperCase(), "production", kind);
+    expect(renewedHandle).not.toBe(handle);
+    const response = await activity(renewedHandle, body);
+    expect(response.status).toBe(429);
+    expect(Number(response.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect(apns.calls).toHaveLength(before + limit);
+  },
+);
+
+it.each([
+  [410, "Unregistered", "fc"],
+  [400, "BadDeviceToken", "fd"],
+  [400, "DeviceTokenNotForTopic", "fe"],
+] as const)(
+  "remembers activity tokens refused by APNs with %i %s",
+  async (status, reason, byte) => {
+    const activityToken = byte.repeat(32);
+    apns.answer(activityToken, status, reason);
+    const handle = await handleFor(activityToken, "sandbox", "liveactivity");
+    expect((await activity(handle, update)).status).toBe(410);
+    const after = apns.calls.length;
+    expect((await activity(handle, update)).status).toBe(410);
+    expect(
+      (await register({ token: activityToken, environment: "sandbox", kind: "liveactivity" }))
+        .status,
+    ).toBe(410);
+    expect(apns.calls).toHaveLength(after);
+    apns.answer(activityToken, 200);
+    const otherEnvironment = await handleFor(activityToken, "production", "liveactivity");
+    expect((await activity(otherEnvironment, update)).status).toBe(201);
+    const otherKind = await handleFor(activityToken, "sandbox", "start");
+    expect((await activity(otherKind, start)).status).toBe(201);
+  },
+);
 
 it("forwards an encrypted alert to APNs with a verifiable provider token and fixed visible text", async () => {
   const handle = await handleFor(token);
@@ -451,7 +516,7 @@ it("rejects an expired handle even when it is otherwise well-formed", async () =
   expect(apns.calls.length).toBe(before);
 });
 
-it("logs no device token, handle, key or IP", async () => {
+it("logs route and status only, including for accepted and refused activity pushes", async () => {
   const handle = await handleFor(token);
   await push(handle);
   expect(output).toContain('"route":"push"');
@@ -460,6 +525,26 @@ it("logs no device token, handle, key or IP", async () => {
   expect(output).not.toContain(handle);
   expect(output).not.toContain("127.0.0.1");
   expect(output).not.toContain("vapid");
+
+  const activityToken = "a2".repeat(32);
+  const activityHandle = await handleFor(activityToken, "production", "liveactivity");
+  const before = output.length;
+  const privateText = "private thread title";
+  expect((await activity(activityHandle, update)).status).toBe(201);
+  expect((await activity(activityHandle, { ...update, title: privateText })).status).toBe(400);
+  await vi.waitFor(() => {
+    const lines = output.slice(before).trim().split("\n");
+    expect(
+      lines.filter((line) => line.includes('"route":"activity"')).map((line) => JSON.parse(line)),
+    ).toEqual([
+      { route: "activity", status: 201 },
+      { route: "activity", status: 400 },
+    ]);
+  });
+  expect(output).not.toContain(activityToken);
+  expect(output).not.toContain(activityHandle);
+  expect(output).not.toContain(privateText);
+  expect(output).not.toContain('"needsYou"');
 });
 
 it("answers health checks", async () => {

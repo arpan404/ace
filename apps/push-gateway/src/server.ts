@@ -7,7 +7,7 @@ import { IpBudget } from "@ace/relay";
 import { ActivityBody, activityPush, maxActivityBody } from "./activity-payload.ts";
 import { daemonIdentity } from "./auth.ts";
 import type { GatewayConfig } from "./config.ts";
-import { HandleKind, openHandle, sealHandle } from "./handles.ts";
+import { HandleKind, openHandle, sealHandle, type Registration } from "./handles.ts";
 import { GoneTokens, HourlyLimit } from "./limits.ts";
 import { alertPush, maxBody } from "./payload.ts";
 
@@ -57,7 +57,11 @@ export async function startGateway(
   const perIp = new HourlyLimit(limits.perIp, limits.maxEntries);
   const registrations = new HourlyLimit(limits.registrationsPerDaemon, limits.maxEntries);
   const pushes = new HourlyLimit(limits.pushesPerDaemon, limits.maxEntries);
-  const perHandle = new HourlyLimit(limits.pushesPerHandle, limits.maxEntries);
+  const perHandle = {
+    alert: new HourlyLimit(limits.pushesPerHandle, limits.maxEntries),
+    liveactivity: new HourlyLimit(limits.activityPushesPerHandle, limits.maxEntries),
+    start: new HourlyLimit(limits.startsPerHandle, limits.maxEntries),
+  };
   const gone = new GoneTokens(limits.maxEntries);
 
   const clientKey = (request: IncomingMessage) => {
@@ -102,7 +106,7 @@ export async function startGateway(
       if (wait) return reply(route, 429, undefined, retryAfter(wait));
       const parsed = RegistrationBody.safeParse(safeJson(body));
       if (!parsed.success) return reply(route, 400);
-      if (gone.has(tokenHash(parsed.data.token), now)) return reply(route, 410);
+      if (gone.has(tokenKey(parsed.data), now)) return reply(route, 410);
       const expiresAt = now + config.handleLifetimeMs;
       const key = config.sealKeys[0];
       if (!key) return reply(route, 500);
@@ -130,9 +134,14 @@ export async function startGateway(
       if (push === "size") return reply(route, 413);
       if (typeof push === "string") return reply(route, 400);
     }
-    const hash = tokenHash(registration.token);
-    if (gone.has(hash, now)) return reply(route, 410);
-    const wait = Math.max(pushes.take(daemon, now), perHandle.take(hash, now));
+    const target = tokenKey(registration);
+    if (gone.has(target, now)) return reply(route, 410);
+    // Re-sealing a registration changes its ciphertext but must not reset its budget.
+    const budgetKey = registration.kind === "alert" ? target : `${daemon}:${target}`;
+    const wait = Math.max(
+      pushes.take(daemon, now),
+      perHandle[registration.kind].take(budgetKey, now),
+    );
     if (wait) return reply(route, 429, undefined, retryAfter(wait));
     const result = await apns.send(
       {
@@ -146,7 +155,7 @@ export async function startGateway(
     );
     if (result.status === 200) return reply(route, 201);
     if (result.status === 410 || (result.status === 400 && goneReasons.has(result.reason ?? ""))) {
-      gone.add(hash, runtime.now());
+      gone.add(target, runtime.now());
       return reply(route, 410);
     }
     if (result.status === 429) return reply(route, 429, undefined, { "retry-after": "60" });
@@ -177,8 +186,14 @@ export async function startGateway(
     },
   };
 }
-function tokenHash(token: string): string {
-  return createHash("sha256").update(token.toLowerCase()).digest("base64url");
+function tokenKey({
+  token,
+  environment,
+  kind,
+}: Pick<Registration, "token" | "environment" | "kind">): string {
+  const hash = createHash("sha256").update(token.toLowerCase());
+  if (kind !== "alert") hash.update(`:${environment}:${kind}`);
+  return hash.digest("base64url");
 }
 function retryAfter(ms: number) {
   return { "retry-after": String(Math.max(1, Math.ceil(ms / 1000))) };
