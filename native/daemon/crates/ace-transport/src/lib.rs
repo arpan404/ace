@@ -14,7 +14,6 @@ pub mod prefixed;
 pub mod proxy;
 pub mod socket;
 pub mod upgrade;
-mod watch;
 
 pub use driver::{Grace, RefuseUpgrades, UpgradeHandler, UpgradeIo, UpgradeReply};
 pub use error::TransportError;

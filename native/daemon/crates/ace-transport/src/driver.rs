@@ -17,16 +17,12 @@ use http_body_util::Full;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 use crate::head::{self, RequestHead};
 use crate::peer::Peer;
 use crate::prefixed::{Prefixed, TimedIo, WRITE_TIMEOUT};
-use crate::proxy::{
-    Connection, ExchangeDeadline, ProxyService, ProxyTarget, RequestActivity, Stop,
-};
-use crate::watch::{self, Watch};
+use crate::proxy::{ExchangeDeadline, ProxyService, ProxyTarget, RequestActivity, Stop};
 
 /// Node's `headersTimeout`: a connection's request head must arrive in this.
 pub const HEADERS_TIMEOUT: Duration = Duration::from_secs(60);
@@ -190,64 +186,34 @@ pub(crate) async fn serve(
     }
 
     // hyper parses the first head itself: it gets everything the peek read.
-    let socket = watch::Socket::new(stream);
-    let framing = watch::Framing::new();
-    let (escape, escaped) = oneshot::channel();
-    let io = TokioIo::new(Watch::new(
-        Bytes::from(buf),
-        &head,
-        consumed,
-        socket.clone(),
-        framing.clone(),
-        WRITE_TIMEOUT,
-        escape,
-    ));
+    let io = TokioIo::new(Prefixed::new(Bytes::from(buf), stream, WRITE_TIMEOUT));
     let first_target = head.target;
-    let escaped = serve_hyper(
-        io,
-        target,
-        upgrades.clone(),
-        Connection {
-            peer,
-            stop: Stop {
-                shutdown: shutdown.clone(),
-                grace: grace.clone(),
-            },
-            activity: RequestActivity::new(),
-            deadlines: ExchangeDeadline::new(),
-            framing,
-        },
-        first_target,
-        escaped,
-    )
-    .await;
-
-    // A head the wrapper held back is one hyper cannot upgrade. The connection
-    // is the raw upgrade path's now, with the bytes read past the head.
-    let Some(escaped) = escaped else {
-        return;
-    };
-    let Some(stream) = socket.reclaim() else {
-        return;
-    };
-    let stream = Prefixed::new(escaped.rest, stream, WRITE_TIMEOUT);
-    upgrades
-        .upgrade_raw(escaped.head, stream, peer, shutdown, grace)
-        .await;
+    serve_hyper(io, peer, target, upgrades, shutdown, grace, first_target).await;
 }
 
 async fn serve_hyper(
-    io: TokioIo<Watch>,
+    io: TokioIo<Prefixed<TcpStream>>,
+    peer: Peer,
     target: ProxyTarget,
     upgrades: Arc<dyn UpgradeHandler>,
-    connection: Connection,
+    shutdown: CancellationToken,
+    grace: Grace,
     first_target: String,
-    mut escape: oneshot::Receiver<watch::Escaped>,
-) -> Option<watch::Escaped> {
-    let activity = Arc::clone(&connection.activity);
-    let deadlines = Arc::clone(&connection.deadlines);
-    let shutdown = connection.stop.shutdown.clone();
-    let service = ProxyService::new(target, upgrades, connection, Some(first_target));
+) {
+    let activity = RequestActivity::new();
+    let deadlines = ExchangeDeadline::new();
+    let service = ProxyService::new(
+        target,
+        upgrades,
+        peer,
+        Stop {
+            shutdown: shutdown.clone(),
+            grace,
+        },
+        Arc::clone(&activity),
+        Arc::clone(&deadlines),
+        Some(first_target),
+    );
 
     let mut builder = hyper::server::conn::http1::Builder::new();
     builder
@@ -268,13 +234,11 @@ async fn serve_hyper(
     tokio::pin!(connection);
 
     let mut closing = false;
-    let mut escape_armed = true;
-    let mut escaped = None;
     loop {
         tokio::select! {
             outcome = connection.as_mut() => {
                 drop(outcome);
-                return escaped;
+                return;
             }
             _ = shutdown.cancelled(), if !closing => {
                 closing = true;
@@ -284,7 +248,7 @@ async fn serve_hyper(
             // drops the service's future and the response body, and the body's
             // guard aborts the upstream. This fires even when the body is not
             // being polled (a client blocked on a write).
-            _ = deadlines.reached() => return None,
+            _ = deadlines.reached() => return,
             // An idle keep-alive connection closes like Node's. The head
             // deadline above already bounds the wait for the first head, and
             // every start and finish restarts this window, so the arm must stay
@@ -292,18 +256,6 @@ async fn serve_hyper(
             _ = activity.wait_idle(KEEP_ALIVE_TIMEOUT), if !closing => {
                 closing = true;
                 connection.as_mut().graceful_shutdown();
-            }
-            // A head hyper cannot upgrade (an HTTP/1.0 upgrade candidate): the
-            // raw upgrade path owns the connection from here. Any answer still
-            // being written is finished first, as Node answers the previous
-            // request before it fires `upgrade`.
-            message = &mut escape, if escape_armed => {
-                escape_armed = false;
-                if let Ok(head) = message {
-                    escaped = Some(head);
-                    closing = true;
-                    connection.as_mut().graceful_shutdown();
-                }
             }
         }
     }

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The driver's peek at a connection's first request head, and the same peek
-//! over the heads that follow it: `httparse` over at most Node's 16 KiB of
-//! headers, the request-target exactly as received, and the two refusals Node
-//! writes for a head it cannot accept. Pure: no socket, no timer, no clock.
+//! The driver's peek at a connection's first request head: `httparse` over at
+//! most Node's 16 KiB of headers, the request-target exactly as received, the
+//! version its request line named, and the two refusals Node writes for a head
+//! it cannot accept. Pure: no socket, no timer, no clock.
 
 use http::Version;
 use httparse::Error as ParseError;
@@ -117,30 +117,6 @@ fn has_value(value: &[u8]) -> bool {
     value.iter().any(|byte| !byte.is_ascii_whitespace())
 }
 
-/// The length of the body this head frames, when `Content-Length` alone delimits
-/// it: the count a connection's bytes are read against to find the next head.
-/// `None` for a body a `Transfer-Encoding` frames, or a `Content-Length` that
-/// does not parse or disagrees with another — framing this peek does not follow,
-/// and hyper answers for those.
-pub fn body_length(head: &RequestHead) -> Option<u64> {
-    let mut length: Option<u64> = None;
-    for (name, value) in &head.headers {
-        if name.eq_ignore_ascii_case("transfer-encoding") {
-            return None;
-        }
-        if !name.eq_ignore_ascii_case("content-length") {
-            continue;
-        }
-        let text = std::str::from_utf8(value).ok()?.trim();
-        let parsed: u64 = text.parse().ok()?;
-        if length.is_some_and(|earlier| earlier != parsed) {
-            return None;
-        }
-        length = Some(parsed);
-    }
-    Some(length.unwrap_or(0))
-}
-
 /// Every token every `Connection` field names, lower-cased. These headers are
 /// hop-by-hop: hyper frames each leg itself, so neither direction forwards them
 /// (RFC 9110 §7.6.1).
@@ -246,33 +222,6 @@ mod tests {
             head("GET / HTTP/1.0\r\nHost: h\r\n\r\n").version,
             Version::HTTP_10
         );
-    }
-
-    #[test]
-    fn a_body_is_counted_only_when_content_length_delimits_it() {
-        assert_eq!(
-            body_length(&head("POST / HTTP/1.1\r\nContent-Length: 3\r\n\r\n")),
-            Some(3)
-        );
-        assert_eq!(
-            body_length(&head("GET / HTTP/1.1\r\nHost: h\r\n\r\n")),
-            Some(0)
-        );
-        assert_eq!(
-            body_length(&head(
-                "POST / HTTP/1.1\r\nContent-Length: 4\r\nContent-Length: 4\r\n\r\n"
-            )),
-            Some(4),
-            "the same length twice is one length"
-        );
-        for unframed in [
-            "POST / HTTP/1.1\r\nContent-Length: 1\r\nContent-Length: 2\r\n\r\n",
-            "POST / HTTP/1.1\r\nContent-Length: five\r\n\r\n",
-            "POST / HTTP/1.1\r\nContent-Length: 3\r\nTransfer-Encoding: chunked\r\n\r\n",
-            "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n",
-        ] {
-            assert_eq!(body_length(&head(unframed)), None, "{unframed:?}");
-        }
     }
 
     #[test]
