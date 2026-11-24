@@ -255,6 +255,17 @@ a fix touches keeps the fix's behaviour, and its tests become (a) files of that 
 - **A view that stops acknowledging frames** (a hidden page) is parked rather than forcing source
   keyframes (`ace/fix-sim-tap-latency`). D3 and S-items.
 - **serve-sim deltas carry the codec string** (`ace/fix-sim-delta-codec`). D3.
+- **A picture header always names a codec** (`ace/fix-header-empty-codec`, 54f75c39d9). Producers
+  send delta frames with an empty `codec_string` (serve-sim deltas, Android emulator frames
+  re-encoded on the host), and the web and iOS clients reject a header whose codec isn't `jpeg`,
+  `avc1.XXXXXX` or an hvc1/hev1 string. They then drop the media connection and reconnect every
+  0.8 s or so. Delivery keeps each encode's last non-empty codec, and an empty codec never
+  overwrites it. The header names the frame's own codec, or else the encode's recorded one. A
+  codec-less frame for an encode with no recorded codec is not sent as a picture at all. Proof:
+  ace-media `engine/tests/delivery.rs`
+  `a_device_delta_that_names_no_codec_is_delivered_with_its_encodes_codec` and
+  `a_delta_that_names_no_codec_before_its_encode_did_is_not_sent_as_a_picture`. D1, D3 and
+  S-items.
 
 ## When you are done
 
