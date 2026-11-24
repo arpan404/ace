@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The binding for phase 5 (docs/store/porting-guide.md). One method per task; 5.1 owns
-//! `fold_thread`, 5.2b owns `sequences` and 5.3a owns `event_writer`. The fold does not touch
-//! the connection; the sequences and event-writer handles hold the same `Arc<Connection>` the
-//! database does.
+//! `fold_thread`, 5.2b owns `sequences`, 5.3a owns `event_writer`, and 5.4a owns
+//! `compact_deltas` and `live_retry_delay`. The fold and the live buffer's pure parts do not
+//! touch the connection; the sequences and event-writer handles hold the same
+//! `Arc<Connection>` the database does.
 
 use ace_projection::{FoldEvent, update_thread};
 use ace_store::Connection;
 use ace_store::writer::events::{EventRow, EventWriter, NewThreadRow, WriteError};
+use ace_store::writer::live::compact::compact_deltas;
+use ace_store::writer::live::retry::retry_delay;
 use ace_store::writer::sequences::{SequenceError, Sequences};
 use napi::{Env, Status};
 use napi_derive::napi;
@@ -65,6 +68,45 @@ impl NativeDatabase {
             connection: Arc::clone(self.connection()),
             writer,
         })
+    }
+
+    /// Adjacent `item.delta` events into one row each: the events as JSON text in, the rows as
+    /// JSON text out, in the later event's key order and with lone surrogates intact. The parsed
+    /// events are moved into the compaction, never cloned.
+    #[napi(catch_unwind)]
+    pub fn compact_deltas(&self, env: Env, events: String) -> napi::Result<String> {
+        let value = json_bind::parse(&env, &events)?;
+        let items = match value {
+            ace_json::Value::Array(items) => items,
+            _ => {
+                return Err(napi::Error::from_reason(
+                    "compactDeltas: events is not an array",
+                ));
+            }
+        };
+        let mut maps = Vec::with_capacity(items.len());
+        for item in items.into_iter() {
+            match item {
+                ace_json::Value::Object(map) => maps.push(map),
+                _ => {
+                    return Err(napi::Error::from_reason(
+                        "compactDeltas: an event is not an object",
+                    ));
+                }
+            }
+        }
+        let rows: Vec<ace_json::Value> = compact_deltas(maps)
+            .into_iter()
+            .map(ace_json::Value::Object)
+            .collect();
+        Ok(ace_json::to_string(&ace_json::Value::Array(rows.into())))
+    }
+
+    /// The delay before the attempt that follows the `failures`-th consecutive failure. A
+    /// deadline for the caller's scheduler, never a timer in Rust.
+    #[napi(catch_unwind)]
+    pub fn live_retry_delay(&self, failures: u32) -> u32 {
+        u32::try_from(retry_delay(failures)).unwrap_or(u32::MAX)
     }
 }
 

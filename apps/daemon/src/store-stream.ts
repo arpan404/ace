@@ -5,12 +5,13 @@ import type { EventEncodings } from "./event-encodings.ts";
 import { isStoreBusy, LiveWriteRetry } from "./store-busy.ts";
 import { isDiskFull } from "./sqlite-failure.ts";
 import { liveWriteRetry } from "./live-write-retry.ts";
+import { compactDeltas, retryDelay } from "./native-writer/live.ts";
 import {
-  compactDeltas,
   LiveWriteBuffer,
   type BufferScheduler,
   type BufferedSnapshot,
 } from "./live-write-buffer.ts";
+import type { DatabaseSync } from "@ace/provider-kit/sqlite";
 
 /** Reports a settlement's failure to the post-commit pass that owns it. */
 export type FailureReport = (error: unknown) => void;
@@ -113,6 +114,7 @@ export class StoreStream {
   private strikes = 0;
   resyncs = 0;
   constructor(privateOptions: {
+    readonly db: DatabaseSync;
     scheduler: BufferScheduler;
     nextId(): string;
     sequences: SequenceAllocator;
@@ -135,6 +137,7 @@ export class StoreStream {
     this.buffer = new LiveWriteBuffer({
       scheduler: privateOptions.scheduler,
       attempt: () => this.scheduled(),
+      retryDelay: (failures) => retryDelay(this.options.db, failures),
       ...(privateOptions.encodings ? { encodings: privateOptions.encodings } : {}),
     });
   }
@@ -282,7 +285,7 @@ export class StoreStream {
     const { events, snapshots } = this.buffer.batch(thread);
     const threads = [...snapshots.keys()];
     const split = events.findIndex((event) => event.seq > this.publishedThrough);
-    const published = compactDeltas(split < 0 ? events : events.slice(0, split));
+    const published = compactDeltas(this.options.db, split < 0 ? events : events.slice(0, split));
     const held = split < 0 ? [] : events.slice(split);
     // A retry may find rows an earlier attempt already committed: those count as stored.
     const fresh = (event: Event) => !recovering || !this.options.stored(event);

@@ -39,12 +39,16 @@ export class LiveWriteBuffer {
   constructor(privateOptions: {
     scheduler: BufferScheduler;
     attempt(): void;
+    /** The delay after the `failures`-th consecutive failure; the TypeScript rule by default. */
+    retryDelay?(failures: number): number;
     encodings?: EventEncodings;
   }) {
     this.options = privateOptions;
     this.encodings = privateOptions.encodings ?? new EventEncodings();
+    this.retryDelay = privateOptions.retryDelay ?? liveWriteRetryDelay;
   }
   private readonly encodings: EventEncodings;
+  private readonly retryDelay: (failures: number) => number;
   private readonly options;
   get failed(): boolean {
     return this.failures > 0;
@@ -129,7 +133,7 @@ export class LiveWriteBuffer {
   retry(): number {
     this.failures++;
     this.metrics.failures++;
-    const ms = liveWriteRetryDelay(this.failures);
+    const ms = this.retryDelay(this.failures);
     this.begin();
     this.arm(ms);
     return ms;
