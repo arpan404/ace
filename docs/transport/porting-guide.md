@@ -307,13 +307,16 @@ implementation, `RefuseUpgrades`, closes the connection without an answer. T1a.3
      it to the `upgrade` handler too). The service sees it (a request with `Upgrade` and
      `upgrade` among the `Connection` tokens) and runs the same `UpgradeHandler` decision path in
      its hyper form (T1a.3): the same order, statuses, header set, header values and bodies, with
-     the reservation and state machine of T1a.5. Two differences are allowed, both recorded:
+     the reservation and state machine of T1a.5. Three differences are allowed, all recorded:
      field-name case, since hyper writes names in lower case and HTTP treats them as equal (RFC
-     9110 §5.1); and a `HEAD` upgrade on a keep-alive connection, which gets `ws`'s 405 status and
+     9110 §5.1); a `HEAD` upgrade on a keep-alive connection, which gets `ws`'s 405 status and
      headers but no body, because hyper 1.12 forces a `HEAD` response's body to zero length
      (`proto/h1/role.rs:974`–`:980`) and a response to `HEAD` carries no content (RFC 9110
-     §9.3.2), so a conforming client reads none. A `HEAD` upgrade first on a connection still
-     gets `ws`'s exact bytes through the raw path. A drop
+     §9.3.2), so a conforming client reads none; and a candidate whose request line is not
+     HTTP/1.1, which is refused with `ws`'s `400` before admission and closes the connection, never
+     a `101`, because hyper upgrades HTTP/1.1 only (`proto/h1/role.rs:336`) and no ace client sends
+     one (behaviour.md §3 has the bytes). A `HEAD` upgrade first on a connection still gets `ws`'s
+     exact bytes through the raw path, and so does an HTTP/1.0 candidate there, as on Node. A drop
      returns an error from the service, which ends the connection with no response
      (`proto/h1/dispatch.rs:365` in hyper 1.12 propagates it; a unit test pins that no bytes are
      written). An accepted upgrade returns the `101` response, and `hyper::upgrade::on(request)`
@@ -432,7 +435,9 @@ implementation, `RefuseUpgrades`, closes the connection without an answer. T1a.3
   decisions in the same order and returns them as `UpgradeReply`: `Drop`; `Refuse` with the same
   status, headers and body as the raw bytes above, except a `HEAD` request's 405, whose body hyper
   sends as zero bytes (the recorded difference of T1a.2 step 4: `proto/h1/role.rs:974`–`:980`, RFC
-  9110 §9.3.2); `Switch` with the `101` and the same headers.
+  9110 §9.3.2); `Switch` with the `101` and the same headers. One refusal comes before admission:
+  a candidate whose request line is not HTTP/1.1 is `Refuse` with `ws`'s `400 Bad Request` and the
+  connection closes, never a `Switch` (behaviour.md §3 records the bytes).
   `switched` then hands the upgraded stream on, or reports that hyper's upgrade failed.
 - **Tests**: unit tests for the decision table (inputs → exact bytes). **Must not**: start framing
   (T1a.4's), negotiate extensions.

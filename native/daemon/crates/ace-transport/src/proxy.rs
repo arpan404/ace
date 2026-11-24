@@ -546,6 +546,7 @@ fn request_head(exchange: &Exchange, req: &Request<Incoming>) -> RequestHead {
     RequestHead {
         method: req.method().as_str().to_owned(),
         target: first.unwrap_or_else(|| req.uri().to_string()),
+        version: req.version(),
         headers: header_pairs(req.headers()),
     }
 }

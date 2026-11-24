@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use bytes::Bytes;
+use http_body_util::BodyExt;
 use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
@@ -121,6 +122,9 @@ fn every_refusal_is_exactly_abort_handshakes_bytes() {
 
     const CLOSING: &[u8] = b"HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Type: text/html\r\nContent-Length: 19\r\n\r\nService Unavailable";
     assert_eq!(Refusal::CLOSING.bytes(), CLOSING);
+
+    const UPGRADE_VERSION: &[u8] = b"HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Type: text/html\r\nContent-Length: 25\r\n\r\nUpgrade requires HTTP/1.1";
+    assert_eq!(Refusal::UPGRADE_VERSION.bytes(), UPGRADE_VERSION);
 }
 
 #[test]
@@ -367,6 +371,55 @@ async fn a_raw_upgrade_answers_in_ws_bytes_and_releases_only_on_refusal() {
     assert!(writing.is_empty(), "a closing listener writes no 101");
     assert_eq!(released, vec![7]);
     assert!(opened.is_empty());
+}
+
+#[tokio::test]
+async fn an_http_1_0_upgrade_is_refused_before_admission() {
+    let admission = Arc::new(StubAdmission::new(AdmissionOutcome::Decided(
+        AdmissionDecision::Accept { reservation: 7 },
+    )));
+    let sink = Arc::new(RecordingSink::default());
+    let upgrades = WebSocketUpgrades::new(admission.clone(), sink.clone());
+    let peer = Peer {
+        remote: "127.0.0.1:1".parse::<SocketAddr>().expect("an address"),
+        local: "127.0.0.1:2".parse::<SocketAddr>().expect("an address"),
+    };
+    let http_1_0 = valid("GET").replace("HTTP/1.1", "HTTP/1.0");
+    let reply = upgrades
+        .upgrade_hyper(
+            head(&http_1_0),
+            peer,
+            CancellationToken::new(),
+            Grace::new(),
+        )
+        .await;
+
+    let UpgradeReply::Refuse(response) = reply else {
+        panic!("an HTTP/1.0 upgrade is never switched");
+    };
+    assert_eq!(response.status(), http::StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response.headers().get(http::header::CONNECTION),
+        Some(&http::HeaderValue::from_static("close"))
+    );
+    assert_eq!(
+        response
+            .into_body()
+            .collect()
+            .await
+            .expect("the body")
+            .to_bytes(),
+        Bytes::from_static(b"Upgrade requires HTTP/1.1")
+    );
+    assert!(
+        admission
+            .requests
+            .lock()
+            .expect("the stub's lock")
+            .is_empty(),
+        "the refusal comes before admission is asked"
+    );
+    assert!(sink.0.lock().expect("the sink's lock").is_empty());
 }
 
 #[tokio::test]
