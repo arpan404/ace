@@ -219,7 +219,9 @@ impl<R: AsyncRead + Unpin, B: MessageBody + Unpin> Stream for FrameReader<R, B> 
                             "missing frame header",
                         ))));
                     };
-                    let mut payload = this.buffer.split_to(this.length).to_vec();
+                    // Split, unmask in place, freeze: the frame's bytes are the
+                    // reader's own, never a second copy of them.
+                    let mut payload = this.buffer.split_to(this.length);
                     unmask(&mut payload, this.mask);
                     this.state = State::First;
                     this.first = None;
@@ -227,7 +229,7 @@ impl<R: AsyncRead + Unpin, B: MessageBody + Unpin> Stream for FrameReader<R, B> 
                         fin: first.fin,
                         rsv1: first.rsv1,
                         opcode: first.opcode,
-                        payload,
+                        payload: payload.freeze(),
                     };
                     return Poll::Ready(Some(Ok(frame)));
                 }

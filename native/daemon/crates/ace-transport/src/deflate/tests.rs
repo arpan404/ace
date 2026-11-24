@@ -118,6 +118,11 @@ fn a_malformed_offer_anywhere_refuses_the_upgrade() {
         "permessage-deflate; client_max_window_bits = 10",
         "permessage-deflate, permessage-deflate; foo",
         "permessage-deflate; Client_Max_Window_Bits",
+        // An empty quoted value is ws's syntax error, even on an extension that
+        // is ignored: `extension.js:107`–`:116` never closes a quote it never
+        // opened a token in.
+        "foo; bar=\"\"",
+        "permessage-deflate, foo; bar=\"\"",
         // `ws` reads a window with JavaScript's `+value`; only digits are taken
         // here (behaviour.md §2's recorded difference).
         "permessage-deflate; server_max_window_bits=0x0a",

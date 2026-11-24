@@ -230,7 +230,9 @@ fn value(header: &[u8], at: &mut usize) -> Option<String> {
             let byte = *header.get(*at)?;
             *at += 1;
             match byte {
-                b'"' => return Some(text),
+                // ws never closes a quote it opened no token in: an empty quoted
+                // value is a syntax error (`extension.js:107`-`:116`).
+                b'"' => return (!text.is_empty()).then_some(text),
                 b'\\' => {
                     let escaped = *header.get(*at)?;
                     *at += 1;

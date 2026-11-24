@@ -30,16 +30,25 @@ use crate::upgrade::{
 
 const WAIT: Duration = Duration::from_secs(5);
 
-/// A payload well over the threshold, built so its bytes repeat and a deflater
-/// finds matches inside it.
-fn message() -> Vec<u8> {
-    let mut payload = Vec::new();
-    for line in 0..700 {
+/// A payload of `size` bytes built from repeating lines, so a deflater finds
+/// matches inside it.
+fn message_of(size: usize) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(size + 64);
+    let mut line = 0;
+    while payload.len() < size {
         payload.extend_from_slice(
             format!("{{\"index\":{line},\"text\":\"the same tool output as the one before\"}}\n")
                 .as_bytes(),
         );
+        line += 1;
     }
+    payload.truncate(size);
+    payload
+}
+
+/// A payload well over the threshold.
+fn message() -> Vec<u8> {
+    let payload = message_of(13 * 1024 + 512);
     assert!(payload.len() > 13 * 1024);
     payload
 }
@@ -62,10 +71,10 @@ impl UpgradeAdmission for Accept {
     fn release(&self, _reservation: u64) {}
 }
 
-/// Opens the socket the `101` handed over, sends one compressed message, and
+/// Opens the socket the `101` handed over, sends its messages in order, and
 /// records the window bits the handshake negotiated.
 struct SendOnce {
-    payload: Vec<u8>,
+    messages: Vec<Vec<u8>>,
     window: Mutex<Option<Option<u8>>>,
     sent: Arc<AtomicBool>,
 }
@@ -84,14 +93,17 @@ impl SocketSink for SendOnce {
         *self.window.lock().expect("no poison") = Some(window);
         // The sink is called from the connection's task; its own task drives the
         // socket while the test reads the wire.
-        let payload = Bytes::from(self.payload.clone());
+        let messages = self.messages.clone();
         let sent = Arc::clone(&self.sent);
         tokio::spawn(async move {
             let (handle, mut events) = open_socket(stream, deflate, None);
-            handle.send(payload, true, true, 1);
-            while let Some(event) = events.recv().await {
-                if matches!(event, SocketEvent::Sent { .. }) {
-                    break;
+            let mut owed = messages.len() as u64;
+            for (index, message) in messages.into_iter().enumerate() {
+                handle.send(Bytes::from(message), true, true, index as u64 + 1);
+            }
+            while owed > 0 {
+                if let Some(SocketEvent::Sent { .. }) = events.recv().await {
+                    owed -= 1;
                 }
             }
             sent.store(true, Ordering::Release);
@@ -164,8 +176,12 @@ async fn every_compressed_frame_a_listener_sends_fits_an_eight_bit_window() {
         Arc::new(HopSecret::from_hex(&"ab".repeat(32)).expect("a secret")),
     )
     .expect("a loopback target");
+    // The first message is small, the second is past the size at which the
+    // writer deflates off its task (`OFF_THREAD`), so both paths reach the wire,
+    // in order, and both decode with the 8-bit window.
+    let large = message_of(crate::socket::OFF_THREAD + 4096);
     let sink = Arc::new(SendOnce {
-        payload: payload.clone(),
+        messages: vec![payload.clone(), large.clone()],
         window: Mutex::new(None),
         sent: Arc::new(AtomicBool::new(false)),
     });
@@ -214,20 +230,22 @@ async fn every_compressed_frame_a_listener_sends_fits_an_eight_bit_window() {
         "the answer echoes =8 and adds both no-context-takeover parameters"
     );
 
-    let (rsv1, opcode, compressed) = frame(&mut client).await;
-    assert!(rsv1, "a message over the threshold goes compressed");
-    assert_eq!(opcode, 0x2, "the daemon's bulk messages are binary");
-    assert!(
-        compressed.len() < payload.len(),
-        "the frame is smaller than its message: {} vs {}",
-        compressed.len(),
-        payload.len()
-    );
-    assert!(payload.len() >= THRESHOLD);
-    assert_eq!(
-        window8::decode_message(&compressed).expect("an 8-bit window holds every distance"),
-        payload
-    );
+    for expected in [&payload, &large] {
+        let (rsv1, opcode, compressed) = frame(&mut client).await;
+        assert!(rsv1, "a message over the threshold goes compressed");
+        assert_eq!(opcode, 0x2, "the daemon's bulk messages are binary");
+        assert!(
+            compressed.len() < expected.len(),
+            "the frame is smaller than its message: {} vs {}",
+            compressed.len(),
+            expected.len()
+        );
+        assert!(expected.len() >= THRESHOLD);
+        assert_eq!(
+            window8::decode_message(&compressed).expect("an 8-bit window holds every distance"),
+            *expected
+        );
+    }
     assert_eq!(
         *sink.window.lock().expect("no poison"),
         Some(Some(8)),

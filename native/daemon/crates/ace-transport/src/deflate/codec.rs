@@ -28,7 +28,7 @@ const LEVEL: Compression = Compression::new(6);
 
 /// One pass's output buffer: 16 KiB, so a compressed message inflates a chunk at
 /// a time and the cap stops it early rather than after the whole message.
-const CHUNK: usize = 16 * 1024;
+pub(crate) const CHUNK: usize = 16 * 1024;
 
 /// The window a deflater is built with: never outside 9..=15, whose constructors
 /// panic (flate2-1.1.11/src/mem.rs:218-228). `None` is 15, and 8 is built as 9:
@@ -104,6 +104,13 @@ impl Inflating {
             chunk: vec![0; CHUNK],
         }
     }
+
+    /// The message bytes reserved so far, for the cap test.
+    #[cfg(test)]
+    pub(crate) fn capacity(&self) -> usize {
+        self.buffer.capacity()
+    }
+
     /// Feeds one input to zlib, appending each output chunk it produces and
     /// refusing the byte past the message limit inside this loop.
     fn pump(&mut self, input: &[u8], flush: FlushDecompress) -> Result<(), CloseCode> {
@@ -121,10 +128,10 @@ impl Inflating {
                 };
             let produced = (self.decompress.total_out() - before_out) as usize;
             consumed += (self.decompress.total_in() - before_in) as usize;
-            if self.buffer.len() + produced > MAX_MESSAGE_BYTES {
-                return Err(CloseCode::TooBig);
-            }
-            self.buffer.extend_from_slice(&self.chunk[..produced]);
+            // The chunk and the message buffer are separate fields, so the
+            // borrows do not overlap.
+            let chunk = &self.chunk[..produced];
+            append(&mut self.buffer, chunk)?;
             match status {
                 // The rest of the input, or more output zlib still holds.
                 Status::Ok if consumed < input.len() || produced == self.chunk.len() => {}
@@ -139,6 +146,24 @@ impl Default for Inflating {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Appends one produced chunk, reserving exactly its bytes: a doubling
+/// `extend_from_slice` could reserve past the cap on an uneven chunk, and the
+/// brief's bound is the cap plus this one staging chunk.
+fn append(buffer: &mut Vec<u8>, bytes: &[u8]) -> Result<(), CloseCode> {
+    if buffer.len() + bytes.len() > MAX_MESSAGE_BYTES {
+        return Err(CloseCode::TooBig);
+    }
+    if buffer.capacity() < buffer.len() + bytes.len()
+        && buffer.try_reserve_exact(bytes.len()).is_err()
+    {
+        // The allocator refused while the message is inside its cap: this
+        // connection cannot hold it, so it ends here rather than growing.
+        return Err(CloseCode::TooBig);
+    }
+    buffer.extend_from_slice(bytes);
+    Ok(())
 }
 
 impl MessageBody for Inflating {

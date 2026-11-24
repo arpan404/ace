@@ -33,6 +33,8 @@ pub use events::{SendResult, SocketEvent, SocketEvents};
 pub use handle::{CloseError, SocketHandle};
 
 use drive::Ending;
+#[cfg(test)]
+pub(crate) use drive::OFF_THREAD;
 
 /// `maxPayload` (`server.ts:252`): one inbound message, after any inflation.
 pub use crate::frame::MAX_MESSAGE_BYTES;
@@ -146,7 +148,7 @@ impl Shared {
     /// memory ceiling also counts the queue entry. Reading never stops for a pong.
     /// False when the queued memory would pass [`CONTROL_BYTES`]: the caller closes
     /// with 1008.
-    fn control(&self, opcode: Opcode, payload: Vec<u8>) -> bool {
+    fn control(&self, opcode: Opcode, payload: Bytes) -> bool {
         let charge = 2 + payload.len() as u64;
         let memory = charge + CONTROL_ENTRY_BYTES;
         let inner = lock(&self.inner);
@@ -167,7 +169,7 @@ impl Shared {
         let frame = Frame {
             opcode,
             rsv1: false,
-            payload: Bytes::from(payload),
+            payload,
         };
         if outbound
             .send(Queued {
@@ -184,6 +186,19 @@ impl Shared {
             debit(&self.buffered, charge);
         }
         true
+    }
+
+    /// Re-charges a queued send once its frame's real size is known: `ws` stops
+    /// counting the message's uncompressed length and counts the pending
+    /// compressed frame's bytes once deflate finished (`sender.js:511`-`:527`,
+    /// `websocket.js:133`-`:136`). Returns the new charge.
+    fn recharge(&self, from: u64, to: u64) -> u64 {
+        if to >= from {
+            self.buffered.fetch_add(to - from, Ordering::Relaxed);
+        } else {
+            debit(&self.buffered, from - to);
+        }
+        to
     }
 
     fn state(&self) -> u8 {

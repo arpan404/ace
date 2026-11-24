@@ -6,6 +6,7 @@
 
 use super::window8;
 use super::{Body, Deflater, Inflating, deflate_window};
+use crate::deflate::codec::CHUNK;
 use crate::frame::assemble::MessageBody;
 use crate::frame::{CloseCode, FrameError, MAX_MESSAGE_BYTES};
 
@@ -175,6 +176,42 @@ fn a_small_frame_inflating_past_the_limit_fails_before_its_final_fragment() {
         Err(CloseCode::TooBig),
         "three quarters of the compressed stream is already past the limit"
     );
+}
+
+#[test]
+fn a_near_cap_message_from_uneven_chunks_reserves_no_more_than_the_cap_and_a_chunk() {
+    // The cap is 1 MiB and one staging chunk is 16 KiB: a message held just under
+    // the cap may reserve the cap, never a growth step past it (t1b-brief.md's
+    // reviewer check, "under 1.1 MiB"). Uneven input makes the output arrive in
+    // uneven pieces, which is what a geometric growth would round up badly.
+    let mut message = mebibyte();
+    message.truncate(MAX_MESSAGE_BYTES - 4096);
+    let mut deflater = Deflater::new(15);
+    let compressed = deflater.deflate(&message).expect("a deflate");
+    let mut inflating = Inflating::new();
+    let mut at = 0;
+    for size in [1usize, 3, 97, 1, 4096, 33, 20_000, 7, 65_000]
+        .into_iter()
+        .cycle()
+    {
+        if at == compressed.len() {
+            break;
+        }
+        let end = (at + size).min(compressed.len());
+        inflating
+            .feed(&compressed[at..end], false)
+            .expect("inside the cap");
+        at = end;
+        assert!(
+            inflating.capacity() <= MAX_MESSAGE_BYTES + CHUNK,
+            "capacity {} at {at} of {} compressed bytes",
+            inflating.capacity(),
+            compressed.len()
+        );
+    }
+    assert_eq!(inflating.feed(&compressed[at..], true), Ok(message.len()));
+    assert!(inflating.capacity() <= MAX_MESSAGE_BYTES + CHUNK);
+    assert_eq!(inflating.finish(), message);
 }
 
 #[test]

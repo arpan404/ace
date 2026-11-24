@@ -74,7 +74,8 @@ pub struct Frame {
     pub fin: bool,
     pub rsv1: bool,
     pub opcode: Opcode,
-    pub payload: Vec<u8>,
+    /// The fragment's bytes, taken from the reader's buffer without a copy.
+    pub payload: bytes::Bytes,
 }
 
 /// One frame for the wire. No client mask: the daemon is always the server.

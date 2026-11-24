@@ -16,6 +16,7 @@ use super::{
     CONTROL_BYTES, CONTROL_ENTRY_BYTES, DELIVERY_MESSAGES, MAX_MESSAGE_BYTES, MESSAGE_OVERHEAD,
     OPEN, OUTBOUND_MESSAGES, SendResult, SocketEvent, SocketEvents, SocketHandle, open,
 };
+use crate::deflate::{Deflater, negotiate};
 use crate::frame::assemble::MAX_FRAGMENTS;
 
 mod close;
@@ -119,6 +120,101 @@ async fn a_send_is_charged_once_and_completes_exactly_once() {
         0,
         "a flushed frame leaves no phantom charge behind"
     );
+}
+
+/// A socket that negotiated `permessage-deflate`, over a duplex of `buffer` bytes.
+async fn compressed_pair(buffer: usize) -> (SocketHandle, SocketEvents, DuplexStream) {
+    let (server, client) = tokio::io::duplex(buffer);
+    let deflate = negotiate(Some(b"permessage-deflate"))
+        .expect("a valid offer")
+        .expect("deflate");
+    let (handle, events) = open(Box::new(server), Some(deflate), None);
+    (handle, events, client)
+}
+
+/// Waits until the writer has re-charged the send, letting the socket's tasks run.
+async fn recharged(handle: &SocketHandle, from: u64) -> u64 {
+    for _ in 0..1000 {
+        let charge = handle.buffered_amount();
+        if charge != from {
+            return charge;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("the writer never re-charged the send");
+}
+
+#[tokio::test]
+async fn a_compressed_send_is_charged_its_frames_wire_bytes_once_deflate_finishes() {
+    // ws charges a message's uncompressed length while it deflates, then drops
+    // that and leaves exactly the compressed frame's bytes pending
+    // (sender.js:511-527 with websocket.js:133-136). A 64-byte duplex keeps the
+    // writer mid-frame, so the re-charge is observable before the flush.
+    let (handle, mut events, mut client) = compressed_pair(64).await;
+    // Incompressible on purpose: the frame has to be bigger than the duplex, or
+    // the flush would hide the charge.
+    let payload = Bytes::from(
+        (0..4096u32)
+            .map(|value| (value.wrapping_mul(2_654_435_761) >> 13) as u8)
+            .collect::<Vec<u8>>(),
+    );
+    assert_eq!(
+        handle.send(payload.clone(), true, true, 1),
+        SendResult::Queued
+    );
+    assert_eq!(
+        handle.buffered_amount(),
+        4096 + MESSAGE_OVERHEAD,
+        "a queued send is charged its original bytes plus the per-message overhead"
+    );
+
+    let mut reference = Deflater::new(15);
+    let compressed = reference.deflate(&payload).expect("the same deflate");
+    let header = if compressed.len() <= 125 {
+        2
+    } else if compressed.len() <= u16::MAX as usize {
+        4
+    } else {
+        10
+    };
+    let frame_bytes = (header + compressed.len()) as u64;
+    assert!(frame_bytes > 64, "the frame must not fit the duplex");
+    assert_eq!(
+        recharged(&handle, 4096 + MESSAGE_OVERHEAD).await,
+        frame_bytes,
+        "ws reports the pending compressed frame's bytes once deflate finished"
+    );
+
+    let mut head = vec![0u8; header];
+    client
+        .read_exact(&mut head)
+        .await
+        .expect("the frame header");
+    assert_eq!(head[0] & 0x40, 0x40, "RSV1 marks the frame compressed");
+    let declared = match header {
+        2 => usize::from(head[1] & 0x7f),
+        4 => usize::from(u16::from_be_bytes([head[2], head[3]])),
+        _ => usize::try_from(u64::from_be_bytes(
+            head[2..].try_into().expect("eight bytes"),
+        ))
+        .expect("a length"),
+    };
+    assert_eq!(
+        declared,
+        compressed.len(),
+        "the charge names the frame's bytes"
+    );
+    let mut wire = vec![0u8; compressed.len()];
+    client.read_exact(&mut wire).await.expect("the payload");
+    assert_eq!(
+        wire, compressed,
+        "the frame is the deflate the charge named"
+    );
+    match next(&mut events).await {
+        SocketEvent::Sent { id, error } => assert_eq!((id, error), (1, None)),
+        other => panic!("expected exactly one Sent, got {other:?}"),
+    }
+    assert_eq!(handle.buffered_amount(), 0, "the flush releases the charge");
 }
 
 #[tokio::test]
