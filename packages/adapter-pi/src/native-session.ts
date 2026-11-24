@@ -50,7 +50,7 @@ import { PiHistoryError } from "./history-errors.ts";
 import { requireDurableFork } from "./fork-admission.ts";
 import type { PiOptions, PiSession } from "./session.ts";
 
-interface NativePiHandle extends NativeSessionPort {
+export interface NativePiHandle extends NativeSessionPort {
   outputTarget(): NonNullable<SpawnOptions["nativeOutput"]>;
   request(command: string, paramsJson: string, id: number): void;
   write(dataJson: string, id: number, resumeAfter: boolean): void;
@@ -66,7 +66,7 @@ interface NativePiHandle extends NativeSessionPort {
   abandon(): void;
 }
 
-interface NativeSessionsAddon {
+export interface NativeSessionsAddon {
   PiSessionNative: new (
     configJson: string,
     events: (error: unknown, batch: string) => void,
@@ -89,10 +89,12 @@ function addon(): NativeSessionsAddon {
 export async function openNativePiSession(
   ctx: SessionContext,
   options: PiOptions = {},
+  /** Tests inject a stale addon; production always loads `addon`. */
+  load: () => NativeSessionsAddon = addon,
 ): Promise<PiSession> {
   ctx.signal.throwIfAborted();
   // The addon first: a missing one must not leave a credential file or a lease behind.
-  const native = addon();
+  const native = load();
   const io = { ...runtime, ...options.runtime };
   // Windows has no SIGTERM for a console child: closing stdin is the polite stop there.
   const windows = (io.platform ?? process.platform) === "win32";
@@ -131,39 +133,23 @@ export async function openNativePiSession(
     // ace's shipped skills, beside the person's own (Pi lists every skill directory it gets).
     ...(ctx.builtinSkills?.directories ?? []).flatMap((directory) => ["--skill", directory]),
   ];
-  let configuration: ReturnType<typeof privateMcpConfig>;
+  // The handle first: a stale addon or a throwing constructor must not leave the
+  // lease or the credential file behind, so only what exists is cleaned up here.
+  let bridge: SessionBridge;
+  let handle: NativePiHandle;
   try {
-    configuration = privateMcpConfig(
+    handle = new native.PiSessionNative(
       JSON.stringify({
-        controlSecret,
-        ...(lease ? { mcp: { url: lease.url, bearer: lease.bearer } } : {}),
-        // Read-only keeps `ace_*` in Pi's allowlist; the extension then offers only read tools.
-        ...(ctx.permissionMode === piNative.readOnly ? { readOnly: true } : {}),
+        control_secret: controlSecret,
+        ...(lease ? { lease_bearer: lease.bearer } : {}),
       }),
-      ctx.cwd,
+      (_error: unknown, batch: string) => bridge.deliver(batch),
     );
   } catch (error) {
     lifetime.abort();
     lease?.end();
     throw error;
   }
-  const env = {
-    ...ctx.env,
-    // One Pi process per session: its bash tool inherits the agent's variables (ADR 0178 §10).
-    ...ctx.agentEnv,
-    ACE_PI_SESSION_FILE: configuration.path,
-    ACE_PI_CONTROL_SECRET: undefined,
-    ACE_PI_MCP_URL: undefined,
-    ACE_PI_MCP_BEARER: undefined,
-  };
-  let bridge: SessionBridge;
-  const handle = new native.PiSessionNative(
-    JSON.stringify({
-      control_secret: controlSecret,
-      ...(lease ? { lease_bearer: lease.bearer } : {}),
-    }),
-    (_error: unknown, batch: string) => bridge.deliver(batch),
-  );
   let spawned = false;
   let proc: ReturnType<PiRuntime["spawn"]>;
   const hooks: BridgeHooks = {
@@ -184,6 +170,33 @@ export async function openNativePiSession(
     ACE_PI_COMMAND_REFUSED: PiCommandRefused,
     ACE_PI_UNCERTAIN: Error,
   });
+  let configuration: ReturnType<typeof privateMcpConfig>;
+  try {
+    configuration = privateMcpConfig(
+      JSON.stringify({
+        controlSecret,
+        ...(lease ? { mcp: { url: lease.url, bearer: lease.bearer } } : {}),
+        // Read-only keeps `ace_*` in Pi's allowlist; the extension then offers only read tools.
+        ...(ctx.permissionMode === piNative.readOnly ? { readOnly: true } : {}),
+      }),
+      ctx.cwd,
+    );
+  } catch (error) {
+    // The wire has no child yet: close it so its port releases, then end the lease.
+    handle.abandon();
+    lifetime.abort();
+    lease?.end();
+    throw error;
+  }
+  const env = {
+    ...ctx.env,
+    // One Pi process per session: its bash tool inherits the agent's variables (ADR 0178 §10).
+    ...ctx.agentEnv,
+    ACE_PI_SESSION_FILE: configuration.path,
+    ACE_PI_CONTROL_SECRET: undefined,
+    ACE_PI_MCP_URL: undefined,
+    ACE_PI_MCP_BEARER: undefined,
+  };
   try {
     proc = io.spawn({
       command: cli.path,
