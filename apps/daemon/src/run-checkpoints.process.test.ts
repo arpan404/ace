@@ -166,3 +166,118 @@ test("root-turn pagination reaches beyond the transcript window and child turns 
     await rm(data, { recursive: true, force: true });
   }
 });
+
+test("a message sent right after a turn ends starts its turn from the checkpoint that ended the last one", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-run-boundary-"));
+  await git("git", ["init", root]);
+  await git("git", ["-C", root, "config", "user.name", "ace test"]);
+  await git("git", ["-C", root, "config", "user.email", "test@ace.local"]);
+  await writeFile(join(root, "file.txt"), "before\n");
+  await git("git", ["-C", root, "add", "file.txt"]);
+  await git("git", ["-C", root, "commit", "-m", "Initial"]);
+  const data = await mkdtemp(join(tmpdir(), "ace-run-store-"));
+  const store = new Store(join(data, "events.sqlite"));
+  const workspaceId = store.createWorkspace(root, "Project");
+  const thread = Thread.parse({
+    id: "thread",
+    workspaceId,
+    provider: "codex",
+    rootAgentId: "root",
+    title: "Follow up",
+    status: { state: "new" },
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
+  const runtime = new WorkspaceRuntime(store, data, () => 1000);
+  const turn = (id: string, startedAt: number) =>
+    Run.parse({
+      id,
+      threadId: thread.id,
+      agentId: AgentId.parse("root"),
+      trigger: "user",
+      state: "active",
+      startedAt,
+    });
+  const runs = async (limit: number) => {
+    const page = (
+      await runtime.read({
+        type: "workspace.request",
+        requestId: "runs",
+        operation: {
+          op: "runs.list",
+          threadId: thread.id,
+          before: Number.MAX_SAFE_INTEGER,
+          limit,
+        },
+      })
+    ).result;
+    if (page.kind !== "runs") throw new Error("Expected runs");
+    return page.runs;
+  };
+  try {
+    // The first message of a thread has no "after" waiting, so it takes its own "before".
+    await runtime.checkpoints.beforeSend(thread.id, CommandId.parse("first"));
+    const first = turn("turn-one", 1);
+    store.appendEvents(thread.id, [
+      { type: "run.started", run: first },
+      { type: "thread.updated", status: { state: "working", agents: 1 } },
+    ]);
+    await writeFile(join(root, "file.txt"), "after\n");
+    // Record the thread done and let a maintenance pass that finds nothing due finish, then land
+    // the run's end: its "after" waits for the next admission, as it does when that pool is full.
+    store.appendEvents(thread.id, [{ type: "thread.updated", status: { state: "done" } }]);
+    await runtime.checkpoints.settled();
+    store.appendEvents(thread.id, [
+      { type: "run.ended", runId: first.id, state: "completed", endedAt: 2 },
+    ]);
+
+    await runtime.checkpoints.beforeSend(thread.id, CommandId.parse("second"));
+    const [ended] = await runs(1);
+    if (!ended?.checkpoints?.before || !ended.checkpoints.after)
+      throw new Error("Expected checkpoint refs");
+    expect(ended.checkpoints.before).not.toBe(ended.checkpoints.after);
+
+    const second = turn("turn-two", 3);
+    store.appendEvents(thread.id, [
+      { type: "run.started", run: second },
+      { type: "thread.updated", status: { state: "working", agents: 1 } },
+    ]);
+    const [followUp] = await runs(1);
+    expect(followUp?.id).toBe(second.id);
+    expect(followUp?.checkpoints).toMatchObject({
+      before: ended.checkpoints.after,
+      state: "pending",
+    });
+    const boundary = await runtime.git.diff({
+      worktree: root,
+      from: { kind: "checkpoint", id: ended.checkpoints.before },
+      to: { kind: "checkpoint", id: ended.checkpoints.after },
+    });
+    expect(boundary.patch).toContain("-before");
+    expect(boundary.patch).toContain("+after");
+
+    await writeFile(join(root, "file.txt"), "third\n");
+    store.appendEvents(thread.id, [
+      { type: "run.ended", runId: second.id, state: "completed", endedAt: 4 },
+      { type: "thread.updated", status: { state: "done" } },
+    ]);
+    await runtime.checkpoints.settled();
+    const [finished] = await runs(1);
+    expect(finished?.checkpoints?.state).toBe("ready");
+    if (!finished?.checkpoints?.before || !finished.checkpoints.after)
+      throw new Error("Expected checkpoint refs");
+    const turnDiff = await runtime.git.diff({
+      worktree: root,
+      from: { kind: "checkpoint", id: finished.checkpoints.before },
+      to: { kind: "checkpoint", id: finished.checkpoints.after },
+    });
+    expect(turnDiff.patch).toContain("-after");
+    expect(turnDiff.patch).toContain("+third");
+  } finally {
+    await runtime.close();
+    await store.close();
+    await rm(root, { recursive: true, force: true });
+    await rm(data, { recursive: true, force: true });
+  }
+});
