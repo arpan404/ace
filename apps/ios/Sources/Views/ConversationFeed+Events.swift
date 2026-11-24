@@ -218,7 +218,6 @@ extension ConversationFeed {
     func disappeared() {
         settle.cancel()
         surface.stopAll()
-        surface.thaw()
         saveSession()
         reading.cancel(model: model)
         transcriptMarkdown?.moving = false
@@ -304,9 +303,6 @@ extension ConversationFeed {
         surface.stop(.page)
         // A window's bottom hold ends with it, whatever ended it (`windowHoldEnded`).
         growth.windowHoldEnded()
-        guard surface.isFrozen else { return }
-        surface.thaw()
-        TranscriptJumpHooks.covered(false)
     }
     func toEnd(_ proxy: TranscriptSurface, animated: Bool = false) {
         // Before the rows land there is no end to reach: a settle started on the placeholder
