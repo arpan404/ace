@@ -282,6 +282,8 @@ const signInPages = {
   "github-copilot": { url: "https://github.com/login/device", code: "WXYZ-1234" },
 };
 const attempts = new Map();
+/** How many `GET /api/integration` requests this server has served, for ACE_TEST_EMPTY_INTEGRATIONS. */
+let integrationReads = 0;
 const signInLog = (entry) => {
   if (process.env.ACE_TEST_SIGN_IN_LOG)
     appendFileSync(process.env.ACE_TEST_SIGN_IN_LOG, `${JSON.stringify(entry)}\n`);
@@ -893,7 +895,15 @@ const server = createServer(async (req, res) => {
   }
   // Sign-in, shaped like OpenCode 2.0.32's integration API. No credential is ever stored.
   if (path === "/api/integration" && req.method === "GET") {
-    json({ data: signInIntegrations });
+    integrationReads += 1;
+    // Real OpenCode answers with an empty list for a moment after it announces its URL.
+    const whileLoading = process.env.ACE_TEST_EMPTY_INTEGRATIONS;
+    const loading =
+      whileLoading === "always" ||
+      (Number.isInteger(Number(whileLoading)) &&
+        Number(whileLoading) > 0 &&
+        integrationReads <= Number(whileLoading));
+    json({ data: loading ? [] : signInIntegrations });
     return;
   }
   const connect = /^\/api\/integration\/([^/]+)\/connect\/oauth(?:\/([^/]+))?$/.exec(path);
