@@ -117,6 +117,9 @@ struct View {
 struct SourceFacts {
     /// The page's CSS size and scale (`source.page`), or the last unit's display size.
     page: Option<(f64, f64, f64)>,
+    /// The page size the daemon announced (`source.page`): the only page size the browser
+    /// header carries. A unit's display size seeds planning above but never the header.
+    daemon_page: Option<(f64, f64, f64)>,
     /// What the producer can encode (`source.codecs`), possibly nothing; none told: whatever
     /// the views decode.
     codecs: Option<Vec<String>>,
@@ -360,6 +363,7 @@ impl Delivery {
             return;
         }
         facts.page = page;
+        facts.daemon_page = page;
         self.replan(source, now_ms, out);
     }
 
@@ -629,7 +633,7 @@ impl Delivery {
         for key in keys {
             self.message = self.message.wrapping_add(1);
             let message = self.message;
-            let page = self.sources.get(source).and_then(|facts| facts.page);
+            let page = self.sources.get(source).and_then(|facts| facts.daemon_page);
             let Some(view) = self.views.get_mut(&key) else {
                 continue;
             };
@@ -715,7 +719,7 @@ impl Delivery {
         out: &mut Vec<Effect>,
     ) {
         {
-            let page = self.sources.get(source).and_then(|facts| facts.page);
+            let page = self.sources.get(source).and_then(|facts| facts.daemon_page);
             let Some(view) = self.views.get_mut(key) else {
                 return;
             };

@@ -1011,6 +1011,31 @@ fn a_browser_view_header_scales_a_tiny_page_up_to_what_the_client_takes() {
 }
 
 #[test]
+fn a_browser_view_header_keeps_the_display_size_until_the_daemon_announces_the_page() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    // No source.page yet: the first unit's display size seeds planning, but the header keeps
+    // the display size of the unit it carries, even after the encoder's size changed.
+    let first = ingest(
+        &mut engine,
+        1,
+        browser_key(0, (1280, 800), (1280, 800)),
+        NOW,
+    );
+    assert_eq!(browser_video_header(&first), Some((1280, 800, 1280, 800)));
+    let second = ingest(&mut engine, 1, browser_key(1, (640, 400), (640, 400)), NOW);
+    assert_eq!(browser_video_header(&second), Some((640, 400, 640, 400)));
+    // The daemon announces the CSS page: the header uses it beside the coded size.
+    send(
+        &mut engine,
+        json!({ "type": "source.page", "source": "s1", "width": 320, "height": 200, "scale": 1 }),
+        &[],
+        NOW,
+    );
+    let third = ingest(&mut engine, 1, browser_key(2, (640, 400), (640, 400)), NOW);
+    assert_eq!(browser_video_header(&third), Some((320, 200, 640, 400)));
+}
+
+#[test]
 fn a_page_that_changes_size_plans_its_views_again_at_its_new_shape() {
     let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
     // Planned at the first unit's size: a phone-shaped page.
