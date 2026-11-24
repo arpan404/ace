@@ -249,6 +249,7 @@ fn read_identifier(payload: &str) -> bool {
 }
 
 fn readonly_select(sql: &str) -> bool {
+    let original = sql;
     let sql = sql.to_ascii_lowercase();
     let Some(rest) = sql
         .strip_prefix("select")
@@ -273,6 +274,21 @@ fn readonly_select(sql: &str) -> bool {
                 STATEMENTS.contains(&word)
                     || matches!(word, "into" | "for" | "outfile" | "dumpfile")
             })
+        && single_select(original)
+}
+
+fn single_select(sql: &str) -> bool {
+    use sqlparser::ast::{SetExpr, Statement};
+    let Ok(parsed) =
+        sqlparser::parser::Parser::parse_sql(&sqlparser::dialect::GenericDialect {}, sql)
+    else {
+        return false;
+    };
+    matches!(parsed.as_slice(), [Statement::Query(query)]
+        if query.with.is_none() && query.locks.is_empty()
+            && query.settings.is_none() && query.for_clause.is_none()
+            && matches!(query.body.as_ref(), SetExpr::Select(select)
+                if select.into.is_none() && !select.projection.is_empty()))
 }
 
 pub(super) fn has_command(schema: &Value, arguments: &Value) -> bool {
