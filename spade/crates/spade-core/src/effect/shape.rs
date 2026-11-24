@@ -173,6 +173,87 @@ fn strings<'a>(value: &'a Value, out: &mut Vec<&'a str>, depth: usize) -> bool {
     }
 }
 
+/// Read the operation of a generic command tool. A read inference covers only the
+/// command itself; outward arguments and trusted effect declarations still take precedence.
+pub fn command_effect(arguments: &Value) -> Option<super::Named> {
+    use super::Named;
+    let args = arguments.as_object()?;
+    let command = args.get("command")?.as_str()?.trim();
+    let invocation = command
+        .strip_prefix("call ")
+        .unwrap_or(command)
+        .trim_start();
+    let (operation, payload) = invocation
+        .split_once(char::is_whitespace)
+        .unwrap_or((invocation, ""));
+    if !operation
+        .bytes()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_'))
+    {
+        return None;
+    }
+    let named = super::named(operation, "");
+    if matches!(
+        named,
+        Named::Pay | Named::Send | Named::Access | Named::Destroys
+    ) {
+        return Some(named);
+    }
+    if args.len() != 1 {
+        return None;
+    }
+    let payload = payload.trim();
+    if matches!(operation, "execute-sql" | "query-sql") {
+        let sql = payload
+            .strip_prefix('{')
+            .and_then(|sql| sql.strip_suffix('}'))
+            .unwrap_or(payload)
+            .trim();
+        return readonly_select(sql).then_some(Named::Read);
+    }
+    let suffix_read = operation
+        .rsplit_once(['-', '_'])
+        .is_some_and(|(resource, verb)| {
+            matches!(verb, "get" | "list")
+                && super::named(&format!("{verb}-{resource}"), "") == Named::Read
+        });
+    ((named == Named::Read || suffix_read)
+        && payload.split_ascii_whitespace().all(|part| {
+            !part.starts_with('-')
+                && part
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.'))
+        }))
+    .then_some(Named::Read)
+}
+
+fn readonly_select(sql: &str) -> bool {
+    let sql = sql.to_ascii_lowercase();
+    let Some(rest) = sql
+        .strip_prefix("select")
+        .filter(|rest| rest.starts_with(char::is_whitespace))
+    else {
+        return false;
+    };
+    let rest = rest
+        .trim()
+        .strip_prefix("count(*)")
+        .map_or(rest.trim(), |suffix| suffix);
+    !rest.is_empty()
+        && !rest.contains("--")
+        && rest.bytes().all(|c| {
+            c.is_ascii_alphanumeric()
+                || c.is_ascii_whitespace()
+                || matches!(c, b'_' | b'.' | b',' | b'*' | b'=')
+        })
+        && !rest
+            .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .any(|word| {
+                STATEMENTS.contains(&word)
+                    || matches!(word, "into" | "for" | "outfile" | "dumpfile")
+            })
+}
+
 /// What a call of the tool `name`, with input `schema`, given `arguments`, can reach.
 pub fn shape(name: &str, schema: &Value, arguments: &Value) -> Shape {
     let tool = words(name);
@@ -207,6 +288,14 @@ pub fn shape(name: &str, schema: &Value, arguments: &Value) -> Shape {
         return Shape::Outward;
     }
     if any(CODE) {
+        if command_effect(arguments) == Some(super::Named::Read)
+            && !parts
+                .iter()
+                .flatten()
+                .any(|word| word != "command" && CODE.contains(&word.as_str()))
+        {
+            return Shape::Plain;
+        }
         return Shape::Code;
     }
     if any(QUERY) {

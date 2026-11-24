@@ -302,6 +302,48 @@ pub struct AppReading {
 /// an access change or a delete goes to the person; a read whose arguments reach a destination
 /// or run text, a renamed tool's read, a write and anything Spade can't place stay unresolved,
 /// for the reviewer. An annotation may narrow a read the name makes, never widen one.
+pub fn app_call(
+    tool: Mcp,
+    name: &str,
+    description: &str,
+    schema: &serde_json::Value,
+    arguments: &serde_json::Value,
+    changed: bool,
+) -> AppReading {
+    let said = named(name, description);
+    let call_shape = shape(name, schema, arguments);
+    let operation = shape::command_effect(arguments);
+    if matches!(
+        tool.declared,
+        Some(Effect::Credential | Effect::Pay | Effect::SendAsPerson | Effect::ChangeAccess)
+    ) {
+        return app_tool(tool, said, call_shape, changed);
+    }
+    let said = match (said, operation) {
+        (Named::Pay | Named::Send | Named::Access | Named::Destroys, _) => said,
+        (_, Some(named @ (Named::Pay | Named::Send | Named::Access | Named::Destroys))) => {
+            // Keep recognized hard stops even if the generic tool has a broader declaration.
+            return app_tool(
+                Mcp {
+                    declared: None,
+                    ..tool
+                },
+                named,
+                call_shape,
+                changed,
+            );
+        }
+        (Named::Unclear, Some(Named::Read))
+            if call_shape == Shape::Plain && tool.declared.is_none() && !tool.destructive =>
+        {
+            return app_tool(Mcp::default(), Named::Read, call_shape, changed);
+        }
+        _ => said,
+    };
+    app_tool(tool, said, call_shape, changed)
+}
+
+/// Read an app tool from its declaration, inferred operation and argument shape.
 pub fn app_tool(tool: Mcp, said: Named, shape: Shape, changed: bool) -> AppReading {
     let plain = shape == Shape::Plain;
     let trusted_read = tool.trusted && tool.annotated && tool.read_only && !tool.destructive;

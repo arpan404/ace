@@ -540,3 +540,52 @@ fn in_full_access_a_clean_app_read_is_never_screened_into_a_card() {
         ..write
     }));
 }
+
+#[test]
+fn a_generic_command_is_classified_from_the_operation_and_payload() {
+    use serde_json::json;
+    let schema = json!({"type":"object","properties":{"command":{"type":"string"}}});
+    for command in [
+        "project-get",
+        "list-projects",
+        "call get-project alpha",
+        "call execute-sql {SELECT count(*) FROM events}",
+    ] {
+        let reading = super::app_call(
+            Mcp::default(),
+            "exec",
+            "",
+            &schema,
+            &json!({"command":command}),
+            false,
+        );
+        assert_eq!(reading.effect, Some(Effect::Read), "{command}");
+        assert!(reading.guessed);
+    }
+    for command in [
+        "project-update",
+        "call execute-sql {SELECT * INTO other FROM events}",
+        "call execute-sql {SELECT * FROM events; DELETE FROM events}",
+        "call execute-sql {SELECT dblink_exec()}",
+        "list-projects && project-delete",
+    ] {
+        let reading = super::app_call(
+            Mcp::default(),
+            "exec",
+            "",
+            &schema,
+            &json!({"command":command}),
+            false,
+        );
+        assert_ne!(reading.effect, Some(Effect::Read), "{command}");
+    }
+    let reading = super::app_call(
+        Mcp::default(),
+        "exec",
+        "",
+        &schema,
+        &json!({"command":"call send-email"}),
+        false,
+    );
+    assert_eq!(reading.effect, Some(Effect::SendAsPerson));
+}
