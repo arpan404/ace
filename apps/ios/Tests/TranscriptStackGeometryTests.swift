@@ -49,6 +49,21 @@ import Testing
         #expect(geometry.top(of: "a") == 641)
     }
 
+    @Test func anOlderPageKeepsTheHeightsOfTheRowsItRetains() {
+        // "c" sits between the live end and the reader and hasn't measured: it starts at the fallback.
+        var geometry = TranscriptStackGeometry()
+        geometry.replace(["tail", "c", "b"])
+        geometry.measure("tail", height: 1)
+        geometry.measure("b", height: 500)
+        // A row elsewhere measures and moves the mean before the next page lands.
+        geometry.measure("z", height: 900)
+        let move = geometry.replace(["tail", "c", "b", "a"], estimate: { _ in 40 }, keeping: "b")
+
+        #expect(move == 0)
+        #expect(geometry.height(at: 1) == 120)
+        #expect(geometry.top(of: "b") == 121)
+    }
+
     @Test func anUnmeasuredRowStartsAtItsEstimateThenTheMeanOfMeasuredRows() {
         var geometry = measured([("b", 100), ("a", 300)])
         geometry.replace(["b", "a", "z", "y"], estimate: { $0 == "z" ? 50 : nil })

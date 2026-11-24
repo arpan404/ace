@@ -26,16 +26,19 @@ struct TranscriptStackGeometry: Equatable, Sendable {
     /// The last height measured for `id`, from this window or an earlier one.
     func measuredHeight(_ id: String) -> CGFloat? { measured[id] }
 
-    /// Lays out `ids` in order. An id never measured takes `estimate`, then the mean of what has
-    /// been measured, then `fallback`. Returns how far the scroll offset must move so `anchor`,
-    /// an entry laid out before and after, stays where it was on screen; 0 without one.
+    /// Lays out `ids` in order. An id laid out now keeps the height it has, measured or estimated,
+    /// so a page that only adds rows elsewhere moves none of these. An id joining takes its last
+    /// measured height, then `estimate`, then the mean of what has been measured, then `fallback`.
+    /// Returns how far the scroll offset must move so `anchor`, an entry laid out before and
+    /// after, stays where it was on screen; 0 without one.
     @discardableResult
     mutating func replace(_ ids: [String], estimate: (String) -> CGFloat? = { _ in nil },
                           keeping anchor: String? = nil) -> CGFloat {
         let before = anchor.flatMap { top(of: $0) }
         let mean = measured.isEmpty ? fallback : measuredSum / CGFloat(measured.count)
+        let kept = positions.mapValues { heights[$0] }
         self.ids = ids
-        heights = ids.map { measured[$0] ?? estimate($0) ?? mean }
+        heights = ids.map { kept[$0] ?? measured[$0] ?? estimate($0) ?? mean }
         positions = Dictionary(ids.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         restack(from: 0)
         guard let before, let anchor, let after = top(of: anchor) else { return 0 }
