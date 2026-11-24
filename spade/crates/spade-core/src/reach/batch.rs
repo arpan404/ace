@@ -7,11 +7,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::escalation::{Level, one_line};
+use crate::event::Event;
+use crate::question::{Standing, standing};
+use crate::transcript::Transcript;
 
 use super::{Approvals, Category, Decision, Moment, Notice, Reach, Settings, decide};
 
 /// How long pending `needs_you` asks from the same bot or tree wait to coalesce into one notice.
-pub const WINDOW_MS: u64 = 250;
+pub const WINDOW_MS: i64 = 250;
 
 /// Which kind of `needs_you` event one item in a batch came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -31,7 +34,7 @@ impl AskKind {
 }
 
 /// The root bot of the tree whose pending asks are grouped together.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TreeRoot {
     pub agent: String,
     pub name: String,
@@ -39,7 +42,7 @@ pub struct TreeRoot {
 }
 
 /// One pending approval or question eligible to be grouped with others from its tree.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingAsk {
     pub id: String,
     pub agent: String,
@@ -65,8 +68,32 @@ pub struct Planned {
     pub text: String,
     pub level: Level,
     pub decision: Decision,
+    /// Source event ids (`PendingAsk::id`) represented by this notice.
+    pub source_ids: Vec<String>,
     /// Notice JSON payload without `id`, `category`, `reach` or `why` (filled on send).
     pub notice: Value,
+}
+
+/// Whether `item` is still open in its conversation's stored `events`. Answered, dismissed,
+/// deferred-while-blocking, or closed requests return `false` and must be dropped before flush.
+pub fn still_open(events: &[Event], item: &PendingAsk) -> bool {
+    match item.kind {
+        AskKind::Approval => {
+            let transcript = Transcript::fold(events);
+            transcript.awaiting.contains(&item.request)
+                || transcript
+                    .helper_awaiting
+                    .iter()
+                    .any(|(id, _)| id == &item.request)
+        }
+        AskKind::Question => match item.level {
+            Level::Block => standing(events, &item.request) == Some(Standing::Waiting),
+            _ => matches!(
+                standing(events, &item.request),
+                Some(Standing::Waiting | Standing::Deferred)
+            ),
+        },
+    }
 }
 
 /// Decides and groups `items` belonging to `root`'s tree at `moment`.
@@ -76,9 +103,12 @@ pub struct Planned {
 ///   items still follow ADR 0195.
 /// - One `now` (or `held`) item stays its exact individual `kind: "event"` notice.
 /// - Two or more `now` (or `held`) items from the same bot or tree merge into one grouped
-///   `kind: "needs_you_batch"` notice under `root`, carrying the highest `level` in the group.
-/// - A grouped `now` notice counts at most once against the proactive budget, and does not count
-///   at all if any item in it is urgent (`block` or `engaged`).
+///   `kind: "needs_you_batch"` notice carrying the highest `level` in the group. When every item
+///   belongs to one owning conversation (e.g. one worker), top-level fields deep-link there;
+///   otherwise they link to `root` and `items` lists each item's conversation.
+/// - A grouped `now` notice charges once against the proactive budget whenever any delivered item
+///   is chargeable; when the budget is exhausted, urgent items (`block`, `engaged`) still deliver
+///   while chargeable proactive items move to `held`.
 pub fn plan(
     settings: &Settings,
     root: &TreeRoot,
@@ -133,7 +163,7 @@ fn push_bucket(
                 Reach::Now => Decision {
                     reach: Reach::Now,
                     why: None,
-                    counts: many.iter().all(|(_, d)| d.counts),
+                    counts: many.iter().any(|(_, d)| d.counts),
                 },
                 Reach::Held => Decision {
                     reach: Reach::Held,
@@ -155,6 +185,7 @@ fn single(item: &PendingAsk, decision: Decision) -> Planned {
         text: item.text.clone(),
         level: item.level,
         decision,
+        source_ids: vec![item.id.clone()],
         notice: json!({
             "kind": "event",
             "agent": item.agent,
@@ -176,8 +207,25 @@ fn grouped(root: &TreeRoot, items: &[&PendingAsk], decision: Decision) -> Planne
     let questions = items.len().saturating_sub(approvals);
     let latest_at = items.iter().map(|i| i.at_ms).max().unwrap_or(0);
     let first_seq = items.first().map_or(0, |i| i.seq);
-    let text = batch_text(root, items);
-    let id = batch_id(&root.agent, latest_at, first_seq, items.len());
+    // When every item in the batch belongs to one conversation (e.g. a single worker), deep-link
+    // there directly; otherwise link to the tree root and list each item's target in `items`.
+    let single_owner = items
+        .first()
+        .filter(|first| items.iter().all(|i| i.conversation == first.conversation));
+    let (target_agent, target_name, target_conversation) = match single_owner {
+        Some(owner) => (
+            owner.agent.as_str(),
+            owner.name.as_str(),
+            owner.conversation.as_str(),
+        ),
+        None => (
+            root.agent.as_str(),
+            root.name.as_str(),
+            root.conversation.as_str(),
+        ),
+    };
+    let text = batch_text(target_agent, items);
+    let id = batch_id(target_agent, latest_at, first_seq, items.len());
     let listed: Vec<Value> = items
         .iter()
         .map(|item| {
@@ -197,16 +245,17 @@ fn grouped(root: &TreeRoot, items: &[&PendingAsk], decision: Decision) -> Planne
         .collect();
     Planned {
         id,
-        agent: root.agent.clone(),
-        name: root.name.clone(),
+        agent: target_agent.to_owned(),
+        name: target_name.to_owned(),
         text: text.clone(),
         level,
         decision,
+        source_ids: items.iter().map(|i| i.id.clone()).collect(),
         notice: json!({
             "kind": "needs_you_batch",
-            "agent": root.agent,
-            "name": root.name,
-            "conversation": root.conversation,
+            "agent": target_agent,
+            "name": target_name,
+            "conversation": target_conversation,
             "at": latest_at,
             "level": level,
             "count": items.len(),
@@ -218,8 +267,8 @@ fn grouped(root: &TreeRoot, items: &[&PendingAsk], decision: Decision) -> Planne
     }
 }
 
-/// One plain, lock-screen-safe line summarizing a batch of pending asks from `root`'s tree.
-pub fn batch_text(root: &TreeRoot, items: &[&PendingAsk]) -> String {
+/// One plain, lock-screen-safe line summarizing a batch of pending asks under `target_agent`.
+pub fn batch_text(target_agent: &str, items: &[&PendingAsk]) -> String {
     let approvals = items.iter().filter(|i| i.kind == AskKind::Approval).count();
     let questions = items.len().saturating_sub(approvals);
     let blocking = items.iter().any(|i| i.level == Level::Block);
@@ -233,8 +282,8 @@ pub fn batch_text(root: &TreeRoot, items: &[&PendingAsk]) -> String {
             plural(q, "question", "questions")
         ),
     };
-    let all_root = items.iter().all(|i| i.agent == root.agent);
-    if all_root {
+    let all_target = items.iter().all(|i| i.agent == target_agent);
+    if all_target {
         return one_line(&format!("{counts}."));
     }
     let mut bots: Vec<&str> = Vec::new();
@@ -270,6 +319,7 @@ fn batch_id(agent: &str, latest_at: i64, first_seq: i64, count: usize) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::Known;
     use crate::reach::{Why, settings::Budget};
 
     const NOW: i64 = 1_763_560_800_000;
@@ -331,6 +381,7 @@ mod tests {
         let planned = plan(&Settings::default(), &root(), &items, moment(&[]));
         assert_eq!(planned.len(), 1);
         assert_eq!(planned[0].id, "event:c-a-root:5");
+        assert_eq!(planned[0].source_ids, vec!["event:c-a-root:5"]);
         assert_eq!(planned[0].notice["kind"], "event");
         assert_eq!(planned[0].notice["request"], "q1");
         assert_eq!(planned[0].decision.reach, Reach::Now);
@@ -348,7 +399,6 @@ mod tests {
                 Level::Block,
                 "c1",
             ),
-            ask("a-root", "Builder", 6, AskKind::Question, Level::Ask, "q1"),
             ask(
                 "a-root",
                 "Builder",
@@ -362,14 +412,14 @@ mod tests {
         assert_eq!(planned.len(), 1);
         assert_eq!(planned[0].notice["kind"], "needs_you_batch");
         assert_eq!(planned[0].notice["level"], "block");
-        assert_eq!(planned[0].notice["count"], 3);
+        assert_eq!(planned[0].notice["count"], 2);
         assert_eq!(planned[0].notice["approvals"], 2);
-        assert_eq!(planned[0].notice["questions"], 1);
-        assert_eq!(planned[0].text, "2 approvals and 1 question waiting.");
+        assert_eq!(planned[0].notice["questions"], 0);
+        assert_eq!(planned[0].text, "2 approvals waiting.");
         assert_eq!(planned[0].decision.reach, Reach::Now);
         assert!(
             !planned[0].decision.counts,
-            "a batch containing a block never consumes proactive budget"
+            "an all-blocking batch never consumes proactive budget"
         );
 
         let tree = [
@@ -393,6 +443,63 @@ mod tests {
             "1 approval and 1 question waiting (Scout and Runner)."
         );
         assert_eq!(planned[0].notice["items"].as_array().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn a_batch_belonging_to_one_worker_deep_links_to_that_worker() {
+        let worker_only = [
+            ask("a-scout", "Scout", 2, AskKind::Approval, Level::Block, "c1"),
+            ask("a-scout", "Scout", 3, AskKind::Question, Level::Block, "q1"),
+        ];
+        let planned = plan(&Settings::default(), &root(), &worker_only, moment(&[]));
+        assert_eq!(planned.len(), 1);
+        assert_eq!(planned[0].agent, "a-scout");
+        assert_eq!(planned[0].name, "Scout");
+        assert_eq!(planned[0].notice["agent"], "a-scout");
+        assert_eq!(planned[0].notice["conversation"], "c-a-scout");
+        assert_eq!(planned[0].text, "1 approval and 1 question waiting.");
+        assert_eq!(planned[0].notice["items"].as_array().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn mixed_batch_charges_once_for_proactive_asks_and_keeps_urgent_items_when_budget_exhausted() {
+        let settings = Settings {
+            budget: Budget {
+                per_hour: Some(1),
+                per_day: Some(10),
+            },
+            ..Settings::default()
+        };
+        let mixed = [
+            ask(
+                "a-root",
+                "Builder",
+                5,
+                AskKind::Approval,
+                Level::Block,
+                "c1",
+            ),
+            ask("a-root", "Builder", 6, AskKind::Question, Level::Ask, "q1"),
+        ];
+        // With room in the budget, both deliver together and charge once.
+        let planned = plan(&settings, &root(), &mixed, moment(&[]));
+        assert_eq!(planned.len(), 1);
+        assert_eq!(planned[0].decision.reach, Reach::Now);
+        assert!(
+            planned[0].decision.counts,
+            "a mixed batch with a chargeable proactive ask charges once"
+        );
+        assert_eq!(planned[0].notice["count"], 2);
+
+        // Once the budget is exhausted, the urgent block still delivers and the proactive ask waits.
+        let exhausted = plan(&settings, &root(), &mixed, moment(&[NOW - 1_000]));
+        assert_eq!(exhausted.len(), 2);
+        assert_eq!(exhausted[0].decision.reach, Reach::Now);
+        assert!(!exhausted[0].decision.counts);
+        assert_eq!(exhausted[0].notice["request"], "c1");
+        assert_eq!(exhausted[1].decision.reach, Reach::Held);
+        assert_eq!(exhausted[1].decision.why, Some(Why::Budget));
+        assert_eq!(exhausted[1].notice["request"], "q1");
     }
 
     #[test]
@@ -496,5 +603,81 @@ mod tests {
         assert_eq!(planned[0].decision.why, Some(Why::Dnd));
         assert_eq!(planned[0].notice["kind"], "needs_you_batch");
         assert_eq!(planned[0].text, "2 approvals waiting.");
+    }
+
+    #[test]
+    fn still_open_drops_answered_or_dismissed_approvals_and_questions() {
+        let approval = ask(
+            "a-root",
+            "Builder",
+            2,
+            AskKind::Approval,
+            Level::Block,
+            "c1",
+        );
+        let blocking_q = ask(
+            "a-root",
+            "Builder",
+            3,
+            AskKind::Question,
+            Level::Block,
+            "q1",
+        );
+        let later_q = ask("a-root", "Builder", 4, AskKind::Question, Level::Ask, "q2");
+
+        let mut events = vec![
+            Event::user_message("Do it"),
+            Event::reply_started("r1", "m"),
+            Event::from_json(json!({
+                "type": "approval_requested",
+                "reply": "r1",
+                "call_id": "c1",
+                "name": "shell",
+                "arguments": {},
+            })),
+            Event::Known(Known::QuestionAsked {
+                reply: "r1".into(),
+                call_id: "q1".into(),
+                question: "Ship?".into(),
+                questions: Vec::new(),
+                later: false,
+                lane: None,
+            }),
+            Event::Known(Known::QuestionAsked {
+                reply: "r1".into(),
+                call_id: "q2".into(),
+                question: "Format?".into(),
+                questions: Vec::new(),
+                later: true,
+                lane: None,
+            }),
+            Event::Known(Known::QuestionDeferred {
+                call_id: "q2".into(),
+                by_bot: true,
+            }),
+        ];
+        assert!(still_open(&events, &approval));
+        assert!(still_open(&events, &blocking_q));
+        assert!(still_open(&events, &later_q));
+
+        events.push(Event::from_json(json!({
+            "type": "approval_answered",
+            "reply": "r1",
+            "call_id": "c1",
+            "allowed": true,
+        })));
+        events.push(Event::Known(Known::QuestionAnswered {
+            call_id: "q1".into(),
+            answers: vec![json!("yes")],
+            late: false,
+            typed: false,
+        }));
+        events.push(Event::Known(Known::QuestionDismissed {
+            call_id: "q2".into(),
+            late: true,
+        }));
+        assert!(!still_open(&events, &approval));
+        assert!(!still_open(&events, &blocking_q));
+        assert!(!still_open(&events, &later_q));
     }
 }
