@@ -56,6 +56,7 @@ pub mod skills;
 pub mod spec;
 pub mod spending;
 pub mod task;
+pub mod template_privacy;
 pub mod title;
 pub mod tools;
 pub mod transcript;

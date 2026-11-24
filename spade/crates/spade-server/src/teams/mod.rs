@@ -11,6 +11,7 @@ pub mod proof;
 mod recipe;
 mod recipe_export;
 mod remote;
+pub(crate) mod share_template;
 mod templates;
 mod tools;
 

@@ -31,6 +31,9 @@ pub fn with_engine_tools(mut tools: Toolbox, handle: &EngineHandle) -> Toolbox {
     if tools.get(spade_core::card::CARD_SHOW).is_none() {
         tools = tools.with_tool(Arc::new(CardShow::new(handle.clone(), None)));
     }
+    if tools.get("template_draft").is_none() {
+        tools = tools.with_tool(Arc::new(super::TemplateDraft::local(handle.clone())));
+    }
     // `notify` and `package_suggest` (ADR 0200 §4.2, §8).
     tools = tools
         .with_tool(Arc::new(Notify(handle.clone())))

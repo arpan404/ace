@@ -45,6 +45,7 @@ mod local;
 mod local_probes;
 mod outside_admit;
 mod replays;
+mod share_template;
 pub(crate) use app_forms::Given;
 pub(crate) use ledger::Admission;
 mod code;

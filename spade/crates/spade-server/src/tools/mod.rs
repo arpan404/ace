@@ -8,6 +8,8 @@ mod apps;
 mod asks;
 mod bots;
 mod cards;
+mod share_template;
+pub use share_template::TemplateDraft;
 mod cloud_account;
 mod connectors;
 mod contracts;

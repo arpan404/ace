@@ -459,6 +459,20 @@ impl AceLink {
         }
     }
 
+    /// The daemon supplies the signed-in person's identity to its Store privacy pass.
+    pub(super) async fn template_is_private(&self, texts: &[&str]) -> Option<bool> {
+        if !matches!(self.target, AceTarget::Discover(_)) {
+            return None;
+        }
+        let skills = self.skills()?;
+        for batch in texts.chunks(40) {
+            if skills.market_privacy(batch).await.ok()? {
+                return Some(true);
+            }
+        }
+        Some(false)
+    }
+
     fn skills(&self) -> Option<Arc<AceSkills>> {
         self.current
             .read()

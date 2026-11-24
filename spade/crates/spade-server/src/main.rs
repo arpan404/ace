@@ -503,6 +503,12 @@ async fn run() -> Result<(), Failure> {
         // An app's form mid-call becomes a card from the bot (ADR 0202 §2).
         .with_forms(bots.clone()),
     ));
+    tools = tools.with_tool(Arc::new(spade_server::tools::TemplateDraft::new(
+        bots.clone(),
+        connectors.clone(),
+        skill_store.clone(),
+        ace.clone(),
+    )));
     // The person's outside A2A agents (ADR 0202 §5): each skill a tool, every call theirs.
     let outside_agents = spade_server::a2a::OutsideAgents::open(
         Store::open(&home.database()).map_err(other)?,

@@ -142,6 +142,23 @@ impl AceSkills {
         }
     }
 
+    /// The Store picker's privacy pass over proposed text on this machine.
+    pub async fn market_privacy(&self, texts: &[&str]) -> Result<bool, SkillsError> {
+        let result = self
+            .market(json!({ "op": "privacyCheck", "texts": texts }))
+            .await?;
+        if result["op"] == "privacyCheck"
+            && let Some(spans) = result["spans"].as_array()
+            && spans.len() == texts.len()
+            && spans.iter().all(Value::is_array)
+        {
+            return Ok(spans
+                .iter()
+                .any(|row| row.as_array().is_some_and(|items| !items.is_empty())));
+        }
+        Err(unexpected(result))
+    }
+
     /// One read-only `marketplace.request`, answered with its `result`, or the daemon's typed
     /// refusal. A read that hit a dropped socket is sent once more on a fresh one.
     async fn market(&self, operation: Value) -> Result<Value, SkillsError> {

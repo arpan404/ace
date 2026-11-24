@@ -181,6 +181,7 @@ const BUILTIN: &[(&str, Effect)] = &[
     ("app_connect_request", Effect::Read),
     // A card in the bot's own conversation, drawn by ace: the bot's output, like its reply.
     (crate::card::CARD_SHOW, Effect::WriteLocal),
+    ("template_draft", Effect::WriteLocal),
     // A panel's state, drawn by the package's page in its sandbox: the bot's output too.
     (crate::panel::PANEL_UPDATE, Effect::WriteLocal),
     // Typed calls between the person's bots (ADR 0200 §7). The callee works under its own gate,

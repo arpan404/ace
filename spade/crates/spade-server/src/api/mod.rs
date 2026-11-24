@@ -32,6 +32,7 @@ mod routing;
 mod running;
 mod search_usage;
 mod security;
+mod share_templates;
 mod sign_in;
 mod skills;
 mod teams;
@@ -92,6 +93,15 @@ pub struct AppState {
 pub fn router(state: AppState) -> Router {
     let v1 = Router::new()
         .route("/conversations", get(list).post(no_new_chats))
+        .route("/share-templates/{id}", get(share_templates::read))
+        .route(
+            "/share-templates/{id}/authorize",
+            post(share_templates::authorize),
+        )
+        .route(
+            "/share-templates/{id}/published",
+            post(share_templates::published),
+        )
         .route(
             "/agents",
             get(agents::list)

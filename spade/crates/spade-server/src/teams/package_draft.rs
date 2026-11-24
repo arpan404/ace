@@ -40,23 +40,8 @@ pub fn package_draft(
     id: &str,
 ) -> Result<ExportedRecipe, PortableError> {
     let fail = |e: &dyn std::fmt::Display| PortableError::Failed(e.to_string());
-    let agent = engine
-        .store()
-        .agent(id)
-        .map_err(|e| fail(&e))?
-        .ok_or(PortableError::NotFound)?;
-    if agent.kind != BOT {
-        return Err(invalid("Spade itself isn't made into a package"));
-    }
+    let agent = owned_bot(engine, id)?;
     let made_from = engine.bot_recipe(id);
-    if made_from
-        .as_ref()
-        .is_some_and(|r| !OWN_SOURCES.contains(&r.from_recipe.source.as_str()))
-    {
-        return Err(invalid(
-            "This bot was installed from someone else's package, so its maker's package is the one to change",
-        ));
-    }
     let mut left_out = Vec::new();
     let name: String = agent.name.trim().chars().take(NAME_CHARS).collect();
 
@@ -184,4 +169,26 @@ fn event_word(event: spade_core::routine::AceEvent) -> &'static str {
         AceEvent::ThreadFailed => "thread.failed",
         AceEvent::ThreadNeedsYou => "thread.needs_you",
     }
+}
+
+/// Keep package ownership rules the same for the package kit and shareable templates.
+pub(super) fn owned_bot(engine: &Engine, id: &str) -> Result<spade_store::Agent, PortableError> {
+    let agent = engine
+        .store()
+        .agent(id)
+        .map_err(|e| PortableError::Failed(e.to_string()))?
+        .ok_or(PortableError::NotFound)?;
+    if agent.kind != BOT {
+        return Err(invalid("Spade itself isn't made into a package"));
+    }
+    let made_from = engine.bot_recipe(id);
+    if made_from
+        .as_ref()
+        .is_some_and(|r| !OWN_SOURCES.contains(&r.from_recipe.source.as_str()))
+    {
+        return Err(invalid(
+            "This bot was installed from someone else's package, so its maker's package is the one to change",
+        ));
+    }
+    Ok(agent)
 }
