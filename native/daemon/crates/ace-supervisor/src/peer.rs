@@ -10,13 +10,15 @@
 //! `\ud800`). A received frame keeps every unknown field: the shell observes the
 //! whole value, and classification only names its shape.
 //!
-//! One peer owns the pipe's id reservations and write queue (`rpc-owner.ts`), as
-//! the TypeScript owner does per stream. A timeout, a rejected reply and a close
-//! each settle a pending call exactly once: settling removes it before the
-//! effects are built, so a later response or a second close finds nothing.
+//! A `PeerOwner` carries the pipe's id reservations (`rpc-owner.ts`), so a
+//! replacement peer on the same stdin keeps every id the retired one reserved;
+//! each peer owns its write queue. A timeout, a rejected reply and a close each
+//! settle a pending call exactly once: settling removes it before the effects
+//! are built, so a later response or a second close finds nothing.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::sync::{Arc, Mutex};
 
 use ace_json::{JsString, Map, Value};
 
@@ -25,8 +27,8 @@ use crate::jsonrpc::{self, FrameKind, RpcId, RpcIds, WriterQueue};
 
 /// `maxMessageBytes`' default (`jsonrpc.ts:151`).
 const MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
-/// `maxIncomingRequests`' default (`jsonrpc.ts:149`).
-const MAX_INCOMING: usize = 128;
+/// `maxIncomingRequests`' default (`jsonrpc.ts:149`); shared Codex hosts use 512.
+const DEFAULT_MAX_INCOMING: usize = 128;
 /// `maxExplicitIds`' default (`jsonrpc.ts:158`).
 const MAX_EXPLICIT_IDS: usize = 4096;
 /// The default deadline when a request and its config both leave one unset.
@@ -167,11 +169,13 @@ impl fmt::Debug for PeerEffect {
 }
 
 /// What `RpcPeer::new` needs. `timeout_ms: None` leaves requests without a
-/// deadline unless they pass one (`jsonrpc.ts`'s `null`); the default is 30 s.
+/// default deadline (`jsonrpc.ts`'s `null`); the default is 30 s.
 pub struct PeerConfig {
     pub timeout_ms: Option<f64>,
     pub max_pending: usize,
     pub max_queued_bytes: usize,
+    /// `maxIncomingRequests`: 128 for a dedicated pipe, 512 for a shared host.
+    pub max_incoming: usize,
 }
 
 impl Default for PeerConfig {
@@ -180,7 +184,46 @@ impl Default for PeerConfig {
             timeout_ms: Some(DEFAULT_TIMEOUT_MS),
             max_pending: 256,
             max_queued_bytes: 32 * 1024 * 1024,
+            max_incoming: DEFAULT_MAX_INCOMING,
         }
+    }
+}
+
+/// `RequestOptions.timeoutMs`: absent, an explicit `null`, or a value.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Timeout {
+    Default,
+    Disabled,
+    After(f64),
+}
+
+/// The id reservations one stdin owns (`rpc-owner.ts:14`). A replacement peer
+/// on the same pipe shares this table, so a retired id is never reused and an
+/// old reply cannot claim a new call.
+#[derive(Clone)]
+pub struct PeerOwner {
+    ids: Arc<Mutex<RpcIds>>,
+}
+
+impl PeerOwner {
+    pub fn new() -> PeerOwner {
+        PeerOwner {
+            ids: Arc::new(Mutex::new(RpcIds::new(MAX_EXPLICIT_IDS))),
+        }
+    }
+
+    fn reserve(&self, id: Option<RpcId>) -> Result<RpcId, StreamError> {
+        let mut ids = match self.ids.lock() {
+            Ok(ids) => ids,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        ids.reserve(id)
+    }
+}
+
+impl Default for PeerOwner {
+    fn default() -> PeerOwner {
+        PeerOwner::new()
     }
 }
 
@@ -195,10 +238,12 @@ struct Pending {
 
 pub struct RpcPeer {
     config: PeerConfig,
-    ids: RpcIds,
+    owner: PeerOwner,
     writer: WriterQueue,
     pending: Vec<(RpcId, Pending)>,
     incoming: usize,
+    /// Reply writes still holding an incoming slot until `written`.
+    replies: HashSet<u64>,
     /// The wire for every ticket the queue has not handed out yet.
     writes: HashMap<u64, Vec<u8>>,
     /// The first error that stopped requests; inputs still observe frames.
@@ -209,12 +254,19 @@ pub struct RpcPeer {
 
 impl RpcPeer {
     pub fn new(config: PeerConfig) -> RpcPeer {
+        RpcPeer::with_owner(config, PeerOwner::new())
+    }
+
+    /// A peer over an existing pipe's id table: a replacement keeps the ids the
+    /// retired peer reserved (`rpc-owner.ts`).
+    pub fn with_owner(config: PeerConfig, owner: PeerOwner) -> RpcPeer {
         RpcPeer {
             writer: WriterQueue::new(config.max_queued_bytes),
             config,
-            ids: RpcIds::new(MAX_EXPLICIT_IDS),
+            owner,
             pending: Vec::new(),
             incoming: 0,
+            replies: HashSet::new(),
             writes: HashMap::new(),
             stopped: None,
             closed: false,
@@ -222,13 +274,37 @@ impl RpcPeer {
     }
 
     /// `request` (`jsonrpc.ts:180`–`:238`): validate, reserve, then write.
-    /// `timeout` overrides the config; both `None` means no deadline.
+    /// `params: None` omits the field, as `undefined` does; a `Value::Null`
+    /// inside `Some` is the explicit `params: null`.
     pub fn request(
         &mut self,
         method: &str,
-        params: &Value,
+        params: Option<&Value>,
         id: u64,
-        timeout: Option<f64>,
+        timeout: Timeout,
+    ) -> Result<Vec<PeerEffect>, PeerError> {
+        self.enqueue_request(method, params, id, timeout, None)
+    }
+
+    /// `request` with `options.id`: the wire id is exact (`"7"` stays a string).
+    pub fn request_with_id(
+        &mut self,
+        method: &str,
+        params: Option<&Value>,
+        id: u64,
+        timeout: Timeout,
+        wire_id: RpcId,
+    ) -> Result<Vec<PeerEffect>, PeerError> {
+        self.enqueue_request(method, params, id, timeout, Some(wire_id))
+    }
+
+    fn enqueue_request(
+        &mut self,
+        method: &str,
+        params: Option<&Value>,
+        id: u64,
+        timeout: Timeout,
+        wire_id: Option<RpcId>,
     ) -> Result<Vec<PeerEffect>, PeerError> {
         if let Some(error) = &self.stopped {
             return Err(error.clone());
@@ -236,13 +312,17 @@ impl RpcPeer {
         if self.pending.len() >= self.config.max_pending {
             return Err(PeerError::new("JSON-RPC pending request limit"));
         }
-        let deadline = timeout.or(self.config.timeout_ms);
+        let deadline = match timeout {
+            Timeout::Default => self.config.timeout_ms,
+            Timeout::Disabled => None,
+            Timeout::After(ms) => Some(ms),
+        };
         if let Some(ms) = deadline
             && (!ms.is_finite() || ms < 0.0)
         {
             return Err(PeerError::new("Invalid timeoutMs"));
         }
-        let request_id = self.ids.reserve(None)?;
+        let request_id = self.owner.reserve(wire_id)?;
         let value = request_value(&request_id, method, params);
         let wire = wire_bytes(&value);
         let mut effects = Vec::new();
@@ -291,7 +371,11 @@ impl RpcPeer {
     }
 
     /// `notify` (`jsonrpc.ts:241`–`:247`): no correlation, write failures report.
-    pub fn notify(&mut self, method: &str, params: &Value) -> Result<Vec<PeerEffect>, PeerError> {
+    pub fn notify(
+        &mut self,
+        method: &str,
+        params: Option<&Value>,
+    ) -> Result<Vec<PeerEffect>, PeerError> {
         if let Some(error) = &self.stopped {
             return Err(error.clone());
         }
@@ -322,17 +406,15 @@ impl RpcPeer {
 
     /// `#answer`'s success reply (`jsonrpc.ts:349`): `result ?? null`.
     pub fn answer(&mut self, server_id: &RpcId, result: &Value) -> Vec<PeerEffect> {
-        self.finish_incoming();
         let mut map = Map::with_capacity(3);
         map.insert("jsonrpc", Value::from("2.0"));
         map.insert("id", id_value(server_id));
         map.insert("result", result.clone());
-        self.send(Value::Object(map))
+        self.send_reply(Value::Object(map))
     }
 
     /// `#answer`'s failure reply: `-32601` for a missing method, `-32603` else.
     pub fn answer_error(&mut self, server_id: &RpcId, code: f64, message: &str) -> Vec<PeerEffect> {
-        self.finish_incoming();
         let mut error = Map::with_capacity(2);
         error.insert("code", Value::from(code));
         error.insert("message", Value::from(message));
@@ -340,7 +422,7 @@ impl RpcPeer {
         map.insert("jsonrpc", Value::from("2.0"));
         map.insert("id", id_value(server_id));
         map.insert("error", Value::Object(error));
-        self.send(Value::Object(map))
+        self.send_reply(Value::Object(map))
     }
 
     /// The default `onRequest`'s answer: `MethodNotFound("unhandled request")`.
@@ -404,6 +486,9 @@ impl RpcPeer {
     /// write, so at most one line is in flight (`rpc-writer.ts`).
     pub fn written(&mut self, ticket: u64) -> Vec<PeerEffect> {
         self.writer.written(ticket);
+        if self.replies.remove(&ticket) {
+            self.finish_incoming();
+        }
         let mut effects = Vec::new();
         self.pump(&mut effects);
         effects
@@ -451,7 +536,7 @@ impl RpcPeer {
         if self.stopped.is_some() {
             return;
         }
-        if self.incoming >= MAX_INCOMING {
+        if self.incoming >= self.config.max_incoming {
             let error = PeerError::new("JSON-RPC incoming request limit");
             let mut failed = self.stop(error);
             failed.push(PeerEffect::Failed {
@@ -488,6 +573,10 @@ impl RpcPeer {
 
     fn stop(&mut self, error: PeerError) -> Vec<PeerEffect> {
         self.stopped.get_or_insert_with(|| error.clone());
+        // A cancelled reply's send rejects, so its `finally` releases the slot.
+        let replies = self.replies.len();
+        self.replies.clear();
+        self.incoming = self.incoming.saturating_sub(replies);
         let pending = std::mem::take(&mut self.pending);
         let mut effects = Vec::new();
         for (_, pending) in pending {
@@ -522,13 +611,17 @@ impl RpcPeer {
         });
     }
 
-    fn send(&mut self, value: Value) -> Vec<PeerEffect> {
+    /// A server request's reply holds its incoming slot until `written`, as
+    /// `#answer` decrements in its `finally` after the send resolves.
+    fn send_reply(&mut self, value: Value) -> Vec<PeerEffect> {
         let mut effects = Vec::new();
         if self.stopped.is_some() {
+            self.finish_incoming();
             return effects;
         }
         let wire = wire_bytes(&value);
         if wire.len() > MAX_MESSAGE_BYTES {
+            self.finish_incoming();
             effects.push(PeerEffect::Failed {
                 message: "JSON-RPC message exceeded limit".to_owned(),
             });
@@ -541,11 +634,15 @@ impl RpcPeer {
         match self.writer.enqueue(wire.len()) {
             Ok(ticket) => {
                 self.writes.insert(ticket, wire);
+                self.replies.insert(ticket);
                 self.pump(&mut effects);
             }
-            Err(error) => effects.push(PeerEffect::Failed {
-                message: error.to_string(),
-            }),
+            Err(error) => {
+                self.finish_incoming();
+                effects.push(PeerEffect::Failed {
+                    message: error.to_string(),
+                });
+            }
         }
         effects
     }
@@ -602,22 +699,22 @@ fn id_value(id: &RpcId) -> Value {
 }
 
 /// `JSON.stringify({jsonrpc, id, method, ...(params === undefined ? {} : {params})})`.
-fn request_value(id: &RpcId, method: &str, params: &Value) -> Value {
+fn request_value(id: &RpcId, method: &str, params: Option<&Value>) -> Value {
     let mut map = Map::with_capacity(4);
     map.insert("jsonrpc", Value::from("2.0"));
     map.insert("id", id_value(id));
     map.insert("method", Value::from(method));
-    if !params.is_null() {
+    if let Some(params) = params {
         map.insert("params", params.clone());
     }
     Value::Object(map)
 }
 
-fn notification_value(method: &str, params: &Value) -> Value {
+fn notification_value(method: &str, params: Option<&Value>) -> Value {
     let mut map = Map::with_capacity(3);
     map.insert("jsonrpc", Value::from("2.0"));
     map.insert("method", Value::from(method));
-    if !params.is_null() {
+    if let Some(params) = params {
         map.insert("params", params.clone());
     }
     Value::Object(map)
@@ -650,14 +747,38 @@ mod tests {
     fn call(
         peer: &mut RpcPeer,
         method: &str,
-        params: &Value,
+        params: Option<&Value>,
         id: u64,
-        timeout: Option<f64>,
+        timeout: Timeout,
     ) -> Vec<PeerEffect> {
         match peer.request(method, params, id, timeout) {
             Ok(effects) => effects,
             Err(error) => panic!("request refused: {error}"),
         }
+    }
+
+    fn order(effects: &[PeerEffect]) -> Vec<String> {
+        effects
+            .iter()
+            .map(|effect| match effect {
+                PeerEffect::Frame { dir, .. } => match dir {
+                    Direction::Send => "frame:send".to_owned(),
+                    Direction::Recv => "frame:recv".to_owned(),
+                },
+                PeerEffect::Write { ticket, .. } => format!("write:{ticket}"),
+                PeerEffect::Settle { id, .. } => format!("settle:{id}"),
+                PeerEffect::ServerRequest { id, .. } => {
+                    format!("server:{}", jsonrpc::id_to_json(id))
+                }
+                PeerEffect::Notification { method, .. } => {
+                    format!("notify:{}", method.as_str())
+                }
+                PeerEffect::Malformed { .. } => "malformed".to_owned(),
+                PeerEffect::ArmTimer { key, .. } => format!("arm:{key}"),
+                PeerEffect::CancelTimer { key } => format!("cancel:{key}"),
+                PeerEffect::Failed { .. } => "failed".to_owned(),
+            })
+            .collect()
     }
 
     fn frames(effects: &[PeerEffect]) -> Vec<(Direction, String)> {
@@ -682,17 +803,6 @@ mod tests {
             .collect()
     }
 
-    fn timers(effects: &[PeerEffect]) -> Vec<String> {
-        effects
-            .iter()
-            .filter_map(|effect| match effect {
-                PeerEffect::ArmTimer { key, .. } => Some(format!("arm:{key}")),
-                PeerEffect::CancelTimer { key } => Some(format!("cancel:{key}")),
-                _ => None,
-            })
-            .collect()
-    }
-
     fn settles(effects: &[PeerEffect]) -> Vec<(u64, Result<String, String>)> {
         effects
             .iter()
@@ -709,20 +819,31 @@ mod tests {
             .collect()
     }
 
+    fn server_id(effects: &[PeerEffect]) -> RpcId {
+        match effects.iter().find_map(|effect| match effect {
+            PeerEffect::ServerRequest { id, .. } => Some(id.clone()),
+            _ => None,
+        }) {
+            Some(id) => id,
+            None => panic!("no server request"),
+        }
+    }
+
     #[test]
     fn a_request_writes_javascripts_exact_line_after_its_frame() {
         let mut peer = new_peer();
         let params = object(&[("threadId", Value::from("t"))]);
-        let effects = call(&mut peer, "thread/read", &params, 7, Some(1_000.0));
-        assert_eq!(
-            frames(&effects),
-            vec![(
-                Direction::Send,
-                r#"{"jsonrpc":"2.0","id":1,"method":"thread/read","params":{"threadId":"t"}}"#
-                    .to_owned()
-            )]
+        let effects = call(
+            &mut peer,
+            "thread/read",
+            Some(&params),
+            7,
+            Timeout::After(1_000.0),
         );
-        assert_eq!(timers(&effects), vec!["arm:request:1"]);
+        assert_eq!(
+            order(&effects),
+            vec!["arm:request:1", "frame:send", "write:0"]
+        );
         assert_eq!(
             writes(&effects),
             vec![(
@@ -736,27 +857,30 @@ mod tests {
     #[test]
     fn a_response_settles_its_call_once_and_keeps_unknown_fields() {
         let mut peer = new_peer();
-        call(&mut peer, "thread/read", &Value::Null, 7, Some(1_000.0));
+        call(&mut peer, "thread/read", None, 7, Timeout::After(1_000.0));
         let line = r#"{"id":1,"result":{"ok":true},"extra":{"x":1}}"#;
         let effects = peer.line(line);
+        assert_eq!(
+            order(&effects),
+            vec!["frame:recv", "cancel:request:1", "settle:7"]
+        );
         assert_eq!(frames(&effects), vec![(Direction::Recv, line.to_owned())]);
-        assert_eq!(timers(&effects), vec!["cancel:request:1"]);
         assert_eq!(
             settles(&effects),
             vec![(7, Ok(r#"{"ok":true}"#.to_owned()))]
         );
-        assert_eq!(effects.len(), 3);
 
         let again = peer.line(line);
-        assert_eq!(frames(&again), vec![(Direction::Recv, line.to_owned())]);
+        assert_eq!(order(&again), vec!["frame:recv"]);
         assert!(settles(&again).is_empty());
     }
 
     #[test]
     fn an_error_response_settles_with_its_json_text() {
         let mut peer = new_peer();
-        call(&mut peer, "x", &Value::Null, 4, None);
+        call(&mut peer, "x", None, 4, Timeout::Disabled);
         let effects = peer.line(r#"{"id":1,"error":{"code":-32000,"message":"boom"}}"#);
+        assert_eq!(order(&effects), vec!["frame:recv", "settle:4"]);
         assert_eq!(
             settles(&effects),
             vec![(4, Err(r#"{"code":-32000,"message":"boom"}"#.to_owned()))]
@@ -775,14 +899,9 @@ mod tests {
             let mut peer = new_peer();
             let line = format!(r#"{{"jsonrpc":"2.0","id":{input},"method":"x"}}"#);
             let effects = peer.line(&line);
-            let id = match effects.iter().find_map(|effect| match effect {
-                PeerEffect::ServerRequest { id, .. } => Some(id.clone()),
-                _ => None,
-            }) {
-                Some(id) => id,
-                None => panic!("no server request for {input}"),
-            };
+            let id = server_id(&effects);
             let answered = peer.answer(&id, &Value::Null);
+            assert_eq!(order(&answered), vec!["frame:send", "write:0"]);
             let expected = format!(r#"{{"jsonrpc":"2.0","id":{expected},"result":null}}"#);
             assert_eq!(writes(&answered), vec![(0, expected)]);
         }
@@ -793,6 +912,7 @@ mod tests {
         let mut peer = new_peer();
         let note = r#"{"jsonrpc":"2.0","method":"thread/started","params":{"thread":{"id":"t"},"zeta":1},"extra":{"kept":[1,2]}}"#;
         let effects = peer.line(note);
+        assert_eq!(order(&effects), vec!["frame:recv", "notify:thread/started"]);
         assert_eq!(frames(&effects), vec![(Direction::Recv, note.to_owned())]);
         match &effects[1] {
             PeerEffect::Notification { method, params } => {
@@ -807,6 +927,7 @@ mod tests {
 
         let request = r#"{"id":"s1","method":"future/method","params":{"a":1},"future":{"b":2}}"#;
         let effects = peer.line(request);
+        assert_eq!(order(&effects), vec!["frame:recv", "server:\"s1\""]);
         assert_eq!(
             frames(&effects),
             vec![(Direction::Recv, request.to_owned())]
@@ -824,29 +945,26 @@ mod tests {
     }
 
     #[test]
-    fn absent_params_stay_absent_on_the_wire_and_in_effects() {
-        let mut peer = new_peer();
-        let request = call(&mut peer, "initialized", &Value::Null, 1, None);
-        assert_eq!(
-            writes(&request),
-            vec![(
-                0,
-                r#"{"jsonrpc":"2.0","id":1,"method":"initialized"}"#.to_owned()
-            )]
-        );
-        let note = match peer.notify("ready", &Value::Null) {
-            Ok(effects) => effects,
-            Err(error) => panic!("{error}"),
-        };
-        assert!(writes(&note).is_empty());
-        let released = peer.written(0);
-        assert_eq!(
-            writes(&released),
-            vec![(1, r#"{"jsonrpc":"2.0","method":"ready"}"#.to_owned())]
-        );
+    fn absent_params_and_explicit_null_are_different() {
+        let cases = [
+            (
+                None,
+                r#"{"jsonrpc":"2.0","id":1,"method":"ready"}"#.to_owned(),
+            ),
+            (
+                Some(Value::Null),
+                r#"{"jsonrpc":"2.0","id":1,"method":"ready","params":null}"#.to_owned(),
+            ),
+        ];
+        for (params, expected) in cases {
+            let mut peer = new_peer();
+            let effects = call(&mut peer, "ready", params.as_ref(), 1, Timeout::Disabled);
+            assert_eq!(order(&effects), vec!["frame:send", "write:0"]);
+            assert_eq!(writes(&effects), vec![(0, expected)]);
+        }
 
-        let line = r#"{"id":"s2","method":"no/params"}"#;
-        let effects = peer.line(line);
+        let mut peer = new_peer();
+        let effects = peer.line(r#"{"id":"s2","method":"no/params"}"#);
         match &effects[1] {
             PeerEffect::ServerRequest { params, .. } => assert!(params.is_none()),
             _ => panic!("expected a server request"),
@@ -868,14 +986,18 @@ mod tests {
                 effects.last(),
                 Some(PeerEffect::Malformed { line: kept }) if kept == line
             ));
-            assert!(peer.request("x", &Value::Null, 1, None).is_ok());
+            assert!(peer.request("x", None, 1, Timeout::Disabled).is_ok());
         }
     }
 
     #[test]
     fn a_timeout_settles_once_with_jsonrpc_ts_message() {
         let mut peer = new_peer();
-        let effects = call(&mut peer, "slow", &Value::Null, 3, Some(5.0));
+        let effects = call(&mut peer, "slow", None, 3, Timeout::After(5.0));
+        assert_eq!(
+            order(&effects),
+            vec!["arm:request:1", "frame:send", "write:0"]
+        );
         let key = match &effects[0] {
             PeerEffect::ArmTimer { key, .. } => key.clone(),
             other => panic!("expected a timer, got {other:?}"),
@@ -887,8 +1009,7 @@ mod tests {
         );
         assert!(peer.timer(&key).is_empty());
         let late = peer.line(r#"{"id":1,"result":1}"#);
-        assert_eq!(frames(&late).len(), 1);
-        assert!(settles(&late).is_empty());
+        assert_eq!(order(&late), vec!["frame:recv"]);
     }
 
     #[test]
@@ -897,29 +1018,26 @@ mod tests {
             max_pending: 1,
             ..PeerConfig::default()
         });
-        call(&mut peer, "first", &Value::Null, 1, None);
-        match peer.request("second", &Value::Null, 2, None) {
+        call(&mut peer, "first", None, 1, Timeout::Disabled);
+        match peer.request("second", None, 2, Timeout::Disabled) {
             Err(error) => assert_eq!(error.message(), "JSON-RPC pending request limit"),
             Ok(_) => panic!("the second request was admitted"),
         }
         let settled = peer.line(r#"{"id":1,"result":null}"#);
         assert_eq!(settles(&settled).len(), 1);
-        call(&mut peer, "second", &Value::Null, 2, None);
+        call(&mut peer, "second", None, 2, Timeout::Disabled);
     }
 
     #[test]
     fn a_rejected_reply_settles_only_that_call() {
         let mut peer = new_peer();
-        call(&mut peer, "one", &Value::Null, 10, None);
-        call(&mut peer, "two", &Value::Null, 11, None);
+        call(&mut peer, "one", None, 10, Timeout::Disabled);
+        call(&mut peer, "two", None, 11, Timeout::Disabled);
         let rejected =
             peer.reject_request(&RpcId::Number(1.0), PeerError::new("JSON-RPC reply lost"));
-        assert_eq!(
-            settles(&rejected),
-            vec![(10, Err("JSON-RPC reply lost".to_owned()))]
-        );
+        assert_eq!(order(&rejected), vec!["settle:10"]);
         let other = peer.line(r#"{"id":2,"result":"kept"}"#);
-        assert_eq!(settles(&other), vec![(11, Ok(r#""kept""#.to_owned()))]);
+        assert_eq!(order(&other), vec!["frame:recv", "settle:11"]);
         assert!(
             peer.reject_request(&RpcId::Number(1.0), PeerError::new("again"))
                 .is_empty()
@@ -929,9 +1047,10 @@ mod tests {
     #[test]
     fn a_settled_call_withdraws_its_queued_write() {
         let mut peer = new_peer();
-        call(&mut peer, "one", &Value::Null, 1, None);
-        call(&mut peer, "two", &Value::Null, 2, None);
+        call(&mut peer, "one", None, 1, Timeout::Disabled);
+        call(&mut peer, "two", None, 2, Timeout::Disabled);
         let timed = peer.timer("request:2");
+        assert_eq!(order(&timed), vec!["settle:2"]);
         assert_eq!(
             settles(&timed),
             vec![(2, Err("JSON-RPC request timed out: two".to_owned()))]
@@ -942,17 +1061,16 @@ mod tests {
     #[test]
     fn stop_requests_keeps_observing_final_frames() {
         let mut peer = new_peer();
-        call(&mut peer, "mine", &Value::Null, 1, Some(1_000.0));
+        call(&mut peer, "mine", None, 1, Timeout::After(1_000.0));
         let stopped = peer.stop_requests("process exited");
-        assert_eq!(
-            settles(&stopped),
-            vec![(1, Err("process exited".to_owned()))]
-        );
+        assert_eq!(order(&stopped), vec!["cancel:request:1", "settle:1"]);
         let note = peer.line(r#"{"method":"final","params":{"x":1}}"#);
-        assert_eq!(frames(&note).len(), 1);
-        assert!(matches!(note.last(), Some(PeerEffect::Notification { .. })));
-        assert_eq!(peer.line(r#"{"id":9,"method":"still"}"#).len(), 1);
-        match peer.request("after", &Value::Null, 2, None) {
+        assert_eq!(order(&note), vec!["frame:recv", "notify:final"]);
+        assert_eq!(
+            order(&peer.line(r#"{"id":9,"method":"still"}"#)),
+            vec!["frame:recv"]
+        );
+        match peer.request("after", None, 2, Timeout::Disabled) {
             Err(error) => assert_eq!(error.message(), "process exited"),
             Ok(_) => panic!("a stopped peer admitted a request"),
         }
@@ -963,62 +1081,60 @@ mod tests {
     #[test]
     fn close_settles_every_pending_call_once_and_refuses_later_input() {
         let mut peer = new_peer();
-        call(&mut peer, "one", &Value::Null, 1, Some(1_000.0));
-        call(&mut peer, "two", &Value::Null, 2, Some(1_000.0));
+        call(&mut peer, "one", None, 1, Timeout::After(1_000.0));
+        call(&mut peer, "two", None, 2, Timeout::After(1_000.0));
         let closed = peer.close("process exited");
         assert_eq!(
-            settles(&closed),
+            order(&closed),
             vec![
-                (1, Err("process exited".to_owned())),
-                (2, Err("process exited".to_owned())),
+                "cancel:request:1",
+                "settle:1",
+                "cancel:request:2",
+                "settle:2"
             ]
         );
-        assert_eq!(
-            timers(&closed),
-            vec!["cancel:request:1", "cancel:request:2"]
-        );
         assert!(peer.close("again").is_empty());
-        let late = peer.line(r#"{"id":1,"result":1}"#);
-        assert!(late.is_empty());
-        match peer.request("after", &Value::Null, 3, None) {
+        assert!(peer.line(r#"{"id":1,"result":1}"#).is_empty());
+        match peer.request("after", None, 3, Timeout::Disabled) {
             Err(error) => assert_eq!(error.message(), "process exited"),
             Ok(_) => panic!("a closed peer admitted a request"),
         }
     }
 
     #[test]
-    fn the_incoming_bound_stops_requests_and_reports() {
-        let mut peer = new_peer();
-        call(&mut peer, "mine", &Value::Null, 9, Some(1_000.0));
-        for at in 1..=MAX_INCOMING {
-            let line = format!(r#"{{"id":{at},"method":"server"}}"#);
-            assert_eq!(peer.line(&line).len(), 2);
-        }
-        let over = peer.line(r#"{"id":999,"method":"server"}"#);
-        assert_eq!(frames(&over).len(), 1);
-        assert_eq!(
-            settles(&over),
-            vec![(9, Err("JSON-RPC incoming request limit".to_owned()))]
-        );
+    fn an_incoming_slot_is_held_until_the_reply_is_written() {
+        let config = PeerConfig {
+            max_incoming: 1,
+            ..PeerConfig::default()
+        };
+        let mut held = RpcPeer::new(PeerConfig {
+            max_incoming: 1,
+            ..PeerConfig::default()
+        });
+        let first = held.line(r#"{"id":1,"method":"server"}"#);
+        held.answer_error(&server_id(&first), INTERNAL_ERROR, "boom");
+        let over = held.line(r#"{"id":2,"method":"server"}"#);
+        assert_eq!(order(&over), vec!["frame:recv", "failed"]);
         assert!(matches!(
             over.last(),
             Some(PeerEffect::Failed { message }) if message == "JSON-RPC incoming request limit"
         ));
-        assert_eq!(peer.line(r#"{"id":1000,"method":"server"}"#).len(), 1);
+
+        let mut released = RpcPeer::new(config);
+        let first = released.line(r#"{"id":1,"method":"server"}"#);
+        released.answer(&server_id(&first), &Value::Null);
+        released.written(0);
+        let next = released.line(r#"{"id":2,"method":"server"}"#);
+        assert_eq!(order(&next), vec!["frame:recv", "server:2"]);
     }
 
     #[test]
     fn method_not_found_answers_with_jsonrpc_ts_strings() {
         let mut peer = new_peer();
         let request = peer.line(r#"{"id":"s9","method":"missing","params":{}}"#);
-        let id = match request.iter().find_map(|effect| match effect {
-            PeerEffect::ServerRequest { id, .. } => Some(id.clone()),
-            _ => None,
-        }) {
-            Some(id) => id,
-            None => panic!("no server request"),
-        };
+        let id = server_id(&request);
         let answered = peer.answer_not_found(&id);
+        assert_eq!(order(&answered), vec!["frame:send", "write:0"]);
         assert_eq!(
             writes(&answered),
             vec![(
@@ -1032,10 +1148,12 @@ mod tests {
     #[test]
     fn an_oversized_message_settles_with_the_message_limit() {
         let mut peer = new_peer();
-        let params = object(&[("blob", Value::from("x".repeat(MAX_MESSAGE_BYTES)))]);
-        let effects = call(&mut peer, "x", &params, 1, Some(1_000.0));
-        assert!(writes(&effects).is_empty());
-        assert_eq!(timers(&effects), vec!["arm:request:1", "cancel:request:1"]);
+        let params = object(&[("blob", Value::from("x".repeat(16 * 1024 * 1024)))]);
+        let effects = call(&mut peer, "x", Some(&params), 1, Timeout::After(1_000.0));
+        assert_eq!(
+            order(&effects),
+            vec!["arm:request:1", "cancel:request:1", "settle:1"]
+        );
         assert_eq!(
             settles(&effects),
             vec![(1, Err("JSON-RPC message exceeded limit".to_owned()))]
@@ -1048,9 +1166,8 @@ mod tests {
             max_queued_bytes: 8,
             ..PeerConfig::default()
         });
-        let effects = call(&mut peer, "x", &Value::Null, 1, Some(1_000.0));
-        assert_eq!(frames(&effects).len(), 1);
-        assert!(writes(&effects).is_empty());
+        let effects = call(&mut peer, "x", None, 1, Timeout::Disabled);
+        assert_eq!(order(&effects), vec!["frame:send", "settle:1"]);
         assert_eq!(
             settles(&effects),
             vec![(1, Err("JSON-RPC write queue exceeded limit".to_owned()))]
@@ -1060,21 +1177,148 @@ mod tests {
     #[test]
     fn only_one_write_is_in_flight_until_the_pipe_acknowledges_it() {
         let mut peer = new_peer();
-        let first = match peer.notify("initialized", &Value::Null) {
+        let first = match peer.notify("initialized", None) {
             Ok(effects) => effects,
             Err(error) => panic!("{error}"),
         };
-        let second = match peer.notify("second", &Value::Null) {
+        let second = match peer.notify("second", Some(&Value::Null)) {
             Ok(effects) => effects,
             Err(error) => panic!("{error}"),
         };
-        assert_eq!(writes(&first).len(), 1);
-        assert_eq!(writes(&first)[0].0, 0);
-        assert!(writes(&second).is_empty());
+        assert_eq!(order(&first), vec!["frame:send", "write:0"]);
+        assert_eq!(order(&second), vec!["frame:send"]);
         let released = peer.written(0);
         assert_eq!(
             writes(&released),
-            vec![(1, r#"{"jsonrpc":"2.0","method":"second"}"#.to_owned())]
+            vec![(
+                1,
+                r#"{"jsonrpc":"2.0","method":"second","params":null}"#.to_owned()
+            )]
         );
+    }
+
+    #[test]
+    fn explicit_ids_keep_their_type_and_reject_reuse() {
+        let cases = [
+            (
+                RpcId::Text(JsString::from("abc")),
+                r#"{"jsonrpc":"2.0","id":"abc","method":"x"}"#,
+            ),
+            (
+                RpcId::Number(7.0),
+                r#"{"jsonrpc":"2.0","id":7,"method":"x"}"#,
+            ),
+        ];
+        for (wire_id, expected) in cases {
+            let mut peer = new_peer();
+            let effects = match peer.request_with_id("x", None, 1, Timeout::Disabled, wire_id) {
+                Ok(effects) => effects,
+                Err(error) => panic!("{error}"),
+            };
+            assert_eq!(writes(&effects), vec![(0, expected.to_owned())]);
+        }
+
+        let mut peer = new_peer();
+        call(&mut peer, "generated", None, 1, Timeout::Disabled);
+        match peer.request_with_id("x", None, 2, Timeout::Disabled, RpcId::Number(1.0)) {
+            Err(error) => assert_eq!(error.message(), "Request id already used"),
+            Ok(_) => panic!("a generated id was reused"),
+        }
+        match peer.request_with_id(
+            "x",
+            None,
+            3,
+            Timeout::Disabled,
+            RpcId::Text(JsString::from("5")),
+        ) {
+            Ok(_) => {}
+            Err(error) => panic!("{error}"),
+        }
+        match peer.request_with_id(
+            "x",
+            None,
+            4,
+            Timeout::Disabled,
+            RpcId::Text(JsString::from("5")),
+        ) {
+            Err(error) => assert_eq!(error.message(), "Request id already used"),
+            Ok(_) => panic!("an explicit id was reused"),
+        }
+    }
+
+    #[test]
+    fn an_explicit_id_above_1024_bytes_is_refused() {
+        let mut peer = new_peer();
+        match peer.request_with_id(
+            "x",
+            None,
+            1,
+            Timeout::Disabled,
+            RpcId::Text(JsString::from("a".repeat(1025))),
+        ) {
+            Err(error) => assert_eq!(error.message(), "Invalid request id"),
+            Ok(_) => panic!("a 1025-byte id was admitted"),
+        }
+    }
+
+    #[test]
+    fn the_explicit_id_cap_is_4096() {
+        let mut peer = new_peer();
+        for at in 1..=4096u64 {
+            let effects = match peer.request_with_id(
+                "x",
+                None,
+                at,
+                Timeout::Disabled,
+                RpcId::Number(at as f64),
+            ) {
+                Ok(effects) => effects,
+                Err(error) => panic!("id {at} refused: {error}"),
+            };
+            assert!(matches!(
+                effects.first(),
+                Some(PeerEffect::Frame {
+                    dir: Direction::Send,
+                    ..
+                })
+            ));
+            let reply = peer.line(&format!(r#"{{"id":{at},"result":null}}"#));
+            assert_eq!(settles(&reply).len(), 1);
+        }
+        match peer.request_with_id("x", None, 4097, Timeout::Disabled, RpcId::Number(4097.0)) {
+            Err(error) => assert_eq!(error.message(), "JSON-RPC explicit id limit"),
+            Ok(_) => panic!("the 4097th explicit id was admitted"),
+        }
+    }
+
+    #[test]
+    fn a_replacement_peer_keeps_the_pipes_id_reservations() {
+        let owner = PeerOwner::new();
+        let mut retired = RpcPeer::with_owner(PeerConfig::default(), owner.clone());
+        let old = call(&mut retired, "old", None, 1, Timeout::Disabled);
+        assert_eq!(writes(&old)[0].0, 0);
+        assert!(writes(&old)[0].1.contains(r#""id":1,"#));
+        retired.close("retired");
+
+        let mut replacement = RpcPeer::with_owner(PeerConfig::default(), owner.clone());
+        let new = call(&mut replacement, "new", None, 2, Timeout::Disabled);
+        assert!(writes(&new)[0].1.contains(r#""id":2,"#));
+        let late = replacement.line(r#"{"id":1,"result":"old"}"#);
+        assert_eq!(order(&late), vec!["frame:recv"]);
+        let fresh = replacement.line(r#"{"id":2,"result":"new"}"#);
+        assert_eq!(order(&fresh), vec!["frame:recv", "settle:2"]);
+
+        let mut retired = RpcPeer::with_owner(PeerConfig::default(), owner.clone());
+        let id = RpcId::Text(JsString::from("kept"));
+        match retired.request_with_id("x", None, 3, Timeout::Disabled, id.clone()) {
+            Ok(_) => {}
+            Err(error) => panic!("{error}"),
+        }
+        retired.close("retired");
+        let mut replacement = RpcPeer::with_owner(PeerConfig::default(), owner);
+        match replacement.request_with_id("x", None, 4, Timeout::Disabled, id) {
+            Err(error) => assert_eq!(error.message(), "Request id already used"),
+            Ok(_) => panic!("the replacement reused a retired id"),
+        }
     }
 }
