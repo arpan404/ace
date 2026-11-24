@@ -3,11 +3,14 @@
 //! `ace-core`; this module translates handles and errors only. Every export
 //! catches panics and turns them into JS errors.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use napi::bindgen_prelude::Function;
 use napi_derive::napi;
+
+/// How many flushed batches keep their stable-signal eligibility for a re-begun wrapper.
+const RETIRED_BATCHES: usize = 64;
 
 /// One native core thread behind a handle the TypeScript shell holds.
 #[napi]
@@ -16,9 +19,10 @@ pub struct CoreThreadNative {
     /// The fact batches open on this thread, keyed by the id the facade was handed: a second
     /// batch must not replace the first one's deferred status.
     batches: HashMap<u32, ace_core::reduce::FactBatch>,
-    /// The eligibility of the batch a flush retired, kept so a re-begun wrapper reads the fold's
-    /// own answer (`reduce.rs` may have turned it off for a rejected fact).
-    retired_preserve: Option<(u32, bool)>,
+    /// The eligibility of each batch a flush retired, newest last and bounded, so a re-begun
+    /// wrapper reads the fold's own answer (`reduce.rs` may have turned it off for a rejected
+    /// fact) even when another batch flushed in between.
+    retired_preserve: VecDeque<(u32, bool)>,
     next_batch: u32,
     /// Preallocated output buffer reused for every JSON response.
     buffer: String,
@@ -180,6 +184,8 @@ impl CoreThreadNative {
         match result {
             Ok(Ok(state)) => {
                 self.state = state;
+                // A new state is a new thread: no retired batch belongs to it.
+                self.retired_preserve.clear();
                 Ok(())
             }
             Ok(Err(error)) => Err(error.into()),
@@ -300,6 +306,8 @@ impl CoreThreadNative {
                     }
                 };
                 self.batches.insert(id, batch);
+                // The id is in use again; its retired eligibility is now the batch's own.
+                self.retired_preserve.retain(|(retired, _)| *retired != id);
                 Ok(id)
             }
             Ok(Err(error)) => Err(error.into()),
@@ -313,10 +321,10 @@ impl CoreThreadNative {
         if let Some(batch) = self.batches.get(&batch_id) {
             return Some(batch.preserves_signals());
         }
-        match self.retired_preserve {
-            Some((retired, preserve)) if retired == batch_id => Some(preserve),
-            _ => None,
-        }
+        self.retired_preserve
+            .iter()
+            .find(|(retired, _)| *retired == batch_id)
+            .map(|(_, preserve)| *preserve)
     }
 
     /// Fold one fact of one of this thread's batches.
@@ -370,7 +378,13 @@ impl CoreThreadNative {
                 .batches
                 .remove(&batch_id)
                 .ok_or_else(|| CoreBindError::Contract("no batch began with this id".to_owned()))?;
-            self.retired_preserve = Some((batch_id, batch.preserves_signals()));
+            self.retired_preserve
+                .retain(|(retired, _)| *retired != batch_id);
+            self.retired_preserve
+                .push_back((batch_id, batch.preserves_signals()));
+            while self.retired_preserve.len() > RETIRED_BATCHES {
+                self.retired_preserve.pop_front();
+            }
             Ok::<Vec<ace_core::emit::Event>, CoreBindError>(batch.flush(&mut self.state))
         }));
         let events = match result {
@@ -451,7 +465,7 @@ impl CoreThreadNative {
         Self {
             state,
             batches: HashMap::new(),
-            retired_preserve: None,
+            retired_preserve: VecDeque::new(),
             next_batch: 0,
             buffer: String::with_capacity(65536),
         }
@@ -474,8 +488,21 @@ fn set_field(
         ace_core::json_io::decode(value)
             .map_err(|error| CoreBindError::InvalidContext(format!("{name}: {error}")))
     }
+    /// Assign a field every state carries: `null` (a `delete` on the view) has no absent form
+    /// here, so the field keeps its value, as the TypeScript's empty map would.
+    fn assign<T: serde::de::DeserializeOwned>(
+        slot: &mut T,
+        value: &ace_core::json_io::Json,
+        name: &str,
+    ) -> Result<(), CoreBindError> {
+        if matches!(value, ace_core::json_io::Json::Null) {
+            return Ok(());
+        }
+        *slot = decode(value, name)?;
+        Ok(())
+    }
     match field {
-        "threadId" => state.thread_id = decode(&value, field)?,
+        "threadId" => assign(&mut state.thread_id, &value, field)?,
         "config" => {
             let config: ace_core::state::CoreConfig = decode(&value, field)?;
             ace_core::state::validate_config(&config)
@@ -499,32 +526,32 @@ fn set_field(
             state.status_observed_at = decode(&value, field)?;
             state.appended("statusObservedAt");
         }
-        "agents" => state.agents = decode(&value, field)?,
-        "runs" => state.runs = decode(&value, field)?,
-        "items" => state.items = decode(&value, field)?,
-        "interactions" => state.interactions = decode(&value, field)?,
-        "tasks" => state.tasks = decode(&value, field)?,
-        "uncertainTasks" => state.uncertain_tasks = decode(&value, field)?,
+        "agents" => assign(&mut state.agents, &value, field)?,
+        "runs" => assign(&mut state.runs, &value, field)?,
+        "items" => assign(&mut state.items, &value, field)?,
+        "interactions" => assign(&mut state.interactions, &value, field)?,
+        "tasks" => assign(&mut state.tasks, &value, field)?,
+        "uncertainTasks" => assign(&mut state.uncertain_tasks, &value, field)?,
         "personTasks" => {
             state.person_tasks = decode(&value, field)?;
             state.appended("personTasks");
         }
-        "interactionHistory" => state.interaction_history = decode(&value, field)?,
-        "taskHistory" => state.task_history = decode(&value, field)?,
-        "indexes" => state.indexes = decode(&value, field)?,
-        "outcomeOrder" => state.outcome_order = decode(&value, field)?,
+        "interactionHistory" => assign(&mut state.interaction_history, &value, field)?,
+        "taskHistory" => assign(&mut state.task_history, &value, field)?,
+        "indexes" => assign(&mut state.indexes, &value, field)?,
+        "outcomeOrder" => assign(&mut state.outcome_order, &value, field)?,
         "runSeq" => {
             state.run_seq = decode(&value, field)?;
             state.appended("runSeq");
         }
-        "pendingNotices" => state.pending_notices = decode(&value, field)?,
+        "pendingNotices" => assign(&mut state.pending_notices, &value, field)?,
         "rejectionNotices" => {
             state.rejection_notices = decode(&value, field)?;
             state.appended("rejectionNotices");
         }
-        "itemLinks" => state.item_links = decode(&value, field)?,
-        "queueCount" => state.queue_count = decode(&value, field)?,
-        "queueSources" => state.queue_sources = decode(&value, field)?,
+        "itemLinks" => assign(&mut state.item_links, &value, field)?,
+        "queueCount" => assign(&mut state.queue_count, &value, field)?,
+        "queueSources" => assign(&mut state.queue_sources, &value, field)?,
         "queueHeld" => {
             state.queue_held = decode(&value, field)?;
             state.appended("queueHeld");
@@ -533,12 +560,12 @@ fn set_field(
             state.queue_stopped = decode(&value, field)?;
             state.appended("queueStopped");
         }
-        "hasRun" => state.has_run = decode(&value, field)?,
+        "hasRun" => assign(&mut state.has_run, &value, field)?,
         "movedTo" => {
             state.moved_to = decode(&value, field)?;
             state.appended("movedTo");
         }
-        "status" => state.status = decode(&value, field)?,
+        "status" => assign(&mut state.status, &value, field)?,
         other => {
             return Err(CoreBindError::InvalidContext(format!(
                 "unknown state field: {other}"

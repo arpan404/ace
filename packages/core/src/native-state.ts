@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * The native state behind a `ThreadState` (E4). A fold returns events only; the native state is
- * read back through the handle's snapshot the next time TypeScript looks at a field, so a fold
- * that nothing reads costs one crossing instead of a whole state serialization.
+ * read back through the handle's snapshot the next time TypeScript looks at a state field, so a
+ * fold that nothing reads costs one crossing instead of a whole state serialization.
  *
- * The handle owns the state. A view's own fields are accessors: reading one asks the handle, and
- * writing one goes into the handle through `setField` (which runs the same validation the
- * constructor does), so nothing lands in a copy the next fold would ignore. A field the state
- * does not have yet keeps its setter (non-enumerable, so `Object.keys`, a spread and
- * `JSON.stringify` do not see it) so assigning it later still reaches the core. The field list
- * and its order come from the handle after every fold, including a failed one.
+ * The handle owns the state, and the view is a proxy over an empty object: `get` reads the
+ * snapshot, `has`/`ownKeys`/`getOwnPropertyDescriptor` report exactly the fields the state has,
+ * in the handle's recorded order, and `set`/`deleteProperty` write through `setField` (which runs
+ * the constructor's validation). So an absent field is absent — `in`, `Object.hasOwn`,
+ * `Object.keys` and `JSON.stringify` match a TypeScript state — while an assignment to a field
+ * the state has not set yet, or one it cleared, still reaches the core.
  */
 
 import type { EventPayload } from "@ace/protocol";
@@ -50,54 +50,15 @@ export interface CoreThreadHandle {
   snapshot(): string;
 }
 
-/** Every field a `ThreadState` can carry, in the order the reducer creates them. An absent
- * field keeps a non-enumerable setter, so an assignment still reaches the handle while the
- * state's visible keys stay exactly its own. */
-const KNOWN_FIELDS: readonly string[] = [
-  "threadId",
-  "config",
-  "initialRoot",
-  "agents",
-  "runs",
-  "items",
-  "interactions",
-  "tasks",
-  "uncertainTasks",
-  "interactionHistory",
-  "taskHistory",
-  "indexes",
-  "outcomeOrder",
-  "pendingNotices",
-  "itemLinks",
-  "queueCount",
-  "queueSources",
-  "hasRun",
-  "status",
-  "rootKey",
-  "processExit",
-  "lastTransportSignalAt",
-  "statusObservedAt",
-  "runSeq",
-  "personTasks",
-  "rejectionNotices",
-  "queueHeld",
-  "queueStopped",
-  "movedTo",
-];
-
-/** One native thread behind a `ThreadState`, with the state bytes it last read. */
+/** One native thread behind a view, with the state bytes it last read. */
 interface Slot {
   handle: CoreThreadHandle;
-  /** The object whose fields the view exposes (absent for a state the caller owns). */
-  target: Record<string, unknown> | undefined;
-  /** The view's own fields, in the state's order. */
-  fields: string[];
+  /** The plain object the view proxies; it holds no state of its own. */
+  target: Record<string, unknown>;
   /** `undefined` once a fold ran: the next field read re-reads the handle's snapshot. */
   state: Record<string, unknown> | undefined;
-  /** Whether the state's fields are this module's accessors (else they are plain data). */
+  /** True for this module's view; false for a caller's own state, refreshed by copy. */
   lazy: boolean;
-  /** One accessor per field, reused across folds. */
-  accessors: Map<string, PropertyDescriptor>;
 }
 
 const slots = new WeakMap<object, Slot>();
@@ -109,74 +70,53 @@ function readState(slot: Slot): Record<string, unknown> {
   return slot.state;
 }
 
-/** A field's accessor: reads the handle, writes into it. */
-function accessor(slot: Slot, field: string): PropertyDescriptor {
-  const known = slot.accessors.get(field);
-  if (known) return known;
-  const descriptor: PropertyDescriptor = {
-    configurable: true,
-    // Present fields are the view's own enumerable keys, so `Object.keys`, a spread and
-    // `JSON.stringify` see exactly the state's fields in its order.
-    enumerable: true,
-    get: () => readState(slot)[field],
-    set: (value: unknown) => {
-      // `undefined` clears the field, as a delete does in the TypeScript reducer; the handle
-      // drops it and the next reshape drops its order entry.
-      const json = JSON.stringify(value) as string | undefined;
-      slot.handle.setField(field, json === undefined ? "null" : json);
-      invalidateSlot(slot);
+/** Write one field into the handle and drop the cached snapshot, as `state[field] = value` does. */
+function writeField(slot: Slot, field: string, value: unknown): void {
+  const json = JSON.stringify(value) as string | undefined;
+  slot.handle.setField(field, json === undefined ? "null" : json);
+  slot.state = undefined;
+}
+
+/** The proxy's traps: reads come from the snapshot, writes and deletes go into the handle. */
+function traps(slot: Slot): ProxyHandler<Record<string, unknown>> {
+  return {
+    get(target, property, receiver) {
+      if (typeof property !== "string") return Reflect.get(target, property, receiver);
+      return readState(slot)[property];
+    },
+    set(target, property, value) {
+      if (typeof property !== "string") return Reflect.set(target, property, value);
+      writeField(slot, property, value);
+      return true;
+    },
+    deleteProperty(target, property) {
+      if (typeof property !== "string") return Reflect.deleteProperty(target, property);
+      writeField(slot, property, undefined);
+      return true;
+    },
+    /** Absent fields are absent, as they are on a plain state object. */
+    has(target, property) {
+      if (typeof property !== "string") return Reflect.has(target, property);
+      return Object.hasOwn(readState(slot), property);
+    },
+    ownKeys() {
+      return Reflect.ownKeys(readState(slot));
+    },
+    getOwnPropertyDescriptor(target, property) {
+      if (typeof property !== "string") return Reflect.getOwnPropertyDescriptor(target, property);
+      const state = readState(slot);
+      if (!Object.hasOwn(state, property)) return undefined;
+      return { value: state[property], writable: true, enumerable: true, configurable: true };
     },
   };
-  slot.accessors.set(field, descriptor);
-  return descriptor;
 }
 
-/** Rebuild the view's own fields: the state's, in its order and enumerable, plus every other
- * known field as a non-enumerable setter, so a write for a field the state has not set (or one
- * it cleared) still reaches the handle while `Object.keys` and `JSON.stringify` stay faithful. */
-function reshape(target: Record<string, unknown>, slot: Slot, fields: string[]): void {
-  const same =
-    fields.length === slot.fields.length &&
-    fields.every((field, index) => field === slot.fields[index]) &&
-    KNOWN_FIELDS.every((field) => Object.hasOwn(target, field));
-  if (same) return;
-  slot.fields = fields;
-  for (const key of Object.getOwnPropertyNames(target)) delete target[key];
-  for (const field of fields) {
-    const descriptor = accessor(slot, field);
-    descriptor.enumerable = true;
-    Object.defineProperty(target, field, descriptor);
-  }
-  for (const field of KNOWN_FIELDS) {
-    if (fields.includes(field)) continue;
-    const descriptor = accessor(slot, field);
-    descriptor.enumerable = false;
-    Object.defineProperty(target, field, descriptor);
-  }
-}
-
-/** Mark the state stale and re-read its field list from the handle. */
-function invalidateSlot(slot: Slot): void {
-  slot.state = undefined;
-  if (!slot.lazy) return;
-  const target = slot.target;
-  if (target !== undefined) reshape(target, slot, slot.handle.fields());
-}
-
-/** The native state as a `ThreadState` whose fields are read on demand. */
+/** The native state as a `ThreadState`: a proxy that never holds a copy of its own. */
 export function lazyThreadState(handle: CoreThreadHandle): ThreadState {
-  const target: Record<string, unknown> = {};
-  const slot: Slot = {
-    handle,
-    target,
-    fields: [],
-    state: undefined,
-    lazy: true,
-    accessors: new Map(),
-  };
-  reshape(target, slot, handle.fields());
-  slots.set(target, slot);
-  return target as unknown as ThreadState;
+  const slot: Slot = { handle, target: {}, state: undefined, lazy: true };
+  const view = new Proxy(slot.target, traps(slot));
+  slots.set(view, slot);
+  return view as unknown as ThreadState;
 }
 
 /** The handle behind a state, folding a restored snapshot or a clone from its current JSON. */
@@ -187,18 +127,14 @@ export function handleFor(
   const known = slots.get(state);
   if (known) return known.handle;
   const handle = open(JSON.stringify(state));
-  // The caller's object becomes a view of the handle: identity is kept, so the engine's own
-  // references and writes keep working.
-  const slot: Slot = {
+  // A state the caller owns keeps its identity; each fold's answer is copied into it, since a
+  // proxy cannot take the place of an object the caller already holds.
+  slots.set(state, {
     handle,
     target: state as unknown as Record<string, unknown>,
-    fields: [],
     state: undefined,
-    lazy: true,
-    accessors: new Map(),
-  };
-  slots.set(state, slot);
-  if (slot.target !== undefined) reshape(slot.target, slot, handle.fields());
+    lazy: false,
+  });
   return handle;
 }
 
@@ -221,15 +157,13 @@ export function setStateField(state: ThreadState, field: keyof ThreadState, valu
     return;
   }
   // A view writes into its handle, including a field it no longer carries.
-  const json = JSON.stringify(value) as string | undefined;
-  slot.handle.setField(name, json === undefined ? "null" : json);
-  invalidateSlot(slot);
+  writeField(slot, name, value);
 }
 
 /** The state bytes a fold left behind are stale; the next read asks the handle. */
 export function invalidate(state: ThreadState): void {
   const slot = slots.get(state);
-  if (slot) invalidateSlot(slot);
+  if (slot) slot.state = undefined;
 }
 
 /**
@@ -239,14 +173,11 @@ export function invalidate(state: ThreadState): void {
 export function applyResult(state: ThreadState, responseJson: string): EventPayload[] {
   const response = JSON.parse(responseJson) as {
     events: EventPayload[];
-    fields?: string[];
     state?: Record<string, unknown>;
   };
   const slot = slots.get(state);
   if (slot?.lazy) {
     slot.state = undefined;
-    const target = slot.target;
-    if (target !== undefined) reshape(target, slot, response.fields ?? slot.handle.fields());
   } else if (slot) {
     refreshState(state, JSON.parse(slot.handle.snapshot()) as ThreadState);
   } else if (response.state !== undefined) {

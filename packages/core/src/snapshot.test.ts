@@ -1,11 +1,29 @@
-import type { EventPayload } from "@ace/protocol";
+import { HostId, ThreadId, type EventPayload } from "@ace/protocol";
 import { describe, expect, it } from "vitest";
-import { type Fact, type ThreadState } from "./index.ts";
-import { applyToClient, harness } from "./test-helper.ts";
+import {
+  apply,
+  applyTs,
+  createThreadState,
+  createThreadStateTs,
+  type Fact,
+  type ThreadState,
+} from "./index.ts";
+import { applyToClient, cloneState, harness } from "./test-helper.ts";
 import { createClientView, foldPayload } from "./client-view.test-helper.ts";
 
 function restored(state: ThreadState): ThreadState {
   return JSON.parse(JSON.stringify(state)) as ThreadState;
+}
+
+/** The fields, and whether each is there: the JSON and the key set, not the optional fields'
+ * insertion order (the digests pin that). */
+function stateShape(state: ThreadState) {
+  return {
+    keys: Object.keys(state).toSorted(),
+    json: JSON.parse(JSON.stringify(state)) as unknown,
+    absent: ["movedTo" in state, Object.hasOwn(state, "movedTo")],
+    present: ["rootKey" in state, Object.hasOwn(state, "rootKey")],
+  };
 }
 
 describe("snapshot and payload integrity", () => {
@@ -84,7 +102,7 @@ describe("snapshot and payload integrity", () => {
     h.shell();
     h.background();
     h.question();
-    const original = structuredClone(h.state);
+    const original = cloneState(h.state);
     const snapshot = restored(h.state);
     const facts: Fact[] = [
       { type: "interaction.closed", interaction: "question", state: "resolved" },
@@ -117,6 +135,45 @@ describe("snapshot and payload integrity", () => {
     expect(afterRestore.events).toEqual(beforeRestore.events);
     expect(afterRestore.view).toEqual(beforeRestore.view);
     expect(afterRestore.view.status).toEqual({ state: "done" });
+  });
+
+  it("shows exactly the fields a TypeScript state has, absent and cleared ones included", () => {
+    const threadId = ThreadId.parse("shape");
+    const config = { provider: "codex" as const, silenceMs: 1_000 };
+    const facts: Fact[] = [
+      {
+        type: "agent.seen",
+        agent: "root",
+        origin: "root",
+        fidelity: "full",
+        native: { provider: "codex" },
+        cwd: "/repo",
+      },
+      { type: "turn.started", agent: "root", trigger: "user" },
+    ];
+    const build = (create: typeof createThreadState, fold: typeof apply) => {
+      let sequence = 0;
+      const state = create({ threadId, config });
+      for (const fact of facts)
+        fold(state, fact, {
+          now: ++sequence,
+          ids: { next: (kind) => `${kind}_${sequence}` },
+        });
+      return state;
+    };
+    const plain = build(createThreadStateTs, applyTs);
+    const view = build(createThreadState, apply);
+    expect(stateShape(view)).toEqual(stateShape(plain));
+    const moved = {
+      hostId: HostId.parse("studio"),
+      name: "Studio",
+      threadId: ThreadId.parse("there"),
+    };
+    for (const state of [view, plain])
+      (state as unknown as Record<string, unknown>).movedTo = moved;
+    expect(stateShape(view)).toEqual(stateShape(plain));
+    for (const state of [view, plain]) delete (state as unknown as Record<string, unknown>).rootKey;
+    expect(stateShape(view)).toEqual(stateShape(plain));
   });
 
   it("opaque ace ids resembling prototype names preserve every entity through client replay", () => {
