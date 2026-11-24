@@ -87,6 +87,8 @@ const gcpProjectPattern = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
 const gcpRegionPattern = /^[a-z][a-z0-9-]*[a-z0-9]$/;
 const cloudflareAccountPattern = /^[a-f0-9]{32}$/i;
 const cloudflareGatewayPattern = /^[a-z0-9_-]+$/i;
+/** A generated cloud URL still carrying a template's words instead of a real identifier. */
+const placeholderUrlPattern = /\b(?:RESOURCE_NAME|PROJECT_ID|ACCOUNT_ID|GATEWAY_NAME)\b/i;
 
 /** Why an identifier isn't usable yet, or undefined when it is. */
 function identifierProblem(value: string, empty: string, pattern: RegExp, invalid: string) {
@@ -146,7 +148,11 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
     const local = locals.find((candidate) => localChoice(candidate) === next);
     if (local) return fillLocal(local);
     setFrom(next);
-    if (next === custom) return;
+    if (next === custom) {
+      // A cloud template's unfinished URL has no business becoming a Custom endpoint.
+      if (placeholderUrlPattern.test(url)) setUrl("");
+      return;
+    }
     const template = templates.find((candidate) => candidate.id === next);
     if (!template) return;
     setName(template.name);
@@ -261,7 +267,10 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
     cfAccountProblem ||
     cfGatewayProblem
   );
-  const urlReady = /^https?:\/\/\S+$/.test(url.trim());
+  const urlProblem = placeholderUrlPattern.test(url)
+    ? "Replace the template's placeholder values in the URL."
+    : undefined;
+  const urlReady = /^https?:\/\/\S+$/.test(url.trim()) && !urlProblem;
   const ready = name.trim() !== "" && urlReady && identifiersReady;
   const add = async () => {
     setSaving(true);
@@ -481,6 +490,7 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
           <Field
             label="Base URL"
             htmlFor={ids.url}
+            error={urlProblem}
             hint={
               activeCloud === "vertex"
                 ? "Auto-built from your GCP project and region. Direct Vertex access needs a Google Cloud access token as the key."
@@ -493,6 +503,8 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
               spellCheck={false}
               className="font-mono text-xs"
               value={url}
+              aria-invalid={urlProblem ? true : undefined}
+              aria-describedby={urlProblem ? `${ids.url}-error` : undefined}
               onChange={(event) => setUrl(event.target.value)}
             />
           </Field>

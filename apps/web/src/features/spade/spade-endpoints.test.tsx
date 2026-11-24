@@ -85,6 +85,29 @@ test("Azure's template waits for a real resource name before it can be added", a
   );
 });
 
+test("a placeholder URL can't be added, and Custom clears an unfinished generated one", async () => {
+  await spadeApp("/settings/spade/models", (api) => {
+    withEndpoint(api);
+    main(api, "openrouter/saved/model");
+  });
+  await userEvent.click(await screen.findByRole("button", { name: "Add a provider" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "Add a provider" }));
+  await userEvent.click(dialog.getByRole("combobox", { name: "From" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Azure OpenAI" }));
+  // Switching to Custom drops the template's unfinished URL instead of submitting it.
+  await userEvent.click(dialog.getByRole("combobox", { name: "From" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Custom" }));
+  const url = dialog.getByRole("textbox", { name: "Base URL" }) as HTMLInputElement;
+  expect(url.value).toBe("");
+  await userEvent.type(url, "https://RESOURCE_NAME.openai.azure.com/openai/v1/");
+  const add = dialog.getByRole("button", { name: "Add provider" }) as HTMLButtonElement;
+  expect(add.disabled).toBe(true);
+  expect(dialog.getByText("Replace the template's placeholder values in the URL.")).toBeTruthy();
+  await userEvent.clear(url);
+  await userEvent.type(url, "https://api.example.com/v1/");
+  expect(add.disabled).toBe(false);
+});
+
 test("on a machine without a keychain, Spade's conversation says which variable to set", async () => {
   await spadeApp("/spade", (api) => {
     api.keychain = false;
