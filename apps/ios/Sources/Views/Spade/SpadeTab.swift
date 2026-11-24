@@ -44,6 +44,28 @@ struct SpadeTab: View {
         inbox.spadeRoster.first { $0.bot.main }?.machine ?? hosts.first?.hostId ?? machines.first?.hostId
     }
 
+    /// Drawn as the home lists' bar (`InboxStack`): bar glyphs, one tight capsule.
+    @ToolbarContentBuilder private var trailingBar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            HStack(spacing: AceTheme.Spacing.none) {
+                Button { settings = settingsMachine.map(SpadeMachineChoice.init) } label: {
+                    Image(bar: .gear).barButton()
+                }
+                .accessibilityLabel("Spade settings")
+                .accessibilityIdentifier("spade.openSettings")
+                Menu {
+                    Button(action: newBot) { Label("New bot", ace: .robot) }
+                        .accessibilityIdentifier("spade.newBot")
+                    Button { grouping = true } label: { Label("New club", ace: .users) }
+                        .accessibilityIdentifier("spade.newGroup")
+                } label: { Image(bar: .notePencil).barButton() }
+                    .accessibilityLabel("New")
+                    .accessibilityIdentifier("spade.new")
+                    .disabled(hosts.isEmpty)
+            }
+        }
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
             Group {
@@ -53,27 +75,7 @@ struct SpadeTab: View {
             .navigationTitle(HomeTabs.title(.spade))
             .toolbar {
                 account
-                if !machines.isEmpty {
-                    // Drawn as the home lists' bar (`InboxStack`): bar glyphs, one tight capsule.
-                    ToolbarItem(placement: .topBarTrailing) {
-                        HStack(spacing: AceTheme.Spacing.none) {
-                            Button { settings = settingsMachine.map(SpadeMachineChoice.init) } label: {
-                                Image(bar: .gear).barButton()
-                            }
-                            .accessibilityLabel("Spade settings")
-                            .accessibilityIdentifier("spade.openSettings")
-                            Menu {
-                                Button(action: newBot) { Label("New bot", ace: .robot) }
-                                    .accessibilityIdentifier("spade.newBot")
-                                Button { grouping = true } label: { Label("New club", ace: .users) }
-                                    .accessibilityIdentifier("spade.newGroup")
-                            } label: { Image(bar: .notePencil).barButton() }
-                                .accessibilityLabel("New")
-                                .accessibilityIdentifier("spade.new")
-                                .disabled(hosts.isEmpty)
-                        }
-                    }
-                }
+                if !machines.isEmpty { trailingBar }
             }
             .navigationDestination(for: SpadeRoute.self) { route in
                 if let client = inbox.client(route.machine) {
