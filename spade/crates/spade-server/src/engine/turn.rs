@@ -40,7 +40,7 @@ pub(super) struct Failure {
     pub kind: FailureKind,
     /// The endpoint the call went to, when the failure was the endpoint's.
     pub endpoint: Option<String>,
-    /// It may pass (unreachable, rate limited, a `5xx`, a dropped stream): the turn waits it out
+    /// It may pass (unreachable, rate limited, a `5xx`): the turn waits it out
     /// on an outage wake and sends the step again (ADR 0158, ADR 0160).
     pub transient: bool,
     /// How long the endpoint asked to be left alone.
@@ -241,6 +241,7 @@ async fn drive(
     let mut early = super::stream_calls::StreamCalls::default();
     loop {
         if *stop.borrow() {
+            early.discard().await;
             return Ended::Stopped(String::new());
         }
         let events = match engine.load(id) {
@@ -376,9 +377,12 @@ async fn drive(
                         continue;
                     }
                     Ok(false) => {}
-                    Err(error) => return Ended::Failed(String::new(), error.to_string()),
+                    Err(error) => {
+                        early.discard().await;
+                        return Ended::Failed(String::new(), error.to_string());
+                    }
                 }
-                match handle_calls(
+                let handled = handle_calls(
                     engine,
                     id,
                     &reply,
@@ -388,8 +392,9 @@ async fn drive(
                     pause,
                     super::stream_calls::Work::Stored(&mut early),
                 )
-                .await
-                {
+                .await;
+                early.discard().await;
+                match handled {
                     Handled::Continue => {}
                     Handled::Paused => return Ended::Paused,
                     Handled::Stopped => return Ended::Stopped(String::new()),

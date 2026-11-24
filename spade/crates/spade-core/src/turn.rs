@@ -153,6 +153,11 @@ impl CallIds {
         )
     }
 
+    /// Release an id reserved by this stream when the final call does not match.
+    pub fn release(&mut self, call: &Call) {
+        self.0.remove(&call.id);
+    }
+
     pub fn assign(&mut self, mut call: Call, mut mint: impl FnMut() -> String) -> Call {
         while call.id.is_empty() || !self.0.insert(call.id.clone()) {
             call.id = mint();
@@ -166,6 +171,7 @@ pub fn can_gate_while_streaming(name: &str) -> bool {
     !matches!(
         name,
         crate::tools::TOOL_SEARCH
+            | crate::tools::CALL_TOOL
             | crate::context::ASK_USER
             | crate::question::connect::APP_CONNECT_REQUEST
             | crate::question::suggest::PACKAGE_SUGGEST

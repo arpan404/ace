@@ -48,6 +48,7 @@ pub struct FakeTool {
     pub images: Vec<Vec<u8>>,
     pub delay: Duration,
     pub calls: Arc<Mutex<Vec<Value>>>,
+    early_read: bool,
     /// Poses as a tool of one of the person's apps (ADR 0131); `true` when it annotates
     /// itself.
     pub app: Option<bool>,
@@ -86,6 +87,7 @@ impl FakeTool {
             images: Vec::new(),
             delay: Duration::ZERO,
             calls: Arc::default(),
+            early_read: false,
             app: None,
             declared: None,
             unplaced: false,
@@ -181,6 +183,11 @@ impl FakeTool {
         self
     }
 
+    pub fn early_read(mut self) -> Self {
+        self.early_read = true;
+        self
+    }
+
     pub fn calls(&self) -> Arc<Mutex<Vec<Value>>> {
         self.calls.clone()
     }
@@ -193,8 +200,7 @@ impl Tool for FakeTool {
         arguments: Value,
         facts: &spade_server::tools::TurnFacts,
     ) -> Option<spade_server::tools::ToolFuture> {
-        (self.def.risk == Risk::Read && self.app.is_none())
-            .then(|| self.run_in(key, arguments, facts))
+        self.early_read.then(|| self.run_in(key, arguments, facts))
     }
 
     fn def(&self) -> ToolDef {

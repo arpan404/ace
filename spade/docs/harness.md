@@ -73,16 +73,18 @@ builds with budgets and caps, are read as raw data and fold to nothing ([ADR 016
   workspace this way. An eligible model review can start early too. Its judgment holds
   only if the gate still asks the same reviewer the same question, with the same launch and
   binding. Results and verdicts are held in memory until the step is stored. Approvals, questions,
-  plugin pre-tool hooks, and execution of effectful calls all follow the stored step. This includes
-  sandboxed runs, which can change workspace files. Command classification that can stage files
-  or set up a workspace also waits. A provider without an explicit boundary supplies its calls
-  at the end.
+  and effectful calls, including sandboxed commands, all follow the stored step. Spade also
+  waits for the stored step for bots with plugin pre-tool hooks or local plugin servers, when
+  an app's pins need seeding, and for packaged or shared bots. Classification that
+  can stage files or set up a workspace waits as well. Providers without explicit call
+  boundaries supply their calls at the end.
 - Stop, a cut stream, an immediate pause, or a crash discards early reads and judgments for an
   unstored step. The log contains no tool start to recover for them. Spade estimates usage when
   it cancels a review request in flight. After streaming starts, a failure never triggers an
-  automatic resend. A planned pause can still resume a cut step under the pause rules below. Once the step is stored,
-  restart uses the log: an unstarted call goes through the gate, a stored review is reused as
-  before, and a stored start follows the existing unknown-outcome rules.
+  automatic resend. A planned pause can still resume a cut step under the pause rules below.
+  Recovery uses the log. An unstarted stored call goes through the gate when the turn resumes,
+  a stored review can be reused, and a stored start without a result follows the existing
+  unknown-outcome rules.
 - **Steering:** a message sent mid-turn is stored at once and the next model call sees it, placed
   after any running tools' results, and after the step it arrived during. A turn finishes only if
   nothing arrived after its last step's prompt was built (`seen`), checked under the same lock that
@@ -113,7 +115,8 @@ builds with budgets and caps, are read as raw data and fold to nothing ([ADR 016
   question the bot asked waits on the person, for a paused bot, a stopped reply, while Spade
   pauses, or for a helper. A reply whose last step has no words keeps its latest words.
 - **Call ids:** a provider may reuse ids across steps (`call_0` in every reply); a reused id is
-  replaced before the step is stored, so results and approvals never match the wrong call.
+  replaced before any early work or, for later calls, before the step is stored. Results and
+  approvals always use the assigned id.
 - **Background tools:** a tool marked `background` answers its call at once and runs as a job
   (with no time limit; Stop ends it). Its result is delivered like a message: it steers the open reply or starts a
   new one. Stop cancels jobs and records them stopped without starting a turn. After a restart a

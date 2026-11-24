@@ -12,12 +12,11 @@ use spade_models::{Endpoint, Prompt, ToolCall};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use super::calls::run::Ran;
 use super::{Engine, calls};
-use crate::tools::Tool;
+use crate::tools::{Tool, ToolOutput};
 
 pub(super) enum Prepared {
-    Read(Arc<dyn Tool>, Ran),
+    Read(Arc<dyn Tool>, ToolOutput),
     Review(Box<Event>),
 }
 
@@ -58,14 +57,20 @@ impl Work<'_> {
         matches!(self, Self::Early(_))
     }
 
-    async fn prepared_review(&mut self, id: &str, request: ReviewRequest) -> Option<Event> {
+    async fn prepared_review(
+        &mut self,
+        engine: &Engine,
+        conversation: &str,
+        call_id: &str,
+        request: ReviewRequest,
+    ) -> Option<Event> {
         match self {
             Self::Early(prepared) => {
                 *prepared.review.lock().unwrap_or_else(|p| p.into_inner()) = Some(request);
                 None
             }
             Self::Stored(calls) => {
-                let task = calls.take_task(id)?;
+                let task = calls.take_task(call_id)?;
                 // A steer or setting change can change the question. Skip mismatched work
                 // immediately, even while its reviewer is still answering.
                 if !task
@@ -77,10 +82,18 @@ impl Work<'_> {
                 {
                     return None;
                 }
-                let Prepared::Review(event) = task.result().await? else {
-                    return None;
-                };
-                Some(*event)
+                let pending = !task.task.is_finished();
+                if pending {
+                    engine.set_status(conversation, Some(super::review::CHECKING.to_owned()));
+                }
+                let result = task.result().await;
+                if pending {
+                    engine.set_status(conversation, Some(super::roster::THINKING.to_owned()));
+                }
+                match result {
+                    Some(Prepared::Review(event)) => Some(*event),
+                    _ => None,
+                }
             }
         }
     }
@@ -99,7 +112,7 @@ impl Work<'_> {
             return ReviewResult::Stopped;
         };
         let request = ReviewRequest::new(engine, model, prompt, &draft);
-        if let Some(previous) = self.prepared_review(call_id, request).await {
+        if let Some(previous) = self.prepared_review(engine, id, call_id, request).await {
             draft = previous;
         } else {
             let Some((verdict, reason, cost)) = judge.await else {
@@ -193,24 +206,22 @@ impl StreamCalls {
         {
             return;
         }
-        let (name, _) = calls::resolve(&as_call(raw.clone()));
-        if !spade_core::turn::can_gate_while_streaming(&name)
-            || name == spade_core::tools::CALL_TOOL
-        {
+        let candidate = as_call(raw.clone());
+        let (name, _) = calls::resolve(&candidate);
+        if !spade_core::turn::can_gate_while_streaming(&name) {
             return;
         }
         let assigned = self
             .ids
             .get_or_insert_with(|| CallIds::from_events(events))
-            .assign(as_call(raw.clone()), || engine.ids.next("call"));
+            .assign(candidate, || engine.ids.next("call"));
         let call = assigned.clone();
         let events = self.events.get_or_insert_with(|| Arc::from(events)).clone();
         let (engine, id, reply) = (engine.clone(), id.to_owned(), reply.to_owned());
         let review = ReviewSlot::default();
         let worker_review = review.clone();
         let task = tokio::spawn(async move {
-            if *stop.borrow()
-                || !super::plugin_hooks::can_gate_while_streaming(&engine, &id, &call.name).await
+            if *stop.borrow() || !super::plugin_hooks::can_gate_while_streaming(&engine, &id).await
             {
                 return None;
             }
@@ -254,6 +265,13 @@ impl StreamCalls {
             .ids
             .take()
             .unwrap_or_else(|| CallIds::from_events(events));
+        self.closed.retain(|closed| {
+            let matches = calls.contains(&closed.raw);
+            if !matches {
+                ids.release(&closed.assigned);
+            }
+            matches
+        });
         let calls = calls
             .into_iter()
             .map(|raw| {

@@ -200,9 +200,8 @@ pub(super) async fn run_tools(
                         .tools
                         .get_for(&id, &name)
                         .is_some_and(|now| Arc::ptr_eq(&tool, &now))
-                    && !matches!(&output, Ran::Done(output) if output.is_error)
                 {
-                    return (call, name, output);
+                    return (call, name, Ran::Done(output));
                 }
 
                 let output = run_one(&engine, &id, &call.id, &name, arguments, &facts, gate).await;
@@ -269,7 +268,7 @@ async fn stored(storing: &mut Option<Storing<'_>>) {
 }
 
 /// How a call came back from the foreground.
-pub(in super::super) enum Ran {
+enum Ran {
     Done(ToolOutput),
     /// Still running when the foreground window closed: the run itself, to carry on as a job.
     Outlived(crate::tools::ToolFuture),
@@ -316,14 +315,7 @@ async fn run_one(
     if let std::task::Poll::Ready(output) = first {
         return Ran::Done(output);
     }
-    in_foreground(engine.limits.foreground, work).await
-}
-
-pub(super) async fn in_foreground(
-    window: std::time::Duration,
-    mut work: crate::tools::ToolFuture,
-) -> Ran {
-    match tokio::time::timeout(window, &mut work).await {
+    match tokio::time::timeout(engine.limits.foreground, &mut work).await {
         Ok(output) => Ran::Done(output),
         Err(_) => Ran::Outlived(work),
     }

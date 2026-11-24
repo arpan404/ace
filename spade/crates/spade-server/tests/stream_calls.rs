@@ -18,7 +18,7 @@ fn title() -> Script {
 }
 
 fn read() -> FakeTool {
-    FakeTool::new("read_example", Risk::Read, "read result")
+    FakeTool::new("read_example", Risk::Read, "read result").early_read()
 }
 
 fn read_step() -> Script {

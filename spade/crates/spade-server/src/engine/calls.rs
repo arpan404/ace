@@ -62,6 +62,10 @@ pub(super) async fn handle_calls(
     mut work: Work<'_>,
 ) -> Handled {
     let registry = engine.registry_for(id);
+    // A packaged or shared bot depends on policy that can change at the launch boundary.
+    if work.early() && (engine.ceiling(id).is_some() || engine.org_gate(id).is_some()) {
+        return Handled::Continue;
+    }
     let transcript = Transcript::fold(events);
     // A helper (ADR 0152) answers to its bot: the bot's "always" answers hold
     // for it, and what it would ask is asked in the bot's conversation.
@@ -292,6 +296,9 @@ pub(super) async fn handle_calls(
                     };
                     // Spade couldn't read what it would run outside the sandbox at all: there is
                     // nothing to show the person or hold an answer to.
+                    if work.early() && matches!(&classified, Classified::Failed(_)) {
+                        return Handled::Continue;
+                    }
                     if matches!(&classified, Classified::Failed(fallback) if fallback.runs == Runs::AsksOutside)
                     {
                         match rule_verdict(
@@ -419,9 +426,10 @@ pub(super) async fn handle_calls(
                     }
                     // A sandboxed command, or a file write in the workspace: checkpointed first;
                     // when the checkpoint can't be taken, reviewed instead.
-                    let held = engine
-                        .contained_call(id, &name, classed.runs == Runs::Sandbox, reply)
-                        .await;
+                    let held = !work.early()
+                        && engine
+                            .contained_call(id, &name, classed.runs == Runs::Sandbox, reply)
+                            .await;
                     let place = match classed.runs {
                         Runs::Host => Place::Host,
                         Runs::Sandbox if held => Place::Sandbox,
@@ -864,8 +872,12 @@ pub(super) async fn handle_calls(
                             && let Some(read) = tool.run_early(&key, arguments, &facts)
                         {
                             let read = crate::tools::marked(tool.as_ref(), read);
-                            let ran = run::in_foreground(engine.limits.foreground, read).await;
-                            prepared.result = Some(Prepared::Read(tool, ran));
+                            if let Ok(output) =
+                                tokio::time::timeout(engine.limits.foreground, read).await
+                                && !output.is_error
+                            {
+                                prepared.result = Some(Prepared::Read(tool, output));
+                            }
                         }
                         return Handled::Continue;
                     }
@@ -1297,4 +1309,4 @@ pub(super) fn resolve(call: &Call) -> (String, Value) {
 mod again;
 mod ceiling;
 mod classified;
-pub(super) mod run;
+mod run;
