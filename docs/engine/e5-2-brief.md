@@ -545,10 +545,32 @@ pub enum FrameRef { Js(u32), Native(Box<ace_adapter_api::Frame>) }
   - **On rollback** the deferred task is dropped. Its guard releases the reservation, unpledges
     the victims (which were never touched and carry on) and discards the provisional actor
     (below). Nothing was evicted, so nothing is lost.
-  - **Inside the transaction itself**, a lookup of a pledged victim returns it as it stands, not
-    evicted. TypeScript would have rebuilt it from the store. The difference is in-memory only
-    (an idle timer re-armed, `idleSince` kept), lasts only until the transaction ends, and the
-    commit then evicts it as above.
+  - **Inside the transaction itself, a pledged victim looks evicted.** TypeScript evicted it at
+    the call, so any later lookup in the same transaction builds a fresh actor from the store,
+    and that difference can outlive the transaction. A live actor's generation can be ahead of
+    the stored maximum (`retireGeneration`, `actor.ts:149`, bumps it in memory; a fresh actor takes
+    `max(pending.latestGeneration, interactions.latestGeneration)`, `index.ts:556`–`:559`). A host
+    approval in the same transaction reuses whichever actor the lookup returned
+    (`host-threads.ts:128`) and persists its generation in the interaction ledger
+    (`actor.ts:522`, `interaction-ledger.ts:106`), which decides who owns the approval later. So
+    a lookup of a pledged victim (`get_or_create`, and every entry that resolves an actor
+    through it) gets **fresh-actor semantics**, exactly as TypeScript does:
+    1. The old actor is moved out of `Actors` into the pledge record, which keeps it **only for
+       rollback**, with its position in insertion order. Nothing reads or runs it from there:
+       its mailbox task is not woken, frames addressed to the thread go to the fresh actor, and
+       it is not counted in `occupied`.
+    2. A fresh provisional actor is built by the same path as any creation in a transaction:
+       `released_thread` and `latest_generation` read from the store on this connection (so it
+       sees the transaction's own writes, as TypeScript's reads do), its own reservation, and, if
+       the room is full, its own pledged victims through the same loop. It is appended at the end
+       of `Actors`, where TypeScript's `Map.set` puts it.
+    3. **On commit**, the kept-aside actor is evicted (`stop`, `repo.evict`; memory only) and the
+       fresh one is promoted, which is TypeScript's state after the call.
+    4. **On rollback**, the fresh actor is discarded (its reservation and pledges released, as
+       below), and the kept-aside actor goes back to its old position in `Actors`, untouched,
+       with its generation, timers and leases as they were.
+       A second lookup in the same transaction finds the fresh actor, as TypeScript's second lookup
+       finds its new one. Seam test 17e proves the generation.
   - **If a reservation is ever found unusable at promotion** (an invariant break, never a normal
     path), the actor is not discarded quietly. Every pending acknowledgement **rejects** with
     `Provider frame failed to commit`, so the session's tracker stops intake (ADR 0223 §7 rule 4)
@@ -1121,6 +1143,17 @@ the switch on:
     throws `Engine actor capacity exceeded` at the call, as TypeScript does when every remaining
     actor holds a slot. Evicting at the call fails (i); promoting without a held reservation fails
     (iii).
+    17e. "a same-transaction approval on a pledged victim persists the generation TS would
+    persist": `limits.maxActiveThreads: 2`, committed actors A and B, and A's generation retired
+    twice in memory (the probe's `retire()`), so it is two ahead of the stored maximum. In one
+    committed `store.atomic`, creating C pledges A, and then an apply on A (`rootAgent(A)`'s tick,
+    whose `repo.apply` receives the actor's generation, `actor.ts:522`) records the generation
+    `ProbeRepo.apply` was given. That generation is the stored maximum, which a fresh actor takes,
+    and not A's in-memory one. After commit, A's `liveThreadIds()` entry is the fresh actor's,
+    and the old one is evicted. The same sequence in a transaction that throws leaves the old A in
+    its old place with its in-memory generation. Returning the pledged actor as it stands fails
+    the first half. E5.7 repeats this case with `openHostApproval` (`host-threads.ts:128`) in
+    its own seam file, asserting the ledger row's `generation` (`interaction-ledger.ts:106`).
     17d. "a reservation lost at promotion never acknowledges as success": the probe invalidates a
     provisional actor's reservation before its first poll. A frame queued on it rejects with
     `Provider frame failed to commit`, an op staged on it is reported with
@@ -1219,7 +1252,8 @@ the switch on:
   and deferred; an actor created in a rolled-back transaction is discarded and never polled (seam
   tests 15–17).
 - Rollback capacity: a provisional actor holds its slot from the call, and its victims are pledged,
-  not evicted; commit evicts and promotes (promotion cannot fail), rollback releases. Staged slots
+  not evicted; a lookup of a pledged victim in the same transaction gets a fresh actor from the
+  store, and the old one is kept aside only for rollback (seam test 17e); commit evicts and promotes (promotion cannot fail), rollback releases. Staged slots
   count only at admission, on committed state. Outside a transaction eviction and overflow are
   TypeScript's. No path resolves an acknowledgement `Done` for frames it did not fold, except the
   stopped-actor and stale-generation drops TypeScript also acknowledges (`actor.ts:304`) (seam
