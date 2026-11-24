@@ -38,7 +38,7 @@ use cap_fs_ext::DirExt;
 use cap_std::ambient_authority;
 use cap_std::fs::Dir;
 
-pub use files::{Entry, EntryKind, FileView, Listing};
+pub use files::{Entry, EntryKind, FileView, LARGEST_TEXT, Listing};
 pub use person::{Seen, Snapshot, changes};
 pub use shell_tool::{ShellTool, asks_outside};
 pub use tools::{

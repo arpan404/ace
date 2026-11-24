@@ -360,12 +360,13 @@ async fn run() -> Result<(), Failure> {
     if let Some(link) = &ace {
         link.act_for(bots.clone());
     }
+    let workspaces = Workspaces::new(home.dir.join("workspace"));
     let mut core: Vec<Arc<dyn Tool>> = vec![
         Arc::new(WebSearch {
             search: search.clone(),
             bots: bots.clone(),
         }),
-        Arc::new(WebFetch(fetcher.clone())),
+        Arc::new(WebFetch::new(fetcher.clone()).with_workspaces(workspaces.clone(), bots.clone())),
         Arc::new(Todo),
         Arc::new(TaskStatus),
         Arc::new(TaskGoal),
@@ -373,7 +374,6 @@ async fn run() -> Result<(), Failure> {
         Arc::new(DecisionLog),
         Arc::new(Asks),
     ];
-    let workspaces = Workspaces::new(home.dir.join("workspace"));
     // Each bot's commands, services and plugin servers run in its OS sandbox, with their traffic
     // through Spade's egress proxy (ADR 0167). `SPADE_SANDBOX=off` turns it off for development:
     // commands then run as before and stay reviewed.
