@@ -359,7 +359,7 @@ function BriefBotTile(props: {
   const id = useId();
   const { choice } = props;
   return (
-    <div className="flex min-w-0 items-center gap-2.5 rounded-md border border-border-soft bg-surface-2/40 px-2.5 py-2">
+    <div className="flex min-w-0 items-center gap-2.5 py-1.5">
       {choice.kind === "bot" ? (
         <SpadeFace avatar={choice.avatar} size={24} />
       ) : (
