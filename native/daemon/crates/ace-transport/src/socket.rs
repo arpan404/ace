@@ -193,8 +193,8 @@ impl Shared {
 }
 
 /// Opens a socket over either kind of stream the handshake hands on (the raw
-/// path's `Prefixed<TcpStream>`, the keep-alive path's upgraded stream), `OPEN` at
-/// once on the caller's tokio runtime (T1a.5).
+/// path's `Prefixed<Box<dyn ConnIo>>`, the keep-alive path's upgraded stream),
+/// `OPEN` at once on the caller's tokio runtime (T1a.5).
 pub fn open(stream: Box<dyn UpgradeIo>) -> (SocketHandle, SocketEvents) {
     let (events, incoming) = mpsc::unbounded_channel();
     let (outbound, queued) = mpsc::unbounded_channel();

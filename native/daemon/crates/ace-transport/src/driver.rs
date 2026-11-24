@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-//! One task per accepted `TcpStream`. It reads the first request head, tells an
+//! One task per accepted connection. It reads the first request head, tells an
 //! upgrade candidate from an ordinary request, and hands the connection either
 //! to the `UpgradeHandler` (raw: the handler owns the stream and writes the
 //! pinned bytes) or to hyper's HTTP/1.1 server behind `proxy`'s service. That
 //! first read is how HTTP, upgrade candidates and silent drops are told apart.
+//!
+//! The connection is a [`ConnIo`], never a `TcpStream` (T1b.1a): a loopback
+//! listener boxes its socket, a remote listener hands over its decrypted TLS
+//! stream, and everything here is the same for both. Its timers are the
+//! listener's [`ConnectionLimits`], not constants.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -16,19 +21,16 @@ use http::Response;
 use http_body_util::Full;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::net::TcpStream;
 use tokio_util::sync::CancellationToken;
 
+use crate::conn_io::ConnIo;
 use crate::head::{self, RequestHead};
+use crate::limits::ConnectionLimits;
 use crate::peer::Peer;
-use crate::prefixed::{Prefixed, TimedIo, WRITE_TIMEOUT};
-use crate::proxy::{ExchangeDeadline, ProxyService, ProxyTarget, RequestActivity, Stop};
-
-/// Node's `headersTimeout`: a connection's request head must arrive in this.
-pub const HEADERS_TIMEOUT: Duration = Duration::from_secs(60);
-/// Node's `keepAliveTimeout`: an idle connection waiting on its next request
-/// closes after this, once a response has finished on it.
-pub const KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(5);
+use crate::prefixed::{Prefixed, TimedIo};
+use crate::proxy::{
+    ConnectionState, ExchangeDeadline, ProxyService, ProxyTarget, RequestActivity, Stop,
+};
 
 /// Whether a connection may still be cancelled by the close deadline.
 ///
@@ -72,8 +74,8 @@ impl Grace {
     }
 }
 
-/// A stream an upgrade can hand on: `Prefixed<TcpStream>` on the raw path, and
-/// hyper's upgraded stream on the keep-alive path.
+/// A stream an upgrade can hand on: `Prefixed<Box<dyn ConnIo>>` on the raw
+/// path, and hyper's upgraded stream on the keep-alive path.
 pub trait UpgradeIo: AsyncRead + AsyncWrite + Unpin + Send + 'static {}
 
 impl<T: AsyncRead + AsyncWrite + Unpin + Send + 'static> UpgradeIo for T {}
@@ -96,7 +98,7 @@ pub trait UpgradeHandler: Send + Sync + 'static {
     fn upgrade_raw(
         &self,
         head: RequestHead,
-        stream: Prefixed<TcpStream>,
+        stream: Prefixed<Box<dyn ConnIo>>,
         peer: Peer,
         shutdown: CancellationToken,
         grace: Grace,
@@ -125,7 +127,7 @@ impl UpgradeHandler for RefuseUpgrades {
     fn upgrade_raw(
         &self,
         _head: RequestHead,
-        stream: Prefixed<TcpStream>,
+        stream: Prefixed<Box<dyn ConnIo>>,
         _peer: Peer,
         _shutdown: CancellationToken,
         _grace: Grace,
@@ -152,25 +154,28 @@ impl UpgradeHandler for RefuseUpgrades {
 }
 
 /// Serve one accepted connection until it closes.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn serve(
-    mut stream: TcpStream,
+    mut stream: Box<dyn ConnIo>,
     peer: Peer,
     target: ProxyTarget,
     upgrades: Arc<dyn UpgradeHandler>,
     shutdown: CancellationToken,
     grace: Grace,
+    limits: ConnectionLimits,
+    http_write: Option<Duration>,
 ) {
     let mut buf = Vec::with_capacity(1024);
     let read = tokio::select! {
         // A connection that has sent nothing is idle: closing the listener drops
         // it at once rather than waiting out the header timeout.
         _ = shutdown.cancelled() => return,
-        read = tokio::time::timeout(HEADERS_TIMEOUT, read_head(&mut stream, &mut buf)) => read,
+        read = tokio::time::timeout(limits.first_head, read_head(&mut stream, &mut buf)) => read,
     };
     let (head, consumed) = match read {
         Ok(ReadHead::Head(head, consumed)) => (head, consumed),
         // Node destroys the connection when the headers timeout runs out.
-        Ok(ReadHead::Refused(bytes)) => return refuse(stream, bytes).await,
+        Ok(ReadHead::Refused(bytes)) => return refuse(stream, bytes, limits.upgrade_write).await,
         Ok(ReadHead::Closed) | Err(_) => return,
     };
 
@@ -178,7 +183,7 @@ pub(crate) async fn serve(
         // The handler already has the parsed head; it must not read it again, so
         // only what was read past the head is replayed.
         let rest = Bytes::copy_from_slice(&buf[consumed..]);
-        let stream = Prefixed::new(rest, stream, WRITE_TIMEOUT);
+        let stream = Prefixed::new(rest, stream, limits.upgrade_write);
         upgrades
             .upgrade_raw(head, stream, peer, shutdown, grace)
             .await;
@@ -186,18 +191,33 @@ pub(crate) async fn serve(
     }
 
     // hyper parses the first head itself: it gets everything the peek read.
-    let io = TokioIo::new(Prefixed::new(Bytes::from(buf), stream, WRITE_TIMEOUT));
+    let mut io = Prefixed::new(Bytes::from(buf), stream, limits.upgrade_write);
+    // A remote connection's HTTP writes are unbounded, as Node leaves them; a
+    // loopback one keeps T1a's write timeout on every write.
+    io.set_write_timeout(http_write);
     let first_target = head.target;
-    serve_hyper(io, peer, target, upgrades, shutdown, grace, first_target).await;
+    serve_hyper(
+        TokioIo::new(io),
+        peer,
+        target,
+        upgrades,
+        shutdown,
+        grace,
+        limits,
+        first_target,
+    )
+    .await;
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn serve_hyper(
-    io: TokioIo<Prefixed<TcpStream>>,
+    io: TokioIo<Prefixed<Box<dyn ConnIo>>>,
     peer: Peer,
     target: ProxyTarget,
     upgrades: Arc<dyn UpgradeHandler>,
     shutdown: CancellationToken,
     grace: Grace,
+    limits: ConnectionLimits,
     first_target: String,
 ) {
     let activity = RequestActivity::new();
@@ -205,14 +225,17 @@ async fn serve_hyper(
     let service = ProxyService::new(
         target,
         upgrades,
-        peer,
-        Stop {
-            shutdown: shutdown.clone(),
-            grace,
+        ConnectionState {
+            peer,
+            stop: Stop {
+                shutdown: shutdown.clone(),
+                grace,
+            },
+            activity: Arc::clone(&activity),
+            deadlines: Arc::clone(&deadlines),
+            exchange: limits.exchange,
+            first_target: Some(first_target),
         },
-        Arc::clone(&activity),
-        Arc::clone(&deadlines),
-        Some(first_target),
     );
 
     let mut builder = hyper::server::conn::http1::Builder::new();
@@ -222,7 +245,6 @@ async fn serve_hyper(
         // the answer; hyper's default would abort that upload.
         .half_close(true)
         .timer(TokioTimer::new())
-        .header_read_timeout(HEADERS_TIMEOUT)
         // The peek's 16 KiB cap is Node's `maxHeaderSize`, and every later head
         // on a keep-alive connection keeps the same cap (hyper's default is 408
         // KiB).
@@ -230,6 +252,11 @@ async fn serve_hyper(
         // Forwarded responses carry the internal server's own Date; refusals
         // carry none, as today.
         .auto_date_header(false);
+    // A later head's deadline, when the listener has one. The first head was
+    // already read under `first_head`, so this only bounds the rest.
+    if let Some(head) = limits.head {
+        builder.header_read_timeout(head);
+    }
     let connection = builder.serve_connection(io, service).with_upgrades();
     tokio::pin!(connection);
 
@@ -252,8 +279,10 @@ async fn serve_hyper(
             // An idle keep-alive connection closes like Node's. The head
             // deadline above already bounds the wait for the first head, and
             // every start and finish restarts this window, so the arm must stay
-            // enabled: a disabled arm is never woken again.
-            _ = activity.wait_idle(KEEP_ALIVE_TIMEOUT), if !closing => {
+            // enabled: a disabled arm is never woken again. T1b.2 selects the
+            // longer trusted window once a request on the connection has
+            // authenticated; until then only the untrusted one applies.
+            _ = activity.wait_idle(limits.keep_alive), if !closing => {
                 closing = true;
                 connection.as_mut().graceful_shutdown();
             }
@@ -262,8 +291,8 @@ async fn serve_hyper(
 }
 
 /// Write a head refusal with the connection's write timeout, then close.
-async fn refuse(stream: TcpStream, bytes: &'static [u8]) {
-    let mut io = TimedIo::new(stream, WRITE_TIMEOUT);
+async fn refuse(stream: Box<dyn ConnIo>, bytes: &'static [u8], write_timeout: Duration) {
+    let mut io = TimedIo::new(stream, write_timeout);
     let _ = io.write_all(bytes).await;
     let _ = io.flush().await;
 }
@@ -277,7 +306,7 @@ enum ReadHead {
     Closed,
 }
 
-async fn read_head(stream: &mut TcpStream, buf: &mut Vec<u8>) -> ReadHead {
+async fn read_head<S: AsyncRead + Unpin>(stream: &mut S, buf: &mut Vec<u8>) -> ReadHead {
     loop {
         match head::parse(buf) {
             head::Parsed::Head(head, consumed) => return ReadHead::Head(head, consumed),

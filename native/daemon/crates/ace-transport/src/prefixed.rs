@@ -10,20 +10,21 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use bytes::Bytes;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::net::TcpStream;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
 use tokio::time::Sleep;
 
 /// How long a single write or flush may make no progress before the connection
 /// fails. The driver passes it in; nothing else bounds a `101`.
 pub const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// A stream whose writes and flushes are bounded by `timeout`. Reads pass
-/// through untouched: they are bounded by the HTTP header timeout instead.
+/// A stream whose writes and flushes are bounded by `timeout`, when it has one.
+/// Reads pass through untouched: they are bounded by the HTTP header timeout
+/// instead. A remote listener disarms it before the stream reaches hyper, whose
+/// writes Node never bounds (T1b.1a).
 #[derive(Debug)]
 pub struct TimedIo<S> {
     inner: S,
-    timeout: Duration,
+    timeout: Option<Duration>,
     deadline: Option<Pin<Box<Sleep>>>,
 }
 
@@ -31,9 +32,16 @@ impl<S> TimedIo<S> {
     pub fn new(inner: S, timeout: Duration) -> Self {
         Self {
             inner,
-            timeout,
+            timeout: Some(timeout),
             deadline: None,
         }
+    }
+
+    /// Bound the writes from now on, or (`None`) let them run as long as the
+    /// peer takes. Clears any deadline the previous bound had armed.
+    pub fn set_timeout(&mut self, timeout: Option<Duration>) {
+        self.timeout = timeout;
+        self.deadline = None;
     }
 
     /// The stream underneath, for the cases that write a refusal before
@@ -43,12 +51,17 @@ impl<S> TimedIo<S> {
     }
 
     /// Settle a write or flush poll: ready clears the deadline, pending arms it
-    /// and fails the operation once it has run out.
+    /// and fails the operation once it has run out. Unbounded, it is the inner
+    /// poll untouched.
     fn bounded<T>(
         &mut self,
         cx: &mut Context<'_>,
         ready: Poll<io::Result<T>>,
     ) -> Poll<io::Result<T>> {
+        let Some(timeout) = self.timeout else {
+            self.deadline = None;
+            return ready;
+        };
         match ready {
             Poll::Ready(outcome) => {
                 self.deadline = None;
@@ -56,7 +69,6 @@ impl<S> TimedIo<S> {
             }
             Poll::Pending => {
                 if self.deadline.is_none() {
-                    let timeout = self.timeout;
                     self.deadline = Some(Box::pin(tokio::time::sleep(timeout)));
                 }
                 if let Some(deadline) = self.deadline.as_mut()
@@ -139,6 +151,11 @@ impl<S> Prefixed<S> {
             inner: TimedIo::new(stream, write_timeout),
         }
     }
+
+    /// Bound the writes from now on, or (`None`) leave them unbounded.
+    pub fn set_write_timeout(&mut self, timeout: Option<Duration>) {
+        self.inner.set_timeout(timeout);
+    }
 }
 
 impl<S: AsyncRead + Unpin> AsyncRead for Prefixed<S> {
@@ -158,10 +175,13 @@ impl<S: AsyncRead + Unpin> AsyncRead for Prefixed<S> {
     }
 }
 
-impl Prefixed<TcpStream> {
-    /// Waits until the client's read side closes, without taking a byte: a peek,
-    /// which is how the driver tells a client that went away from one still
-    /// waiting while its upgrade is being decided.
+impl<S: AsyncRead + Unpin> Prefixed<S> {
+    /// Waits until the client's read side closes, without losing a byte: the
+    /// one byte a client that is still there has sent is held in the prefix,
+    /// which every read yields first, so a client that sent early is read
+    /// exactly as if nothing had been peeked. This is how the driver tells a
+    /// client that went away from one still waiting while its upgrade is being
+    /// decided.
     pub async fn peer_closed(&mut self) -> bool {
         if !self.prefix.is_empty() {
             // Bytes already read are a client that sent more, not one that left.
@@ -169,9 +189,12 @@ impl Prefixed<TcpStream> {
         }
         let mut byte = [0u8; 1];
         loop {
-            match self.inner.inner.peek(&mut byte).await {
+            match self.inner.read(&mut byte).await {
                 Ok(0) => return true,
-                Ok(_) => return false,
+                Ok(_) => {
+                    self.prefix = Bytes::copy_from_slice(&byte[..1]);
+                    return false;
+                }
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
                 Err(_) => return true,
             }
@@ -217,6 +240,7 @@ mod tests {
     use std::time::Duration;
 
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpStream;
 
     /// A stream that never accepts a byte and never ends.
     struct Stuck;

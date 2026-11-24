@@ -41,11 +41,13 @@ use crate::head::{self, RequestHead};
 use crate::hop::{self, HopSecret};
 use crate::peer::Peer;
 
-/// How long one exchange may take, from the service call to the last byte of
-/// the answer: Node's `requestTimeout` bounds receiving the whole request with
-/// the same 300 s, and the same deadline covers the response this hop streams
-/// back. Nothing answers a status when it fires (T1a.2 answers 400 and 431
-/// only), so the client connection is closed.
+/// The loopback listener's exchange deadline, from the service call to the last
+/// byte of the answer: Node's `requestTimeout` bounds receiving the whole request
+/// with the same 300 s, and the same deadline covers the response this hop
+/// streams back. Nothing answers a status when it fires (T1a.2 answers 400 and
+/// 431 only), so the client connection is closed. `ConnectionLimits::exchange`
+/// carries it, and a remote listener passes `None` for Node's
+/// `requestTimeout: 0` (T1b.1a).
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// The one address the transport binds and connects on: 127.0.0.1, never the
@@ -251,14 +253,22 @@ impl RequestActivity {
 struct InFlight {
     activity: Arc<RequestActivity>,
     deadlines: Arc<ExchangeDeadline>,
-    at: Instant,
+    /// When this exchange must be over; None when the listener has no deadline.
+    at: Option<Instant>,
+    /// Still the guard's: no response body has taken over finishing it.
     armed: bool,
 }
 
 impl InFlight {
-    fn start(activity: &Arc<RequestActivity>, deadlines: &Arc<ExchangeDeadline>) -> Self {
-        let at = Instant::now() + REQUEST_TIMEOUT;
-        deadlines.arm(at);
+    fn start(
+        activity: &Arc<RequestActivity>,
+        deadlines: &Arc<ExchangeDeadline>,
+        exchange: Option<Duration>,
+    ) -> Self {
+        let at = exchange.map(|limit| Instant::now() + limit);
+        if let Some(at) = at {
+            deadlines.arm(at);
+        }
         activity.arrive();
         Self {
             activity: Arc::clone(activity),
@@ -268,7 +278,7 @@ impl InFlight {
         }
     }
 
-    fn deadline(&self) -> Instant {
+    fn deadline(&self) -> Option<Instant> {
         self.at
     }
 
@@ -294,7 +304,9 @@ impl InFlight {
 impl Drop for InFlight {
     fn drop(&mut self) {
         if self.armed {
-            self.deadlines.clear(self.at);
+            if let Some(at) = self.at {
+                self.deadlines.clear(at);
+            }
             self.activity.finish();
         }
     }
@@ -317,7 +329,7 @@ pub struct TrackedBody<B: Body<Data = Bytes>> {
     error: fn(B::Error) -> ProxyError,
     activity: Arc<RequestActivity>,
     deadlines: Arc<ExchangeDeadline>,
-    at: Instant,
+    at: Option<Instant>,
     upstream: Option<Upstream>,
     finished: bool,
 }
@@ -331,7 +343,9 @@ impl<B: Body<Data = Bytes>> TrackedBody<B> {
         }
         self.finished = true;
         self.upstream = None;
-        self.deadlines.clear(self.at);
+        if let Some(at) = self.at {
+            self.deadlines.clear(at);
+        }
         self.activity.finish();
     }
 }
@@ -391,6 +405,21 @@ pub struct Stop {
     pub grace: Grace,
 }
 
+/// What one connection gives every exchange it runs.
+pub struct ConnectionState {
+    pub peer: Peer,
+    pub stop: Stop,
+    pub activity: Arc<RequestActivity>,
+    pub deadlines: Arc<ExchangeDeadline>,
+    /// The whole exchange's deadline; None on a listener with no request
+    /// timeout (T1b.1a's `ConnectionLimits::exchange`).
+    pub exchange: Option<Duration>,
+    /// The first request head's target, exactly as the driver read it. hyper's
+    /// `Uri` fills "/" into a pathless absolute form, so only the head the
+    /// driver parsed can be forwarded byte for byte.
+    pub first_target: Option<String>,
+}
+
 /// Everything one exchange needs, cloned per request.
 #[derive(Clone)]
 struct Exchange {
@@ -404,6 +433,9 @@ struct Exchange {
     /// `Uri` fills "/" into a pathless absolute form, so only the head the
     /// driver parsed can be forwarded byte for byte.
     first_target: Arc<Mutex<Option<String>>>,
+    /// The whole exchange's deadline; None on a listener with no request
+    /// timeout (T1b.1a's `ConnectionLimits::exchange`).
+    exchange: Option<Duration>,
 }
 
 /// The service hyper's server runs for ordinary requests and for upgrade
@@ -416,21 +448,18 @@ impl ProxyService {
     pub fn new(
         target: ProxyTarget,
         upgrades: Arc<dyn UpgradeHandler>,
-        peer: Peer,
-        stop: Stop,
-        activity: Arc<RequestActivity>,
-        deadlines: Arc<ExchangeDeadline>,
-        first_target: Option<String>,
+        state: ConnectionState,
     ) -> Self {
         Self {
             exchange: Exchange {
                 target,
                 upgrades,
-                peer,
-                stop,
-                activity,
-                deadlines,
-                first_target: Arc::new(Mutex::new(first_target)),
+                peer: state.peer,
+                stop: state.stop,
+                activity: state.activity,
+                deadlines: state.deadlines,
+                first_target: Arc::new(Mutex::new(state.first_target)),
+                exchange: state.exchange,
             },
         }
     }
@@ -451,7 +480,7 @@ async fn handle(
     exchange: Exchange,
     mut req: Request<Incoming>,
 ) -> Result<Response<HopBody>, ProxyError> {
-    let in_flight = InFlight::start(&exchange.activity, &exchange.deadlines);
+    let in_flight = InFlight::start(&exchange.activity, &exchange.deadlines, exchange.exchange);
     let head = request_head(&exchange, &req);
     if head::is_upgrade_candidate(&head) {
         return upgrade(exchange, in_flight, &mut req, head).await;
@@ -496,6 +525,17 @@ async fn upgrade(
     }
 }
 
+/// Await `future`, failing as [`ProxyError::Timeout`] at `deadline`; with no
+/// deadline it is awaited as long as it takes (Node's `requestTimeout: 0`).
+async fn before<F: Future>(deadline: Option<Instant>, future: F) -> Result<F::Output, ProxyError> {
+    match deadline {
+        Some(at) => tokio::time::timeout_at(at, future)
+            .await
+            .map_err(|_| ProxyError::Timeout),
+        None => Ok(future.await),
+    }
+}
+
 async fn forward(
     exchange: Exchange,
     in_flight: InFlight,
@@ -506,15 +546,12 @@ async fn forward(
     // connection's task enforces it once the answer starts streaming.
     let deadline = in_flight.deadline();
 
-    let connected = tokio::time::timeout_at(deadline, TcpStream::connect(exchange.target.addr))
-        .await
-        .map_err(|_| ProxyError::Timeout)?
+    let connected = before(deadline, TcpStream::connect(exchange.target.addr))
+        .await?
         .map_err(ProxyError::Connect)?;
-    let (mut sender, connection) =
-        tokio::time::timeout_at(deadline, http1::handshake(TokioIo::new(connected)))
-            .await
-            .map_err(|_| ProxyError::Timeout)?
-            .map_err(ProxyError::Handshake)?;
+    let (mut sender, connection) = before(deadline, http1::handshake(TokioIo::new(connected)))
+        .await?
+        .map_err(ProxyError::Handshake)?;
     // Aborted through the guard on every path that ends the exchange early.
     let upstream = Upstream(tokio::spawn(async move {
         let _ = connection.await;
@@ -526,9 +563,8 @@ async fn forward(
         &exchange.peer,
         req.into_body(),
     )?;
-    let response = tokio::time::timeout_at(deadline, sender.send_request(request))
-        .await
-        .map_err(|_| ProxyError::Timeout)?
+    let response = before(deadline, sender.send_request(request))
+        .await?
         .map_err(ProxyError::Request)?;
 
     let (mut parts, body) = response.into_parts();

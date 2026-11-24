@@ -18,10 +18,17 @@ use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
 
+use crate::conn_io::ConnIo;
 use crate::driver::{Grace, UpgradeIo};
 use crate::head::{self, Parsed};
 use crate::peer::Peer;
 use crate::prefixed::{Prefixed, WRITE_TIMEOUT};
+
+/// The driver hands an upgrade handler its connection as a boxed `ConnIo`
+/// (T1b.1a); a loopback socket is the stream itself.
+fn boxed(stream: TcpStream) -> Box<dyn ConnIo> {
+    Box::new(stream)
+}
 
 const KEY: &str = "dGhlIHNhbXBsZSBub25jZQ==";
 const ACCEPT: &str = "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=";
@@ -277,7 +284,7 @@ async fn raw(
     upgrades
         .upgrade_raw(
             head(request),
-            Prefixed::new(Bytes::new(), server, WRITE_TIMEOUT),
+            Prefixed::new(Bytes::new(), boxed(server), WRITE_TIMEOUT),
             peer,
             shutdown,
             Grace::new(),
@@ -435,7 +442,7 @@ async fn a_client_with_bytes_waiting_is_not_mistaken_for_one_that_left() {
 
     let upgrade = upgrades.upgrade_raw(
         head(&valid("GET")),
-        Prefixed::new(Bytes::new(), server, WRITE_TIMEOUT),
+        Prefixed::new(Bytes::new(), boxed(server), WRITE_TIMEOUT),
         peer,
         CancellationToken::new(),
         Grace::new(),
@@ -476,7 +483,7 @@ async fn a_client_that_leaves_while_its_decision_is_pending_is_abandoned() {
 
     let upgrade = upgrades.upgrade_raw(
         head(&valid("GET")),
-        Prefixed::new(Bytes::new(), server, WRITE_TIMEOUT),
+        Prefixed::new(Bytes::new(), boxed(server), WRITE_TIMEOUT),
         peer,
         CancellationToken::new(),
         Grace::new(),
