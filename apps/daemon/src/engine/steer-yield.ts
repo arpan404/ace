@@ -1,4 +1,4 @@
-import { hasRunningForegroundCommand, type Fact, type ThreadState } from "@ace/core";
+import { hasRunningForegroundCommand, hasRunningForegroundCommandInTree, type Fact, type ThreadState } from "@ace/core";
 import type { InputSource, ProviderSession } from "@ace/engine-api";
 import type { Capabilities } from "@ace/protocol";
 import type { IntentHeader } from "./repository.ts";
@@ -89,8 +89,9 @@ export function steerRoute(
   if (!steer.person && steerRestartsTurn(capabilities) && run !== undefined) return undefined;
   if (session.steerViaCancel) {
     if (run === undefined) return undefined;
-    // The agent's cancel would kill the running command, so the steer waits for it.
-    if (hasRunningForegroundCommand(state)) return undefined;
+    // The agent's cancel would kill the running command, so the steer waits for it, the root's
+    // and its native children's alike, since one cancel stops them all.
+    if (hasRunningForegroundCommandInTree(state)) return undefined;
     return yielded?.run === run ? undefined : "yield";
   }
   if (!hasRunningForegroundCommand(state)) return "native";

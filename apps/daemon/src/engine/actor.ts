@@ -1,6 +1,6 @@
 import { attachmentEcho } from "./attachment-echo.ts";
 import { markYieldedEnd, type SteerYield } from "./steer-yield.ts";
-import { hasRunningForegroundCommand, type Fact, type ThreadState } from "@ace/core";
+import { hasRunningForegroundCommand, hasRunningForegroundCommandInTree, type Fact, type ThreadState } from "@ace/core";
 import type { Frame, ProviderSession, Translator } from "@ace/engine-api";
 import type { ThreadId, EventPayload, Capabilities } from "@ace/protocol";
 import { z } from "zod";
@@ -384,8 +384,11 @@ export class ThreadActor {
               (fact.type === "item.upsert" && fact.draft.type === "tool_call") ||
               fact.type === "background.started",
           );
-          const commandRunning =
-            toolBoundary && hasRunningForegroundCommand(this.repo.requireState(this.id));
+          // The root's own shells, and any shell in its tree: cancelling the root stops a
+          // native child's command too.
+          const beforeCommand = this.repo.requireState(this.id);
+          const commandRunning = toolBoundary && hasRunningForegroundCommand(beforeCommand);
+          const treeCommandRunning = toolBoundary && hasRunningForegroundCommandInTree(beforeCommand);
           // A streamable stretch goes to the live buffer without a transaction of its own.
           const streamed = (streamedFacts ??=
             !cursorSdk && this.repo.stream(this.id, facts, this.clock.now()));
@@ -397,7 +400,9 @@ export class ThreadActor {
             if (
               before !== this.repo.requireState(this.id).status ||
               (toolBoundary &&
-                commandRunning !== hasRunningForegroundCommand(this.repo.requireState(this.id))) ||
+                (commandRunning !== hasRunningForegroundCommand(this.repo.requireState(this.id)) ||
+                  treeCommandRunning !==
+                    hasRunningForegroundCommandInTree(this.repo.requireState(this.id)))) ||
               facts.some((fact) =>
                 [
                   "turn.started",
