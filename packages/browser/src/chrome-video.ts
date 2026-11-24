@@ -36,6 +36,15 @@ const Audio = z.object({ audible: z.boolean(), muted: z.boolean() });
 const TabAudio = Audio.extend({ windowId: z.number().int() });
 type TabAudioListener = (windowId: number, audio: z.infer<typeof Audio>) => void;
 
+/** One open capture's sound: what its viewer asked, and how to set what the document encodes. */
+interface CaptureSound {
+  windowId: number;
+  /** A viewer of this capture listens (ADR 0088, Audio): it asked for the tab's sound. */
+  wanted: boolean;
+  /** Applies `wanted`, less the tab's mute, which is for everyone. */
+  apply(): void;
+}
+
 const origin = `chrome-extension://${videoExtensionId}/`;
 
 /** The CDP surface the encoder uses: commands, and the sessions of attached targets. */
@@ -54,6 +63,10 @@ export class ChromeVideo implements VideoHost {
   private captures = new Map<string, CaptureEvents>();
   /** Told of each tab's sound as the extension's worker hears it (they outlive reinstalls). */
   private tabAudioListeners = new Set<TabAudioListener>();
+  /** Tabs Chrome reports muted, by window: their sound is off for every viewer (ADR 0088). */
+  private mutedWindows = new Set<number>();
+  /** Each open capture's sound, so a tab's mute applies to the captures of its window. */
+  private captureAudio = new Map<string, CaptureSound>();
   /** Captures told to stop whose stop hasn't finished: their tab is still held until then. */
   private stopping = new Set<Promise<unknown>>();
   private ids = 0;
@@ -77,6 +90,7 @@ export class ChromeVideo implements VideoHost {
       this.ready = undefined;
       for (const events of this.captures.values()) events.ended();
       this.captures.clear();
+      this.captureAudio.clear();
     });
   }
   async supported(codecs: readonly string[], width: number, height: number): Promise<string[]> {
@@ -121,15 +135,28 @@ export class ChromeVideo implements VideoHost {
       () => {},
     );
     this.captures.set(id, events);
+    const muted = () => this.mutedWindows.has(windowId);
+    const sound: CaptureSound = {
+      windowId,
+      wanted: false,
+      apply: () => {
+        void evaluate(document, "aceVideo.audio", [id, sound.wanted && !muted()]).catch(() => {});
+      },
+    };
+    this.captureAudio.set(id, sound);
     const call = (name: string, args: unknown[]) =>
       void evaluate(document, name, args).catch(() => {});
     return {
       encodes: (specs) => call("aceVideo.encodes", [id, specs]),
       keyframe: (encode) => call("aceVideo.keyframe", [id, encode]),
-      audio: (on) => call("aceVideo.audio", [id, on]),
+      audio: (on) => {
+        sound.wanted = on;
+        sound.apply();
+      },
       // Chunks go only to ace-media's ingest, binary.
       ingest: (target) => call("aceVideo.ingest", [id, target ?? null]),
       close: () => {
+        this.captureAudio.delete(id);
         if (!this.captures.delete(id)) return;
         const stopped = evaluate(document, "aceVideo.stop", [id]).catch(() => {});
         this.stopping.add(stopped);
@@ -302,6 +329,13 @@ export class ChromeVideo implements VideoHost {
     this.announceTabAudio(windowId, { audible, muted });
   }
   private announceTabAudio(windowId: number, audio: z.infer<typeof Audio>): void {
+    if (audio.muted !== this.mutedWindows.has(windowId)) {
+      if (audio.muted) this.mutedWindows.add(windowId);
+      else this.mutedWindows.delete(windowId);
+      // The tab's mute is for everyone: its captures stop or resume their sound with it.
+      for (const sound of this.captureAudio.values())
+        if (sound.windowId === windowId) sound.apply();
+    }
     for (const listener of this.tabAudioListeners) listener(windowId, audio);
   }
 }

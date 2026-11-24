@@ -761,6 +761,10 @@ export class ChromeTabs {
     this.inspection.detach(tab.cdp);
     tab.cdp.bind(undefined);
     tab.target = undefined;
+    // Without a target there is no window to hear or mute: a stale one could match another
+    // tab's window after a browser restart, and a discarded tab would list sound it no longer has.
+    tab.windowId = undefined;
+    tab.audio = undefined;
   }
   private remove(tab: Tab, notify: boolean): void {
     if (this.tabs.get(tab.id) !== tab) return;

@@ -171,10 +171,13 @@ export class ChromeBackend implements BrowserBackend {
         );
       current = { instance, browserContextId };
       // The extension's worker hears each tab's sound; the tabs shown here take theirs by window.
-      stopAudio?.();
-      stopAudio = this.video(instance, request.profileDir).onTabAudio((windowId, audio) =>
-        tabs.audio(windowId, audio),
-      );
+      // A session closed while this connected must not leave its listener on the shared encoder.
+      if (!lifetime.signal.aborted) {
+        stopAudio?.();
+        stopAudio = this.video(instance, request.profileDir).onTabAudio((windowId, audio) =>
+          tabs.audio(windowId, audio),
+        );
+      }
       // `exited` rejects only when teardown itself failed, which `stop()` reports; the watch
       // just stops recovering.
       void instance.exited

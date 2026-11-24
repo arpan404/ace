@@ -379,6 +379,40 @@ describe.skipIf(!executablePath)("page audio from ace's Chrome", () => {
     await f.evaluate("window.animating = false");
     listener.close();
   }, 60_000);
+
+  // Muting a tab is for everyone (ADR 0088): a viewer whose own speaker is on stops hearing it,
+  // and the same view hears it again when the tab is unmuted.
+  it.skipIf(!binary)(
+    "muting a tab silences it for a viewer whose sound is on, and unmuting brings it back",
+    async () => {
+      const m = media();
+      const f = await fixture({ media: m.browser });
+      await f.navigate();
+      await f.evaluate(tone);
+      await f.execute({ action: "click", ref: ref(await f.execute({ action: "snapshot" }), "Save") });
+      await until(async () => (await f.evaluate("window.audioContext?.state")) === "running");
+      const listener = mediaViewer(f, { connectionId: "listener", runtime: m.runtime });
+      await listener.subscribe();
+      await until(() => listener.audio().length >= 10);
+      const tab = shownTab(f);
+      if (!tab) throw new Error("No shown tab");
+
+      await f.service.asPerson("thread", { kind: "mute", tabId: tab.tabId, muted: true });
+      await until(() => shownTab(f)?.muted === true);
+      // What was already on its way settles, then the viewer stays subscribed and unmuted but
+      // hears nothing: the tab's mute is for everyone.
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      const silenced = listener.audio().length;
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(listener.audio().length).toBe(silenced);
+
+      await f.service.asPerson("thread", { kind: "mute", tabId: tab.tabId, muted: false });
+      await until(() => listener.audio().length > silenced);
+      await f.evaluate("window.animating = false");
+      listener.close();
+    },
+    90_000,
+  );
 });
 
 // Windows captures a tab at the audio engine's mix rate (48 kHz with ace's fake output device)
