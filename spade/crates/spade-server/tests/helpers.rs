@@ -263,6 +263,101 @@ async fn a_helper_cut_off_mid_step_by_a_restart_resumes_from_its_events_and_deli
 }
 
 #[tokio::test]
+async fn a_helper_stored_before_helpers_shared_their_bots_prompt_still_resumes() -> Result {
+    let spade = Spade::start(warm_up(), tools(vec![pause()])).await?;
+    let (_, conversation) = warm_bot(&spade).await?;
+    // A helper a build before this one stored: its row pins Spade's rules and its profile's
+    // instructions, its first message is the task alone, and its reply is still open.
+    let pinned = format!(
+        "{}\n\n{}",
+        spade_core::helper::RULES,
+        spade_core::helper::Profile::explore().instructions.trim()
+    );
+    let sql = format!(
+        "INSERT INTO conversations VALUES ('h_old', NULL, 1, 1);
+         INSERT INTO events VALUES ('h_old', 1, 1, '{{\"type\":\"user_message\",\
+          \"text\":\"Read the server log\"}}');
+         INSERT INTO events VALUES ('h_old', 2, 2, '{{\"type\":\"reply_started\",\
+          \"reply\":\"r_old\",\"model\":\"fake/m\"}}');
+         INSERT INTO helpers VALUES ('h_old', '{conversation}', 'h1', '', 'explore', '{}', \
+          1, NULL, 'fake/m', 1);",
+        pinned.replace('\'', "''")
+    );
+    let note = FakeTool::new("send_note", Risk::Write, "sent");
+    let asked = note.calls();
+    let spade = spade
+        .restart_after_crash(
+            &sql,
+            tools(vec![pause(), note]),
+            vec![
+                Script::reply("").call("n1", "send_note", json!({ "to": "Sam" })),
+                Script::reply("The log says the disk is full."),
+            ],
+        )
+        .await?;
+    // It resumes on the prompt its row pinned, not the bot's, and its task is still its own.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let request = loop {
+        if let Some(request) = spade
+            .fake
+            .seen()
+            .into_iter()
+            .map(|seen| seen.body)
+            .find(|body| body["stream"] == true)
+        {
+            break request;
+        }
+        if Instant::now() > deadline {
+            return Err("the stored helper never resumed".into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    assert_eq!(
+        request["messages"][0]["content"].as_str().unwrap_or(""),
+        pinned,
+        "its pinned system text"
+    );
+    assert!(
+        request["messages"]
+            .to_string()
+            .contains("Read the server log"),
+        "{request}"
+    );
+    // It is still an explore helper: the write is refused and never runs.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let steps = loop {
+        let steps = spade.events("h_old").await?;
+        if count(&steps, "reply_finished") > 0 {
+            break steps;
+        }
+        if Instant::now() > deadline {
+            return Err(format!("the stored helper never ended: {:?}", types(&steps)).into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    assert!(
+        asked.lock().map(|c| c.is_empty()).unwrap_or(false),
+        "the write ran"
+    );
+    let refused = steps
+        .iter()
+        .find(|e| e["type"] == "tool_finished")
+        .cloned()
+        .ok_or("the call was never answered")?;
+    let said = refused["content"].as_str().unwrap_or_default();
+    assert!(said.contains("a helper cannot use send_note"), "{said}");
+    assert_eq!(
+        steps
+            .iter()
+            .find(|e| e["type"] == "reply_finished")
+            .map(|e| e["text"].clone())
+            .unwrap_or_default(),
+        "The log says the disk is full."
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn stop_on_the_reply_stops_its_helpers_and_starts_no_reply_from_their_results() -> Result {
     let mut scripts = warm_up();
     scripts.extend([
@@ -300,7 +395,9 @@ async fn stop_on_the_reply_stops_its_helpers_and_starts_no_reply_from_their_resu
 }
 
 #[tokio::test]
-async fn an_explore_helper_is_never_offered_a_write_tool() -> Result {
+async fn an_explore_helpers_write_call_is_refused_and_never_runs() -> Result {
+    let note = FakeTool::new("send_note", Risk::Write, "sent");
+    let sent = note.calls();
     let mut scripts = warm_up();
     scripts.extend([
         starts(&[helper_call(
@@ -308,6 +405,14 @@ async fn an_explore_helper_is_never_offered_a_write_tool() -> Result {
             "Look up the release date",
             Some("explore"),
         )]),
+        // It is offered its bot's tools, so it can ask for one its profile leaves out, by name
+        // or through `call_tool`.
+        Script::reply("").call("n1", "send_note", json!({ "to": "Sam" })),
+        Script::reply("").call(
+            "n2",
+            "call_tool",
+            json!({ "name": "send_note", "arguments": { "to": "Sam" } }),
+        ),
         Script::reply("It ships on Friday."),
         Script::reply("Friday."),
     ]);
@@ -316,26 +421,100 @@ async fn an_explore_helper_is_never_offered_a_write_tool() -> Result {
         tools(vec![
             pause(),
             FakeTool::new("lookup", Risk::Read, "Friday"),
-            FakeTool::new("send_note", Risk::Write, "sent"),
+            note,
         ]),
     )
     .await?;
     let (_, conversation) = warm_bot(&spade).await?;
     spade.say(&conversation, "When does it ship?").await?;
     spade.wait_for(&conversation, "job_finished").await?;
+    // Refused where its calls are handled, before the gate: nothing ran and nothing was asked.
+    assert!(
+        sent.lock().map(|c| c.is_empty()).unwrap_or(false),
+        "the write ran"
+    );
+    let events = spade.events(&conversation).await?;
+    assert_eq!(
+        count(&events, "approval_requested"),
+        0,
+        "{:?}",
+        types(&events)
+    );
+    let helper = wait_helpers(&spade, &conversation, |h| h.len() == 1).await?[0]["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let steps = spade.events(&helper).await?;
+    let refused: Vec<Value> = steps
+        .iter()
+        .filter(|e| e["type"] == "tool_finished")
+        .cloned()
+        .collect();
+    assert_eq!(refused.len(), 2, "{:?}", types(&steps));
+    for call in &refused {
+        let said = call["content"].as_str().unwrap_or_default();
+        assert!(said.contains("a helper cannot use send_note"), "{said}");
+        assert_eq!(call["is_error"], true);
+    }
+    // Its bot's list, byte for byte, is what the model is offered: the refusal is the guard.
     let request = helper_request(&spade).ok_or("the helper made no request")?;
     let offered = request["tools"].to_string();
+    assert!(offered.contains("\"send_note\""), "{offered}");
     assert!(offered.contains("\"lookup\""), "{offered}");
-    for never in ["send_note", "helper", "task_status", "memory_save"] {
-        assert!(
-            !offered.contains(&format!("\"{never}\"")),
-            "{never}: {offered}"
-        );
-    }
-    // It starts fresh: Spade's rules for helpers and its task, nothing of the bot's chat.
+    // It starts fresh: its task and what makes it a helper, nothing of the bot's chat.
     let asked = request["messages"].to_string();
     assert!(asked.contains("Look up the release date"), "{asked}");
     assert!(!asked.contains("When does it ship?"), "{asked}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_helpers_first_request_carries_its_bots_system_prompt_and_tools() -> Result {
+    let mut scripts = warm_up();
+    scripts.extend([
+        starts(&[helper_call("h1", "Read the build log", Some("explore"))]),
+        Script::reply("The build passed."),
+        Script::reply("It passed."),
+    ]);
+    let spade = Spade::start(
+        scripts,
+        tools(vec![pause(), FakeTool::new("lookup", Risk::Read, "ok")]),
+    )
+    .await?;
+    let (_, conversation) = warm_bot(&spade).await?;
+    spade.say(&conversation, "Did the build pass?").await?;
+    spade.wait_for(&conversation, "job_finished").await?;
+    let helper = helper_request(&spade).ok_or("the helper made no request")?;
+    let system = helper["messages"][0]["content"].as_str().unwrap_or("");
+    assert_eq!(
+        system,
+        spade_core::context::SYSTEM,
+        "the helper's prompt top is its bot's"
+    );
+    // The bot's own turn carries the same top, so the provider's cache serves both.
+    let bot = spade
+        .fake
+        .seen()
+        .into_iter()
+        .map(|seen| seen.body)
+        .filter(|body| body["stream"] == true)
+        .rfind(|body| !body.to_string().contains("You are a helper Spade started"))
+        .ok_or("the bot made no request")?;
+    assert!(
+        bot["messages"][0]["content"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with(system),
+        "{}",
+        bot["messages"][0]["content"]
+    );
+    assert_eq!(helper["tools"], bot["tools"], "the same tools, in order");
+    // What makes it a helper is its first message: Spade's rules, its profile's, then the task.
+    let first = helper["messages"][1].to_string();
+    assert!(first.contains("You are a helper Spade started"), "{first}");
+    assert!(first.contains("You can only read"), "{first}");
+    assert!(first.contains("Read the build log"), "{first}");
+    assert!(!system.contains("You are a helper"), "{system}");
     Ok(())
 }
 

@@ -109,9 +109,10 @@ pub(super) async fn handle_calls(
                 finish_tool(engine, id, reply, &pending.call, &name, missing).await;
             }
             Status::New if name == TOOL_SEARCH => runnable.push((pending.call, name, arguments)),
-            // A helper may use only what its profile allows (ADR 0152), checked before any tool
+            // A helper may run only what its profile allows (ADR 0152), checked before any tool
             // the turn loop answers itself: a helper's `ask_user` would wait on a question
-            // nobody can see.
+            // nobody can see. Its profile narrows what it runs, not what the model is offered:
+            // that list is its bot's, so the provider's cache serves both (docs/helpers.md).
             Status::New if helper.is_some() && registry.get(&name).is_none() => {
                 let refused = ToolOutput::error(helper_refusal(engine, id, &name));
                 finish_tool(engine, id, reply, &pending.call, &name, refused).await;

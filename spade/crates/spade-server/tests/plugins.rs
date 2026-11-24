@@ -873,11 +873,15 @@ async fn a_plugin_agent_is_a_helper_profile_of_the_bots_allowed_it_until_the_plu
         json!([]),
     );
     let pause = FakeTool::new("pause", Risk::Read, "ok").slow(Duration::from_millis(300));
+    let note = FakeTool::new("send_note", Risk::Read, "sent");
+    let sent = note.calls();
     let spade = Spade::start_with(
         vec![
             Script::reply("Hello."),
             Script::reply("").plain(r#"{"title":"Review"}"#),
             starts_helper("h1", "reviewer"),
+            // It is offered its bot's tools, so it can ask for one its profile leaves out.
+            Script::reply("").call("n1", "send_note", json!({ "to": "Sam" })),
             Script::reply("The diff looks fine."),
             Script::reply("Reviewed."),
             starts_helper("h2", "reviewer"),
@@ -886,7 +890,7 @@ async fn a_plugin_agent_is_a_helper_profile_of_the_bots_allowed_it_until_the_plu
         vec![
             Arc::new(pause) as Arc<dyn Tool>,
             Arc::new(FakeTool::new("lookup", Risk::Read, "found")),
-            Arc::new(FakeTool::new("send_note", Risk::Read, "sent")),
+            Arc::new(note),
         ],
         options(FakeAce::with(vec![kit])),
     )
@@ -906,19 +910,39 @@ async fn a_plugin_agent_is_a_helper_profile_of_the_bots_allowed_it_until_the_plu
         .map(|seen| seen.body)
         .find(|body| body.to_string().contains("You are a helper Spade started"))
         .ok_or("the helper made no request")?;
-    assert!(
-        request.to_string().contains("Review the diff closely."),
-        "{request}"
-    );
+    // Its instructions and its tool list ride in its first message, with Spade's rules: the
+    // offered list is its bot's, and the profile narrows what it may run.
+    let first = request["messages"][1].to_string();
+    assert!(first.contains("Review the diff closely."), "{first}");
+    assert!(first.contains("You are a helper Spade started"), "{first}");
     let offered = request["tools"].to_string();
-    // Its list narrows the tools; naming `helper` never gives it one.
     assert!(offered.contains("\"lookup\""), "{offered}");
-    for left_out in ["send_note", "pause", "helper"] {
-        assert!(
-            !offered.contains(&format!("\"{left_out}\"")),
-            "{left_out}: {offered}"
-        );
-    }
+    assert!(
+        offered.contains("\"send_note\""),
+        "its bot's list: {offered}"
+    );
+    // `send_note` is not on the profile's list, so the call is refused and never runs.
+    assert!(
+        sent.lock().map(|c| c.is_empty()).unwrap_or(false),
+        "a tool outside the profile's list ran"
+    );
+    let (_, found) = spade
+        .get(&format!("/v1/conversations/{chat}/helpers"))
+        .await?;
+    let helper = found["helpers"][0]["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let steps = spade.events(&helper).await?;
+    assert!(
+        steps.iter().any(|e| e["type"] == "tool_finished"
+            && e["content"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("a helper cannot use send_note")),
+        "{:?}",
+        types(&steps)
+    );
     // A model the person has no endpoint for: the bot's.
     assert_eq!(request["model"], "m", "{}", request["model"]);
     wait(&spade, &chat, "reply_finished", 2).await?;

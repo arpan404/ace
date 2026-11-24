@@ -96,7 +96,7 @@ async fn run(
     let images = engine.images_for(model);
     let system = engine.system_for(id);
     let mut prompt =
-        context::prompt_with(&system, engine.offered_for(id), events, &images).session(id);
+        context::prompt_with(&system, engine.offered_tools(), events, &images).session(id);
     let mut ledger = compaction::ledger(events, plan.keep_from, &engine.registry_for(id));
     // Nobody but the bot writes in a helper's conversation: its brief is the bot's words, never
     // kept as the person's (ADR 0216).
@@ -172,11 +172,11 @@ pub(super) fn age_if_due(engine: &Engine, id: &str, events: &[Event]) -> bool {
     if !engine.ages_results(id) {
         return false;
     }
-    // A stub points at `history_read`; a conversation not offered it keeps its results whole.
+    // A stub points at `history_read`; a conversation that cannot run it keeps its results whole.
     let readable = engine
-        .offered_for(id)
-        .iter()
-        .any(|tool| tool.name == spade_core::aging::READ_BACK);
+        .registry_for(id)
+        .get(spade_core::aging::READ_BACK)
+        .is_some();
     if !readable {
         return false;
     }
