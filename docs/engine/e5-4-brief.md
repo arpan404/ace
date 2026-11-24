@@ -63,7 +63,9 @@ Revised 2026-11-24 after review (gpt-6.2-sol, high) and the owner's decisions:
 5. **E5.3's fold hooks are 4a's and 4b's.** E5.3's `InputFacts` collaborator trait
    (`repository/collaborators.rs`) is how the fold calls into E5.4. Every one of its methods is
    implemented in 4a or 4b, which need no E5.3 code, so the fold never waits on a round that waits
-   on E5.3. 4a moves `impl InputFacts for State` out of `collaborators.rs` into
+   on E5.3. The trait itself is declared first, in its own small prerequisite ("The `InputFacts`
+   declaration", below), so 4a builds without waiting for E5.3. 4a then moves
+   `impl InputFacts for State` out of `collaborators.rs` into
    `ace-engine/src/queue/fold_hooks.rs` with its methods, as E5.3's step 7 allows. 4b adds its
    methods to that block. Until each method lands it keeps E5.3's default, an explicit
    `NotPorted` stub naming its round, and E5.3's probe pass-through covers the fold seam meanwhile.
@@ -93,6 +95,58 @@ Revised 2026-11-24 after review (gpt-6.2-sol, high) and the owner's decisions:
 10. **Never edit E5.2's or E5.3's files**, except the one move of `impl InputFacts for State` that
     E5.3's step 7 allows. What E5.4 needs from `Repo` it calls through E5.3's API. If a method is
     missing, ask for it in E5.3's review.
+
+### The `InputFacts` declaration (a prerequisite for 4a and for E5.3's step 7)
+
+4a moves an `impl` of a trait that E5.3 owns. 4a runs alongside E5.3, so the trait has to exist
+before either starts. It lands as a **declaration-only commit on `ace/daemon-rust-rewrite`**,
+reviewed by E5.3's and E5.4's reviewers, before 4a and before E5.3's step 7. Whichever builder
+starts first writes it. It contains:
+
+- `ace-engine/src/repository/collaborators.rs` with the `InputFacts` trait only. E5.3 adds its
+  other five traits in its own step 7. Every method has a default body returning
+  `Err(EngineError::not_ported("<method>", "E5.4a"))`, or `"E5.4b"`, or `"E5.5"` for
+  `root_run_start`, as the tables in "Module map" assign it. The file ends with
+  `impl InputFacts for State {}`. So the crate builds and every fold call fails `NotPorted` until
+  its owner lands.
+- The data types the signatures name, as plain structs with no behaviour:
+  - `IntentHeader` in `intents/header.rs`, with the fields of `intents.ts:9`–`:24`;
+  - `RecoveryRecord` and `RecoveryPatch` (every field optional, `null` kept distinct from
+    absent) in `queue/record.rs`, with the fields of `queue-store.ts:19`–`:28` and `QueueState`.
+    These files are E5.4's; 4a fills in their decoding and rules.
+- The signatures. Every method takes `&self` (the `State`) and the open `&Tx`, unless it is pure:
+
+```rust
+pub trait InputFacts {
+    fn correlate(&self, tx: &Tx, thread: &ThreadId, fact: Fact, root: &str, generation: Option<u32>) -> Result<Option<Fact>, EngineError>; // 4b
+    fn key_for(&self, tx: &Tx, thread: &ThreadId, native_id: &str) -> Result<Option<String>, EngineError>;                                 // 4b
+    fn attribute(&self, tx: &Tx, thread: &ThreadId, fact: Fact) -> Result<Fact, EngineError>;                                              // 4b
+    fn ace_wait_fact(&self, state: &ThreadState, fact: &Fact) -> Result<Option<Fact>, EngineError>;                                        // 4b
+    fn bind_started_run(&self, tx: &Tx, state: &mut ThreadState, run: &RunId, generation: Option<u32>) -> Result<Vec<EventPayload>, EngineError>; // 4b
+    fn bind_consumed_input(&self, tx: &Tx, state: &mut ThreadState, key: &str, generation: Option<u32>, at: i64) -> Result<Vec<EventPayload>, EngineError>; // 4b
+    fn handed_over(&self, tx: &Tx, thread: &ThreadId) -> Result<Option<IntentHeader>, EngineError>;                                       // 4a
+    fn uncertain_continuation(&self, tx: &Tx, thread: &ThreadId) -> Result<Option<IntentHeader>, EngineError>;                            // 4a
+    fn resolving_interactions(&self, tx: &Tx, thread: &ThreadId) -> Result<IndexSet<InteractionId>, EngineError>;                         // 4a
+    fn finish_continuation(&self, tx: &Tx, thread: &ThreadId) -> Result<(), EngineError>;                                                 // 4a
+    fn awaiting(&self, tx: &Tx, thread: &ThreadId) -> Result<Option<IntentHeader>, EngineError>;                                          // 4a
+    fn queue_get(&self, tx: &Tx, thread: &ThreadId) -> Result<RecoveryRecord, EngineError>;                                               // 4a
+    fn queue_set(&self, tx: &Tx, thread: &ThreadId, patch: RecoveryPatch, at: i64) -> Result<(), EngineError>;                            // 4a
+    fn queue_prune(&self, tx: &Tx, intent: i64) -> Result<(), EngineError>;                                                               // 4a
+    fn queue_has_uncertain(&self, tx: &Tx, thread: &ThreadId) -> Result<bool, EngineError>;                                               // 4a
+    fn retire_ended_turn_inputs(&self, tx: &Tx, thread: &ThreadId, generation: u32, at: i64) -> Result<(), EngineError>;                  // 4a
+    fn goal_change(&self, current: Option<&ProviderGoal>, next: Option<&ProviderGoal>) -> Result<GoalChange, EngineError>;                 // 4a
+    fn root_run_start(&self /* E5.3 fixes the arguments from provider-facts.ts */) -> Result<(), EngineError>;                           // E5.5
+}
+```
+
+`GoalChange` is `Unchanged | Clear | Set(ProviderGoal)`, for `goal-change.ts`'s
+`undefined | null | goal`. If E5.3's fold needs a different argument (the step 7 call sites
+decide), E5.3's reviewer changes the signature in this commit, before either builder relies
+on it.
+
+After this commit, 4a and E5.3 build independently. 4a's first commit moves the
+`impl InputFacts for State` line into `queue/fold_hooks.rs` and overrides its methods there.
+E5.3 never touches the `InputFacts` block again.
 
 ## The rounds
 
@@ -630,15 +684,46 @@ fix. The native port then copies the fixed behaviour.
    - **What is observable.** For a rolled-back `thread.create`, the utility model is called for a
      thread that does not exist (its write finds no thread and is skipped), and a retry of the same
      create, with the same thread id, is never named, because the id is already in `attempted`.
-     For a rolled-back `thread.send` to a `New thread`, the model is called with a message the
-     thread never accepted, its `thread.updated` lands on the thread (`titleSource` is still
-     `provisional`), and the person's real first message is never used to name it. A worktree
-     thread's branch is renamed from the same rejected words.
-   - **The fix.** `notifyNamingPrompt` registers the call on the outermost transaction's commit:
-     `repo.store.atomic(() => undefined, { committed: () => repo.onNamingPrompt?.(id, input),
-rolledBack: () => {} })`, using the store's existing outcome (`store-stream.ts:25`, settled
-     only by the outermost transaction, `store.ts:643`–`:646`). Outside a transaction it commits
-     at once, so the call is immediate, as today.
+     A send names only a thread whose title is still provisional, is not `New thread`, and equals
+     `provisionalTitle(input)` (`transcript-inputs.ts:226`–`:228`). Take a thread created as
+     "Fix the login flow" whose creation was accepted before the daemon restarted, so this process
+     has no `attempted` entry for it and its title is still that provisional text. A rolled-back
+     `thread.send` with the input "Fix the login flow" calls the model with a message the thread
+     never accepted. Its `thread.updated` (`titleSource: "generated"`) lands, since the title is
+     still `provisional`, and the attempt is used up. A worktree thread's branch is renamed from
+     the same words.
+   - **The commit hook.** `Store.atomic(run)` takes one argument (`store.ts:733` on main). The
+     store's existing settlement mechanism is private. `transaction(run, outcome?)`
+     (`store.ts:574`) queues a `TransactionOutcome` in `this.settlements` (`:151`). The outermost
+     commit settles them in a `SettlementPass` after the transaction's events publish
+     (`:645`–`:657`), and any rollback, nested or outermost, settles them as `rolledBack`. That
+     outcome is not a general hook: it marks rows that publish themselves. A nested one splices
+     the transaction's events, an outermost one suppresses `publishFresh`, and during
+     `installingHistory` it throws `Store is busy`. So the fix adds a small public method on the
+     same lists, with none of those effects:
+
+     ```ts
+     /** Runs `callback` once the outermost transaction commits, after its events publish; never on rollback. Outside a transaction, now. */
+     afterCommit(callback: () => void): void;
+     ```
+
+     - It runs at once when no transaction is open. That covers `installingHistory`, whose
+       `transaction` calls `run()` with no `BEGIN`.
+     - Inside one, it is pushed onto a new private `commitCallbacks` list. A nested savepoint
+       records the list's length when it begins and truncates back to it when it rolls back,
+       as `settling` does for `settlements` (`:583`, `:604`). The outermost rollback clears the
+       list (`:636`).
+     - The outermost commit runs the callbacks in order, each as a `pass.step` after the last
+       `publishFresh` and before the usage listeners. A throw goes through the pass's reporter
+       (`onError`), never into the caller.
+     - On `ace/daemon-rust-rewrite`, `nativeTransactions` (`native-writer/transaction.ts`) gets
+       the same method on the same rule. E5.1 step 3's after-commit queue is the native
+       release, and runs in the same position.
+
+   - **The fix.** `notifyNamingPrompt` calls
+     `repo.store.afterCommit(() => repo.onNamingPrompt?.(id, input))` instead of the port. The
+     comment at `thread-titles.ts:96` ("the work starts after it commits") becomes true.
+     `ThreadTitles` itself is unchanged.
    - **The test** (`engine/thread-title.process.test.ts`, written first and red on main): "a
      receipt that rolls back after acceptance never asks for its thread's title, and its retry asks
      once". Through the harness with an `onNamingPrompt` spy, bind a command policy that calls
@@ -818,7 +903,10 @@ the (a) test in its comment passes natively.
 
 **4f** (`commands.test.ts`):
 
-- "a send on a held queue is marked queued and never reaches delivery" (`onError` empty).
+- "a send on a held queue is never dispatched". `work` returns at the hold (`index.ts:1358`–`:1361`)
+  before it marks anything `queued` (`:1370`), so the intent stays `pending`. Expect no
+  `delivery.run` call (the stub's report never appears in `onError`), the intent's status still
+  `pending`, and the queue snapshot unchanged.
 - "a runnable send passes the steering reads and reaches delivery, which reports E5.5 once". This
   covers `yielded`, `route` and `readyForInput` on a probe-attached session.
   (a): `queued-run-binding.process` `:57`.
@@ -845,9 +933,12 @@ These sit beside their functions. Tests of new behaviour are marked as such in t
 
 ## Benches and the cross-mode run
 
-- **The receipt bench is 4e's.** 4d can't accept a send. 4e times 10,000 `thread.send` receipts to
-  one thread on a queue held `manual`, which accepts the send as held, so nothing delivers. It
-  reports p50 and p99 with the switch off and on, from a loop in `commands.test.ts` behind a
+- **The receipt bench is 4e's.** 4d can't accept a send. 4e times 10,000 accepted `thread.send`
+  receipts on queues held `manual`, so nothing delivers. A thread takes at most 256 inputs in
+  flight (`recovery.ts:135`), and held sends count, so the bench runs **40 batches of 250**. Each
+  batch gets a fresh thread (create, then `queue.pause`), made outside the timed region. It
+  asserts every timed receipt is `ok: true`, so a refusal can't creep into the figures. It reports
+  p50 and p99 with the switch off and on, from a loop in `commands.test.ts` behind a
   `--bench` filter that doesn't run by default. That covers the synchronous part of `sendReceipt`.
   E5.8 runs `bench/head-of-line.ts` in full.
 - E5.4 adds no open-time work, so it has no cold-clone measurement; the fills' figures are E5.3's.
