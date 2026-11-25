@@ -612,6 +612,39 @@ export function scrcpyVideoBackend(): NativeBackend {
   throw new Error("ACE_SCRCPY_VIDEO takes media");
 }
 
+/**
+ * Why `ACE_DEVICE_INVENTORY` cannot run, or `undefined` when it can (D2, ADR 0225 §6).
+ * The native inventory starts `adb start-server` through `ace-supervisor`, so it needs
+ * `ACE_SUPERVISOR=native`.
+ */
+export function deviceInventorySwitchRefusal(input: {
+  deviceInventory: boolean;
+  supervisor: boolean;
+  cross: CrossSwitch | undefined;
+}): string | undefined {
+  if (input.deviceInventory && !input.supervisor)
+    return "ACE_DEVICE_INVENTORY needs ACE_SUPERVISOR=native";
+  if (input.deviceInventory && input.cross === "ACE_SUPERVISOR")
+    return "ACE_NATIVE_CROSS=ACE_SUPERVISOR cannot run with ACE_DEVICE_INVENTORY";
+  return undefined;
+}
+
+const deviceInventoryRaw = process.env.ACE_DEVICE_INVENTORY;
+if (deviceInventoryRaw !== undefined && deviceInventoryRaw !== "native")
+  throw new Error(`ACE_DEVICE_INVENTORY=${JSON.stringify(deviceInventoryRaw)} is not native`);
+const deviceInventory = deviceInventoryRaw === "native";
+const deviceInventoryRefusal = deviceInventorySwitchRefusal({
+  deviceInventory,
+  supervisor,
+  cross: crossSwitch,
+});
+if (deviceInventoryRefusal !== undefined) throw new Error(deviceInventoryRefusal);
+
+/** The backend for device inventory (D2): `native` when `ACE_DEVICE_INVENTORY=native`, else `typescript`. */
+export function deviceInventoryBackend(): NativeBackend {
+  return deviceInventory ? "native" : "typescript";
+}
+
 export function crossLogPath(): string | undefined {
   return crossLog;
 }
