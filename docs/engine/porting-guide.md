@@ -1182,8 +1182,10 @@ fakes, and everything the E1 translator owns. Five tasks, in order.
 - **A sink that unwinds poisons the host**: a panic in the shell is a bug, not a protocol event,
   so the drain catches it once. The host stops the child directly, never through the queue
   (`HostSink::stop`), taking a stop already queued out of the order so a delivery that panicked
-  cannot lose it; a stop that did not land leaves the host stoppable, and its owner's next retire
-  hands the child another one. Effects already decided keep their place, and only what the poison
+  cannot lose it; a stop is owed only when one was decided (the unwinding effect itself, or one
+  still queued), never for a child that exited or crashed. One stop at a time: a retire that
+  arrives while it is in flight joins it, a landed one is not repeated, and only a stop the shell
+  could not confirm leaves the host stoppable, its owner's next retire handing the child another. Effects already decided keep their place, and only what the poison
   decides is appended — a failure for each call still pending and an exit for each channel without
   one — so every call ends with exactly one settlement or failure and every channel with one exit.
   A write still queued is dropped, since the call its line carried has failed. After that each

@@ -554,6 +554,127 @@ fn a_write_queued_behind_the_panic_is_not_sent() {
         "no write reaches the child after the poison: {:?}",
         &published[before..]
     );
+    assert!(
+        published[before..].iter().any(|thing| matches!(
+            thing,
+            Published::Effect(HostEffect::Settle { id: 8, result: Err(error) })
+                if error.message() == HOST_FAILED
+        )),
+        "the call whose write was dropped fails with the host error: {:?}",
+        &published[before..]
+    );
+}
+
+/// A stop that already landed before the child exited is not made again: the
+/// poison's own exit must not reach a process that is gone.
+#[test]
+fn a_stop_that_already_landed_is_not_repeated_by_the_poison() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start();
+    host.retire(Retirement::User);
+    assert_eq!(sink.stops(), 1, "the retire stops the child");
+
+    // The child exits and its pipes close; an exit delivery then unwinds.
+    sink.lose_next_exit();
+    host.exit(RawExit {
+        code: Some(0),
+        signal: None,
+    });
+    host.closed(RawExit {
+        code: Some(0),
+        signal: None,
+    });
+
+    assert!(host.poisoned());
+    assert_eq!(
+        sink.stops(),
+        1,
+        "a child that has exited is never stopped again: {:?}",
+        sink.published()
+    );
+}
+
+/// A child that crashed is never stopped by the poison: there is no process to
+/// signal, and a reused pid would be someone else's.
+#[test]
+fn a_crashed_child_is_never_stopped_by_the_poison() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start();
+    sink.lose_next_exit();
+    host.exit(RawExit {
+        code: Some(3),
+        signal: None,
+    });
+    host.closed(RawExit {
+        code: Some(3),
+        signal: None,
+    });
+
+    assert!(host.poisoned());
+    assert_eq!(
+        sink.stops(),
+        0,
+        "a child that crashed is not stopped: {:?}",
+        sink.published()
+    );
+}
+
+/// A retire that arrives while the poison's own stop is in flight joins it
+/// instead of signalling the child a second time.
+#[test]
+fn a_retire_during_the_poisons_stop_joins_it() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start();
+    sink.hold_next_stop();
+    sink.lose_next_write(false);
+    let poisoning = {
+        let host = Arc::clone(&host);
+        std::thread::spawn(move || {
+            host.request(
+                1,
+                "thread/read",
+                Some(&ace_json::json!({"threadId": "t"})),
+                7,
+                Timeout::Disabled,
+            )
+            .expect("the call is queued");
+        })
+    };
+    assert!(sink.wait_parked(), "the poison's stop is in flight");
+
+    host.retire(Retirement::Shutdown);
+    sink.let_go();
+    poisoning.join().expect("the request's input returns");
+
+    assert!(host.poisoned());
+    assert_eq!(
+        sink.stops(),
+        1,
+        "one stop, whichever caller asked: {:?}",
+        sink.published()
+    );
+}
+
+/// A retire after the poison's stop landed asks for nothing more.
+#[test]
+fn a_retire_after_the_poisons_stop_landed_does_nothing() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start();
+    let _ = sink.pump(&host, || {});
+    sink.lose_next_write(false);
+    host.request(
+        1,
+        "thread/read",
+        Some(&ace_json::json!({"threadId": "t"})),
+        7,
+        Timeout::Disabled,
+    )
+    .expect("the call is queued");
+    assert!(host.poisoned());
+    assert_eq!(sink.stops(), 1);
+
+    host.retire(Retirement::Shutdown);
+    assert_eq!(sink.stops(), 1, "the child is already stopped");
 }
 
 /// The pool starts a new host for the next open once a poisoned one is retired.
@@ -790,6 +911,45 @@ fn a_released_hold_above_the_byte_budget_closes_the_gate() {
     assert_eq!(delivered, 3, "every held frame reached the channel");
 }
 
+/// `Publication::take_retire` takes the queued stop and leaves everything
+/// else, reservation included, where it was.
+#[test]
+fn taking_a_queued_stop_leaves_the_other_effects() {
+    let mut publication = Publication::default();
+    publication.hold(
+        HostEffect::Frame {
+            tenant: 1,
+            dir: Direction::Recv,
+            data: Value::Null,
+        },
+        Some(4),
+    );
+    publication.hold(
+        HostEffect::Retire {
+            reason: Retirement::Idle,
+            awaited: false,
+        },
+        None,
+    );
+    publication.hold(
+        HostEffect::ArmTimer {
+            key: "timer".to_owned(),
+            ms: 1.0,
+        },
+        None,
+    );
+    assert_eq!(publication.backlog(), (1, 4), "a stop reserves no room");
+
+    assert_eq!(
+        publication.take_retire(),
+        Some((Retirement::Idle, false)),
+        "the stop comes out with what it asked for"
+    );
+    assert_eq!(publication.backlog(), (1, 4), "the rest keeps its room");
+    assert_eq!(publication.depth(), 2, "and its place");
+    assert_eq!(publication.take_retire(), None, "one stop is taken once");
+}
+
 /// One thing the shell published, in the order it published it.
 #[derive(Debug, Clone, PartialEq)]
 enum Published {
@@ -996,6 +1156,7 @@ struct Holding {
     read: Mutex<usize>,
     hold: Mutex<bool>,
     hold_frame: Mutex<bool>,
+    hold_stop: Mutex<bool>,
     lose_frame: Mutex<bool>,
     lose_retire: Mutex<bool>,
     fail_stop: Mutex<bool>,
@@ -1139,6 +1300,11 @@ impl Holding {
         *self.lose_frame.lock().expect("lose frame") = true;
     }
 
+    /// Holds the publisher inside the next child stop, once.
+    fn hold_next_stop(&self) {
+        *self.hold_stop.lock().expect("hold stop") = true;
+    }
+
     /// Unwinds on the next child stop, once.
     fn lose_next_retire(&self) {
         *self.lose_retire.lock().expect("lose retire") = true;
@@ -1216,6 +1382,9 @@ impl Holding {
 
 impl HostSink for Holding {
     fn stop(&self, host: &Host, _reason: Retirement, awaited: bool) {
+        if take(&self.hold_stop) {
+            self.park();
+        }
         if take(&self.lose_retire) {
             panic!("the shell unwinds on a stop");
         }

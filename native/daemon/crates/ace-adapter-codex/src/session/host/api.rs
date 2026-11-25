@@ -40,6 +40,8 @@ impl Host {
                 ready: Handshake::Initializing,
                 idle_armed: false,
                 poisoned: false,
+                stop_state: StopState::None,
+                child_exited: false,
                 out: Vec::new(),
             }),
             publication: Mutex::new(Publication::default()),
@@ -259,6 +261,7 @@ impl Host {
                 return;
             }
             inner.exiting = true;
+            inner.child_exited = true;
             inner.gate.drain();
             let stopped = inner.peer.stop_requests("process exited");
             inner.apply(stopped);
@@ -273,6 +276,7 @@ impl Host {
     pub fn closed(&self, exit: RawExit) {
         self.input(|inner| {
             inner.exiting = true;
+            inner.child_exited = true;
             inner.gate.drain();
             let closed = inner.peer.close("process exited");
             inner.apply(closed);
@@ -358,7 +362,8 @@ impl Host {
 
     /// Stop the whole process (`retire`, `:379`); every channel on it exits.
     /// A poisoned host has already published its exits, so its owner's retire
-    /// only stops the child — a stop the poison's own may not have made.
+    /// only stops the child — a stop the poison's own may not have made. One
+    /// already in flight is joined, and one that landed is not repeated.
     pub fn retire(&self, reason: Retirement) {
         if self.poisoned() {
             self.stop_child(reason, true);
@@ -376,10 +381,12 @@ impl Host {
     }
 
     /// The shell's stop did not confirm: a host that outlived it takes
-    /// backpressure again. A leader already dead started draining for its exit,
-    /// and a late failure cannot undo that.
+    /// backpressure again, and a poisoned host may be asked to stop again. A
+    /// leader already dead started draining for its exit, and a late failure
+    /// cannot undo that.
     pub fn stop_failed(&self) {
-        let inner = self.lock();
+        let mut inner = self.lock();
+        inner.stop_state = StopState::Failed;
         if inner.exiting {
             return;
         }
