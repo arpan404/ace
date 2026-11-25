@@ -22,12 +22,19 @@ export const NotificationStatus = z.enum([
  * call id, or the digest or brief. `category` is Spade's word for what it is about
  * (`needs_you`, `escalation`, `digest`, `routine`, `finished`, `brief`, `spend`, `summary`).
  */
+export const SpadeNotificationItem = z.object({
+  agent: boundedId,
+  conversation: boundedId.optional(),
+  request: boundedId.optional(),
+});
+export type SpadeNotificationItem = z.infer<typeof SpadeNotificationItem>;
 export const SpadeNotificationTarget = z.object({
   agent: boundedId,
   conversation: boundedId.optional(),
   request: boundedId.optional(),
   digest: z.number().int().nonnegative().optional(),
   category: z.string().min(1).max(40),
+  items: z.array(SpadeNotificationItem).min(1).max(50).optional(),
 });
 export type SpadeNotificationTarget = z.infer<typeof SpadeNotificationTarget>;
 export const Notification = z.object({

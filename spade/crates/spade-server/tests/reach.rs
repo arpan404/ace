@@ -5,10 +5,13 @@
 
 mod support;
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
 use futures_util::StreamExt;
 use serde_json::{Value, json};
+use spade_server::clock::{Clock, SystemClock};
 use spade_testkit::Script;
 use support::{ManualClock, Options, Result, Spade};
 
@@ -35,21 +38,33 @@ async fn listen(spade: &Spade) -> Result<Notices> {
 
 /// Reads notices until one matches `wanted`, for at most 10 s; answers every notice read.
 async fn until_notice(body: &mut Notices, wanted: impl Fn(&Value) -> bool) -> Vec<Value> {
-    let mut text = String::new();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    let parsed = |text: &str| -> Vec<Value> {
-        text.lines()
-            .filter_map(|l| l.strip_prefix("data: "))
-            .filter_map(|d| serde_json::from_str(d).ok())
-            .collect()
-    };
-    while !parsed(&text).iter().any(&wanted) && tokio::time::Instant::now() < deadline {
-        match tokio::time::timeout(Duration::from_secs(5), body.next()).await {
-            Ok(Some(Ok(chunk))) => text.push_str(&String::from_utf8_lossy(&chunk)),
-            _ => break,
+    read_notices(body, Duration::from_secs(5), wanted).await
+}
+
+async fn read_notices(
+    body: &mut Notices,
+    for_time: Duration,
+    wanted: impl Fn(&Value) -> bool,
+) -> Vec<Value> {
+    let mut text = Vec::new();
+    let mut notices = Vec::new();
+    let deadline = tokio::time::Instant::now() + for_time;
+    while let Ok(Some(Ok(chunk))) = tokio::time::timeout_at(deadline, body.next()).await {
+        text.extend(chunk);
+        while let Some(end) = text.iter().position(|byte| *byte == b'\n') {
+            let line: Vec<_> = text.drain(..=end).collect();
+            if let Some(data) = line.strip_prefix(b"data: ")
+                && let Ok(notice) = serde_json::from_slice(data)
+            {
+                let found = wanted(&notice);
+                notices.push(notice);
+                if found {
+                    return notices;
+                }
+            }
         }
     }
-    parsed(&text)
+    notices
 }
 
 async fn bot(spade: &Spade, name: &str) -> Result<(String, String)> {
@@ -458,5 +473,307 @@ async fn an_unusual_spend_rate_alerts_once() -> Result {
         alerts[0]["text"], alert["text"],
         "and a line in the bot's chat"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn several_pending_questions_and_approvals_from_one_bot_arrive_as_one_grouped_notice()
+-> Result {
+    let spade = Spade::start(
+        vec![
+            Script::reply("")
+                .call(
+                    "w1",
+                    "bot_create",
+                    json!({ "name": "Helper", "task": "Check logs", "brief": "Check logs." }),
+                )
+                .call(
+                    "q1",
+                    "ask_user",
+                    json!({ "questions": [{ "kind": "text", "prompt": "Format?", "default": "Markdown" }] }),
+                )
+                .call("q2", "ask_user", json!({ "question": "Ship now?" })),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    let (id, conversation) = bot(&spade, "Release").await?;
+    let mut body = listen(&spade).await?;
+    spade.say(&conversation, "Prepare the release").await?;
+    let notices = read_notices(&mut body, Duration::from_secs(1), |_| false).await;
+    let needs_you: Vec<&Value> = notices
+        .iter()
+        .filter(|n| n["category"] == "needs_you")
+        .collect();
+    assert_eq!(needs_you.len(), 1, "{notices:?}");
+    let batch = needs_you[0];
+    assert_eq!(
+        about(batch),
+        (json!("needs_you"), json!("now"), Value::Null)
+    );
+    assert_eq!(batch["kind"], "needs_you_batch");
+    assert_eq!(batch["level"], "block");
+    assert_eq!(batch["agent"], id.as_str());
+    assert_eq!(batch["name"], "Release");
+    assert_eq!(batch["count"], 3);
+    assert_eq!(batch["approvals"], 1);
+    assert_eq!(batch["questions"], 2);
+    assert_eq!(batch["text"], "1 approval and 2 questions waiting.");
+    assert_eq!(batch["items"].as_array().map(Vec::len), Some(3));
+    Ok(())
+}
+
+#[tokio::test]
+async fn pending_asks_across_a_bots_worker_tree_group_into_one_notice_under_the_root() -> Result {
+    let spade = Spade::start(
+        vec![
+            // Parent creates worker Scout; once approved, both Scout and Builder each ask a
+            // question on their next step, which coalesce into one notice under root Builder.
+            Script::reply("").call(
+                "w1",
+                "bot_create",
+                json!({ "name": "Scout", "task": "Check staging", "brief": "Check staging." }),
+            ),
+            Script::reply("").call("q-a", "ask_user", json!({ "question": "Staging branch?" })),
+            Script::reply("").call("q-b", "ask_user", json!({ "question": "Deploy window?" })),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    let (root_id, root_chat) = bot(&spade, "Builder").await?;
+    let mut body = listen(&spade).await?;
+    spade.say(&root_chat, "Check staging").await?;
+    let notices = until_notice(&mut body, |n| n["request"] == "w1").await;
+    assert!(
+        notices
+            .iter()
+            .any(|n| n["request"] == "w1" && n["reach"] == "now"),
+        "{notices:?}"
+    );
+
+    let (status, reply) = spade
+        .post(
+            &format!("/v1/conversations/{root_chat}/approvals/w1"),
+            json!({ "allowed": true }),
+        )
+        .await?;
+    assert_eq!(status, 202, "{reply}");
+
+    let notices = until_notice(&mut body, |n| n["kind"] == "needs_you_batch").await;
+    let batch = notices
+        .iter()
+        .find(|n| n["kind"] == "needs_you_batch")
+        .cloned()
+        .unwrap_or(Value::Null);
+    assert_eq!(
+        about(&batch),
+        (json!("needs_you"), json!("now"), Value::Null),
+        "{notices:?}"
+    );
+    assert_eq!(batch["agent"], root_id.as_str());
+    assert_eq!(batch["name"], "Builder");
+    assert_eq!(batch["conversation"], root_chat.as_str());
+    assert_eq!(batch["level"], "block");
+    assert_eq!(batch["count"], 2);
+    let text = batch["text"].as_str().unwrap_or_default();
+    assert!(
+        text.contains("2 questions waiting") && text.contains("Scout") && text.contains("Builder"),
+        "{text}"
+    );
+    Ok(())
+}
+
+struct BatchClock {
+    elapsed_ms: AtomicI64,
+    scheduled: tokio::sync::Notify,
+}
+
+impl BatchClock {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            elapsed_ms: AtomicI64::new(0),
+            scheduled: tokio::sync::Notify::new(),
+        })
+    }
+
+    async fn pass_window(&self) -> Result {
+        tokio::time::timeout(Duration::from_secs(5), self.scheduled.notified()).await?;
+        self.elapsed_ms.fetch_add(1_000, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+impl Clock for BatchClock {
+    fn now_ms(&self) -> i64 {
+        SystemClock.now_ms()
+    }
+
+    fn monotonic_ms(&self) -> i64 {
+        let elapsed = self.elapsed_ms.load(Ordering::SeqCst);
+        self.scheduled.notify_one();
+        elapsed
+    }
+}
+
+fn two_questions() -> Vec<Script> {
+    vec![
+        Script::reply("")
+            .call(
+                "q1",
+                "ask_user",
+                json!({ "question": "Format?", "blocking": false }),
+            )
+            .call("q2", "ask_user", json!({ "question": "Ship?" })),
+        Script::reply("Continuing"),
+    ]
+}
+
+async fn answer(spade: &Spade, conversation: &str, request: &str) -> Result {
+    let (status, response) = spade
+        .post(
+            &format!("/v1/conversations/{conversation}/questions/{request}"),
+            json!({ "answers": ["Yes"] }),
+        )
+        .await?;
+    assert_eq!(status, 202, "{response}");
+    Ok(())
+}
+
+async fn answer_before_flush(answer_all: bool) -> Result<Vec<Value>> {
+    let clock = BatchClock::new();
+    let spade = Spade::start_with(
+        two_questions(),
+        Vec::new(),
+        Options {
+            clock: Some(clock.clone()),
+            ..Options::default()
+        },
+    )
+    .await?;
+    let (_, conversation) = bot(&spade, "Release").await?;
+    let mut stream = listen(&spade).await?;
+    spade.say(&conversation, "Prepare the release").await?;
+    spade
+        .wait_for_count(&conversation, "question_asked", 2)
+        .await?;
+    answer(&spade, &conversation, "q1").await?;
+    if answer_all {
+        answer(&spade, &conversation, "q2").await?;
+    }
+    clock.pass_window().await?;
+    Ok(
+        read_notices(&mut stream, Duration::from_millis(700), |_| false)
+            .await
+            .into_iter()
+            .filter(|n| n["category"] == "needs_you")
+            .collect(),
+    )
+}
+
+#[tokio::test]
+async fn an_early_answer_leaves_only_the_open_question_in_the_notice() -> Result {
+    let notices = answer_before_flush(false).await?;
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert_eq!(notices[0]["request"], "q2");
+    Ok(())
+}
+
+#[tokio::test]
+async fn when_every_question_is_answered_before_flush_there_is_no_notice() -> Result {
+    let notices = answer_before_flush(true).await?;
+    assert!(notices.is_empty(), "{notices:?}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_open_batch_survives_restart_and_a_delivered_batch_is_not_replayed() -> Result {
+    let clock = BatchClock::new();
+    let spade = Spade::start_with(
+        two_questions(),
+        Vec::new(),
+        Options {
+            clock: Some(clock.clone()),
+            ..Options::default()
+        },
+    )
+    .await?;
+    let (_, conversation) = bot(&spade, "Release").await?;
+    let stream = listen(&spade).await?;
+    spade.say(&conversation, "Prepare the release").await?;
+    spade
+        .wait_for_count(&conversation, "question_asked", 2)
+        .await?;
+    tokio::time::timeout(Duration::from_secs(5), clock.scheduled.notified()).await?;
+    drop(stream);
+
+    let spade = spade.restart(Vec::new(), Vec::new()).await?;
+    let mut stream = listen(&spade).await?;
+    let notices = until_notice(&mut stream, |n| n["category"] == "needs_you").await;
+    assert!(
+        notices
+            .iter()
+            .any(|n| n["kind"] == "needs_you_batch" && n["count"] == 2),
+        "{notices:?}"
+    );
+    drop(stream);
+
+    let spade = spade.restart(Vec::new(), Vec::new()).await?;
+    let mut stream = listen(&spade).await?;
+    let replay = read_notices(&mut stream, Duration::from_millis(700), |_| false).await;
+    assert!(
+        replay.iter().all(|n| n["category"] != "needs_you"),
+        "{replay:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_settings_read_failure_keeps_a_muted_bots_notice_for_a_safe_retry() -> Result {
+    let clock = BatchClock::new();
+    let spade = Spade::start_with(
+        two_questions(),
+        Vec::new(),
+        Options {
+            clock: Some(clock.clone()),
+            ..Options::default()
+        },
+    )
+    .await?;
+    let (id, conversation) = bot(&spade, "Muted").await?;
+    let (status, body) = spade
+        .put(
+            &format!("/v1/agents/{id}/reach"),
+            json!({ "notify": false }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    let mut stream = listen(&spade).await?;
+    let db = spade_store::Store::connect(spade.database())?;
+    db.execute(
+        "INSERT INTO settings (key, value) VALUES ('reach', 'invalid JSON')
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        [],
+    )?;
+    spade.say(&conversation, "Prepare the release").await?;
+    spade
+        .wait_for_count(&conversation, "question_asked", 2)
+        .await?;
+    clock.pass_window().await?;
+    let failed = read_notices(&mut stream, Duration::from_millis(600), |_| false).await;
+    assert!(
+        failed.iter().all(|n| n["category"] != "needs_you"),
+        "{failed:?}"
+    );
+
+    db.execute("DELETE FROM settings WHERE key = 'reach'", [])?;
+    clock.pass_window().await?;
+    let retried = until_notice(&mut stream, |n| n["category"] == "needs_you").await;
+    assert!(
+        retried
+            .iter()
+            .any(|n| n["reach"] == "none" && n["why"] == "bot_off"),
+        "{retried:?}"
+    );
+    assert!(retried.iter().all(|n| n["reach"] != "now"), "{retried:?}");
     Ok(())
 }

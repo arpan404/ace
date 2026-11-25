@@ -265,6 +265,33 @@ quiet ends. ace's daemon turns `reach: now` notices into its alerts.
 - **Morning brief** (opt-in): a `digests` row of kind `brief` beside the main bot's
   conversation, once a day at `brief.at` (minutes, the person's zone): what finished with its
   event, what waits with one-tap answers, today's routines, spend since the last brief.
+- **Batching `needs_you` notices** (`spade_core::reach::batch`): pending approvals and questions
+  from the same bot or orchestration tree that arrive within a short coalesce window (250 ms)
+  merge into one `kind: "needs_you_batch"` notice under the tree's root bot (with `count`,
+  `approvals`, `questions`, the highest `level` in the group, and `items`). A single ask stays an
+  individual `kind: "event"` notice. Each item is still decided with its own bot switches so a
+  silenced bot never leaks into a live alert and `block`/`stop` levels always follow ADR 0195
+  (`stop` escalations are never buffered). Spade records pending sources with their events and
+  picks them up when the notice stream connects, including after a restart. At flush it drops
+  asks that have closed. If Spade cannot read the reach settings or budget, it retries the batch.
 - **Spend alerts**: a bot's last hour above `spend.floor_micros` and `spend.factor` times its
   trailing hourly median alerts once per episode, as a `spend` notice and a `digests` row of
   kind `spend` in its chat. Information only.
+
+## Where Spade waits on the person
+
+Audit of every path that stops and waits on the person, shows in a needs-you view, or interrupts
+with `reach: now` on `GET /v1/notices/live`:
+
+| Path | Trigger | Reply blocks? | Level / notice |
+| ---- | ------- | ------------- | -------------- |
+| `approval_requested` (turn, helper, lane, code) | Gate/reviewer asks the person to approve a tool call (`engine/calls.rs`, `helpers.rs`, `code.rs`). Helper and lane asks mirror into the bot's main conversation. | **Yes** — calling turn, helper, lane, or code call pauses (`State::Waiting`, `waiting_for: "approval"`). A helper or lane wait does not block its parent's own reply, though the parent rolls up to `waiting_for: "worker"` / `"task"`. | `block` / `needs_you` (`reach: now` unless `approvals: wait` in quiet/DND or notify off; coalesced into `needs_you_batch` when several arrive from the same bot or tree). |
+| `question_asked` (`ask_user`, blocking) | Bot calls `ask_user` with `blocking: true`/`wait: true`, or without a `default` on every question. Mirrored to main for task lanes (`engine/lanes/talk.rs`). | **Yes** — turn pauses (`State::Waiting`, `waiting_for: "question"`) until answered (card or message), deferred ("Answer later"), or dismissed. | `block` / `needs_you` (`reach: now` unless `approvals: wait` in quiet/DND; coalesced per bot/tree). |
+| `question_asked` (`ask_user`, non-blocking) | Bot calls `ask_user` with `blocking: false`/`wait: false`, or states a `default` on every question without setting `blocking: true` (stores `later: true` + `question_deferred {by_bot: true}`). | **No** — tool returns immediately (confirming any stated defaults); reply carries on; answer arrives later as `<question_answer>`. Sits in `questions_for_later` (not `State::Waiting`). | `ask` / `needs_you` (`reach: now` if engaged within 30m, else proactive: held in quiet/DND or past budget; coalesced per bot/tree). |
+| `question_asked` (connect / reconnect / suggest / MCP form) | `app_connect_request` (`engine/apps.rs`), expired-session reconnect (`calls/run.rs`), `package_suggest` (`suggest.rs`), or MCP elicitation (`app_forms.rs`). | **Yes** — turn or mid-call tool pauses until completed, deferred, or dismissed (`app_connect_request` with `way: later` does not block). | `block` / `needs_you` (`reach: now` unless `approvals: wait` in quiet/DND). |
+| `plugin_outside_asked` | A plugin server or hook cannot run inside the sandbox (`engine/plugin_hooks.rs`). | **No** — plugin is refused until allowed; turn continues (`waiting_on_you` stays false). | None (no notice). |
+| Escalations (`task_paused`, `reply_failed`) | 3 consecutive continued steps with no effect (`engine/continuation.rs`), or unrecoverable model/key/setup failure (`engine/turn.rs`; transient outages park on a wake). | **No** — reply has already ended; autonomous continuation stops until the person writes or retries. | `stop` / `escalation` (**always** `reach: now`, bypassing DND, quiet hours, `approvals: wait`, and budget; only notify-off silences). |
+| Needs-you inbox / roster / running (`GET /v1/running`, `/agents`, `/conversations`, digests, brief) | Any open `approval_requested` (`awaiting` / `helper_awaiting`), waiting `question_asked`, or rolled-up waiting worker, task lane, contract callee, or delegated ace thread (`waiting_for`: `approval`, `question`, `worker`, `task`, `callee`). | Reflects the underlying wait (`State::Waiting`, `Reads::NeedsYou`). Deferred questions stay out of `NeedsYou` but list under `questions_for_later`, digests, and the brief's `Waiting on you`. | Derived view (no separate notice). |
+| `task_status {status: "blocked_on_person"}` | Bot calls `task_status` with `blocked_on_person` (`spade_core::task`). | **No** — tool returns immediately and the current reply finishes; stops automatic continuation (`task::next` returns `Nothing`) until the person writes. | None (`State::Idle` once reply ends; no notice). |
+| `wait_for {condition: {kind: "person"}}` | Bot sets a person wake (`engine/wakes.rs`). | **No** — tool returns immediately and reply ends; bot enters `State::Sleeping` until the person writes or timeout fires. | None (no notice). |
+| Other `reach: now` notices (`GET /v1/notices/live`) | `Brief` / `Summary` (always `now`), plus proactive `Routine` (non-silent reply), `Finished` (job ≥10m, verified `done` goal, finished worker), `Digest`, `Spend` alert, and bot `notify` tool (outside quiet/DND and under budget). | **No** — informational alerts only; never hold a reply open. | `now` or `held` (`Record` events — `decision_made`, bot `goal_set`, non-done `task_verified` — are always `reach: none`). |
