@@ -765,7 +765,15 @@ export class AccountManagement {
         ...catalogEnvironment(env),
         loginRevision: this.options.registry.get(instance.id)?.instance.loginRevision ?? "0",
       },
-      instance.implicit ? undefined : () => assertManagedHome(this.options.dataDir, instance),
+      instance.implicit
+        ? undefined
+        : async () => {
+            await assertManagedHome(this.options.dataDir, instance);
+            // Every discovery attempt starts from a usable folder: OpenCode 2.4.1 can strip a
+            // managed home's owner access while ace runs (issue #2784).
+            if (instance.provider === "opencode" && instance.managed)
+              await prepareOpenCodeHome(instance.homeDir, this.options.platform);
+          },
     );
   }
 
