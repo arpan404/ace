@@ -123,9 +123,8 @@ async function downloadNatively(
     ...(options.artifacts ? { artifacts: options.artifacts } : {}),
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     id: randomUUID(),
-    ...(options.env["ACE_SCRCPY_SERVER"] === undefined
-      ? {}
-      : { scrcpyServer: options.env["ACE_SCRCPY_SERVER"] }),
+    // An empty setting is unset, as the child's `if (explicit)` read it.
+    ...(options.env["ACE_SCRCPY_SERVER"] ? { scrcpyServer: options.env["ACE_SCRCPY_SERVER"] } : {}),
   };
   const text = await nativeDevices().devicePlatformInstallTools(JSON.stringify(request));
   const reply = deviceAnswer<ToolsInstallReply>(() => text);
