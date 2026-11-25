@@ -373,8 +373,17 @@ fn a_tenant_detaching_during_leader_death_waits_for_the_pipe_barrier() {
     let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
     claim_thread(&host, 1, "t");
 
-    // The channel leaves with an unsubscribe in flight.
+    // The channel leaves with its terminals read and an unsubscribe in flight.
     let (_, lines) = pump(&host, host.detach(1, Retirement::Idle, "idle"));
+    let list = line_id(&lines, "thread/backgroundTerminals/list", Some("t"))
+        .expect("the terminals are read");
+    let (_, lines) = pump(
+        &host,
+        host.line(&reply(
+            &list,
+            ace_json::json!({"data": [], "nextCursor": null}),
+        )),
+    );
     assert!(line_id(&lines, "thread/unsubscribe", Some("t")).is_some());
     // Then the leader dies: the unsubscribe is settled by the teardown.
     let (effects, _) = pump(
@@ -439,8 +448,17 @@ fn a_detaching_tenant_still_receives_its_final_frames() {
     let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
     claim_thread(&host, 1, "t");
 
-    // The channel leaves with an unsubscribe in flight.
+    // The channel leaves with its terminals read and an unsubscribe in flight.
     let (_, lines) = pump(&host, host.detach(1, Retirement::Idle, "idle"));
+    let list = line_id(&lines, "thread/backgroundTerminals/list", Some("t"))
+        .expect("the terminals are read");
+    let (_, lines) = pump(
+        &host,
+        host.line(&reply(
+            &list,
+            ace_json::json!({"data": [], "nextCursor": null}),
+        )),
+    );
     assert!(line_id(&lines, "thread/unsubscribe", Some("t")).is_some());
     // The leader dies: the teardown settles the unsubscribe, and the channel
     // waits for the barrier with its routes.

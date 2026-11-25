@@ -120,10 +120,15 @@ impl Inner {
             OwnPurpose::Interrupt { tenant, attempt } => {
                 self.interrupt_answered(tenant, attempt, &result)
             }
-            OwnPurpose::ShellList { tenant, thread } => {
-                self.terminals_listed(tenant, &thread, &result)
+            OwnPurpose::ShellList {
+                tenant,
+                attempt,
+                thread,
+                scan,
+            } => self.terminals_listed(tenant, attempt, &thread, scan, &result),
+            OwnPurpose::ShellStop { tenant, attempt } => {
+                self.terminal_stopped(tenant, attempt, &result)
             }
-            OwnPurpose::ShellStop { tenant } => self.terminal_stopped(tenant, &result),
         }
     }
 }

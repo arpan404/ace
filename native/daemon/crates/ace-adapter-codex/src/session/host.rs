@@ -387,10 +387,36 @@ enum OwnPurpose {
     Unsubscribe { tenant: u64 },
     /// A close's `turn/interrupt`; its answer starts the release.
     Interrupt { tenant: u64, attempt: u64 },
-    /// One thread's background terminals, read by a close (`stopShells`).
-    ShellList { tenant: u64, thread: JsString },
+    /// One page of a thread's background terminals, read by a close
+    /// (`stopShells`): the scan so far carries the terminals and the cursors
+    /// already seen, so every page of one close is read exactly once.
+    ShellList {
+        tenant: u64,
+        attempt: u64,
+        thread: JsString,
+        scan: ShellScan,
+    },
     /// One background terminal's stop (`stopShells`).
-    ShellStop { tenant: u64 },
+    ShellStop { tenant: u64, attempt: u64 },
+}
+
+/// A thread's background-terminal scan while a close reads its pages
+/// (`readBackgroundTerminals`, `background-terminals.ts:16`).
+#[derive(Debug, Clone)]
+struct ShellScan {
+    terminals: Vec<JsString>,
+    cursors: HashSet<JsString>,
+    pages: usize,
+}
+
+impl ShellScan {
+    fn new() -> ShellScan {
+        ShellScan {
+            terminals: Vec::new(),
+            cursors: HashSet::new(),
+            pages: 0,
+        }
+    }
 }
 
 /// The message just received, for the dispatch effect that follows it

@@ -302,6 +302,15 @@ fn a_thread_is_foreign_to_every_channel_but_its_owner() {
     let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
     // A leaving channel still owns its thread until its unsubscribe lands.
     assert!(!host.foreign(1, &open));
+    let list = line_id(&lines, "thread/backgroundTerminals/list", Some("open"))
+        .expect("the terminals are read first");
+    let (_, lines) = pump(
+        &host,
+        host.line(&reply(
+            &list,
+            ace_json::json!({"data": [], "nextCursor": null}),
+        )),
+    );
     let unsub = line_id(&lines, "thread/unsubscribe", Some("open")).expect("the unsubscribe");
     let (_, _) = pump(
         &host,
@@ -312,4 +321,73 @@ fn a_thread_is_foreign_to_every_channel_but_its_owner() {
         "a released thread is never evidence of a new owner"
     );
     assert!(host.foreign(2, &open));
+}
+
+/// A request whose frame the only channel did not admit is refused, not
+/// dispatched (`#request` throws `Unsupported Codex request`).
+#[test]
+fn a_request_whose_frame_was_not_admitted_is_refused() {
+    struct Unadmitting {
+        events: Arc<crate::session::harness::Events>,
+    }
+    impl ChannelHandlers for Unadmitting {
+        fn frame(&self, _dir: ace_supervisor::peer::Direction, _data: &Value) -> Admission {
+            Admission::Failed("translation broke".to_owned())
+        }
+        fn notification(&self, _method: &ace_json::JsString, _params: Option<&Value>) {}
+        fn request(
+            &self,
+            id: &RpcId,
+            method: &ace_json::JsString,
+            params: Option<&Value>,
+        ) -> RequestAnswer {
+            self.events.push(Event::Request {
+                tenant: 9,
+                id: id.clone(),
+                method: method.clone(),
+                params: params.cloned(),
+            });
+            RequestAnswer::Answered(ace_json::json!({}))
+        }
+        fn dropped(&self, _line: &DroppedLine) {}
+        fn output_uncertain(&self) {}
+        fn malformed(&self, _line: &str) {}
+        fn stderr(&self, _line: &str) {}
+        fn error(&self, _message: &str) {}
+        fn failed(&self, _message: &str) {}
+        fn exited(&self, _exit: &HostExit) {}
+        fn ready(&self) {}
+    }
+    let host = bare(true);
+    let events = Arc::new(crate::session::harness::Events::default());
+    let handler = Arc::new(Unadmitting {
+        events: Arc::clone(&events),
+    });
+    let _ = host
+        .attach(9, handler as Arc<dyn ChannelHandlers>)
+        .expect("the channel attaches");
+
+    // A request naming no thread or turn, with one channel that cannot take it.
+    let (_, lines) = pump(
+        &host,
+        host.line(&frame(ace_json::json!({
+            "jsonrpc": "2.0",
+            "id": "ask-1",
+            "method": "mcpServer/elicitation/request",
+            "params": {"serverName": "docs", "mode": "form"},
+        }))),
+    );
+    assert!(
+        !events
+            .snapshot()
+            .iter()
+            .any(|event| matches!(event, Event::Request { .. })),
+        "the request is never dispatched"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("Unsupported Codex request")),
+        "and it is refused as TS does: {lines:?}"
+    );
 }

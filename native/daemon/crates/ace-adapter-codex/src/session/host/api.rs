@@ -346,7 +346,8 @@ impl Host {
             .get(&tenant)
             .is_some_and(|state| state.remaining == 0)
         {
-            inner.unsubscribe_threads(tenant);
+            // No turn to interrupt, but the channel's shells still run.
+            inner.stop_terminals(tenant);
         }
         inner.take()
     }

@@ -213,11 +213,17 @@ impl Inner {
                 let tenant = self.tenants.keys().next().copied().unwrap_or_default();
                 // A request naming no thread or turn can only be answered when
                 // one session could own it: it sees the frame its discovery
-                // needs, then answers it.
-                if let Some(data) = &pending.data {
-                    self.deliver(tenant, Direction::Recv, data, None);
+                // needs, then answers it. A channel that does not admit the
+                // frame never answers the request (`#request` throws).
+                let admitted = pending
+                    .data
+                    .as_ref()
+                    .is_some_and(|data| self.deliver(tenant, Direction::Recv, data, None));
+                if admitted {
+                    self.serve(&id, tenant, method, params);
+                } else {
+                    self.refuse(&id, &format!("Unsupported Codex request: {method}"));
                 }
-                self.serve(&id, tenant, method, params);
             }
             _ => self.refuse(&id, &format!("Unsupported Codex request: {method}")),
         }

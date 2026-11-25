@@ -81,8 +81,8 @@ impl Inner {
     }
 
     /// The channel's background terminals stop next (`stopShells`,
-    /// `session-commands.ts:183`): one list per thread, then one terminate per
-    /// terminal, before the threads are unsubscribed.
+    /// `session-commands.ts:183`): every page of each thread's list, then one
+    /// terminate per terminal, before the threads are unsubscribed.
     pub(super) fn stop_terminals(&mut self, tenant: u64) {
         let Some(state) = self.detaching.get_mut(&tenant) else {
             return;
@@ -94,23 +94,11 @@ impl Inner {
             self.unsubscribe_threads(tenant);
             return;
         }
+        let attempt = state.attempt;
         let mut queued = Vec::with_capacity(threads.len());
         for thread in &threads {
-            match self.enqueue_own(
-                "thread/backgroundTerminals/list",
-                &[("threadId", thread)],
-                TERMINALS_MS,
-            ) {
-                Ok((id, peer)) => {
-                    self.own.insert(
-                        id,
-                        OwnPurpose::ShellList {
-                            tenant,
-                            thread: thread.clone(),
-                        },
-                    );
-                    queued.push(peer);
-                }
+            match self.enqueue_shell_list(tenant, attempt, thread, ShellScan::new(), None) {
+                Ok(peer) => queued.push(peer),
                 Err(error) => {
                     // A claimed write is never dropped.
                     for peer in queued {
@@ -129,44 +117,115 @@ impl Inner {
         }
     }
 
-    /// One thread's background terminals answered: stop each of them, then
-    /// count this thread's step done.
+    /// One page of a thread's terminals, nothing more, is asked for.
+    fn enqueue_shell_list(
+        &mut self,
+        tenant: u64,
+        attempt: u64,
+        thread: &JsString,
+        scan: ShellScan,
+        cursor: Option<&JsString>,
+    ) -> Result<Vec<PeerEffect>, String> {
+        let (thread_param, cursor_param) = (thread, cursor);
+        let mut params: Vec<(&str, &JsString)> = Vec::with_capacity(2);
+        params.push(("threadId", thread_param));
+        if let Some(cursor) = cursor_param {
+            params.push(("cursor", cursor));
+        }
+        let (id, peer) =
+            self.enqueue_own("thread/backgroundTerminals/list", &params, TERMINALS_MS)?;
+        self.own.insert(
+            id,
+            OwnPurpose::ShellList {
+                tenant,
+                attempt,
+                thread: thread.clone(),
+                scan,
+            },
+        );
+        Ok(peer)
+    }
+
+    /// One page of a thread's background terminals answered: read on until the
+    /// continuation is empty, then stop every terminal the pages named
+    /// (`readBackgroundTerminals`, `background-terminals.ts:16`).
     pub(super) fn terminals_listed(
         &mut self,
         tenant: u64,
+        attempt: u64,
         thread: &JsString,
+        mut scan: ShellScan,
         result: &Result<Value, PeerError>,
     ) {
-        let Some(state) = self.detaching.get_mut(&tenant) else {
+        let Some(state) = self.detaching.get(&tenant) else {
             return;
         };
-        if state.phase != Leaving::Terminals {
+        // A reply to an earlier close is not this one's.
+        if state.phase != Leaving::Terminals || state.attempt != attempt {
             return;
         }
-        let terminals = match result {
+        let page = match result {
             Err(error) => {
-                let message = format!(
-                    "Could not stop the background terminals: {}",
-                    error.message()
+                self.detach_failed(
+                    tenant,
+                    &format!(
+                        "Could not stop the background terminals: {}",
+                        error.message()
+                    ),
                 );
-                self.detach_failed(tenant, &message);
                 return;
             }
-            Ok(value) => value
-                .get("data")
-                .and_then(Value::as_array)
-                .map(|listed| {
-                    listed
-                        .iter()
-                        .filter_map(|terminal| terminal.get("processId"))
-                        .filter_map(|id| match id {
-                            Value::String(text) => Some(text.clone()),
-                            _ => None,
-                        })
-                        .collect::<Vec<JsString>>()
-                })
-                .unwrap_or_default(),
+            Ok(value) => value,
         };
+        if let Some(listed) = page.get("data").and_then(Value::as_array) {
+            scan.terminals.extend(listed.iter().filter_map(|terminal| {
+                match terminal.get("processId") {
+                    Some(Value::String(text)) => Some(text.clone()),
+                    _ => None,
+                }
+            }));
+        }
+        if scan.terminals.len() > 4096 {
+            self.detach_failed(tenant, "Codex terminal capacity reached");
+            return;
+        }
+        let next = page
+            .get("nextCursor")
+            .and_then(Value::as_str)
+            .filter(|cursor| !cursor.is_empty())
+            .map(JsString::from);
+        match next {
+            None => self.stop_listed_terminals(tenant, attempt, thread, scan.terminals),
+            Some(cursor) => {
+                if scan.cursors.contains(&cursor) {
+                    self.detach_failed(tenant, "Repeated Codex terminal cursor");
+                    return;
+                }
+                scan.cursors.insert(cursor.clone());
+                if scan.pages + 1 >= 64 {
+                    self.detach_failed(tenant, "Codex terminal pagination capacity reached");
+                    return;
+                }
+                scan.pages += 1;
+                match self.enqueue_shell_list(tenant, attempt, thread, scan, Some(&cursor)) {
+                    Ok(peer) => self.apply(peer),
+                    Err(error) => self.detach_failed(
+                        tenant,
+                        &format!("Could not stop the background terminals: {error}"),
+                    ),
+                }
+            }
+        }
+    }
+
+    /// A thread's last page is in: stop each terminal it named.
+    fn stop_listed_terminals(
+        &mut self,
+        tenant: u64,
+        attempt: u64,
+        thread: &JsString,
+        terminals: Vec<JsString>,
+    ) {
         let mut queued = Vec::with_capacity(terminals.len());
         for process in &terminals {
             match self.enqueue_own(
@@ -175,7 +234,8 @@ impl Inner {
                 TERMINALS_MS,
             ) {
                 Ok((id, peer)) => {
-                    self.own.insert(id, OwnPurpose::ShellStop { tenant });
+                    self.own
+                        .insert(id, OwnPurpose::ShellStop { tenant, attempt });
                     queued.push(peer);
                 }
                 Err(error) => {
@@ -191,7 +251,7 @@ impl Inner {
             }
         }
         if let Some(state) = self.detaching.get_mut(&tenant) {
-            // This thread's list becomes its terminals, one step each.
+            // This thread's pages become its terminals, one step each.
             state.remaining = state.remaining.saturating_sub(1) + terminals.len();
         }
         for peer in queued {
@@ -202,11 +262,17 @@ impl Inner {
     }
 
     /// One background terminal answered.
-    pub(super) fn terminal_stopped(&mut self, tenant: u64, result: &Result<Value, PeerError>) {
+    pub(super) fn terminal_stopped(
+        &mut self,
+        tenant: u64,
+        attempt: u64,
+        result: &Result<Value, PeerError>,
+    ) {
         let Some(state) = self.detaching.get(&tenant) else {
             return;
         };
-        if state.phase != Leaving::Terminals {
+        // A stop from an earlier close is not this one's.
+        if state.phase != Leaving::Terminals || state.attempt != attempt {
             return;
         }
         if let Err(error) = result {

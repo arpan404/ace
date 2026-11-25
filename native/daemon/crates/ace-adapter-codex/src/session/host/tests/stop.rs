@@ -654,3 +654,127 @@ fn an_attach_after_the_leaders_death_is_refused() {
         Some(HostError::Unavailable)
     );
 }
+
+/// A channel with no live turn still has shells: the close reads them before
+/// it unsubscribes (`stopShells` runs for every thread).
+#[test]
+fn a_close_with_no_live_turn_still_stops_its_shells() {
+    let host = bare(true);
+    let events = Arc::new(crate::session::harness::Events::default());
+    let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+    claim_thread(&host, 1, "t");
+
+    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let list = line_id(&lines, "thread/backgroundTerminals/list", Some("t"))
+        .expect("the shell list is read with no turn to interrupt");
+    assert!(line_id(&lines, "thread/unsubscribe", Some("t")).is_none());
+    let (_, lines) = pump(
+        &host,
+        host.line(&reply(
+            &list,
+            ace_json::json!({"data": [], "nextCursor": null}),
+        )),
+    );
+    assert!(line_id(&lines, "thread/unsubscribe", Some("t")).is_some());
+}
+
+/// Every page of a thread's terminals is read before any is stopped, as
+/// `readBackgroundTerminals` does (`background-terminals.ts:16`).
+#[test]
+fn a_close_pages_through_every_shell_before_stopping_them() {
+    let host = bare(true);
+    let events = Arc::new(crate::session::harness::Events::default());
+    let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+    claim_thread(&host, 1, "t");
+
+    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let first =
+        line_id(&lines, "thread/backgroundTerminals/list", Some("t")).expect("the first page");
+    assert!(
+        !lines[0].contains("cursor"),
+        "the first page names no cursor"
+    );
+
+    let (_, lines) = pump(
+        &host,
+        host.line(&reply(
+            &first,
+            ace_json::json!({"data": [{"processId": "p1"}], "nextCursor": "c1"}),
+        )),
+    );
+    let second = line_ids(&lines, "thread/backgroundTerminals/list");
+    assert_eq!(second.len(), 1, "the continuation is asked for: {lines:?}");
+    assert!(lines[0].contains("\"cursor\":\"c1\""));
+    assert!(
+        line_ids(&lines, "thread/backgroundTerminals/terminate").is_empty(),
+        "nothing is stopped before the last page"
+    );
+
+    let (_, lines) = pump(
+        &host,
+        host.line(&reply(
+            &second[0],
+            ace_json::json!({
+                "data": [{"processId": "p2"}],
+                "nextCursor": null,
+            }),
+        )),
+    );
+    let stops: Vec<&String> = lines
+        .iter()
+        .filter(|line| line.contains("thread/backgroundTerminals/terminate"))
+        .collect();
+    assert_eq!(stops.len(), 2, "both pages' terminals stop: {stops:?}");
+    assert!(stops[0].contains("\"processId\":\"p1\""));
+    assert!(stops[1].contains("\"processId\":\"p2\""));
+}
+
+/// A terminal reply from a failed close is not the retry's: only the current
+/// attempt's pages and stops advance it.
+#[test]
+fn a_late_terminal_reply_from_a_failed_detach_never_counts_for_the_retry() {
+    let host = bare(true);
+    let events = Arc::new(crate::session::harness::Events::default());
+    let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+    claim_thread(&host, 1, "t1");
+    claim_thread(&host, 1, "t2");
+
+    // The first close: t1's list is refused, so t2's stays outstanding.
+    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let first_t1 =
+        line_id(&lines, "thread/backgroundTerminals/list", Some("t1")).expect("t1's list");
+    let first_t2 =
+        line_id(&lines, "thread/backgroundTerminals/list", Some("t2")).expect("t2's list");
+    let (effects, _) = pump(
+        &host,
+        host.line(&frame(ace_json::json!({
+            "jsonrpc": "2.0",
+            "id": id_to_value(&first_t1),
+            "error": {"code": -32603.0, "message": "no terminals"},
+        }))),
+    );
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, HostEffect::DetachFailed { tenant: 1, .. }))
+    );
+
+    // The retry reads again.
+    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let second_t2 =
+        line_id(&lines, "thread/backgroundTerminals/list", Some("t2")).expect("t2's retry");
+    assert_ne!(first_t2, second_t2);
+
+    // The old close's t2 answer is not the retry's.
+    let (_, lines) = pump(
+        &host,
+        host.line(&reply(
+            &first_t2,
+            ace_json::json!({"data": [{"processId": "stale"}], "nextCursor": null}),
+        )),
+    );
+    assert!(
+        line_ids(&lines, "thread/backgroundTerminals/terminate").is_empty(),
+        "a stale page stops nothing: {lines:?}"
+    );
+}
