@@ -4,6 +4,8 @@ import { afterEach, expect, test } from "vitest";
 import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import type { RemoteListener } from "./network.ts";
 import { tlsFixtureHome } from "./process-test-support.ts";
+import { transportParts } from "@ace/provider-kit/native-switches";
+import { nativeRemoteClass } from "@ace/provider-kit/native-transport";
 import { remoteDirect } from "./remote-direct.ts";
 import { gatedDirectListener } from "./remote-direct-test-support.ts";
 import { loadIdentity } from "./tls-identity.ts";
@@ -74,12 +76,30 @@ test("a bind that finishes after remote access closed leaves nothing listening",
   const { remote, gates, made, ports } = direct();
   const bind = Promise.withResolvers<void>();
   gates.bind = bind.promise;
-  const committing = remote.commit({ lan: on("127.0.0.1") });
-  await expect.poll(() => made.length).toBe(1);
+  // Hold Rust's own start too: the daemon retires the listener while its bind is still in
+  // flight, which is the late bind this case is about (T1b.5).
+  const native = transportParts().has("remote") ? nativeRemoteClass() : undefined;
+  const startNative = native?.start;
+  const startGate = Promise.withResolvers<void>();
+  if (native !== undefined && startNative !== undefined)
+    native.start = async (...args) => {
+      await startGate.promise;
+      return startNative(...args);
+    };
+  try {
+    const committing = remote.commit({ lan: on("127.0.0.1") });
+    await expect.poll(() => made.length).toBe(1);
 
-  await remote.close();
-  bind.resolve();
-  await committing;
+    await remote.close();
+    // The retire reaches the listener whose bind has not landed: its close line says so.
+    const retiring = native === undefined ? undefined : made[0]?.close();
+    startGate.resolve();
+    bind.resolve();
+    await retiring;
+    await committing;
+  } finally {
+    if (native !== undefined && startNative !== undefined) native.start = startNative;
+  }
   expect(ports).toHaveLength(1);
   expect(await accepting(ports[0] ?? 0)).toBe(false);
   expect(remote.open()).toBe(false);

@@ -113,6 +113,21 @@ impl Shell {
         self.host.attach(tenant, handlers)
     }
 
+    /// What the host published since the last read, without acknowledging
+    /// anything: a write the host queued stays the writer's active one, so a
+    /// case decides when the pipe moves.
+    pub(super) fn collect(&self) -> Vec<HostEffect> {
+        let mut cursor = *self.read.lock().unwrap_or_else(|error| error.into_inner());
+        let mut rest = Vec::new();
+        while let Some(effect) = self.at(cursor) {
+            cursor += 1;
+            rest.push(effect);
+        }
+        let mut read = self.read.lock().unwrap_or_else(|error| error.into_inner());
+        *read = (*read).max(cursor);
+        rest
+    }
+
     /// What the shell does with a host's effects: acknowledge every write,
     /// which hands out the next line, and keep the rest in order with the
     /// lines sent. Returns the other effects and the lines written.

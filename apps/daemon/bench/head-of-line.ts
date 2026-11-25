@@ -70,6 +70,8 @@ const Ready = z.object({
 const Emitted = z.object({ emittedAt: z.number(), head: z.number() });
 const Head = z.object({ head: z.number() });
 const Probe = z.object({
+  /** The 99th percentile of the episode's event-loop gaps (T1b.5's bench). */
+  gapP99Ms: z.number(),
   longestGaps: z.array(z.object({ ms: z.number(), deflateMs: z.number() })),
   deflates: z.array(z.object({ bytes: z.number(), ms: z.number() })),
   relayCommands: z
