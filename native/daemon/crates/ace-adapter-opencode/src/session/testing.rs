@@ -139,6 +139,7 @@ fn event_kind(event: &SessionEvent) -> &'static str {
         SessionEvent::Frame { .. } => "frame",
         SessionEvent::Callback { .. } => "callback",
         SessionEvent::Settle { .. } => "settle",
+        SessionEvent::Port { .. } => "port",
         SessionEvent::ArmTimer { .. } => "armTimer",
         SessionEvent::CancelTimer { .. } => "cancelTimer",
         SessionEvent::Fatal { .. } => "fatal",

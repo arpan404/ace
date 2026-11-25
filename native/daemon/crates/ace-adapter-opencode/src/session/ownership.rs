@@ -15,7 +15,7 @@ use indexmap::{IndexMap, IndexSet};
 use std::sync::LazyLock;
 
 use crate::translate::boundaries::{event_session, parse_native_event};
-use crate::translate::data::{fields, get, s_in};
+use crate::translate::data::{fields, get, s_in, truthy};
 
 /// `this.sessions.size >= 1024` (`ownership.ts:96`).
 const MAX_SESSIONS: usize = 1024;
@@ -116,19 +116,8 @@ fn parse_info_as<'a>(value: &'a Value, id_field: Option<&str>) -> Option<Info<'a
         project_id,
         directory,
         parent_id,
-        fork: map.get("fork").is_some_and(is_truthy),
+        fork: map.get("fork").is_some_and(truthy),
     })
-}
-
-/// `Boolean(value)`, for `fork`.
-fn is_truthy(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::Bool(flag) => *flag,
-        Value::Number(number) => number.as_f64().is_some_and(|value| value != 0.0),
-        Value::String(text) => !text.is_empty(),
-        Value::Array(_) | Value::Object(_) => true,
-    }
 }
 
 /// Code points, the way zod's patched bounds count (rule 17).
