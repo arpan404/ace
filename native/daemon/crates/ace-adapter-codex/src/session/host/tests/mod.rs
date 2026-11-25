@@ -43,16 +43,15 @@ struct LogSink {
 }
 
 impl HostSink for LogSink {
-    fn effect(&self, _host: &Host, effect: HostEffect) {
-        if let HostEffect::Frame { tenant, dir, data } = &effect
-            && let Some(handlers) = self
-                .handlers
+    fn effect(&self, host: &Host, effect: HostEffect) {
+        if host.hand_over(&effect, |tenant| {
+            self.handlers
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
-                .get(tenant)
+                .get(&tenant)
                 .cloned()
-        {
-            handlers.frame(*dir, data);
+        }) {
+            return;
         }
         self.log
             .lock()

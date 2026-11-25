@@ -209,12 +209,16 @@ impl Host {
         });
     }
 
-    /// One stderr line: diagnostics, to every channel.
+    /// One stderr line: diagnostics, to every channel, in the host's order.
     pub fn stderr_line(&self, line: &str) {
-        let inner = self.lock();
-        for entry in inner.tenants.values() {
-            entry.handlers.stderr(line);
-        }
+        self.input(|inner| {
+            for tenant in inner.tenant_ids() {
+                inner.out.push(HostEffect::Stderr {
+                    tenant,
+                    line: line.to_owned(),
+                });
+            }
+        });
     }
 
     /// The write callback ran: release its bytes and hand out the next line.

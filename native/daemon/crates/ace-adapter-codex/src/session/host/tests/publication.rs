@@ -83,21 +83,6 @@ fn a_frame_waits_for_the_settlement_the_host_decided_before_it() {
     let sink = Arc::new(Holding::default());
     let host = sink.start();
 
-    // The channel owns a thread, so a frame for it is routed to it.
-    host.request(
-        1,
-        "thread/resume",
-        Some(&ace_json::json!({"threadId": "t"})),
-        9,
-        Timeout::Default,
-    )
-    .expect("the open is queued");
-    let (_, lines) = sink.pump(&host, || {});
-    let opening = line_id(&lines, "thread/resume", Some("t")).expect("the open's id");
-    let _ = sink.pump(&host, || {
-        host.line(&reply(&opening, ace_json::json!({"thread": {"id": "t"}})));
-    });
-
     host.request(
         1,
         "thread/read",
@@ -155,6 +140,148 @@ fn a_frame_waits_for_the_settlement_the_host_decided_before_it() {
     );
 }
 
+/// A notification follows the frame it belongs to: an input that decides both
+/// while the publisher is held inside a settlement publishes the frame, then
+/// the notification, after the settlement.
+#[test]
+fn a_notification_is_published_after_the_frame_it_belongs_to() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start();
+    let published = parked_settlement(&sink, &host, || {
+        host.line(&frame(ace_json::json!({
+            "jsonrpc": "2.0",
+            "method": "thread/name/updated",
+            "params": {"threadId": "t", "name": "later"},
+        })));
+    });
+    let settle = settle_at(&published);
+    let delivered = position(
+        &published,
+        |thing| matches!(thing, Published::Frame { tenant: 1, method } if method == "thread/name/updated"),
+    );
+    let notified = position(
+        &published,
+        |thing| matches!(thing, Published::Notification { tenant: 1, method } if method == "thread/name/updated"),
+    );
+    assert!(
+        settle < delivered,
+        "the settlement is published before the frame decided after it"
+    );
+    assert!(
+        delivered < notified,
+        "the notification follows the frame it belongs to"
+    );
+}
+
+/// A server request is published after its frame, and its answer goes back
+/// through the host, so the reply keeps the host's order too.
+#[test]
+fn a_server_request_is_published_after_the_frame_it_belongs_to() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start();
+    let published = parked_settlement(&sink, &host, || {
+        host.line(&frame(ace_json::json!({
+            "jsonrpc": "2.0",
+            "id": "ask-1",
+            "method": "mcpServer/elicitation/request",
+            "params": {"threadId": "t", "serverName": "docs", "mode": "form"},
+        })));
+    });
+    let settle = settle_at(&published);
+    let delivered = position(&published, |thing| {
+        matches!(
+            thing,
+            Published::Frame { tenant: 1, method } if method == "mcpServer/elicitation/request"
+        )
+    });
+    let served = position(&published, |thing| {
+        matches!(
+            thing,
+            Published::Request { tenant: 1, method } if method == "mcpServer/elicitation/request"
+        )
+    });
+    assert!(
+        settle < delivered,
+        "the settlement is published before the frame decided after it"
+    );
+    assert!(
+        delivered < served,
+        "the request follows the frame it belongs to"
+    );
+}
+
+/// A refused frame's failure callback is published like everything else: a
+/// channel never hears about the refusal before the effects decided before it.
+#[test]
+fn an_admission_failure_is_published_after_the_settlement_before_it() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start();
+    let published = parked_settlement(&sink, &host, || {
+        sink.refuse_next_frame("translation broke");
+        host.line(&frame(ace_json::json!({
+            "jsonrpc": "2.0",
+            "method": "thread/name/updated",
+            "params": {"threadId": "t", "name": "later"},
+        })));
+    });
+    let settle = settle_at(&published);
+    let failed = position(&published, |thing| {
+        matches!(
+            thing,
+            Published::Failed { tenant: 1, message } if message == "translation broke"
+        )
+    });
+    assert!(
+        settle < failed,
+        "the failure is published after the settlement decided before it"
+    );
+}
+
+/// A dropped output line reaches its channel in the host's order, after the
+/// settlement decided before it.
+#[test]
+fn a_dropped_line_is_published_after_the_settlement_before_it() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start();
+    let published = parked_settlement(&sink, &host, || {
+        host.dropped(&DroppedLine {
+            bytes: 20_000_000,
+            phase: DroppedPhase::Line,
+            thread: None,
+            response: None,
+        });
+    });
+    let settle = settle_at(&published);
+    let dropped = position(
+        &published,
+        |thing| matches!(thing, Published::Dropped { tenant: 1, bytes } if *bytes == 20_000_000),
+    );
+    assert!(
+        settle < dropped,
+        "the dropped line is published after the settlement decided before it"
+    );
+}
+
+/// A diagnostic line reaches every channel in the host's order, after the
+/// settlement decided before it.
+#[test]
+fn a_diagnostic_line_is_published_after_the_settlement_before_it() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start();
+    let published = parked_settlement(&sink, &host, || {
+        host.stderr_line("mcp server says hello");
+    });
+    let settle = settle_at(&published);
+    let heard = position(
+        &published,
+        |thing| matches!(thing, Published::Diagnostic { tenant: 1, text } if text == "mcp server says hello"),
+    );
+    assert!(
+        settle < heard,
+        "the diagnostic is published after the settlement decided before it"
+    );
+}
+
 /// A sink that unwinds once does not wedge publication: the turn it held is
 /// given back, and later inputs are published as usual.
 #[test]
@@ -202,6 +329,16 @@ enum Published {
     Effect(HostEffect),
     /// One frame delivered to its channel, by method.
     Frame { tenant: u64, method: String },
+    /// One notification delivered to its channel, by method.
+    Notification { tenant: u64, method: String },
+    /// One server request served to its channel, by method.
+    Request { tenant: u64, method: String },
+    /// One refused frame, and why.
+    Failed { tenant: u64, message: String },
+    /// One dropped output line.
+    Dropped { tenant: u64, bytes: usize },
+    /// One diagnostic line.
+    Diagnostic { tenant: u64, text: String },
 }
 
 /// A channel that records each frame it is given in the shell's own log, so a
@@ -209,39 +346,128 @@ enum Published {
 struct Channel {
     tenant: u64,
     log: Arc<Mutex<Vec<Published>>>,
+    refuse: Arc<Mutex<Option<String>>>,
+}
+
+impl Channel {
+    fn record(&self, thing: Published) {
+        self.log.lock().expect("publication log").push(thing);
+    }
 }
 
 impl ChannelHandlers for Channel {
     fn admit(&self, _dir: Direction, _data: &Value) -> Admission {
-        Admission::Taken
+        match self.refuse.lock().expect("refuse").take() {
+            Some(message) => Admission::Failed(message),
+            None => Admission::Taken,
+        }
     }
 
     fn frame(&self, _dir: Direction, data: &Value) {
-        self.log
-            .lock()
-            .expect("publication log")
-            .push(Published::Frame {
-                tenant: self.tenant,
-                method: data
-                    .get("method")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned(),
-            });
+        self.record(Published::Frame {
+            tenant: self.tenant,
+            method: method_of(data),
+        });
     }
 
-    fn notification(&self, _method: &JsString, _params: Option<&Value>) {}
-    fn request(&self, _id: &RpcId, _method: &JsString, _params: Option<&Value>) -> RequestAnswer {
+    fn notification(&self, method: &JsString, _params: Option<&Value>) {
+        self.record(Published::Notification {
+            tenant: self.tenant,
+            method: method.as_str().to_owned(),
+        });
+    }
+
+    fn request(&self, _id: &RpcId, method: &JsString, _params: Option<&Value>) -> RequestAnswer {
+        self.record(Published::Request {
+            tenant: self.tenant,
+            method: method.as_str().to_owned(),
+        });
         RequestAnswer::Answered(ace_json::json!({}))
     }
-    fn dropped(&self, _line: &DroppedLine) {}
+
+    fn dropped(&self, line: &DroppedLine) {
+        self.record(Published::Dropped {
+            tenant: self.tenant,
+            bytes: line.bytes,
+        });
+    }
+
     fn output_uncertain(&self) {}
     fn malformed(&self, _line: &str) {}
-    fn stderr(&self, _line: &str) {}
+    fn stderr(&self, line: &str) {
+        self.record(Published::Diagnostic {
+            tenant: self.tenant,
+            text: line.to_owned(),
+        });
+    }
     fn error(&self, _message: &str) {}
-    fn failed(&self, _message: &str) {}
+    fn failed(&self, message: &str) {
+        self.record(Published::Failed {
+            tenant: self.tenant,
+            message: message.to_owned(),
+        });
+    }
     fn exited(&self, _exit: &HostExit) {}
     fn ready(&self) {}
+}
+
+/// How a frame's data names its method.
+fn method_of(data: &Value) -> String {
+    data.get("method")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned()
+}
+
+/// The position of the first published thing `pred` takes.
+fn position(published: &[Published], pred: impl Fn(&Published) -> bool) -> usize {
+    published
+        .iter()
+        .position(pred)
+        .expect("the thing is published")
+}
+
+/// The position of call 7's settlement.
+fn settle_at(published: &[Published]) -> usize {
+    position(published, |thing| {
+        matches!(thing, Published::Effect(HostEffect::Settle { id: 7, .. }))
+    })
+}
+
+/// The publication log after `decide` runs while the publisher is held inside
+/// the settlement of call 7: nothing `decide` publishes reaches the shell until
+/// the settlement is done.
+fn parked_settlement(
+    sink: &Arc<Holding>,
+    host: &Arc<Host>,
+    decide: impl FnOnce(),
+) -> Vec<Published> {
+    host.request(
+        1,
+        "thread/read",
+        Some(&ace_json::json!({"threadId": "t"})),
+        7,
+        Timeout::After(1_000.0),
+    )
+    .expect("the call is queued");
+    let deadline = sink.deadline(host, 1_000.0);
+
+    sink.hold_next_settlement();
+    let ticking = {
+        let host = Arc::clone(host);
+        std::thread::spawn(move || host.timer(&deadline))
+    };
+    assert!(sink.wait_parked(), "the publisher is inside the settlement");
+    let published = sink.published().len();
+    decide();
+    assert_eq!(
+        sink.published().len(),
+        published,
+        "nothing is published while the publisher is inside the settlement"
+    );
+    sink.let_go();
+    ticking.join().expect("the timer's input returns");
+    sink.published()
 }
 
 /// A sink that can hold the publisher inside one settlement, records every
@@ -257,6 +483,8 @@ struct Holding {
     release: Mutex<bool>,
     released: Condvar,
     handlers: Mutex<HashMap<u64, Arc<dyn ChannelHandlers>>>,
+    /// The next frame's refusal, which the channel reports.
+    refuse: Arc<Mutex<Option<String>>>,
 }
 
 impl Holding {
@@ -273,6 +501,7 @@ impl Holding {
         let channel: Arc<dyn ChannelHandlers> = Arc::new(Channel {
             tenant: 1,
             log: Arc::clone(&self.log),
+            refuse: Arc::clone(&self.refuse),
         });
         self.handlers
             .lock()
@@ -280,7 +509,27 @@ impl Holding {
             .insert(1, Arc::clone(&channel));
         host.attach(1, channel).expect("the host accepts a channel");
         let _ = self.pump(&host, || {});
+
+        // The channel owns a thread, so a frame for it is routed to it.
+        host.request(
+            1,
+            "thread/resume",
+            Some(&ace_json::json!({"threadId": "t"})),
+            9,
+            Timeout::Default,
+        )
+        .expect("the open is queued");
+        let (_, lines) = self.pump(&host, || {});
+        let opening = line_id(&lines, "thread/resume", Some("t")).expect("the open's id");
+        let _ = self.pump(&host, || {
+            host.line(&reply(&opening, ace_json::json!({"thread": {"id": "t"}})));
+        });
         host
+    }
+
+    /// The channel refuses the next frame, with `message`.
+    fn refuse_next_frame(&self, message: &str) {
+        *self.refuse.lock().expect("refuse") = Some(message.to_owned());
     }
 
     /// The deadline of the last call's timer that arms at `ms`.
@@ -367,19 +616,16 @@ impl Holding {
 }
 
 impl HostSink for Holding {
-    fn effect(&self, _host: &Host, effect: HostEffect) {
-        // A frame reaches its channel here, in the order the host published it:
-        // the channel records the delivery in the same log.
-        if let HostEffect::Frame { tenant, dir, data } = &effect {
-            let handler = self
-                .handlers
+    fn effect(&self, host: &Host, effect: HostEffect) {
+        // Frames and callbacks reach their channel here, in the order the host
+        // published them: the channel records each delivery in the same log.
+        if host.hand_over(&effect, |tenant| {
+            self.handlers
                 .lock()
                 .expect("channel handlers")
-                .get(tenant)
-                .cloned();
-            if let Some(handler) = handler {
-                handler.frame(*dir, data);
-            }
+                .get(&tenant)
+                .cloned()
+        }) {
             return;
         }
         let lose = {

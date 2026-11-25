@@ -157,25 +157,30 @@ impl Inner {
             return;
         }
         match pending.route {
-            Route::Tenant { tenant, .. } => {
-                if !pending.failed.contains(&tenant)
-                    && let Some(entry) = self.tenants.get(&tenant)
-                {
-                    entry.handlers.notification(method, params);
-                }
+            Route::Tenant { tenant, .. } if !pending.failed.contains(&tenant) => {
+                self.notify(tenant, method, params);
             }
             Route::All => {
                 for tenant in self.tenant_ids() {
-                    if pending.failed.contains(&tenant) {
-                        continue;
-                    }
-                    if let Some(entry) = self.tenants.get(&tenant) {
-                        entry.handlers.notification(method, params);
+                    if !pending.failed.contains(&tenant) {
+                        self.notify(tenant, method, params);
                     }
                 }
             }
             _ => {}
         }
+    }
+
+    /// One notification, published after its frame.
+    pub(super) fn notify(&mut self, tenant: u64, method: &JsString, params: Option<&Value>) {
+        if !self.tenants.contains_key(&tenant) {
+            return;
+        }
+        self.out.push(HostEffect::Notification {
+            tenant,
+            method: method.clone(),
+            params: params.cloned(),
+        });
     }
 
     /// A server request follows its frame; it is answered once, by its owner
@@ -235,7 +240,9 @@ impl Inner {
         self.apply(peer);
     }
 
-    /// Hand a server request to one tenant, then answer it.
+    /// Hand a server request to one tenant, then answer it: the channel is
+    /// asked in the host's publication order, and its answer goes back through
+    /// `answer`/`answer_error` (`Host::hand_over`).
     pub(super) fn serve(
         &mut self,
         id: &RpcId,
@@ -244,26 +251,16 @@ impl Inner {
         params: Option<&Value>,
     ) {
         self.router.serve(id.clone(), tenant);
-        let Some(entry) = self.tenants.get(&tenant) else {
+        if !self.tenants.contains_key(&tenant) {
             self.refuse(id, "Codex request has no ace owner");
             return;
-        };
-        let answer = entry.handlers.request(id, method, params);
-        match answer {
-            RequestAnswer::Answered(value) => {
-                let peer = self.peer.answer(id, &value);
-                self.apply(peer);
-            }
-            RequestAnswer::MethodNotFound(message) => {
-                let peer = self.peer.answer_error(id, METHOD_NOT_FOUND, &message);
-                self.apply(peer);
-            }
-            RequestAnswer::Failed(message) => {
-                let peer = self.peer.answer_error(id, INTERNAL_ERROR, &message);
-                self.apply(peer);
-            }
-            RequestAnswer::Deferred => {}
         }
+        self.out.push(HostEffect::ServerRequest {
+            tenant,
+            id: id.clone(),
+            method: method.clone(),
+            params: params.cloned(),
+        });
     }
 
     /// Deliver one frame to one tenant (`Tenant.deliver`, `:169`).
@@ -295,10 +292,11 @@ impl Inner {
             }
             Admission::Failed(message) => {
                 entry.muted = true;
-                handlers.failed(&message);
                 if let Some(failed) = failed {
-                    *failed = Some(message);
+                    *failed = Some(message.clone());
                 }
+                self.out
+                    .push(HostEffect::AdmissionFailed { tenant, message });
                 false
             }
         }
@@ -308,9 +306,13 @@ impl Inner {
         self.tenants.keys().copied().collect()
     }
 
-    pub(super) fn report_all(&self, message: &str) {
-        for entry in self.tenants.values() {
-            entry.handlers.error(message);
+    pub(super) fn report_all(&mut self, message: &str) {
+        let tenants = self.tenant_ids();
+        for tenant in tenants {
+            self.out.push(HostEffect::Error {
+                tenant,
+                message: message.to_owned(),
+            });
         }
     }
 
@@ -354,10 +356,11 @@ impl Inner {
             if entry.closed.is_some() {
                 continue;
             }
-            if line.phase != DroppedPhase::End && !rejected {
-                entry.handlers.output_uncertain();
-            }
-            entry.handlers.dropped(line);
+            self.out.push(HostEffect::Dropped {
+                tenant,
+                line: line.clone(),
+                uncertain: line.phase != DroppedPhase::End && !rejected,
+            });
         }
     }
 }

@@ -79,13 +79,11 @@ impl Inner {
                     self.server_request(pending.take(), id, &method, params.as_ref());
                 }
                 PeerEffect::Malformed { line } => {
-                    let tenants: Vec<(u64, Arc<dyn ChannelHandlers>)> = self
-                        .tenants
-                        .iter()
-                        .map(|(id, entry)| (*id, Arc::clone(&entry.handlers)))
-                        .collect();
-                    for (_, handlers) in tenants {
-                        handlers.malformed(&line);
+                    for tenant in self.tenant_ids() {
+                        self.out.push(HostEffect::Malformed {
+                            tenant,
+                            line: line.clone(),
+                        });
                     }
                 }
                 PeerEffect::Settle { id, result } => self.settle(id, result),

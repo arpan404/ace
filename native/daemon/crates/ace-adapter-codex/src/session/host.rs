@@ -11,9 +11,11 @@
 //! changed. Publication is one queue the host fills under its lock and exactly
 //! one caller drains into the shell's sink, so two inputs never swap the
 //! effects they decided: a settlement a timer decided is never published after
-//! the exit a pipe close decided later (ADR 0223 §7 rule 3). Tenant callbacks
-//! are `ChannelHandlers`; the shell owns the child, its stdin queue and the
-//! timers (E3.0b).
+//! the exit a pipe close decided later, and a notification never overtakes the
+//! frame it belongs to (ADR 0223 §7 rule 3). Every callback a channel observes
+//! is such an effect; the shell hands them over with `Host::hand_over`
+//! (`callbacks.rs`). The shell owns the child, its stdin queue and the timers
+//! (E3.0b).
 //!
 //! An unowned thread is never guessed onto a tenant: its frames are held while
 //! Codex's own thread records are read, then flushed to the ancestor's owner
@@ -26,6 +28,7 @@
 //! shares (`CodexCatalogCache`, `tool-facts.ts`, which E3-codex.3 ports).
 
 mod api;
+mod callbacks;
 mod channels;
 mod exit;
 mod gate;
@@ -263,6 +266,47 @@ pub enum HostEffect {
         tenant: u64,
         dir: Direction,
         data: Value,
+    },
+    /// One notification, after the frame it belongs to.
+    Notification {
+        tenant: u64,
+        method: JsString,
+        params: Option<Value>,
+    },
+    /// One server request, after the frame it belongs to: the channel answers
+    /// it through `Host::answer`/`answer_error`, which keeps the reply in this
+    /// order too.
+    ServerRequest {
+        tenant: u64,
+        id: RpcId,
+        method: JsString,
+        params: Option<Value>,
+    },
+    /// A frame its channel refused: the channel is muted, and this says why.
+    AdmissionFailed {
+        tenant: u64,
+        message: String,
+    },
+    /// A dropped output line, and whether the channel's output is uncertain.
+    Dropped {
+        tenant: u64,
+        line: DroppedLine,
+        uncertain: bool,
+    },
+    /// A line the framing layer could not read.
+    Malformed {
+        tenant: u64,
+        line: String,
+    },
+    /// One diagnostic line from the child.
+    Stderr {
+        tenant: u64,
+        line: String,
+    },
+    /// The host or its peer failed, as every channel hears it.
+    Error {
+        tenant: u64,
+        message: String,
     },
     /// Settles the facade's promise `id`, once.
     Settle {

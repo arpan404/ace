@@ -598,7 +598,7 @@ struct HostEffects {
     ports: Arc<OnceLock<ChildPorts>>,
     /// The write in flight's ticket, which the shell's `stdin_written` answers.
     active: Arc<Mutex<Option<u64>>>,
-    handlers: Arc<Mutex<HashMap<u64, Arc<Recorder>>>>,
+    handlers: Arc<Mutex<HashMap<u64, Arc<dyn ChannelHandlers>>>>,
     /// What the shell does when the host asks for the child to stop.
     stop: Arc<dyn Fn(Retirement, bool) -> Result<(), String> + Send + Sync>,
     /// The stop in flight's failure, which a later caller joins.
@@ -607,6 +607,17 @@ struct HostEffects {
 
 impl HostSink for HostEffects {
     fn effect(&self, host: &Host, effect: HostEffect) {
+        // Frames and every channel callback go to their channel here, in the
+        // order the host published them.
+        if host.hand_over(&effect, |tenant| {
+            self.handlers
+                .lock()
+                .expect("tenant handlers")
+                .get(&tenant)
+                .cloned()
+        }) {
+            return;
+        }
         match effect {
             HostEffect::Write { wire, ticket } => {
                 *self.active.lock().expect("active write") = Some(ticket);
@@ -625,12 +636,6 @@ impl HostSink for HostEffects {
             }
             HostEffect::CancelTimer { key } => {
                 self.events.push(Event::CancelTimer { key });
-            }
-            HostEffect::Frame { tenant, dir, data } => {
-                if let Some(handlers) = self.handlers.lock().expect("tenant handlers").get(&tenant)
-                {
-                    handlers.frame(dir, &data);
-                }
             }
             HostEffect::Settle { id, result } => self.events.push(Event::Settle {
                 id,
@@ -681,6 +686,15 @@ impl HostSink for HostEffects {
             HostEffect::OpenFailed { tenant, message } => {
                 self.events.push(Event::OpenFailed { tenant, message });
             }
+            // `hand_over` answered every channel callback before this match.
+            HostEffect::Frame { .. }
+            | HostEffect::Notification { .. }
+            | HostEffect::ServerRequest { .. }
+            | HostEffect::AdmissionFailed { .. }
+            | HostEffect::Dropped { .. }
+            | HostEffect::Malformed { .. }
+            | HostEffect::Stderr { .. }
+            | HostEffect::Error { .. } => {}
         }
     }
 }
@@ -743,7 +757,7 @@ pub enum Stop {
 pub struct HostRun {
     pub host: Arc<Host>,
     pub events: Arc<Events>,
-    handlers: Arc<Mutex<HashMap<u64, Arc<Recorder>>>>,
+    handlers: Arc<Mutex<HashMap<u64, Arc<dyn ChannelHandlers>>>>,
     _root: Scratch,
     runtime: Runtime,
     ports: Arc<OnceLock<ChildPorts>>,
@@ -781,7 +795,7 @@ impl HostRun {
         let ports: Arc<OnceLock<ChildPorts>> = Arc::new(OnceLock::new());
         let active = Arc::new(Mutex::new(None));
         let host = Arc::new(Host::new(config));
-        let handlers: Arc<Mutex<HashMap<u64, Arc<Recorder>>>> = Arc::default();
+        let handlers: Arc<Mutex<HashMap<u64, Arc<dyn ChannelHandlers>>>> = Arc::default();
         let policy: Arc<dyn Fn(Retirement, bool) -> Result<(), String> + Send + Sync> = match stop {
             Stop::Ends => {
                 let ports = Arc::clone(&ports);
@@ -845,14 +859,20 @@ impl HostRun {
     }
 
     pub fn attach_with(&self, tenant: u64, handlers: Arc<Recorder>) -> Arc<Recorder> {
+        self.attach_handler(tenant, handlers.clone() as Arc<dyn ChannelHandlers>);
+        handlers
+    }
+
+    /// A channel with handlers of the test's own kind, registered so the
+    /// shell's sink delivers its callbacks.
+    pub fn attach_handler(&self, tenant: u64, handlers: Arc<dyn ChannelHandlers>) {
         self.handlers
             .lock()
             .expect("tenant handlers")
             .insert(tenant, Arc::clone(&handlers));
         self.host
-            .attach(tenant, handlers.clone() as Arc<dyn ChannelHandlers>)
+            .attach(tenant, handlers)
             .expect("the host accepts a channel");
-        handlers
     }
 
     /// One request from a tenant, with a fresh facade id.

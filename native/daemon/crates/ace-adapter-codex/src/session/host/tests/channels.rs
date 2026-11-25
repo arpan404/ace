@@ -146,9 +146,7 @@ fn a_frame_a_channel_does_not_admit_mutes_it_without_stopping_the_peer() {
     let handler = Arc::new(Muted {
         events: Arc::clone(&run.events),
     });
-    run.host
-        .attach(7, handler as Arc<dyn ChannelHandlers>)
-        .expect("the host accepts a channel");
+    run.attach_handler(7, handler as Arc<dyn ChannelHandlers>);
     assert!(run.wait_ready(7));
 
     run.host.line(&ace_json::to_string(&ace_json::json!({

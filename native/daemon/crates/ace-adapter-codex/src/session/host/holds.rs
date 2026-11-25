@@ -119,10 +119,8 @@ impl Inner {
                         params,
                     } => {
                         for tenant in self.tenant_ids() {
-                            if self.deliver(tenant, Direction::Recv, data, None)
-                                && let Some(entry) = self.tenants.get(&tenant)
-                            {
-                                entry.handlers.notification(method, params.as_ref());
+                            if self.deliver(tenant, Direction::Recv, data, None) {
+                                self.notify(tenant, method, params.as_ref());
                             }
                         }
                     }
@@ -146,9 +144,7 @@ impl Inner {
     pub(super) fn dispatch_one(&mut self, tenant: u64, item: &Held) {
         match item {
             Held::Notification { method, params, .. } => {
-                if let Some(entry) = self.tenants.get(&tenant) {
-                    entry.handlers.notification(method, params.as_ref());
-                }
+                self.notify(tenant, method, params.as_ref());
             }
             Held::Request {
                 id, method, params, ..
