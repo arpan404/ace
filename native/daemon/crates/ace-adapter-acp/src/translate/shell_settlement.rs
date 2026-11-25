@@ -45,6 +45,13 @@ impl ShellSettlement {
         }
     }
 
+    /// The session's root id, once it is known (`shell-settlement.ts:24`; TS's
+    /// `ShellSettlement.root` is the field the session sets). Keys stay the owners the
+    /// agent reported, so a root tool that arrived before the root was named still matches.
+    pub fn set_root(&mut self, root: &str) {
+        self.root = root.to_owned();
+    }
+
     fn tool_key(owner: &str, id: &str) -> String {
         ace_json::ser::to_string(&(owner, id)).unwrap_or_default()
     }
