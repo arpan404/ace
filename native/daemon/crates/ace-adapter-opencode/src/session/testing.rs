@@ -28,6 +28,10 @@ pub(crate) struct Fake {
     accept: Predicate,
     calls: Mutex<Vec<Call>>,
     queue: EventQueue,
+    /// Notes and calls interleaved, for the activity tables; only kept when
+    /// `tracing` is set, so the other tables see calls alone.
+    tracing: bool,
+    trace: Mutex<Vec<String>>,
 }
 
 impl Fake {
@@ -36,7 +40,44 @@ impl Fake {
             accept: Box::new(accept),
             calls: Mutex::new(Vec::new()),
             queue: EventQueue::new(ReadGate::new()),
+            tracing: false,
+            trace: Mutex::new(Vec::new()),
         }
+    }
+
+    /// A tenant that accepts every event and interleaves notes with calls.
+    pub(crate) fn tracing() -> Self {
+        let mut fake = Self::all();
+        fake.tracing = true;
+        fake
+    }
+
+    /// The notes and calls the core made, in the order they were produced.
+    /// Every note before the last call was already drained into the trace, so
+    /// this drains what follows it too.
+    pub(crate) fn trace(&self) -> Vec<String> {
+        self.flush_notes();
+        self.lock_trace().clone()
+    }
+
+    /// Notes the core published before the call being recorded, then the call.
+    fn flush_notes(&self) {
+        if !self.tracing {
+            return;
+        }
+        for (channel, _) in self.notes() {
+            self.lock_trace().push(format!("note:{channel}"));
+        }
+    }
+
+    fn record(&self, entry: String) {
+        if self.tracing {
+            self.lock_trace().push(entry);
+        }
+    }
+
+    fn lock_trace(&self) -> MutexGuard<'_, Vec<String>> {
+        self.trace.lock().unwrap_or_else(|error| error.into_inner())
     }
 
     /// A tenant that accepts every event.
@@ -116,12 +157,17 @@ impl Tenant for Fake {
     }
 
     fn receive(&self, data: &Value) {
-        self.lock().push(Call::Receive(ace_json::to_string(data)));
+        self.flush_notes();
+        let json = ace_json::to_string(data);
+        self.record(format!("receive:{json}"));
+        self.lock().push(Call::Receive(json));
     }
 
     fn buffered(&self, data: &Value, watermark: u64) {
-        self.lock()
-            .push(Call::Buffered(ace_json::to_string(data), watermark));
+        self.flush_notes();
+        let json = ace_json::to_string(data);
+        self.record(format!("buffered:{json}"));
+        self.lock().push(Call::Buffered(json, watermark));
     }
 
     fn disconnected(&self, started: u64) {

@@ -28,7 +28,7 @@ use crate::translate::redaction::sanitize;
 
 use super::error::{SecretError, StreamError};
 use super::routes::Routes;
-use super::stream::EventStream;
+use super::stream::{EventStream, Step};
 
 /// `OpenCode session limit reached` (`server.ts:148`-`:156`).
 pub const MAX_TENANTS: usize = 128;
@@ -228,15 +228,13 @@ impl ServerCore {
         true
     }
 
-    /// One body chunk: activity to every tenant, then each event's statements in
-    /// the TypeScript's order.
+    /// One body chunk: its elided pieces in order, each activity note before
+    /// that piece's events, as the SDK reads them.
     pub fn chunk(&mut self, bytes: &[u8]) -> ChunkOutcome {
-        // `onActivity` runs when the chunk is read, before it is decoded.
-        self.note_all(ACTIVITY, "{}".to_owned());
         let mut outcome = ChunkOutcome::default();
-        let mut events = Vec::new();
-        let result = self.stream.push(bytes, &mut events);
-        self.deliver(events, &mut outcome);
+        let mut steps = Vec::new();
+        let result = self.stream.push(bytes, &mut steps);
+        self.deliver(steps, &mut outcome);
         if outcome.failed.is_none()
             && let Err(error) = result
         {
@@ -247,13 +245,13 @@ impl ServerCore {
         outcome
     }
 
-    /// The end of the body: the SDK's final flush, then a fresh stream for the
-    /// next connection.
+    /// The end of the body: the elider's flush pieces, the SDK's final read,
+    /// then a fresh stream for the next connection.
     pub fn end(&mut self) -> ChunkOutcome {
         let mut outcome = ChunkOutcome::default();
-        let mut events = Vec::new();
-        let result = self.stream.end(&mut events);
-        self.deliver(events, &mut outcome);
+        let mut steps = Vec::new();
+        let result = self.stream.end(&mut steps);
+        self.deliver(steps, &mut outcome);
         if outcome.failed.is_none()
             && let Err(error) = result
         {
@@ -264,14 +262,26 @@ impl ServerCore {
         outcome
     }
 
-    /// Delivers events in parse order, stopping at the first the path refuses
-    /// (the TypeScript's thrown body closes the iterator).
-    fn deliver(&mut self, events: Vec<Value>, outcome: &mut ChunkOutcome) {
-        for native in events {
-            if let Err(error) = self.apply(&native, outcome) {
-                self.stream.reset();
-                outcome.failed = Some(error);
-                return;
+    /// `activity()` (`server.ts:399`-`:403`): one read's activity, noted to every
+    /// tenant. The facade calls this once when a connection starts (`:407`) and
+    /// then through the SDK's `onActivity`, arming its silence timer per call.
+    pub fn activity(&mut self) {
+        self.note_all(ACTIVITY, "{}".to_owned());
+    }
+
+    /// Delivers steps in read order, stopping at the first event the path
+    /// refuses (the TypeScript's thrown body closes the iterator).
+    fn deliver(&mut self, steps: Vec<Step>, outcome: &mut ChunkOutcome) {
+        for step in steps {
+            match step {
+                Step::Activity => self.activity(),
+                Step::Event(native) => {
+                    if let Err(error) = self.apply(&native, outcome) {
+                        self.stream.reset();
+                        outcome.failed = Some(error);
+                        return;
+                    }
+                }
             }
         }
     }

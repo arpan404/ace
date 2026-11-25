@@ -60,19 +60,16 @@ impl Bounded {
         }
     }
 
-    /// One raw body chunk: its elided bytes accumulate in `out`.
-    fn push(&mut self, raw: &[u8], out: &mut Vec<u8>) -> Result<(), StreamError> {
-        let from = out.len();
-        self.elider.push(raw, out);
-        self.count(&out[from..])
+    /// One raw body chunk: the elider's pieces accumulate in `out`, with each
+    /// piece's end offset in `ends`.
+    fn emit(&mut self, raw: &[u8], out: &mut Vec<u8>, ends: &mut Vec<usize>) {
+        self.elider.push_pieces(raw, out, ends);
     }
 
     /// The end of the body: the elider flushes an open string for the parser to
-    /// refuse, and its bytes are bounded like any other.
-    fn end(&mut self, out: &mut Vec<u8>) -> Result<(), StreamError> {
-        let from = out.len();
-        self.elider.end(out);
-        self.count(&out[from..])
+    /// refuse, as its own pieces.
+    fn finish(&mut self, out: &mut Vec<u8>, ends: &mut Vec<usize>) {
+        self.elider.end_pieces(out, ends);
     }
 
     /// `observation.ts:63`-`:70`. A blank line resets the count; a CR takes a
@@ -101,11 +98,22 @@ impl Bounded {
 
 /// `new TextDecoder`, streaming: complete sequences decode, an incomplete tail
 /// waits for the next chunk, and an invalid sequence becomes U+FFFD (one per
-/// maximal subpart, as the WHATWG decoder does).
-#[derive(Default)]
+/// maximal subpart, as the WHATWG decoder does). As the decoder does by
+/// default, one leading U+FEFF is left out at the start of the stream.
 struct Decoder {
     /// At most three bytes of an incomplete sequence.
     pending: Vec<u8>,
+    /// No character has been decoded yet, so a leading BOM still applies.
+    at_start: bool,
+}
+
+impl Default for Decoder {
+    fn default() -> Self {
+        Self {
+            pending: Vec::new(),
+            at_start: true,
+        }
+    }
 }
 
 impl Decoder {
@@ -147,6 +155,13 @@ impl Decoder {
                     }
                 }
             }
+        }
+        if self.at_start && !out.is_empty() {
+            // `ignoreBOM: false`: only the first character of the stream.
+            if out.starts_with('\u{feff}') {
+                out.remove(0);
+            }
+            self.at_start = false;
         }
         out
     }
@@ -284,13 +299,27 @@ fn is_js_whitespace(character: char) -> bool {
     )
 }
 
+/// One step downstream, in the order the SDK's reader produced it: every
+/// non-final read is an activity (`onActivity`, `server.ts:399`-`:403`) before
+/// that piece is decoded, and the piece's events follow.
+#[derive(Debug)]
+pub enum Step {
+    Activity,
+    Event(Value),
+}
+
 /// One server's SSE body: the elision bound, then the SDK's framing. Chunks are
 /// `Buffer`s; every event is parsed once here and handed on as a value.
+///
+/// The SDK reads `boundedSse`'s output, so it sees one read per elided piece,
+/// not one per body chunk; a chunk the elider holds entirely is no read at all.
 pub struct EventStream {
     bounded: Bounded,
     framer: Framer,
     /// The elided bytes of the chunk being pushed, reused across chunks.
     scratch: Vec<u8>,
+    /// Each elided piece's end offset in `scratch`.
+    ends: Vec<usize>,
 }
 
 impl Default for EventStream {
@@ -305,34 +334,76 @@ impl EventStream {
             bounded: Bounded::new(),
             framer: Framer::default(),
             scratch: Vec::new(),
+            ends: Vec::new(),
         }
     }
 
-    /// One body chunk. On failure the stream is dead until [`EventStream::reset`];
-    /// events parsed before the failure are already in `events`.
-    pub fn push(&mut self, bytes: &[u8], events: &mut Vec<Value>) -> Result<(), StreamError> {
+    /// One body chunk: its pieces in order, each with its activity first. On
+    /// failure the stream is dead until [`EventStream::reset`]; the steps before
+    /// the failure are already in `steps`.
+    pub fn push(&mut self, bytes: &[u8], steps: &mut Vec<Step>) -> Result<(), StreamError> {
         self.scratch.clear();
-        self.bounded.push(bytes, &mut self.scratch)?;
-        self.framer.push(&self.scratch, false, events)
+        self.ends.clear();
+        self.bounded.emit(bytes, &mut self.scratch, &mut self.ends);
+        self.drain(steps)
     }
 
-    /// The end of the body: an unterminated block is flushed, as `next.done`
-    /// does, and the stream is ready for the next connection.
-    pub fn end(&mut self, events: &mut Vec<Value>) -> Result<(), StreamError> {
+    /// The end of the body. The elider's flush pieces are reads like any other
+    /// (each counts as activity), and the SDK's final empty read appends the
+    /// last block's blank line; then the stream is ready for the next connection.
+    pub fn end(&mut self, steps: &mut Vec<Step>) -> Result<(), StreamError> {
         self.scratch.clear();
+        self.ends.clear();
+        self.bounded.finish(&mut self.scratch, &mut self.ends);
         let result = self
-            .bounded
-            .end(&mut self.scratch)
-            .and_then(|()| self.framer.push(&self.scratch, true, events));
+            .drain(steps)
+            // `next.done`: no activity, no bytes, the decoder's flush and the
+            // trailing blank line.
+            .and_then(|()| frame(&mut self.framer, b"", true, steps));
         self.reset();
         result
+    }
+
+    /// Runs each elided piece through the byte bound, then the framer.
+    fn drain(&mut self, steps: &mut Vec<Step>) -> Result<(), StreamError> {
+        let Self {
+            bounded,
+            framer,
+            scratch,
+            ends,
+        } = self;
+        let mut start = 0;
+        for &stop in ends.iter() {
+            // A piece over the event bound is never decoded, as the TypeScript
+            // throws inside the elider's callback before it enqueues it.
+            bounded.count(&scratch[start..stop])?;
+            steps.push(Step::Activity);
+            frame(framer, &scratch[start..stop], false, steps)?;
+            start = stop;
+        }
+        Ok(())
     }
 
     /// A fresh connection's decoder, buffer and elider state.
     pub fn reset(&mut self) {
         self.bounded = Bounded::new();
         self.framer = Framer::default();
+        self.ends.clear();
     }
+}
+
+/// Runs one piece through the framer, appending the events it parsed even when
+/// a later block fails: the TypeScript yielded those first.
+fn frame(
+    framer: &mut Framer,
+    bytes: &[u8],
+    end: bool,
+    steps: &mut Vec<Step>,
+) -> Result<(), StreamError> {
+    let mut events = Vec::new();
+    let result = framer.push(bytes, end, &mut events);
+    steps.extend(events.into_iter().map(Step::Event));
+    result
 }
 
 #[cfg(test)]

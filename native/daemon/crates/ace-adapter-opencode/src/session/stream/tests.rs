@@ -4,18 +4,29 @@
 //! (`dist/chunks/service-contender-50fct660.js:81`-`:141`) and to
 //! `observation.ts:54`-`:80`.
 
-use super::{EventStream, Framer, MAX_EVENT_BYTES, MAX_SSE_EVENT_UNITS};
+use super::{EventStream, Framer, MAX_EVENT_BYTES, MAX_SSE_EVENT_UNITS, Step};
 use crate::session::error::StreamError;
 
 /// Feeds each chunk, ends the stream, and returns the serialized events.
 fn run(chunks: &[&[u8]]) -> Result<Vec<String>, StreamError> {
     let mut stream = EventStream::new();
-    let mut events = Vec::new();
+    let mut steps = Vec::new();
     for chunk in chunks {
-        stream.push(chunk, &mut events)?;
+        stream.push(chunk, &mut steps)?;
     }
-    stream.end(&mut events)?;
-    Ok(events.iter().map(ace_json::to_string).collect())
+    stream.end(&mut steps)?;
+    Ok(events(&steps))
+}
+
+/// The events in a run's steps, and how many activity notes preceded them.
+fn events(steps: &[Step]) -> Vec<String> {
+    steps
+        .iter()
+        .filter_map(|step| match step {
+            Step::Event(value) => Some(ace_json::to_string(value)),
+            Step::Activity => None,
+        })
+        .collect()
 }
 
 fn strings(values: &[&str]) -> Vec<String> {
@@ -133,6 +144,26 @@ fn the_sdk_framing_rules() {
             &[b"data: \"\xf0\x9f\x98\"\n\n"],
             &["\"\u{fffd}\""],
         ),
+        (
+            "one leading BOM is dropped at the stream's start",
+            &[b"\xef\xbb\xbfdata: 1\n\n"],
+            &["1"],
+        ),
+        (
+            "only the stream's first character is checked: a second BOM stays",
+            &[b"\xef\xbb\xbf\xef\xbb\xbfdata: 1\n\n"],
+            &[],
+        ),
+        (
+            "a BOM in a later chunk is not the stream's start",
+            &[b"data: 1\n\n", b"\xef\xbb\xbfdata: 2\n\n"],
+            &["1"],
+        ),
+        (
+            "a truncated sequence at the end decodes as U+FFFD outside the JSON",
+            &[b"data: 1\n\n\xf0\x9f"],
+            &["1"],
+        ),
     ];
     for (rule, chunks, expected) in table {
         assert_eq!(run(chunks), Ok(strings(expected)), "{rule}");
@@ -155,10 +186,10 @@ fn a_block_the_json_parser_refuses_fails_the_stream() {
 #[test]
 fn events_before_a_malformed_one_are_already_parsed() {
     let mut stream = EventStream::new();
-    let mut events = Vec::new();
-    let result = stream.push(b"data: 1\n\ndata: nope\n\n", &mut events);
+    let mut steps = Vec::new();
+    let result = stream.push(b"data: 1\n\ndata: nope\n\n", &mut steps);
     assert_eq!(result, Err(StreamError::MalformedResponse));
-    assert_eq!(events, vec![ace_json::json!(1)]);
+    assert_eq!(events(&steps), vec!["1"]);
 }
 
 /// One event whose emitted bytes since its blank line are exactly `total`: a
@@ -233,9 +264,13 @@ fn the_sdk_buffer_bound_counts_utf16_units() {
     assert_eq!(at.encode_utf16().count(), MAX_SSE_EVENT_UNITS);
     assert_eq!(framer.push(at.as_bytes(), false, &mut events), Ok(()));
 
-    let over = format!("{at}😀");
+    // A fresh framer, so the "over" case is over on its own: counting code
+    // points instead of UTF-16 units would let it pass.
+    let mut over = Framer::default();
+    let mut events = Vec::new();
+    let too_many = format!("{}😀", "😀".repeat(MAX_SSE_EVENT_UNITS / 2));
     assert_eq!(
-        framer.push(over.as_bytes(), false, &mut events),
+        over.push(too_many.as_bytes(), false, &mut events),
         Err(StreamError::SseEventTooLarge)
     );
     assert_eq!(
@@ -260,16 +295,34 @@ fn the_sdk_buffer_bound_applies_to_the_final_chunk() {
 }
 
 #[test]
+fn the_sdk_bound_applies_per_piece_not_per_body_chunk() {
+    // 16 Mi units of body in one chunk, in events small enough that the SDK's
+    // buffer never holds more than one of them: every piece passes the bound.
+    let one = format!("data: \"{}\"\n\n", " x".repeat(4_000));
+    let count = (16 * 1024 * 1024) / one.len() + 64;
+    let chunk = one.repeat(count);
+    assert!(chunk.len() > 16 * 1024 * 1024, "the body is past the bound");
+    let mut stream = EventStream::new();
+    let mut steps = Vec::new();
+    stream
+        .push(chunk.as_bytes(), &mut steps)
+        .expect("per piece");
+    stream.end(&mut steps).expect("the flush");
+    assert_eq!(events(&steps).len(), count);
+}
+
+#[test]
 fn a_new_stream_starts_with_no_decoder_buffer_or_elider_state() {
     let mut stream = EventStream::new();
-    let mut events = Vec::new();
+    let mut steps = Vec::new();
     stream
-        .push(b"data: \"unterminated", &mut events)
+        .push(b"data: \"unterminated", &mut steps)
         .expect("a chunk with no boundary yet");
-    assert!(events.is_empty());
+    assert!(events(&steps).is_empty());
     stream.reset();
+    steps.clear();
     stream
-        .push(b"data: 1\n\n", &mut events)
+        .push(b"data: 1\n\n", &mut steps)
         .expect("a fresh stream");
-    assert_eq!(events, vec![ace_json::json!(1)]);
+    assert_eq!(events(&steps), vec!["1"]);
 }
