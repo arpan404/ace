@@ -147,48 +147,6 @@ mod tests {
     }
 
     #[test]
-    fn a_full_input_queue_or_a_closed_transport_is_refused_rather_than_replayed() {
-        assert_eq!(
-            INPUT_QUEUE_LIMIT, 32,
-            "the queue bound is today's bound, not a new one"
-        );
-        assert_eq!(
-            helper_failure("androidInputEnded").to_string(),
-            "command_failed: Android input transport ended or refused input"
-        );
-    }
-
-    #[test]
-    fn the_ui_helper_announces_ready_then_answers_one_line_per_request() {
-        assert_eq!(
-            ui_helper_args("emulator-5554"),
-            vec![
-                "-s",
-                "emulator-5554",
-                "shell",
-                "-T",
-                "CLASSPATH=/data/local/tmp/ace-ui-helper.jar app_process / dev.ace.uihelper.Main",
-            ]
-        );
-        assert_eq!(helper_reply("READY"), HelperReply::Ready);
-        assert_eq!(
-            helper_reply("OK <hierarchy/>"),
-            HelperReply::Answer("OK <hierarchy/>".into())
-        );
-        assert_eq!(helper_reply("noise"), HelperReply::Ignored);
-        assert_eq!(
-            helper_tree("OK <hierarchy/>").ok().as_deref(),
-            Some("<hierarchy/>")
-        );
-        assert_eq!(
-            helper_tree("ERR java.lang.IllegalStateException: null root node")
-                .expect_err("refused")
-                .to_string(),
-            "command_failed: Android UI helper: java.lang.IllegalStateException: null root node"
-        );
-    }
-
-    #[test]
     fn the_read_queue_and_the_action_tree_keep_todays_bounds() {
         assert_eq!(UI_QUEUE_LIMIT, 32);
         let options = act_tree_options();

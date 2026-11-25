@@ -1,7 +1,7 @@
 import type { DeviceInput } from "@ace/protocol/devices";
 import { refuseAndroidKey } from "./key-support.ts";
 import { catalogRefusal } from "./sdk.ts";
-import { nativeInput, nativeScrcpyInputPlan } from "./native-input.ts";
+import { nativeHeldPointersStep, nativeInput, nativeScrcpyInputPlan } from "./native-input.ts";
 import {
   clipboardTextLimit,
   injectTextLimit,
@@ -164,7 +164,13 @@ export function scrcpyInputPlan(
 /** Fingers still down when control moves on are lifted, so the device never keeps a touch. */
 export class HeldPointers {
   private readonly held = new Map<number, { x: number; y: number }>();
+  /** The Rust machine's carried state under the switch. */
+  private carried: string | null = null;
   apply(input: DeviceInput): void {
+    if (nativeInput) {
+      this.carried = JSON.stringify(nativeHeldPointersStep(this.carried, input).state);
+      return;
+    }
     if (input.kind !== "pointer") return;
     const id = input.pointerId ?? 0;
     if (input.phase === "down" || input.phase === "move")
@@ -173,6 +179,11 @@ export class HeldPointers {
   }
   /** Inputs that lift every held finger, and forget them. */
   release(): DeviceInput[] {
+    if (nativeInput) {
+      const answer = nativeHeldPointersStep(this.carried);
+      this.carried = JSON.stringify(answer.state);
+      return answer.released as DeviceInput[];
+    }
     const inputs: DeviceInput[] = [...this.held].map(([pointerId, { x, y }]) => ({
       kind: "pointer",
       phase: "up",

@@ -279,8 +279,14 @@ export function simulatorActionInput(
   | { kind: "tap"; x: number; y: number }
   | { kind: "swipe"; x: number; y: number; toX: number; toY: number; durationMs: number }
   | { kind: "none"; method: string } {
+  // `z.object({dx, dy})` reads a scroll value on both legs, so a bad one is the same ZodError.
+  const scroll = action.action === "scroll" ? scrollValue(action.value) : { dx: 0, dy: 0 };
   if (nativeInput)
-    return nativeSimulatorActionInput(node, action, turn) as
+    return nativeSimulatorActionInput(
+      node,
+      action.action === "scroll" ? { ...action, value: scroll } : action,
+      turn,
+    ) as
       | { kind: "tap"; x: number; y: number }
       | { kind: "swipe"; x: number; y: number; toX: number; toY: number; durationMs: number }
       | { kind: "none"; method: string };
@@ -294,7 +300,6 @@ export function simulatorActionInput(
     if (node.states.includes("checked") === action.value)
       return { kind: "none", method: "already_selected" };
   if (action.action !== "scroll") return { kind: "tap", ...centre };
-  const scroll = scrollValue(action.value);
   if (!scroll.dx && !scroll.dy) return { kind: "none", method: "no_scroll" };
   const [dx, dy] =
     turn === 90

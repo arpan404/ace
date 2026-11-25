@@ -380,7 +380,7 @@ the shell that wires it, and the TypeScript that stays is the switch-off path un
 - **A `#[cfg(test)]` item is blanked, not the rest of its file.** The catalog check's Rust scan
   resumes after the item, with a unit test for brace-laden test bodies.
 
-## 12. D3.2: input and UI (2026-11-25, revised after round 2)
+## 12. D3.2: input and UI (2026-11-25, revised after round 3)
 
 `ACE_DEVICE_PLATFORM=native` answers these decisions from `ace-devices`; the switch-off leg is
 today's TypeScript unchanged, byte for byte. "Wired" means the TypeScript shell calls the addon
@@ -407,10 +407,15 @@ the decision (a process, a promise, a cache).
 | `simulator-clipboard`                             | `platform/clipboard.rs` (`pasteboard_plan`)                  | the command, byte cap and deadline                                           |
 | `simulator-ui`                                    | words only (catalog)                                         | the `/ax` read is D3.3's capture                                             |
 
-Deferred to D3.3, with its reason: `scrcpy-capture` owns the control socket, so `HeldPointers`,
-the `ScrcpyClipboard` instance and `SimulatorInput`'s epochs are instantiated there;
-`simulator-capture` owns the `/ax` fetch (`simulator-ui`'s budget and timeout). Their decisions
-are in Rust with their tests, and D3.3 wires them when it moves the capture.
+Nothing of D3.2 is deferred. `ScrcpyClipboard`, `HeldPointers` and the control-message reader are
+D3.2's own files, and each delegates to Rust under the switch: the clipboard's ordering, late
+reply isolation, busy refusal, close and acknowledgements; the held pointers' inputs and lifts;
+the reader's buffer, framing and unknown-message stop. `simulator-ui`'s `/ax` _fetch_ stays with
+`simulator-capture` because that is what opens it (with the capture's signal, screen and input),
+and the guide's D3.3 row names `simulator-capture`; its body cap and deadline are D3.2's and come
+from Rust. `SimulatorInput`'s epochs stay in the shell: they are JavaScript cancellation of a
+JavaScript promise, and every decision inside them (keys, points, edges, typing arguments) is
+Rust's.
 
 The (b) cases moved beside those functions: `scrcpy-input` (13), `scrcpy-clipboard` (6, one for
 one), `simulator-fingers` (4), `simulator-screens` (3), `simulator-ax` (8), `simulator-posture`
@@ -422,9 +427,11 @@ keyboard, Return) and the third-finger refusal (`simulator-fingers` has no case 
 `posture_from_hinge`'s line rule and `screen_count`'s raw count (no TS case). The round-2
 divergences have their own cases: a node's value and find fallback (Android and Simulator),
 unusable children, a lone-surrogate label, `js_round`, control text and a non-object scroll.
-`platform/keys.rs`, `platform/clipboard.rs`, `platform/android_ui.rs` and `platform/helper.rs`
-have no TypeScript test file of their own (behaviour.md §5 lists none), so their Rust tests are
-the only guard: keys (5), clipboard (3), Android UI (8), the Android helper and input shell (4).
+`platform/keys.rs`, `platform/clipboard.rs` and `platform/android_ui.rs` have no TypeScript test
+file of their own (behaviour.md §5 lists none), so their Rust tests are the only guard: keys (5),
+clipboard (3), Android UI (8). `android-ui-helper.process` and `android-input-shell.process` are
+the helper's and the shell's own proof files, so the Rust tests beside them keep only what those
+files cannot see (the action queue's bound, the marker line's exact bytes).
 
 Intended differences, each proven in Rust:
 
@@ -443,7 +450,8 @@ Round-2 review fixes, in Rust only (today's TypeScript stays as it was):
 - **Unusable children leave the element with none.** `null`, a non-array or more than 4,096
   children no longer drop the element or its subtree (`platform/simulator_ax.rs:102`).
 - **A clipboard deadline counts from its own request**, and an unanswered paste says
-  `pasteTimedOut` (`platform/scrcpy/clipboard.rs:128`).
+  `pasteTimedOut` (`platform/scrcpy/clipboard.rs`). The busy refusal, the close and the write
+  acknowledgement keep their own cases, since the class now delegates them.
 - **Control text is UTF-8 from its UTF-16 units**: a lone surrogate becomes U+FFFD and a literal
   U+E000 is one character, as `Buffer.from` writes them (`platform/scrcpy/protocol.rs:191`).
 - **AX labels are `JsString`**, so a lone surrogate the SDK printed survives.
@@ -451,5 +459,8 @@ Round-2 review fixes, in Rust only (today's TypeScript stays as it was):
   types a newline (`platform/scrcpy/input.rs`, `platform/fingers.rs`).
 - **Hinge and screen reads follow today's regex and list**: any `hinge-angle0` that carries an
   angle, and the report's own display count (`platform/posture.rs`).
-- **The schema still validates options and scroll values**: the TypeScript parses them with Zod
-  before the native call, and Rust refuses a non-object scroll value too.
+- **The schema still validates options and scroll values before the native call**, so the error a
+  caller sees is the same `ZodError` on both legs; Rust refuses an out-of-range option and a
+  non-object scroll too.
+- **A display with a present field of the wrong type is not a display**, as `Display`'s schema
+  drops it (`platform/posture.rs`).

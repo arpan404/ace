@@ -6,6 +6,7 @@
 //! injected `after` gives it.
 
 use ace_json::JsString;
+use serde::{Deserialize, Serialize};
 
 use crate::platform::scrcpy::protocol::{ControlMessage, DeviceMessage, PointerId};
 use crate::platform::{Failure, Refusal};
@@ -20,7 +21,12 @@ pub const CLIPBOARD_SETTLE_MS: u64 = 10_000;
 const ACK_MS: u64 = 5000;
 
 /// What the shell tells the clipboard.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum ClipboardEvent {
     /// A read for `owner` (a person's or an agent's): its result comes back as
     /// [`ClipboardOut::ReadDone`]. `now_ms` is the caller's clock, since a deadline counts from
@@ -47,9 +53,16 @@ pub enum ClipboardEvent {
 }
 
 /// What the clipboard tells the shell: send a message, arm a deadline, or finish a call.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum ClipboardOut {
-    Send(Box<ControlMessage>),
+    Send {
+        message: Box<ControlMessage>,
+    },
     Timer {
         at_ms: u64,
     },
@@ -64,35 +77,52 @@ pub enum ClipboardOut {
 }
 
 /// A request on the socket the device may still answer, and whose read it is.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Request {
     id: u64,
     owner: String,
 }
 
 /// The one read in progress: waiting to send its request, then for the reply.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Read {
     id: u64,
     owner: String,
     request: Option<u64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Deadline {
-    Reply(u64),
-    Settle(u64),
-    Ack(u64),
+/// Which deadline a timer is, and what it is for: `kind` is 0 reply, 1 settle, 2 ack, because
+/// the shell carries this state as JSON and ace-json reads a tagged struct, not an enum.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+struct Deadline {
+    kind: u8,
+    id: u64,
 }
 
-#[derive(Debug, Clone, Copy)]
+const REPLY: u8 = 0;
+const SETTLE: u8 = 1;
+const ACK: u8 = 2;
+
+impl Deadline {
+    fn reply(id: u64) -> Self {
+        Self { kind: REPLY, id }
+    }
+    fn settle(id: u64) -> Self {
+        Self { kind: SETTLE, id }
+    }
+    fn ack(id: u64) -> Self {
+        Self { kind: ACK, id }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 struct Timer {
     at_ms: u64,
     deadline: Deadline,
 }
 
 /// One write waiting for its acknowledgement, and whether it was a paste (its timeout's text).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 struct Ack {
     sequence: u64,
     paste: bool,
@@ -100,7 +130,7 @@ struct Ack {
 
 /// The clipboard's state and decisions. `Send` carries the message the caller writes; the
 /// caller arms each `Timer` and calls back with `Tick` at that time.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ScrcpyClipboard {
     acks: Vec<Ack>,
     reading: Option<Read>,
@@ -154,14 +184,16 @@ impl ScrcpyClipboard {
                 let at_ms = now_ms + ACK_MS;
                 self.timers.push(Timer {
                     at_ms,
-                    deadline: Deadline::Ack(sequence),
+                    deadline: Deadline::ack(sequence),
                 });
                 out.push(ClipboardOut::Timer { at_ms });
-                out.push(ClipboardOut::Send(Box::new(ControlMessage::SetClipboard {
-                    sequence: PointerId(sequence),
-                    text,
-                    paste,
-                })));
+                out.push(ClipboardOut::Send {
+                    message: Box::new(ControlMessage::SetClipboard {
+                        sequence: PointerId(sequence),
+                        text,
+                        paste,
+                    }),
+                });
             }
             ClipboardEvent::Received { message, now_ms } => {
                 self.received(message, now_ms, &mut out)
@@ -192,19 +224,20 @@ impl ScrcpyClipboard {
     /// A message the device sent on the control socket.
     fn received(&mut self, message: DeviceMessage, now_ms: u64, out: &mut Vec<ClipboardOut>) {
         match message {
-            DeviceMessage::ClipboardAck(sequence) => {
+            DeviceMessage::ClipboardAck { sequence } => {
+                let sequence = sequence.0;
                 if !self.acks.iter().any(|ack| ack.sequence == sequence) {
                     return;
                 }
                 self.acks.retain(|ack| ack.sequence != sequence);
                 self.timers
-                    .retain(|timer| timer.deadline != Deadline::Ack(sequence));
+                    .retain(|timer| timer.deadline != Deadline::ack(sequence));
                 out.push(ClipboardOut::WriteDone {
                     sequence,
                     result: Ok(()),
                 });
             }
-            DeviceMessage::Clipboard(text) => {
+            DeviceMessage::Clipboard { text } => {
                 // Nothing asked: not an answer to anyone.
                 if self.outstanding.is_empty() {
                     return;
@@ -219,10 +252,10 @@ impl ScrcpyClipboard {
                         return;
                     };
                     self.timers
-                        .retain(|timer| timer.deadline != Deadline::Reply(reading.id));
+                        .retain(|timer| timer.deadline != Deadline::reply(reading.id));
                     out.push(ClipboardOut::ReadDone {
                         id: reading.id,
-                        result: Ok(text),
+                        result: Ok(text.to_string()),
                     });
                 } else {
                     self.proceed(now_ms, out);
@@ -261,15 +294,17 @@ impl ScrcpyClipboard {
         let reply_at = now_ms + CLIPBOARD_REPLY_MS;
         self.timers.push(Timer {
             at_ms: settle_at,
-            deadline: Deadline::Settle(request.id),
+            deadline: Deadline::settle(request.id),
         });
         self.timers.push(Timer {
             at_ms: reply_at,
-            deadline: Deadline::Reply(id),
+            deadline: Deadline::reply(id),
         });
         out.push(ClipboardOut::Timer { at_ms: settle_at });
         out.push(ClipboardOut::Timer { at_ms: reply_at });
-        out.push(ClipboardOut::Send(Box::new(ControlMessage::GetClipboard)));
+        out.push(ClipboardOut::Send {
+            message: Box::new(ControlMessage::GetClipboard),
+        });
     }
 
     /// Runs every deadline at or before `now_ms`, earliest first.
@@ -286,8 +321,9 @@ impl ScrcpyClipboard {
                 return;
             };
             let timer = self.timers.remove(index);
-            match timer.deadline {
-                Deadline::Reply(id) => {
+            match timer.deadline.kind {
+                REPLY => {
+                    let id = timer.deadline.id;
                     if self
                         .reading
                         .as_ref()
@@ -300,11 +336,13 @@ impl ScrcpyClipboard {
                         });
                     }
                 }
-                Deadline::Settle(request) => {
+                SETTLE => {
+                    let request = timer.deadline.id;
                     self.outstanding.retain(|each| each.id != request);
                     self.proceed(now_ms, out);
                 }
-                Deadline::Ack(sequence) => {
+                _ => {
+                    let sequence = timer.deadline.id;
                     let ack = self
                         .acks
                         .iter()
@@ -356,7 +394,7 @@ mod tests {
         fn apply(&mut self, event: ClipboardEvent) {
             for out in self.clipboard.step(event) {
                 match out {
-                    ClipboardOut::Send(message) => self.sent.push(*message),
+                    ClipboardOut::Send { message } => self.sent.push(*message),
                     ClipboardOut::Timer { at_ms } => {
                         if !self.timers.contains(&at_ms) {
                             self.timers.push(at_ms);
@@ -388,9 +426,22 @@ mod tests {
 
         fn reply(&mut self, text: &str) {
             self.apply(ClipboardEvent::Received {
-                message: DeviceMessage::Clipboard(text.into()),
+                message: DeviceMessage::Clipboard { text: text.into() },
                 now_ms: self.now,
             });
+        }
+
+        fn ack(&mut self, sequence: u64) {
+            self.apply(ClipboardEvent::Received {
+                message: DeviceMessage::ClipboardAck {
+                    sequence: PointerId(sequence),
+                },
+                now_ms: self.now,
+            });
+        }
+
+        fn close(&mut self) {
+            self.apply(ClipboardEvent::Close);
         }
 
         fn asked(&self) -> usize {
@@ -505,6 +556,47 @@ mod tests {
         socket.read(1, "agent");
         socket.reply("text");
         assert_eq!(socket.reads, vec![(1, Ok("text".into()))]);
+    }
+
+    #[test]
+    fn a_write_finishes_on_the_acknowledgement_of_its_sequence_number() {
+        let mut socket = Socket::new();
+        socket.write("hi", true);
+        assert_eq!(socket.writes, Vec::new());
+        assert!(matches!(
+            socket.sent.first(),
+            Some(ControlMessage::SetClipboard {
+                sequence: PointerId(1),
+                paste: true,
+                ..
+            })
+        ));
+        socket.ack(1);
+        assert_eq!(socket.writes, vec![(1, Ok(()))]);
+    }
+
+    #[test]
+    fn a_second_read_while_one_waits_is_refused_as_busy() {
+        let mut socket = Socket::new();
+        socket.read(1, "agent");
+        socket.read(2, "person");
+        assert_eq!(
+            socket.reads,
+            vec![(2, Err(failure("clipboardReadWaiting")))]
+        );
+    }
+
+    #[test]
+    fn a_closed_socket_finishes_waiting_writes_and_fails_a_waiting_read() {
+        let mut socket = Socket::new();
+        socket.write("hi", false);
+        socket.read(1, "agent");
+        socket.close();
+        assert_eq!(socket.writes, vec![(1, Ok(()))]);
+        assert_eq!(
+            socket.reads,
+            vec![(1, Err(failure("androidControlRestarted")))]
+        );
     }
 
     #[test]

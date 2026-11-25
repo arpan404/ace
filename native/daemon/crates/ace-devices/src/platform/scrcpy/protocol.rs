@@ -279,13 +279,22 @@ pub fn encode(message: &ControlMessage) -> Result<Vec<u8>, Error> {
     }
 }
 
-/// A message the device sent on the control socket.
-#[derive(Debug, Clone, PartialEq)]
+/// A message the device sent on the control socket, as the shell reads it: the same JSON the
+/// TypeScript's own reader emits, with the acknowledgement's sequence as digits.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum DeviceMessage {
-    Clipboard(String),
-    ClipboardAck(u64),
+    Clipboard { text: JsString },
+    ClipboardAck { sequence: PointerId },
     UhidOutput { id: u16, bytes: u16 },
-    Unknown(u8),
+    Unknown { code: u8 },
+}
+
+/// A reader's carried state: its buffer as hex and whether it stopped.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ReaderState {
+    pub buffer: String,
+    pub broken: bool,
 }
 
 /// Splits the server's device-to-client control stream into messages. An unknown message type
@@ -330,6 +339,38 @@ impl DeviceMessageReader {
         Ok(messages)
     }
 
+    /// The reader's buffer and whether it stopped, as the shell carries them between chunks.
+    pub fn state(&self) -> ReaderState {
+        ReaderState {
+            buffer: self
+                .buffer
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect(),
+            broken: self.broken,
+        }
+    }
+
+    /// A reader resuming from [`DeviceMessageReader::state`].
+    pub fn from_state(state: &ReaderState) -> Result<Self, Error> {
+        let mut buffer = Vec::with_capacity(state.buffer.len() / 2);
+        let bytes = state.buffer.as_bytes();
+        let mut index = 0;
+        while index + 1 < bytes.len() {
+            let pair = std::str::from_utf8(&bytes[index..index + 2])
+                .map_err(|_| Error::Invalid("a reader state is not hex".into()))?;
+            buffer.push(
+                u8::from_str_radix(pair, 16)
+                    .map_err(|_| Error::Invalid("a reader state is not hex".into()))?,
+            );
+            index += 2;
+        }
+        Ok(Self {
+            buffer,
+            broken: state.broken,
+        })
+    }
+
     fn next(&mut self) -> Result<Option<(DeviceMessage, usize)>, Error> {
         let buffer = &self.buffer;
         let Some(&code) = buffer.first() else {
@@ -347,8 +388,11 @@ impl DeviceMessageReader {
                 if buffer.len() < 5 + length as usize {
                     return Ok(None);
                 }
-                let text = String::from_utf8_lossy(&buffer[5..5 + length as usize]).into_owned();
-                Ok(Some((DeviceMessage::Clipboard(text), 5 + length as usize)))
+                let text = JsString::from(String::from_utf8_lossy(&buffer[5..5 + length as usize]));
+                Ok(Some((
+                    DeviceMessage::Clipboard { text },
+                    5 + length as usize,
+                )))
             }
             1 => {
                 if buffer.len() < 9 {
@@ -357,7 +401,9 @@ impl DeviceMessageReader {
                 let mut word = [0u8; 8];
                 word.copy_from_slice(&buffer[1..9]);
                 Ok(Some((
-                    DeviceMessage::ClipboardAck(u64::from_be_bytes(word)),
+                    DeviceMessage::ClipboardAck {
+                        sequence: PointerId(u64::from_be_bytes(word)),
+                    },
                     9,
                 )))
             }
@@ -377,7 +423,7 @@ impl DeviceMessageReader {
             }
             other => {
                 self.broken = true;
-                Ok(Some((DeviceMessage::Unknown(other), 0)))
+                Ok(Some((DeviceMessage::Unknown { code: other }, 0)))
             }
         }
     }
@@ -627,7 +673,9 @@ mod tests {
         assert_eq!(reader.push(&[1, 0, 0]).expect("reads"), Vec::new());
         assert_eq!(
             reader.push(&[0, 0, 0, 0, 0, 3]).expect("reads"),
-            vec![DeviceMessage::ClipboardAck(3)]
+            vec![DeviceMessage::ClipboardAck {
+                sequence: PointerId(3)
+            }]
         );
         let mut clipboard = vec![0, 0, 0, 0, 2];
         clipboard.extend_from_slice(b"hi");
@@ -635,7 +683,7 @@ mod tests {
         assert_eq!(
             reader.push(&clipboard).expect("reads"),
             vec![
-                DeviceMessage::Clipboard("hi".into()),
+                DeviceMessage::Clipboard { text: "hi".into() },
                 DeviceMessage::UhidOutput { id: 1, bytes: 2 },
             ]
         );
@@ -646,7 +694,7 @@ mod tests {
         let mut reader = DeviceMessageReader::new();
         assert_eq!(
             reader.push(&[9, 1, 2, 3]).expect("reads"),
-            vec![DeviceMessage::Unknown(9)]
+            vec![DeviceMessage::Unknown { code: 9 }]
         );
         assert_eq!(reader.push(&[0, 0]).expect("reads"), Vec::new());
     }

@@ -9,6 +9,7 @@ import type { DeviceInput } from "@ace/protocol/devices";
 import type { z } from "zod";
 import { androidFind } from "./android-ui.ts";
 import { catalogRefusal } from "./sdk.ts";
+import { nativeAxLimits, nativeInput } from "./native-input.ts";
 import {
   simulatorActionInput,
   simulatorLayout,
@@ -23,7 +24,8 @@ export interface CaptureUI {
   act(options: unknown, guard: () => void): Promise<z.infer<typeof ScreenUIActResult>>;
 }
 
-const bodyLimit = 4 * 1024 * 1024;
+/** The read's body cap and deadline: ace-devices' numbers, with today's as the default. */
+const axLimits = nativeInput ? nativeAxLimits() : { bodyBytes: 4 * 1024 * 1024, timeoutMs: 10_000 };
 
 /** serve-sim's in-process accessibility bridge, read on demand from its `/ax` route. */
 export function simulatorUI(options: {
@@ -40,7 +42,7 @@ export function simulatorUI(options: {
     const controller = new AbortController();
     const abort = () => controller.abort();
     options.signal.addEventListener("abort", abort, { once: true });
-    const cancel = options.after(10000, abort);
+    const cancel = options.after(axLimits.timeoutMs, abort);
     try {
       const response = await options.fetch(options.url, {
         signal: controller.signal,
@@ -51,7 +53,7 @@ export function simulatorUI(options: {
       let size = 0;
       for await (const chunk of response.body) {
         size += chunk.length;
-        if (size > bodyLimit) throw catalogRefusal("simulatorAxBudget");
+        if (size > axLimits.bodyBytes) throw catalogRefusal("simulatorAxBudget");
         chunks.push(Buffer.from(chunk));
       }
       let raw: unknown;

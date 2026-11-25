@@ -1,5 +1,5 @@
 import { nativeDevices } from "./native-devices-addon.ts";
-import { nativeInput } from "./native-input.ts";
+import { nativeDeviceReaderStep, nativeInput } from "./native-input.ts";
 
 /**
  * ace's own client side of the scrcpy wire protocol, written from scrcpy's `doc/develop.md` and
@@ -172,11 +172,19 @@ export type DeviceMessage =
 export class DeviceMessageReader {
   private buffer: Buffer = Buffer.alloc(0);
   private broken = false;
+  /** The Rust reader's carried state under the switch. */
+  private carried: string | null = null;
   private readonly emit: (message: DeviceMessage) => void;
   constructor(emit: (message: DeviceMessage) => void) {
     this.emit = emit;
   }
   push(chunk: Buffer): void {
+    if (nativeInput) {
+      const answer = nativeDeviceReaderStep(this.carried, chunk);
+      this.carried = JSON.stringify(answer.state);
+      for (const message of answer.messages) this.emit(reviveDeviceMessage(message));
+      return;
+    }
     if (this.broken) return;
     this.buffer = this.buffer.length ? Buffer.concat([this.buffer, chunk]) : chunk;
     if (this.buffer.length > clipboardTextLimit + 64)
@@ -215,6 +223,13 @@ export class DeviceMessageReader {
     this.emit({ type: "unknown", code });
     return 0;
   }
+}
+
+/** A reader's message as the TypeScript's own shape: the acknowledgement's sequence is a bigint. */
+function reviveDeviceMessage(message: { type: string } & Record<string, unknown>): DeviceMessage {
+  if (message.type === "clipboardAck")
+    return { type: "clipboardAck", sequence: BigInt(String(message["sequence"])) };
+  return message as DeviceMessage;
 }
 
 export const videoCodecId = { h264: 0x68323634, h265: 0x68323635, av1: 0x00617631 } as const;

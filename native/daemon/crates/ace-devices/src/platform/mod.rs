@@ -26,6 +26,7 @@ pub mod screens;
 pub mod sdk;
 pub mod serve_sim;
 pub mod simulator_ax;
+pub mod simulator_ui;
 pub mod simulators;
 pub mod tools;
 pub mod words;

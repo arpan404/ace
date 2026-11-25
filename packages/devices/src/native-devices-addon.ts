@@ -253,6 +253,10 @@ interface DevicesAddon {
   devicePlatformHelperReply(line: string): string;
   devicePlatformInputAnswer(line: string, marker: string): boolean | null;
   devicePlatformPasteboardPlan(verb: string, udid: string): string;
+  devicePlatformScrcpyClipboardStep(state: string | null, event: string): string;
+  devicePlatformHeldPointersStep(state: string | null, input?: string): string;
+  devicePlatformScrcpyDeviceReaderStep(state: string | null, chunk: string): string;
+  devicePlatformSimulatorAxLimits(): string;
 }
 
 const library =

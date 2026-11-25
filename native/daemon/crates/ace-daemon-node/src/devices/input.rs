@@ -382,6 +382,125 @@ pub fn device_platform_pasteboard_plan(verb: String, udid: String) -> napi::Resu
         .map_err(|error| napi::Error::from_reason(format!("ace-devices: {error}")))
 }
 
+/// One `simctl` pasteboard command's plan and the `/ax` read's bounds.
+#[napi]
+pub fn device_platform_simulator_ax_limits() -> napi::Result<String> {
+    ace_json::ser::to_string(&ace_devices::platform::simulator_ui::limits())
+        .map_err(|error| napi::Error::from_reason(format!("ace-devices: {error}")))
+}
+
+/// One event of the scrcpy clipboard: the machine's state in and out, with what the shell does.
+#[napi]
+pub fn device_platform_scrcpy_clipboard_step(
+    state: Option<String>,
+    event: String,
+) -> napi::Result<String> {
+    let mut machine = match state {
+        Some(text) => parse::<ace_devices::platform::scrcpy::clipboard::ScrcpyClipboard>(&text)?,
+        None => ace_devices::platform::scrcpy::clipboard::ScrcpyClipboard::new(),
+    };
+    let event: ace_devices::platform::scrcpy::clipboard::ClipboardEvent = parse(&event)?;
+    let out = machine.step(event);
+    answered(|| {
+        Ok(ClipboardStep {
+            state: machine,
+            out,
+        })
+    })
+}
+
+/// The clipboard's carried state and the shell's work, in the schema's field order.
+#[derive(serde::Serialize)]
+struct ClipboardStep {
+    state: ace_devices::platform::scrcpy::clipboard::ScrcpyClipboard,
+    out: Vec<ace_devices::platform::scrcpy::clipboard::ClipboardOut>,
+}
+
+/// One step of the held scrcpy pointers: applying an input, or lifting every held finger.
+#[napi]
+pub fn device_platform_held_pointers_step(
+    state: Option<String>,
+    input: Option<String>,
+) -> napi::Result<String> {
+    let mut pointers = match state {
+        Some(text) => parse::<scrcpy_input::HeldPointers>(&text)?,
+        None => scrcpy_input::HeldPointers::new(),
+    };
+    let released = match input {
+        Some(text) => {
+            let input: ace_devices::platform::device_input::DeviceInput = parse(&text)?;
+            pointers.apply(&input);
+            Vec::new()
+        }
+        None => pointers.release(),
+    };
+    ace_json::ser::to_string(&PointersStep {
+        state: pointers,
+        released,
+    })
+    .map_err(|error| napi::Error::from_reason(format!("ace-devices: {error}")))
+}
+
+/// The pointers' carried state and the inputs that lift what is left.
+#[derive(serde::Serialize)]
+struct PointersStep {
+    state: scrcpy_input::HeldPointers,
+    released: Vec<ace_devices::platform::device_input::DeviceInput>,
+}
+
+/// One socket chunk through scrcpy's device-message reader: the messages it completed.
+#[napi]
+pub fn device_platform_scrcpy_device_reader_step(
+    state: Option<String>,
+    chunk: String,
+) -> napi::Result<String> {
+    let mut reader = match state {
+        Some(text) => {
+            let state: scrcpy_protocol::ReaderState = parse(&text)?;
+            scrcpy_protocol::DeviceMessageReader::from_state(&state)
+                .map_err(|error| napi::Error::from_reason(format!("ace-devices: {error}")))?
+        }
+        None => scrcpy_protocol::DeviceMessageReader::new(),
+    };
+    let bytes = hex_chunk(&chunk)?;
+    let pushed = reader.push(&bytes);
+    answered(|| {
+        Ok(ReaderStep {
+            state: reader.state(),
+            messages: pushed?,
+        })
+    })
+}
+
+/// The reader's carried state and the messages one chunk completed.
+#[derive(serde::Serialize)]
+struct ReaderStep {
+    state: scrcpy_protocol::ReaderState,
+    messages: Vec<scrcpy_protocol::DeviceMessage>,
+}
+
+/// A socket chunk as hex, as the shell writes it.
+fn hex_chunk(chunk: &str) -> napi::Result<Vec<u8>> {
+    let bytes = chunk.as_bytes();
+    if !bytes.len().is_multiple_of(2) {
+        return Err(napi::Error::from_reason(
+            "ace-devices: a reader chunk is not hex",
+        ));
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 2);
+    let mut index = 0;
+    while index < bytes.len() {
+        let pair = std::str::from_utf8(&bytes[index..index + 2])
+            .map_err(|_| napi::Error::from_reason("ace-devices: a reader chunk is not hex"))?;
+        out.push(
+            u8::from_str_radix(pair, 16)
+                .map_err(|_| napi::Error::from_reason("ace-devices: a reader chunk is not hex"))?,
+        );
+        index += 2;
+    }
+    Ok(out)
+}
+
 /// The Simulator's typing arguments, as `type --stdin -d <device>`.
 #[napi]
 pub fn device_platform_typing_args(device: String) -> Vec<String> {

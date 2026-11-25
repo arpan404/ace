@@ -94,6 +94,40 @@ export function nativePasteboardPlan(verb: string, udid: string) {
   };
 }
 
+/** A `bigint` as its digits: JSON has no bigint, and every bit must survive. */
+export function withBigInts(_key: string, value: unknown): unknown {
+  return typeof value === "bigint" ? value.toString() : value;
+}
+
+/** One event of the scrcpy clipboard: the machine's state in and out. */
+export function nativeClipboardStep(state: string | null, event: unknown) {
+  return deviceAnswer<{ state: unknown; out: unknown[] }>(() =>
+    nativeDevices().devicePlatformScrcpyClipboardStep(state, JSON.stringify(event, withBigInts)),
+  );
+}
+
+/** One step of the held scrcpy pointers: applying an input, or lifting every held finger. */
+export function nativeHeldPointersStep(state: string | null, input?: unknown) {
+  return JSON.parse(
+    nativeDevices().devicePlatformHeldPointersStep(
+      state,
+      input === undefined ? undefined : JSON.stringify(input),
+    ),
+  ) as { state: unknown; released: unknown[] };
+}
+
+/** One socket chunk through scrcpy's device-message reader. */
+export function nativeDeviceReaderStep(state: string | null, chunk: Buffer) {
+  return deviceAnswer<{ state: unknown; messages: { type: string }[] }>(() =>
+    nativeDevices().devicePlatformScrcpyDeviceReaderStep(state, chunk.toString("hex")),
+  );
+}
+
+/** The `/ax` read's body cap and deadline. */
+export function nativeAxLimits(): { bodyBytes: number; timeoutMs: number } {
+  return JSON.parse(nativeDevices().devicePlatformSimulatorAxLimits());
+}
+
 export function nativeAndroidTree(xml: string, options: unknown): NativeTree {
   return deviceAnswer(() =>
     nativeDevices().devicePlatformAndroidTree(xml, JSON.stringify(options)),

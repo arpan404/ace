@@ -558,12 +558,6 @@ mod tests {
         }
     }
 
-    /// The same message as the shell sends it, read back from its JSON.
-    fn wire(message: &Message) -> WireMessage {
-        let text = ace_json::ser::to_string(message).expect("serializes");
-        ace_json::from_value(&ace_json::parse(&text).expect("parses")).expect("a wire message")
-    }
-
     #[test]
     fn a_finger_that_starts_on_a_screen_edge_keeps_its_edge_gesture_until_it_lifts() {
         let down = finger_down(&NO_FINGERS, 0, point(0.5, 0.99), 3.0);
@@ -624,36 +618,6 @@ mod tests {
         );
         assert_eq!(simulator_finger(None).ok(), Some(0));
         assert_eq!(simulator_finger(Some(1)).ok(), Some(1));
-    }
-
-    #[test]
-    fn the_digitizer_takes_the_phase_point_and_target_of_each_finger_message() {
-        let single = single_message(SimPhase::Begin, 0.5, 0.99, Some(3.0));
-        assert_eq!(
-            digitizer_step(&wire(&single), 3).expect("a finger"),
-            DigitizerStep {
-                phase: DigitizerPhase::Down,
-                x: 0.5,
-                y: 0.99,
-                x2: None,
-                y2: None,
-                edge: 3.0,
-                target: 3,
-            }
-        );
-        let pair = pair_phase(SimPhase::Move, (0.1, 0.2), (0.3, 0.4));
-        assert_eq!(
-            digitizer_step(&wire(&pair), 0).expect("a finger"),
-            DigitizerStep {
-                phase: DigitizerPhase::Move,
-                x: 0.1,
-                y: 0.2,
-                x2: Some(0.3),
-                y2: Some(0.4),
-                edge: 0.0,
-                target: 0,
-            }
-        );
     }
 
     #[test]

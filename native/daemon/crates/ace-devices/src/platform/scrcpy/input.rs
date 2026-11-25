@@ -2,7 +2,7 @@
 //! `scrcpy-input.ts`: one device input as the control messages the scrcpy server accepts, and
 //! the fingers a dropped control epoch must lift. The parser's 16 ms is one display frame.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::platform::device_input::DeviceInput;
 use crate::platform::scrcpy::protocol::{
@@ -226,7 +226,7 @@ pub fn plan(
 }
 
 /// Fingers still down when control moves on are lifted, so the device never keeps a touch.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct HeldPointers {
     held: Vec<(u32, (f64, f64))>,
 }
