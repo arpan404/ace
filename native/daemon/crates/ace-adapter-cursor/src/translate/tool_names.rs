@@ -2,45 +2,16 @@
 //! Tool names, the SDK byte budget and ace-call recognition (`tool-events.ts`).
 
 use super::text::JsString;
-use super::text::{Value, json_bytes, units_eq, write_json};
+use super::text::{Value, units_eq};
 use super::{BudgetError, BudgetResult};
 
 /// Byte budget for one tool's retained arguments, and the structural budgets.
 pub(crate) const ARGS_BYTES: usize = 262_144;
-const NODES: usize = 32_768;
-const DEPTH: usize = 64;
 
-/// Serialize with the SDK's byte, node and depth budgets (`boundedJson`).
+/// Serialize with the SDK's byte, node and depth budgets (`boundedJson`, E5.4a's one copy in
+/// `ace-json`).
 pub(crate) fn bounded_json(value: &Value, max_bytes: usize) -> BudgetResult<String> {
-    let mut nodes = 0;
-    walk(value, 0, &mut nodes)?;
-    if json_bytes(value) > max_bytes {
-        return Err(BudgetError::Exceeded);
-    }
-    let mut text = String::new();
-    write_json(&mut text, value);
-    Ok(text)
-}
-
-fn walk(value: &Value, depth: usize, nodes: &mut usize) -> BudgetResult<()> {
-    *nodes += 1;
-    if *nodes > NODES || depth > DEPTH {
-        return Err(BudgetError::Exceeded);
-    }
-    match value {
-        Value::Array(items) => {
-            for item in items {
-                walk(item, depth + 1, nodes)?;
-            }
-        }
-        Value::Object(entries) => {
-            for (_, item) in entries {
-                walk(item, depth + 1, nodes)?;
-            }
-        }
-        _ => {}
-    }
-    Ok(())
+    ace_json::bounded::bounded_json(value, max_bytes).map_err(|_| BudgetError::Exceeded)
 }
 
 const SCREEN: &[&str] = &[

@@ -30,11 +30,6 @@ pub(crate) fn write_json(out: &mut String, value: &Value) {
     ace_json::write_value(out, value);
 }
 
-/// The bytes of `JSON.stringify(value)`.
-pub(crate) fn json_bytes(value: &Value) -> usize {
-    ace_json::to_string(value).len()
-}
-
 /// `target[key] = value` on an object; anything else is left as is.
 pub(crate) fn set(target: &mut Value, key: &str, value: Value) {
     if let Value::Object(map) = target {
