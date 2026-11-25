@@ -649,6 +649,98 @@ fn a_muted_channel_still_interrupts_and_answers() {
     assert!(handlers.errors().is_empty(), "{:?}", handlers.errors());
 }
 
+/// A handler whose translation broke refuses every frame, sends included. The
+/// host has muted it, so its requests still flow and its tree can be stopped
+/// (`host.ts:126`).
+#[test]
+fn a_channel_that_refuses_every_frame_still_interrupts() {
+    struct Broken {
+        /// Set the first time the host fails a frame: every later frame is
+        /// refused, whatever its direction.
+        broken: std::sync::atomic::AtomicBool,
+    }
+    impl ChannelHandlers for Broken {
+        fn admit(&self, dir: Direction, data: &Value) -> Admission {
+            if dir == Direction::Recv
+                && data.pointer("/params/mute").and_then(Value::as_bool) == Some(true)
+            {
+                return Admission::Failed("translation broke".to_owned());
+            }
+            if self.broken.load(std::sync::atomic::Ordering::SeqCst) {
+                return Admission::Failed("translation broke".to_owned());
+            }
+            Admission::Taken
+        }
+        fn frame(&self, _dir: Direction, _data: &Value) {}
+        fn notification(&self, _method: &ace_json::JsString, _params: Option<&Value>) {}
+        fn request(
+            &self,
+            _id: &RpcId,
+            _method: &ace_json::JsString,
+            _params: Option<&Value>,
+        ) -> RequestAnswer {
+            RequestAnswer::Answered(ace_json::json!({}))
+        }
+        fn dropped(&self, _line: &DroppedLine) {}
+        fn output_uncertain(&self) {}
+        fn malformed(&self, _line: &str) {}
+        fn stderr(&self, _line: &str) {}
+        fn error(&self, _message: &str) {}
+        fn failed(&self, _message: &str) {
+            self.broken.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        fn exited(&self, _exit: &HostExit) {}
+        fn ready(&self) {}
+    }
+    let host = Shell::start(HostConfig::dedicated(initialize()));
+    let _ = host.pump(|| {});
+    let handler = Arc::new(Broken {
+        broken: std::sync::atomic::AtomicBool::new(false),
+    });
+    host.attach(1, handler.clone()).expect("a channel attaches");
+    let _ = host.pump(|| {});
+    host.line(
+        &ace_json::json!({
+            "jsonrpc": "2.0",
+            "method": "thread/started",
+            "params": {"thread": {"id": "t1"}},
+        })
+        .to_json(),
+    );
+    let _ = host.pump(|| {});
+    // A received frame fails admission: the host mutes the channel, its
+    // handler breaks, and every later frame would be refused.
+    host.line(
+        &ace_json::json!({
+            "jsonrpc": "2.0",
+            "method": "thread/started",
+            "params": {"thread": {"id": "t1"}, "mute": true},
+        })
+        .to_json(),
+    );
+    let _ = host.pump(|| {});
+    assert!(
+        handler.broken.load(std::sync::atomic::Ordering::SeqCst),
+        "the failed frame breaks the handler"
+    );
+    let (effects, lines) = host.pump(|| {
+        host.request(
+            1,
+            "turn/interrupt",
+            Some(&ace_json::json!({"threadId": "t1", "turnId": "x"})),
+            10,
+            Timeout::Disabled,
+        )
+        .expect("the request is queued");
+    });
+    assert_eq!(lines.len(), 1, "the interrupt is written");
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, HostEffect::Error { .. } | HostEffect::Settle { .. }))
+    );
+}
+
 /// `host.rs:233`: admission is decided once per frame, by the veto, and the
 /// delivery uses that verdict. A handler that answers differently the second
 /// time is not asked again.

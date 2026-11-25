@@ -175,10 +175,12 @@ impl Host {
             inner.sender = Some(tenant);
             // The channel vets the exact frame the peer would send, before
             // any call slot or write ticket exists (`session.ts:153`-`:156`,
-            // `jsonrpc.ts:291`-`:292`).
+            // `jsonrpc.ts:291`-`:292`). A muted channel is not asked: its
+            // requests still flow so its tree can be stopped (`host.ts:126`).
             let handlers = inner
                 .tenants
                 .get(&tenant)
+                .filter(|entry| !entry.muted)
                 .map(|entry| Arc::clone(&entry.handlers));
             let veto = |value: &Value| match &handlers {
                 Some(handlers) => match handlers.admit(Direction::Send, value) {
