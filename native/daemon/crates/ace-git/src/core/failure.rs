@@ -5,6 +5,7 @@
 use std::collections::VecDeque;
 use std::sync::OnceLock;
 
+use ace_json::JsString;
 use regex::Regex;
 
 use crate::core::error::GitErrorCode;
@@ -59,7 +60,7 @@ impl StderrTail {
 
     /// What Git said, minus Trace2 records, with credentials redacted.
     /// Redacts the whole window BEFORE dropping the partial first line and clipping.
-    pub fn text(&self) -> String {
+    pub fn text(&self) -> JsString {
         let mut raw = Vec::with_capacity(self.bytes);
         for chunk in &self.chunks {
             raw.extend_from_slice(chunk);
@@ -74,7 +75,11 @@ impl StderrTail {
             .filter(|line| !line.trim().is_empty() && !line.contains("{\"event\""))
             .collect();
         let joined = said.join("\n");
-        tail_utf16_suffix(&joined, REPORTED_CHARACTERS)
+        // `String.prototype.slice(-REPORTED_CHARACTERS)` counts UTF-16 units and
+        // may split a surrogate pair, so the tail keeps its units, not its chars.
+        let text = JsString::from(joined.as_str());
+        let end = text.len_utf16();
+        text.slice_units(end.saturating_sub(REPORTED_CHARACTERS), end)
     }
 }
 
@@ -371,20 +376,6 @@ fn replace_emails(text: &str, regex: &Regex) -> String {
     out
 }
 
-fn tail_utf16_suffix(s: &str, max_units: usize) -> String {
-    let mut units = 0usize;
-    let mut start = s.len();
-    for (idx, ch) in s.char_indices().rev() {
-        let w = ch.len_utf16();
-        if units + w > max_units {
-            break;
-        }
-        units += w;
-        start = idx;
-    }
-    s[start..].to_owned()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -422,6 +413,21 @@ mod tests {
                 "{text} -> {redacted}"
             );
         }
+    }
+
+    #[test]
+    fn the_reported_tail_counts_utf16_units_and_may_split_a_pair() {
+        let mut tail = StderrTail::new();
+        // A two-unit character first, then ASCII: 4,001 units, so `slice(-4000)`
+        // starts on the pair's low surrogate, exactly as JavaScript's does.
+        let mut text = String::from('\u{1F600}');
+        text.push_str(&"x".repeat(REPORTED_CHARACTERS - 1));
+        tail.accept(text.as_bytes());
+        let reported = tail.text();
+        assert_eq!(reported.len_utf16(), REPORTED_CHARACTERS);
+        // Slice(-4000) starts on the pair's high surrogate: the same units as TS.
+        assert!(!reported.is_well_formed());
+        assert!(reported.as_str().ends_with('x'));
     }
 
     #[test]

@@ -719,7 +719,7 @@ impl GitCliCore {
         {
             let mut details = Map::new();
             details.insert(JsString::from("signal"), Value::from(sig.as_str()));
-            details.insert(JsString::from("stderr"), Value::from(tail.text().as_str()));
+            details.insert(JsString::from("stderr"), Value::String(tail.text()));
             failure = Some(GitError::with_details(
                 GitErrorCode::GitFailed,
                 "Git terminated by signal",
@@ -875,7 +875,7 @@ impl GitCliCore {
                 } else {
                     details.insert(JsString::from("code"), Value::Null);
                 }
-                details.insert(JsString::from("stderr"), Value::from(tail.text().as_str()));
+                details.insert(JsString::from("stderr"), Value::String(tail.text()));
                 if let Some(ref lock) = diagnostics.lock_file {
                     details.insert(JsString::from("lock"), Value::from(lock.as_str()));
                 }
@@ -890,7 +890,7 @@ impl GitCliCore {
         if code == Some(0) && opts.has_input && (stdin_error.is_some() || !stdin_finished) {
             let mut details = Map::new();
             details.insert(JsString::from("code"), Value::Number(Number::from(0.0)));
-            details.insert(JsString::from("stderr"), Value::from(tail.text().as_str()));
+            details.insert(JsString::from("stderr"), Value::String(tail.text()));
             if let Some(ref cause) = stdin_error {
                 details.insert(JsString::from("cause"), Value::from(cause.as_str()));
             }
