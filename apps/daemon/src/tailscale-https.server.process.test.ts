@@ -345,3 +345,23 @@ test("the pin gives way only to a trusted certificate for the exact ts.net name 
     /fingerprint mismatch/,
   );
 });
+
+test("the native listener serves the trusted ts.net certificate, and the pin for every other name", async () => {
+  const ca = await authority();
+  const leaf = await ca.leaf(tailnet);
+  const { identity, link } = await tailnetDaemon(async () => `${leaf.cert}${ca.root}${leaf.key}`);
+
+  await expect.poll(async () => (await link()).hostname, { timeout: 5000 }).toBe(tailnet);
+  const port = Number((await link()).port);
+  // The exact name asked for is answered with Tailscale's certificate; every other name, another
+  // ts.net one included, still gets ace's pinned certificate.
+  expect(await presented(port, tailnet)).toBe(publicKeyFingerprint(leaf.cert));
+  expect(await presented(port, "other.tail1234.ts.net")).toBe(identity.fingerprint);
+  expect(await presented(port)).toBe(identity.fingerprint);
+  // A client that trusts Tailscale's authority and pins ace's identity reaches the listener.
+  expect(await pinnedGet(port, tailnet, identity.fingerprint, [ca.root])).toBeGreaterThan(0);
+  // The other name is not answered with it, so a client pinning that certificate refuses it.
+  await expect(
+    pinnedGet(port, "other.tail1234.ts.net", publicKeyFingerprint(leaf.cert), [ca.root]),
+  ).rejects.toThrow(/fingerprint mismatch/);
+}, 30_000);

@@ -1307,14 +1307,28 @@ Later, not part of the pilot (owner decision 4).
 
 #### E3-acp.1 Session core and capture
 
-- **Files**: `native/daemon/crates/ace-adapter-acp/src/session/{mod.rs,core.rs,frames.rs,routing.rs,deadlines.rs,negotiation.rs,configuration.rs}`.
+- **Files**: `native/daemon/crates/ace-adapter-acp/src/session/`, file by file: `mod.rs` the
+  module surface; `core.rs` the sans-IO session over the peer, its frame capture and the
+  settlement that runs in frame order; `frames.rs` payload capture (redaction, byte and node
+  bounds, binary elision); `routing.rs` children, owners and their cancellation; `deadlines.rs`
+  the named deadlines over the facade's timers; `negotiation.rs` ACP version negotiation and the
+  compatibility profiles; `configuration.rs` effective capabilities, selectors and selection
+  replies; `open.rs` the `initialize` and `session/new|load|resume` handshake; `selections.rs`
+  the saved mode, model and effort applied before the open settles; `io.rs` the diverted-child
+  I/O shell; `shells.rs` the session's shell settlement over the translator's; `mcp.rs` MCP
+  server selection, transport filtering and collision checks; `selectors.rs` the
+  agent-registry selector port; `identity.rs` the translator identity; `quirks.rs` the provider
+  quirks and CLI version gates; `resume_error.rs` resume failure classification; and the tests
+  beside them (`tests.rs` plus each file's own `mod tests`).
 - **Ports**: `session.ts`'s `AcpSession` (`:118`–`:940`), the frame capture (`:361`–`:381`)
   through the E1 port of `frame-redaction` (`translate/frame_redaction.rs`) and binary elision,
   settlement in frame order inside the peer's frame callback (`:200`–`:212`; a continuation after
   an await would run too late, `:203`–`:204`), `session-routing.ts`, `deadlines.ts`,
   `negotiation.ts`, `bridge-negotiation.ts`, `configuration.ts` (its (b) cases move),
-  `identity.ts`, `resume-error.ts`, `quirks/antigravity.ts`, over the E3-codex.1 peer and a
-  diverted child.
+  `quirks/{types,generic,antigravity}.ts`, `provider-kit/cli-versions.ts`,
+  `mcp-server/injection.ts` (its `appendAcpMcp`, the transport filtering and ace's injected
+  servers), `agent-registry/selectors.ts`, `provider-kit/{permission,access}-modes.ts`,
+  `identity.ts`, `resume-error.ts`, over the E3-codex.1 peer and a diverted child.
 - **Crate**: remove `agent-client-protocol` from `ace-adapter-acp/Cargo.toml` and
   `Cargo.lock` (no code uses it, owner decision 3). Define `PROTOCOL_VERSION` and the
   `AGENT_METHODS` names the TypeScript uses in `session/protocol.rs`, copied from
