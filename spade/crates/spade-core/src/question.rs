@@ -60,7 +60,7 @@ pub fn asked_for_later(questions: &[Question]) -> String {
         return ASKED_FOR_LATER.to_owned();
     }
     format!(
-        "Asked without waiting. Continue with the stated defaults. Answer arrives as <question_answer>.\n\n{}",
+        "Asked without waiting. Carry on with your stated defaults. Answer arrives as <question_answer>.\n\n{}",
         defaults.join("\n\n")
     )
 }
