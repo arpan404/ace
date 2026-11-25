@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
-//! ACP session open handshake state machine (`packages/adapter-acp/src/session.ts:383`–`:495`
-//! and `packages/provider-kit/src/acp-sign-in.ts`).
+//! ACP session open handshake state machine (`packages/adapter-acp/src/session.ts:383`–`:495`).
+//!
+//! Sign-in is not here: `openWithSignIn` (`packages/provider-kit/src/acp-sign-in.ts:14`) stays
+//! TypeScript around the native open (E3-acp.3), so an agent that wants a sign-in method
+//! settles this open with its own error.
 
 use ace_json::{JsString, Map, Value};
-use ace_supervisor::jsonrpc::error_code;
 use ace_supervisor::peer::Timeout;
 use serde::{Deserialize, Serialize};
 
 use super::mcp::{McpTransport, prepare_acp_mcp};
 use super::negotiation::{ProfileFit, ResumeMethod};
-use super::protocol::{AUTH_REQUIRED_CODE, PROTOCOL_VERSION, agent_methods};
+use super::protocol::{PROTOCOL_VERSION, agent_methods};
 use super::resume_error::{ResumeFailure, resume_load_failure};
 use crate::session::core::{AcpCore, AcpEffect, AcpErrorWire};
 use crate::translate::data::object;
 
 /// Stall timeout for `session/new`, `session/load`, or `session/resume` (`session.ts:65`).
 pub const OPEN_STALL_MS: f64 = 30_000.0;
-/// Timeout for `authenticate` during sign-in retry (`acp-sign-in.ts:6`).
-pub const AUTHENTICATE_TIMEOUT_MS: f64 = 30_000.0;
 
 /// Resume target passed when reopening an existing native ACP session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,14 +59,12 @@ pub(crate) struct OpenRequestSpec {
     pub params: Value,
     pub mcp_transport: McpTransport,
     pub has_system_prompt: bool,
-    pub retried_sign_in: bool,
 }
 
 #[derive(Debug)]
 pub(crate) enum OpenPhase {
     Initializing { rpc_id: u64 },
     Opening { rpc_id: u64, spec: OpenRequestSpec },
-    Authenticating { rpc_id: u64, spec: OpenRequestSpec },
 }
 
 #[derive(Debug)]
@@ -78,16 +76,14 @@ pub(crate) struct OpenState {
 impl OpenState {
     pub fn active_rpc_id(&self) -> u64 {
         match &self.phase {
-            OpenPhase::Initializing { rpc_id }
-            | OpenPhase::Opening { rpc_id, .. }
-            | OpenPhase::Authenticating { rpc_id, .. } => *rpc_id,
+            OpenPhase::Initializing { rpc_id } | OpenPhase::Opening { rpc_id, .. } => *rpc_id,
         }
     }
 }
 
 impl AcpCore {
     /// Start the ACP open handshake (`initialize`, MCP capability filtering,
-    /// `session/new | session/load | session/resume`, optional `authenticate` retry).
+    /// `session/new | session/load | session/resume`).
     ///
     /// Guarantees `AcpEffect::Settle { id: facade_id, .. }` fires **exactly once**.
     pub fn start_open(&mut self, facade_id: u64) -> Vec<AcpEffect> {
@@ -179,9 +175,6 @@ impl AcpCore {
             }
             OpenPhase::Opening { spec, .. } => {
                 self.finish_session_open(state.facade_id, spec, result, effects);
-            }
-            OpenPhase::Authenticating { spec, .. } => {
-                self.finish_authenticate(state.facade_id, spec, result, effects);
             }
         }
         true
@@ -327,7 +320,6 @@ impl AcpCore {
             params: Value::Object(open_params),
             mcp_transport: prepared.transport,
             has_system_prompt,
-            retried_sign_in: false,
         };
         self.open_stalled = true;
         self.arm_deadline("open", OPEN_STALL_MS, effects);
@@ -362,7 +354,7 @@ impl AcpCore {
     fn finish_session_open(
         &mut self,
         facade_id: u64,
-        mut spec: OpenRequestSpec,
+        spec: OpenRequestSpec,
         result: Result<Value, String>,
         effects: &mut Vec<AcpEffect>,
     ) {
@@ -398,57 +390,6 @@ impl AcpCore {
                 });
             }
             Err(message) => {
-                if !spec.retried_sign_in
-                    && error_code(&message) == Some(AUTH_REQUIRED_CODE as f64)
-                    && let Some(sign_in) = self.sign_in_method.clone()
-                {
-                    spec.retried_sign_in = true;
-                    let rpc_id = self.alloc_internal_id();
-                    let mut auth_params = Map::with_capacity(1);
-                    auth_params.insert("methodId", Value::from(sign_in));
-                    let auth_val = Value::Object(auth_params);
-                    self.open = Some(OpenState {
-                        facade_id,
-                        phase: OpenPhase::Authenticating { rpc_id, spec },
-                    });
-                    match self.peer.request(
-                        agent_methods::AUTHENTICATE,
-                        Some(&auth_val),
-                        rpc_id,
-                        Timeout::After(AUTHENTICATE_TIMEOUT_MS),
-                    ) {
-                        Ok(peer_effects) => self.apply_peer_effects(peer_effects, effects),
-                        Err(err) => {
-                            self.clear_open_guards(effects);
-                            self.fail_open(AcpErrorWire::open_failed(err.message()), effects);
-                        }
-                    }
-                    return;
-                }
-
-                self.clear_open_guards(effects);
-                let error_wire = if self.resume.is_some()
-                    && let Some(failure) = resume_load_failure(&message)
-                {
-                    AcpErrorWire::resume_failure(failure)
-                } else {
-                    AcpErrorWire::open_failed(message)
-                };
-                self.settle_open_error(facade_id, error_wire, effects);
-            }
-        }
-    }
-
-    fn finish_authenticate(
-        &mut self,
-        facade_id: u64,
-        spec: OpenRequestSpec,
-        result: Result<Value, String>,
-        effects: &mut Vec<AcpEffect>,
-    ) {
-        match result {
-            Ok(_) => self.send_session_open(facade_id, spec, effects),
-            Err(message) => {
                 self.clear_open_guards(effects);
                 let error_wire = if self.resume.is_some()
                     && let Some(failure) = resume_load_failure(&message)
@@ -467,7 +408,6 @@ impl AcpCore {
             return;
         }
         let open_wire_id = self.open_id.clone();
-        let auth_wire_id = self.auth_id.clone();
         self.clear_open_guards(effects);
         let message = "ACP session opening made no progress within 30 seconds";
         let Some(state) = self.open.take() else {
@@ -475,7 +415,6 @@ impl AcpCore {
         };
         let cancel_wire_id = match &state.phase {
             OpenPhase::Opening { .. } => open_wire_id,
-            OpenPhase::Authenticating { .. } => auth_wire_id,
             OpenPhase::Initializing { .. } => None,
         };
         if let Some(wire_id) = cancel_wire_id {
@@ -492,7 +431,6 @@ impl AcpCore {
     pub(crate) fn clear_open_guards(&mut self, effects: &mut Vec<AcpEffect>) {
         self.loading = false;
         self.open_id = None;
-        self.auth_id = None;
         self.open_stalled = false;
         self.clear_deadline("open", effects);
     }

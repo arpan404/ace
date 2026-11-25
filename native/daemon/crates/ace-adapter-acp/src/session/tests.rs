@@ -257,19 +257,65 @@ fn open_handshake_negotiates_capabilities_filters_mcp_servers_and_emits_notes() 
     )));
 }
 
+/// An agent that needs a sign-in method is reported, not answered here:
+/// `openWithSignIn` stays TypeScript around the native open (E3-acp.3).
 #[test]
-fn open_with_sign_in_retries_authenticate_once_on_auth_required() {
+fn auth_required_settles_the_open_rather_than_selecting_a_sign_in_method() {
+    let (mut core, mut sent) = opened_antigravity_core(1);
+    let auth_err = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "error": { "code": -32000, "message": "Authentication required" }
+    });
+    let ended = core.stdout_bytes(format!("{}\n", auth_err.to_json()).as_bytes());
+    let settled = settlements(&ended, 1);
+    assert_eq!(settled.len(), 1);
+    let Err((code, message)) = &settled[0] else {
+        panic!("the open must fail: {settled:?}");
+    };
+    assert_eq!(code, CODE_OPEN_FAILED);
+    assert!(message.contains("Authentication required"), "{message}");
+    sent.extend(ended);
+    assert!(
+        sent_json_messages(&sent)
+            .iter()
+            .all(|message| message.get("method").and_then(Value::as_str) != Some("authenticate")),
+        "nothing selects a sign-in method in Rust"
+    );
+}
+
+/// Antigravity names the session in an update before answering `session/new`,
+/// and that name settles the open (`session.ts:222`, `:295`).
+#[test]
+fn antigravity_names_the_session_before_answering_session_new() {
+    let (mut core, _) = opened_antigravity_core(1);
+    let pre_update = json!({
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": { "sessionId": "agy-sess-1", "update": { "sessionUpdate": "custom_init" } }
+    });
+    let new_ok = json!({ "jsonrpc": "2.0", "id": 2, "result": {} });
+    let combined = format!("{}\n{}\n", pre_update.to_json(), new_ok.to_json());
+    let opened = core.stdout_bytes(combined.as_bytes());
+    let settled = settlements(&opened, 1);
+    assert_eq!(settled.len(), 1);
+    assert!(settled[0].is_ok());
+    assert_eq!(core.native_session_id, JsString::from("agy-sess-1"));
+    assert!(!core.steer_via_cancel);
+    assert!(core.guided);
+}
+
+/// An Antigravity core past `initialize`, with `session/new` carrying ace's guidance.
+fn opened_antigravity_core(facade_id: u64) -> (AcpCore, Vec<AcpEffect>) {
     let mut config = AcpCoreConfig::new("thread-agy", "/work", AcpSessionQuirks::antigravity());
     config.version = Some("1.2.1".to_owned());
-    config.sign_in_method = Some("google-oauth".to_owned());
     config.mcp = Some(McpConfig {
         instructions: Some("follow ace guidance".to_owned()),
         ..McpConfig::default()
     });
     let (mut core, _) = AcpCore::new(config);
-    let mut e1 = core.start_open(1);
-    ack_writes(&mut core, &mut e1);
-
+    let mut sent = core.start_open(facade_id);
+    ack_writes(&mut core, &mut sent);
     let init_reply = json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -283,62 +329,17 @@ fn open_with_sign_in_retries_authenticate_once_on_auth_required() {
             }
         }
     });
-    let mut e2 = core.stdout_bytes(format!("{}\n", init_reply.to_json()).as_bytes());
-    ack_writes(&mut core, &mut e2);
-    let sent2 = sent_json_messages(&e2);
+    let mut after_init = core.stdout_bytes(format!("{}\n", init_reply.to_json()).as_bytes());
+    ack_writes(&mut core, &mut after_init);
+    let sent_new = sent_json_messages(&after_init);
     assert_eq!(
-        sent2[0]
+        sent_new[0]
             .pointer("/params/_meta/antigravity/systemPrompt/append")
             .and_then(Value::as_str),
         Some("follow ace guidance")
     );
-
-    // First session/new fails with -32000 (auth required) -> authenticate is sent.
-    let auth_err = json!({
-        "jsonrpc": "2.0",
-        "id": 2,
-        "error": { "code": -32000, "message": "Authentication required" }
-    });
-    let mut e3 = core.stdout_bytes(format!("{}\n", auth_err.to_json()).as_bytes());
-    ack_writes(&mut core, &mut e3);
-    assert!(
-        settlements(&e3, 1).is_empty(),
-        "open must not settle before sign-in retry"
-    );
-    let sent3 = sent_json_messages(&e3);
-    assert_eq!(
-        sent3[0].get("method").and_then(Value::as_str),
-        Some("authenticate")
-    );
-    assert_eq!(
-        sent3[0].pointer("/params/methodId").and_then(Value::as_str),
-        Some("google-oauth")
-    );
-
-    // authenticate succeeds -> session/new retried -> succeeds.
-    let mut e4 = core.stdout_bytes(b"{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{}}\n");
-    ack_writes(&mut core, &mut e4);
-    let sent4 = sent_json_messages(&e4);
-    assert_eq!(
-        sent4[0].get("method").and_then(Value::as_str),
-        Some("session/new")
-    );
-
-    // Antigravity may name the session in an update before answering session/new with {}.
-    let pre_update = json!({
-        "jsonrpc": "2.0",
-        "method": "session/update",
-        "params": { "sessionId": "agy-sess-1", "update": { "sessionUpdate": "custom_init" } }
-    });
-    let new_ok = json!({ "jsonrpc": "2.0", "id": 4, "result": {} });
-    let combined = format!("{}\n{}\n", pre_update.to_json(), new_ok.to_json());
-    let e5 = core.stdout_bytes(combined.as_bytes());
-    let settled = settlements(&e5, 1);
-    assert_eq!(settled.len(), 1);
-    assert!(settled[0].is_ok());
-    assert_eq!(core.native_session_id, JsString::from("agy-sess-1"));
-    assert!(!core.steer_via_cancel);
-    assert!(core.guided);
+    sent.extend(after_init);
+    (core, sent)
 }
 
 #[test]

@@ -132,7 +132,6 @@ pub struct AcpCoreConfig {
     pub version: Option<String>,
     pub profile: Option<CompatibilityProfile>,
     pub profile_fit: Option<ProfileFit>,
-    pub sign_in_method: Option<String>,
     pub resume: Option<ResumeTarget>,
     pub mcp: Option<McpConfig>,
     pub peer_config: PeerConfig,
@@ -151,7 +150,6 @@ impl AcpCoreConfig {
             version: None,
             profile: None,
             profile_fit: None,
-            sign_in_method: None,
             resume: None,
             mcp: None,
             peer_config: PeerConfig::default(),
@@ -165,7 +163,6 @@ pub struct AcpCore {
     pub(crate) quirks: AcpSessionQuirks,
     pub(crate) launch_version: Option<String>,
     pub(crate) launch_profile: Option<CompatibilityProfile>,
-    pub(crate) sign_in_method: Option<String>,
     pub(crate) resume: Option<ResumeTarget>,
     pub(crate) mcp: Option<McpConfig>,
     secrets: Vec<String>,
@@ -193,7 +190,6 @@ pub struct AcpCore {
     pub prompt_frames: u64,
     pub prompt_id: Option<RpcId>,
     pub(crate) open_id: Option<RpcId>,
-    pub(crate) auth_id: Option<RpcId>,
     pub(crate) opening_session: JsString,
     pub(crate) open_stalled: bool,
     pub(crate) open: Option<OpenState>,
@@ -237,7 +233,6 @@ impl AcpCore {
             quirks: config.quirks,
             launch_version: config.version,
             launch_profile: config.profile,
-            sign_in_method: config.sign_in_method,
             resume: config.resume,
             mcp: config.mcp,
             secrets,
@@ -261,7 +256,6 @@ impl AcpCore {
             prompt_frames: 0,
             prompt_id: None,
             open_id: None,
-            auth_id: None,
             opening_session: JsString::default(),
             open_stalled: false,
             open: None,
@@ -619,9 +613,6 @@ impl AcpCore {
             self.open_id = value_rpc_id(message.get("id"));
             self.loading = method == agent_methods::SESSION_LOAD;
         }
-        if method == agent_methods::AUTHENTICATE {
-            self.auth_id = value_rpc_id(message.get("id"));
-        }
     }
 
     /// Settle inbound open or prompt replies in frame order (`session.ts:290`–`:312`).
@@ -630,10 +621,6 @@ impl AcpCore {
         let Some(id) = value_rpc_id(message.get("id")) else {
             return;
         };
-        if self.auth_id.as_ref() == Some(&id) {
-            self.auth_id = None;
-            return;
-        }
         if self.open_id.as_ref() == Some(&id) {
             self.open_id = None;
             self.loading = false;
