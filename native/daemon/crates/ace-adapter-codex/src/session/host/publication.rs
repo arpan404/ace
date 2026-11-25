@@ -64,6 +64,9 @@ pub const INTAKE_FRAMES_RESUME: usize = 64;
 pub const INTAKE_BYTES: usize = 4 * 1024 * 1024;
 pub const INTAKE_BYTES_RESUME: usize = 1024 * 1024;
 
+/// The error a call whose write the shell could not submit settles with.
+const WRITE_LOST: &str = "JSON-RPC write failed";
+
 /// What a shell does with the effects the host decides: it applies one effect
 /// at a time, in the order `effect` is called, and it may run another input
 /// from inside a call (acknowledging a write, reporting a failed stop), whose
@@ -119,6 +122,16 @@ impl Host {
         result
     }
 
+    /// A write the sink never submitted: the peer releases its ticket, settles
+    /// the call it carried and hands out the next line. Its effects wait for
+    /// the next input, which claims the turn this unwinding drain gives back.
+    fn write_lost(&self, ticket: u64) {
+        self.input(|inner| {
+            let peer = inner.peer.write_failed(ticket, WRITE_LOST);
+            inner.apply(peer);
+        });
+    }
+
     /// Closes the gate while the backlog is at the intake budget, and reopens
     /// it once the sink has drained it.
     fn pace(&self, publication: &mut Publication) {
@@ -151,7 +164,9 @@ impl Host {
     /// the queue is empty. A decision made from inside an effect joins this
     /// same queue and follows the effects already decided. A sink that unwinds
     /// gives the turn back on its way out (`Claim`), so one panic never wedges
-    /// publication; the effect it was given is the one that is lost.
+    /// publication; the effect it was given is the one that is lost, and a
+    /// write it never submitted has its ticket failed in the peer (`Submitted`)
+    /// so the shared stdin moves on.
     fn publish(&self) {
         let mut claim = Claim {
             host: self,
@@ -181,8 +196,39 @@ impl Host {
                 let mut publication = self.publication();
                 self.pace(&mut publication);
             }
+            let mut submitted = Submitted {
+                host: self,
+                done: false,
+                ticket: match &next.1 {
+                    HostEffect::Write { ticket, .. } => Some(*ticket),
+                    _ => None,
+                },
+            };
             next.0.effect(self, next.1);
+            submitted.done = true;
         }
+    }
+}
+
+/// The write `publish` is handing to the sink. Dropping it with a ticket still
+/// its own (a sink that unwound before submitting) fails that write in the
+/// peer, so its slot is released and the next line goes out: TS's writer does
+/// the same when `stream.write` throws (`rpc-writer.ts:107`–`:120`).
+struct Submitted<'a> {
+    host: &'a Host,
+    ticket: Option<u64>,
+    done: bool,
+}
+
+impl Drop for Submitted<'_> {
+    fn drop(&mut self) {
+        if self.done {
+            return;
+        }
+        let Some(ticket) = self.ticket else {
+            return;
+        };
+        self.host.write_lost(ticket);
     }
 }
 

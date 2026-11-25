@@ -322,6 +322,56 @@ fn a_sink_panic_releases_the_publication_turn() {
     );
 }
 
+/// A sink that unwinds on a write never submits it: that write's ticket is
+/// failed in the peer, as TS fails a write whose submission throws
+/// (`rpc-writer.ts:107`–`:120`), so the next write goes out and is
+/// acknowledged.
+#[test]
+fn a_sink_unwind_on_a_write_frees_its_ticket_for_the_next_one() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start();
+
+    sink.lose_next_write();
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        host.request(
+            1,
+            "thread/read",
+            Some(&ace_json::json!({"threadId": "t"})),
+            7,
+            Timeout::Disabled,
+        )
+        .expect("the call is queued");
+    }));
+    assert!(unwound.is_err(), "the sink unwinds on the write");
+
+    // The ticket was released, so the next line is written and acknowledged,
+    // and the call whose line was lost settles instead of waiting forever.
+    let (effects, lines) = sink.pump(&host, || {
+        host.request(
+            1,
+            "thread/read",
+            Some(&ace_json::json!({"threadId": "t"})),
+            8,
+            Timeout::Disabled,
+        )
+        .expect("the next call is queued");
+    });
+    assert!(
+        lines.iter().any(|line| line.contains("thread/read")),
+        "the shared stdin moves on: the next write is submitted: {lines:?}"
+    );
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            HostEffect::Settle {
+                id: 7,
+                result: Err(_)
+            }
+        )),
+        "the call whose write was lost settles: {effects:#?}"
+    );
+}
+
 /// A blocked sink's backlog closes the gate at TS's intake budget — 256 queued
 /// frames or 4 MiB, back below 64 frames and 1 MiB
 /// (`apps/daemon/src/engine/actor.ts:84`–`:103`, `engine/limits.ts:9`–`:17`) —
@@ -530,6 +580,7 @@ struct Holding {
     hold: Mutex<bool>,
     hold_frame: Mutex<bool>,
     lose: Mutex<bool>,
+    lose_write: Mutex<bool>,
     parked: Mutex<bool>,
     parked_wake: Condvar,
     release: Mutex<bool>,
@@ -643,6 +694,11 @@ impl Holding {
         *self.hold_frame.lock().expect("hold frame") = true;
     }
 
+    /// Unwinds on the next write, once.
+    fn lose_next_write(&self) {
+        *self.lose_write.lock().expect("lose write") = true;
+    }
+
     /// Unwinds on the next settlement, once.
     fn lose_next_settlement(&self) {
         *self.lose.lock().expect("lose") = true;
@@ -705,6 +761,17 @@ impl HostSink for Holding {
                 .cloned()
         }) {
             return;
+        }
+        let lose_write = {
+            let mut lose = self.lose_write.lock().expect("lose write");
+            let losing = *lose && matches!(effect, HostEffect::Write { .. });
+            if losing {
+                *lose = false;
+            }
+            losing
+        };
+        if lose_write {
+            panic!("the shell lost this write");
         }
         let lose = {
             let mut lose = self.lose.lock().expect("lose");

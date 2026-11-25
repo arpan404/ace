@@ -686,6 +686,27 @@ impl RpcPeer {
         effects
     }
 
+    /// A write the shell could not submit. TS's writer releases the active
+    /// slot, rejects the call the line carried and pumps the next write when
+    /// `stream.write` throws (`rpc-writer.ts:107`–`:120`); the shared stdin
+    /// must not wait on a callback that will never come.
+    pub fn write_failed(&mut self, ticket: u64, message: &str) -> Vec<PeerEffect> {
+        if !self.owner.written(ticket) {
+            return Vec::new();
+        }
+        let mut effects = Vec::new();
+        let carried = self
+            .pending
+            .iter()
+            .position(|(_, pending)| pending.ticket == Some(ticket));
+        if let Some(at) = carried {
+            let pending = self.pending.remove(at).1;
+            self.settle_pending(pending, Err(PeerError::new(message)), &mut effects);
+        }
+        self.pump(&mut effects);
+        effects
+    }
+
     /// An armed deadline fired (`rpc-timers.ts`): settle its call as timed out.
     pub fn timer(&mut self, key: &str) -> Vec<PeerEffect> {
         // Only an armed key settles a call: a disabled deadline has no timer.

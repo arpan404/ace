@@ -482,6 +482,39 @@ fn only_one_write_is_in_flight_until_the_pipe_acknowledges_it() {
     );
 }
 
+/// A write the shell never submitted fails its ticket: the call it carried
+/// settles with the reason, and the next line goes out, as TS's writer does
+/// when `stream.write` throws (`rpc-writer.ts:107`–`:120`).
+#[test]
+fn a_write_that_was_not_submitted_fails_its_ticket_and_sends_the_next_line() {
+    let mut peer = new_peer();
+    let first = match peer.request("one", None, 1, Timeout::Disabled) {
+        Ok(effects) => effects,
+        Err(error) => panic!("{error}"),
+    };
+    let second = match peer.request("two", None, 2, Timeout::Disabled) {
+        Ok(effects) => effects,
+        Err(error) => panic!("{error}"),
+    };
+    let ticket = writes(&first).first().map(|(ticket, _)| *ticket);
+    assert_eq!(ticket, Some(0), "the first line holds the ticket");
+    assert!(writes(&second).is_empty(), "one line is in flight");
+
+    let failed = peer.write_failed(0, "JSON-RPC write failed");
+    assert_eq!(
+        settles(&failed),
+        vec![(1, Err("JSON-RPC write failed".to_owned()))],
+        "the call whose line was lost settles"
+    );
+    assert_eq!(
+        writes(&failed),
+        vec![(1, r#"{"jsonrpc":"2.0","id":2,"method":"two"}"#.to_owned())],
+        "the next line follows"
+    );
+    // An unknown ticket is not two acknowledgements.
+    assert!(peer.write_failed(0, "JSON-RPC write failed").is_empty());
+}
+
 #[test]
 fn explicit_ids_keep_their_type_and_reject_reuse() {
     let cases = [

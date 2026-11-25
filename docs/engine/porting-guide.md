@@ -1179,6 +1179,9 @@ fakes, and everything the E1 translator owns. Five tasks, in order.
   its notification or server request, the refusal, a dropped line, a malformed line, a diagnostic
   and the host's failures (`Host::hand_over`), and a server request's answer goes back through
   `answer`/`answer_error` so the reply keeps the order too.
+- **A write the sink never submitted**: if the shell's sink unwinds while holding a write, that
+  ticket is failed in the peer (`RpcPeer::write_failed`), as `rpc-writer.ts:107`–`:120` fails a
+  submission that throws: the call it carried settles and the shared stdin moves on.
 - **A backlog closes the gate**: a frame that waits behind another input stays in that queue, and
   once it holds TS's intake budget — 256 frames or 4 MiB, reopened below 64 frames and 1 MiB
   (`apps/daemon/src/engine/actor.ts:84`–`:103`, `apps/daemon/src/engine/limits.ts:9`–`:17`) — the
