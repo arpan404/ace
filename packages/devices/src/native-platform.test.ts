@@ -72,7 +72,12 @@ const DEVICE = {
 type Wiring = {
   simulators: { list: () => Promise<Record<string, unknown>[]> };
   android: Record<string, (...args: never[]) => unknown>;
-  simctl: (device: unknown, args: readonly string[]) => Promise<{ code: number; stdout: string }>;
+  simctl: (
+    device: unknown,
+    args: readonly string[],
+    authorize?: () => void,
+    timeoutMs?: number,
+  ) => Promise<{ code: number; stdout: string }>;
   run: (command: string, args: readonly string[]) => Promise<{ code: number; stdout: string }>;
   xcode: () => Promise<{ xcrun: string; open: string }>;
   appProcesses: Map<string, string>;
@@ -199,6 +204,28 @@ test("list asks the addon for each Simulator and for the composition", async () 
     { platform: "ios", devices: [DEVICE] },
     { platform: "android", devices: [{ id: "android:Pixel_API_35" }] },
   ]);
+});
+
+test("a stale booted record does not stop a shut-down Simulator from booting", async () => {
+  addon.calls.length = 0;
+  const instance = platform();
+  const calls = wiring(instance);
+  const asked: unknown[][] = [];
+  calls.simulators = { list: async () => [{ udid: UDID, name: "iPhone", state: "Shutdown" }] };
+  calls.simctl = async (_device, args, _authorize, timeoutMs) => {
+    asked.push([args, timeoutMs]);
+    return { code: 0, stdout: "" };
+  };
+  calls.xcode = async () => ({ xcrun: "/xcrun", open: "/open" });
+  calls.run = async () => ({ code: 0, stdout: "" });
+  addon.answers["devicePlatformIosBoot"] = value({ boot: true, show: ["-g"] });
+  // The caller's record still says booted; the inventory says otherwise.
+  await instance.boot({ ...DEVICE, state: "booted", name: "iPhone" });
+  expect(addon.calls[0]).toEqual({
+    name: "devicePlatformIosBoot",
+    args: [`ios:${UDID}`, false],
+  });
+  expect(asked).toEqual([[["boot"], 240_000]]);
 });
 
 test("a Simulator boot follows the addon's plan: boot when needed, then show it", async () => {

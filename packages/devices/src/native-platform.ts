@@ -116,14 +116,15 @@ export class NativeDevicePlatform extends DevicePlatformBase {
       await this.android.boot(device, authorize);
       return;
     }
-    // A Simulator ace does not know must not be launched by a stale id.
+    // A Simulator ace does not know must not be launched by a stale id, and the listed state,
+    // not the caller's record, decides whether it needs booting.
     const listed = await this.simulators.list();
-    if (!listed.some((entry) => `ios:${entry.udid}` === device.id))
-      throw new Error("Unknown available simulator");
+    const entry = listed.find((candidate) => `ios:${candidate.udid}` === device.id);
+    if (!entry) throw new Error("Unknown available simulator");
     const plan = deviceAnswer<IosBoot>(() =>
-      nativeDevices().devicePlatformIosBoot(device.id, device.state === "booted"),
+      nativeDevices().devicePlatformIosBoot(device.id, entry.state === "Booted"),
     );
-    if (plan.boot) await this.simctl(device, ["boot"], authorize, 120_000);
+    if (plan.boot) await this.simctl(device, ["boot"], authorize, 240_000);
     const { open } = await this.xcode();
     authorize?.();
     await this.run(open, plan.show, 256 * 1024, undefined, undefined, authorize);
