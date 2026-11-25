@@ -51,7 +51,7 @@ impl Key {
 }
 
 /// One device input, parsed before any backend sees it.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum DeviceInput {
     Tap {

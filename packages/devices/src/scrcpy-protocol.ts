@@ -1,3 +1,6 @@
+import { nativeDevices } from "./native-devices-addon.ts";
+import { nativeInput } from "./native-input.ts";
+
 /**
  * ace's own client side of the scrcpy wire protocol, written from scrcpy's `doc/develop.md` and
  * the message layouts its protocol tests document. There is no backward compatibility between
@@ -42,6 +45,13 @@ export const injectTextLimit = 300;
 export const clipboardTextLimit = (1 << 18) - 14;
 
 export type ScreenSize = { width: number; height: number };
+
+/** The message with its bigints as decimal digits: JSON has no bigint, and every bit must survive. */
+function nativeControl(message: ControlMessage): string {
+  return JSON.stringify(message, (_key, value) =>
+    typeof value === "bigint" ? value.toString() : value,
+  );
+}
 export type ControlMessage =
   | { type: "keycode"; action: "down" | "up"; keycode: number; repeat?: number; meta?: number }
   | { type: "text"; text: string }
@@ -89,6 +99,7 @@ function position(buffer: Buffer, offset: number, x: number, y: number, screen: 
 }
 
 export function encodeControl(message: ControlMessage): Buffer {
+  if (nativeInput) return nativeDevices().devicePlatformScrcpyEncode(nativeControl(message));
   switch (message.type) {
     case "keycode": {
       const buffer = Buffer.alloc(14);

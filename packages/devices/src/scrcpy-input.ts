@@ -1,6 +1,7 @@
 import type { DeviceInput } from "@ace/protocol/devices";
 import { refuseAndroidKey } from "./key-support.ts";
-import { DeviceError } from "./sdk.ts";
+import { catalogRefusal } from "./sdk.ts";
+import { nativeInput, nativeScrcpyInputPlan } from "./native-input.ts";
 import {
   clipboardTextLimit,
   injectTextLimit,
@@ -51,6 +52,7 @@ export function scrcpyInputPlan(
   video: ScreenSize,
   nextSequence: () => bigint,
 ): InputStep[] {
+  if (nativeInput) return nativeScrcpyInputPlan(input, display, video, nextSequence) as InputStep[];
   const factor = video.width / display.width;
   const touch = (
     action: "down" | "up" | "move" | "cancel",
@@ -64,11 +66,7 @@ export function scrcpyInputPlan(
     const videoX = x * factor;
     const videoY = y * factor;
     if (videoX < 0 || videoY < 0 || videoX >= video.width || videoY >= video.height)
-      throw new DeviceError(
-        "invalid_data",
-        "Input is outside the device screen",
-        "Use a point inside the current frame.",
-      );
+      throw catalogRefusal("inputOutsideScreen");
     return {
       delayMs,
       message: {
@@ -111,7 +109,7 @@ export function scrcpyInputPlan(
       if (!input.text) return [];
       if (!plainText.test(input.text)) {
         if (Buffer.byteLength(input.text) > clipboardTextLimit)
-          throw new DeviceError("limit", "Text is too long to paste", "Type shorter text.");
+          throw catalogRefusal("pasteTooLong");
         return [
           {
             delayMs: 0,

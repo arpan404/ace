@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import type { spawnSupervised, SupervisedProcess } from "@ace/provider-kit/process";
-import { DeviceError } from "./sdk.ts";
+import { catalogFailure, catalogRefusal } from "./sdk.ts";
 
 /**
  * ace's own dex (source and build script beside it), pushed to the emulator on first use.
@@ -13,12 +13,7 @@ const remoteJar = "/data/local/tmp/ace-ui-helper.jar";
 /** The tree is one line of XML; the parser's own budget is 1 MiB. */
 const maxReplyBytes = 2 * 1024 * 1024;
 
-const failed = (message: string) =>
-  new DeviceError(
-    "command_failed",
-    message,
-    "Read the UI tree again; ace falls back to uiautomator.",
-  );
+const failed = (key: string) => catalogRefusal(key);
 
 /**
  * One long-running UiAutomation reader on one emulator. Requests are answered in order over the
@@ -62,7 +57,7 @@ export class AndroidUiHelper {
     });
     const started = Promise.withResolvers<void>();
     const cancelStartup = this.after(options.startupMs ?? 10_000, () => {
-      started.reject(failed("Android UI helper did not start"));
+      started.reject(failed("androidHelperStartFailed"));
       // Startup has already failed; a close that cannot finish reports nothing new.
       void this.close().catch(() => {});
     });
@@ -81,9 +76,8 @@ export class AndroidUiHelper {
     void this.process.exited
       .then(() => {
         this.closed = true;
-        started.reject(failed("Android UI helper exited"));
-        for (const waiter of this.waiting.splice(0))
-          waiter.reject(failed("Android UI helper exited"));
+        started.reject(failed("androidHelperExited"));
+        for (const waiter of this.waiting.splice(0)) waiter.reject(failed("androidHelperExited"));
       })
       .catch(() => {});
     this.touch();
@@ -95,11 +89,11 @@ export class AndroidUiHelper {
   tree(timeoutMs = 5000): Promise<string> {
     const request = this.tail.then(async () => {
       await this.ready;
-      if (this.closed) throw failed("Android UI helper exited");
+      if (this.closed) throw failed("androidHelperExited");
       this.touch();
       const reply = await new Promise<string>((resolve, reject) => {
         const cancel = this.after(timeoutMs, () => {
-          reject(failed("Android UI helper timed out"));
+          reject(failed("androidHelperTimedOut"));
           // The request has already failed; a close that cannot finish adds nothing.
           void this.close().catch(() => {});
         });
@@ -119,7 +113,8 @@ export class AndroidUiHelper {
         });
       });
       this.touch();
-      if (reply.startsWith("ERR ")) throw failed(`Android UI helper: ${reply.slice(4)}`);
+      if (reply.startsWith("ERR "))
+        throw catalogFailure("androidHelperExited", `Android UI helper: ${reply.slice(4)}`);
       return reply.slice(3);
     });
     this.tail = request.catch(() => {});

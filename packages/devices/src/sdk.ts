@@ -32,6 +32,11 @@ export function catalogRefusal(key: string): DeviceError {
   const word = catalogWord(key);
   return new DeviceError(word.code, word.message, word.hint);
 }
+/** A catalog word with a built message (a key's or a verb's name) and the catalog's hint. */
+export function catalogFailure(key: string, message: string): DeviceError {
+  const word = catalogWord(key);
+  return new DeviceError(word.code, message, word.hint);
+}
 /** The addon's refusal as today's `DeviceError`, so `instanceof` and its code both hold. */
 export function deviceRefusal(word: RefusalWord): DeviceError {
   return new DeviceError(word.code as DeviceErrorCode, word.message, word.hint);

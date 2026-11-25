@@ -7,7 +7,13 @@ import {
   ScreenUIFindResult,
   type ScreenUINode,
 } from "@ace/protocol";
-import { DeviceError } from "./sdk.ts";
+import { catalogRefusal } from "./sdk.ts";
+import {
+  nativeAndroidFind,
+  nativeAndroidTarget,
+  nativeAndroidTree,
+  nativeInput,
+} from "./native-input.ts";
 type Node = z.infer<typeof ScreenUINode>;
 const Attribute = z.record(z.string(), z.string().max(8192));
 const Bounds = z.string().regex(/^\[\d+,\d+\]\[\d+,\d+\]$/);
@@ -30,11 +36,7 @@ function decode(value: string): string {
       code > 0x10ffff ||
       (code >= 0xd800 && code <= 0xdfff)
     )
-      throw new DeviceError(
-        "invalid_data",
-        "Invalid Android UI entity",
-        "Refresh the device tree.",
-      );
+      throw catalogRefusal("androidEntityInvalid");
     return String.fromCodePoint(code);
   });
 }
@@ -53,11 +55,7 @@ function attributes(tag: string): Record<string, string> {
       match[2] === undefined ||
       Object.hasOwn(values, match[1])
     )
-      throw new DeviceError(
-        "invalid_data",
-        "Malformed Android UI attributes",
-        "Refresh the device tree.",
-      );
+      throw catalogRefusal("androidAttributesMalformed");
     values[match[1]] = decode(match[2]);
     cursor = pattern.lastIndex;
   }
@@ -68,8 +66,7 @@ function mapped(values: Record<string, string>, path: string): Node {
   const [x, y, right, bottom] = z
     .tuple([z.number(), z.number(), z.number(), z.number()])
     .parse(coordinates);
-  if (right < x || bottom < y)
-    throw new DeviceError("invalid_data", "Invalid Android UI bounds", "Refresh the device tree.");
+  if (right < x || bottom < y) throw catalogRefusal("androidBoundsInvalid");
   const role = (values["class"] ?? "node").slice(0, 128);
   const text = values["text"] ?? "";
   const name = values["content-desc"] || text || values["resource-id"] || "";
@@ -110,13 +107,10 @@ function mapped(values: Record<string, string>, path: string): Node {
 }
 /** A bounded parser for uiautomator's node-only XML. DTDs/entities are rejected. */
 export function androidTree(xml: string, options: unknown): ScreenUITreeResult {
+  if (nativeInput) return nativeAndroidTree(xml, options) as ScreenUITreeResult;
   const limits = ScreenUITreeOptions.parse(options);
   if (Buffer.byteLength(xml) > 1024 * 1024 || /<!/.test(xml))
-    throw new DeviceError(
-      "limit",
-      "Android UI dump exceeds the XML budget",
-      "Reduce the app's UI tree.",
-    );
+    throw catalogRefusal("androidTreeBudget");
   const nodes: Node[] = [];
   const stack: { node: Node | undefined; next: number; path: string }[] = [];
   let count = 0;
@@ -126,56 +120,29 @@ export function androidTree(xml: string, options: unknown): ScreenUITreeResult {
   let cursor = 0;
   const tokens = /<\?xml[^>]*\?>|<hierarchy\b[^>]*>|<\/hierarchy\s*>|<node\b[^>]*>|<\/node\s*>/g;
   for (const match of xml.matchAll(tokens)) {
-    if (xml.slice(cursor, match.index).trim())
-      throw new DeviceError("invalid_data", "Malformed Android UI XML", "Refresh the device tree.");
+    if (xml.slice(cursor, match.index).trim()) throw catalogRefusal("androidXmlMalformed");
     cursor = match.index + match[0].length;
     const tag = match[0];
     if (tag.startsWith("<?xml")) {
-      if (opened)
-        throw new DeviceError(
-          "invalid_data",
-          "Unexpected XML declaration",
-          "Refresh the device tree.",
-        );
+      if (opened) throw catalogRefusal("androidXmlDeclaration");
       continue;
     }
     if (tag.startsWith("<hierarchy")) {
-      if (opened || closed)
-        throw new DeviceError("invalid_data", "Duplicate UI hierarchy", "Refresh the device tree.");
+      if (opened || closed) throw catalogRefusal("androidHierarchyDuplicate");
       opened = true;
       continue;
     }
     if (tag.startsWith("</hierarchy")) {
-      if (!opened || stack.length)
-        throw new DeviceError(
-          "invalid_data",
-          "Unclosed Android UI node",
-          "Refresh the device tree.",
-        );
+      if (!opened || stack.length) throw catalogRefusal("androidNodeUnclosed");
       closed = true;
       continue;
     }
-    if (!opened || closed)
-      throw new DeviceError(
-        "invalid_data",
-        "UI node outside hierarchy",
-        "Refresh the device tree.",
-      );
+    if (!opened || closed) throw catalogRefusal("androidNodeOutsideHierarchy");
     if (tag.startsWith("</node")) {
-      if (!stack.pop())
-        throw new DeviceError(
-          "invalid_data",
-          "Unbalanced Android UI tree",
-          "Refresh the device tree.",
-        );
+      if (!stack.pop()) throw catalogRefusal("androidTreeUnbalanced");
       continue;
     }
-    if (stack.length > 128 || ++count > 32768)
-      throw new DeviceError(
-        "limit",
-        "Android UI nesting exceeds the parser budget",
-        "Reduce the app's UI nesting.",
-      );
+    if (stack.length > 128 || ++count > 32768) throw catalogRefusal("androidNestingBudget");
     const parent = stack.at(-1);
     const path = parent ? `${parent.path}_${parent.next++}` : String(nodes.length);
     const retain =
@@ -190,10 +157,11 @@ export function androidTree(xml: string, options: unknown): ScreenUITreeResult {
     if (!tag.endsWith("/>")) stack.push({ node, next: 0, path });
   }
   if (!opened || !closed || stack.length || xml.slice(cursor).trim())
-    throw new DeviceError("invalid_data", "Incomplete Android UI XML", "Refresh the device tree.");
+    throw catalogRefusal("androidXmlIncomplete");
   return ScreenUITreeResult.parse({ nodes, truncated });
 }
 export function androidFind(tree: ScreenUITreeResult, options: unknown): ScreenUIFindResult {
+  if (nativeInput) return nativeAndroidFind(tree, options) as ScreenUIFindResult;
   const { query, limit } = ScreenUIFindOptions.parse(options);
   const nodes: Node[] = [];
   const pending = tree.nodes.toReversed();
@@ -221,6 +189,7 @@ export function androidFind(tree: ScreenUITreeResult, options: unknown): ScreenU
   return ScreenUIFindResult.parse({ nodes, truncated });
 }
 export function androidTarget(tree: ScreenUITreeResult, ref: string): Node {
+  if (nativeInput) return nativeAndroidTarget(tree, ref) as Node;
   const pending = [...tree.nodes];
   while (pending.length) {
     const node = pending.pop();
@@ -228,9 +197,5 @@ export function androidTarget(tree: ScreenUITreeResult, ref: string): Node {
     if (node.ref === ref) return node;
     pending.push(...node.children);
   }
-  throw new DeviceError(
-    "stale_ref",
-    "Android UI target is stale or no longer visible",
-    "Read the UI tree again before acting.",
-  );
+  throw catalogRefusal("androidTargetStale");
 }

@@ -3,14 +3,14 @@
 //! input a semantic action becomes. A bounded parser: DTDs and entities are refused, nesting and
 //! node counts are capped, and every malformed byte is `invalid_data` rather than a surprise.
 
+use ace_json::{Value, json};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::platform::{Error, Refusal};
 
 /// One accessibility node, in the schema's key order.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Node {
     #[serde(rename = "ref")]
     pub ref_: String,
@@ -20,8 +20,8 @@ pub struct Node {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub bounds: Bounds,
-    pub states: Vec<&'static str>,
-    pub actions: Vec<&'static str>,
+    pub states: Vec<String>,
+    pub actions: Vec<String>,
     pub children: Vec<Node>,
 }
 
@@ -34,7 +34,7 @@ impl Node {
 }
 
 /// A node's rectangle in framebuffer pixels.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Bounds {
     pub x: f64,
     pub y: f64,
@@ -43,7 +43,7 @@ pub struct Bounds {
 }
 
 /// A parsed tree and whether a budget cut it.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tree {
     pub nodes: Vec<Node>,
     pub truncated: bool,
@@ -152,7 +152,7 @@ fn slice_units(text: &str, units: usize) -> String {
 }
 
 fn sha_ref(prefix: &str, identity: &Value) -> String {
-    let text = serde_json::to_string(identity).unwrap_or_default();
+    let text = ace_json::ser::to_string(identity).unwrap_or_default();
     let digest = Sha256::digest(text.as_bytes());
     let mut hex = String::with_capacity(40);
     for byte in digest.iter().take(20) {
@@ -324,28 +324,28 @@ fn mapped(values: &[(String, String)], path: &str) -> Result<Node, Error> {
         .or((!text.is_empty()).then_some(text))
         .or(attribute(values, "resource-id"))
         .unwrap_or("");
-    let mut states = Vec::new();
+    let mut states: Vec<String> = Vec::new();
     for key in ["focused", "selected", "checked"] {
         if attribute(values, key) == Some("true") {
-            states.push(key);
+            states.push(key.to_string());
         }
     }
     if attribute(values, "enabled") == Some("false") {
-        states.push("disabled");
+        states.push("disabled".to_string());
     }
-    let mut actions = Vec::new();
-    if !states.contains(&"disabled") {
+    let mut actions: Vec<String> = Vec::new();
+    if !states.iter().any(|state| state == "disabled") {
         if attribute(values, "clickable") == Some("true") {
-            actions.push("press");
+            actions.push("press".to_string());
         }
         if attribute(values, "focusable") == Some("true") {
-            actions.push("focus");
+            actions.push("focus".to_string());
         }
         if attribute(values, "scrollable") == Some("true") {
-            actions.push("scroll");
+            actions.push("scroll".to_string());
         }
         if attribute(values, "checkable") == Some("true") {
-            actions.push("select");
+            actions.push("select".to_string());
         }
     }
     // Ref identifies the observed node and its position. Refreshes with changed resource, text,
@@ -601,7 +601,9 @@ pub fn find(tree: &Tree, options: &FindOptions) -> Tree {
 
 /// The device input that performs a semantic action on a node, or why it can't be done.
 pub fn act(node: &Node, options: &ActOptions) -> Result<ActInput, Error> {
-    if !node.actions.contains(&options.action.as_str()) || node.states.contains(&"disabled") {
+    if !node.actions.iter().any(|action| action == &options.action)
+        || node.states.iter().any(|state| state == "disabled")
+    {
         return Err(invalid("androidActionUnsupported"));
     }
     if node.bounds.w == 0.0 || node.bounds.h == 0.0 {
@@ -609,7 +611,9 @@ pub fn act(node: &Node, options: &ActOptions) -> Result<ActInput, Error> {
     }
     if options.action == "select"
         && let Some(Value::Bool(wanted)) = options.value
-        && (node.states.contains(&"checked") || node.states.contains(&"selected")) == wanted
+        && (node.states.iter().any(|state| state == "checked")
+            || node.states.iter().any(|state| state == "selected"))
+            == wanted
     {
         return Ok(ActInput::None {
             method: "already_selected",

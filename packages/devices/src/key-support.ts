@@ -1,5 +1,6 @@
 import type { AppDevice, DeviceInput } from "@ace/protocol/devices";
-import { DeviceError } from "./sdk.ts";
+import { catalogFailure, catalogRefusal, DeviceError } from "./sdk.ts";
+import { nativeInput, nativeKeyRefusal } from "./native-input.ts";
 
 export type DeviceKey = Extract<DeviceInput, { kind: "key" }>["key"];
 
@@ -14,30 +15,11 @@ export function keyRefusal(
   key: DeviceKey,
 ): DeviceError | undefined {
   const ios = device.platform === "ios";
-  if (ios && key === "recents")
-    return new DeviceError(
-      "not_supported",
-      "iOS Simulator has no Recents key",
-      "A slow swipe up from the bottom edge opens the app switcher; or open_app the app you want.",
-    );
-  if (ios && key === "back")
-    return new DeviceError(
-      "not_supported",
-      "iOS has no Back key",
-      "Use a gesture or the app's back control.",
-    );
-  if (!ios && key === "action")
-    return new DeviceError(
-      "not_supported",
-      "Android has no Action button",
-      "The Action button is on iPhone 15 Pro and later; on Android, open_app or use the app's own control.",
-    );
-  if (key === "side" && !(ios && watch.test(device.name)))
-    return new DeviceError(
-      "not_supported",
-      "Only Apple Watch has a side key",
-      "On a phone or tablet the side or top button is the power key.",
-    );
+  if (nativeInput) return nativeKeyRefusal(ios, device.name, key);
+  if (ios && key === "recents") return catalogRefusal("iosRecentsKey");
+  if (ios && key === "back") return catalogRefusal("iosBackKey");
+  if (!ios && key === "action") return catalogRefusal("androidActionKey");
+  if (key === "side" && !(ios && watch.test(device.name))) return catalogRefusal("watchSideKey");
   return undefined;
 }
 
@@ -45,11 +27,7 @@ export function keyRefusal(
 export function refuseAndroidKey(key: DeviceKey): never {
   throw (
     keyRefusal({ platform: "android", name: "" }, key) ??
-    new DeviceError(
-      "not_supported",
-      `Android has no ${key} key`,
-      "Use the app's own controls instead.",
-    )
+    catalogFailure("androidNoKeyHint", `Android has no ${key} key`)
   );
 }
 
@@ -57,10 +35,6 @@ export function refuseAndroidKey(key: DeviceKey): never {
 export function refuseSimulatorKey(key: DeviceKey): never {
   throw (
     keyRefusal({ platform: "ios", name: "" }, key) ??
-    new DeviceError(
-      "not_supported",
-      `iOS Simulator has no ${key} key`,
-      "Use the Simulator Device menu or the app's navigation.",
-    )
+    catalogFailure("iosNoKeyHint", `iOS Simulator has no ${key} key`)
   );
 }

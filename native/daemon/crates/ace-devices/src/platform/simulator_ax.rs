@@ -3,8 +3,8 @@
 //! app's own layout, which is not always the device's, so the layout is worked out first and each
 //! rectangle is turned back onto the portrait framebuffer the picture and the input use.
 
+use ace_json::Value;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::platform::android_ui::{ActInput, Bounds, Node, Tree, TreeOptions};
@@ -98,7 +98,7 @@ fn element(raw: &Value) -> Option<Element> {
     };
     let children = match object.get("children") {
         None => Vec::new(),
-        Some(Value::Array(children)) if children.len() <= 4096 => children.clone(),
+        Some(Value::Array(children)) if children.len() <= 4096 => children.to_vec(),
         Some(_) => return None,
     };
     Some(Element {
@@ -118,7 +118,7 @@ fn element(raw: &Value) -> Option<Element> {
 
 fn roots(raw: &Value) -> Option<Vec<Value>> {
     let roots = raw.as_array()?;
-    (roots.len() <= 64).then(|| roots.clone())
+    (roots.len() <= 64).then(|| roots.to_vec())
 }
 
 /// The app's layout under serve-sim's tree: the root reports the window's portrait frame either
@@ -262,7 +262,7 @@ fn slice_units(text: &str, units: usize) -> String {
 }
 
 fn sha_ref(identity: &Value) -> String {
-    let text = serde_json::to_string(identity).unwrap_or_default();
+    let text = ace_json::ser::to_string(identity).unwrap_or_default();
     let digest = Sha256::digest(text.as_bytes());
     let mut hex = String::with_capacity(40);
     for byte in digest.iter().take(20) {
@@ -301,39 +301,43 @@ fn mapped(element: &Element, path: &str, layout: Layout, screen: &Screen) -> Nod
         w: (shown.width * screen.width).round(),
         h: (shown.height * screen.height).round(),
     };
-    let mut states: Vec<&'static str> = Vec::new();
+    let mut states: Vec<String> = Vec::new();
     if toggles(&kind) && element.value == "1" {
-        states.push("checked");
+        states.push("checked".to_string());
     }
     if !element.enabled {
-        states.push("disabled");
+        states.push("disabled".to_string());
     }
     if bounds.x + bounds.w <= 0.0
         || bounds.y + bounds.h <= 0.0
         || (screen.width > 0.0 && bounds.x >= screen.width)
         || (screen.height > 0.0 && bounds.y >= screen.height)
     {
-        states.push("offscreen");
+        states.push("offscreen".to_string());
     }
-    let mut actions: Vec<&'static str> = Vec::new();
-    if element.enabled && bounds.w > 0.0 && bounds.h > 0.0 && !states.contains(&"offscreen") {
+    let mut actions: Vec<String> = Vec::new();
+    if element.enabled
+        && bounds.w > 0.0
+        && bounds.h > 0.0
+        && !states.iter().any(|state| state == "offscreen")
+    {
         if pressable(&kind) {
-            actions.push("press");
+            actions.push("press".to_string());
         }
         if editable(&kind) {
-            actions.push("press");
-            actions.push("focus");
+            actions.push("press".to_string());
+            actions.push("focus".to_string());
         }
         if scrollable(&kind) {
-            actions.push("scroll");
+            actions.push("scroll".to_string());
         }
         if toggles(&kind) {
-            actions.push("select");
+            actions.push("select".to_string());
         }
     }
     // The ref names this element at this place in this tree. A later read where it moved,
     // changed label or changed identity yields a different ref, so an old ref goes stale.
-    let identity = json!([
+    let identity = ace_json::json!([
         path,
         kind,
         element.unique_id,
@@ -444,7 +448,9 @@ pub fn action_input(
     value: Option<&Value>,
     turn: Turn,
 ) -> Result<ActInput, Error> {
-    if !node.actions.contains(&action) || node.states.contains(&"disabled") {
+    if !node.actions.iter().any(|each| each == action)
+        || node.states.iter().any(|state| state == "disabled")
+    {
         return Err(Refusal::word("simulatorActionUnsupported").into());
     }
     let centre = (
@@ -453,7 +459,7 @@ pub fn action_input(
     );
     if action == "select"
         && let Some(Value::Bool(wanted)) = value
-        && node.states.contains(&"checked") == *wanted
+        && node.states.iter().any(|state| state == "checked") == *wanted
     {
         return Ok(ActInput::None {
             method: "already_selected",
@@ -507,7 +513,7 @@ mod tests {
     }
 
     fn element(fields: Value, children: Vec<Value>) -> Value {
-        let mut object = json!({
+        let mut object = ace_json::json!({
             "AXLabel": null,
             "AXValue": null,
             "AXUniqueId": null,
@@ -521,37 +527,40 @@ mod tests {
                 map.insert(key, value);
             }
         }
-        map.insert("children".into(), Value::Array(children));
+        map.insert(
+            "children".to_string(),
+            ace_json::Value::Array(ace_json::Array::from(children)),
+        );
         object
     }
 
     fn settings() -> Value {
-        json!([element(
-            json!({"type": "Application", "AXLabel": "Settings", "frame": {"x": 0, "y": 0, "width": 402, "height": 874}}),
+        ace_json::json!([element(
+            ace_json::json!({"type": "Application", "AXLabel": "Settings", "frame": {"x": 0, "y": 0, "width": 402, "height": 874}}),
             vec![
                 element(
-                    json!({"AXLabel": "General", "frame": {"x": 16, "y": 300, "width": 370, "height": 52}}),
+                    ace_json::json!({"AXLabel": "General", "frame": {"x": 16, "y": 300, "width": 370, "height": 52}}),
                     vec![]
                 ),
                 element(
-                    json!({"type": "Switch", "AXLabel": "Airplane Mode", "AXValue": "1", "AXUniqueId": "airplane", "frame": {"x": 16, "y": 200, "width": 370, "height": 52}}),
+                    ace_json::json!({"type": "Switch", "AXLabel": "Airplane Mode", "AXValue": "1", "AXUniqueId": "airplane", "frame": {"x": 16, "y": 200, "width": 370, "height": 52}}),
                     vec![]
                 ),
                 element(
-                    json!({"AXLabel": "Disabled", "enabled": false, "frame": {"x": 16, "y": 400, "width": 370, "height": 52}}),
+                    ace_json::json!({"AXLabel": "Disabled", "enabled": false, "frame": {"x": 16, "y": 400, "width": 370, "height": 52}}),
                     vec![]
                 ),
                 element(
-                    json!({"type": "ScrollView", "frame": {"x": 0, "y": 100, "width": 402, "height": 700}}),
+                    ace_json::json!({"type": "ScrollView", "frame": {"x": 0, "y": 100, "width": 402, "height": 700}}),
                     vec![]
                 ),
-                json!({"frame": "not a frame", "AXLabel": "broken"}),
+                ace_json::json!({"frame": "not a frame", "AXLabel": "broken"}),
                 element(
-                    json!({"AXLabel": "Offscreen", "frame": {"x": 0, "y": 2000, "width": 100, "height": 40}}),
+                    ace_json::json!({"AXLabel": "Offscreen", "frame": {"x": 0, "y": 2000, "width": 100, "height": 40}}),
                     vec![]
                 ),
                 element(
-                    json!({"AXLabel": "Future", "frame": {"x": 1, "y": 1, "width": 2, "height": 2}, "newField": [1, 2]}),
+                    ace_json::json!({"AXLabel": "Future", "frame": {"x": 1, "y": 1, "width": 2, "height": 2}, "newField": [1, 2]}),
                     vec![]
                 ),
             ],
@@ -617,7 +626,7 @@ mod tests {
     #[test]
     fn a_malformed_answer_is_invalid_data() {
         let error = tree(
-            &json!({"not": "an array"}),
+            &ace_json::json!({"not": "an array"}),
             &screen(),
             TreeOptions::default(),
         )
@@ -650,10 +659,18 @@ mod tests {
         let again = tree(&settings(), &screen(), TreeOptions::default()).expect("parses");
         assert_eq!(target(&again, &general).expect("found").name, "General");
         let mut moved = settings();
-        moved[0]["children"][0] = element(
-            json!({"AXLabel": "General", "frame": {"x": 16, "y": 360, "width": 370, "height": 52}}),
+        let replacement = element(
+            ace_json::json!({"AXLabel": "General", "frame": {"x": 16, "y": 360, "width": 370, "height": 52}}),
             vec![],
         );
+        if let Some(root) = moved.get_mut(&0)
+            && let Some(children) = root
+                .as_object_mut()
+                .and_then(|root| root.get_mut("children"))
+                .and_then(|children| children.as_array_mut())
+        {
+            children[0] = replacement;
+        }
         let moved = tree(&moved, &screen(), TreeOptions::default()).expect("parses");
         assert!(target(&moved, &general).is_err());
     }
@@ -689,7 +706,7 @@ mod tests {
             action_input(
                 &node("ScrollView"),
                 "scroll",
-                Some(&json!({"dx": 0, "dy": 400})),
+                Some(&ace_json::json!({"dx": 0, "dy": 400})),
                 Turn::None
             )
             .expect("acts"),
@@ -707,19 +724,19 @@ mod tests {
     /// An iPhone Duo's inner screen: the root keeps the window's portrait frame while the app is
     /// laid out landscape. Its framebuffer stays portrait.
     fn landscape() -> Value {
-        json!([element(
-            json!({"type": "Application", "AXLabel": "Settings", "frame": {"x": 0, "y": 0, "width": 669, "height": 951}}),
+        ace_json::json!([element(
+            ace_json::json!({"type": "Application", "AXLabel": "Settings", "frame": {"x": 0, "y": 0, "width": 669, "height": 951}}),
             vec![
                 element(
-                    json!({"type": "Group", "frame": {"x": 0, "y": 0, "width": 951, "height": 669}}),
+                    ace_json::json!({"type": "Group", "frame": {"x": 0, "y": 0, "width": 951, "height": 669}}),
                     vec![]
                 ),
                 element(
-                    json!({"AXLabel": "About", "frame": {"x": 340, "y": 303.67, "width": 527, "height": 52}}),
+                    ace_json::json!({"AXLabel": "About", "frame": {"x": 340, "y": 303.67, "width": 527, "height": 52}}),
                     vec![]
                 ),
                 element(
-                    json!({"type": "ScrollView", "AXLabel": "List", "frame": {"x": 340, "y": 100, "width": 527, "height": 500}}),
+                    ace_json::json!({"type": "ScrollView", "AXLabel": "List", "frame": {"x": 340, "y": 100, "width": 527, "height": 500}}),
                     vec![]
                 ),
             ],
@@ -813,7 +830,7 @@ mod tests {
         let input = action_input(
             &list,
             "scroll",
-            Some(&json!({"dx": 0, "dy": 300})),
+            Some(&ace_json::json!({"dx": 0, "dy": 300})),
             Turn::Quarter,
         )
         .expect("acts");

@@ -1,5 +1,6 @@
 import type { spawnRawSupervised } from "@ace/provider-kit/process";
 import { boundedClipboard, clipboardLimit, type ClipboardRead } from "./clipboard.ts";
+import { catalogHint } from "./catalog.ts";
 import { DeviceError } from "./sdk.ts";
 
 /** How one Simulator's pasteboard is reached: `xcrun simctl pbcopy|pbpaste <udid>`. */
@@ -57,13 +58,13 @@ async function pasteboard(
       throw new DeviceError(
         "timeout",
         `Simulator ${verb} did not finish`,
-        "Check that the Simulator is booted and responding, then retry.",
+        catalogHint("simulatorPasteTimeoutHint"),
       );
     if (!cut && exit.code !== 0)
       throw new DeviceError(
         "command_failed",
         `Simulator ${verb} failed`,
-        "Check that the Simulator is booted, then retry.",
+        catalogHint("simulatorPasteFailedHint"),
       );
     return { bytes: Buffer.concat(chunks).subarray(0, readBytes), cut };
   } finally {

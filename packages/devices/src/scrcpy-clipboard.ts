@@ -1,4 +1,4 @@
-import { DeviceError } from "./sdk.ts";
+import { catalogRefusal } from "./sdk.ts";
 import type { ControlMessage, DeviceMessage } from "./scrcpy-protocol.ts";
 
 /**
@@ -64,10 +64,7 @@ export class ScrcpyClipboard {
   }
   /** The device clipboard's text for `owner`'s read; empty when the device does not answer. */
   read(owner: string): Promise<string> {
-    if (this.reading)
-      return Promise.reject(
-        new DeviceError("busy", "A clipboard read is already waiting", "Retry shortly."),
-      );
+    if (this.reading) return Promise.reject(catalogRefusal("clipboardReadWaiting"));
     return new Promise<string>((resolve, reject) => {
       this.reading = { owner, request: undefined, resolve, reject };
       this.proceed();
@@ -114,13 +111,7 @@ export class ScrcpyClipboard {
     return new Promise<void>((resolve, reject) => {
       const cancel = this.options.after(ackMs, () => {
         this.acks.delete(sequence);
-        reject(
-          new DeviceError(
-            "command_failed",
-            paste ? "Android paste timed out" : "Android clipboard write timed out",
-            "Retry the text.",
-          ),
-        );
+        reject(catalogRefusal(paste ? "pasteTimedOut" : "clipboardWriteTimedOut"));
       });
       this.acks.set(sequence, () => {
         cancel();
@@ -145,8 +136,6 @@ export class ScrcpyClipboard {
     this.outstanding.length = 0;
     const reading = this.reading;
     this.reading = undefined;
-    reading?.reject(
-      new DeviceError("busy", "Android control restarted during a clipboard read", "Retry."),
-    );
+    reading?.reject(catalogRefusal("androidControlRestarted"));
   }
 }

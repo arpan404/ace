@@ -6,8 +6,8 @@
 
 use std::collections::BTreeMap;
 
+use ace_json::Value;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::platform::{Error, Refusal};
 
@@ -50,7 +50,7 @@ fn displays(report: &Value) -> Option<Vec<Display>> {
     }
     Some(
         list.iter()
-            .filter_map(|raw| serde_json::from_value(raw.clone()).ok())
+            .filter_map(|raw| ace_json::from_value(raw).ok())
             .collect(),
     )
 }
@@ -354,10 +354,9 @@ impl EmulatorPostures {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     fn duo(cover_lit: bool, inner_lit: bool) -> Value {
-        json!({
+        ace_json::json!({
             "result": {
                 "displays": [
                     {"primary": true, "active": !cover_lit, "backlightState": if cover_lit {"activeOn"} else {"off"}},
@@ -369,7 +368,7 @@ mod tests {
 
     #[test]
     fn a_lit_cover_screen_reads_as_closed_even_while_the_inner_one_is_still_marked_active() {
-        let report = json!({"result": {"displays": [
+        let report = ace_json::json!({"result": {"displays": [
             {"primary": true, "active": false, "backlightState": "activeOn"},
             {"primary": false, "active": true, "backlightState": "off"},
         ]}});
@@ -396,12 +395,12 @@ mod tests {
 
     #[test]
     fn with_both_screens_asleep_the_active_screen_decides() {
-        let cover = json!({"result": {"displays": [
+        let cover = ace_json::json!({"result": {"displays": [
             {"primary": true, "active": true, "backlightState": "off"},
             {"primary": false, "active": false, "backlightState": "off"},
         ]}});
         assert_eq!(read_posture(&cover, None), Some(Posture::Closed));
-        let inner = json!({"result": {"displays": [
+        let inner = ace_json::json!({"result": {"displays": [
             {"primary": true, "active": false, "backlightState": "off"},
             {"primary": false, "active": true, "backlightState": "off"},
         ]}});
@@ -410,16 +409,16 @@ mod tests {
 
     #[test]
     fn a_device_with_one_screen_or_a_report_that_cannot_be_read_has_no_posture() {
-        let phone = json!({"result": {"displays": [
+        let phone = ace_json::json!({"result": {"displays": [
             {"name": "LCD", "primary": true, "active": true, "backlightState": "activeOn"}
         ]}});
         assert_eq!(read_posture(&phone, None), None);
         assert_eq!(screen_count(&phone), Some(1));
         assert_eq!(
-            read_posture(&json!({"error": "device not found"}), None),
+            read_posture(&ace_json::json!({"error": "device not found"}), None),
             None
         );
-        assert_eq!(screen_count(&json!("not json")), None);
+        assert_eq!(screen_count(&ace_json::json!("not json")), None);
     }
 
     #[test]
@@ -613,10 +612,10 @@ mod tests {
         fn report(&mut self) -> Option<Value> {
             self.reads += 1;
             let displays = [
-                json!({"primary": true, "active": self.angle >= 90.0, "backlightState": if self.angle < 90.0 {"activeOn"} else {"off"}}),
-                json!({"primary": false, "active": self.angle < 90.0, "backlightState": if self.angle >= 90.0 {"activeOn"} else {"off"}}),
+                ace_json::json!({"primary": true, "active": self.angle >= 90.0, "backlightState": if self.angle < 90.0 {"activeOn"} else {"off"}}),
+                ace_json::json!({"primary": false, "active": self.angle < 90.0, "backlightState": if self.angle >= 90.0 {"activeOn"} else {"off"}}),
             ];
-            Some(json!({"result": {"displays": &displays[..self.screens]}}))
+            Some(ace_json::json!({"result": {"displays": displays[..self.screens].to_vec()}}))
         }
     }
 

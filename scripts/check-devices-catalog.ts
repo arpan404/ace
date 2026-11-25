@@ -23,7 +23,13 @@ const catalog = JSON.parse(
  * Hint phrases deliberately shared by unrelated refusals: they name a next step, not a word the
  * catalog owns, so a source may spell them.
  */
-const genericHints = new Set(["Refresh the device list.", "Restart ace."]);
+const genericHints = new Set([
+  "Refresh the device list.",
+  "Restart ace.",
+  "Read the UI tree again.",
+  "Retry.",
+  "Retry shortly.",
+]);
 
 let failed = 0;
 

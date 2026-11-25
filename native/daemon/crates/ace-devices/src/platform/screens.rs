@@ -2,11 +2,11 @@
 //! `simulator-screens.ts`: the built-in screens `devicectl device info displays` lists, and the
 //! one a touch belongs to.
 
-use serde::Serialize;
-use serde_json::Value;
+use ace_json::Value;
+use serde::{Deserialize, Serialize};
 
 /// One of a Simulator's built-in screens: devicectl's display id, native pixel size, and lit.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SimulatorScreen {
     pub id: u8,
     pub width: f64,
@@ -77,11 +77,10 @@ pub fn touch_target(screens: &[SimulatorScreen], picture: Option<(f64, f64)>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     /// `devicectl device info displays --json-output` for an unfolded iPhone Duo, trimmed.
     fn duo(inner_lit: bool) -> Value {
-        json!({
+        ace_json::json!({
             "result": {
                 "backlightState": "on",
                 "displays": [
@@ -109,11 +108,14 @@ mod tests {
 
     #[test]
     fn a_phone_with_one_screen_or_a_report_devicectl_could_not_give_touches_the_main_screen() {
-        let phone = json!({"result": {"displays": [{"displayId": 1, "nativeSize": [1206, 2622], "active": true}]}});
+        let phone = ace_json::json!({"result": {"displays": [{"displayId": 1, "nativeSize": [1206, 2622], "active": true}]}});
         assert_eq!(
             touch_target(&read_screens(&phone), Some((1206.0, 2622.0))),
             0
         );
-        assert_eq!(touch_target(&read_screens(&json!("not json")), None), 0);
+        assert_eq!(
+            touch_target(&read_screens(&ace_json::json!("not json")), None),
+            0
+        );
     }
 }

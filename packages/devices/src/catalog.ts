@@ -19,7 +19,15 @@ const words = catalog.platform as Record<string, CatalogWord>;
 const toolWords = (catalog.tools ?? {}) as Record<string, string>;
 
 /** The tool words that are not a whole refusal, by the key the catalog gives them. */
-export type CatalogHintKey = "downloadHint" | "againHint" | "scrcpyHint" | "downloadTimeout";
+export type CatalogHintKey =
+  | "downloadHint"
+  | "againHint"
+  | "scrcpyHint"
+  | "downloadTimeout"
+  | "simulatorPasteTimeoutHint"
+  | "simulatorPasteFailedHint"
+  | "androidNoKeyHint"
+  | "iosNoKeyHint";
 
 /** The refusal `key` names, as the catalog spells it. */
 export function catalogWord(key: string): CatalogWord {

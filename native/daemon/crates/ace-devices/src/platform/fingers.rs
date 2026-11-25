@@ -4,14 +4,14 @@
 //! step Xcode's `--sim-touch` digitizer takes for each, and the HID message each hardware key
 //! sends. Pure: the shell owns the processes, epochs and clocks.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::platform::device_input::Key;
 use crate::platform::keys::refuse_simulator_key;
 use crate::platform::{Error, Failure, Refusal};
 
 /// A point normalized to the simulator framebuffer, 0..1 on each axis.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Point {
     pub x: f64,
     pub y: f64,
@@ -27,7 +27,7 @@ pub enum SimPhase {
 }
 
 /// One finger of a pair, as the pair keeps the first finger down in the first slot.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Finger {
     pub finger: u8,
     pub point: Point,
@@ -37,7 +37,8 @@ pub struct Finger {
 /// flag) or one two-finger touch, so fingers 0 and 1 are the only ones it can hold. A pair keeps
 /// the finger that came down first in the first slot. A finger left down after a two-finger
 /// touch is `resting`: it reaches serve-sim again only once it moves.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
 pub enum HeldFingers {
     None,
     One {
@@ -89,8 +90,46 @@ pub struct Payload {
     pub orientation: Option<&'static str>,
 }
 
+/// What the shell asks the finger state machine to do for one input.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum FingerOp {
+    Down {
+        finger: u8,
+        x: f64,
+        y: f64,
+        #[serde(default)]
+        edge: f64,
+    },
+    Move {
+        finger: u8,
+        x: f64,
+        y: f64,
+    },
+    Up {
+        finger: u8,
+    },
+    /// Lift every held finger.
+    End,
+}
+
+/// One operation on the held fingers.
+pub fn step(op: &FingerOp, held: &HeldFingers) -> Result<FingerStep, Error> {
+    match op {
+        FingerOp::Down { finger, x, y, edge } => {
+            Ok(finger_down(held, *finger, Point { x: *x, y: *y }, *edge))
+        }
+        FingerOp::Move { finger, x, y } => finger_move(held, *finger, Point { x: *x, y: *y }),
+        FingerOp::Up { finger } => Ok(finger_up(held, *finger)),
+        FingerOp::End => Ok(FingerStep {
+            held: HeldFingers::None,
+            messages: end_fingers(held),
+        }),
+    }
+}
+
 /// One finger step: the fingers that stay held, and the messages that get there.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct FingerStep {
     pub held: HeldFingers,
     pub messages: Vec<Message>,

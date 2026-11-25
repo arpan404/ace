@@ -1,5 +1,5 @@
 import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
-import { DeviceError } from "./sdk.ts";
+import { catalogRefusal } from "./sdk.ts";
 
 /** One pinned adb shell per transport. A failed/disconnected action is never replayed. */
 export class AndroidInputShell {
@@ -46,11 +46,7 @@ export class AndroidInputShell {
   }
   private readonly after: (ms: number, run: () => void) => () => void;
   private failure() {
-    return new DeviceError(
-      "command_failed",
-      "Android input transport ended or refused input",
-      "Reconnect the emulator and take control again.",
-    );
+    return catalogRefusal("androidInputEnded");
   }
   private reject() {
     const pending = this.pending;

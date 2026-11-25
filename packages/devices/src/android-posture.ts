@@ -1,5 +1,7 @@
 import type { DevicePosture } from "@ace/protocol/devices";
-import { DeviceError } from "./sdk.ts";
+import { catalogRefusal } from "./sdk.ts";
+import { nativeDevices } from "./native-devices-addon.ts";
+import { nativeInput } from "./native-input.ts";
 
 /** Runs `adb -s <serial> <args>` for one device; resolves with what it printed. */
 export type EmulatorConsole = (
@@ -16,6 +18,7 @@ const postureId: Record<DevicePosture, string> = {
 
 /** Whether `emu sensor status` lists the first hinge sensor as enabled: the device folds. */
 export function hasHinge(status: string): boolean {
+  if (nativeInput) return nativeDevices().devicePlatformHasHinge(status);
   return /^\s*hinge-angle0:\s*enabled\b/m.test(status);
 }
 
@@ -25,6 +28,10 @@ export function hasHinge(status: string): boolean {
  * open; the band between is half open.
  */
 export function postureFromHinge(reply: string): DevicePosture | undefined {
+  if (nativeInput)
+    return (
+      (nativeDevices().devicePlatformPostureFromHinge(reply) as DevicePosture | null) ?? undefined
+    );
   const match = /hinge-angle0\s*=\s*(-?\d+(?:\.\d+)?)/.exec(reply);
   if (!match?.[1]) return undefined;
   const angle = Number(match[1]);
@@ -64,19 +71,10 @@ export class EmulatorPostures {
     posture: DevicePosture,
     authorize?: () => void,
   ): Promise<DevicePosture> {
-    if (!(await this.folds(id, adb, authorize)))
-      throw new DeviceError(
-        "not_supported",
-        "This device doesn't fold",
-        "Only foldable emulators, such as a Pixel Fold, have a posture.",
-      );
+    if (!(await this.folds(id, adb, authorize))) throw catalogRefusal("androidNoFold");
     const result = await adb(["emu", "posture", postureId[posture]], authorize);
     if (result.code !== 0 || !/^OK\b/m.test(result.stdout))
-      throw new DeviceError(
-        "not_supported",
-        "This emulator couldn't be folded",
-        "Fold it from the emulator's extended controls; this emulator may be too old.",
-      );
+      throw catalogRefusal("androidFoldFailed");
     return posture;
   }
   private async folds(id: string, adb: EmulatorConsole, authorize?: () => void): Promise<boolean> {

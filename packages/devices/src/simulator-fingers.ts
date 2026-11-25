@@ -1,4 +1,4 @@
-import { DeviceError } from "./sdk.ts";
+import { catalogRefusal } from "./sdk.ts";
 
 /** A point normalized to the simulator framebuffer, 0..1 on each axis. */
 export type FingerPoint = { x: number; y: number };
@@ -29,11 +29,7 @@ export const noFingers: HeldFingers = { kind: "none" };
 export function simulatorFinger(pointerId: number | undefined): 0 | 1 {
   const id = pointerId ?? 0;
   if (id === 0 || id === 1) return id;
-  throw new DeviceError(
-    "not_supported",
-    "iOS Simulator input supports at most two fingers",
-    "Use pointerId 0 or 1.",
-  );
+  throw catalogRefusal("simulatorTooManyFingers");
 }
 
 /**
