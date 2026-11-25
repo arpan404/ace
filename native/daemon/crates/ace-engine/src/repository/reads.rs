@@ -26,6 +26,7 @@ pub const WORKSPACE: &str = "SELECT path FROM workspaces WHERE id = ?";
 pub const CLEAR_BLOBS: &str = "DELETE FROM streamed_blobs WHERE sha256 IS NULL";
 pub const CLEAR_THREAD_BLOBS: &str =
     "DELETE FROM streamed_blobs WHERE thread_id=? AND sha256 IS NULL";
+pub const SESSION_BACKEND: &str = "SELECT backend FROM engine_sessions WHERE thread_id=?";
 
 impl State {
     /// `nativeEntity` (`:547`).
@@ -170,6 +171,27 @@ impl State {
             stmt_cache::get_row(store.conn(), WORKSPACE, vec![text(id)])?
                 .and_then(|row| row.get("path").and_then(cell_text).map(str::to_owned)),
         )
+    }
+
+    /// `backend(id)` (`session-metadata.ts:122`): the durable binding, else an `acp` Cursor
+    /// thread. A thread with no metadata row is refused, as the TypeScript throws there.
+    pub fn backend(
+        &mut self,
+        store: &EngineStore,
+        id: &str,
+    ) -> Result<Option<String>, EngineError> {
+        let row = stmt_cache::get_row(store.conn(), SESSION_BACKEND, vec![text(id)])?
+            .ok_or_else(|| EngineError::Records("Missing engine session metadata".to_owned()))?;
+        let backend = match row.get("backend").and_then(cell_text) {
+            Some(backend) if !backend.is_empty() => Some(backend.to_owned()),
+            _ => None,
+        };
+        if backend.is_some() {
+            return Ok(backend);
+        }
+        let snapshot = self.repo.require_state(store, id)?;
+        let provider = snapshot.borrow().state.config.provider.clone();
+        Ok((provider == "cursor").then(|| "acp".to_owned()))
     }
 
     /// `clearIncompleteBlobs` (`:715`).

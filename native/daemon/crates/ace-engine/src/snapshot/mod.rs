@@ -8,7 +8,9 @@ pub mod deadlines;
 pub mod decode;
 pub mod header;
 pub mod metadata;
+pub mod reads;
 pub mod sections;
+pub mod stream;
 pub mod touched;
 pub mod version;
 

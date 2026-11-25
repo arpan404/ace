@@ -42,6 +42,18 @@ pub struct PendingInfo {
     pub continuation: bool,
 }
 
+/// What `quiescent` reads from a stored state (`transition-history.ts:8`), copied out of the
+/// snapshot so no snapshot borrow is held across the collaborator call.
+#[derive(Debug, Clone, Default)]
+pub struct QuiescenceView {
+    /// A provider-sourced queued message: it waits on the provider, not on the fold.
+    pub provider_queue: bool,
+    pub live_tools: usize,
+    pub pending_interactions: usize,
+    /// Provider background work still running or lost track of (`runsProviderWork`).
+    pub provider_work: bool,
+}
+
 /// The run selection a save stamps on a root run (E5.9's `transitions.get`, else the thread's
 /// own config and session).
 #[derive(Debug, Clone, Default)]
@@ -333,10 +345,11 @@ pub trait MoveFacts: ProbeGate {
     ) -> Result<bool, EngineError> {
         self.not_ported("an input-ready answer", "E5.9", false)
     }
-    /// `quiescent` (`transition-history.ts`).
+    /// `quiescent` (`transition-history.ts:8`). The view carries the state it reads, so the
+    /// caller never holds a snapshot borrow across this call.
     fn quiescent(
         &mut self,
-        _state: &ThreadState,
+        _view: &QuiescenceView,
         _agents_ready: bool,
     ) -> Result<bool, EngineError> {
         self.not_ported("quiescence", "E5.9", false)

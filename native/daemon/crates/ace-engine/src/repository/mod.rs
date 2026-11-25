@@ -5,6 +5,7 @@
 //! capacity (the engine limit `maxActiveThreads`, 64, as `index.ts` passes it). It holds no port
 //! and no connection: functions that need SQL take the [`EngineStore`], which has both.
 
+pub mod actor_repo;
 pub mod admission;
 pub mod apply;
 pub mod candidates;

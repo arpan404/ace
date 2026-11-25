@@ -277,6 +277,11 @@ impl EngineStore {
         &self.conn
     }
 
+    /// `clock.now()`: the engine's clock, for a synchronous entry that needs a time.
+    pub fn now(&self) -> f64 {
+        self.ports.now()
+    }
+
     /// `store.headSeq()`: the sequence the store has written so far.
     pub fn head_seq(&self) -> Result<f64, EngineError> {
         self.ports.head_seq().map_err(EngineError::Port)
