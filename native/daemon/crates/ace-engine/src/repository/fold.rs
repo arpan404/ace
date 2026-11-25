@@ -89,6 +89,53 @@ impl State {
                 }
                 None => input,
             };
+            if (kind(&input) == "item.upsert" || kind(&input) == "item.reconciled")
+                && text_field(&input, "agent") == Some(root.as_str())
+                && input
+                    .get("draft")
+                    .and_then(|draft| draft.get("type"))
+                    .and_then(Value::as_str)
+                    == Some("notice")
+                && input
+                    .get("draft")
+                    .and_then(|draft| draft.get("code"))
+                    .and_then(Value::as_str)
+                    == Some("thread_title")
+            {
+                // `provider-facts.ts:51`-`:76`: a provider title replaces a provisional one.
+                let thread = store
+                    .get_thread(id)?
+                    .and_then(|json| ace_json::parse(&json).ok());
+                let title = input
+                    .get("draft")
+                    .and_then(|draft| draft.get("title"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|title| !title.is_empty());
+                let source = thread
+                    .as_ref()
+                    .and_then(|thread| thread.get("titleSource"))
+                    .and_then(Value::as_str);
+                let current = thread
+                    .as_ref()
+                    .and_then(|thread| thread.get("title"))
+                    .and_then(Value::as_str);
+                let takes = match source {
+                    Some("provisional") | Some("provider") => true,
+                    None => current == Some("New thread"),
+                    Some(_) => false,
+                };
+                if let Some(title) = title
+                    && takes
+                {
+                    let events = format!(
+                        "[{{\"type\":\"thread.updated\",\"title\":{},\"titleSource\":\"provider\"}}]",
+                        ace_json::to_string(&Value::from(title))
+                    );
+                    store.write_events(id, &events, now)?;
+                }
+                continue;
+            }
             if kind(&input) == "goal.updated" {
                 if text_field(&input, "agent") != Some(root.as_str()) {
                     continue;
@@ -264,7 +311,7 @@ impl State {
             if kind(&fact) == "turn.started"
                 && matches!(
                     text_field(&fact, "trigger"),
-                    Some("restart") | Some("limit_restart") | Some("limit_resume")
+                    Some("restart") | Some("limit_resume")
                 )
                 && events.iter().any(|event| kind(event) == "run.started")
             {
@@ -303,6 +350,8 @@ impl State {
             &takes_input,
             opening,
             generation,
+            continuation_started,
+            now,
         )?;
         if continuation_started && self.queue_get(id)?.trigger.is_some() {
             self.queue_set(id, "{\"continuation\":null,\"trigger\":null}", now)?;
@@ -394,23 +443,28 @@ fn events_of(events: &[ace_core::emit::Event]) -> Vec<Value> {
 }
 
 impl State {
-    /// The failed statuses' shaped errors (`provider-facts.ts:211`-`:229`).
+    /// The failed statuses' shaped errors (`provider-facts.ts:211`-`:229`). The shaped status
+    /// reaches the stored record, its settled status, and the failed run's own `run.ended`.
     fn shape_failed_statuses(
         &mut self,
         snapshot: &Rc<RefCell<Snapshot>>,
         events: &mut [Value],
     ) -> Result<(), EngineError> {
-        for event in events.iter_mut() {
-            if kind(event) != "agent.status"
-                || event
-                    .get("status")
-                    .and_then(|status| status.get("state"))
-                    .and_then(Value::as_str)
-                    != Some("failed")
-            {
-                continue;
-            }
-            let Some(error) = event
+        let failed: Vec<usize> = events
+            .iter()
+            .enumerate()
+            .filter(|(_, event)| {
+                kind(event) == "agent.status"
+                    && event
+                        .get("status")
+                        .and_then(|status| status.get("state"))
+                        .and_then(Value::as_str)
+                        == Some("failed")
+            })
+            .map(|(index, _)| index)
+            .collect();
+        for index in failed {
+            let Some(error) = events[index]
                 .get("status")
                 .and_then(|status| status.get("error"))
                 .cloned()
@@ -419,11 +473,16 @@ impl State {
             };
             let provider = snapshot.borrow().state.config.provider.clone();
             let shaped = self.structured_error(error, &provider)?;
-            if let Some(status) = event.get_mut("status").and_then(Value::as_object_mut) {
+            if let Some(status) = events[index]
+                .get_mut("status")
+                .and_then(Value::as_object_mut)
+            {
                 status.insert("error", shaped.clone());
             }
-            let shaped_status = event.get("status").cloned();
-            let agent_id = text_field(event, "agentId").unwrap_or_default().to_owned();
+            let shaped_status = events[index].get("status").cloned();
+            let agent_id = text_field(&events[index], "agentId")
+                .unwrap_or_default()
+                .to_owned();
             let mut borrowed = snapshot.borrow_mut();
             let key = borrowed
                 .state
@@ -431,16 +490,46 @@ impl State {
                 .agent_keys_by_id
                 .get(&agent_id)
                 .cloned();
-            if let Some(record) = key.and_then(|key| borrowed.state.agents.get_mut(&key)) {
-                if let Some(status) = &shaped_status
-                    && let Ok(status) = ace_json::from_value(status)
+            let Some(record) = key.and_then(|key| borrowed.state.agents.get_mut(&key)) else {
+                continue;
+            };
+            let shaped_agent_status = shaped_status
+                .as_ref()
+                .and_then(|status| ace_json::from_value(status).ok());
+            if let Some(status) = shaped_agent_status.clone() {
+                record.agent.status = status;
+            }
+            if record.last_error.is_some()
+                && let Ok(error) = ace_json::from_value(&shaped)
+            {
+                record.last_error = Some(error);
+            }
+            if record
+                .process_settled_status
+                .as_ref()
+                .is_some_and(|status| status.state() == "failed")
+                && let Some(status) = shaped_agent_status
+            {
+                record.process_settled_status = Some(status);
+            }
+            let Some(run) = record
+                .last_run
+                .clone()
+                .and_then(|id| borrowed.state.runs.get_mut(&id))
+            else {
+                continue;
+            };
+            if run.state != "failed" {
+                continue;
+            }
+            if let Ok(error) = ace_json::from_value(&shaped) {
+                run.error = Some(error);
+            }
+            let run_id = run.id.clone();
+            for event in events.iter_mut() {
+                if kind(event) == "run.ended" && text_field(event, "runId") == Some(run_id.as_str())
                 {
-                    record.agent.status = status;
-                }
-                if record.last_error.is_some()
-                    && let Ok(error) = ace_json::from_value(&shaped)
-                {
-                    record.last_error = Some(error);
+                    set(event, "error", shaped.clone());
                 }
             }
         }

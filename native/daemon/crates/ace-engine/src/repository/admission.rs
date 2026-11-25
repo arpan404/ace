@@ -6,7 +6,7 @@
 use ace_json::Value;
 use ace_store::{Value as SqlValue, stmt_cache};
 
-use crate::repository::collaborators::{InputFacts, MoveFacts};
+use crate::repository::collaborators::{InputFacts, MoveFacts, RecoveryFacts};
 use crate::repository::residency::text;
 use crate::{EngineError, EngineStore, State};
 
@@ -94,23 +94,32 @@ fn ids(rows: &[ace_store::stmt_cache::Row]) -> Vec<u32> {
 
 impl State {
     /// The admission and acknowledgement block (`provider-facts.ts:233`-`:303`), in its order:
-    /// the root's admission mark, the acknowledgement statement, the pruned queue rows, and the
-    /// item updates the accepted input carries.
+    /// the root's admission mark, the acknowledgement statement, the pruned queue rows, the
+    /// notices it confirms, and the item updates the accepted input carries.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn admission_block(
         &mut self,
         store: &EngineStore,
         id: &str,
         snapshot: &std::rc::Rc<std::cell::RefCell<crate::snapshot::Snapshot>>,
-        root: &str,
+        root_key: &str,
         events: &mut Vec<Value>,
         takes_input: &std::collections::HashMap<String, bool>,
         opening: bool,
-        _generation: Option<f64>,
+        generation: Option<f64>,
+        continuation_started: bool,
+        now: f64,
     ) -> Result<(), EngineError> {
+        // The TypeScript compares the run's `agentId` with the root's **id**, not its key.
+        let root = snapshot
+            .borrow()
+            .state
+            .agents
+            .get(root_key)
+            .map(|record| record.agent.id.clone())
+            .unwrap_or_default();
         let mut updates: Vec<Value> = Vec::new();
         let mut admitted_uncertainty = false;
-        let mut acknowledged_ids: Vec<u32> = Vec::new();
         for event in events.clone() {
             let kind = event
                 .get("type")
@@ -122,16 +131,27 @@ impl State {
                 && run
                     .and_then(|run| run.get("agentId"))
                     .and_then(Value::as_str)
-                    == Some(root)
+                    == Some(root.as_str())
                 && {
                     let run_id = run
                         .and_then(|run| run.get("id"))
                         .and_then(Value::as_str)
                         .unwrap_or_default();
-                    takes_input.get(run_id).copied().unwrap_or(true)
+                    let trigger = run
+                        .and_then(|run| run.get("trigger"))
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    match takes_input.get(run_id) {
+                        Some(takes) => *takes,
+                        None => self.root_run_start(trigger, None)?.1,
+                    }
                 };
             let pending = if kind == "input.admitted" || root_started {
-                self.handed_over(id)?
+                match self.handed_over(id)? {
+                    Some(pending) => Some(pending),
+                    None if root_started => self.uncertain_continuation(id)?,
+                    None => None,
+                }
             } else {
                 None
             };
@@ -160,17 +180,18 @@ impl State {
                             .borrow_mut()
                             .state
                             .items
-                            .insert(key.clone(), updated_item);
+                            .insert(key.clone(), updated_item.clone());
+                        updates.push(item_updated(&updated_item));
                     }
                 }
             }
             if root_started
                 && let Some(run_id) = run.and_then(|run| run.get("id")).and_then(Value::as_str)
             {
-                updates.extend(self.bind_started_run(id, run_id, _generation)?);
+                updates.extend(self.bind_started_run(id, run_id, generation)?);
             }
             let admitted = kind == "input.admitted"
-                && event.get("agentId").and_then(Value::as_str) == Some(root)
+                && event.get("agentId").and_then(Value::as_str) == Some(root.as_str())
                 && !opening;
             if admitted {
                 self.admission_mark(store, id)?;
@@ -179,28 +200,87 @@ impl State {
             let acknowledged = if let Some(command_id) = event
                 .get("commandId")
                 .and_then(Value::as_str)
-                .filter(|_| admitted)
+                .filter(|_| admitted && kind == "input.admitted")
             {
                 self.acknowledge_command(store, id, command_id)?
             } else if admitted || started {
-                self.acknowledge_inputs(store, id)?
+                let uncertain = self.uncertain_continuation(id)?;
+                match (&pending, uncertain) {
+                    (Some(pending), Some(uncertain)) if uncertain.id == pending.id => {
+                        self.acknowledge_command(store, id, &pending.command_id)?
+                    }
+                    _ => self.acknowledge_inputs(store, id)?,
+                }
             } else {
                 Vec::new()
             };
+            let any_acknowledged = !acknowledged.is_empty();
             for row in acknowledged {
                 self.queue_prune(row)?;
-                acknowledged_ids.push(row);
-                // The delivery notices are E5.4's inputs' records; their text updates land
-                // with that item. The ids are kept so the queue and transitions settle here.
-                let _ = row;
+                // The delivery notices are the inputs' records: confirm them in the same
+                // transcript the person sees (`provider-facts.ts:272`-`:290`).
+                let key = format!("intent:{row}");
+                let notice = snapshot.borrow().state.items.get(&key).cloned();
+                if let Some(notice @ ace_core::items::Item::Notice { .. }) = &notice {
+                    let code = match notice {
+                        ace_core::items::Item::Notice { code, .. } => {
+                            code.as_deref().unwrap_or_default()
+                        }
+                        _ => "",
+                    };
+                    if code == "delivery_uncertain" {
+                        let confirmed = set_fields(
+                            notice,
+                            &[
+                                ("level", Value::from("info")),
+                                ("code", Value::from("delivery_confirmed")),
+                                ("title", Value::from("Message received")),
+                                ("text", Value::from("The provider confirmed this message")),
+                            ],
+                        );
+                        if let Some(confirmed) = confirmed {
+                            snapshot
+                                .borrow_mut()
+                                .state
+                                .items
+                                .insert(key.clone(), confirmed.clone());
+                            updates.push(item_updated(&confirmed));
+                        }
+                    } else if code == self.resending_code()? {
+                        // `resentNotice` is E5.8's: its fields are spread over the notice.
+                        let resent =
+                            self.resent_notice()?
+                                .as_object()
+                                .cloned()
+                                .and_then(|fields| {
+                                    let fields: Vec<(&str, Value)> = fields
+                                        .iter()
+                                        .map(|(key, value)| (key.as_str(), value.clone()))
+                                        .collect();
+                                    set_fields(notice, &fields)
+                                });
+                        if let Some(resent) = resent {
+                            snapshot
+                                .borrow_mut()
+                                .state
+                                .items
+                                .insert(key.clone(), resent.clone());
+                            updates.push(item_updated(&resent));
+                        }
+                    }
+                }
             }
-            if !acknowledged_ids.is_empty() {
+            if any_acknowledged {
                 admitted_uncertainty = true;
                 self.transitions_delivered(id)?;
             }
         }
         events.extend(updates);
-        if admitted_uncertainty {
+        if continuation_started && self.queue_get(id)?.trigger.is_some() {
+            self.queue_set(id, "{\"continuation\":null,\"trigger\":null}", now)?;
+            self.finish_continuation(id)?;
+        }
+        if admitted_uncertainty || continuation_started {
             let queue = self.queue_get(id)?;
             if queue.reason.as_deref() == Some("uncertain") && !self.queue_has_uncertain(id)? {
                 let json = if !queue.limited && !queue.continuation {
@@ -208,11 +288,36 @@ impl State {
                 } else {
                     "{}"
                 };
-                self.queue_set(id, json, 0.0)?;
+                self.queue_set(id, json, now)?;
             }
         }
         Ok(())
     }
+}
+
+/// The payload an item update carries (`{type:"item.updated", item}`).
+fn item_updated(item: &ace_core::items::Item) -> Value {
+    let json = ace_json::ser::to_string(item).unwrap_or_default();
+    let item = ace_json::parse(&json).unwrap_or(Value::Null);
+    let mut payload = ace_json::Map::new();
+    payload.insert("type", Value::from("item.updated"));
+    payload.insert("item", item);
+    Value::from(payload)
+}
+
+/// A record with fields set, through its JSON.
+fn set_fields(
+    item: &ace_core::items::Item,
+    fields: &[(&str, Value)],
+) -> Option<ace_core::items::Item> {
+    let json = ace_json::ser::to_string(item).ok()?;
+    let mut value = ace_json::parse(&json).ok()?;
+    let object = value.as_object_mut()?;
+    for (key, field) in fields {
+        object.insert(*key, field.clone());
+    }
+    let encoded = ace_json::to_string(&value);
+    ace_json::from_value(&ace_json::parse(&encoded).ok()?).ok()
 }
 
 /// One field set on a record, through its JSON: the item a run's admission updates.
