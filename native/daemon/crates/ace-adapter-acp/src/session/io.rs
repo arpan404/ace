@@ -149,6 +149,12 @@ impl AcpSessionCore {
         self.core.lock().unwrap_or_else(|error| error.into_inner())
     }
 
+    /// `openWithSignIn`'s retry: the session request again, without `initialize`
+    /// (`acp-sign-in.ts:30`).
+    pub fn retry_open(&self, facade_id: u64) {
+        self.input(|core| core.retry_open_session(facade_id));
+    }
+
     /// `session.ts`'s send: admission, steer or queue, then the drain (E3-acp.2).
     pub fn send(&self, send: InputSend<'_>) {
         self.input(|core| {

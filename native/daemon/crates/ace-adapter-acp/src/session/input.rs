@@ -151,6 +151,7 @@ impl AcpCore {
             && self.prompt_id.is_some()
         {
             let batch = self.new_batch(operation, 0);
+            let aim = send.fence.as_ref().and(self.prompt_id.clone());
             let fallback = Job {
                 input: prompts[0]
                     .as_array()
@@ -159,6 +160,7 @@ impl AcpCore {
                 command_id: command_id.clone(),
                 origin: send.origin,
                 fence: send.fence.clone(),
+                aim,
                 batch,
                 bytes,
             };
@@ -196,6 +198,11 @@ impl AcpCore {
                 } else {
                     None
                 },
+                aim: if send.delivery == Delivery::Steer {
+                    send.fence.as_ref().and(self.prompt_id.clone())
+                } else {
+                    None
+                },
                 batch,
                 bytes,
             });
@@ -215,6 +222,7 @@ impl AcpCore {
                 operation,
                 open,
                 written: false,
+                sent_prompt: false,
                 settled: false,
             },
         );

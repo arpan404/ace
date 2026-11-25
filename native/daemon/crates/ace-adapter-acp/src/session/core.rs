@@ -22,7 +22,7 @@ use super::deadlines::{DeadlineEffect, Deadlines};
 use super::frames::{capture_frame, capture_text_frame};
 use super::mcp::McpConfig;
 use super::negotiation::{CompatibilityProfile, ProfileFit};
-use super::open::{OPEN_STALL_MS, OpenState, ResumeTarget};
+use super::open::{OPEN_STALL_MS, OpenRequestSpec, OpenState, ResumeTarget};
 use super::protocol::{agent_methods, client_methods};
 use super::queue::{ActivePrompt, BatchState, Job, SteerFlight};
 use super::quirks::AcpSessionQuirks;
@@ -243,6 +243,8 @@ pub struct AcpCore {
     pub(crate) opening_session: JsString,
     pub(crate) open_stalled: bool,
     pub(crate) open: Option<OpenState>,
+    /// The session request `initialize` decided, kept for a sign-in retry (`session.ts:459`).
+    pub(crate) session_spec: Option<OpenRequestSpec>,
     next_internal_id: u64,
     pub(crate) process_exited: bool,
     /// The MCP lease was ended, once (`session.ts:912`).
@@ -325,6 +327,7 @@ impl AcpCore {
             opening_session: JsString::default(),
             open_stalled: false,
             open: None,
+            session_spec: None,
             next_internal_id: 1,
             process_exited: false,
             lease_ended: false,

@@ -100,6 +100,12 @@ impl AcpSessionNative {
         Ok(Self { core, port })
     }
 
+    /// `openWithSignIn`'s second attempt: `session/new|load|resume` alone (`acp-sign-in.ts:30`).
+    #[napi(catch_unwind)]
+    pub fn retry_open(&self, id: u32) {
+        self.core.retry_open(u64::from(id));
+    }
+
     /// The sink the facade spawns the child with: its pipes belong to this session.
     #[napi(catch_unwind)]
     pub fn output_target(&self) -> NativeOutputTarget {

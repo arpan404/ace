@@ -67,7 +67,7 @@ impl OpenResult {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct OpenRequestSpec {
     pub method: &'static str,
     pub params: Value,
@@ -176,6 +176,39 @@ impl AcpCore {
         params.insert("clientInfo", Value::Object(client_info));
         params.insert("clientCapabilities", Value::Object(client_caps));
         Value::Object(params)
+    }
+
+    /// `openWithSignIn`'s second attempt (`acp-sign-in.ts:30`): `session/new|load|resume`
+    /// again, never `initialize`, which this session already ran.
+    pub fn retry_open_session(&mut self, facade_id: u64) -> Vec<AcpEffect> {
+        let mut effects = Vec::new();
+        if self.closed {
+            effects.push(AcpEffect::Settle {
+                id: facade_id,
+                result: Err(AcpErrorWire::open_failed("ACP session closed")),
+            });
+            return effects;
+        }
+        if self.open.is_some() {
+            effects.push(AcpEffect::Settle {
+                id: facade_id,
+                result: Err(AcpErrorWire::open_failed(
+                    "ACP session open already in progress",
+                )),
+            });
+            return effects;
+        }
+        let Some(spec) = self.session_spec.clone() else {
+            effects.push(AcpEffect::Settle {
+                id: facade_id,
+                result: Err(AcpErrorWire::open_failed("ACP session did not initialize")),
+            });
+            return effects;
+        };
+        self.open_stalled = true;
+        self.arm_deadline("open", OPEN_STALL_MS, &mut effects);
+        self.send_session_open(facade_id, spec, &mut effects);
+        effects
     }
 
     pub(crate) fn on_open_rpc_settled(
@@ -349,6 +382,9 @@ impl AcpCore {
             mcp_transport: prepared.transport,
             has_system_prompt,
         };
+        // The sign-in retry re-sends only this request: `initialize` ran once
+        // (`acp-sign-in.ts:30`).
+        self.session_spec = Some(spec.clone());
         self.open_stalled = true;
         self.arm_deadline("open", OPEN_STALL_MS, effects);
         self.send_session_open(facade_id, spec, effects);

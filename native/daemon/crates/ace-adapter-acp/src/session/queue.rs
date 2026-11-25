@@ -19,6 +19,9 @@ pub(crate) struct Job {
     pub origin: Option<InputSource>,
     /// The send's fence: asked again when the queue reaches this job (`session.ts:718`).
     pub fence: Option<super::input::Fence>,
+    /// The prompt this steer was admitted under. Once it settles, the turn it joined has
+    /// ended and the job is stale, whatever the fence last said (`session.ts:718`).
+    pub aim: Option<ace_supervisor::jsonrpc::RpcId>,
     pub batch: u64,
     pub bytes: usize,
 }
@@ -29,8 +32,11 @@ pub(crate) struct BatchState {
     pub operation: u64,
     /// Prompts of this send that have not settled yet.
     pub open: usize,
-    /// A prompt of it already went out (`session.ts:609`).
+    /// A line of it went out (a prompt, or a steer's request): its failures are uncertain.
     pub written: bool,
+    /// A *prompt* of it went out (`session.ts:609`), which is what lets a later job of the
+    /// batch skip the fence: a steer that wrote and then fell back did not.
+    pub sent_prompt: bool,
     /// The send's promise is settled; a later prompt of it changes nothing.
     pub settled: bool,
 }
@@ -76,11 +82,16 @@ impl AcpCore {
                 .batches
                 .get(&job.batch)
                 .is_some_and(|batch| batch.written);
+            let prompt_written = self
+                .batches
+                .get(&job.batch)
+                .is_some_and(|batch| batch.sent_prompt);
             // `next.fence && !next.fence.current() && !next.batch.written`
-            // (`session.ts:718`): the fence answers for the turn it named, as it did when
-            // this job was admitted.
-            let stale = job.fence.as_ref().is_some_and(|fence| !fence.current());
-            if stale && !written {
+            // (`session.ts:718`): the fence answers for the turn it named, and that turn's
+            // prompt has settled by the time the queue reaches a job it held.
+            let stale =
+                job.fence.as_ref().is_some_and(|fence| !fence.current()) || job.aim.is_some();
+            if stale && !prompt_written {
                 // Its turn ended before ACP was idle to take it: refused unread, never
                 // written into another (`session.ts:718`).
                 self.queued_bytes = self.queued_bytes.saturating_sub(job.bytes);
@@ -182,6 +193,7 @@ impl AcpCore {
                 && let Some(batch) = self.batches.get_mut(&job.batch)
             {
                 batch.written = true;
+                batch.sent_prompt = true;
             }
             self.queue_changed(effects);
             return;

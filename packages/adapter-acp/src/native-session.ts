@@ -51,6 +51,7 @@ class AcpResumeUnsupported extends Error {
 export interface NativeAcpHandle extends NativeSessionPort {
   outputTarget(): NonNullable<SpawnOptions["nativeOutput"]>;
   open(id: number): void;
+  retryOpen(id: number): void;
   request(
     method: string,
     paramsJson: string,
@@ -256,10 +257,24 @@ export async function openNativeAcpSession(
     handle.open(id);
     return bridge.expect(id);
   };
+  /** The sign-in retry: the session request again, never a second `initialize`. */
+  const retryOpen = (): Promise<unknown> => {
+    const id = ++nextId;
+    handle.retryOpen(id);
+    return bridge.expect(id);
+  };
 
   let opened: unknown;
   try {
-    opened = await openWithSignIn(rpc, launch.signInMethod, open, ctx.signal);
+    // The first attempt is the whole handshake; after `authenticate`, only the session
+    // request is retried (`acp-sign-in.ts:30`), so `initialize` runs once.
+    let attempts = 0;
+    opened = await openWithSignIn(
+      rpc,
+      launch.signInMethod,
+      () => (attempts++ === 0 ? open() : retryOpen()),
+      ctx.signal,
+    );
   } catch (error) {
     await closeAfterOpenFailure(error);
     // A resume the agent refuses keeps its own code, so the engine offers a fresh session.

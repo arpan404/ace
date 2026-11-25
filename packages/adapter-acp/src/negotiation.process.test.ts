@@ -443,6 +443,13 @@ test("an agent that needs its sign-in method selected opens once ace selects the
     expect(sent.find((frame) => frame.method === "authenticate")?.params).toEqual({
       methodId: "oauth-personal",
     });
+    // `openWithSignIn` retries the session request alone: `initialize` runs once.
+    expect(sent.map((frame) => frame.method)).toEqual([
+      "initialize",
+      "session/new",
+      "authenticate",
+      "session/new",
+    ]);
   } finally {
     await session.close("shutdown");
   }
