@@ -327,6 +327,68 @@ export class NativeCoreCli {
   }
 
   /**
+   * The files whose change can alter a checkout's configuration (G2c): parsed,
+   * listed and walked by the core from the raw Git output. `typescript`
+   * answers the cross gate's off leg unchanged.
+   */
+  configWatch(
+    input: {
+      cwd: string;
+      gitDir: string | undefined;
+      commonDir: string | undefined;
+      toplevel: string | undefined;
+      listing: string | undefined;
+      standard: readonly string[];
+      home: string | undefined;
+      isWindows: boolean;
+    },
+    typescript: () => Promise<string[] | undefined> | string[] | undefined,
+  ): Promise<string[] | undefined> {
+    const selected: NativeBackend = gitCrossSelected() ?? "native";
+    const seq = reserveGitOpSeq();
+    if (selected === "typescript") {
+      recordGitOp({ seq, op: "configWatch", part, selected, completed: "typescript" });
+      return Promise.resolve(typescript());
+    }
+    return new Promise((resolve, reject) => {
+      try {
+        this.handle.configWatch(
+          JSON.stringify({
+            cwd: input.cwd,
+            gitDir: input.gitDir ?? null,
+            commonDir: input.commonDir ?? null,
+            toplevel: input.toplevel ?? null,
+            listing: input.listing ?? null,
+            standard: [...input.standard],
+            home: input.home ?? null,
+            isWindows: input.isWindows,
+          }),
+          (error: unknown, json?: string) => {
+            recordGitOp({ seq, op: "configWatch", part, selected, completed: "native" });
+            if (error !== null && error !== undefined) {
+              try {
+                throwGitError(error);
+              } catch (mapped) {
+                reject(mapped);
+              }
+              return;
+            }
+            const value = JSON.parse(json ?? "{}") as { paths: string[] | null };
+            resolve(value.paths ?? undefined);
+          },
+        );
+      } catch (error) {
+        recordGitOp({ seq, op: "configWatch", part, selected, completed: "native" });
+        try {
+          throwGitError(error);
+        } catch (mapped) {
+          reject(mapped);
+        }
+      }
+    });
+  }
+
+  /**
    * The execution policy for one Git call (G2c): the guarded or hookless
    * environment and the arguments that precede the command. `typescript`
    * answers the cross gate's off leg unchanged.

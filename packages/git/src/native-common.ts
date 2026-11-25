@@ -72,6 +72,8 @@ export interface NativeGitCoreHandle {
   leaseOp(op: string, argsJson: string, settle: NativeJsonSettle): void;
   /** The execution policy for one Git call (G2c): its environment and guard arguments. */
   prepareCall(reqJson: string, settle: NativeJsonSettle): void;
+  /** Files whose change alters a checkout's configuration (G2c), from raw Git output. */
+  configWatch(reqJson: string, settle: NativeJsonSettle): void;
   pushSpawnEvent(
     spawnId: number,
     kind: string,

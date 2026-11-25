@@ -534,6 +534,27 @@ impl NativeGitCore {
         Ok(())
     }
 
+    /// The files whose change can alter a checkout's configuration (G2c): parsed,
+    /// listed and walked from the raw `rev-parse`/`config --list` output.
+    #[napi(catch_unwind)]
+    pub fn config_watch(&self, req_json: String, settle: JsonSettle) -> napi::Result<()> {
+        let Some(input) = ace_git::core::config::watch_input_from_json(&req_json) else {
+            let _ = settle.call(
+                Err(failed(ace_git::error::Error::from(
+                    ace_git::core::config::invalid_request(),
+                ))),
+                ThreadsafeFunctionCallMode::NonBlocking,
+            );
+            return Ok(());
+        };
+        let paths = input.watched();
+        let _ = settle.call(
+            Ok(ace_git::core::config::paths_to_json(paths.as_deref())),
+            ThreadsafeFunctionCallMode::NonBlocking,
+        );
+        Ok(())
+    }
+
     /// Prepares one Git call's execution policy (G2c): the environment and the
     /// arguments that precede the command, from the caller's scope.
     #[napi(catch_unwind)]

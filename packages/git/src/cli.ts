@@ -42,7 +42,12 @@ import { count, decode } from "./decode.ts";
 import type { GitJob } from "./git-job.ts";
 import type { GitProcess } from "./git-processes.ts";
 import { ConfigFacts, configEnvironment } from "./config-facts.ts";
-import { learnConfigSources, standardConfigFiles } from "./config-learning.ts";
+import {
+  learnConfigSources,
+  standardConfigFiles,
+  type RawConfigSources,
+} from "./config-learning.ts";
+import { listedSources, parseLayout, watchedPaths } from "./config-sources.ts";
 import { gitPartOn } from "@ace/provider-kit/native-switches";
 import { NativeCoreCli } from "./native-core.ts";
 import {
@@ -144,6 +149,29 @@ function untilCancelled<T>(work: Promise<T>, signal: AbortSignal | undefined): P
       },
     );
   });
+}
+
+/** The TypeScript answer for a watched-path computation the core will redo. */
+function watchedPathFallback(input: RawConfigSources): string[] | undefined {
+  const single = (value: string | undefined): string | undefined => {
+    if (value === undefined) return undefined;
+    if (input.isWindows && value.endsWith("\r\n")) return value.slice(0, -2);
+    if (value.endsWith("\n")) return value.slice(0, -1);
+    return value;
+  };
+  const [gitDir, commonDir, toplevel] = [
+    single(input.gitDir),
+    single(input.commonDir),
+    single(input.toplevel),
+  ];
+  const layout =
+    gitDir === undefined || commonDir === undefined || toplevel === undefined
+      ? undefined
+      : parseLayout(input.cwd, gitDir, commonDir, toplevel);
+  if (!layout) return undefined;
+  const listed =
+    input.listing === undefined ? undefined : listedSources(input.listing, layout, input.home);
+  return listed ? watchedPaths(input.cwd, layout, listed, input.standard) : undefined;
 }
 
 /** The TypeScript answer for a default guarded call (`nonExecutingEnv`). */
@@ -753,6 +781,13 @@ export class GitCli {
       () => this.standardConfigFiles(env, query),
       env.HOME,
       this.runtime.platform,
+      this.nativeCore === undefined
+        ? undefined
+        : (input) =>
+            this.nativeCore!.configWatch(
+              { ...input, listing: input.listing?.toString("utf8") },
+              () => watchedPathFallback(input),
+            ),
     );
   }
 
