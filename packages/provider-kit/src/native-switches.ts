@@ -612,6 +612,18 @@ export function scrcpyVideoBackend(): NativeBackend {
   throw new Error("ACE_SCRCPY_VIDEO takes media");
 }
 
+/**
+ * Whether the device platform is served by Rust (D3.1, `ACE_DEVICE_PLATFORM=native`) or by
+ * today's TypeScript. Read once per process, when `DevicePlatform` is constructed; with the
+ * switch on and no addon, the platform fails at its first native call rather than falling back.
+ */
+export function devicePlatformBackend(): NativeBackend {
+  const value = process.env.ACE_DEVICE_PLATFORM;
+  if (value === undefined) return "typescript";
+  if (value === "native") return "native";
+  throw new Error("ACE_DEVICE_PLATFORM takes native");
+}
+
 export function crossLogPath(): string | undefined {
   return crossLog;
 }
