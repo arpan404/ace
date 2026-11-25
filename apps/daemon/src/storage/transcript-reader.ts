@@ -80,6 +80,8 @@ export class TranscriptReader {
     this.retire("storage_usage_cancelled");
   }
   async closed(): Promise<void> {
+    // Stopping rejects every queued read, so draining the chain cannot wait on a new worker.
+    await this.chain;
     await this.reaping;
   }
   private takePending(): PendingRead | undefined {
@@ -90,17 +92,45 @@ export class TranscriptReader {
   }
   private retire(code: string): void {
     clearTimeout(this.idle);
+    this.idle = undefined;
     const worker = this.worker;
     this.worker = undefined;
-    if (worker && worker.exitCode === null && worker.signalCode === null) {
-      this.reaping = new Promise((resolve) => {
-        worker.once("exit", () => resolve());
-        worker.once("close", () => resolve());
-      });
-      // A SQLite syscall need not return to JavaScript before the kernel reaps the process.
-      worker.kill("SIGKILL");
-    }
+    if (worker && worker.exitCode === null && worker.signalCode === null) this.reap(worker);
     this.takePending()?.reject(new Error(code));
+  }
+  /**
+   * Bounds how long a caller waits for a killed worker. The slot stays occupied until the
+   * process itself reports exit: a SQLite syscall need not return before the kernel reaps it.
+   */
+  private reap(worker: ChildProcess): void {
+    const limits = TranscriptLimits.parse(this.options.limits ?? {});
+    const released = Promise.withResolvers<void>();
+    // close() may never be called. Keep the rejection observed without changing its meaning.
+    void released.promise.catch(() => {});
+    this.reaping = released.promise;
+    let observed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const observeExit = () => {
+      if (observed) return;
+      observed = true;
+      clearTimeout(timer);
+      if (this.reaping === released.promise) this.reaping = undefined;
+      released.resolve();
+    };
+    worker.once("exit", observeExit);
+    worker.once("close", () => {
+      // A spawn that never started has no process to reap; closing its pipes is its exit.
+      if (worker.pid === undefined) observeExit();
+    });
+    timer = setTimeout(
+      () => released.reject(new Error("storage_usage_cleanup_timeout")),
+      limits.reapMs,
+    );
+    try {
+      if (worker.exitCode === null && worker.signalCode === null) worker.kill("SIGKILL");
+    } catch {
+      // Kill failure is not proof of exit. The cleanup deadline above still applies.
+    }
   }
   private open(): ChildProcess {
     const worker = (this.options.spawn ?? start)(storageUsageWorkerEntry());
