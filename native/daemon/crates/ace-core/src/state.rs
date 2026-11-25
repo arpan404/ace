@@ -88,6 +88,9 @@ pub struct LimitedInfo {
     pub until: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// Fields a newer build wrote (its zod object is passthrough).
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// The retry the agent's turn carries.
@@ -100,6 +103,9 @@ pub struct RetryInfo {
     pub until: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// Fields a newer build wrote (its zod object is passthrough).
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// One agent's record: its row plus the fold's bookkeeping. Its JSON order is written in

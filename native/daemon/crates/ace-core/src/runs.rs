@@ -327,6 +327,7 @@ fn end_turn_inner(
             {
                 let until = record.limited.as_ref().and_then(|limited| limited.until);
                 record.limited = Some(crate::state::LimitedInfo {
+                    extra: Default::default(),
                     until,
                     message: Some(err.message.clone()),
                 });

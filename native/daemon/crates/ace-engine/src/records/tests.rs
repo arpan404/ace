@@ -270,45 +270,98 @@ fn appended_text_counts_against_the_budget_and_survives_eviction_and_replacement
     );
 }
 
+fn agent_json(extra_retry: &str) -> String {
+    format!(
+        r#"{{"agent":{{"id":"a","threadId":"t","origin":"root","native":{{"provider":"claude","nativeId":"n"}},"fidelity":"full","cwd":"/tmp","status":{{"state":"idle"}},"background":false,"createdAt":1}},"activity":"idle","lastSignalAt":1,"retry":{extra_retry}}}"#
+    )
+}
+
 #[test]
-fn a_field_this_build_does_not_know_survives_a_rewrite() {
-    // `parseRecord` validates without stripping (`records.ts:15`): a newer build's field stays on
-    // the stored record when this one rewrites it.
+fn a_passthrough_types_unknown_field_survives_a_rewrite() {
+    // The TS retry schema is a passthrough object, so the Rust type carries `extra`.
     let conn = database();
     stmt_cache::run(
         &conn,
         "INSERT INTO engine_state_records VALUES (?,?,?,?)",
         vec![
             Value::Text("t".to_owned()),
-            Value::Text("items".to_owned()),
-            Value::Text("i".to_owned()),
-            Value::Text(
-                r#"{"id":"i","threadId":"t","agentId":"a","createdAt":1,"complete":false,"type":"notice","level":"info","text":"hi","futureField":{"a":1}}"#
-                    .to_owned(),
-            ),
+            Value::Text("agents".to_owned()),
+            Value::Text("root".to_owned()),
+            Value::Text(agent_json(
+                r#"{"on":"network","until":5,"futureField":{"a":1}}"#,
+            )),
         ],
     )
     .unwrap();
     let budget = Rc::new(RefCell::new(RecordBudget::default()));
-    let mut items: Records<Item> = records(&conn, &budget, "items", decode::decode_record::<Item>);
-    let stored = items.read("i").unwrap().expect("the stored record");
-    let Item::Notice { text, .. } = &stored else {
-        panic!("a notice");
-    };
-    assert_eq!(text.as_str(), "hi");
-    let changed: Item = ace_json::from_value(
-        &ace_json::parse(
-            r#"{"id":"i","threadId":"t","agentId":"a","createdAt":1,"complete":false,"type":"notice","level":"info","text":"changed"}"#,
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    items.write("i", changed);
-    items.persist().unwrap();
+    let mut agents: Records<AgentRecord> = records(
+        &conn,
+        &budget,
+        "agents",
+        decode::decode_record::<AgentRecord>,
+    );
+    let record = agents.read("root").unwrap().expect("the agent");
+    assert_eq!(
+        record
+            .retry
+            .as_ref()
+            .map(|retry| retry.extra.len())
+            .unwrap_or(0),
+        1,
+        "the extra field decoded"
+    );
+    agents.write("root", record);
+    agents.persist().unwrap();
     let row = stmt_cache::get_row(
         &conn,
-        "SELECT value FROM engine_state_records WHERE thread_id=? AND section='items' AND key=?",
-        vec![Value::Text("t".to_owned()), Value::Text("i".to_owned())],
+        "SELECT value FROM engine_state_records WHERE thread_id='t' AND section='agents' AND key='root'",
+        vec![],
+    )
+    .unwrap()
+    .expect("the rewritten row");
+    let stored = match row.get("value") {
+        Some(Value::Text(text)) => text.clone(),
+        _ => panic!("stored text"),
+    };
+    assert!(stored.contains(r#""futureField":{"a":1}"#), "{stored}");
+    assert!(stored.contains(r#""until":5"#));
+}
+
+#[test]
+fn a_cleared_known_retry_field_stays_cleared() {
+    let conn = database();
+    stmt_cache::run(
+        &conn,
+        "INSERT INTO engine_state_records VALUES (?,?,?,?)",
+        vec![
+            Value::Text("t".to_owned()),
+            Value::Text("agents".to_owned()),
+            Value::Text("root".to_owned()),
+            Value::Text(agent_json(r#"{"on":"network","until":5}"#)),
+        ],
+    )
+    .unwrap();
+    let budget = Rc::new(RefCell::new(RecordBudget::default()));
+    let mut agents: Records<AgentRecord> = records(
+        &conn,
+        &budget,
+        "agents",
+        decode::decode_record::<AgentRecord>,
+    );
+    let mut record = agents.read("root").unwrap().expect("the agent");
+    record.retry = Some(ace_core::state::RetryInfo {
+        on: "network".to_owned(),
+        attempt: Some(2),
+        until: None,
+        message: None,
+        extra: Default::default(),
+    });
+    agents.write("root", record);
+    agents.persist().unwrap();
+    let row = stmt_cache::get_row(
+        &conn,
+        "SELECT value FROM engine_state_records WHERE thread_id='t' AND section='agents' AND key='root'",
+        vec![],
     )
     .unwrap()
     .expect("the rewritten row");
@@ -317,8 +370,23 @@ fn a_field_this_build_does_not_know_survives_a_rewrite() {
         _ => panic!("stored text"),
     };
     assert!(
-        stored.contains(r#""futureField":{"a":1}"#),
-        "the unknown field survives: {stored}"
+        !stored.contains(r#""until"#),
+        "the cleared until is gone: {stored}"
     );
-    assert!(stored.contains(r#""text":"changed""#));
+}
+
+#[test]
+fn a_strict_type_refuses_an_unknown_field_and_an_array_may_change_type() {
+    // `ToolDetail` is `deny_unknown_fields`, as its strict TS schema is.
+    let tool = ace_json::parse(
+        r#"{"id":"i","threadId":"t","agentId":"a","createdAt":1,"complete":false,"type":"tool_call","call":{"id":"c","agentId":"a","kind":"shell","title":"run","status":"running","detail":{"kind":"shell","command":"ls","futureField":1},"startedAt":1}}"#,
+    )
+    .unwrap();
+    assert!(decode::decode_record::<Item>(&tool).is_err());
+    // A part at the same index changing from text to image decodes; nothing is merged by index.
+    let image = ace_json::parse(
+        r#"{"id":"i2","threadId":"t","agentId":"a","createdAt":1,"complete":true,"type":"message","role":"assistant","parts":[{"type":"image","mimeType":"image/png","url":"https://x"}]}"#,
+    )
+    .unwrap();
+    assert!(decode::decode_record::<Item>(&image).is_ok());
 }

@@ -731,3 +731,16 @@ too. A JavaScript error that reaches Rust as a message alone (`ports.rs` keeps o
 text) cannot be classified by code: a JavaScript `"database is locked"` is reported and retried as
 a damaged thread would be skipped. Recorded here as a gap; closing it needs the port error to
 carry SQLite's code.
+
+### Unknown fields: the passthrough pattern, and where it still differs
+
+Record types whose TypeScript zod schema is passthrough carry unknown fields in `extra`
+(`ace-core`'s `RetryInfo` and `LimitedInfo` today): `#[serde(flatten)]`, default, skipped when
+empty. A rewrite writes the typed value as it is, so an unknown field travels with its own object
+through any reorder, and an object the reducer builds fresh has no extras, as TS builds it fresh.
+`ToolDetail` and `ContentPart` are `deny_unknown_fields`, as their TS schemas are strict.
+
+Still different from TS: the older record types (`Agent`, `Item`, `ToolCall`, `ToolResult`,
+`Attachment`, the statuses and so on) have no `extra` yet, so a rewrite by this build drops an
+unknown field a newer build wrote there. Moving each of them to the same pattern is the remaining
+work; the TypeScript keeps them because every one of its object schemas is passthrough.
