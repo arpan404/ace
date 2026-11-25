@@ -719,6 +719,7 @@ impl Models {
             &endpoint.base_url,
             &model.id,
             prompt.system.as_deref(),
+            &prompt.tools,
         );
         Ok(Resolved {
             reference: reference.to_owned(),
@@ -808,15 +809,18 @@ fn request(
     format: Format,
     seed: &bound::Prefix,
 ) -> (ChatRequest, String) {
-    let (messages, digest) = if format == Format::Anthropic {
-        bound::sendable(&prompt.messages, seed.clone())
+    let (mut request, digest) = if format == Format::Anthropic {
+        let (messages, digest) = bound::sendable(&prompt.messages, seed.clone());
+        let sent: Vec<ChatMessage> = messages.iter().map(|m| message(m.as_ref())).collect();
+        (ChatRequest::new(sent), digest)
     } else {
+        // Nothing is trimmed, so the history is read where it already is.
+        let sent: Vec<ChatMessage> = prompt.messages.iter().map(message).collect();
         (
-            prompt.messages.clone(),
+            ChatRequest::new(sent),
             bound::digest(&prompt.messages, seed.clone()),
         )
     };
-    let mut request = ChatRequest::new(messages.iter().map(message).collect());
     match &prompt.system {
         Some(system) => request = request.with_system(system.as_str()),
         None if instructed => request = request.with_system(""),

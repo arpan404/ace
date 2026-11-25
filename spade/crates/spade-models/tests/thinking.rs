@@ -195,6 +195,25 @@ async fn thinking_made_before_the_conversations_start_changed_is_not_sent_back()
 }
 
 #[tokio::test]
+async fn thinking_is_not_sent_back_after_the_tools_offered_changed() -> Result {
+    let fake = FakeProvider::start_sequence(vec![thinking_script(), Script::reply("12C.")]).await?;
+    let models = models(&fake)?;
+    let prompt = Prompt::ask("Weather in Oxford?").tools(vec![lookup()]);
+    let (calls, thoughts) = stream(&models, "msgs/opus", &prompt).await?;
+    // The same messages, but `lookup` now takes a city: the signature no longer matches.
+    let mut changed = lookup();
+    changed.schema = json!({ "type": "object", "properties": { "city": { "type": "string" } } });
+    let follow = follow_up(&calls, thoughts).tools(vec![changed]);
+    stream(&models, "msgs/opus", &follow).await?;
+    assert_eq!(
+        assistant(&fake)["content"],
+        json!([{ "type": "tool_use", "id": "t1", "name": "lookup", "input": { "city": "Oxford" } }])
+    );
+    assert!(thinking_blocks(&fake).is_empty(), "{}", assistant(&fake));
+    Ok(())
+}
+
+#[tokio::test]
 async fn thinking_stored_by_an_older_build_is_not_sent_back_to_anthropic() -> Result {
     let fake = FakeProvider::start_sequence(vec![thinking_script(), Script::reply("12C.")]).await?;
     let models = models(&fake)?;

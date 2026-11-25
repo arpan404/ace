@@ -1,15 +1,16 @@
-//! Binds a reply's thoughts to everything that came before it in the request that produced it
-//! (ADR 0213). Anthropic ties each thinking block's signature to the exact conversation prefix it
-//! was made from, so once compaction, aging or a route fallback rewrites that prefix the block is
-//! refused and the whole request with it. Each thought carries a digest of its prefix, and only
-//! thoughts whose digest still matches what is sent now go back.
+//! Binds a reply's thoughts to everything that came before it in the request that produced it.
+//! This follows Anthropic's extended-thinking contract: a thinking block's signature is bound to
+//! everything sent before it, so once compaction, aging or a route fallback rewrites that prefix
+//! the block is refused and the whole request with it. Each thought carries a digest of its
+//! prefix, and only thoughts whose digest still matches what is sent now go back.
 
+use std::borrow::Cow;
 use std::fmt::Write as _;
 
 use sha2::{Digest, Sha256};
 
 use crate::format::Format;
-use crate::prompt::{Message, Thought};
+use crate::prompt::{Message, Thought, ToolSpec};
 
 /// A tag byte per message variant and per thought variant, so two shapes never encode alike.
 const PERSON: u8 = 1;
@@ -19,8 +20,9 @@ const SIGNED: u8 = 1;
 const REASONING: u8 = 2;
 const BLOCK: u8 = 3;
 
-/// What a reply is made from: the endpoint, the model and the instructions. A thought made on one
-/// model or with another system prompt never matches a call on another.
+/// What a reply is made from: the endpoint, the model, the instructions and the tools offered. A
+/// thought made on one model, or with another system prompt or other tools, never matches a call
+/// on another.
 #[derive(Debug, Clone)]
 pub(crate) struct Prefix(Sha256);
 
@@ -30,6 +32,7 @@ impl Prefix {
         base_url: &str,
         model_id: &str,
         system: Option<&str>,
+        tools: &[ToolSpec],
     ) -> Self {
         let mut prefix = Self(Sha256::new());
         prefix.text("spade-thinking-bound/1");
@@ -39,6 +42,12 @@ impl Prefix {
         prefix.tag(u8::from(system.is_some()));
         if let Some(system) = system {
             prefix.text(system);
+        }
+        prefix.count(tools.len());
+        for tool in tools {
+            prefix.text(&tool.name);
+            prefix.text(&tool.description);
+            prefix.text(&json(&tool.schema));
         }
         prefix
     }
@@ -140,17 +149,34 @@ impl Prefix {
 }
 
 /// The messages to send, and the digest a reply's thoughts are bound to: a thought goes back only
-/// when the prefix it was made from is exactly the prefix sent now.
-pub(crate) fn sendable(messages: &[Message], mut prefix: Prefix) -> (Vec<Message>, String) {
+/// when the prefix it was made from is exactly the prefix sent now. Every message is borrowed
+/// as it is; only a `Message::Spade` whose thoughts were trimmed is owned.
+pub(crate) fn sendable<'a>(
+    messages: &'a [Message],
+    mut prefix: Prefix,
+) -> (Vec<Cow<'a, Message>>, String) {
     let mut out = Vec::with_capacity(messages.len());
     for message in messages {
-        let mut message = message.clone();
-        if let Message::Spade { thoughts, .. } = &mut message {
-            let bound = prefix.digest();
-            thoughts.retain(|thought| bound_of(thought) == Some(bound.as_str()));
-        }
-        prefix.add(&message);
-        out.push(message);
+        let sent = match message {
+            Message::Spade { thoughts, .. } => {
+                let bound = prefix.digest();
+                if thoughts
+                    .iter()
+                    .all(|thought| bound_of(thought) == Some(bound.as_str()))
+                {
+                    Cow::Borrowed(message)
+                } else {
+                    let mut owned = message.clone();
+                    if let Message::Spade { thoughts, .. } = &mut owned {
+                        thoughts.retain(|thought| bound_of(thought) == Some(bound.as_str()));
+                    }
+                    Cow::Owned(owned)
+                }
+            }
+            _ => Cow::Borrowed(message),
+        };
+        prefix.add(sent.as_ref());
+        out.push(sent);
     }
     (out, prefix.digest())
 }
