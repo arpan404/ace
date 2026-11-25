@@ -14,7 +14,7 @@ import {
   type NativeBackend,
 } from "@ace/provider-kit/native-switches";
 import { runningChildren } from "./git-processes.ts";
-import { owned } from "./lease-journal.ts";
+import { forgetLease, owned } from "./lease-journal.ts";
 import { ownedByThisProcess } from "./lease-owner.ts";
 import { captureMutationOwnership, settleOwnLeases, type LeaseProbe } from "./mutation-leases.ts";
 import {
@@ -46,6 +46,8 @@ export interface NativeLeaseArgs {
   path?: string;
   paths?: readonly string[];
   failed?: (path: string, error: unknown) => void;
+  /** The calling service's own core: its probe, clock and injected ports, never another's. */
+  core?: NativeCoreCli | undefined;
 }
 
 /** The core operations served by the lease modules (`core::lease`). */
@@ -58,22 +60,19 @@ const leaseOps = new Set([
   "recoverCleanup",
 ]);
 
-/** The most recently built service's core serves lease operations (they are process-wide). */
-let leaseCore: NativeCoreCli | undefined;
-
-/** Registers the core that serves lease operations; they share the process's journal. */
-function registerLeaseCore(core: NativeCoreCli): void {
-  leaseCore = core;
-}
-
-/** The lease dispatcher for one operation, or `undefined` when it stays on the probe. */
+/**
+ * The lease dispatcher for one operation, or `undefined` when it stays on the
+ * probe. Each service dispatches through its own core: its lease probe, wait,
+ * evidence and injected ports are its own (rule 4).
+ */
 function runLease<T>(
   op: string,
   args: NativeLeaseArgs | undefined,
   typescript: () => Promise<T>,
 ): Promise<T> | undefined {
-  if (args === undefined || !leaseOps.has(op) || leaseCore === undefined) return undefined;
-  return leaseCore.runLeaseOp(op, args, typescript as () => Promise<unknown>) as Promise<T>;
+  const core = args?.core;
+  if (args === undefined || core === undefined || !leaseOps.has(op)) return undefined;
+  return core.runLeaseOp(op, args, typescript as () => Promise<unknown>) as Promise<T>;
 }
 
 /** Dispatches one core operation to the native core when the part is on. */
@@ -87,8 +86,9 @@ export function runNativeCore<T>(
 
 /** The synchronous `runNativeCore`, for the calls that stay synchronous. */
 export function runNativeCoreSync<T>(op: string, typescript: () => T, args?: NativeLeaseArgs): T {
-  if (args !== undefined && leaseOps.has(op) && leaseCore !== undefined) {
-    return leaseCore.runLeaseOp(op, args, typescript as () => Promise<unknown>) as T;
+  const core = args?.core;
+  if (args !== undefined && core !== undefined && leaseOps.has(op)) {
+    return core.runLeaseOp(op, args, typescript as () => Promise<unknown>) as T;
   }
   return runNativeOpSync(part, op, typescript);
 }
@@ -325,7 +325,6 @@ export class NativeCoreCli {
     } catch (error) {
       throwGitError(error);
     }
-    registerLeaseCore(this);
   }
 
   /** Runs one lease operation in the core and maps its answer back to `GitService`'s shape. */
@@ -532,6 +531,14 @@ export class NativeCoreCli {
     return new Promise<NativeExecuteOutput>((resolve, reject) => {
       let callId = 0;
       let settled = false;
+      // TS pipes stdout into `output`: the pipe ends it at EOF whether Git
+      // succeeded, failed or was stopped, and exactly once.
+      let outputEnded = false;
+      const endOutput = () => {
+        if (params.output === undefined || outputEnded) return;
+        outputEnded = true;
+        params.output.end();
+      };
       const cleanupListeners = () => {
         if (onAbort) params.signal?.removeEventListener("abort", onAbort);
         if (onOutputError) params.output?.off("error", onOutputError);
@@ -610,10 +617,11 @@ export class NativeCoreCli {
                   );
                   gitErr.cleanup = { settled: cleanup };
                 }
+                endOutput();
                 reject(gitErr);
                 return;
               }
-              params.output?.end();
+              endOutput();
               try {
                 throwGitError(error);
               } catch (mapped) {
@@ -632,9 +640,7 @@ export class NativeCoreCli {
             if (meta.cleanupId !== undefined) {
               void this.quarantineSync(ownership, meta.cleanupId, meta.cleanupGroupPid);
             }
-            // TS pipes stdout into `output`: the pipe ends it at EOF whether Git
-            // succeeded, failed or was stopped.
-            params.output?.end();
+            endOutput();
             const stdoutBuf = out
               ? Buffer.from(out.buffer, out.byteOffset, out.byteLength)
               : Buffer.alloc(0);
@@ -650,7 +656,7 @@ export class NativeCoreCli {
       } catch (error) {
         settled = true;
         cleanupListeners();
-        params.output?.end();
+        endOutput();
         recordGitOp({ seq, op: "executeRaw", part, selected, completed: "native" });
         try {
           throwGitError(error);
@@ -777,7 +783,10 @@ export class NativeCoreCli {
         return;
       }
       case "lease_retired": {
-        this.leaseProbe.retired?.(msg.event as Parameters<NonNullable<LeaseProbe["retired"]>>[0]);
+        const event = msg.event as Parameters<NonNullable<LeaseProbe["retired"]>>[0];
+        // The core removed the intent: this process must not hold or retire it again.
+        forgetLease(event.lease.id);
+        this.leaseProbe.retired?.(event);
         return;
       }
       case "stdin_ack": {

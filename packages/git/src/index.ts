@@ -220,7 +220,7 @@ export class GitService {
       return runNativeCoreSync(
         "assertMutationAvailable",
         () => this.repository.cli.assertMutationAvailable(worktree),
-        { path: worktree },
+        { path: worktree, core: this.repository.cli.leaseCore() },
       );
     return this.repository.cli.assertMutationAvailable(worktree);
   }
@@ -229,6 +229,7 @@ export class GitService {
     if (this.gitNative.has("core"))
       return runNativeCoreSync("mutationState", () => this.repository.cli.mutationState(worktree), {
         path: worktree,
+        core: this.repository.cli.leaseCore(),
       });
     return this.repository.cli.mutationState(worktree);
   }
@@ -237,6 +238,7 @@ export class GitService {
     if (this.gitNative.has("core"))
       return runNativeCore("recoverCleanup", () => this.repository.cli.recoverCleanup(worktree), {
         path: worktree,
+        core: this.repository.cli.leaseCore(),
       });
     return this.repository.cli.recoverCleanup(worktree);
   }
@@ -249,7 +251,7 @@ export class GitService {
       return runNativeCore(
         "clearStaleLeases",
         () => this.repository.cli.clearStaleLeases(worktree),
-        { path: worktree },
+        { path: worktree, core: this.repository.cli.leaseCore() },
       );
     return this.repository.cli.clearStaleLeases(worktree);
   }
@@ -259,7 +261,10 @@ export class GitService {
    */
   heal(worktree: string) {
     if (this.gitNative.has("core"))
-      return runNativeCore("heal", () => this.repository.cli.heal(worktree), { path: worktree });
+      return runNativeCore("heal", () => this.repository.cli.heal(worktree), {
+        path: worktree,
+        core: this.repository.cli.leaseCore(),
+      });
     return this.repository.cli.heal(worktree);
   }
   /**
@@ -272,6 +277,7 @@ export class GitService {
       return runNativeCore("healAll", () => this.repository.cli.healAll(worktrees, failed), {
         paths: worktrees,
         failed,
+        core: this.repository.cli.leaseCore(),
       });
     return this.repository.cli.healAll(worktrees, failed);
   }

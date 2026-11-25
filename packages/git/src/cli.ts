@@ -322,6 +322,11 @@ export class GitCli {
     return this.boundedReads.run(true, work);
   }
 
+  /** The core serving this instance's lease operations, when `ACE_GIT=core` is on. */
+  leaseCore(): NativeCoreCli | undefined {
+    return this.nativeCore;
+  }
+
   protectWorktree(path: string): void {
     this.protectedWorktrees.add(resolvePath(path));
   }

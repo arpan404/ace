@@ -181,7 +181,8 @@ Inside today's TypeScript service (no core needed): the shell replaces the proce
   wrote is read by the other), admission, quarantine, healing, stale locks, the Git process scan
   through the `gitProcesses` port. (b): `read-gate`, `lock-sweep`, `lock-timestamps.process`,
   `restart-locks.process`. Proof: `stale-leases.process`, `self-healing.process`,
-  `held-directory.process`, `cache-races.process`, `cache-lifetime.process`, `numbering.process`.
+  `held-directory.process`. `cache-races`, `cache-lifetime` and `numbering` exercise `serial` and
+  `ReadGate`, which only G4 wires into the write path, so they join this item's proof then.
 - **G2c, policy and configuration.** The execution policy and its overrides
   (`non-executing.ts:35`–`:52`, `:113`–`:130`, including `GIT_ATTR_NOSYSTEM`,
   `GIT_NO_LAZY_FETCH`, `GIT_ALLOW_PROTOCOL`), hook switches, config facts and their stamps,
