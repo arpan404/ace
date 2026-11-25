@@ -105,6 +105,31 @@ fn a_tool_event_caches_the_shell_it_reports() {
 }
 
 #[test]
+fn a_stale_cache_entry_is_selected_over_every_tenant() {
+    let session = json!({
+        "id": "e1",
+        "type": "session.text.delta",
+        "data": { "sessionID": "s" },
+    });
+    let a = Arc::new(Fake::new(|_, watermark| watermark < 2));
+    let b = Arc::new(Fake::new(|_, watermark| watermark < 2));
+    let known = [("a", a.clone()), ("b", b.clone())];
+    let all = tenants(&[(0, a.clone()), (1, b.clone())]);
+    let mut routes = Routes::new();
+
+    // A miss asks every tenant once and caches the answer.
+    assert_eq!(names(&routes.select(&session, 1, &all), &known), ["a", "b"]);
+    assert_eq!((a.accepts_calls(), b.accepts_calls()), (1, 1));
+    // At 2 both refuse the cached entry, so the TypeScript deletes it and
+    // selects over every tenant again: each is asked one more time.
+    assert!(routes.select(&session, 2, &all).is_empty());
+    assert_eq!((a.accepts_calls(), b.accepts_calls()), (3, 3));
+    // The entry is gone, so this is a miss: one ask each, not two.
+    assert!(routes.select(&session, 3, &all).is_empty());
+    assert_eq!((a.accepts_calls(), b.accepts_calls()), (4, 4));
+}
+
+#[test]
 fn clear_forgets_every_cached_answer() {
     let session = json!({
         "id": "e1",

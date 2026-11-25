@@ -4,6 +4,7 @@
 //! recovery and HTTP effects.
 
 pub mod error;
+pub mod notes;
 pub mod ownership;
 pub mod routes;
 pub mod server;

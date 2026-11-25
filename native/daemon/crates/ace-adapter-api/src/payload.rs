@@ -45,7 +45,7 @@ pub fn admit(text: &str, value: &Value) -> Result<(), PayloadError> {
     if text.len() > MAX_PAYLOAD_BYTES {
         return Err(PayloadError::Bytes);
     }
-    if !within_structural_limit(value) {
+    if nodes(value) > MAX_PAYLOAD_NODES {
         return Err(PayloadError::Structural);
     }
     Ok(())
@@ -66,24 +66,6 @@ pub fn nodes(value: &Value) -> usize {
         }
     }
     nodes
-}
-
-/// The structural bound, counted as `ProviderPayload`'s walk counts it.
-fn within_structural_limit(value: &Value) -> bool {
-    let mut pending = vec![value];
-    let mut nodes = 0usize;
-    while let Some(value) = pending.pop() {
-        nodes += 1;
-        if nodes > MAX_PAYLOAD_NODES {
-            return false;
-        }
-        match value {
-            Value::Array(items) => pending.extend(items.iter()),
-            Value::Object(map) => pending.extend(map.values()),
-            _ => {}
-        }
-    }
-    true
 }
 
 #[cfg(test)]
