@@ -1,11 +1,85 @@
 // SPDX-License-Identifier: Apache-2.0
 //! `input-fate.ts` (E5.4a): what became of an input the engine accepted, in its precedence.
-//! Pure: the caller reads the three facts and gets the fate back.
+//! Pure: the caller reads the three facts and gets the fate back. E5.4c adds the read the
+//! facade's `inputFate` takes in one transaction.
+
+use ace_json::Value;
+use ace_store::{stmt_cache, Value as SqlValue};
+
+use crate::EngineError;
 
 /// The queue's own words for a message the person took out (`input-fate.ts:45`).
 pub const REMOVED_FROM_QUEUE: &str = "Removed from queue";
 /// A Stop's words for an input it cancelled before any run took it (`stop-intents.ts`).
 pub const CANCELLED_BY_STOP: &str = "Cancelled before delivery";
+
+const CREATED_SEQ: &str = "SELECT created_seq FROM item_heads WHERE thread_id=? AND id=?";
+
+/// `inputFate(id, commandId)` (`index.ts:1135`): the input's fate, read in one transaction.
+pub fn read(
+    store: &crate::EngineStore,
+    thread: &str,
+    command_id: &str,
+) -> Result<Value, EngineError> {
+    let key = format!("input:{command_id}");
+    store.atomic(|tx| {
+        let facts = InputFacts {
+            replacement: crate::inputs::journal::replacement(tx.conn(), thread, command_id)?,
+            written: written_at(tx, thread, &key)?,
+            run_id: crate::inputs::journal::run_of(tx.conn(), thread, &key)?,
+            intent: crate::intents::store::delivery(tx.conn(), thread, command_id)?.map(
+                |delivery| IntentFacts {
+                    status: delivery.status,
+                    uncertain: delivery.uncertain,
+                    error: delivery.error,
+                },
+            ),
+        };
+        Ok(fate_json(&input_fate(&facts)))
+    })
+}
+
+fn written_at(
+    tx: &crate::store::Tx<'_>,
+    thread: &str,
+    key: &str,
+) -> Result<bool, EngineError> {
+    Ok(stmt_cache::get_row(
+        tx.conn(),
+        CREATED_SEQ,
+        vec![SqlValue::Text(thread.to_owned()), SqlValue::Text(key.to_owned())],
+    )?
+    .is_some())
+}
+
+/// The fate as `InputFate`'s JSON: `state` first, then the field its variant carries.
+fn fate_json(fate: &InputFate) -> Value {
+    let mut value = ace_json::Map::new();
+    let state = match fate {
+        InputFate::Waiting => "waiting",
+        InputFate::Sending => "sending",
+        InputFate::Delivered(_) => "delivered",
+        InputFate::Uncertain => "uncertain",
+        InputFate::Replaced(_) => "replaced",
+        InputFate::Removed => "removed",
+        InputFate::Failed(_) => "failed",
+        InputFate::Unknown => "unknown",
+    };
+    value.insert("state", Value::from(state));
+    match fate {
+        InputFate::Delivered(Some(run)) => {
+            value.insert("runId", Value::from(run.as_str()));
+        }
+        InputFate::Replaced(by) => {
+            value.insert("by", Value::from(by.as_str()));
+        }
+        InputFate::Failed(error) => {
+            value.insert("error", Value::from(error.as_str()));
+        }
+        _ => {}
+    }
+    Value::Object(value)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputFate {

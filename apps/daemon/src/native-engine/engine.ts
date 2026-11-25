@@ -28,6 +28,7 @@ import {
 import { UnportedMembers } from "./unported.ts";
 import { queuePage, queueRetains, queueSnapshot } from "./queue.ts";
 import { commandExecution, commandFailure, prioritizeSubagentResult } from "./intents.ts";
+import { inputFate } from "./inputs.ts";
 import { openEngineData } from "./open.ts";
 
 export type { NativeEngineHandle, NativeTransactionShell } from "./contracts.ts";
@@ -366,6 +367,11 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
     ...args: Parameters<EngineSurface["prioritizeSubagentResult"]>
   ): ReturnType<EngineSurface["prioritizeSubagentResult"]> {
     prioritizeSubagentResult(this.binding, args[0], args[1]);
+  }
+  override inputFate(
+    ...args: Parameters<EngineSurface["inputFate"]>
+  ): ReturnType<EngineSurface["inputFate"]> {
+    return inputFate(this.binding, args[0], args[1]);
   }
   override readRawBlob(id: string): Uint8Array | undefined {
     const bytes = this.member("readRawBlob", "E5.3")(id) as Uint8Array | null;

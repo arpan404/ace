@@ -2,16 +2,17 @@
 /**
  * The TypeScript engine writes the home `commands-home.process.test.ts` reads (E5.4a): a queue
  * with three waiting sends (one a steer that fell back), an uncertain one, a child result and a
- * `stopped` hold; three settled intents; and a thread whose uncertain sends were submitted in
- * two generations. No provider CLI and no daemon: the TypeScript store modules write the rows,
- * and the parent's native engine reads them.
+ * `stopped` hold; three settled intents; a thread whose uncertain sends were submitted in two
+ * generations; and E5.4c's input-fate thread, one row per fate rule. No provider CLI and no
+ * daemon: the TypeScript store modules write the rows, and the parent's native engine reads them.
  */
 import { join } from "node:path";
-import { Command, type ThreadId } from "@ace/protocol";
+import { Command, CommandId, Item, type ThreadId } from "@ace/protocol";
 import { Store } from "../../store.ts";
 import { createDevThread } from "../../commands.ts";
 import { IntentStore } from "../../engine/intents.ts";
 import { QueueStore } from "../../engine/queue-store.ts";
+import { InputJournal } from "../../engine/input-journal.ts";
 import { SteerNotes } from "../../engine/steer-notes.ts";
 import { migrateEngine } from "../../engine/migrations.ts";
 
@@ -87,3 +88,41 @@ for (const [id, text, generation] of [
   queue.uncertain(intent);
 }
 queue.set(stale, { paused: true, reason: "uncertain" }, at);
+
+// E5.4c's input-fate thread: one row per rule `inputFate` checks, written by the TypeScript
+// store modules the daemon uses today.
+const fate = createDevThread(store, workspace).id;
+const journal = new InputJournal(store);
+const resent = add(fate, "resent", "sent twice");
+queue.uncertain(resent);
+journal.replace(fate, CommandId.parse("resent"), CommandId.parse("again"));
+const uncertainFate = add(fate, "uncertain-fate", "maybe it ran");
+queue.uncertain(uncertainFate);
+add(fate, "waiting-fate", "still waiting");
+journal.attachRun(fate, "input:waiting-fate", "run-recorded");
+add(fate, "cancelled-fate", "stopped before delivery");
+add(fate, "removed-fate", "taken out of the queue");
+for (const header of intents.headers(fate)) {
+  if (header.commandId === "cancelled-fate")
+    intents.mark(header, "failed", "Cancelled before delivery");
+  if (header.commandId === "removed-fate") intents.mark(header, "failed", "Removed from queue");
+}
+// `input:cancelled-fate` was written before its delivery failed; `input:written` has no intent.
+for (const [id, text] of [
+  ["input:cancelled-fate", "stopped before delivery"],
+  ["input:written", "delivered with no intent"],
+] as const)
+  store.appendEvents(fate, [
+    {
+      type: "item.created",
+      item: Item.parse({
+        id,
+        agentId: "root",
+        type: "message",
+        role: "user",
+        parts: [{ type: "text", text }],
+        createdAt: at,
+        complete: true,
+      }),
+    },
+  ]);
