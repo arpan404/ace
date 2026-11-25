@@ -43,6 +43,8 @@ import type { GitJob } from "./git-job.ts";
 import type { GitProcess } from "./git-processes.ts";
 import { ConfigFacts, configEnvironment } from "./config-facts.ts";
 import { learnConfigSources, standardConfigFiles } from "./config-learning.ts";
+import { gitPartOn } from "@ace/provider-kit/native-switches";
+import { NativeCoreCli } from "./native-core.ts";
 import {
   GitError,
   toGitError,
@@ -180,6 +182,7 @@ export class GitCli {
   /** Windows: the job module once loaded, `null` when it can't load (see `git-job.ts`). */
   private jobs: typeof import("./git-job.ts") | null | undefined;
   private jobsLoading: Promise<void> | undefined;
+  private readonly nativeCore: NativeCoreCli | undefined;
 
   constructor(options: GitOptions) {
     this.transportProtocols = options.transportProtocols ?? ["http", "https", "ssh"];
@@ -241,6 +244,9 @@ export class GitCli {
         "invalid_argument",
         "timeoutMs must be an integer between 1 and 2147483647",
       );
+    }
+    if (gitPartOn("core")) {
+      this.nativeCore = new NativeCoreCli(options, this.runtime, this.killed, this.leaseProbe);
     }
   }
 
@@ -393,7 +399,8 @@ export class GitCli {
     if (this.closing) return this.closing;
     this.closed = true;
     for (const cancel of this.cancellations) cancel();
-    this.closing = Promise.allSettled(this.calls)
+    const nativeClose = this.nativeCore ? [this.nativeCore.close()] : [];
+    this.closing = Promise.allSettled([...this.calls, ...nativeClose])
       .then(() => Promise.allSettled(this.drains))
       // Killed processes' leaders have exited: retire the leases whose groups are gone now,
       // so shutdown leaves nothing behind that it could have settled.
@@ -488,6 +495,7 @@ export class GitCli {
   /** Cancellable I/O-bound retry pause, using the same injected clock as calls. */
   pause(milliseconds: number): Promise<void> {
     if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
+    if (this.nativeCore) return this.nativeCore.pause(milliseconds);
     return new Promise((resolve, reject) => {
       const cancelled = () => {
         stop();
@@ -610,6 +618,7 @@ export class GitCli {
     if (this.configuredBinary === undefined && this.ready === attempt) {
       attempt.binary = binary;
       this.resolvedBinary = binary;
+      this.nativeCore?.setResolvedBinary(binary);
     }
     // Windows searches a bare name in the working directory, a checkout, before PATH.
     if (
@@ -850,10 +859,63 @@ export class GitCli {
 
   private executeRaw(cwd: string, args: string[], options: CallOptions): Promise<Output> {
     if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
+    if (this.nativeCore) {
+      if (this.runtime.platform === "win32" && options.directoryFd !== undefined) {
+        return this.executeLeased(cwd, args, options, options.directoryFd);
+      }
+      const attempt = this.configuredBinary === undefined ? this.ready : undefined;
+      return this.nativeCore
+        .executeRaw(
+          {
+            cwd,
+            args,
+            binary: this.binary,
+            env: options.env ?? {},
+            write: options.write === true,
+            stripAskpass: typeof this.executionPolicy.getStore() === "object",
+            executionDisabled: this.executionDisabledAt(cwd),
+            allowFailure: options.allowFailure === true,
+            ...(options.captureBytes === undefined ? {} : { captureBytes: options.captureBytes }),
+            ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+            stopAtCapture: options.stopAtCapture === true,
+            ...(options.stopAfterMs === undefined ? {} : { stopAfterMs: options.stopAfterMs }),
+            bounded:
+              options.stopAtCapture === true ||
+              options.stopAfterMs !== undefined ||
+              this.boundedReads.getStore() === true,
+            ...(options.input === undefined ? {} : { input: options.input }),
+            ...(options.output === undefined ? {} : { output: options.output }),
+            ...(options.consume === undefined ? {} : { consume: options.consume }),
+            ...(options.stderr === undefined ? {} : { stderr: options.stderr }),
+            ...(options.beforeSpawn === undefined ? {} : { beforeSpawn: options.beforeSpawn }),
+            ...(options.signal === undefined ? {} : { signal: options.signal }),
+            ...(options.directoryFd === undefined ? {} : { directoryFd: options.directoryFd }),
+          },
+          () => this.executeRawTs(cwd, args, options),
+        )
+        .catch((error: unknown) => {
+          if (
+            error instanceof GitError &&
+            error.code === "git_missing" &&
+            attempt &&
+            this.ready === attempt
+          ) {
+            this.ready = undefined;
+            this.resolvedBinary = undefined;
+            this.nativeCore?.setResolvedBinary(undefined);
+          }
+          throw error;
+        });
+    }
+    return this.executeRawTs(cwd, args, options);
+  }
+
+  private executeRawTs(cwd: string, args: string[], options: CallOptions): Promise<Output> {
+    if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
     if (this.runtime.platform === "win32" && this.jobs === undefined)
       return (this.jobsLoading ?? Promise.resolve()).then(() => {
         this.jobs ??= null;
-        return this.executeRaw(cwd, args, options);
+        return this.executeRawTs(cwd, args, options);
       });
     const binary = this.binary;
     const env = inheritedEnv();

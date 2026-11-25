@@ -1,23 +1,35 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The native core shell (G2 owns the port): the JS half of the port bridge
- * plus the dispatch for the process layer (G2a), ordering and leases (G2b),
- * and policy and configuration (G2c). G0 stub: every call probes the addon
- * and defers to the same TypeScript it replaces.
- *
- * The bridge (G2a fills the core side): each `GitProcessRuntime` member the
- * caller injected is passed to the core as a callback, and an injected
- * `spawn` is wrapped so its `ChildProcess` streams stdin, stdout and stderr
- * chunks and the exit (with the pid) to the core through one ordered queue,
- * as ADR 0223 §7's rule 3 orders a session's events.
+ * The native core shell (G2): the JS half of the port bridge plus the
+ * dispatch for the process layer (G2a), ordering and leases (G2b), and
+ * policy and configuration (G2c).
  */
+import { Buffer } from "node:buffer";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import type { GitPart } from "@ace/provider-kit/native-switches";
-import { gitAddon, runNativeOp, runNativeOpSync } from "./native-common.ts";
-import type { GitProcessRuntime } from "./types.ts";
+import { Readable, type Writable } from "node:stream";
+import {
+  gitCrossSelected,
+  type GitPart,
+  type NativeBackend,
+} from "@ace/provider-kit/native-switches";
+import { runningChildren } from "./git-processes.ts";
+import { captureMutationOwnership, settleOwnLeases, type LeaseProbe } from "./mutation-leases.ts";
+import {
+  countGitFallback,
+  gitAddon,
+  type NativeGitCoreHandle,
+  recordGitOp,
+  reserveGitOpSeq,
+  runNativeOp,
+  runNativeOpSync,
+  throwGitError,
+} from "./native-common.ts";
+import type { CleanupResult, MutationLease } from "@ace/provider-kit/cleanup";
+import { GitError, type GitErrorCode, type GitOptions, type GitProcessRuntime } from "./types.ts";
 
 const part = "core" satisfies GitPart;
+const gitFailedPrefix = "git_failed:";
 
 /** Dispatches one core operation to the native core when the part is on. */
 export function runNativeCore<T>(op: string, typescript: () => Promise<T>): Promise<T> {
@@ -29,11 +41,7 @@ export function runNativeCoreSync<T>(op: string, typescript: () => T): T {
   return runNativeOpSync(part, op, typescript);
 }
 
-/**
- * The injected `GitProcessRuntime` members as core callbacks: the port
- * surface the core calls back on the JS thread. G2a wraps the defaults and
- * bridges the injected members; G0 passes them through.
- */
+/** The injected `GitProcessRuntime` members passed through for G0 bridge checks. */
 export function portCallbacks(runtime: GitProcessRuntime): GitProcessRuntime {
   return {
     spawn: runtime.spawn,
@@ -55,23 +63,14 @@ export type GitBridgeEventKind = "stdin-ack" | "stdout" | "stderr" | "exit" | "c
 
 /** An injected spawn bridged to the core: the queue the core drains in order. */
 export interface BridgedSpawn {
-  /** The leader's pid, once the spawn gave one. */
   readonly pid: number | undefined;
-  /** Takes every queued event, in arrival order. */
   drain(): string[];
-  /** Queues stdin bytes for the leader; the pump writes them in order. */
   writeStdin(data: Uint8Array): void;
-  /** Closes stdin; a CLI waiting on it exits instead of hanging. */
   endStdin(): void;
-  /** Releases the queue; the tree stays as the exit left it. */
   close(): void;
 }
 
-/**
- * Wraps an injected `spawn`'s `ChildProcess` so the core reads it as it
- * reads a supervised child: stdin, stdout and stderr chunks and the exit
- * (with the pid) through one ordered queue. Binary chunks cross base64.
- */
+/** Wraps an injected `spawn`'s `ChildProcess` for G0 bridge tests. */
 export function bridgeInjectedSpawn(child: ChildProcessWithoutNullStreams): BridgedSpawn {
   const bridge = new (gitAddon().GitPortBridge)();
   const push = (kind: GitBridgeEventKind, payload: Record<string, unknown>): void => {
@@ -106,4 +105,674 @@ export function bridgeInjectedSpawn(child: ChildProcessWithoutNullStreams): Brid
       bridge.close();
     },
   };
+}
+
+export interface NativeExecuteOutput {
+  stdout: Buffer;
+  stderr: string;
+  exitCode: number;
+  truncated: boolean;
+  stopped?: "capture" | "budget";
+}
+
+export interface NativeExecuteParams {
+  cwd: string;
+  args: string[];
+  binary: string;
+  env: Record<string, string | undefined>;
+  write: boolean;
+  stripAskpass: boolean;
+  executionDisabled: boolean;
+  allowFailure: boolean;
+  captureBytes?: number;
+  timeoutMs?: number;
+  stopAtCapture: boolean;
+  stopAfterMs?: number;
+  bounded: boolean;
+  input?: string | Uint8Array | Readable;
+  output?: Writable;
+  consume?: (chunk: Buffer) => void;
+  stderr?: (chunk: Buffer) => void;
+  beforeSpawn?: () => void;
+  signal?: AbortSignal;
+  directoryFd?: number;
+}
+
+interface ParsedFailure {
+  code: GitErrorCode;
+  message: string;
+  details: Record<string, unknown>;
+  cleanupId?: number;
+  cleanupGroupPid?: number;
+}
+
+interface StreamTarget {
+  output?: Writable;
+  consume?: (chunk: Buffer) => void;
+  stderr?: (chunk: Buffer) => void;
+}
+
+interface PortMessage {
+  op: string;
+  reqId?: number;
+  spawnId?: number;
+  timerId?: number;
+  callId?: number;
+  pid?: number;
+  ms?: number;
+  command?: string;
+  args?: string[];
+  cwd?: string | null;
+  env?: [string, string][];
+  detached?: boolean;
+  signal?: NodeJS.Signals;
+  leasesJson?: string;
+}
+
+function parseFailurePayload(error: unknown): ParsedFailure | undefined {
+  if (!(error instanceof Error) || !error.message.startsWith(gitFailedPrefix)) return undefined;
+  try {
+    return JSON.parse(error.message.slice(gitFailedPrefix.length)) as ParsedFailure;
+  } catch {
+    return undefined;
+  }
+}
+
+function serializeCallbackError(error: unknown): string {
+  if (error instanceof GitError) {
+    return JSON.stringify({ ok: false, code: error.code, message: error.message });
+  }
+  if (error instanceof Error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (typeof code === "string") {
+      return JSON.stringify({ ok: false, errno: code, message: error.message });
+    }
+    return JSON.stringify({ ok: false, code: "git_failed", message: error.message });
+  }
+  return JSON.stringify({ ok: false, code: "git_failed", message: String(error) });
+}
+
+function writeChunkToWritable(output: Writable, chunk: Buffer): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onError = (err: Error) => {
+      cleanup();
+      reject(err);
+    };
+    const onClose = () => {
+      cleanup();
+      resolve();
+    };
+    const onDrain = () => {
+      cleanup();
+      resolve();
+    };
+    const cleanup = () => {
+      output.off("error", onError);
+      output.off("close", onClose);
+      output.off("drain", onDrain);
+    };
+    output.once("error", onError);
+    output.once("close", onClose);
+    if (output.write(chunk)) {
+      cleanup();
+      resolve();
+    } else {
+      output.once("drain", onDrain);
+    }
+  });
+}
+
+/** Native process-layer runner owned by one `GitCli` when `ACE_GIT=core` is on (G2a). */
+export class NativeCoreCli {
+  private readonly handle: NativeGitCoreHandle;
+  private readonly runtime: GitProcessRuntime;
+  private readonly useJsCleanupSupervisor: boolean;
+  private readonly children = new Map<number, ChildProcessWithoutNullStreams>();
+  private readonly timers = new Map<number, () => void>();
+  private readonly streams = new Map<number, StreamTarget>();
+  private readonly killed: Set<string>;
+  private readonly leaseProbe: LeaseProbe;
+
+  constructor(
+    options: GitOptions,
+    runtime: GitProcessRuntime,
+    killed: Set<string>,
+    leaseProbe: LeaseProbe,
+  ) {
+    this.runtime = runtime;
+    this.killed = killed;
+    this.leaseProbe = leaseProbe;
+    this.useJsCleanupSupervisor = options.processRuntime?.cleanupSupervisor !== undefined;
+    const config = {
+      binary: options.gitBinary,
+      timeoutMs: options.timeoutMs,
+      platform: runtime.platform,
+      useJsSpawn: options.processRuntime?.spawn !== undefined || this.useJsCleanupSupervisor,
+      useJsScheduler: options.processRuntime?.scheduleTimeout !== undefined,
+      useJsSignalGroup: options.processRuntime?.signalGroup !== undefined,
+      useJsGroupAlive: options.processRuntime?.groupAlive !== undefined,
+      useJsLocateGit: options.processRuntime?.locateGit !== undefined,
+      useJsCleanupSupervisor: this.useJsCleanupSupervisor,
+    };
+    const addon = gitAddon();
+    try {
+      this.handle = new addon.NativeGitCore(JSON.stringify(config), (eventJson, data) => {
+        this.onPort(eventJson, data);
+      });
+    } catch (error) {
+      throwGitError(error);
+    }
+  }
+
+  setResolvedBinary(binary: string | undefined): void {
+    this.handle.setResolvedBinary(binary ?? null);
+  }
+
+  jobAlive(pid: number): boolean {
+    return this.handle.jobAlive(pid);
+  }
+
+  pause(milliseconds: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.handle.pause(milliseconds, (error) => {
+        if (error !== null && error !== undefined) {
+          try {
+            throwGitError(error);
+          } catch (mapped) {
+            reject(mapped);
+          }
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+
+  close(): Promise<void> {
+    return new Promise((resolve) => {
+      this.handle.close(() => {
+        for (const cancel of this.timers.values()) cancel();
+        this.timers.clear();
+        resolve();
+      });
+    });
+  }
+
+  private awaitNativeCleanup(cleanupId: number): Promise<CleanupResult> {
+    return new Promise((resolve) => {
+      this.handle.awaitCleanup(cleanupId, (error, json) => {
+        if ((error !== null && error !== undefined) || json === undefined) {
+          resolve({ status: "unconfirmed", reason: "Cleanup settlement failed" });
+          return;
+        }
+        try {
+          const parsed = JSON.parse(json) as { result: CleanupResult };
+          resolve(parsed.result);
+        } catch {
+          resolve({ status: "unconfirmed", reason: "Malformed cleanup receipt" });
+        }
+      });
+    });
+  }
+
+  private quarantineSync(
+    ownership: ReturnType<typeof captureMutationOwnership>,
+    cleanupId: number,
+    groupPid: number | undefined,
+  ): Promise<CleanupResult> {
+    const settled = this.awaitNativeCleanup(cleanupId);
+    const cleanup = ownership.quarantine({ settled }, groupPid);
+    if (groupPid !== undefined && ownership.leases.length > 0) {
+      const ids = ownership.leases.map(({ id }) => id);
+      for (const id of ids) this.killed.add(id);
+      void settleOwnLeases(ids, this.leaseProbe).then(
+        () => ids.forEach((id) => this.killed.delete(id)),
+        () => {},
+      );
+    }
+    return cleanup;
+  }
+
+  executeRaw(
+    params: NativeExecuteParams,
+    typescript: () => Promise<NativeExecuteOutput>,
+  ): Promise<NativeExecuteOutput> {
+    const selected: NativeBackend = gitCrossSelected() ?? "native";
+    const seq = reserveGitOpSeq();
+    if (selected === "typescript") {
+      recordGitOp({ seq, op: "executeRaw", part, selected, completed: "typescript" });
+      return typescript();
+    }
+    if (params.directoryFd !== undefined && this.runtime.platform !== "win32") {
+      recordGitOp({
+        seq,
+        op: "executeRaw",
+        part,
+        selected,
+        completed: "typescript",
+        fallback: "directory_fd",
+      });
+      countGitFallback("directory_fd");
+      return typescript();
+    }
+
+    try {
+      params.beforeSpawn?.();
+    } catch (error) {
+      recordGitOp({ seq, op: "executeRaw", part, selected, completed: "native" });
+      return Promise.reject(error);
+    }
+    if (params.signal?.aborted) {
+      recordGitOp({ seq, op: "executeRaw", part, selected, completed: "native" });
+      return Promise.reject(
+        new GitError("git_cancelled", "Git operation cancelled before dispatch"),
+      );
+    }
+
+    const ownership = captureMutationOwnership();
+    const rawInput = params.input;
+    const isReadable = rawInput instanceof Readable;
+    let staticInput: Uint8Array | null = null;
+    if (rawInput !== undefined && !(rawInput instanceof Readable)) {
+      staticInput =
+        typeof rawInput === "string"
+          ? Buffer.from(rawInput, "utf8")
+          : Buffer.from(rawInput.buffer, rawInput.byteOffset, rawInput.byteLength);
+    }
+
+    const envPairs: [string, string][] = [];
+    for (const [k, v] of Object.entries(params.env)) {
+      if (v !== undefined) envPairs.push([k, v]);
+    }
+
+    const req = {
+      cwd: params.cwd,
+      args: params.args,
+      binary: params.binary,
+      env: envPairs,
+      write: params.write,
+      stripAskpass: params.stripAskpass,
+      executionDisabled: params.executionDisabled,
+      allowFailure: params.allowFailure,
+      captureBytes: params.captureBytes,
+      timeoutMs: params.timeoutMs,
+      stopAtCapture: params.stopAtCapture,
+      stopAfterMs: params.stopAfterMs,
+      bounded: params.bounded,
+      hasInput: params.input !== undefined,
+      streamStdin: isReadable,
+      streamStdout: params.output !== undefined || params.consume !== undefined,
+      streamStderr: params.stderr !== undefined,
+      leasesJson: JSON.stringify(ownership.leases),
+      abortedBeforeDispatch: params.signal?.aborted === true,
+    };
+
+    return new Promise<NativeExecuteOutput>((resolve, reject) => {
+      let callId = 0;
+      let settled = false;
+      const cleanupListeners = () => {
+        if (onAbort) params.signal?.removeEventListener("abort", onAbort);
+        if (onOutputError) params.output?.off("error", onOutputError);
+        if (readable) {
+          if (onData) readable.off("data", onData);
+          if (onEnd) readable.off("end", onEnd);
+          if (onReadableError) readable.off("error", onReadableError);
+        }
+        if (callId !== 0) this.streams.delete(callId);
+      };
+
+      const onAbort = params.signal
+        ? () => {
+            if (!settled && callId !== 0) this.handle.abortCall(callId);
+          }
+        : undefined;
+
+      const onOutputError = params.output
+        ? (err: NodeJS.ErrnoException) => {
+            if (!settled && callId !== 0) {
+              this.handle.failStdin(callId, null, err.code ?? null, err.message);
+            }
+          }
+        : undefined;
+
+      const readable = isReadable ? (params.input as Readable) : undefined;
+      const onData = readable
+        ? (chunk: Buffer | string) => {
+            if (settled || callId === 0) return;
+            const buf = typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk;
+            this.handle.writeStdin(callId, buf);
+          }
+        : undefined;
+      const onEnd = readable
+        ? () => {
+            if (!settled && callId !== 0) this.handle.endStdin(callId);
+          }
+        : undefined;
+      const onReadableError = readable
+        ? (err: NodeJS.ErrnoException) => {
+            if (!settled && callId !== 0) {
+              this.handle.failStdin(callId, null, err.code ?? null, err.message);
+            }
+          }
+        : undefined;
+
+      try {
+        callId = this.handle.executeRaw(
+          JSON.stringify(req),
+          staticInput,
+          (error, metaJson, out) => {
+            settled = true;
+            cleanupListeners();
+            recordGitOp({ seq, op: "executeRaw", part, selected, completed: "native" });
+            if (error !== null && error !== undefined) {
+              const payload = parseFailurePayload(error);
+              if (payload !== undefined) {
+                const gitErr = new GitError(payload.code, payload.message, payload.details);
+                if (payload.cleanupId !== undefined) {
+                  const cleanup = this.quarantineSync(
+                    ownership,
+                    payload.cleanupId,
+                    payload.cleanupGroupPid,
+                  );
+                  gitErr.cleanup = { settled: cleanup };
+                }
+                reject(gitErr);
+                return;
+              }
+              try {
+                throwGitError(error);
+              } catch (mapped) {
+                reject(mapped);
+              }
+              return;
+            }
+            const meta = JSON.parse(metaJson ?? "{}") as {
+              stderr: string;
+              exitCode: number;
+              truncated: boolean;
+              stopped?: "capture" | "budget";
+              cleanupId?: number;
+              cleanupGroupPid?: number;
+            };
+            if (meta.cleanupId !== undefined) {
+              void this.quarantineSync(ownership, meta.cleanupId, meta.cleanupGroupPid);
+            }
+            if (params.output && !meta.stopped) {
+              params.output.end();
+            }
+            const stdoutBuf = out
+              ? Buffer.from(out.buffer, out.byteOffset, out.byteLength)
+              : Buffer.alloc(0);
+            resolve({
+              stdout: stdoutBuf,
+              stderr: meta.stderr,
+              exitCode: meta.exitCode,
+              truncated: meta.truncated,
+              ...(meta.stopped === undefined ? {} : { stopped: meta.stopped }),
+            });
+          },
+        );
+      } catch (error) {
+        settled = true;
+        cleanupListeners();
+        recordGitOp({ seq, op: "executeRaw", part, selected, completed: "native" });
+        try {
+          throwGitError(error);
+        } catch (mapped) {
+          reject(mapped);
+        }
+        return;
+      }
+
+      if (params.output || params.consume || params.stderr) {
+        this.streams.set(callId, {
+          ...(params.output ? { output: params.output } : {}),
+          ...(params.consume ? { consume: params.consume } : {}),
+          ...(params.stderr ? { stderr: params.stderr } : {}),
+        });
+      }
+      if (onAbort) params.signal?.addEventListener("abort", onAbort, { once: true });
+      if (onOutputError) params.output?.on("error", onOutputError);
+      if (readable && onData && onEnd && onReadableError) {
+        readable.on("data", onData);
+        readable.once("end", onEnd);
+        readable.once("error", onReadableError);
+      }
+      if (params.signal?.aborted) this.handle.abortCall(callId);
+    });
+  }
+
+  private onPort(eventJson: string, data: Uint8Array): void {
+    const msg = JSON.parse(eventJson) as PortMessage;
+    switch (msg.op) {
+      case "pid_add":
+        if (msg.pid !== undefined) runningChildren.add(msg.pid);
+        return;
+      case "pid_remove":
+        if (msg.pid !== undefined) runningChildren.delete(msg.pid);
+        return;
+      case "schedule": {
+        const id = msg.timerId ?? 0;
+        const cancel = this.runtime.scheduleTimeout(() => {
+          this.timers.delete(id);
+          this.handle.fireTimer(id);
+        }, msg.ms ?? 0);
+        this.timers.set(id, cancel);
+        return;
+      }
+      case "cancel_timer": {
+        const id = msg.timerId ?? 0;
+        const cancel = this.timers.get(id);
+        if (cancel) {
+          this.timers.delete(id);
+          cancel();
+        }
+        return;
+      }
+      case "spawn":
+        this.handleSpawn(msg);
+        return;
+      case "stdin_write": {
+        const child = this.children.get(msg.spawnId ?? 0);
+        if (child && data.byteLength > 0) {
+          child.stdin.write(Buffer.from(data.buffer, data.byteOffset, data.byteLength));
+        }
+        return;
+      }
+      case "stdin_end":
+        this.children.get(msg.spawnId ?? 0)?.stdin.end();
+        return;
+      case "kill_leader":
+        this.children.get(msg.spawnId ?? 0)?.kill(msg.signal ?? "SIGKILL");
+        return;
+      case "destroy": {
+        const id = msg.spawnId ?? 0;
+        const child = this.children.get(id);
+        if (child) {
+          child.stdin.destroy();
+          child.stdout.destroy();
+          child.stderr.destroy();
+          child.unref();
+        }
+        return;
+      }
+      case "release_child": {
+        this.children.delete(msg.spawnId ?? 0);
+        return;
+      }
+      case "signal_group": {
+        const reqId = msg.reqId ?? 0;
+        const child = msg.spawnId !== undefined ? this.children.get(msg.spawnId) : undefined;
+        try {
+          this.runtime.signalGroup(msg.pid ?? 0, msg.signal ?? "SIGKILL", child);
+          this.handle.replyPort(reqId, JSON.stringify({ ok: true }));
+        } catch (error) {
+          this.handle.replyPort(
+            reqId,
+            JSON.stringify({
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          );
+        }
+        return;
+      }
+      case "group_alive": {
+        const reqId = msg.reqId ?? 0;
+        const child = msg.spawnId !== undefined ? this.children.get(msg.spawnId) : undefined;
+        const alive = this.runtime.groupAlive(msg.pid ?? 0, child);
+        this.handle.replyPort(reqId, JSON.stringify({ alive }));
+        return;
+      }
+      case "locate_git": {
+        const reqId = msg.reqId ?? 0;
+        const env = Object.fromEntries(msg.env ?? []);
+        void this.runtime.locateGit(env, new AbortController().signal).then(
+          (path) => this.handle.replyPort(reqId, JSON.stringify({ path: path ?? null })),
+          () => this.handle.replyPort(reqId, JSON.stringify({ path: null })),
+        );
+        return;
+      }
+      case "cleanup_stop": {
+        const reqId = msg.reqId ?? 0;
+        const spawnId = msg.spawnId ?? 0;
+        const child = this.children.get(spawnId);
+        const sup = this.runtime.cleanupSupervisor;
+        if (!child || !sup) {
+          this.handle.replyPort(
+            reqId,
+            JSON.stringify({ error: "missing cleanup supervisor or child" }),
+          );
+          return;
+        }
+        let leases: MutationLease[] = [];
+        try {
+          leases = JSON.parse(msg.leasesJson ?? "[]") as MutationLease[];
+        } catch {
+          leases = [];
+        }
+        try {
+          const receipt = sup.stop(child, leases);
+          void receipt.settled.then(
+            (result) => {
+              this.handle.replyPort(reqId, JSON.stringify(result));
+            },
+            (error) => {
+              this.handle.replyPort(
+                reqId,
+                JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+              );
+            },
+          );
+        } catch (error) {
+          this.handle.replyPort(
+            reqId,
+            JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+          );
+        }
+        return;
+      }
+      case "stream_stdout":
+      case "stream_stderr":
+        void this.handleStream(msg, data);
+        return;
+    }
+  }
+
+  private handleSpawn(msg: PortMessage): void {
+    const reqId = msg.reqId ?? 0;
+    const spawnId = msg.spawnId ?? 0;
+    try {
+      const child = this.runtime.spawn(msg.command ?? "git", msg.args ?? [], {
+        ...(msg.cwd ? { cwd: msg.cwd } : {}),
+        env: Object.fromEntries(msg.env ?? []),
+        shell: false,
+        detached: msg.detached ?? false,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      this.children.set(spawnId, child);
+      child.stdout.on("data", (chunk: Buffer) => {
+        this.handle.pushSpawnEvent(spawnId, "stdout", "{}", chunk);
+      });
+      child.stderr.on("data", (chunk: Buffer) => {
+        this.handle.pushSpawnEvent(spawnId, "stderr", "{}", chunk);
+      });
+      child.stdout.on("error", (err: NodeJS.ErrnoException) => {
+        this.handle.pushSpawnEvent(
+          spawnId,
+          "stdout_error",
+          JSON.stringify({ code: err.code ?? null, message: err.message }),
+        );
+      });
+      child.stderr.on("error", (err: NodeJS.ErrnoException) => {
+        this.handle.pushSpawnEvent(
+          spawnId,
+          "stderr_error",
+          JSON.stringify({ code: err.code ?? null, message: err.message }),
+        );
+      });
+      child.stdin.on("error", (err: NodeJS.ErrnoException) => {
+        this.handle.pushSpawnEvent(
+          spawnId,
+          "stdin_error",
+          JSON.stringify({ code: err.code ?? null, message: err.message }),
+        );
+      });
+      child.stdin.once("finish", () => {
+        this.handle.pushSpawnEvent(spawnId, "stdin_finish", "{}");
+      });
+      child.on("error", (err: NodeJS.ErrnoException) => {
+        this.handle.pushSpawnEvent(
+          spawnId,
+          "spawn_error",
+          JSON.stringify({ code: err.code ?? null, message: err.message }),
+        );
+      });
+      child.once("exit", (code, signal) => {
+        this.handle.pushSpawnEvent(
+          spawnId,
+          "exit",
+          JSON.stringify({ code, signal, pid: child.pid ?? null }),
+        );
+      });
+      child.once("close", (code, signal) => {
+        this.handle.pushSpawnEvent(spawnId, "close", JSON.stringify({ code, signal }));
+      });
+      this.handle.replyPort(reqId, JSON.stringify({ pid: child.pid ?? null }));
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      this.handle.replyPort(
+        reqId,
+        JSON.stringify({
+          pid: null,
+          error: err instanceof Error ? err.message : String(error),
+          code: err?.code ?? null,
+        }),
+      );
+    }
+  }
+
+  private async handleStream(msg: PortMessage, data: Uint8Array): Promise<void> {
+    const reqId = msg.reqId ?? 0;
+    const target = this.streams.get(msg.callId ?? 0);
+    if (!target) {
+      this.handle.replyPort(reqId, JSON.stringify({ ok: true }));
+      return;
+    }
+    const chunk = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+    try {
+      if (msg.op === "stream_stdout") {
+        if (target.output) {
+          await writeChunkToWritable(target.output, chunk);
+        } else if (target.consume) {
+          target.consume(chunk);
+        }
+      } else if (target.stderr) {
+        target.stderr(chunk);
+      }
+      this.handle.replyPort(reqId, JSON.stringify({ ok: true }));
+    } catch (error) {
+      this.handle.replyPort(reqId, serializeCallbackError(error));
+    }
+  }
 }
