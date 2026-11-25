@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 mod core;
 mod core_derive;
+mod devices;
 mod engine;
 mod git;
 mod items;

@@ -134,6 +134,7 @@ dependencies = [
  "ace-adapter-opencode",
  "ace-adapter-pi",
  "ace-core",
+ "ace-devices",
  "ace-engine",
  "ace-git",
  "ace-json",
@@ -150,6 +151,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
+ "tokio-util",
  "zeroize",
 ]
 
