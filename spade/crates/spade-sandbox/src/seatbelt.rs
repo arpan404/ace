@@ -170,7 +170,7 @@ pub fn credentials_only(
     let data_root = Path::new(DATA_ROOT);
     let home_paths = [Some(home), Some(real_home.as_path()), alias_home.as_deref()];
     // A directory rename checks unlink at the source and create at the destination.
-    // Match the directory itself so sibling trees can still be edited.
+    // Match existing directories literally so new ancestors and sibling trees stay writable.
     let protected_entries = roots
         .iter()
         .chain(&secrets)
@@ -185,7 +185,10 @@ pub fn credentials_only(
     rule(
         &mut out,
         "deny file-write-unlink file-write-create",
-        protected_entries.into_iter().map(literal),
+        protected_entries
+            .into_iter()
+            .filter(|path| path.is_dir())
+            .map(literal),
     );
     let brokers = [
         "/usr/bin/open",

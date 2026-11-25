@@ -589,8 +589,8 @@ fn an_outside_run_cannot_move_a_credential_stores_parent() -> Result<(), Box<dyn
         mv ~/.config ~/.config-moved && exit 10
         mv "/System/Volumes/Data$HOME/.config" ~/.config-moved && exit 11
         cat ~/.config/gh/hosts.yml && exit 12
-        mkdir ~/replacement || exit 13
-        mv ~/replacement ~/.gem && exit 14
+        mv ~/.config/gh ~/.gh-moved && exit 13
+        mv ~/.cargo ~/.cargo-moved && exit 14
         exit 0
         "#,
     )?;
@@ -602,7 +602,8 @@ fn an_outside_run_cannot_move_a_credential_stores_parent() -> Result<(), Box<dyn
     );
     assert_eq!(std::fs::read_to_string(secret)?, "dummy credential");
     assert!(!world.home.join(".config-moved").exists());
-    assert!(!world.home.join(".gem").exists());
+    assert!(!world.home.join(".gh-moved").exists());
+    assert!(!world.home.join(".cargo-moved").exists());
     Ok(())
 }
 
@@ -623,5 +624,54 @@ fn an_outside_run_can_write_next_to_a_credential_store() -> std::io::Result<()> 
         std::fs::read_to_string(world.home.join(".config/some-other-app/settings"))?,
         "normal"
     );
+    Ok(())
+}
+
+#[test]
+fn an_outside_run_cannot_remove_or_replace_an_existing_ancestor() -> std::io::Result<()> {
+    let world = world();
+    let ancestor = world.home.join(".gem");
+    let replacement = world.home.join("replacement");
+    std::fs::create_dir(&ancestor)?;
+    std::fs::create_dir(&replacement)?;
+    let run = guarded_outside(
+        &world.home,
+        r#"
+        /bin/rmdir ~/.gem && exit 10
+        /usr/bin/perl -e 'rename($ARGV[0], $ARGV[1]) or exit 1' ~/replacement ~/.gem && exit 11
+        exit 0
+        "#,
+    )?;
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(ancestor.is_dir());
+    assert!(replacement.is_dir());
+    Ok(())
+}
+
+#[test]
+fn an_outside_run_can_create_a_missing_ancestor() -> std::io::Result<()> {
+    let world = world();
+    assert!(!world.home.join(".config").exists());
+    let run = guarded_outside(
+        &world.home,
+        r#"
+        mkdir ~/.config || exit 10
+        mkdir ~/.config/gh && exit 11
+        exit 0
+        "#,
+    )?;
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(world.home.join(".config").is_dir());
+    assert!(!world.home.join(".config/gh").exists());
     Ok(())
 }
