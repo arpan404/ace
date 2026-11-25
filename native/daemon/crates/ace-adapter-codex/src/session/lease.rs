@@ -22,8 +22,15 @@ pub const DEFAULT_ATTEMPTS: usize = 10;
 const RETRY_MS: f64 = 300.0;
 /// The retry deadline's key.
 pub const RETRY_TIMER: &str = "lease:retry";
-/// The provider's refusal while another process writes the thread.
+/// The provider's refusal while another process writes the thread
+/// (`/already has an active writer/i`, `:23`).
 const BUSY: &str = "already has an active writer";
+
+/// Whether a provider refusal is writer contention. The TypeScript matches
+/// case-insensitively.
+pub fn is_busy(message: &str) -> bool {
+    message.to_lowercase().contains(BUSY)
+}
 /// What a busy thread reports (`:71`).
 pub const BUSY_REASON: &str = "Another Codex process has this conversation open";
 
@@ -198,7 +205,7 @@ impl Lease {
                     self.state = State::Held;
                     out.push(LeaseEffect::Held);
                 }
-                Err(message) if message.contains(BUSY) => {
+                Err(message) if is_busy(&message) => {
                     if self.attempt < self.attempts {
                         out.push(LeaseEffect::Server(AppServerEffect::ArmTimer {
                             key: RETRY_TIMER.to_owned(),
@@ -241,6 +248,12 @@ impl Lease {
         for effect in effects {
             match effect {
                 AppServerEffect::Ready => self.resume(out),
+                // The handshake failed: `openAppServer` throws, so the lease
+                // never reaches a resume and the caller sees the failure.
+                AppServerEffect::Failed(message) if !self.server.ready() => {
+                    out.push(LeaseEffect::Failed(message));
+                    self.close_now(out);
+                }
                 AppServerEffect::Settle { id, result } => {
                     let result = result.map_err(|error| error.message().to_owned());
                     self.settled(id, result, out);

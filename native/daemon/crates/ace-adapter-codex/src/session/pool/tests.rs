@@ -105,7 +105,7 @@ fn a_live_host_is_reused_and_a_finished_one_is_started_again() {
 
     // The host retired itself: the key is free for the next open.
     run.apply(run.host.retire(Retirement::Shutdown));
-    pool.released("key");
+    pool.released("key", &run.host);
     assert_eq!(pool.open_channel("key"), Channel::Start);
 
     // A start that failed frees the key without a host.
@@ -329,7 +329,7 @@ fn a_crashed_app_server_ends_every_session_and_the_next_open_starts_a_new_one() 
     }
 
     // The pool drops the dead host and the next open starts a fresh process.
-    pool.released("key");
+    pool.released("key", &run.host);
     assert_eq!(pool.open_channel("key"), Channel::Start);
 
     let next = started("crash-next");
@@ -420,4 +420,176 @@ fn a_thread_with_generated_images_resumes_beside_a_working_neighbour() {
         ace_json::json!({"threadId": "images-thread", "input": [{"type": "text", "text": "again"}]}),
     );
     assert!(completed(&run, 2, "images-thread"));
+}
+
+/// `host-pool.ts:53`: the retirement callback removes the host it was made
+/// for, never a replacement already installed under the same key.
+#[test]
+fn a_late_retirement_callback_never_evicts_a_replacement_host() {
+    let mut pool = HostPool::new(None).expect("the default idle time");
+    let (old, _) = Host::new(shared_config(60_000.0));
+    let old = Arc::new(old);
+    let (replacement, _) = Host::new(shared_config(60_000.0));
+    let replacement = Arc::new(replacement);
+
+    assert!(pool.claim("key"));
+    pool.started("key", Arc::clone(&old));
+    pool.released("key", &old);
+    assert_eq!(pool.open_channel("key"), Channel::Start);
+
+    assert!(pool.claim("key"));
+    pool.started("key", Arc::clone(&replacement));
+    // The old host's delayed callback arrives after the replacement is in.
+    pool.released("key", &old);
+    assert_eq!(
+        pool.open_channel("key"),
+        Channel::Reuse,
+        "a stale callback leaves the replacement alone"
+    );
+    pool.released("key", &replacement);
+    assert_eq!(pool.open_channel("key"), Channel::Start);
+}
+
+/// `shared-host.process.test.ts`: "stopping a busy thread interrupts its own
+/// turn and not its neighbour's".
+#[test]
+fn stopping_a_busy_thread_interrupts_its_turn_and_not_its_neighbours() {
+    let run = started("busy-stop");
+    let _ = run.attach(1);
+    let _ = run.attach(2);
+    assert!(run.wait_ready(1) && run.wait_ready(2));
+
+    let _ = request(&run, 1, "thread/start", ace_json::json!({"cwd": "/tmp/a"}));
+    let thread_a = opened(&run, 1).expect("a opens its thread");
+    let _ = request(&run, 2, "thread/start", ace_json::json!({"cwd": "/tmp/b"}));
+    let thread_b = opened(&run, 2).expect("b opens its thread");
+    for (tenant, thread) in [(1u64, thread_a.as_str()), (2, thread_b.as_str())] {
+        request(
+            &run,
+            tenant,
+            "turn/start",
+            ace_json::json!({
+                "threadId": thread,
+                "input": [{"type": "text", "text": "hold"}],
+            }),
+        );
+    }
+    assert!(run.events.until(WAIT_MS, |event| matches!(
+        event,
+        Event::Frame { tenant: 1, data, .. }
+            if data.get("method").and_then(Value::as_str) == Some("item/completed")
+    )));
+    assert!(run.events.until(WAIT_MS, |event| matches!(
+        event,
+        Event::Frame { tenant: 2, data, .. }
+            if data.get("method").and_then(Value::as_str) == Some("item/completed")
+    )));
+
+    // A's stop interrupts A's turn; its completion is A's alone.
+    let _ = request(
+        &run,
+        1,
+        "turn/interrupt",
+        ace_json::json!({"threadId": thread_a}),
+    );
+    assert!(interrupted(&run, 1, &thread_a));
+    assert!(
+        !interrupted(&run, 2, &thread_b),
+        "b's turn is untouched by a's stop"
+    );
+
+    // B's own stop interrupts its own turn.
+    let _ = request(
+        &run,
+        2,
+        "turn/interrupt",
+        ace_json::json!({"threadId": thread_b}),
+    );
+    assert!(interrupted(&run, 2, &thread_b));
+}
+
+/// `shared-host.process.test.ts`: "cancelling a busy thread's session
+/// interrupts its tree and keeps its neighbour's process".
+#[test]
+fn cancelling_a_busy_threads_session_keeps_its_neighbours_process() {
+    let run = started("busy-cancel");
+    let _ = run.attach(1);
+    let _ = run.attach(2);
+    assert!(run.wait_ready(1) && run.wait_ready(2));
+
+    let _ = request(&run, 1, "thread/start", ace_json::json!({"cwd": "/tmp/a"}));
+    let thread_a = opened(&run, 1).expect("a opens its thread");
+    let _ = request(&run, 2, "thread/start", ace_json::json!({"cwd": "/tmp/b"}));
+    let thread_b = opened(&run, 2).expect("b opens its thread");
+    request(
+        &run,
+        1,
+        "turn/start",
+        ace_json::json!({
+            "threadId": thread_a,
+            "input": [{"type": "text", "text": "hold"}],
+        }),
+    );
+    let before = pid(&run, 1);
+    assert!(run.events.until(WAIT_MS, |event| matches!(
+        event,
+        Event::Frame { tenant: 1, data, .. }
+            if data.get("method").and_then(Value::as_str) == Some("item/completed")
+    )));
+
+    // The session's cancellation interrupts its tree, then closes its channel.
+    let _ = request(
+        &run,
+        1,
+        "turn/interrupt",
+        ace_json::json!({"threadId": thread_a}),
+    );
+    assert!(interrupted(&run, 1, &thread_a));
+    run.apply(run.host.detach(1, Retirement::Aborted, "Thread deleted"));
+    assert!(run.events.until(WAIT_MS, |event| matches!(
+        event,
+        Event::Exited { tenant: 1, .. }
+    )));
+
+    // The neighbour still works, on the same process.
+    request(
+        &run,
+        2,
+        "turn/start",
+        ace_json::json!({
+            "threadId": thread_b,
+            "input": [{"type": "text", "text": "still running"}],
+        }),
+    );
+    assert!(completed(&run, 2, &thread_b));
+    let _ = run.attach(3);
+    assert!(run.wait_ready(3));
+    assert_eq!(
+        pid(&run, 3),
+        before,
+        "the cancelled session kept the process"
+    );
+}
+
+/// Whether one channel saw `thread`'s turn completed as interrupted.
+fn interrupted(run: &HostRun, tenant: u64, thread: &str) -> bool {
+    run.events.until(WAIT_MS, |event| match event {
+        Event::Frame {
+            tenant: who, data, ..
+        } if *who == tenant => {
+            data.get("method").and_then(Value::as_str) == Some("turn/completed")
+                && data
+                    .get("params")
+                    .and_then(|params| params.get("threadId"))
+                    .and_then(Value::as_str)
+                    == Some(thread)
+                && data
+                    .get("params")
+                    .and_then(|params| params.get("turn"))
+                    .and_then(|turn| turn.get("status"))
+                    .and_then(Value::as_str)
+                    == Some("interrupted")
+        }
+        _ => false,
+    })
 }

@@ -245,6 +245,12 @@ pub enum HostEffect {
         tenant: u64,
         message: String,
     },
+    /// A channel's exit, queued after every settlement that precedes it, so
+    /// the shell never reports a channel gone while its calls are still open.
+    Exited {
+        tenant: u64,
+        exit: HostExit,
+    },
 }
 
 /// A refusal at the host's own door.
@@ -314,6 +320,7 @@ impl HostConfig {
 
 /// A tenant: one session's channel (`Tenant`, `:121`).
 struct Tenant {
+    tenant: u64,
     handlers: Arc<dyn ChannelHandlers>,
     /// Set once the channel stopped serving this process.
     closed: Option<String>,
@@ -333,8 +340,8 @@ struct Detaching {
 /// Why the host itself made a request.
 #[derive(Debug, Clone)]
 enum OwnPurpose {
-    /// One step of a held thread's ancestry walk.
-    Read { thread: JsString },
+    /// One step of a held thread's ancestry walk, tied to the hold that asked.
+    Read { thread: JsString, hold: u64 },
     /// A detached channel's unsubscribes.
     Unsubscribe { tenant: u64 },
 }
@@ -377,6 +384,11 @@ struct Inner {
     /// The tenant whose request is being written, for the send frame's owner.
     sender: Option<u64>,
     own: HashMap<u64, OwnPurpose>,
+    /// Facade ids a channel is waiting on, by tenant (`Tenant.abort`).
+    calls: IndexMap<u64, u64>,
+    /// The leader is gone or the pipes are closing: held frames are answered,
+    /// never delivered, as `#exited` does.
+    exiting: bool,
     detaching: HashMap<u64, Detaching>,
     next_own: u64,
     next_hold: u64,
@@ -415,6 +427,8 @@ impl Host {
                 initialize_call: 0,
                 sender: None,
                 own: HashMap::new(),
+                calls: IndexMap::new(),
+                exiting: false,
                 detaching: HashMap::new(),
                 next_own: 0,
                 next_hold: 0,
@@ -509,6 +523,7 @@ impl Host {
         inner.tenants.insert(
             tenant,
             Tenant {
+                tenant,
                 handlers,
                 closed: None,
                 muted: false,
@@ -539,18 +554,22 @@ impl Host {
         timeout: Timeout,
     ) -> Result<Vec<HostEffect>, HostError> {
         let mut inner = self.lock();
-        if let Some(closed) = inner
-            .tenants
-            .get(&tenant)
-            .and_then(|entry| entry.closed.clone())
-        {
+        // A channel that left issues nothing (`host.ts:153`).
+        let closed = match inner.tenants.get(&tenant) {
+            Some(entry) => entry.closed.clone(),
+            None => Some("Codex channel closed".to_owned()),
+        };
+        if let Some(closed) = closed {
             return Err(HostError::Refused(closed));
         }
         inner.sender = Some(tenant);
         let requested = inner.peer.request(method, params, id, timeout);
         match requested {
             // The send frame is attributed while the sender is still known.
-            Ok(peer) => inner.apply(peer),
+            Ok(peer) => {
+                inner.calls.insert(id, tenant);
+                inner.apply(peer);
+            }
             Err(error) => {
                 inner.sender = None;
                 return Err(HostError::Refused(error.message().to_owned()));
@@ -626,6 +645,10 @@ impl Host {
     /// routed call still pending settles exactly once.
     pub fn exit(&self, exit: RawExit) -> Vec<HostEffect> {
         let mut inner = self.lock();
+        // A leader's end settles every call and ends every channel; the pipes
+        // may still drain, so held frames are answered rather than delivered.
+        inner.exiting = true;
+        inner.gate.drain();
         let stopped = inner.peer.stop_requests("process exited");
         inner.apply(stopped);
         let exit = HostExit::from_raw(exit, inner.pid, inner.output_drained);
@@ -636,6 +659,8 @@ impl Host {
     /// The pipes are done (`close`): no byte follows.
     pub fn closed(&self, exit: RawExit) -> Vec<HostEffect> {
         let mut inner = self.lock();
+        inner.exiting = true;
+        inner.gate.drain();
         let closed = inner.peer.close("process exited");
         inner.apply(closed);
         if inner.exit.is_none() {
@@ -664,6 +689,9 @@ impl Host {
         if let Some(entry) = inner.tenants.get_mut(&tenant) {
             entry.closed = Some(reason.to_owned());
         }
+        // Every call this channel waits on settles now (`tenant.abort`,
+        // `host.ts:349`): a call with no deadline never outlives its channel.
+        inner.abort_calls(tenant, reason);
         if inner.config.dedicated || inner.exit.is_some() {
             // A dedicated process belongs to this channel; its exit is the
             // channel's exit.
@@ -768,6 +796,22 @@ impl Inner {
             .ok()?;
         self.apply(peer);
         Some(id)
+    }
+
+    /// Settle every call one channel is waiting on (`tenant.abort`,
+    /// `host.ts:349`), settling the peer's promise exactly as a reply would.
+    fn abort_calls(&mut self, tenant: u64, reason: &str) {
+        let calls: Vec<u64> = self
+            .calls
+            .iter()
+            .filter(|(_, owner)| **owner == tenant)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in calls {
+            self.calls.shift_remove(&id);
+            let effects = self.peer.abort(id, reason);
+            self.apply(effects);
+        }
     }
 
     /// Apply the peer's effects in order, dispatching the ones the host owns.
@@ -1128,11 +1172,12 @@ impl Inner {
             return;
         }
         let Some(purpose) = self.own.remove(&id) else {
+            self.calls.shift_remove(&id);
             self.out.push(HostEffect::Settle { id, result });
             return;
         };
         match purpose {
-            OwnPurpose::Read { thread } => self.read_settled(&thread, result),
+            OwnPurpose::Read { thread, hold } => self.read_settled(&thread, hold, result),
             OwnPurpose::Unsubscribe { tenant } => self.unsubscribed(tenant),
         }
     }
@@ -1237,6 +1282,8 @@ impl Inner {
             self.out.push(HostEffect::Retired);
         }
         self.retiring = true;
+        // A close started: a paused channel must not hold the drain.
+        self.gate.drain();
         self.out.push(HostEffect::Retire { reason, awaited });
     }
 
@@ -1254,7 +1301,10 @@ impl Inner {
             pid: self.pid,
             output_drained: true,
         };
-        entry.handlers.exited(&exit);
+        self.out.push(HostEffect::Exited {
+            tenant: entry.tenant,
+            exit,
+        });
         self.vacated(retirement == Retirement::Shutdown);
     }
 
@@ -1284,7 +1334,10 @@ impl Inner {
                 .get_or_insert_with(|| "process exited".to_owned());
             if !entry.exited {
                 entry.exited = true;
-                entry.handlers.exited(&exit);
+                self.out.push(HostEffect::Exited {
+                    tenant,
+                    exit: exit.clone(),
+                });
             }
         }
     }

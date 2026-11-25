@@ -210,6 +210,9 @@ impl Inner {
     /// One step of `#resolve`'s walk: the owned ancestor, the next read, or
     /// the end of the chain.
     pub(super) fn resolve_loop(&mut self, thread: &JsString) {
+        if self.exiting {
+            return;
+        }
         let Some(hold) = self.holds.get(thread) else {
             return;
         };
@@ -240,16 +243,29 @@ impl Inner {
             id,
             OwnPurpose::Read {
                 thread: thread.clone(),
+                hold: hold_id,
             },
         );
     }
 
-    /// A read answered: walk on, or end the chain (`#resolve`'s loop).
-    pub(super) fn read_settled(&mut self, thread: &JsString, result: Result<Value, PeerError>) {
+    /// A read answered: walk on, or end the chain (`#resolve`'s loop). The
+    /// answer belongs to the hold that asked: a hold evicted and recreated for
+    /// the same thread never takes a late reply.
+    pub(super) fn read_settled(
+        &mut self,
+        thread: &JsString,
+        hold_id: u64,
+        result: Result<Value, PeerError>,
+    ) {
+        if self.exiting {
+            return;
+        }
         let Some(hold) = self.holds.get(thread) else {
             return;
         };
-        let hold_id = hold.id;
+        if hold.id != hold_id {
+            return;
+        }
         let Ok(result) = result else {
             self.resolve_after(thread, hold_id, true);
             return;
@@ -274,6 +290,9 @@ impl Inner {
     /// The walk's tail: an owner among the chain, else the chain waits for a
     /// claim (`:661`–`:679`).
     pub(super) fn resolve_after(&mut self, thread: &JsString, hold_id: u64, unreadable: bool) {
+        if self.exiting {
+            return;
+        }
         let Some(hold) = self.holds.get_mut(thread) else {
             return;
         };

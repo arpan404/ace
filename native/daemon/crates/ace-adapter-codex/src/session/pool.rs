@@ -118,9 +118,17 @@ impl HostPool {
         self.starting.retain(|starting| starting != key);
     }
 
-    /// A host retired (`onRetired`): the key no longer names it.
-    pub fn released(&mut self, key: &str) {
-        self.hosts.shift_remove(key);
+    /// A host retired (`onRetired`): the key no longer names *that* host. A
+    /// delayed callback never evicts the replacement already under the key
+    /// (`retired`, `:53`).
+    pub fn released(&mut self, key: &str, host: &Arc<Host>) {
+        let current = self
+            .hosts
+            .get(key)
+            .is_some_and(|live| Arc::ptr_eq(live, host));
+        if current {
+            self.hosts.shift_remove(key);
+        }
     }
 
     pub fn host(&self, key: &str) -> Option<&Arc<Host>> {

@@ -4,6 +4,7 @@
 //! with `bun` from `PATH`, through the same diversion a session's child takes
 //! (E3.0b). A missing `bun` fails the test, it never skips.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
@@ -22,7 +23,8 @@ use tokio::runtime::Runtime;
 
 use super::app_server::{AppServerConfig, AppServerEffect};
 use super::host::{
-    Admission, ChannelHandlers, Host, HostConfig, HostEffect, HostExit, RequestAnswer, Retirement,
+    Admission, ChannelHandlers, Host, HostConfig, HostEffect, HostExit, HostGate, RequestAnswer,
+    Retirement,
 };
 use super::lease::{Lease, LeaseEffect, UNLOAD_CLOSED_THREADS};
 
@@ -90,6 +92,16 @@ pub enum Event {
     Retire {
         reason: Retirement,
         awaited: bool,
+    },
+    /// The shell's stop did not confirm: the process is still running.
+    StopFailed {
+        reason: Retirement,
+        awaited: bool,
+        message: String,
+    },
+    /// One line a short-lived app-server was sent, verbatim.
+    Line {
+        text: String,
     },
     Retired,
     ArmTimer {
@@ -338,11 +350,162 @@ pub fn bun() -> String {
     panic!("the moved Codex host cases need bun on PATH");
 }
 
-/// A lease's process arguments, as `thread-lease.ts` builds them.
-pub fn lease_args() -> Vec<&'static str> {
+/// A child that writes both pipes, with the gate in front of them.
+pub struct GateRun {
+    pub gate: HostGate,
+    seen: Arc<Mutex<Vec<(OutputStream, usize)>>>,
+    _root: Scratch,
+    runtime: Runtime,
+    child: SupervisedChild,
+}
+
+struct GateConsumer {
+    gate: HostGate,
+    seen: Arc<Mutex<Vec<(OutputStream, usize)>>>,
+}
+
+impl OutputConsumer for GateConsumer {
+    fn output(&self, stream: OutputStream, bytes: Vec<u8>, delivered: Delivered) {
+        self.seen
+            .lock()
+            .expect("gate chunks")
+            .push((stream, bytes.len()));
+        self.gate.answer(delivered);
+    }
+
+    fn end(&self, _stream: OutputStream) {}
+    fn stdin_written(&self) {}
+    fn stdin_error(&self, _error: NodeIoError) {}
+    fn exit(&self, _exit: RawExit) {}
+    fn close(&self, _exit: RawExit) {}
+}
+
+impl GateRun {
+    /// Spawns a probe writing both streams, with the gate in front of them.
+    pub fn start(root: Scratch) -> GateRun {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("test runtime");
+        let script = root.path().join("gate-probe.mjs");
+        std::fs::write(
+            &script,
+            "const line = `${'x'.repeat(262144)}\\n`;\nfor (let i = 0; i < 30; i++) {\n  process.stdout.write(line);\n  process.stderr.write(line);\n  await Bun.sleep(20);\n}\n",
+        )
+        .expect("the probe writes");
+        let gate = HostGate::new();
+        let seen: Arc<Mutex<Vec<(OutputStream, usize)>>> = Arc::new(Mutex::new(Vec::new()));
+        let consumer = Arc::new(GateConsumer {
+            gate: gate.clone(),
+            seen: Arc::clone(&seen),
+        });
+        let mut environment = vec![("PATH".to_owned(), std::env::var("PATH").unwrap_or_default())];
+        if let Ok(home) = std::env::var("HOME") {
+            environment.push(("HOME".to_owned(), home));
+        }
+        let ports: Arc<OnceLock<ChildPorts>> = Arc::new(OnceLock::new());
+        let child = spawn_child(
+            &SpawnSpec {
+                command: bun(),
+                args: vec![script.to_string_lossy().into_owned()],
+                cwd: Some(root.path().to_string_lossy().into_owned()),
+                env: environment,
+                windows_verbatim: false,
+                hide_window: true,
+                contain: cfg!(windows),
+                max_output_bytes: None,
+                stdin: StdioMode::Piped,
+                stdout: StdioMode::Piped,
+                stderr: StdioMode::Piped,
+            },
+            Diverted::new(Nothing, Arc::clone(&consumer) as Arc<dyn OutputConsumer>),
+            runtime.handle(),
+            Some(&DivertTarget {
+                consumer: Arc::clone(&consumer) as Arc<dyn OutputConsumer>,
+                ports: Arc::clone(&ports),
+            }),
+        )
+        .expect("the probe spawns");
+        if let Some(child_ports) = ports.get() {
+            gate.attach(child_ports.output.clone());
+        }
+        GateRun {
+            gate,
+            seen,
+            _root: root,
+            runtime,
+            child,
+        }
+    }
+
+    /// How many bytes each pipe delivered and the gate answered, stdout then
+    /// stderr.
+    pub fn bytes(&self) -> (usize, usize) {
+        let seen = self.seen.lock().expect("gate chunks");
+        let total = |stream| {
+            seen.iter()
+                .filter(|(which, _)| *which == stream)
+                .map(|(_, bytes)| bytes)
+                .sum()
+        };
+        (total(OutputStream::Stdout), total(OutputStream::Stderr))
+    }
+
+    /// Waits until both pipes delivered at least `bytes` bytes.
+    pub fn wait_for(&self, bytes: usize) -> bool {
+        let deadline = Instant::now() + Duration::from_millis(WAIT_MS);
+        while Instant::now() < deadline {
+            let (stdout, stderr) = self.bytes();
+            if stdout >= bytes && stderr >= bytes {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        false
+    }
+
+    pub fn stop(&self) {
+        self.child.dispose();
+        self.runtime.block_on(async {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        });
+    }
+}
+
+impl Drop for GateRun {
+    fn drop(&mut self) {
+        self.child.dispose();
+    }
+}
+
+/// An app-server's process arguments: Codex's own unload override, then the
+/// subcommand (`unloadClosedThreads`, `thread-lease.ts:9`).
+pub fn codex_args() -> Vec<&'static str> {
     let mut args = UNLOAD_CLOSED_THREADS.to_vec();
     args.push("app-server");
     args
+}
+
+/// The spawn spec a bare bun script is started with, in the scratch root.
+fn script_spec(root: &Scratch, script: &Path) -> SpawnSpec {
+    let mut environment = vec![("PATH".to_owned(), std::env::var("PATH").unwrap_or_default())];
+    if let Ok(home) = std::env::var("HOME") {
+        environment.push(("HOME".to_owned(), home));
+    }
+    SpawnSpec {
+        command: bun(),
+        args: vec![script.to_string_lossy().into_owned()],
+        cwd: Some(root.path().to_string_lossy().into_owned()),
+        env: environment,
+        windows_verbatim: false,
+        hide_window: true,
+        contain: cfg!(windows),
+        max_output_bytes: None,
+        stdin: StdioMode::Piped,
+        stdout: StdioMode::Piped,
+        stderr: StdioMode::Piped,
+    }
 }
 
 /// The spawn spec the fake app-server is started with.
@@ -416,6 +579,9 @@ struct HostConsumer {
     events: Arc<Events>,
     ports: Arc<OnceLock<ChildPorts>>,
     active: Arc<Mutex<Option<u64>>>,
+    handlers: Arc<Mutex<HashMap<u64, Arc<Recorder>>>>,
+    /// What the shell does when the host asks for the child to stop.
+    stop: Arc<dyn Fn(Retirement, bool) -> Result<(), String> + Send + Sync>,
     stdout: Mutex<Framing>,
     stderr: Mutex<LineFramer>,
 }
@@ -443,8 +609,19 @@ impl HostConsumer {
                 }),
                 HostEffect::Retire { reason, awaited } => {
                     self.events.push(Event::Retire { reason, awaited });
-                    if let Some(ports) = self.ports.get() {
-                        ports.stdin.end();
+                    if let Err(message) = (self.stop)(reason, awaited) {
+                        self.events.push(Event::StopFailed {
+                            reason,
+                            awaited,
+                            message,
+                        });
+                    }
+                }
+                HostEffect::Exited { tenant, exit } => {
+                    if let Some(handlers) =
+                        self.handlers.lock().expect("tenant handlers").get(&tenant)
+                    {
+                        handlers.exited(&exit);
                     }
                 }
                 HostEffect::Retired => self.events.push(Event::Retired),
@@ -506,10 +683,20 @@ impl OutputConsumer for HostConsumer {
     }
 }
 
+/// What a host's shell does when the host asks it to stop the child.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Stop {
+    /// Ends stdin and lets the child exit, as a real stop does.
+    Ends,
+    /// The stop could not be confirmed: the process outlives it.
+    Fails,
+}
+
 /// One host over a real app-server, and its child.
 pub struct HostRun {
     pub host: Arc<Host>,
     pub events: Arc<Events>,
+    handlers: Arc<Mutex<HashMap<u64, Arc<Recorder>>>>,
     _root: Scratch,
     runtime: Runtime,
     ports: Arc<OnceLock<ChildPorts>>,
@@ -526,26 +713,53 @@ impl HostRun {
         elision: ElisionLimits,
         writers: Option<&str>,
     ) -> HostRun {
+        HostRun::start_with(root, config, elision, writers, Stop::Ends)
+    }
+
+    /// A host whose stop policy the test decides: a stop the shell cannot
+    /// confirm is the Windows tree that outlived its stop.
+    pub fn start_with(
+        root: Scratch,
+        config: HostConfig,
+        elision: ElisionLimits,
+        writers: Option<&str>,
+        stop: Stop,
+    ) -> HostRun {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
             .build()
             .expect("test runtime");
         let events = Arc::new(Events::default());
-        let ports = Arc::new(OnceLock::new());
+        let ports: Arc<OnceLock<ChildPorts>> = Arc::new(OnceLock::new());
         let active = Arc::new(Mutex::new(None));
         let (host, initial) = Host::new(config);
         let host = Arc::new(host);
+        let handlers: Arc<Mutex<HashMap<u64, Arc<Recorder>>>> = Arc::default();
+        let policy: Arc<dyn Fn(Retirement, bool) -> Result<(), String> + Send + Sync> = match stop {
+            Stop::Ends => {
+                let ports = Arc::clone(&ports);
+                Arc::new(move |_, _| {
+                    if let Some(ports) = ports.get() {
+                        ports.stdin.end();
+                    }
+                    Ok(())
+                })
+            }
+            Stop::Fails => Arc::new(|_, _| Err("the process tree outlived its stop".to_owned())),
+        };
         let consumer = Arc::new(HostConsumer {
             host: Arc::clone(&host),
             events: Arc::clone(&events),
             ports: Arc::clone(&ports),
             active,
+            handlers: Arc::clone(&handlers),
+            stop: policy,
             stdout: Mutex::new(Framing::new(elision)),
             stderr: Mutex::new(LineFramer::new(LINE_LIMIT)),
         });
         let child = spawn_child(
-            &spec(&root, &lease_args(), writers),
+            &spec(&root, &codex_args(), writers),
             Diverted::new(Nothing, Arc::clone(&consumer) as Arc<dyn OutputConsumer>),
             runtime.handle(),
             Some(&DivertTarget {
@@ -562,6 +776,7 @@ impl HostRun {
         HostRun {
             host,
             events,
+            handlers,
             _root: root,
             runtime,
             ports,
@@ -577,6 +792,10 @@ impl HostRun {
     }
 
     pub fn attach_with(&self, tenant: u64, handlers: Arc<Recorder>) -> Arc<Recorder> {
+        self.handlers
+            .lock()
+            .expect("tenant handlers")
+            .insert(tenant, Arc::clone(&handlers));
         let effects = self
             .host
             .attach(tenant, handlers.clone() as Arc<dyn ChannelHandlers>)
@@ -684,6 +903,29 @@ impl LeaseRun {
         attempts: usize,
         writers: Option<&str>,
     ) -> LeaseRun {
+        LeaseRun::launch(root, config, thread_id, attempts, writers, None)
+    }
+
+    /// A lease whose app-server is `source`, a bun script: used to refuse the
+    /// handshake, which the fake app-server never does.
+    pub fn start_script(
+        root: Scratch,
+        config: AppServerConfig,
+        thread_id: JsString,
+        attempts: usize,
+        source: &str,
+    ) -> LeaseRun {
+        LeaseRun::launch(root, config, thread_id, attempts, None, Some(source))
+    }
+
+    fn launch(
+        root: Scratch,
+        config: AppServerConfig,
+        thread_id: JsString,
+        attempts: usize,
+        writers: Option<&str>,
+        script: Option<&str>,
+    ) -> LeaseRun {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
@@ -701,8 +943,16 @@ impl LeaseRun {
             active,
             framing: Mutex::new(Framing::new(super::pool::CODEX_ELISION)),
         });
+        let spawn_spec = match script {
+            Some(source) => {
+                let path = root.path().join("lease-probe.mjs");
+                std::fs::write(&path, source).expect("the probe writes");
+                script_spec(&root, &path)
+            }
+            None => spec(&root, &codex_args(), writers),
+        };
         let child = spawn_child(
-            &spec(&root, &lease_args(), writers),
+            &spawn_spec,
             Diverted::new(Nothing, Arc::clone(&consumer) as Arc<dyn OutputConsumer>),
             runtime.handle(),
             Some(&DivertTarget {
@@ -710,7 +960,7 @@ impl LeaseRun {
                 ports: Arc::clone(&ports),
             }),
         )
-        .expect("the fake app-server spawns");
+        .expect("the app-server spawns");
         consumer.apply(initial);
         LeaseRun {
             lease,
@@ -770,6 +1020,11 @@ impl LeaseConsumer {
                 LeaseEffect::Server(AppServerEffect::Write { wire, ticket }) => {
                     *self.active.lock().expect("active write") = Some(ticket);
                     self.events.push(Event::Wrote { bytes: wire.len() });
+                    if let Ok(text) = std::str::from_utf8(&wire) {
+                        self.events.push(Event::Line {
+                            text: text.trim_end().to_owned(),
+                        });
+                    }
                     if let Some(ports) = self.ports.get() {
                         let _ = ports.stdin.write(wire);
                     }
