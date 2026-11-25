@@ -1325,7 +1325,7 @@ Later, not part of the pilot (owner decision 4).
   settlement in frame order inside the peer's frame callback (`:200`–`:212`; a continuation after
   an await would run too late, `:203`–`:204`), `session-routing.ts`, `deadlines.ts`,
   `negotiation.ts`, `bridge-negotiation.ts`, `configuration.ts` (its (b) cases move),
-  `quirks/{types,generic,antigravity}.ts`, `provider-kit/cli-versions.ts`,
+  `quirks/{types,generic,antigravity}.ts`, `provider-kit/{cli-versions,cli-requirements}.ts`,
   `mcp-server/injection.ts` (its `appendAcpMcp`, the transport filtering and ace's injected
   servers), `agent-registry/selectors.ts`, `provider-kit/{permission,access}-modes.ts`,
   `identity.ts`, `resume-error.ts`, over the E3-codex.1 peer and a diverted child.
