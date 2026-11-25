@@ -3,7 +3,8 @@
 //! its slot at the commit, and the pledged victims are stopped and evicted there, exactly where
 //! the TypeScript evicted them at the call. A rollback restores them untouched.
 
-use crate::actor::{deps, failure, fold, mailbox, spawn_mailbox, state};
+use crate::actor::{deps, mailbox, spawn_mailbox, state};
+use crate::executor::Lane;
 use crate::{Core, ThreadId};
 use std::rc::Rc;
 
@@ -32,11 +33,16 @@ pub fn commit_promotion(core: &Rc<Core>, promotion: &Rc<state::Promotion>) {
     // The victims stop the way the TypeScript's eviction stopped them: their leases release,
     // their drains resolve, and every acknowledgement they still hold settles as failed.
     let aside = std::mem::take(&mut *promotion.kept_aside.borrow_mut());
-    for (_, actor) in aside {
+    for (_, mut actor) in aside {
         let id = actor.id.clone();
+        let generation = actor.generation;
+        let instance = actor.instance;
+        let ops = take_ops(&mut actor);
         stop_aside(core, &deps, actor);
         // A parked task of an evicted victim wakes once to see it owns nothing.
         core.record_wake(&id);
+        // The victim's sealed work commits, as the TypeScript's tail did after `stop()`.
+        spawn_drain(core, &id, instance, generation, ops);
     }
     core.with_state(|state| {
         state.actors.reserved.shift_remove(&thread);
@@ -51,40 +57,23 @@ pub fn commit_promotion(core: &Rc<Core>, promotion: &Rc<state::Promotion>) {
     spawn_mailbox(core, &thread);
 }
 
-/// A non-transactional eviction: `stop()` seals the pending frames and the accepted sealed work
-/// still runs and settles, as the TypeScript's tail did; then the actor leaves the map and
-/// `repo.evict` drops its cached state.
+/// A non-transactional eviction: `stop()` seals the pending frames, the actor leaves the map at
+/// once, and its accepted work drains on the pump (as the TypeScript's tail did), busy retries
+/// included, once the store lets it write.
 pub fn evict_now(core: &Rc<Core>, thread: &ThreadId) {
     let deps = core.actor_deps.borrow().clone();
     crate::actor::stop(core, thread);
-    let writable = deps.live.writable_now();
-    let running = core
+    let taken = core
         .with_state(|state| {
-            state
-                .actors
-                .by_thread
-                .get(thread)
-                .is_some_and(|actor| actor.running)
+            state.actors.by_thread.get_mut(thread).map(|actor| {
+                let ops = take_ops(actor);
+                (ops, actor.generation, actor.instance)
+            })
         })
-        .unwrap_or(false);
-    if writable && !running {
-        loop {
-            let op = core
-                .with_state(|state| {
-                    state
-                        .actors
-                        .by_thread
-                        .get_mut(thread)
-                        .and_then(|actor| actor.mailbox.pop_front())
-                })
-                .ok()
-                .flatten();
-            let Some(op) = op else {
-                break;
-            };
-            crate::actor::promotion::drain_op(core, thread, op);
-        }
-    }
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let (ops, generation, instance) = taken;
     let actor = core
         .with_state(|state| state.actors.by_thread.shift_remove(thread))
         .ok()
@@ -94,34 +83,78 @@ pub fn evict_now(core: &Rc<Core>, thread: &ThreadId) {
     }
     // The evicted actor's task parks on its timer; waking it lets it see it owns nothing.
     core.record_wake(thread);
+    spawn_drain(core, thread, instance, generation, ops);
 }
 
-/// One queued op run at the eviction, before the actor leaves the map: the accepted work commits
-/// and its acknowledgements settle, exactly as the TypeScript's tail did after `stop()`.
-fn drain_op(core: &Rc<Core>, thread: &ThreadId, op: mailbox::Op) {
-    match op {
-        mailbox::Op::Batch(mut batch) => {
-            let frames = batch.frames.len();
-            let bytes = batch.bytes;
-            let ack = std::mem::take(&mut batch.ack);
-            if let Err(error) = fold::fold_batch(core, thread, &mut batch) {
-                failure::fail(core, thread, error);
+/// Takes an actor's accepted work: unsealed pending frames become one batch, then the mailbox.
+fn take_ops(actor: &mut state::Actor) -> Vec<mailbox::Op> {
+    let mut ops = Vec::new();
+    if !actor.pending.is_empty() {
+        let frames = std::mem::take(&mut actor.pending);
+        let bytes = actor.pending_bytes;
+        actor.pending_bytes = 0;
+        let ack = actor.pending_ack.take().unwrap_or_default();
+        ops.push(mailbox::Op::Batch(Box::new(mailbox::BatchOp {
+            frames,
+            bytes,
+            ack,
+            admitted: true,
+            memory: Default::default(),
+        })));
+    }
+    while let Some(op) = actor.mailbox.pop_front() {
+        ops.push(op);
+    }
+    ops
+}
+
+/// Drains an evicted actor's accepted work on the pump, one op per poll, as the mailbox would.
+fn spawn_drain(
+    core: &Rc<Core>,
+    thread: &ThreadId,
+    instance: u64,
+    generation: u64,
+    ops: Vec<mailbox::Op>,
+) {
+    if ops.is_empty() {
+        return;
+    }
+    let owned = Rc::clone(core);
+    let id = thread.clone();
+    let task = core.executor.spawn(Lane::Work, async move {
+        let mut queue = ops.into_iter();
+        let mut failed = false;
+        for op in queue.by_ref() {
+            if !crate::actor::drain_op(&owned, &id, instance, generation, op).await {
+                failed = true;
+                break;
             }
-            mailbox::settle(core, thread, frames, bytes, ack);
         }
-        mailbox::Op::Run(mut run) => {
-            let ack = run.ack.take();
-            if let Err(error) = (run.run)(core) {
-                failure::fail(core, thread, error);
+        if failed {
+            // The first real failure poisoned the actor: the rest rejects and releases.
+            reject_rest(&owned, queue);
+        }
+    });
+    task.detach();
+}
+
+/// Rejects and releases everything a failed drain will not run.
+fn reject_rest(core: &Rc<Core>, queue: impl Iterator<Item = mailbox::Op>) {
+    for op in queue {
+        match op {
+            mailbox::Op::Batch(batch) => {
+                let handles = mailbox::js_handles(&batch.frames);
+                mailbox::release_js_handles(core, &handles);
+                mailbox::settle_drained(core, batch.ack, false);
             }
-            if let Some(ack) = ack {
-                mailbox::settle(core, thread, run.frames, run.bytes, ack);
+            mailbox::Op::Run(run) => {
+                if let Some(ack) = run.ack {
+                    mailbox::settle_drained(core, ack, false);
+                }
             }
+            mailbox::Op::Settle(ack) => mailbox::settle_drained(core, ack, false),
+            _ => {}
         }
-        mailbox::Op::Settle(ack) => {
-            mailbox::settle_rejected(core, ack);
-        }
-        _ => {}
     }
 }
 

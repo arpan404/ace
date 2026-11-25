@@ -130,6 +130,7 @@ async fn run_op(core: &Rc<Core>, thread: &ThreadId, instance: u64, op: mailbox::
                 bytes,
                 Some(ack),
                 handles,
+                false,
             )
             .await
         }
@@ -147,6 +148,7 @@ async fn run_op(core: &Rc<Core>, thread: &ThreadId, instance: u64, op: mailbox::
                 bytes,
                 ack,
                 Vec::new(),
+                false,
             )
             .await
         }
@@ -157,7 +159,7 @@ async fn run_op(core: &Rc<Core>, thread: &ThreadId, instance: u64, op: mailbox::
             let op_thread = thread.clone();
             let mut run: mailbox::RunFn =
                 Box::new(move |core: &Rc<Core>| failure::overflow(core, &op_thread));
-            match mailbox::run_when_writable(core, thread, instance, &mut run).await {
+            match mailbox::run_when_writable(core, thread, instance, &mut run, false).await {
                 Ok(_) => {}
                 Err(error) => failure::fail(core, thread, error),
             }
@@ -177,12 +179,13 @@ async fn run_and_settle(
     bytes: usize,
     ack: Option<BatchAck>,
     handles: Vec<u32>,
+    drained: bool,
 ) -> bool {
     // The pump never runs inside a transaction; the check confirms it.
     let outcome = if core.store.is_open() {
         Err(EngineError::NotOutermost)
     } else {
-        mailbox::run_when_writable(core, thread, instance, run).await
+        mailbox::run_when_writable(core, thread, instance, run, drained).await
     };
     let ran = match outcome {
         Ok(ran) => ran,
@@ -194,6 +197,13 @@ async fn run_and_settle(
     if !ran {
         // The batch never translated: the shell's frame objects go with its acknowledgement.
         mailbox::release_js_handles(core, &handles);
+    }
+    if drained {
+        // The actor is gone: the fold's outcome settles the acknowledgement, nothing is charged.
+        if let Some(ack) = ack {
+            mailbox::settle_drained(core, ack, ran);
+        }
+        return ran;
     }
     if !alive(core, thread, instance) {
         // The actor was evicted while this op waited: its acknowledgement rejects, and the
@@ -209,6 +219,73 @@ async fn run_and_settle(
             mailbox::settle(core, thread, frames, bytes, BatchAck::default());
             false
         }
+    }
+}
+
+/// Runs one op an eviction took, on the pump, through the same wrapper the mailbox uses: the
+/// fold runs with the actor's captured generation and its outcome settles the acknowledgement.
+pub async fn drain_op(
+    core: &Rc<Core>,
+    thread: &ThreadId,
+    instance: u64,
+    generation: u64,
+    op: mailbox::Op,
+) -> bool {
+    match op {
+        mailbox::Op::Batch(mut batch) => {
+            let frames = batch.frames.len();
+            let bytes = batch.bytes;
+            let handles = mailbox::js_handles(&batch.frames);
+            let ack = std::mem::take(&mut batch.ack);
+            let thread_copy = thread.clone();
+            let mut run: mailbox::RunFn = Box::new(move |core: &Rc<Core>| {
+                fold::fold_batch_for(core, &thread_copy, generation, &mut batch)
+            });
+            run_and_settle(
+                core,
+                thread,
+                instance,
+                &mut run,
+                frames,
+                bytes,
+                Some(ack),
+                handles,
+                true,
+            )
+            .await
+        }
+        mailbox::Op::Run(mut run) => {
+            let frames = run.frames;
+            let bytes = run.bytes;
+            let ack = run.ack.take();
+            let mut call = run.run;
+            run_and_settle(
+                core,
+                thread,
+                instance,
+                &mut call,
+                frames,
+                bytes,
+                ack,
+                Vec::new(),
+                true,
+            )
+            .await
+        }
+        mailbox::Op::Settle(ack) => {
+            mailbox::settle_drained(core, ack, false);
+            false
+        }
+        mailbox::Op::Overflow => {
+            let op_thread = thread.clone();
+            let mut run: mailbox::RunFn =
+                Box::new(move |core: &Rc<Core>| failure::overflow(core, &op_thread));
+            matches!(
+                mailbox::run_when_writable(core, thread, instance, &mut run, true).await,
+                Ok(true)
+            )
+        }
+        mailbox::Op::Staged(_) => true,
     }
 }
 

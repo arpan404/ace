@@ -20,6 +20,7 @@ pub async fn run_when_writable(
     thread: &ThreadId,
     instance: u64,
     run: &mut RunFn,
+    drained: bool,
 ) -> Result<bool, EngineError> {
     loop {
         // A retry resumes after an eviction: the batch belongs to the actor that queued it.
@@ -32,7 +33,7 @@ pub async fn run_when_writable(
                     .is_some_and(|actor| actor.instance == instance)
             })
             .unwrap_or(false);
-        if !alive {
+        if !alive && !drained {
             return Ok(false);
         }
         let poisoned = core
@@ -41,9 +42,11 @@ pub async fn run_when_writable(
                     .actors
                     .by_thread
                     .get(thread)
-                    .is_none_or(|actor| actor.poisoned)
+                    .map(|actor| actor.poisoned)
             })
-            .unwrap_or(true);
+            .ok()
+            .flatten()
+            .unwrap_or(!drained);
         if poisoned {
             return Ok(false);
         }
@@ -95,6 +98,24 @@ pub fn settle(core: &Core, thread: &ThreadId, frames: usize, bytes: usize, ack: 
         return true;
     }
     false
+}
+
+/// Settles a drained op by its fold's outcome: committed work resolves, a failure rejects.
+pub fn settle_drained(core: &Core, ack: BatchAck, ok: bool) {
+    let mut ack = ack;
+    let js = ack.js;
+    if ok {
+        ack.resolve();
+    } else {
+        ack.reject("Provider frame failed to commit");
+    }
+    if let Some(call) = js {
+        let deps = core.actor_deps.borrow().clone();
+        deps.acks.settle(
+            call,
+            (!ok).then(|| "Provider frame failed to commit".to_string()),
+        );
+    }
 }
 
 /// The JavaScript frame objects a batch holds, by handle.

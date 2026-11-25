@@ -27,7 +27,7 @@ pub use deps::{
 pub use probe::run_op_opened;
 pub use promotion::restore_promotion;
 pub use state::{Actor, Actors, FrameRef, Pending};
-pub use task::spawn_mailbox;
+pub use task::{drain_op, spawn_mailbox};
 pub use timer::keeps_timer;
 
 use crate::executor::TaskId;

@@ -63,7 +63,6 @@ fn tool_boundary(fact: &Value) -> bool {
 
 /// `fold_batch` (`actor.ts:367`–`:426`).
 pub fn fold_batch(core: &Rc<Core>, thread: &ThreadId, op: &mut BatchOp) -> Result<(), EngineError> {
-    let deps = core.actor_deps.borrow().clone();
     let generation = core
         .with_state(|state| {
             state
@@ -73,6 +72,30 @@ pub fn fold_batch(core: &Rc<Core>, thread: &ThreadId, op: &mut BatchOp) -> Resul
                 .map(|actor| actor.generation)
         })?
         .unwrap_or(0);
+    fold_batch_for(core, thread, generation, op)
+}
+
+/// The fold for an op an eviction took: its generation was captured before the actor went, and
+/// frames it no longer carries release their handles.
+pub fn fold_batch_for(
+    core: &Rc<Core>,
+    thread: &ThreadId,
+    generation: u64,
+    op: &mut BatchOp,
+) -> Result<(), EngineError> {
+    let deps = core.actor_deps.borrow().clone();
+    let stale: Vec<u32> = op
+        .frames
+        .iter()
+        .filter(|pending| pending.generation != generation)
+        .filter_map(|pending| match &pending.frame {
+            FrameRef::Js { handle, .. } => Some(*handle),
+            FrameRef::Native(_) => None,
+        })
+        .collect();
+    if !stale.is_empty() {
+        deps.acks.release(&stale);
+    }
     let live: Vec<&FrameRef> = op
         .frames
         .iter()
