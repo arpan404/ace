@@ -351,7 +351,7 @@ async fn club_member_react_tags_store_agent_identity_and_api_serves_grouped_reac
     assert_eq!(m1[0]["emoji"], "👍");
     let mut thumbs_by: Vec<String> = m1[0]["by"]
         .as_array()
-        .unwrap()
+        .ok_or("no list of who reacted")?
         .iter()
         .filter_map(|v| v.as_str().map(str::to_owned))
         .collect();

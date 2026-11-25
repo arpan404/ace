@@ -72,3 +72,6 @@ pub fn open<'a>(
     found.truncate(MOST);
     found
 }
+
+#[cfg(test)]
+mod tests;

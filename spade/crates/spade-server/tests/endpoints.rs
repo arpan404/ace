@@ -97,10 +97,10 @@ async fn an_openai_endpoints_models_are_listed_live_and_saved_with_their_facts()
             // capabilities and no context. Spade's own guesses for the rest never show.
             // The gateway is on this computer, so each model also says whether Spade's checks
             // ran (ADR 0205 §3): they run when a model is added from a local server.
-            { "id": "kimi", "name": "kimi", "context": 262144, "capabilities": null, "source": "listed",
+            { "id": "kimi", "name": "kimi", "context": 262144, "capabilities": null, "efforts": null, "source": "listed",
               "probes": { "state": "unchecked" }, "known_good": null },
             { "id": "vendor/typed", "name": "vendor/typed", "context": null,
-              "capabilities": ["tools", "images"], "source": "typed",
+              "capabilities": ["tools", "images"], "efforts": null, "source": "typed",
               "probes": { "state": "unchecked" }, "known_good": null }
         ])
     );

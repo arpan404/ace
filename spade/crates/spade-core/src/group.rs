@@ -263,7 +263,11 @@ pub fn recent(events: &[Event], me: &GroupBot, before_run: &str) -> (String, boo
 
 /// Like [`recent`], prefixed with each stored message's id (`[m<seq>]`) so a club member can
 /// target earlier messages with `<react to="m…">`.
-pub fn recent_with_ids(events: &[(i64, &Event)], me: &GroupBot, before_run: &str) -> (String, bool) {
+pub fn recent_with_ids(
+    events: &[(i64, &Event)],
+    me: &GroupBot,
+    before_run: &str,
+) -> (String, bool) {
     let indexed: Vec<(Option<i64>, &Event)> =
         events.iter().map(|(seq, e)| (Some(*seq), *e)).collect();
     recent_lines(&indexed, me, before_run)

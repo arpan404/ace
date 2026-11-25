@@ -217,12 +217,12 @@ fn a_measured_local_family_marks_its_models_and_a_bad_entry_stops_the_file() {
 fn catalogue_models_parse_supported_efforts_and_refuse_provider() -> Result<(), CatalogError> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/models.json");
     let catalog = Catalog::load(&path)?;
-    let sonnet = catalog
+    let efforts = catalog
         .resolve("anthropic/claude-sonnet-5-5")
-        .expect("shipped sonnet");
+        .map(|sonnet| sonnet.model.efforts.clone());
     assert_eq!(
-        sonnet.model.efforts,
-        vec![Effort::Low, Effort::Medium, Effort::High, Effort::Max]
+        efforts,
+        Some(vec![Effort::Low, Effort::Medium, Effort::High, Effort::Max])
     );
     let bad = file(
         r#", { "id": "bad", "name": "Bad", "format": "anthropic",
