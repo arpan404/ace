@@ -742,9 +742,11 @@ carry SQLite's code.
 
 ### Unknown fields in stored records
 
-The TypeScript's record schemas decide. `Agent` (`protocol/src/agent.ts:48`), the `Item` variants
-(`protocol/src/items.ts:255`), `Run` (`thread.ts:45`), `ToolCall` and `ToolResult`
-(`tools.ts:175`, `:145`) and `Attachment` (`context.ts:138`) are plain `z.object`s, which strip
-unknown keys: the Rust types drop them too, so a rewrite matches TS. The engine-internal
-`RetryInfo` and `LimitedInfo` are written without a schema, so their unknown fields travel through
-unchanged and Rust keeps them in `extra`. Nothing is strict.
+The TypeScript never strips a stored record: `parseRecord` validates with `safeParse` and returns
+the raw value (`apps/daemon/src/engine/records.ts:15`-`:19`), and the raw value is written back
+with `JSON.stringify`, so a newer build's fields survive every in-place fold. Rust carries them
+on the type: `Agent`, `Run`, `Attachment`, `RetryInfo` and `LimitedInfo` have
+`#[serde(flatten)] extra`, written with the object and kept through a rewrite. Objects the
+reducer rebuilds start empty, and the one TS spread (`runs.ts:135`, `{ ...record.limited, message }`)
+copies the old `extra`. The remaining record types (`Item` variants, `ToolCall`, `ToolResult`,
+`ToolDetail`, `ContentPart`, the statuses) still need the same field.

@@ -70,6 +70,10 @@ pub struct Agent {
     /// so they serialize after the identity fields, in the order they first appeared.
     #[serde(skip)]
     pub appended: Vec<&'static str>,
+    /// Fields a newer build wrote; the TypeScript validates without stripping and writes the
+    /// raw value back, so they travel with the object.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Agent {
@@ -529,4 +533,19 @@ pub fn create_thread_state(
         status: ThreadStatus::New,
         appended: Vec::new(),
     })
+}
+
+#[cfg(test)]
+mod extra_tests {
+    #[test]
+    fn an_unknown_field_survives_a_run_and_an_agent_round_trip() {
+        let json = r#"{"id":"r","threadId":"t","agentId":"a","trigger":"user","seq":1,"state":"active","startedAt":1,"futureField":{"a":1}}"#;
+        let run: super::Run = serde_json::from_str(json).unwrap();
+        let text = serde_json::to_string(&run).unwrap();
+        assert!(text.contains(r#""futureField":{"a":1}"#), "{text}");
+        let agent = r#"{"id":"a","threadId":"t","origin":"root","native":{"provider":"claude","nativeId":"n"},"fidelity":"full","cwd":"/tmp","status":{"state":"idle"},"background":false,"createdAt":1,"futureAgent":2}"#;
+        let agent: super::Agent = serde_json::from_str(agent).unwrap();
+        let text = serde_json::to_string(&agent).unwrap();
+        assert!(text.contains(r#""futureAgent":2"#), "{text}");
+    }
 }

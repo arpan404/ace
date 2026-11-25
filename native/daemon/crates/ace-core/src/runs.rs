@@ -55,6 +55,10 @@ pub struct Run {
     pub execution_source: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<crate::status::AgentError>,
+    /// Fields a newer build wrote; the TypeScript validates without stripping and writes the
+    /// raw value back, so they travel with the object.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// The next run's place among the thread's runs (`Run.seq`).
@@ -128,6 +132,7 @@ pub fn start_turn(
         thread_id: state.thread_id.clone(),
         agent_id,
         trigger,
+        extra: Default::default(),
         native_id: native_turn_id.map(str::to_owned),
         ordinal: None,
         turn: None,
@@ -277,6 +282,7 @@ fn end_turn_inner(
             started_at: now,
             ended_at: None,
             error: None,
+            extra: Default::default(),
         };
         if let Some(native_id) = run.native_id.clone()
             && let Some(record) = state.agents.get_mut(agent_key)
@@ -326,8 +332,14 @@ fn end_turn_inner(
                 && let Some(record) = state.agents.get_mut(agent_key)
             {
                 let until = record.limited.as_ref().and_then(|limited| limited.until);
+                // `runs.ts:135` is `{ ...record.limited, message }`: the old extras stay.
+                let extra = record
+                    .limited
+                    .as_ref()
+                    .map(|limited| limited.extra.clone())
+                    .unwrap_or_default();
                 record.limited = Some(crate::state::LimitedInfo {
-                    extra: Default::default(),
+                    extra,
                     until,
                     message: Some(err.message.clone()),
                 });

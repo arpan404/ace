@@ -205,6 +205,10 @@ pub struct Attachment {
     pub height: Option<i64>,
     #[serde(rename = "thumbnailAvailable", skip_serializing_if = "Option::is_none")]
     pub thumbnail_available: Option<bool>,
+    /// Fields a newer build wrote; the TypeScript validates without stripping and writes the
+    /// raw value back, so they travel with the object.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// A single file change, normalised from provider edits.

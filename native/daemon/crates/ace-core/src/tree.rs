@@ -106,6 +106,7 @@ fn insert_placeholder(
         created_at: ctx.now,
         ended_at: None,
         appended: Vec::new(),
+        extra: Default::default(),
     };
     let mut record = AgentRecord {
         agent,

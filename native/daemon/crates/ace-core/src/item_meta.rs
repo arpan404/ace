@@ -211,6 +211,7 @@ pub struct DelegationSettled {
 /// Daemon-captured ace result content.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
+#[allow(clippy::large_enum_variant)]
 pub enum ToolResultContent {
     /// Text, at most 32 KiB.
     #[serde(rename = "text")]
