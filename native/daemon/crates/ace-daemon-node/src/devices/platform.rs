@@ -105,6 +105,91 @@ pub fn device_platform_launch_pid(stdout: String) -> Option<String> {
     ace_devices::platform::commands::launch_pid(&stdout)
 }
 
+/// What one SDK root holds: adb from its `platform-tools`, the emulator from its `emulator`.
+#[napi(object)]
+pub struct NativeFoundTools {
+    pub adb: Option<String>,
+    pub emulator: Option<String>,
+}
+
+/// `androidSdkRoots`: every absolute SDK root this host offers, preferred first.
+#[napi]
+pub fn device_platform_android_sdk_roots(
+    platform: String,
+    home: Option<String>,
+    env: HashMap<String, String>,
+) -> Vec<String> {
+    let env: std::collections::BTreeMap<String, String> = env.into_iter().collect();
+    ace_devices::platform::sdk::android_sdk_roots(&env, home.as_deref(), &platform)
+}
+
+/// `findAndroidTools`' choice: an SDK holding both tools first, then the first of each, then adb
+/// from PATH.
+#[napi]
+pub fn device_platform_choose_android_tools(
+    found: Vec<NativeFoundTools>,
+    path_adb: Option<String>,
+) -> napi::Result<String> {
+    let found: Vec<ace_devices::platform::sdk::FoundTools> = found
+        .into_iter()
+        .map(|root| ace_devices::platform::sdk::FoundTools {
+            adb: root.adb,
+            emulator: root.emulator,
+        })
+        .collect();
+    let tools = ace_devices::platform::sdk::choose_android_tools(&found, path_adb);
+    ace_json::ser::to_string(&tools)
+        .map_err(|error| napi::Error::from_reason(format!("ace-devices: {error}")))
+}
+
+/// `resolveAndroidSDK`: the tools, or the refusal that names the install this host needs.
+#[napi]
+pub fn device_platform_resolve_android_sdk(
+    adb: Option<String>,
+    emulator: Option<String>,
+    platform: String,
+    arch: Option<String>,
+) -> napi::Result<String> {
+    answered(|| {
+        let tools = ace_devices::platform::sdk::AndroidTools { adb, emulator };
+        Ok(ace_devices::platform::sdk::resolve_android_sdk(
+            &tools,
+            &platform,
+            arch.as_deref(),
+        )?)
+    })
+}
+
+/// `resolveXcode`'s host refusal: a paired Mac on Windows, macOS for every other non-Mac.
+#[napi]
+pub fn device_platform_xcode_host_refusal(platform: String) -> napi::Result<String> {
+    answered(|| Ok(ace_devices::platform::sdk::xcode_host_refusal(&platform)))
+}
+
+/// `resolveXcode`'s refusal when `xcode-select`, `xcrun` or `open` is missing.
+#[napi]
+pub fn device_platform_xcode_tools_refusal() -> napi::Result<String> {
+    answered(|| Ok(ace_devices::platform::sdk::xcode_tools_refusal()))
+}
+
+/// `resolveXcode`'s check of `xcode-select -p`; `code` is absent when the probe itself failed.
+#[napi]
+pub fn device_platform_xcode_selection(code: Option<i32>, stdout: String) -> napi::Result<String> {
+    answered(|| Ok(ace_devices::platform::sdk::xcode_selection(code, &stdout).err()))
+}
+
+/// `iosNeedsMac`: Windows can't run the iOS Simulator.
+#[napi]
+pub fn device_platform_ios_needs_mac() -> napi::Result<String> {
+    answered(|| Ok(ace_devices::platform::sdk::ios_needs_mac()))
+}
+
+/// `armEmulatorNote`: Google publishes no Android Emulator for Linux arm64.
+#[napi]
+pub fn device_platform_arm_emulator_note() -> napi::Result<String> {
+    answered(|| Ok(ace_devices::platform::sdk::arm_emulator_note()))
+}
+
 /// `emulatorConsolePort`: `emulator-5554` is console port 5554; another serial reaches none.
 #[napi]
 pub fn device_platform_console_port(serial: String) -> Option<u32> {

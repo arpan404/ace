@@ -87,6 +87,15 @@ mod tests {
             "identityNotUdid",
             "identityNotAvd",
             "sizeUndecoded",
+            "iosNeedsMac",
+            "iosNeedsMacOs",
+            "xcodeMissing",
+            "xcodeUnavailable",
+            "xcodeNotFull",
+            "adbMissingArm",
+            "adbMissingLinux",
+            "sdkMissing",
+            "armEmulatorNote",
         ] {
             assert!(has(key), "catalog names no usable word for {key}");
         }

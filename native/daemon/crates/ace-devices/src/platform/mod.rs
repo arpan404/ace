@@ -11,6 +11,7 @@ pub mod commands;
 pub mod emulator;
 pub mod identity;
 pub mod lifecycle;
+pub mod sdk;
 pub mod words;
 
 use serde::{Deserialize, Serialize};

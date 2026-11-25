@@ -4,6 +4,13 @@ import { findAndroidTools } from "./android-tools.ts";
 import { probeOutput } from "@ace/provider-kit/process";
 import { z } from "zod";
 import type { DeviceFailure } from "@ace/protocol/devices";
+import { devicePlatformBackend } from "@ace/provider-kit/native-switches";
+import {
+  type RefusalWord,
+  answered,
+  nativeDevices,
+  Refused,
+} from "./native-devices-addon.ts";
 
 export type DeviceErrorCode = DeviceFailure["code"];
 export class DeviceError extends Error {
@@ -24,6 +31,19 @@ export class DeviceError extends Error {
     this.permission = permission;
   }
 }
+/** The addon's refusal as today's `DeviceError`, so `instanceof` and its code both hold. */
+export function deviceRefusal(word: RefusalWord): DeviceError {
+  return new DeviceError(word.code as DeviceErrorCode, word.message, word.hint);
+}
+/** Runs one addon export, raising its refusal as the `DeviceError` it names. */
+export function deviceAnswer<T>(invoke: () => string): T {
+  try {
+    return answered<T>(invoke);
+  } catch (error) {
+    if (error instanceof Refused) throw deviceRefusal(error.refusal);
+    throw error;
+  }
+}
 export type SDKOptions = {
   platform: string;
   /** The CPU architecture, as `process.arch` names it. */
@@ -39,6 +59,15 @@ export async function resolveAndroidSDK(
 ): Promise<{ adb: string; emulator?: string | undefined }> {
   const { adb, emulator } = await findAndroidTools({ env: options.env, home: options.home });
   if (adb) return { adb, emulator };
+  if (devicePlatformBackend() === "native")
+    return deviceAnswer<{ adb: string; emulator?: string | undefined }>(() =>
+      nativeDevices().devicePlatformResolveAndroidSdk(
+        adb,
+        emulator,
+        options.platform,
+        options.arch,
+      ),
+    );
   // Google's SDK repository has the emulator and platform-tools for x86-64 Linux only; on arm64
   // a distribution's adb still reaches phones and network devices.
   if (options.platform === "linux" && options.arch === "arm64")
@@ -65,6 +94,10 @@ export async function resolveAndroidSDK(
  * refusal of every Simulator action, so people and agents know where that work goes instead.
  */
 export function iosNeedsMac(): DeviceError {
+  if (devicePlatformBackend() === "native")
+    return deviceRefusal(
+      deviceAnswer<RefusalWord>(() => nativeDevices().devicePlatformIosNeedsMac()),
+    );
   return new DeviceError(
     "not_supported",
     "iOS Simulators need a paired Mac",
@@ -73,6 +106,10 @@ export function iosNeedsMac(): DeviceError {
 }
 /** Said once in the device list on Linux arm64, where Google publishes no Android Emulator. */
 export function armEmulatorNote(): DeviceError {
+  if (devicePlatformBackend() === "native")
+    return deviceRefusal(
+      deviceAnswer<RefusalWord>(() => nativeDevices().devicePlatformArmEmulatorNote()),
+    );
   return new DeviceError(
     "not_supported",
     "Android emulators aren't available on Linux arm64",
@@ -80,6 +117,7 @@ export function armEmulatorNote(): DeviceError {
   );
 }
 export async function resolveXcode(options: SDKOptions): Promise<{ xcrun: string; open: string }> {
+  if (devicePlatformBackend() === "native") return resolveXcodeNatively(options);
   if (options.platform === "win32") throw iosNeedsMac();
   if (options.platform !== "darwin")
     throw new DeviceError(
@@ -119,5 +157,35 @@ export async function resolveXcode(options: SDKOptions): Promise<{ xcrun: string
       "A full Xcode installation is required",
       "Run xcode-select -s /Applications/Xcode.app/Contents/Developer, then accept the Xcode license.",
     );
+  return { xcrun, open };
+}
+
+/**
+ * `resolveXcode` with `ace-devices` deciding the refusals. The executables and the selection
+ * probe stay here, in today's order: the host refusal first, then the tools, then the probe.
+ */
+async function resolveXcodeNatively(
+  options: SDKOptions,
+): Promise<{ xcrun: string; open: string }> {
+  const addon = nativeDevices();
+  const host = deviceAnswer<RefusalWord | null>(() =>
+    addon.devicePlatformXcodeHostRefusal(options.platform),
+  );
+  if (host) throw deviceRefusal(host);
+  const [select, xcrun, open] = await Promise.all(
+    ["xcode-select", "xcrun", "open"].map((name) => findExecutable(name, options.env)),
+  );
+  if (!select || !xcrun || !open)
+    throw deviceRefusal(
+      deviceAnswer<RefusalWord>(() => addon.devicePlatformXcodeToolsRefusal()),
+    );
+  const output = await (options.probe ?? probeOutput)(select, ["-p"], {
+    env: options.env,
+    maxBytes: 4096,
+  }).catch(() => undefined);
+  const refused = deviceAnswer<RefusalWord | null>(() =>
+    addon.devicePlatformXcodeSelection(output?.code ?? null, output?.stdout ?? ""),
+  );
+  if (refused) throw deviceRefusal(refused);
   return { xcrun, open };
 }
