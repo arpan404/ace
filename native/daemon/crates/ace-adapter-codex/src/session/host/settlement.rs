@@ -109,6 +109,8 @@ impl Inner {
                 PeerEffect::Failed { message } => self.report_all(&message),
             }
         }
+        // A veto's verdict is good for the one frame of this input.
+        self.admitted_send = None;
     }
 
     /// A request the host made itself: its answer goes back into the walk.

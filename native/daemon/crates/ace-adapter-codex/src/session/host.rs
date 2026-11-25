@@ -578,6 +578,9 @@ struct Inner {
     initialize_call: u64,
     /// The tenant whose request is being written, for the send frame's owner.
     sender: Option<u64>,
+    /// A channel's send frame the veto already admitted, by tenant: the
+    /// delivery uses that verdict instead of asking again.
+    admitted_send: Option<u64>,
     own: HashMap<u64, OwnPurpose>,
     /// Facade ids a channel is waiting on, by tenant (`Tenant.abort`).
     calls: IndexMap<u64, u64>,

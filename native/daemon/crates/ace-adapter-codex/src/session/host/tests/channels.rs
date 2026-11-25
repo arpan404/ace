@@ -250,6 +250,8 @@ struct Bound {
     deferred: std::sync::Mutex<Vec<RpcId>>,
     /// The errors the host reported to it.
     errors: std::sync::Mutex<Vec<String>>,
+    /// The messages it was failed with.
+    failed: std::sync::Mutex<Vec<String>>,
 }
 
 impl Bound {
@@ -257,7 +259,15 @@ impl Bound {
         Arc::new(Bound {
             deferred: std::sync::Mutex::new(Vec::new()),
             errors: std::sync::Mutex::new(Vec::new()),
+            failed: std::sync::Mutex::new(Vec::new()),
         })
+    }
+
+    fn failed(&self) -> Vec<String> {
+        self.failed
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
     }
 
     fn errors(&self) -> Vec<String> {
@@ -278,15 +288,16 @@ impl Bound {
 impl ChannelHandlers for Bound {
     fn admit(&self, dir: Direction, data: &Value) -> Admission {
         let encoded = ace_json::to_string(data);
-        match (
-            dir,
-            encoded.len() > crate::session::frames::MAX_PAYLOAD_BYTES,
-        ) {
-            (Direction::Send, true) => {
-                Admission::Failed("Provider payload exceeds byte limit".to_owned())
-            }
-            _ => Admission::Taken,
+        if dir == Direction::Send && encoded.len() > crate::session::frames::MAX_PAYLOAD_BYTES {
+            return Admission::Failed("Provider payload exceeds byte limit".to_owned());
         }
+        // A received frame with `mute` mutes this channel.
+        if dir == Direction::Recv
+            && data.pointer("/params/mute").and_then(Value::as_bool) == Some(true)
+        {
+            return Admission::Failed("received frame refused".to_owned());
+        }
+        Admission::Taken
     }
     fn frame(&self, _dir: Direction, _data: &Value) {}
     fn notification(&self, _method: &ace_json::JsString, _params: Option<&Value>) {}
@@ -312,7 +323,12 @@ impl ChannelHandlers for Bound {
             .unwrap_or_else(|error| error.into_inner())
             .push(message.to_owned());
     }
-    fn failed(&self, _message: &str) {}
+    fn failed(&self, message: &str) {
+        self.failed
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .push(message.to_owned());
+    }
     fn exited(&self, _exit: &HostExit) {}
     fn ready(&self) {}
 }
@@ -565,6 +581,139 @@ fn an_oversized_answer_never_claims_a_ticket() {
     host.answer(&RpcId::Number(901.0), &ace_json::json!({}));
     let (_, lines) = host.pump(|| {});
     assert_eq!(lines.len(), 1, "the next answer reaches the wire");
+}
+
+/// `host.ts:126`, `:170`: a muted channel's requests still flow, so its tree
+/// can be stopped, and its answer still reaches Codex. Neither reports an error.
+#[test]
+fn a_muted_channel_still_interrupts_and_answers() {
+    let (host, handlers) = bound_shell(HostConfig::dedicated(initialize()));
+    host.line(
+        &ace_json::json!({
+            "jsonrpc": "2.0",
+            "method": "thread/started",
+            "params": {"thread": {"id": "t1"}},
+        })
+        .to_json(),
+    );
+    let _ = host.pump(|| {});
+    host.line(
+        &ace_json::json!({
+            "jsonrpc": "2.0",
+            "id": 900,
+            "method": "item/commandExecution/requestApproval",
+            "params": {"threadId": "t1", "turnId": "x", "itemId": "y"},
+        })
+        .to_json(),
+    );
+    let _ = host.pump(|| {});
+    assert_eq!(handlers.deferred(), vec![RpcId::Number(900.0)]);
+    // A received frame the channel refuses mutes it.
+    host.line(
+        &ace_json::json!({
+            "jsonrpc": "2.0",
+            "method": "thread/started",
+            "params": {"thread": {"id": "t1"}, "mute": true},
+        })
+        .to_json(),
+    );
+    let _ = host.pump(|| {});
+    assert_eq!(handlers.failed(), vec!["received frame refused".to_owned()]);
+    // An interrupt still reaches the wire, with no false refusal.
+    let (effects, lines) = host.pump(|| {
+        host.request(
+            1,
+            "turn/interrupt",
+            Some(&ace_json::json!({"threadId": "t1", "turnId": "x"})),
+            10,
+            Timeout::Disabled,
+        )
+        .expect("the request is queued");
+    });
+    assert_eq!(lines.len(), 1, "the interrupt is written");
+    assert!(!effects.iter().any(|effect| matches!(
+        effect,
+        HostEffect::Error { .. } | HostEffect::AdmissionFailed { .. }
+    )));
+    // And the pending approval's answer.
+    host.answer(
+        &RpcId::Number(900.0),
+        &ace_json::json!({"decision": "accept"}),
+    );
+    let (effects, lines) = host.pump(|| {});
+    assert_eq!(lines.len(), 1, "the answer is written");
+    assert!(!effects.iter().any(|effect| matches!(
+        effect,
+        HostEffect::Error { .. } | HostEffect::AdmissionFailed { .. }
+    )));
+    assert!(handlers.errors().is_empty(), "{:?}", handlers.errors());
+}
+
+/// `host.rs:233`: admission is decided once per frame, by the veto, and the
+/// delivery uses that verdict. A handler that answers differently the second
+/// time is not asked again.
+#[test]
+fn a_send_frame_is_admitted_once() {
+    struct Once {
+        admits: std::sync::atomic::AtomicUsize,
+    }
+    impl ChannelHandlers for Once {
+        fn admit(&self, dir: Direction, data: &Value) -> Admission {
+            let ours = dir == Direction::Send
+                && data.get("method").and_then(Value::as_str) == Some("thread/read");
+            if ours {
+                let count = self
+                    .admits
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if count >= 1 {
+                    return Admission::Failed("admitted twice".to_owned());
+                }
+            }
+            Admission::Taken
+        }
+        fn frame(&self, _dir: Direction, _data: &Value) {}
+        fn notification(&self, _method: &ace_json::JsString, _params: Option<&Value>) {}
+        fn request(
+            &self,
+            _id: &RpcId,
+            _method: &ace_json::JsString,
+            _params: Option<&Value>,
+        ) -> RequestAnswer {
+            RequestAnswer::Answered(ace_json::json!({}))
+        }
+        fn dropped(&self, _line: &DroppedLine) {}
+        fn output_uncertain(&self) {}
+        fn malformed(&self, _line: &str) {}
+        fn stderr(&self, _line: &str) {}
+        fn error(&self, _message: &str) {}
+        fn failed(&self, _message: &str) {}
+        fn exited(&self, _exit: &HostExit) {}
+        fn ready(&self) {}
+    }
+    let host = Shell::start(HostConfig::dedicated(initialize()));
+    let _ = host.pump(|| {});
+    let handler = Arc::new(Once {
+        admits: std::sync::atomic::AtomicUsize::new(0),
+    });
+    host.attach(1, handler.clone()).expect("a channel attaches");
+    let _ = host.pump(|| {});
+    let (effects, lines) = host.pump(|| {
+        host.request(
+            1,
+            "thread/read",
+            Some(&ace_json::json!({"threadId": "t1"})),
+            7,
+            Timeout::After(1_000.0),
+        )
+        .expect("the request is queued");
+    });
+    assert_eq!(lines.len(), 1, "the frame is written");
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, HostEffect::AdmissionFailed { .. })),
+        "the veto's verdict stands: {effects:#?}"
+    );
 }
 
 /// `host.ts:469`-`:473`: only a dropped *reply* rejects a pending call. A
