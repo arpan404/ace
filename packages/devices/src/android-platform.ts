@@ -3,6 +3,7 @@ import { AndroidInputShell } from "./android-input-shell.ts";
 import { AndroidUiHelpers } from "./android-ui-helper.ts";
 import { AppDevice as DeviceSchema, type AppDevice as Device } from "@ace/protocol/devices";
 import { probeOutput, spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
+import { deviceInventoryBackend } from "@ace/provider-kit/native-switches";
 import { armEmulatorNote, DeviceError, resolveAndroidSDK, type SDKOptions } from "./sdk.ts";
 import { emulatorBootArgs } from "./emulator-args.ts";
 import {
@@ -53,6 +54,17 @@ export class AndroidPlatform {
   private readonly hardware = new Map<string, DeviceHardware>();
   private blocked: DeviceError[] = [];
   private noEmulator = false;
+  private lastAvdStdout: string | undefined;
+  private lastAdbStdout: string | undefined;
+  private listGuard: (<T>(read: () => Promise<T>) => Promise<T>) | undefined;
+  setListGuard(guard: (<T>(read: () => Promise<T>) => Promise<T>) | undefined): void {
+    this.listGuard = guard;
+  }
+  invalidateIdentityCache(): void {
+    if (deviceInventoryBackend() !== "native") return;
+    this.serialNames.clear();
+    this.hardware.clear();
+  }
   diagnostics() {
     return [
       ...(this.duplicate
@@ -98,15 +110,26 @@ export class AndroidPlatform {
   resolve() {
     return resolveAndroidSDK(this.options);
   }
-  async list(): Promise<Device[]> {
+  async list(scope: "all" | "avds" | "adb" = "all"): Promise<Device[]> {
     const { adb, emulator } = await this.resolve();
+    const native = deviceInventoryBackend() === "native";
+    const readAvds =
+      !native || scope === "all" || scope === "avds" || this.lastAvdStdout === undefined;
+    const readAdb =
+      !native || scope === "all" || scope === "adb" || this.lastAdbStdout === undefined;
     const [installed, connected] = await Promise.all([
-      emulator ? this.run(emulator, ["-list-avds"], 256 * 1024) : undefined,
-      this.run(adb, ["devices", "-l"], 128 * 1024),
+      readAvds && emulator ? this.run(emulator, ["-list-avds"], 256 * 1024) : undefined,
+      readAdb ? this.run(adb, ["devices", "-l"], 128 * 1024) : undefined,
     ]);
+    const avdStdout = readAvds ? (installed?.stdout ?? "") : (this.lastAvdStdout ?? "");
+    const adbStdout = readAdb ? (connected?.stdout ?? "") : (this.lastAdbStdout ?? "");
+    if (native) {
+      if (readAvds) this.lastAvdStdout = avdStdout;
+      if (readAdb) this.lastAdbStdout = adbStdout;
+    }
     this.noEmulator =
       !emulator && this.options.platform === "linux" && this.options.arch === "arm64";
-    const transports = adbTransports(connected.stdout);
+    const transports = adbTransports(adbStdout);
     const connectedSerials = new Set(transports.map(({ serial }) => serial));
     for (const serial of this.serialNames.keys())
       if (!connectedSerials.has(serial)) this.serialNames.delete(serial);
@@ -136,7 +159,7 @@ export class AndroidPlatform {
     ]);
     const bootingSerials = new Set([...this.pendingBoots].map((id) => this.ownedSerials.get(id)));
     const listed = androidInventory({
-      avds: avdNames(installed?.stdout ?? ""),
+      avds: avdNames(avdStdout),
       // An emulator ace is booting shows as the AVD it is, not as an offline transport.
       emulators: named.filter(
         ({ serial, state }) => !(state === "offline" && bootingSerials.has(serial)),
@@ -180,7 +203,11 @@ export class AndroidPlatform {
   async current(input: Device): Promise<Device> {
     const device = DeviceSchema.parse(input);
     nativeId(device);
-    const found = (await this.list()).find((candidate) => candidate.id === device.id);
+    const devices =
+      deviceInventoryBackend() === "native" && this.listGuard
+        ? await this.listGuard(() => this.list())
+        : await this.list();
+    const found = devices.find((candidate) => candidate.id === device.id);
     if (!found)
       throw new DeviceError(
         "not_found",
@@ -479,11 +506,11 @@ export class AndroidPlatform {
               "Install the Android Emulator from Android Studio's SDK Manager, then set ANDROID_HOME to the SDK directory.",
             );
       const window = await this.emulatorWindow();
-      const used = new Set(
-        adbTransports((await this.run(adb, ["devices", "-l"], 128 * 1024)).stdout).map(
-          ({ serial }) => serial,
-        ),
-      );
+      const devicesOutput =
+        deviceInventoryBackend() === "native" && this.listGuard
+          ? await this.listGuard(() => this.run(adb, ["devices", "-l"], 128 * 1024))
+          : await this.run(adb, ["devices", "-l"], 128 * 1024);
+      const used = new Set(adbTransports(devicesOutput.stdout).map(({ serial }) => serial));
       let port = 5554;
       while (used.has(`emulator-${port}`) || this.ports.has(port)) port += 2;
       if (port > 5682)

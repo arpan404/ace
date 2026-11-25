@@ -51,6 +51,9 @@ ace-git = { path = "../ace-git" }
 # ace-supervisor: spawning, containment and the inventory journal behind
 # @ace/provider-kit's process exports (E2a); the binding only translates.
 ace-supervisor = { path = "../ace-supervisor" }
+# ace-devices: device inventory discovery, triggers and coordinator (D2); the binding only translates.
+ace-devices = { path = "../ace-devices" }
+tokio-util = "0.7.20"
 # ace-transport: the loopback and remote listeners (T0 owns the skeleton); the binding only translates.
 ace-transport = { path = "../ace-transport" }
 # tokio: the I/O runtime for the supervisor's pumps, waiters and stop tasks.

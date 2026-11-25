@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-devices"
+description = "Device discovery, pushed inventory, and platform logic for ace (ADR 0225)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-json: JsString and JSON.stringify-compatible serialization in schema key order.
+ace-json = { path = "../ace-json" }
+# ace-supervisor: every child process (adb start-server, SDK commands) runs supervised.
+ace-supervisor = { path = "../ace-supervisor" }
+# notify: filesystem watches for the AVD folder and CoreSimulator device set (D2).
+notify = { version = "8" }
+# thiserror: typed error enum for device and inventory failures.
+thiserror = { version = "2" }
+# tokio: async TCP for host:track-devices-l and timers/channels for background watches.
+tokio = { version = "1.54", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+# tokio-util: CancellationToken for clean stop of track sockets and watchers.
+tokio-util = { version = "0.7.20" }

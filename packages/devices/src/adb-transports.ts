@@ -1,3 +1,12 @@
+import { deviceInventoryBackend } from "@ace/provider-kit/native-switches";
+import {
+  nativeAdbTransports,
+  nativeBlockedError,
+  nativeHardwareSerial,
+  nativePhysicalIdPart,
+  nativePhysicalName,
+  nativeTransportKind,
+} from "./native-inventory.ts";
 import { DeviceError } from "./sdk.ts";
 
 /**
@@ -30,6 +39,7 @@ const maxTransports = 128;
 
 /** `adb devices -l` lines, kept leniently: unknown states read as offline, never dropped. */
 export function adbTransports(output: string): AdbTransport[] {
+  if (deviceInventoryBackend() === "native") return nativeAdbTransports(output);
   const result: AdbTransport[] = [];
   for (const raw of output.split("\n")) {
     const line = raw.trim();
@@ -63,6 +73,7 @@ export function adbTransports(output: string): AdbTransport[] {
 
 /** What an adb serial names: an emulator here, a device on the network, else one on USB. */
 export function transportKind(serial: string): AdbTransportKind {
+  if (deviceInventoryBackend() === "native") return nativeTransportKind(serial);
   if (/^emulator-\d{4,5}$/.test(serial)) return "emulator";
   // `adb connect` names a device by its address; wireless debugging by an mDNS service name.
   if (/:\d{1,5}$/.test(serial) || /\._adb(?:-tls-connect)?\._tcp\.?$/.test(serial))
@@ -89,6 +100,7 @@ export function physicalIdPart(
   transport: Pick<AdbTransport, "serial" | "usb">,
   serialno?: string,
 ): string {
+  if (deviceInventoryBackend() === "native") return nativePhysicalIdPart(transport, serialno);
   const source =
     serialno ??
     (/^\?+$/.test(transport.serial) && transport.usb ? `usb-${transport.usb}` : transport.serial);
@@ -97,12 +109,14 @@ export function physicalIdPart(
 
 /** `ro.serialno` as getprop prints it, when it is one. */
 export function hardwareSerial(output: string): string | undefined {
+  if (deviceInventoryBackend() === "native") return nativeHardwareSerial(output);
   const value = output.split("\n")[0]?.trim();
   return value && /^[\x21-\x7e]{1,200}$/.test(value) && value !== "unknown" ? value : undefined;
 }
 
 /** What a person calls a device that isn't an emulator. */
 export function physicalName(transport: AdbTransport): string {
+  if (deviceInventoryBackend() === "native") return nativePhysicalName(transport);
   if (transport.model) return transport.model;
   return transport.kind === "network" ? transport.serial : "Android device";
 }
@@ -113,6 +127,7 @@ export function blockedError(
   name: string,
   platform: string,
 ): DeviceError {
+  if (deviceInventoryBackend() === "native") return nativeBlockedError(transport, name, platform);
   if (transport.block === "no_permissions")
     return new DeviceError(
       "permission_denied",
