@@ -340,19 +340,7 @@ fn a_packaged_bots_send_payment_or_access_change_asks_even_with_a_grant_or_alway
                 route(each)
             );
         }
-        // A bot with no package keeps what the person granted or always allowed.
-        let plain = Call {
-            always: true,
-            rule: Decision::Run,
-            ..call(tool, Some(effect), None)
-        };
-        assert_eq!(route(plain), Route::Run, "{tool}");
     }
-    let plain_grant = Call {
-        granted: Granted::Typed,
-        ..call(GIT_PUSH, Some(SendAsPerson), None)
-    };
-    assert_eq!(route(plain_grant), Route::Run);
 }
 
 #[test]

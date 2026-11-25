@@ -637,8 +637,11 @@ fn an_outside_run_cannot_remove_or_replace_an_existing_ancestor() -> std::io::Re
     let run = guarded_outside(
         &world.home,
         r#"
+        move_dir() { /usr/bin/perl -e 'rename($ARGV[0], $ARGV[1]) or exit 1' "$@"; }
+        mkdir ~/probe ~/replaceable || exit 12
+        move_dir ~/probe ~/replaceable || exit 13
         /bin/rmdir ~/.gem && exit 10
-        /usr/bin/perl -e 'rename($ARGV[0], $ARGV[1]) or exit 1' ~/replacement ~/.gem && exit 11
+        move_dir ~/replacement ~/.gem && exit 11
         exit 0
         "#,
     )?;

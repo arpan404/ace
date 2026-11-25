@@ -48,26 +48,25 @@ async fn answer(spade: &Spade, conversation: &str, call: &str, body: Value) -> R
 }
 
 /// Waits until `calls` has `n` calls.
-async fn until_ran(calls: &Arc<std::sync::Mutex<Vec<Value>>>, n: usize) {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while ran(calls) < n && Instant::now() < deadline {
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-}
-
 #[tokio::test]
 async fn a_tool_that_declares_nothing_goes_to_the_reviewer_on_every_call() -> Result {
     let mystery = FakeTool::new("mystery", Risk::Write, "done").unannotated_app("Does a thing");
     let mysteries = mystery.calls();
-    let spade = Spade::start(
+    let spade = Spade::start_with(
         vec![
             Script::reply("").call("c1", "mystery", json!({})),
+            Script::reply("").plain(APPROVE),
             Script::reply("Done."),
             Script::reply("").plain(TITLE),
             Script::reply("").call("c2", "mystery", json!({ "again": true })),
+            Script::reply("").plain(APPROVE),
             Script::reply("Done again."),
         ],
         vec![Arc::new(mystery) as Arc<dyn Tool>],
+        support::Options {
+            reviewer: None,
+            ..support::Options::default()
+        },
     )
     .await?;
     let agent = spade.new_agent("Builder", "").await?;
@@ -77,34 +76,20 @@ async fn a_tool_that_declares_nothing_goes_to_the_reviewer_on_every_call() -> Re
         .to_owned();
     let judged = |events: &[Value], call: &str| {
         events.iter().any(|e| {
-            e["type"] == "call_reviewed"
-                && e["call_id"] == call
-                && e["model"] == support::UNREACHABLE_REVIEWER
+            e["type"] == "call_reviewed" && e["call_id"] == call && e["verdict"] == "allow"
         })
     };
     spade.say(&conversation, "Do the thing").await?;
-    // The reviewer judges it (ADR 0202, amendment 5); this test's reviewer can't be reached, so
-    // the person decides, told why.
-    let events = spade.wait_for(&conversation, "approval_requested").await?;
+    let events = spade.wait_for(&conversation, "reply_finished").await?;
     assert!(judged(&events, "c1"), "{events:?}");
-    let asked = requests(&events);
-    assert!(asked[0]["ask"].is_null(), "{asked:?}");
-    assert!(
-        asked[0]["reviewer_reason"]
-            .as_str()
-            .is_some_and(|line| line.contains("reviewer")),
-        "{asked:?}"
-    );
-    answer(&spade, &conversation, "c1", json!({ "allowed": true })).await?;
-    until_ran(&mysteries, 1).await;
-    spade.wait_for(&conversation, "reply_finished").await?;
-    // An answer for one call isn't kept for the tool: the next call is judged afresh.
+    assert_eq!(ran(&mysteries), 1);
     spade.say(&conversation, "Again").await?;
     let events = spade
-        .wait_for_count(&conversation, "approval_requested", 2)
+        .wait_for_count(&conversation, "reply_finished", 2)
         .await?;
     assert!(judged(&events, "c2"), "{events:?}");
-    assert_eq!(ran(&mysteries), 1);
+    assert_eq!(ran(&mysteries), 2);
+    assert!(requests(&events).is_empty());
     Ok(())
 }
 
@@ -221,8 +206,8 @@ mod sandboxed {
     }
 
     #[tokio::test]
-    async fn a_request_to_run_outside_runs_that_call_once_after_allow() -> Result {
-        let w = world(true, vec![], |at| {
+    async fn a_reviewed_outside_request_does_not_widen_future_commands() -> Result {
+        let w = reviewed_world(true, vec![], |at| {
             let read = format!("cat '{}'", at.home.join("Documents/tax.txt").display());
             vec![
                 Script::reply("").call(
@@ -230,28 +215,19 @@ mod sandboxed {
                     "shell",
                     json!({ "command": read, "outside_sandbox": true }),
                 ),
+                Script::reply("").plain(APPROVE),
                 Script::reply("Read it."),
                 Script::reply("").plain(TITLE),
                 Script::reply("").call("c2", "shell", json!({ "command": read })),
                 Script::reply("Blocked."),
-                Script::reply("").call(
-                    "c3",
-                    "shell",
-                    json!({ "command": read, "outside_sandbox": true }),
-                ),
-                Script::reply("Read it again."),
             ]
         })
         .await?;
         w.spade.say(&w.conversation, "Read my tax file").await?;
-        let events = w
-            .spade
-            .wait_for(&w.conversation, "approval_requested")
-            .await?;
-        let asked = requests(&events);
-        assert_eq!(asked[0]["ask"], "outside_sandbox", "{asked:?}");
-        answer(&w.spade, &w.conversation, "c1", json!({ "allowed": true })).await?;
         let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+        assert!(events.iter().any(|e| e["type"] == "call_reviewed"
+            && e["call_id"] == "c1"
+            && e["verdict"] == "allow"));
         assert!(output(&events, "c1").contains("TAX-SECRET"), "{events:?}");
         // Once: the next command runs sandboxed, and is told the sandbox stopped it.
         w.spade.say(&w.conversation, "And again").await?;
@@ -262,30 +238,7 @@ mod sandboxed {
         let blocked = output(&events, "c2");
         assert!(!blocked.contains("TAX-SECRET"), "{blocked}");
         assert!(blocked.contains("outside_sandbox: true"), "{blocked}");
-        assert_eq!(requests(&events).len(), 1);
-        // Always for this bot: it runs, and the bot's commands run outside from then on.
-        w.spade.say(&w.conversation, "Ask once more").await?;
-        w.spade
-            .wait_for_count(&w.conversation, "approval_requested", 2)
-            .await?;
-        answer(
-            &w.spade,
-            &w.conversation,
-            "c3",
-            json!({ "allowed": true, "always": true }),
-        )
-        .await?;
-        let events = w
-            .spade
-            .wait_for_count(&w.conversation, "reply_finished", 3)
-            .await?;
-        assert!(output(&events, "c3").contains("TAX-SECRET"));
-        let (_, view) = w
-            .spade
-            .get(&format!("/v1/agents/{}/security", w.bot))
-            .await?;
-        assert_eq!(view["commands"], "outside", "{view}");
-        assert_eq!(view["own"]["commands"], true);
+        assert!(requests(&events).is_empty());
         Ok(())
     }
 
@@ -347,24 +300,42 @@ mod sandboxed {
     #[tokio::test]
     async fn always_for_this_bot_moves_its_commands_outside_but_never_allows_one_unreviewed()
     -> Result {
-        let w = world(true, vec![], |_| {
+        let w = reviewed_world(true, vec![], |_| {
             let run = json!({ "command": "sh task.sh", "outside_sandbox": true });
+            let refuse = r#"{"verdict":"refuse","reason":"Ask before running outside."}"#;
             vec![
+                // The first shell refusal adds a source to the review context.
+                Script::reply("").call("first", "shell", run.clone()),
+                Script::reply("").plain(refuse),
+                Script::reply("").call("retry", "shell", run.clone()),
+                Script::reply("").plain(refuse),
                 Script::reply("").call("c1", "shell", run),
+                Script::reply("").plain(refuse),
                 Script::reply("Ran it."),
                 Script::reply("").plain(TITLE),
                 // The same command again, its script rewritten meanwhile.
                 Script::reply("").call("c2", "shell", json!({ "command": "sh task.sh" })),
-                Script::reply("Asked."),
+                Script::reply("").plain(refuse),
+                Script::reply("Left it."),
             ]
         })
         .await?;
         let workspace = w.workspaces.of(&w.bot)?.path()?;
         std::fs::write(workspace.join("task.sh"), "echo first\n")?;
         w.spade.say(&w.conversation, "Run the task").await?;
-        w.spade
-            .wait_for(&w.conversation, "approval_requested")
+        let paused = w
+            .spade
+            .wait_for_any(&w.conversation, &["approval_requested", "reply_finished"])
             .await?;
+        assert!(
+            paused.iter().any(|e| e["type"] == "approval_requested"),
+            "{:?}",
+            paused
+                .iter()
+                .filter(|e| matches!(e["type"].as_str(), Some("call_reviewed" | "tool_finished")))
+                .collect::<Vec<_>>()
+        );
+
         answer(
             &w.spade,
             &w.conversation,
@@ -385,7 +356,7 @@ mod sandboxed {
         w.spade.say(&w.conversation, "Again").await?;
         let events = w
             .spade
-            .wait_for_count(&w.conversation, "approval_requested", 2)
+            .wait_for_count(&w.conversation, "reply_finished", 2)
             .await?;
         assert!(
             events
@@ -393,19 +364,27 @@ mod sandboxed {
                 .any(|e| e["type"] == "call_reviewed" && e["call_id"] == "c2"),
             "the rewritten script is reviewed: {events:?}"
         );
-        assert!(output(&events, "c2").is_empty(), "not run unreviewed");
+        assert!(
+            output(&events, "c2").contains("reviewer"),
+            "not run unreviewed"
+        );
+        assert_eq!(requests(&events).len(), 1);
         Ok(())
     }
 
     #[tokio::test]
-    async fn a_script_changed_after_allow_once_is_asked_again_on_what_it_runs_now() -> Result {
-        let w = world(true, vec![], |_| {
+    async fn a_script_changed_after_allow_once_is_refused() -> Result {
+        let w = reviewed_world(true, vec![], |_| {
+            let run = json!({ "command": "sh task.sh", "outside_sandbox": true });
+            let refuse = r#"{"verdict":"refuse","reason":"Ask the person first."}"#;
             vec![
-                Script::reply("").call(
-                    "c1",
-                    "shell",
-                    json!({ "command": "sh task.sh", "outside_sandbox": true }),
-                ),
+                // The first shell refusal adds a source to the review context.
+                Script::reply("").call("first", "shell", run.clone()),
+                Script::reply("").plain(refuse),
+                Script::reply("").call("retry", "shell", run.clone()),
+                Script::reply("").plain(refuse),
+                Script::reply("").call("c1", "shell", run),
+                Script::reply("").plain(refuse),
                 Script::reply("Stopped."),
             ]
         })
@@ -413,34 +392,27 @@ mod sandboxed {
         let workspace = w.workspaces.of(&w.bot)?.path()?;
         std::fs::write(workspace.join("task.sh"), "echo as asked\n")?;
         w.spade.say(&w.conversation, "Run the task").await?;
-        w.spade
-            .wait_for(&w.conversation, "approval_requested")
+        let paused = w
+            .spade
+            .wait_for_any(&w.conversation, &["approval_requested", "reply_finished"])
             .await?;
+        assert!(
+            paused.iter().any(|e| e["type"] == "approval_requested"),
+            "{:?}",
+            paused
+                .iter()
+                .filter(|e| matches!(e["type"].as_str(), Some("call_reviewed" | "tool_finished")))
+                .collect::<Vec<_>>()
+        );
+
         // Swapped while the card waits.
         std::fs::write(workspace.join("task.sh"), "echo swapped\n")?;
         answer(&w.spade, &w.conversation, "c1", json!({ "allowed": true })).await?;
-        // The answer given on the old script never runs the new one: the person is asked again,
-        // on the script as it is now, and only for this call.
-        let events = w
-            .spade
-            .wait_for_count(&w.conversation, "approval_requested", 2)
-            .await?;
-        assert!(output(&events, "c1").is_empty(), "{events:?}");
-        let again = events
-            .iter()
-            .rfind(|e| e["type"] == "approval_requested")
-            .cloned()
-            .unwrap_or_default();
-        assert_eq!(again["stopped"], "changed", "{again}");
-        assert_eq!(again["ask"], "outside_sandbox", "{again}");
-        answer(&w.spade, &w.conversation, "c1", json!({ "allowed": true })).await?;
         let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
-        let ran = output(&events, "c1");
-        assert!(
-            ran.contains("swapped"),
-            "what the person allowed ran: {ran}"
-        );
-        assert!(!ran.contains("as asked"), "{ran}");
+        let said = output(&events, "c1");
+        assert!(said.contains("changed"), "{said}");
+        assert!(!said.contains("swapped"), "{said}");
+        assert_eq!(requests(&events).len(), 1);
         Ok(())
     }
 
@@ -914,9 +886,18 @@ async fn an_approval_stored_without_its_launch_never_lets_a_command_run_outside(
         json!({ "command": "cargo test", "outside_sandbox": true }),
         json!({ "command": "cargo test" }),
     ] {
-        let spade = Spade::start(
-            vec![Script::reply("").call("c1", "shell", arguments.clone())],
+        let spade = Spade::start_with(
+            vec![
+                Script::reply("").call("retry", "shell", arguments.clone()),
+                Script::reply("").plain(r#"{"verdict":"refuse","reason":"Ask first."}"#),
+                Script::reply("").call("c1", "shell", arguments.clone()),
+                Script::reply("").plain(r#"{"verdict":"refuse","reason":"Ask first."}"#),
+            ],
             vec![Arc::new(FakeTool::new("shell", Risk::Write, "ok")) as Arc<dyn Tool>],
+            support::Options {
+                reviewer: None,
+                ..support::Options::default()
+            },
         )
         .await?;
         let agent = spade.new_agent("Builder", "").await?;
@@ -960,7 +941,7 @@ async fn an_approval_stored_without_its_launch_never_lets_a_command_run_outside(
 }
 
 /// A conversation holding the person's Always allow from an earlier call, `asked` as it was
-/// stored, then `tool` called with `cargo test`: how many times it ran, and whether it asked.
+/// stored, then `tool` called with `cargo test`: how many times it ran, and whether the reviewer checked it.
 async fn cargo_test_after_an_always_allow(asked: Value, tool: FakeTool) -> Result<(usize, bool)> {
     let spade = Spade::start(Vec::new(), Vec::new()).await?;
     let agent = spade.new_agent("Builder", "").await?;
@@ -1001,10 +982,17 @@ async fn cargo_test_after_an_always_allow(asked: Value, tool: FakeTool) -> Resul
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let events = spade.events(&conversation).await?;
-        let asked = requests(&events).iter().any(|e| e["call_id"] == "c1");
-        let done = events.iter().any(|e| e["type"] == "reply_finished");
-        if asked || done || Instant::now() > deadline {
-            return Ok((ran(&commands), asked));
+        let reviewed = events.iter().any(|e| {
+            e["type"] == "call_reviewed"
+                && e["call_id"] == "c1"
+                && e["model"] == support::UNREACHABLE_REVIEWER
+        });
+        if events.iter().any(|e| e["type"] == "reply_finished") {
+            assert!(requests(&events).iter().all(|e| e["call_id"] != "c1"));
+            return Ok((ran(&commands), reviewed));
+        }
+        if Instant::now() > deadline {
+            return Err("the call did not finish".into());
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
@@ -1014,7 +1002,7 @@ async fn cargo_test_after_an_always_allow(asked: Value, tool: FakeTool) -> Resul
 async fn an_always_allow_given_for_a_contained_command_is_not_reused_to_run_it_outside() -> Result {
     // The fake shell's commands run outside the sandbox. An Always allow for `cargo test` given
     // while they ran in it, and one for the whole tool from a build that recorded no launch (read
-    // as contained-only), each leave the command to be asked about afresh.
+    // as contained-only), each leave the command to be reviewed afresh.
     let given = |scope: Option<&str>, launch: Option<&str>| {
         let mut asked = json!({ "type": "approval_requested", "reply": "r0", "call_id": "old",
                                "name": "shell", "arguments": { "command": "cargo test" } });
@@ -1033,14 +1021,14 @@ async fn an_always_allow_given_for_a_contained_command_is_not_reused_to_run_it_o
         (given(Some("cargo test"), None), scoped()),
         (given(None, None), whole()),
     ] {
-        let (ran, asked_again) = cargo_test_after_an_always_allow(asked.clone(), tool).await?;
-        assert_eq!((ran, asked_again), (0, true), "{asked}");
+        let (ran, reviewed) = cargo_test_after_an_always_allow(asked.clone(), tool).await?;
+        assert_eq!((ran, reviewed), (0, true), "{asked}");
     }
     // Given for a launch outside, the scoped Always allow still holds there.
-    let (ran, asked_again) =
+    let (ran, reviewed) =
         cargo_test_after_an_always_allow(given(Some("cargo test"), Some("outside")), scoped())
             .await?;
-    assert_eq!((ran, asked_again), (1, false));
+    assert_eq!((ran, reviewed), (1, false));
     Ok(())
 }
 
