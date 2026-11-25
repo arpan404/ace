@@ -41,6 +41,9 @@ pub struct MessageOrigin {
     pub after_exit: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub via: Option<MessageVia>,
+    /// Fields a newer build wrote; the raw record keeps them.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// An outside MCP client that sent for the person.
@@ -346,4 +349,15 @@ pub mod leaf_keys {
     /// `InteractionMeasurement` content blocks the reducer never inspects.
     pub const MEASUREMENT_DEEP: &[&str] =
         &["target", "action", "verdict", "confidence", "filmstrip"];
+}
+
+#[cfg(test)]
+mod origin_extra_tests {
+    #[test]
+    fn a_message_origins_unknown_field_survives() {
+        let json = r#"{"kind":"person","futureOrigin":{"a":1}}"#;
+        let origin: super::MessageOrigin = serde_json::from_str(json).unwrap();
+        let text = serde_json::to_string(&origin).unwrap();
+        assert!(text.contains(r#""futureOrigin":{"a":1}"#), "{text}");
+    }
 }
