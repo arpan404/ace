@@ -169,8 +169,29 @@ function behaviors(leg: string): Map<string, string> {
     }
   };
   walk(decoded, 0);
-  if (found.size === 0) throw new Error(`the ${leg} leg's report has no case outcomes: ${path}`);
+  requireComplete(leg, found, path);
   return found;
+}
+
+/** The protocol sections every complete run covers, compression included (the suite offers it). */
+const SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "9", "10", "12", "13"] as const;
+/** The suite's case count without compression; the pinned image is fixed, so this floor holds. */
+const MINIMUM_CASES = 500;
+
+/**
+ * A report that is not empty is not necessarily complete: a run interrupted part-way leaves a
+ * truncated index, and comparing it would hide every case it lost. Both reports must hold every
+ * protocol section the suite runs, compression included.
+ */
+function requireComplete(leg: string, report: Map<string, string>, path: string): void {
+  if (report.size < MINIMUM_CASES)
+    throw new Error(
+      `the ${leg} leg's report holds ${String(report.size)} cases, fewer than a complete run's ${String(MINIMUM_CASES)}: ${path}`,
+    );
+  for (const section of SECTIONS) {
+    if (![...report.keys()].some((id) => id.startsWith(`${section}.`)))
+      throw new Error(`the ${leg} leg's report has no case in section ${section}: ${path}`);
+  }
 }
 
 /** Starts the Rust example on the port and echoes what arrives. */
@@ -235,6 +256,18 @@ function compare(mine: Map<string, string>, ws: Map<string, string>): boolean {
     throw new Error(
       `a case map is empty (ours ${mine.size}, ws ${ws.size}): the reports say nothing`,
     );
+  // Both reports must cover the same cases: one truncated side must not hide a failure the other
+  // saw, so a case missing from either is a failure of the run.
+  const missingFromWs = [...mine.keys()].filter((id) => !ws.has(id)).toSorted();
+  const missingFromOurs = [...ws.keys()].filter((id) => !mine.has(id)).toSorted();
+  if (missingFromOurs.length || missingFromWs.length) {
+    console.log(
+      `\ncases missing from one report: ours ${String(missingFromWs.length)}, ws ${String(missingFromOurs.length)}`,
+    );
+    for (const id of missingFromWs.slice(0, 20)) console.log(`  ws lacks ${id}`);
+    for (const id of missingFromOurs.slice(0, 20)) console.log(`  ours lacks ${id}`);
+    return false;
+  }
   const failed = [...mine].filter(([, behavior]) => behavior === "FAILED").map(([id]) => id);
   const worse = [...ws]
     .filter(([id, behavior]) => behavior === "OK" && mine.get(id) !== "OK")

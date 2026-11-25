@@ -129,6 +129,27 @@ function switches(): NodeJS.ProcessEnv {
 }
 
 /**
+ * The transport's own names, passed explicitly (T1b.5's remote leg): the daemon bench's child
+ * serves the LAN listener only when these reach it, and its run reads the evidence file back.
+ */
+function transportSwitches(): NodeJS.ProcessEnv {
+  const passed: NodeJS.ProcessEnv = {};
+  for (const name of ["ACE_TRANSPORT", "ACE_TRANSPORT_ADDON", "ACE_TRANSPORT_EVIDENCE"] as const) {
+    const value = process.env[name];
+    if (value !== undefined) passed[name] = value;
+  }
+  return passed;
+}
+
+/**
+ * The listening mode the bench asked for: a paired run sets `ACE_LISTEN=lan` so the remote
+ * listener is opened (T1b.5); anything else keeps the bench's own `local`.
+ */
+function benchListen(): string {
+  return process.env.ACE_LISTEN === "lan" ? "lan" : "local";
+}
+
+/**
  * A clean environment: nothing from the person's shell, their HOME or their ace data, except the
  * native switches and addon paths above, which a run must set to measure a backend.
  */
@@ -136,6 +157,7 @@ export function daemonEnv(settings: DaemonSettings): NodeJS.ProcessEnv {
   checkSwitches();
   const { home, aceHome, bin, tmp } = settings.root;
   return {
+    ...transportSwitches(),
     ...switches(),
     HOME: home,
     USERPROFILE: home,
@@ -151,7 +173,7 @@ export function daemonEnv(settings: DaemonSettings): NodeJS.ProcessEnv {
     ACE_HOME: aceHome,
     ACE_ACCOUNTS_DB: join(home, "accounts.sqlite"),
     ACE_PORT: "0",
-    ACE_LISTEN: "local",
+    ACE_LISTEN: benchListen(),
     ACE_LOG_LEVEL: "warn",
     ACE_MAINTENANCE: "0",
     ACE_DEV: "0",
