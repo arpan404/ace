@@ -150,12 +150,15 @@ impl AcpCore {
     fn advance_saved_selections(&mut self, effects: &mut Vec<AcpEffect>) {
         loop {
             if self.closed {
-                let Some(state) = self.open.take() else {
+                // A closed session still fails the start (`session.ts:511`-`:520`); only
+                // the open this port owns is settled here.
+                let Some(facade_id) = saved_post(&self.open).map(|post| post.facade_id) else {
                     return;
                 };
+                self.open = None;
                 self.clear_open_guards(effects);
                 self.settle_open_error(
-                    state.facade_id,
+                    facade_id,
                     AcpErrorWire::open_failed("ACP session closed"),
                     effects,
                 );
