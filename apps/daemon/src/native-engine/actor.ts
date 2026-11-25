@@ -101,8 +101,9 @@ export function actorContext(
   native.attachTranslatorHelper?.((thread: string, request: string) =>
     frames.translate(thread, request),
   );
-  // One promise per batch (decision 4): every frame that joins the open batch gets it.
-  let batchPromise: Promise<void> | undefined;
+  // One promise per batch (decision 4): every frame that joins the open batch gets it, by the
+  // batch's own call id, so a refused batch never inherits an older batch's promise.
+  const open = new Map<number, Promise<void>>();
   return {
     onFrame(frame: Frame): Promise<void> {
       const input = frame as unknown;
@@ -126,17 +127,9 @@ export function actorContext(
         }
       }
       const { promise, call } = threads.frameCall();
-      if (batchPromise === undefined) {
-        batchPromise = promise;
-        void promise.then(
-          () => {
-            batchPromise = undefined;
-          },
-          () => {
-            batchPromise = undefined;
-          },
-        );
-      }
+      open.set(call, promise);
+      const forget = () => open.delete(call);
+      void promise.then(forget, forget);
       const answer = native.actorFrame?.(
         threadId,
         generation,
@@ -149,12 +142,19 @@ export function actorContext(
         call,
       ) as string | undefined;
       if (answer === undefined) return Promise.resolve();
-      if (answer === "done") return Promise.resolve();
+      if (answer === "done") {
+        open.delete(call);
+        return Promise.resolve();
+      }
       if (answer.startsWith("rejected:")) {
+        open.delete(call);
         return Promise.reject(new Error(answer.slice("rejected:".length)));
       }
-      // Every frame that joined the open batch settles with it.
-      return batchPromise ?? promise;
+      if (answer.startsWith("batch:")) {
+        // Every frame that joined the open batch settles with it, never with another batch's.
+        return open.get(Number(answer.slice("batch:".length))) ?? promise;
+      }
+      return promise;
     },
     outputFlow: {
       paused: () => native.actorPaused?.(threadId) ?? false,
