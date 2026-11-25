@@ -476,3 +476,73 @@ fn shared_output_pauses_while_any_channel_is_out_of_room() {
     gate.release(3);
     assert!(!gate.paused());
 }
+
+/// `foreign`: a thread another channel owns is not this channel's to claim,
+/// and neither is one a channel let go.
+#[test]
+fn a_thread_is_foreign_to_every_channel_but_its_owner() {
+    let (host, initial) = Host::new(HostConfig::shared(initialize(), 60_000.0));
+    for effect in initial {
+        if let HostEffect::Write { ticket, .. } = effect {
+            host.written(ticket);
+        }
+    }
+    let events = Arc::new(crate::session::harness::Events::default());
+    let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+    let _ = host.attach(2, Recorder::new(2, Arc::clone(&events)));
+
+    let effects = host
+        .request(
+            1,
+            "thread/start",
+            Some(&ace_json::json!({"cwd": "/tmp"})),
+            5,
+            Timeout::After(1_000.0),
+        )
+        .expect("the open is queued");
+    for effect in effects {
+        if let HostEffect::Write { ticket, .. } = effect {
+            host.written(ticket);
+        }
+    }
+    let wire = events
+        .snapshot()
+        .into_iter()
+        .find_map(|event| match event {
+            Event::Frame {
+                tenant: 1,
+                dir: ace_supervisor::peer::Direction::Send,
+                data,
+            } if data.get("method").and_then(Value::as_str) == Some("thread/start") => {
+                data.get("id").and_then(Value::as_f64).map(RpcId::Number)
+            }
+            _ => None,
+        })
+        .expect("the open's wire id");
+    let reply = ace_json::json!({
+        "jsonrpc": "2.0",
+        "result": {"thread": {"id": "open"}},
+    });
+    let mut reply = match reply {
+        Value::Object(map) => map,
+        _ => ace_json::Map::new(),
+    };
+    reply.insert("id", id_to_value(&wire));
+    host.line(&ace_json::to_string(&Value::Object(reply)))
+        .into_iter()
+        .for_each(drop);
+
+    let open = ace_json::JsString::from("open");
+    assert!(!host.foreign(1, &open), "a channel's own thread");
+    assert!(host.foreign(2, &open), "another channel's thread");
+    assert!(!host.foreign(2, &ace_json::JsString::from("unknown")));
+
+    host.detach(1, Retirement::User, "user closed")
+        .into_iter()
+        .for_each(drop);
+    assert!(
+        host.foreign(1, &open),
+        "a released thread is never evidence of a new owner"
+    );
+    assert!(host.foreign(2, &open));
+}
