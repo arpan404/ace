@@ -764,6 +764,8 @@ export class AccountManagement {
         cwd: instance.implicit ? this.options.dataDir : instance.homeDir,
         // Masked credentials stay unset; an empty CURSOR_API_KEY would sign Cursor out.
         ...catalogEnvironment(env),
+        // A managed OpenCode account has no service of its own; the implicit one has the person's.
+        ...(instance.provider === "opencode" && instance.managed ? { isolatedService: true } : {}),
         loginRevision: this.options.registry.get(instance.id)?.instance.loginRevision ?? "0",
       },
       instance.implicit

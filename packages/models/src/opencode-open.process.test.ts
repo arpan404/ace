@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "vitest";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createOpenCodeAdapter } from "@ace/adapter-opencode";
@@ -84,6 +85,7 @@ test("an added OpenCode account lists its models while another account's service
   const rows = await createModelDiscovery()(
     {
       ...instance("opencode"),
+      isolatedService: true,
       executable: opencode,
       cwd: work.path,
       env: {
@@ -96,6 +98,29 @@ test("an added OpenCode account lists its models while another account's service
     new AbortController().signal,
   );
   expect(rows.map((row) => row.id)).toContain("opencode-go/muse-spark-1.3-contributor");
+});
+
+test("the implicit OpenCode account runs models against the service it already has", async () => {
+  const work = await workspace();
+  cleanup.push(work.close);
+  const argv = join(work.path, "argv.jsonl");
+  const rows = await createModelDiscovery()(
+    {
+      ...instance("opencode"),
+      executable: opencode,
+      cwd: work.path,
+      env: { HOME: work.path, ACE_TEST_ARGV_LOG: argv },
+    },
+    new AbortController().signal,
+  );
+  expect(rows.map((row) => row.id)).toContain("opencode-go/muse-spark-1.3-contributor");
+  // No `isolatedService`: the person's running service answers, so no private one is started.
+  expect(
+    (await readFile(argv, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line)),
+  ).toEqual([["models"]]);
 });
 
 test("a persisted OpenCode choice from before the fix opens after restart without catalog refresh", async () => {

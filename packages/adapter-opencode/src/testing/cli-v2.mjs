@@ -57,6 +57,8 @@ if (args[0] === "auth") {
 if (args[0] === "models") {
   // OpenCode 2 attaches to its background service unless a private one is asked for.
   const standalone = args.includes("--standalone");
+  if (process.env.ACE_TEST_ARGV_LOG)
+    appendFileSync(process.env.ACE_TEST_ARGV_LOG, `${JSON.stringify(args)}\n`);
   if (args.filter((arg) => arg !== "--standalone").length !== 1) process.exit(7);
   if (!standalone && process.env.ACE_TEST_SERVICE_PORT_TAKEN === "1") {
     console.error(
