@@ -9,6 +9,7 @@ import { relayPairing, relayRoute } from "./relay-route.ts";
 import { computerName } from "./computer-name.ts";
 import { remoteDirect } from "./remote-direct.ts";
 import { remoteRelays } from "./remote-relays.ts";
+import type { SniListener, SniListenerOptions } from "./sni-listener.ts";
 import { startRelayTransport } from "./services/transports.ts";
 import { remoteNetworksStatus } from "./remote-status.ts";
 import type { ReachFacts } from "./external-mcp/reach.ts";
@@ -65,6 +66,8 @@ export function remoteRuntime(
   http: RequestListener,
   attach: (server: Server) => void,
   disconnect: () => void,
+  /** Makes the HTTPS listener: the native one under the switch, `sniListener` otherwise. */
+  listener?: (options: SniListenerOptions) => SniListener,
 ) {
   options.relay = undefined;
   const delay = options.runtime?.delay ?? systemDeliveryRuntime.delay;
@@ -126,7 +129,14 @@ export function remoteRuntime(
     if (typeof saved?.value === "string" && saved.value) return saved.value;
     return options.hostName ?? (await computerName().catch(() => undefined));
   };
-  const direct = remoteDirect({ options, http, attach, disconnect, clearPending });
+  const direct = remoteDirect({
+    options,
+    http,
+    attach,
+    disconnect,
+    clearPending,
+    ...(listener === undefined ? {} : { listener }),
+  });
   // Links name the relay only while no direct address serves; then closing it withdraws them.
   const relays = remoteRelays({
     options,

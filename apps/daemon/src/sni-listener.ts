@@ -9,6 +9,7 @@ import type { Socket } from "node:net";
 import { createServer as createTlsServer, type TlsOptions } from "node:tls";
 import { peerOf } from "./http-peer.ts";
 import { bindListener } from "./listener.ts";
+import type { TrustedCertificate } from "./tailscale-certificate.ts";
 
 export interface SniLimits {
   /** A client must finish the TLS handshake within this many milliseconds. */
@@ -32,6 +33,11 @@ const defaultLimits: SniLimits = {
   keepAlive: 5_000,
   trustedKeepAlive: 60_000,
 };
+
+/** A listener's limits, with the defaults for whatever the caller leaves out. */
+export function sniLimits(limits: Partial<SniLimits> = {}): SniLimits {
+  return { ...defaultLimits, ...limits };
+}
 
 /** On a socket: the listener's trusted keep-alive, then whether a request on it authenticated. */
 const trustedLimit = Symbol("ace.sni.trustedKeepAlive");
@@ -72,6 +78,17 @@ export interface SniListener {
   /** Binds the listener and settles with the port it got. */
   listen(host: string, port: number): Promise<number>;
   /**
+   * Serves `certificate`'s Tailscale certificate for its ts.net name from the next handshake on,
+   * and the pinned identity for every other client; `undefined` serves the pinned identity alone.
+   * Node's listener keeps its `SNICallback` instead and leaves this out (T1b.4).
+   */
+  trust?(certificate: TrustedCertificate | undefined): void;
+  /**
+   * The listener is about to retire: its sweep runs before `close`. A native upgrade whose `101`
+   * lands after that sweep is closed as it registers instead of surviving the retire (T1b.4).
+   */
+  retire?(): void;
+  /**
    * Stops accepting connections and drops every HTTP one. Upgraded sockets belong to their
    * WebSocket server, which closes them with a close code.
    */
@@ -96,7 +113,7 @@ const peer = (socket: Socket) =>
  * never listens, so its own timeouts never run; the limits here bound every socket instead.
  */
 export function sniListener(options: SniListenerOptions): SniListener {
-  const limits = { ...defaultLimits, ...options.limits };
+  const limits = sniLimits(options.limits);
   // Every answer says how long its connection is kept once idle (`Keep-Alive: timeout=N`), so
   // clients close it first: the short limit until a request on it authenticated, then the long
   // one (keepTrusted says so on the answer that authenticated).

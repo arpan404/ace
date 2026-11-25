@@ -17,30 +17,37 @@
  * 13 KiB message goes each way intact.
  */
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomUUID, X509Certificate } from "node:crypto";
 import { once } from "node:events";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { connect as connectTcp } from "node:net";
+import { connect as connectTls } from "node:tls";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
+import { z } from "zod";
 import { SettingsService } from "@ace/settings";
 import { transportParts } from "@ace/provider-kit/native-switches";
-import { transportAddon } from "@ace/provider-kit/native-transport";
+import { nativeRemoteClass, transportAddon } from "@ace/provider-kit/native-transport";
+import { accessRequest } from "./client-access.ts";
 import { readConfig } from "./config.ts";
+import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import { externalMcp, type ExternalMcp } from "./external-mcp/server.ts";
 import type { AutomationWebhookService } from "./automation-webhooks.ts";
 import { startNativeRemote } from "./native-remote.ts";
+import { nativeSniListeners } from "./native-sni-listener.ts";
 import type { NativeUpgrade } from "./native-upgrade.ts";
 import { NativeSocket } from "./native-socket.ts";
 import { tlsFixtureHome } from "./process-test-support.ts";
 import { Resources } from "./services/resources.ts";
 import type { ServiceContext } from "./services/types.ts";
-import { fixture } from "./socket-test-support.ts";
+import { fixture, token } from "./socket-test-support.ts";
 import { Store } from "./store.ts";
-import { loadIdentity } from "./tls-identity.ts";
+import { trustedCertificate } from "./tailscale-certificate.ts";
+import { loadIdentity, publicKeyFingerprint } from "./tls-identity.ts";
 
 const tailnet = "studio.tail1234.ts.net";
 /** The daemon's own TLS identity, the static listener's and the runtime one's. */
@@ -464,3 +471,225 @@ describe.runIf(transportParts().has("remote"))("permessage-deflate on the native
     }
   }, 30_000);
 });
+
+/** The leaf's PEM out of what `certificate()` printed: the chain, then the key. */
+function leafOf(pem: string): string {
+  const match = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/.exec(pem);
+  if (!match) throw new Error("No certificate");
+  return match[0];
+}
+
+/** The key a TLS client is shown when it asks for `servername`. */
+async function presented(port: number, servername?: string): Promise<string> {
+  const socket = connectTls({
+    host: "127.0.0.1",
+    port,
+    rejectUnauthorized: false,
+    ...(servername ? { servername } : {}),
+  });
+  await once(socket, "secureConnect");
+  const raw = socket.getPeerCertificate().raw;
+  socket.destroy();
+  return publicKeyFingerprint(raw);
+}
+
+/** A run-time listener over its own loopback hop target, with the clock and timers it is handed. */
+function runtimeListener(clock: {
+  now(): number;
+  delay(callback: () => void, ms: number): () => void;
+}) {
+  return nativeSniListeners({
+    secret: transportAddon().NativeLoopback.generateSecret(),
+    upgrades: () => noopUpgrades,
+    delay: clock.delay,
+    now: clock.now,
+    tunnel: { hold: () => () => {} },
+  }).make({
+    tls: identity,
+    requests: (_request, response) => response.writeHead(204).end(),
+    delay: systemDeliveryRuntime.delay,
+    log: () => {},
+  });
+}
+
+it.runIf(transportParts().has("remote"))(
+  "a Tailscale certificate that expires while renewals fail leaves Rust at its expiry",
+  async () => {
+    const pem = certificate(tailnet);
+    const expires = new X509Certificate(leafOf(pem)).validToDate.getTime();
+    let now = Date.now();
+    let reachable = true;
+    const trusted = trustedCertificate({
+      name: tailnet,
+      fetch: async () => {
+        if (!reachable) throw new Error("tailscaled is unreachable");
+        return pem;
+      },
+      now: () => now,
+      delay: () => () => {},
+    });
+    cleanups.push(() => trusted.stop());
+    const timers: (() => void)[] = [];
+    const listener = runtimeListener({
+      now: () => now,
+      delay: (callback) => {
+        timers.push(callback);
+        return () => {};
+      },
+    });
+    cleanups.push(() => listener.close());
+    // A certificate fetched before the bind reaches Rust at the bind, not at its next renewal.
+    await trusted.ready;
+    listener.trust?.(trusted);
+    const port = await listener.listen("127.0.0.1", 0);
+    expect(await presented(port, tailnet)).toBe(publicKeyFingerprint(leafOf(pem)));
+    expect(await presented(port, "studio.local")).toBe(identity.fingerprint);
+
+    // Renewals keep failing past the certificate's expiry: Rust serves the pin there.
+    reachable = false;
+    now = expires;
+    timers.pop()?.();
+    expect(await presented(port, tailnet)).toBe(identity.fingerprint);
+  },
+  30_000,
+);
+
+/** Whether something accepts a TCP connection on 127.0.0.1:`port`. */
+async function accepting(port: number): Promise<boolean> {
+  const socket = connectTcp(port, "127.0.0.1");
+  try {
+    await Promise.race([
+      once(socket, "connect"),
+      once(socket, "error").then(([error]) => Promise.reject(error)),
+    ]);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    socket.destroy();
+  }
+}
+
+/** The daemon's own LAN listener with nothing static in front of it: the run-time one alone. */
+async function lanDaemon(remotePort?: number) {
+  const home = mkdtempSync(join(tmpdir(), "ace-native-remote-lan-"));
+  cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+  const settings = new SettingsService({ dataDir: home });
+  cleanups.push(() => settings.close());
+  await settings.set("remote.enabled", true, { kind: "global" });
+  await settings.set("remote.transport", "lan", { kind: "global" });
+  const f = await fixture({
+    settings,
+    network: network(certificate(tailnet)),
+    remoteConfig: readConfig({
+      ACE_HOME: home,
+      ACE_PORT: "0",
+      ACE_ADVERTISE_HOST: "127.0.0.1",
+      ...(remotePort === undefined ? {} : { ACE_REMOTE_PORT: String(remotePort) }),
+      ACE_LOG_LEVEL: "silent",
+    }),
+  });
+  cleanups.push(() => f.close());
+  await f.server.remoteStarted.direct;
+  /** The bound port, once the LAN listener serves. */
+  const port = () => {
+    const url = f.server.remoteUrl;
+    if (url === undefined) throw new Error("No LAN listener");
+    return Number(new URL(url).port);
+  };
+  return { f, settings, port };
+}
+
+it.runIf(transportParts().has("remote"))(
+  "a 101 that lands after a LAN retire is closed, so the retire completes",
+  async () => {
+    // Hold the addon's registration: Rust has written the `101` while the settings change below
+    // retires the listener, so this socket registers after the retire's sweep, through the same
+    // wiring remote access off uses.
+    const held: (() => void)[] = [];
+    const remote = nativeRemoteClass();
+    const start = remote.start;
+    remote.start = (options, admit, release, opened, error) =>
+      start(
+        options,
+        admit,
+        release,
+        (handle, reservation, userAgent) => held.push(() => opened(handle, reservation, userAgent)),
+        error,
+      );
+    cleanups.push(() => {
+      remote.start = start;
+    });
+
+    const { f, port } = await lanDaemon();
+    const client = new WebSocket(`wss://127.0.0.1:${port()}`, { rejectUnauthorized: false });
+    client.on("error", () => {});
+    cleanups.push(() => client.terminate());
+    const code = once(client, "close").then(([value]) => value);
+    await expect.poll(() => held.length, { timeout: 15_000 }).toBe(1);
+
+    // Turning remote access off: the runtime retires the listener, sweeps, then closes. Ingress
+    // goes once the sweep ran; the close waits for the held socket, which the registration ends.
+    const control = await f.connect();
+    await control.next();
+    control.send({
+      type: "settings.set",
+      requestId: "retire",
+      key: "remote.enabled",
+      value: false,
+      layer: { kind: "global" },
+    });
+    const bound = port();
+    await expect.poll(() => accepting(bound), { timeout: 15_000 }).toBe(false);
+    held.shift()?.();
+    expect(await control.next()).toMatchObject({ ok: true });
+    expect(await code).toBe(1001);
+    expect(f.server.remoteUrl).toBeUndefined();
+  },
+  60_000,
+);
+
+it.runIf(transportParts().has("remote"))(
+  "a run-time listener that closed never binds",
+  async () => {
+    // The listener owns its internal server and port: a bind after close would take both for good.
+    const listener = runtimeListener({
+      now: Date.now,
+      delay: (callback, milliseconds) => {
+        const timer = setTimeout(callback, milliseconds);
+        return () => clearTimeout(timer);
+      },
+    });
+    await listener.close();
+    await expect(listener.listen("127.0.0.1", 0)).rejects.toThrow(/closed before its bind/);
+    // Still closed, and nothing is left listening: a second close settles.
+    await listener.close();
+  },
+  30_000,
+);
+
+const LanStatus = z.object({
+  remoteAccess: z.object({
+    networks: z.record(z.string(), z.object({ state: z.string(), error: z.string().optional() })),
+  }),
+});
+
+it("a LAN port taken at start is reported, and once freed the listener serves on the next retry", async () => {
+  const taken = createServer();
+  await new Promise<void>((resolve) => taken.listen(0, "0.0.0.0", resolve));
+  const address = taken.address();
+  if (!address || typeof address === "string") throw new Error("No port");
+  const { f, port } = await lanDaemon(address.port);
+  const networks = async () =>
+    LanStatus.parse(await accessRequest(f.server.httpUrl, "/v1/status", { token })).remoteAccess
+      .networks;
+  expect(await networks()).toMatchObject({
+    lan: { state: "failed", error: expect.stringContaining(`port ${address.port}`) },
+  });
+  expect(f.server.remoteUrl).toBeUndefined();
+
+  // Freed, the runtime's own retry opens it, whichever listener backend serves it.
+  await new Promise<void>((resolve) => taken.close(() => resolve()));
+  await expect.poll(async () => (await networks()).lan?.state, { timeout: 20_000 }).toBe("on");
+  expect(port()).toBe(address.port);
+}, 30_000);

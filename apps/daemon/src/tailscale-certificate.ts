@@ -59,6 +59,13 @@ export interface TrustedCertificate {
   select(servername: string): SecureContext | undefined;
   /** True while a valid Tailscale certificate is served, so a ts.net link works in browsers. */
   active(): boolean;
+  /** The certificate and key served while `active()`, or undefined before a fetch and after stop. */
+  served(): TailscalePem | undefined;
+  /**
+   * Runs `listener` after a fetch installs a new certificate, and when this stops, so a listener
+   * that serves it from somewhere else (Rust, T1b.4) can follow what this serves.
+   */
+  onServed(listener: () => void): () => void;
   /** Why the last fetch failed and how to fix it; undefined once a certificate is fetched. */
   problem(): string | undefined;
   /**
@@ -83,10 +90,15 @@ export function trustedCertificate(options: TrustedCertificateOptions): TrustedC
   let context: SecureContext | undefined;
   let expires = 0;
   let current = "";
+  let serving: TailscalePem | undefined;
   let stopped = false;
   let problem: string | undefined;
   let fetching: Promise<void> | undefined;
   let cancel: (() => void) | undefined;
+  const watchers = new Set<() => void>();
+  const announce = () => {
+    for (const watcher of watchers) watcher();
+  };
   const schedule = (milliseconds: number) => {
     if (stopped) return;
     cancel = options.delay(() => {
@@ -116,6 +128,8 @@ export function trustedCertificate(options: TrustedCertificateOptions): TrustedC
         context = createSecureContext({ cert: pem.cert, key: pem.key, minVersion: "TLSv1.2" });
         expires = pem.expires;
         current = pem.cert;
+        serving = pem;
+        announce();
       }
       problem = undefined;
       schedule(refreshMs);
@@ -137,6 +151,13 @@ export function trustedCertificate(options: TrustedCertificateOptions): TrustedC
         ? context
         : undefined,
     active,
+    served: () => (stopped ? undefined : active() ? serving : undefined),
+    onServed(listener) {
+      watchers.add(listener);
+      return () => {
+        watchers.delete(listener);
+      };
+    },
     problem: () => problem,
     async retry(waitMs) {
       if (stopped || active()) return;
@@ -154,6 +175,8 @@ export function trustedCertificate(options: TrustedCertificateOptions): TrustedC
       stopped = true;
       cancel?.();
       cancel = undefined;
+      // A listener serving it elsewhere stops serving it now, as this does.
+      announce();
     },
   };
 }

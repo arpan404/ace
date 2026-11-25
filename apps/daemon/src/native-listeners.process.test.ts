@@ -120,6 +120,9 @@ describe.runIf(transportParts().has("loopback"))("the native listeners' start", 
       publicPort: () => {},
       tunnel: { hold: () => () => {}, track: () => {} },
       sockets: new Set(),
+      nativeRemote: remote.native === true,
+      admission,
+      remoteWss: new WebSocketServer({ noServer: true }),
       remote:
         remote.native === true
           ? {
@@ -129,8 +132,6 @@ describe.runIf(transportParts().has("loopback"))("the native listeners' start", 
               advertisedHost: "127.0.0.1",
               identity,
               requests: (_request, response) => response.end("ok"),
-              admission,
-              wss: new WebSocketServer({ noServer: true }),
               log: () => {},
             }
           : {
