@@ -49,20 +49,13 @@ impl std::fmt::Debug for ProxyEnv {
     }
 }
 
-/// A proxy URL without its credentials, for logs and errors. A value that will not parse is cut
-/// before its last `@`, so a password in a malformed URL never reaches a log line.
+/// A proxy URL without its credentials, for logs and errors. Anything before the last `@` is
+/// dropped, whatever the value parses to: a password in a malformed or schemeless value never
+/// reaches a log line.
 fn redact(url: &str) -> String {
-    match Url::parse(url) {
-        Ok(mut parsed) if !parsed.username().is_empty() || parsed.password().is_some() => {
-            let _ = parsed.set_username("");
-            let _ = parsed.set_password(None);
-            parsed.to_string()
-        }
-        Ok(_) => url.to_string(),
-        Err(_) => match url.rsplit_once('@') {
-            Some((_, after)) => format!("<redacted>@{after}"),
-            None => url.to_string(),
-        },
+    match url.rsplit_once('@') {
+        Some((_, after)) => format!("<redacted>@{after}"),
+        None => url.to_string(),
     }
 }
 
@@ -125,16 +118,25 @@ impl ProxyEnv {
         let Some((raw, name)) = raw else {
             return Ok(None);
         };
-        // The error names the variable only: the value may hold a password, even malformed.
-        let parsed = Url::parse(&raw)
+        // Bun's fetch reads a proxy given without a scheme as `http://` (oven-sh/bun#38015),
+        // as curl does; the value may carry credentials, so nothing raw reaches the error.
+        let target = if raw.contains("://") {
+            raw
+        } else {
+            format!("http://{raw}")
+        };
+        let parsed = Url::parse(&target)
             .map_err(|error| invalid(format!("{name} is not a valid URL: {error}")))?;
-        match parsed.scheme() {
-            // Bun ignores a value that names another kind of proxy, such as socks5://.
+        match parsed.scheme().to_ascii_lowercase().as_str() {
             "http" => Ok(Some(parsed)),
+            // Only these are proxies ace cannot use; Bun ignores them rather than failing.
+            "socks4" | "socks4a" | "socks5" | "socks5h" => Ok(None),
             "https" => Err(invalid(
                 "an https:// proxy is not supported; use an http:// CONNECT proxy".to_string(),
             )),
-            _ => Ok(None),
+            scheme => Err(invalid(format!(
+                "the proxy URL uses an unsupported scheme {scheme:?}"
+            ))),
         }
     }
 
@@ -985,6 +987,46 @@ sNKg9MDYnS847JT+lnvPBormSOSC",
         let parts = host_parts(&url).expect("parts");
         assert_eq!(parts.bare, "::1");
         assert_eq!(parts.authority, "[::1]");
+    }
+
+    #[test]
+    fn a_schemeless_proxy_is_an_http_proxy_as_bun_reads_it() {
+        let url = Url::parse("https://host.test/x").expect("url");
+        for raw in ["proxy.corp:3128", "bob:s3cret@proxy.corp:3128"] {
+            let proxy = ProxyEnv::from_pairs(&[("HTTPS_PROXY", raw)]);
+            let selected = proxy
+                .proxy_for(&url)
+                .expect("proxy")
+                .expect("through the proxy");
+            assert_eq!(selected.scheme(), "http");
+            assert_eq!(selected.host_str(), Some("proxy.corp"));
+            assert_eq!(selected.port(), Some(3128));
+        }
+        // Credentials in a schemeless value stay out of logs.
+        let proxy = ProxyEnv::from_pairs(&[("HTTPS_PROXY", "bob:s3cret@proxy.corp:3128")]);
+        let logged = format!("{proxy:?}");
+        assert!(!logged.contains("s3cret"), "{logged}");
+    }
+
+    #[test]
+    fn only_the_socks_schemes_are_skipped_and_other_unknown_schemes_refuse() {
+        let url = Url::parse("https://host.test/x").expect("url");
+        for scheme in ["socks4", "socks4a", "socks5", "socks5h"] {
+            let value = format!("{scheme}://proxy.test:1080");
+            let proxy = ProxyEnv::from_pairs(&[("HTTPS_PROXY", &value)]);
+            assert!(
+                proxy.proxy_for(&url).expect("skipped").is_none(),
+                "{scheme}"
+            );
+        }
+        for value in ["ftp://proxy.test:21", "wss://proxy.test:443"] {
+            let proxy = ProxyEnv::from_pairs(&[("HTTPS_PROXY", value)]);
+            let error = proxy.proxy_for(&url).expect_err("unsupported");
+            assert!(
+                error.to_string().contains("unsupported scheme"),
+                "{value}: {error}"
+            );
+        }
     }
 
     #[test]
