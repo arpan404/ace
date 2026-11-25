@@ -380,10 +380,13 @@ describe.runIf(native)("the engine skeleton", () => {
       for (let index = 0; index < 300; index += 1)
         seam.probe.spawn("work", [{ op: "mark", label: `m${index}` }]);
       await tick(3);
-      // Mid-flush: the depth is up for its whole duration and every actor was sealed first.
-      expect(seam.probe.flushState()).toEqual({ depth: 1, seals: 1 });
+      // Mid-flush: the depth is up for its whole duration, and the actors were sealed before
+      // and after the worker wait.
+      const mid = seam.probe.flushState();
+      expect(mid.depth).toBe(1);
+      expect(mid.seals).toBeGreaterThanOrEqual(2);
       await flushing;
-      expect(seam.probe.flushState()).toEqual({ depth: 0, seals: 1 });
+      expect(seam.probe.flushState().depth).toBe(0);
       expect(seam.probe.marks()).toHaveLength(300);
     } finally {
       await seam.close();
@@ -418,6 +421,31 @@ describe.runIf(native)("the engine skeleton", () => {
       expect(seam.probe.woken().filter((thread) => thread === "t1")).toHaveLength(2);
     } finally {
       await seam.close();
+    }
+  });
+
+  test("a cancelled flush restores its depth", async () => {
+    const seam = await engineSeam();
+    try {
+      await seam.engine.ready();
+      const flushing = seam.engine.flush();
+      void flushing.catch(() => {});
+      // Enough queued work that the flush is still looping when close gives up.
+      for (let index = 0; index < 3000; index += 1)
+        seam.probe.spawn("work", [{ op: "mark", label: `m${index}` }]);
+      await tick(2);
+      expect(seam.probe.flushState().depth).toBe(1);
+      const closing = seam.engine.close();
+      void closing.catch(() => {});
+      await tick();
+      // Close keeps its own raise; the deadline cancels the still-pending flush.
+      seam.clock.advance(seam.clock.now() + 4_500);
+      await tick(20);
+      await closing.catch(() => {});
+      // Only close's raise remains: the cancelled flush did not leave its depth behind.
+      expect(seam.probe.flushState().depth).toBe(1);
+    } finally {
+      await seam.store.close();
     }
   });
 

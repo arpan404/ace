@@ -130,6 +130,30 @@ impl Shared {
         }
     }
 
+    /// Releases one counted ordinary runnable: a pop, or a pushed runnable shutdown refused.
+    /// It saturates at zero so a producer that counted before shutdown cannot wrap the count;
+    /// the debug assert keeps a real miscount loud in tests.
+    fn release_ordinary(&self) {
+        let mut seen = self.ordinary_queued.load(SeqCst);
+        loop {
+            match self.ordinary_queued.compare_exchange_weak(
+                seen,
+                seen.saturating_sub(1),
+                SeqCst,
+                SeqCst,
+            ) {
+                Ok(_) => {
+                    debug_assert!(
+                        seen > 0,
+                        "an ordinary runnable was released without its count"
+                    );
+                    return;
+                }
+                Err(now) => seen = now,
+            }
+        }
+    }
+
     fn post(&self) {
         match self.notifier.notify() {
             Notified::Posted => {}
@@ -273,7 +297,7 @@ impl Executor {
             }
             if shared.queue(lane).push(runnable).is_err() {
                 if !is_barrier(id) {
-                    shared.ordinary_queued.fetch_sub(1, SeqCst);
+                    shared.release_ordinary();
                 }
                 return;
             }
@@ -304,7 +328,7 @@ impl Executor {
     fn take(&self, lane: Lane) -> Option<Runnable<TaskId>> {
         let runnable = self.shared.queue(lane).pop().ok()?;
         if !is_barrier(*runnable.metadata()) {
-            self.shared.ordinary_queued.fetch_sub(1, SeqCst);
+            self.shared.release_ordinary();
         }
         Some(runnable)
     }
@@ -535,11 +559,11 @@ impl Executor {
         self.shared.inbox.close();
         self.shared.control.close();
         self.shared.work.close();
+        // Dropped runnables leave through the counted pop path, so shutdown never zeroes a
+        // count a producer is still holding for its push.
         while self.shared.inbox.pop().is_ok() {}
-        while self.shared.control.pop().is_ok() {}
-        while self.shared.work.pop().is_ok() {}
-        // Dropped runnables are no longer queued; the count must not outlive them.
-        self.shared.ordinary_queued.store(0, SeqCst);
+        while self.take(Lane::Control).is_some() {}
+        while self.take(Lane::Work).is_some() {}
         self.draining.take();
     }
 

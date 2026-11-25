@@ -263,6 +263,25 @@ impl Inputs {
 
 type ReadyFuture = Shared<oneshot::Receiver<Result<(), String>>>;
 
+/// Raises `flush_depth` for one flush task's whole run (`index.ts:1411`). Dropping it restores
+/// the depth, so a flush cancelled at shutdown cannot leave it raised.
+pub struct FlushDepth(Rc<Core>);
+
+impl FlushDepth {
+    fn enter(core: &Rc<Core>) -> Result<FlushDepth, EngineError> {
+        core.with_state(|state| state.flush_depth += 1)?;
+        Ok(FlushDepth(Rc::clone(core)))
+    }
+}
+
+impl Drop for FlushDepth {
+    fn drop(&mut self) {
+        let _ = self.0.with_state(|state| {
+            state.flush_depth = state.flush_depth.saturating_sub(1);
+        });
+    }
+}
+
 /// The most wake labels the log keeps. The log exists for the probe and E5.2's tests, and an
 /// engine lives for days: it keeps a bounded tail rather than every wake it ever released.
 pub const WAKE_LOG_CAPACITY: usize = 1024;
@@ -409,22 +428,9 @@ impl Core {
         self.ports.resolve_ready(result.err());
     }
 
-    /// `flush`: raise `flushDepth` for its whole duration and seal every actor's pending batch
-    /// first (`index.ts:1411`–`:1426`, `actor.flush()`'s `sealFrames`), then the loop, for a task
-    /// that flushes from inside another one: it excludes its own task and worker run.
+    /// `flush`'s quiescence loop, for a task that flushes from inside another one: it excludes
+    /// its own task and worker run. `flushDepth` belongs to the flush task (`start_flush`).
     pub async fn flush_to_quiescence(&self, exclude: Option<TaskId>) -> Result<(), EngineError> {
-        self.with_state(|state| {
-            state.flush_depth += 1;
-            actor::seal(state);
-        })?;
-        let outcome = self.flush_loop(exclude).await;
-        let _ = self.with_state(|state| {
-            state.flush_depth = state.flush_depth.saturating_sub(1);
-        });
-        outcome
-    }
-
-    async fn flush_loop(&self, exclude: Option<TaskId>) -> Result<(), EngineError> {
         if let Some(ready) = self.ready_future() {
             match ready.await {
                 Ok(Ok(())) => {}
@@ -433,13 +439,18 @@ impl Core {
             }
         }
         loop {
+            // index.ts:1414 and :1416: seal and flush the actors before and after the worker
+            // wait, so a batch arriving during the wait is drained by this same flush.
+            actor::flush_all(self, exclude).await?;
             let waiters = self.worker_waiters(exclude);
-            if waiters.is_empty() && self.executor.idle(exclude) && self.quiescent(exclude) {
-                return Ok(());
-            }
             if !waiters.is_empty() {
                 futures::future::join_all(waiters).await;
+                actor::flush_all(self, exclude).await?;
                 continue;
+            }
+            actor::flush_all(self, exclude).await?;
+            if self.executor.idle(exclude) && self.quiescent(exclude) {
+                return Ok(());
             }
             // One macrotask: the pump runs the work queued behind us, then this task resumes.
             yield_once().await;
@@ -614,6 +625,14 @@ impl Engine {
         let inner = Rc::clone(&core);
         let task = core.executor.spawn_barrier(Lane::Work, async move {
             let core = inner;
+            // The guard restores the depth even when shutdown cancels this task mid-flush.
+            let _depth = match FlushDepth::enter(&core) {
+                Ok(depth) => depth,
+                Err(error) => {
+                    core.ports.settle_call(call, Some(error.to_string()));
+                    return;
+                }
+            };
             let result = core.flush_to_quiescence(exclude).await;
             core.ports
                 .settle_call(call, result.as_ref().err().map(ToString::to_string));

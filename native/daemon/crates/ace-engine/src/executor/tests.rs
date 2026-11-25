@@ -336,6 +336,25 @@ fn a_running_work_task_is_busy_but_a_running_barrier_is_not() {
     assert_eq!(seen.get(), Some(true), "its own poll is excluded");
 }
 
+/// The window shutdown can hit: a producer has counted its runnable, shutdown drains (and once
+/// zeroed the count), then the refused push releases the count again.
+#[test]
+fn a_producer_paused_across_shutdown_does_not_wrap_the_ordinary_count() {
+    let (exec, _posts) = executor();
+    // The producer's count, then shutdown before its push.
+    exec.shared.ordinary_queued.fetch_add(1, SeqCst);
+    exec.shut();
+    // Its queue is closed, so the push is refused and the count is released through the one
+    // saturating path.
+    exec.shared.release_ordinary();
+    assert_eq!(
+        exec.shared.ordinary_queued.load(SeqCst),
+        0,
+        "the count never wraps"
+    );
+    assert!(exec.idle(None), "an idle engine stays idle");
+}
+
 #[test]
 fn a_barrier_that_is_dropped_while_queued_leaves_the_queue() {
     let (exec, _posts) = executor();
