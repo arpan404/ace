@@ -631,21 +631,24 @@ test("a steer sent while an ACP session is still opening never cancels the turn 
     // The session is not live yet, so no turn runs and nothing can be aimed at: the steer is
     // admitted before the thread has a session to cancel.
     expect(steer(h, id, "late steer")).toBe(true);
-    // B: the turn the first prompt starts, held by the double on a read it can't finish.
+    // B: the turn the first prompt starts, held by the double on a read it can't finish. The
+    // lane reaches the steer while B runs and hands it over without cancelling; a steer that
+    // read no aim would interrupt B here instead.
     await expect
       .poll(
-        () =>
-          Object.values(h.store.snapshotThread(id).items).some(
-            (item) => item.type === "tool_call" && item.call.status === "running",
-          ),
+        () => {
+          const run = Object.values(h.store.snapshotThread(id).runs)[0];
+          if (!run) return undefined;
+          if (run.state === "interrupted") return run.state;
+          return run.state === "active" && h.engine.queue(id).pendingCount === 0
+            ? "handed over"
+            : undefined;
+        },
         { timeout: 10_000 },
       )
-      .toBe(true);
+      .toBe("handed over");
     const first = activeRootRun(h, id);
     if (!first) throw new Error("Expected the first prompt's turn to be active");
-
-    // The lane takes the steer while B runs and cancels nothing: it was never aimed at B.
-    await expect.poll(() => h.engine.queue(id).pendingCount, { timeout: 10_000 }).toBe(0);
     expect(sessions[0]?.cancels).toEqual([]);
     expect(h.store.snapshotThread(id).runs[first.id]).toMatchObject({ state: "active" });
 
