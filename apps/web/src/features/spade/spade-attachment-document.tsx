@@ -90,7 +90,7 @@ export function DocumentList(props: {
       {/* The same file twice in one message shows twice: keyed by place. */}
       {shown.map((document, place) => (
         <DocumentCard
-          key={`${place}:${document.sha256}`}
+          key={`${document.sha256}:${shown.slice(0, place).filter((each) => each.sha256 === document.sha256).length}`}
           document={document}
           side={props.side}
           inside={props.inside ?? false}

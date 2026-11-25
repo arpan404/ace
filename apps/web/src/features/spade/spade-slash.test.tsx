@@ -93,9 +93,9 @@ test("the arrows move, Esc closes, and Enter picks a skill as a chip leading the
 });
 
 test("a picked command goes with its arguments, and shows as a chip in the person's bubble", async () => {
-  let garden_: ReturnType<typeof garden> | undefined;
+  let made: ReturnType<typeof garden> | undefined;
   const { spade } = await spadeApp("/spade/garden", (api) => {
-    garden_ = garden(api);
+    made = garden(api);
   });
   const input = await field();
   await userEvent.type(input, "/review");
@@ -106,7 +106,7 @@ test("a picked command goes with its arguments, and shows as a chip in the perso
   expect(await feed.findByText("/review-pr")).toBeTruthy();
   expect(feed.getByText("#41")).toBeTruthy();
   const stored = spade
-    .eventsOf(garden_?.conversation ?? "")
+    .eventsOf(made?.conversation ?? "")
     .find((event) => event.type === "user_message");
   expect(stored).toMatchObject({
     text: "#41",

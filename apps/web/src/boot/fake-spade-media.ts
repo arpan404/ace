@@ -63,9 +63,10 @@ const METRO_MAP_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 
   </g>
 </svg>`;
 
+const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+
 /** Minimal valid single-page PDF with readable text lines so browsers preview it cleanly. */
 function makeFakePdf(title: string, lines: readonly string[]): string {
-  const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
   const streamLines = [
     "BT",
     "/F1 18 Tf",

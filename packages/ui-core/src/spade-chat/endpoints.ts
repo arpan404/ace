@@ -353,9 +353,9 @@ export function mergeSpadeModels(
       name: mine.name !== mine.id ? mine.name : model.name,
       context: mine.context ?? model.context,
       capabilities: mine.capabilities.length ? mine.capabilities : model.capabilities,
-      ...(efforts?.length ? { efforts } : {}),
       source: mine.source,
     };
+    if (efforts?.length) merged.efforts = efforts;
     // What Spade measured about it on this computer is the saved model's (ADR 0205 §3).
     if (mine.checks) merged.checks = mine.checks;
     if (mine.knownGood) merged.knownGood = mine.knownGood;

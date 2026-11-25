@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { botRow, openNew, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
 
+const rowText = async (name: string) => (await botRow(name)).textContent;
+
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
 
@@ -233,10 +235,11 @@ test("a needs-you row says what the bot waits on: its approval's act, its questi
     );
     world.askAbout(agent("many"), "p2", "shell", { command: "ls -la" }, "undeclared");
   });
-  const text = async (name: string) => (await botRow(name)).textContent;
-  await waitFor(async () => expect(await text("Mailer")).toContain("Wants to email Marta Reyes"));
-  expect(await text("Asker")).toContain("Asks: Q2 or Q3 last year?");
-  expect(await text("Many")).toContain("Wants to run gh pr comment");
+  await waitFor(async () =>
+    expect(await rowText("Mailer")).toContain("Wants to email Marta Reyes"),
+  );
+  expect(await rowText("Asker")).toContain("Asks: Q2 or Q3 last year?");
+  expect(await rowText("Many")).toContain("Wants to run gh pr comment");
 });
 
 test("a row the person hasn't seen has a blue dot at its right edge and a normal-weight name, announced as unread", async () => {

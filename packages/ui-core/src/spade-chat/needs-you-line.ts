@@ -38,12 +38,12 @@ function shorten(text: string, longest: number): string {
 
 /** `gh pr comment 12 --body x` → `gh pr comment`: the command's words up to its first argument. */
 function commandWords(command: string): string {
-  const words: string[] = [];
+  const kept: string[] = [];
   for (const word of oneLine(command).split(" ")) {
-    if (words.length === 3 || /^[-\d"'$./~]/.test(word)) break;
-    words.push(word);
+    if (kept.length === 3 || /^[-\d"'$./~]/.test(word)) break;
+    kept.push(word);
   }
-  return words.join(" ");
+  return kept.join(" ");
 }
 
 /** The email or message's recipient, when the arguments name one. */

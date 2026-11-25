@@ -40,10 +40,10 @@ function Pictures(props: {
             shown.length === 3 ? "grid-cols-3" : "grid-cols-2",
           )}
         >
-          {/* The same image twice in one message is one picture shown twice: keyed by place. */}
+          {/* The same image twice in one message is one picture shown twice: keyed by repeat. */}
           {shown.map((image, place) => (
             <ImageTile
-              key={`${place}:${image.sha256}`}
+              key={repeatKey(shown, place)}
               image={image}
               index={place}
               fill
@@ -66,6 +66,12 @@ function Pictures(props: {
 }
 
 /** What a message carries besides words, iMessage style: pictures, then documents. */
+/** A key for the item at `place` that stays unique when the same file appears twice. */
+function repeatKey(items: readonly { sha256: string }[], place: number): string {
+  const sha = items[place]?.sha256 ?? "";
+  return `${sha}:${items.slice(0, place).filter((each) => each.sha256 === sha).length}`;
+}
+
 export function Attachments(props: {
   images: readonly SpadeImageRef[];
   documents: readonly SpadeDocumentRef[];

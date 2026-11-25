@@ -47,6 +47,9 @@ const isStackableRunItem = (item: SpadeChatItem): boolean => {
   return false;
 };
 
+const hasQuote = (item: SpadeChatItem): boolean =>
+  (item.kind === "bot" || item.kind === "person") && item.quote !== undefined;
+
 /**
  * Merge same-turn segments of one reply into a single block while keeping separate turns
  * stacked tightly with messenger-style joined corners.
@@ -149,9 +152,6 @@ export function coalesceRunItems(
       stack: "single",
     });
   }
-
-  const hasQuote = (item: SpadeChatItem): boolean =>
-    (item.kind === "bot" || item.kind === "person") && item.quote !== undefined;
 
   for (let index = 0; index < out.length; index++) {
     const entry = out[index];

@@ -57,13 +57,11 @@ export const fakeMemberReaction = (
 export function fakeBotReactions(text: string, events: readonly Stored[], agent?: string): Json[] {
   return spadeChatReactions(text)
     .filter((each) => fakeReactionTarget(events, each.to))
-    .map((each) => ({
-      type: "reaction",
-      message: each.to,
-      emoji: each.emoji,
-      by: "bot",
-      ...(agent ? { agent } : {}),
-    }));
+    .map((each) => {
+      const event: Json = { type: "reaction", message: each.to, emoji: each.emoji, by: "bot" };
+      if (agent) event.agent = agent;
+      return event;
+    });
 }
 
 /** Standing reactions per message in `events`, grouped as `{ emoji, by[] }`. */

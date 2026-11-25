@@ -402,8 +402,8 @@ export function Conversation(props: {
             }}
             onOpenWork={() => go({ profile: "work" })}
             onSetUpModel={setUpModel}
-            onReact={(message, emoji) =>
-              conversation.react(message, emoji).then(() => true, failed(`Couldn't react`))
+            onReact={(target, emoji) =>
+              conversation.react(target, emoji).then(() => true, failed(`Couldn't react`))
             }
             onRetry={(reply) =>
               conversation.tryAgain(reply).then(() => true, failed(`Couldn't try again`))
