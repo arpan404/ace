@@ -61,19 +61,6 @@ function validateCommit(commit: string): string {
   return commit;
 }
 
-async function resolveHeadOrNull(
-  repository: Repository,
-  root: string,
-  signal?: AbortSignal,
-): Promise<string | null> {
-  try {
-    return await repository.commit(root, "HEAD", signal);
-  } catch (error) {
-    if (error instanceof GitError && error.code === "unborn_head") return null;
-    throw error;
-  }
-}
-
 /** A commit's parents (none for a root commit). */
 async function parentsOf(
   repository: Repository,
@@ -121,7 +108,7 @@ export async function fileLog(
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1)
     throw new GitError("invalid_argument", "maxBytes must be a positive integer");
   const { signal } = options;
-  const head = await resolveHeadOrNull(repository, root, signal);
+  const head = await repository.head(root, signal);
   if (!head) return { entries: [], head: null };
 
   const output = await repository.cli.call(

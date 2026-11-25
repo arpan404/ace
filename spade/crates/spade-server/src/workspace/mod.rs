@@ -55,7 +55,7 @@ pub const LARGE_OUTPUT_CHARS: usize = 16_000;
 pub const OUTPUTS: &str = ".spade/outputs";
 /// Where each bot's trust record is kept, inside the workspaces' root (outside every bot's own
 /// folder; bot ids never start with a dot).
-const TRUST_DIR: &str = ".trust";
+pub const TRUST_DIR: &str = ".trust";
 /// Where each bot's persisted `web_fetch` conversation-to-snapshot index is kept, outside every
 /// bot's own folder so workspace tools and shell commands cannot tamper with it.
 const WEB_INDEX_DIR: &str = ".web-fetch";

@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { UsageQuery } from "@ace/protocol";
+import { EventPayload, ThreadId, UsageQuery } from "@ace/protocol";
 import { UsageSettings } from "@ace/usage";
 import { expect, test } from "vitest";
 import { Store } from "./store.ts";
@@ -9,6 +9,21 @@ import { createDaemonUsage } from "./usage.ts";
 
 const at = Date.parse("2026-10-02T12:00Z");
 const query = UsageQuery.parse({ from: "2026-10-01", to: "2026-10-03", groupBy: ["thread"] });
+/** The replay's injected timer, held so a test fires a wake or retry itself. */
+function replayTimers() {
+  const timers: { ms: number; fire(): void }[] = [];
+  return {
+    timers,
+    delay(fire: () => void, ms: number) {
+      const timer = { ms, fire };
+      timers.push(timer);
+      return () => {
+        const index = timers.indexOf(timer);
+        if (index >= 0) timers.splice(index, 1);
+      };
+    },
+  };
+}
 
 test("analytics replay backs off, records its cause, and waits for new data once it gives up", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-usage-backoff-"));
@@ -73,7 +88,8 @@ test("analytics replay backs off, records its cause, and waits for new data once
     const waits: number[] = [];
     while (timers.length > 0) waits.push(await fireNext());
     expect(waits).toEqual([
-      1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000, 256000, 300000, 300000, 300000,
+      // The first wake is the coalescing timer; each wait after it is one backoff step.
+      100, 1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000, 256000, 300000, 300000, 300000,
     ]);
     expect(failures).toHaveLength(13);
     expect(failures.every((entry) => entry.message === "database disk image is malformed")).toBe(
@@ -92,6 +108,198 @@ test("analytics replay backs off, records its cause, and waits for new data once
     expect(failures).toHaveLength(13);
     expect(timers).toEqual([]);
     expect((await usage.series(query)).cursor).toBe(store.headSeq());
+  } finally {
+    await usage.close().catch(() => {});
+    store.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("a burst of commits waking usage causes one replay, which reads the last commit", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-usage-burst-"));
+  const store = new Store(join(home, "events.sqlite"), undefined, { now: () => at });
+  const workspace = store.createWorkspace("/repo", "Repo");
+  const threadId = ThreadId.parse("usage-burst");
+  store.appendEvents(
+    threadId,
+    [
+      EventPayload.parse({
+        type: "thread.created",
+        thread: {
+          id: threadId,
+          workspaceId: workspace,
+          provider: "opencode",
+          title: "Usage",
+          status: { state: "new" },
+          createdAt: at,
+          updatedAt: at,
+        },
+      }),
+      EventPayload.parse({
+        type: "agent.created",
+        agent: {
+          id: "root",
+          threadId,
+          parentId: null,
+          native: { provider: "opencode", id: "native" },
+          origin: "root",
+          fidelity: "full",
+          cwd: "/repo",
+          status: { state: "idle" },
+          createdAt: at,
+        },
+      }),
+    ],
+    at,
+  );
+  const sample = (inputTokens: number) =>
+    store.appendEvents(
+      threadId,
+      [
+        EventPayload.parse({
+          type: "usage.updated",
+          agentId: "root",
+          inputTokens,
+          outputTokens: 0,
+        }),
+      ],
+      at,
+    );
+  // Reads count replay laps: a lap reads the page, and its flush can commit, so a lap that a
+  // commit wakes must not become the next lap.
+  let reads = 0;
+  const { timers, delay } = replayTimers();
+  const usage = createDaemonUsage(
+    home,
+    {
+      subscribeUsage: (listener) => store.subscribeUsage(listener),
+      readUsagePage(options) {
+        reads++;
+        return store.readUsagePage(options);
+      },
+      headSeq: () => store.headSeq(),
+      flushLiveWrites: () => store.flushLiveWrites(),
+      usageReplay: store.usageReplay,
+    },
+    UsageSettings.parse({ timezone: "UTC" }),
+    () => {},
+    undefined,
+    () => at,
+    undefined,
+    undefined,
+    { delay },
+  );
+  try {
+    await usage.catchUp();
+    const readsBeforeBurst = reads;
+    for (const inputTokens of [1, 2, 3, 4]) {
+      sample(inputTokens);
+      // Each commit lands in its own turn, as a streamed answer's commits do.
+      await new Promise<void>((resolve) => setTimeout(resolve, 1));
+      expect(reads).toBe(readsBeforeBurst);
+      expect(timers).toHaveLength(1);
+    }
+    const burst = timers.shift();
+    if (!burst) throw new Error("The burst scheduled no replay");
+    burst.fire();
+    // Wait on the replay the timer itself started: one pass reads the burst's page, then the one
+    // empty page that ends it. A manual catchUp would hide a timer that started no replay.
+    await expect.poll(() => reads, { timeout: 2000 }).toBe(readsBeforeBurst + 2);
+    expect(reads).toBe(readsBeforeBurst + 2);
+    expect(timers).toEqual([]);
+    // The one replay after the burst sees every commit, including the last: incremental counts
+    // from opencode add up, so 10 requires all four events and not just the first.
+    expect((await usage.series(query)).cursor).toBe(store.headSeq());
+    expect((await usage.series(query)).rows[0]?.totals.inputTokens).toBe(10);
+    // Stopping the daemon cancels the wake it armed, so no replay starts after close.
+    sample(5);
+    expect(timers).toHaveLength(1);
+    await usage.close();
+    expect(timers).toEqual([]);
+  } finally {
+    await usage.close().catch(() => {});
+    store.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("a commit during a failing replay waits for the backoff instead of retrying early", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-usage-fail-wake-"));
+  const store = new Store(join(home, "events.sqlite"), undefined, { now: () => at });
+  const workspace = store.createWorkspace("/repo", "Repo");
+  const threadId = ThreadId.parse("usage-fail-wake");
+  store.appendEvents(
+    threadId,
+    [
+      EventPayload.parse({
+        type: "thread.created",
+        thread: {
+          id: threadId,
+          workspaceId: workspace,
+          provider: "opencode",
+          title: "Usage",
+          status: { state: "new" },
+          createdAt: at,
+          updatedAt: at,
+        },
+      }),
+    ],
+    at,
+  );
+  const sample = (inputTokens: number) =>
+    store.appendEvents(
+      threadId,
+      [
+        EventPayload.parse({
+          type: "usage.updated",
+          agentId: "root",
+          inputTokens,
+          outputTokens: 0,
+        }),
+      ],
+      at,
+    );
+  let failing = false;
+  let committedDuringLap = false;
+  const errors: unknown[] = [];
+  const { timers, delay } = replayTimers();
+  const usage = createDaemonUsage(
+    home,
+    {
+      subscribeUsage: (listener) => store.subscribeUsage(listener),
+      readUsagePage(options) {
+        if (!failing) return store.readUsagePage(options);
+        // A commit lands while this lap is in flight, waking the replay again before the lap fails.
+        if (!committedDuringLap) {
+          committedDuringLap = true;
+          sample(7);
+        }
+        throw new Error("database disk image is malformed");
+      },
+      headSeq: () => store.headSeq(),
+      flushLiveWrites: () => store.flushLiveWrites(),
+      usageReplay: store.usageReplay,
+    },
+    UsageSettings.parse({ timezone: "UTC" }),
+    (error) => errors.push(error),
+    undefined,
+    () => at,
+    undefined,
+    undefined,
+    { delay },
+  );
+  try {
+    await usage.catchUp();
+    failing = true;
+    sample(3);
+    expect(timers.map((timer) => timer.ms)).toEqual([100]);
+    timers.shift()?.fire();
+    await expect.poll(() => errors.length, { timeout: 2000 }).toBe(1);
+    // The wake the in-lap commit armed is gone: only the backoff retry is armed.
+    expect(timers.map((timer) => timer.ms)).toEqual([1000]);
+    timers.shift()?.fire();
+    await expect.poll(() => errors.length, { timeout: 2000 }).toBe(2);
+    expect(timers.map((timer) => timer.ms)).toEqual([2000]);
   } finally {
     await usage.close().catch(() => {});
     store.close();

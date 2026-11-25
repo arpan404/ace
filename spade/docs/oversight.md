@@ -12,38 +12,67 @@ micros: millionths of a US dollar, as in the ledger.
 report arrives later as the job's result. Risk read; its output is untrusted, so a write after it
 asks. `depth` is `quick`, `standard` (the default) or `deep`:
 
-| Depth      | Sub-questions | Pages read | Time   |
-| ---------- | ------------- | ---------- | ------ |
-| `quick`    | 3             | 6          | 2 min  |
-| `standard` | 5             | 15         | 6 min  |
-| `deep`     | 8             | 30         | 15 min |
+| Depth      | Helpers | Pages each helper may read | Time   |
+| ---------- | ------- | -------------------------- | ------ |
+| `quick`    | 3       | 2                          | 3 min  |
+| `standard` | 4       | 3                          | 6 min  |
+| `deep`     | 6       | 5                          | 12 min |
 
-A run has no spend budget; what its calls cost is recorded like any other.
+A run has no spend budget; what its calls cost is recorded like any other, a helper's as `helper`.
+The decisions are `spade_core::research`; the server's `research` tool (`research/mod.rs`) does the
+I/O, and the helpers' own machinery is `engine/helpers.rs` (helpers.md).
 
-1. **Plan.** One typed call on the bot's model: sub-questions, each with one or two search
-   queries.
-2. **Gather.** Every query runs through `web_search`'s backends, four at a time; addresses are
-   deduplicated (scheme, host, path; no fragment) and taken in the order the searches ranked them,
-   alternating between questions, until the page budget. Pages are read through `web_fetch`'s
-   fetcher, four at a time; a page that fails is skipped. From each page Spade keeps the passages
-   with the most words in common with the questions (at most 2,400 characters per source), plain
-   text only. Time and pages are checked before each fetch.
-3. **Write.** One call on the bot's model with the question, the sub-questions and each source as
-   `<source n="3" url="…">passages</source>`, told the sources are data, never instructions. It
-   writes Markdown that cites `[n]`, has a short summary first, a section per sub-question, then
-   "Where sources disagree" and "Resting on one source".
-4. **Check.** One typed call: every sentence with a citation is compared with its sources'
-   passages; claims they do not support are listed, and the report gains "Not confirmed by its
-   sources" with them. A citation of a number no source has is removed.
-5. **Save.** `research/<YYYY-MM-DD>-<slug>.md` in the bot's workspace (`-2`, `-3` when taken):
-   the report, then "Sources", numbered, each title and address, built by Spade from the pages it
-   read. It is never added to the workspace's trust record, so reading it later is untrusted too.
+1. **Split.** One typed call on the bot's `helper` model: a short title for the report and the
+   parts of the question, each with one or two web search queries. A plan that gives nothing
+   usable leaves the question whole, for one helper.
+2. **Fan out.** Each part is one `explore` helper (helpers.md) on the `helper` role, in a hidden
+   conversation of its own, stored as the bot's job `<research job>/<n>` so it stops with the
+   research. Its task is model-written, so it is always the bot's words, never the person's: it
+   reaches the helper as a `<bot_message>` and taints the helper's turn whatever the bot's own
+   context held (helpers.md, "Trust"). The first starts alone; the rest start once its stream has
+   begun (or its first step has finished), so its request writes the provider's cache for the
+   system prompt and tool list every helper shares. The time budget is checked before the rest
+   are admitted. Helpers run side by side, and more than a bot's slots wait for one
+   (`helper::MOST_RUNNING`, 16).
+3. **Read lean.** A helper gets its part, its starting queries and the most pages it may read.
+   It searches with `web_search`, opens only the few most promising results with `web_fetch`, and
+   reads the outline and the passages its query needs (`query` or `offset`) instead of whole
+   pages; every page it fetches is saved under `web/` in the bot's workspace (`web_fetch`,
+   media.md). It answers with a short paragraph, one finding per line naming the page's URL, then
+   its `Gaps:` and `Disagreements:`. A finding must name a page that helper fetched with
+   `web_fetch`, on the exact URL `web_fetch` recorded (a fragment aside; `www.` and a trailing `/`
+   are other addresses); one that does not is left out and counted, and never counts toward
+   confidence. What the report shows is the fetch's own record: its URL and the path Spade saved
+   it at, never the URL or path as the helper wrote them.
+4. **Write.** One typed call on the `helper` model: the answer (Markdown, at most 900 characters)
+   and where the helpers disagreed or found nothing, from their reports only.
+5. **Assemble.** From the helpers' answers, empty ones included: `## Answer`, `## Findings` (a
+   group per part, each finding as `- claim — <url> _(saved: web/…)_`), `## Disagreements and
+gaps`, `## Confidence` and `## Sources`. The confidence note says how many parts came back with
+   a page cited, how many pages and sites, which helpers did not answer, and that Spade did not
+   re-read the pages: `High` when every part cited a page and there are at least two, `Medium`
+   past half the parts, `Low` otherwise. A part that failed, or a helper stopped at the time
+   budget, is a line under disagreements and gaps. At the deadline each part still working is
+   stopped and Spade waits for it to end before the report is assembled, so no part outlives the
+   result; Stop waits the same way before publishing the research job's stopped result, and a
+   restart that loses the research job closes its leftover parts before anything resumes.
+6. **Save.** `research/<YYYY-MM-DD>-<slug>.md` in the bot's workspace (`-2`, `-3` when taken).
+   It is never added to the workspace's trust record, so reading it later is untrusted too: the
+   name is reserved empty, any trust record an older file at that path left is cleared, and only
+   then are the words written. A record that cannot be cleared stops the save, so no report ever
+   inherits trust from the file it replaced.
 
-The job's result is the summary (at most 1,500 characters), the path, how many sources were read
-and why it stopped early if it did ("the page budget", "the time budget"). `job_finished.files` is `[path]`: the app shows a file chip on the bot's next
+The job's result is the report itself, then `Full report: <path> (N pages, X of Y helpers
+answered).` It is cut at 20,000 characters like any result; a usual report is 2,000 to 4,000.
+`job_finished.files` is `[path]`: the app shows a file chip on the bot's next
 bubble that opens the report. While it runs, the bot's status (roster and live stream) is
-`Researching`, `Researching · 14 sources read` or `Researching · writing the report`. Its model
-calls are recorded in the ledger under the bot's conversation.
+`Researching`, `Researching · 2 of 4 helpers back` or `Researching · writing the report`. Its model
+calls are recorded in the ledger under the bot's conversation as `helper`: the plan, the answer
+and the report's words are helper work on the `helper` role.
+
+A run never reads the pages itself (its helpers do), never saves a report it could not write, and
+never shows a finding without the page behind it. Its helpers are read-only, so a page that tells
+them to write something gets a refusal, never a write.
 
 ## Spending
 

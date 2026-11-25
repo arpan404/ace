@@ -28,6 +28,11 @@ const Row = z.object({
  * drop what a socket may not read (an organization member's) before the feed leaves it.
  */
 export const InboxFeed = NotificationFeed.extend({
+  /**
+   * The newest cursor this device (and its linked ids) holds, or its checkpoint when none: all
+   * an organization member's feed cursor may reveal of the host's global inbox head.
+   */
+  seen: z.number().int().nonnegative(),
   retracted: z.array(z.object({ id: z.string(), threadId: ThreadId })).max(LIMIT),
 });
 export type InboxFeed = z.infer<typeof InboxFeed>;
@@ -96,7 +101,12 @@ export class NotificationInbox {
         WHERE device IN (${devices.map(() => "?").join(",")}) GROUP BY id
         ORDER BY cursor DESC LIMIT ${LIMIT}) ORDER BY cursor`,
     ).all(...devices);
-    const feed: InboxFeed = { cursor: head, entries: [], retracted: [] };
+    const feed: InboxFeed = {
+      cursor: head,
+      seen: Math.max(after, ...rows.map((row) => Row.parse(row).cursor)),
+      entries: [],
+      retracted: [],
+    };
     for (const input of rows) {
       const row = Row.parse(input);
       const notification = Notification.parse(JSON.parse(row.body));
@@ -114,7 +124,8 @@ export class NotificationInbox {
           ON CONFLICT(device) DO UPDATE SET cursor=max(cursor,excluded.cursor)`,
       ).run(cursor, device);
     }
-    return { cursor: this.committed(device), entries: [], retracted: [] };
+    const committed = this.committed(device);
+    return { cursor: committed, seen: committed, entries: [], retracted: [] };
   }
   private committed(device: DeviceId): number {
     const row = this.statement("SELECT cursor FROM inbox_checkpoint WHERE device=?").get(device);

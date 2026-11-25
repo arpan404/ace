@@ -448,8 +448,9 @@ impl Coordinator {
                 return Ok(());
             };
             let mut frames = Vec::new();
+            let now_ms = self.started.elapsed().as_millis() as u64;
             transcode
-                .push(&unit, &mut frames)
+                .push(&unit, now_ms, &mut frames)
                 .map_err(|e| format!("transcode: {e:?}"))?;
             out.extend(frames.into_iter().map(Output::Unit));
             let acceleration = transcode.acceleration();
@@ -481,8 +482,9 @@ impl Coordinator {
         #[cfg(target_os = "macos")]
         if let Some(transcode) = &mut self.transcode {
             let mut frames = Vec::new();
+            let now_ms = self.started.elapsed().as_millis() as u64;
             transcode
-                .poll(&mut frames)
+                .poll(now_ms, &mut frames)
                 .map_err(|e| format!("transcode: {e:?}"))?;
             out.extend(frames.into_iter().map(Output::Unit));
         }

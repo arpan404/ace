@@ -137,6 +137,18 @@ it("a viewer's keyframe request resets the device encoder once the stream is run
   );
 });
 
+it("without ace-media the device's own video still reaches its viewer", async () => {
+  const { frames, failures } = await fixture({ media: null });
+  await until(() => (frames.length >= 2 ? true : undefined));
+  expect(frames[0]?.header).toMatchObject({
+    codec: "h264",
+    keyframe: true,
+    width: 540,
+    height: 1200,
+  });
+  expect(failures).toEqual([]);
+});
+
 it("a request for still images keeps the H.264 view, which agents' stills never decode", async () => {
   const { capture } = await fixture();
   await expect(

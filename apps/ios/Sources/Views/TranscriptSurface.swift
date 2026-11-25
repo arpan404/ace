@@ -6,9 +6,9 @@ import UIKit
 ///
 /// - **A thread opening.** The feed stays hidden until its rows have measured and its scroll has
 ///   reached where it opens, then shows there in one frame.
-/// - **An older page landing.** The last drawn frame is frozen over the feed while the page's rows
-///   join and measure above the reader's line. Each frame, the row that was on top is put back at
-///   its drawn height on screen from its measured frame, not from estimates; then the frame thaws.
+/// - **A live window growing at the end.** The run waits while the window's rows land and
+///   measure. Nothing is drawn over the feed: the collection's layout keeps the reader's place
+///   (ADR 0222).
 ///
 /// A thin shell: it reads and moves the scroll view and ticks with the display; what holds still
 /// is the feed's to say, through the closures it passes.
@@ -26,23 +26,24 @@ import UIKit
     private weak var scroller: UIScrollView?
     private var link: CADisplayLink?
     private var runs: [Run: (settle: (CFTimeInterval) -> TranscriptSettle.Outcome, done: (TranscriptSettle.Outcome) -> Void)] = [:]
-    private var frozen: UIView?
 
     /// Scroll offset in chronological coordinates, measured from the live edge.
     var offset: Double { -Double(scroller?.contentOffset.y ?? 0) }
-    /// A frozen frame is laid over the feed (`freeze`).
-    var isFrozen: Bool { frozen != nil }
     /// The scroll view under the rows has been found: `shift` moves it.
     var attached: Bool { scroller != nil }
 
     private var locate: ((String) -> CGRect?)?
+    private var aiming: (() -> Void)?
     private var animating: (() -> Void)?
 
-    /// The transcript's collection view: `locate` gives an entry's physical frame, `animating`
-    /// is told before an animated scroll starts.
-    func attach(_ scroller: UIScrollView, locate: @escaping (String) -> CGRect?, animating: @escaping () -> Void) {
+    /// The transcript's collection view: `locate` gives an entry's physical frame, `aiming` is
+    /// told before an animated scroll picks its target (a window change held for the reader lands
+    /// then, so the target is in the window the scroll runs in), `animating` before it starts.
+    func attach(_ scroller: UIScrollView, locate: @escaping (String) -> CGRect?,
+                aiming: @escaping () -> Void, animating: @escaping () -> Void) {
         self.scroller = scroller
         self.locate = locate
+        self.aiming = aiming
         self.animating = animating
     }
 
@@ -101,34 +102,17 @@ import UIKit
         link = nil
     }
 
-    /// Freezes what is drawn now over the feed, under the header and the composer. False when
-    /// there is no drawn feed to freeze.
-    func freeze() -> Bool {
-        // A still frame over a feed under a finger or a fling would hide it moving.
-        guard frozen == nil, let scroller, !scroller.isDragging, !scroller.isDecelerating,
-              let parent = scroller.superview, scroller.window != nil,
-              let still = scroller.snapshotView(afterScreenUpdates: false) else { return false }
-        still.frame = scroller.frame
-        still.isUserInteractionEnabled = false
-        parent.insertSubview(still, aboveSubview: scroller)
-        frozen = still
-        return true
-    }
-
-    func thaw() {
-        frozen?.removeFromSuperview()
-        frozen = nil
-    }
-
     /// Scrolls so `anchor` of the entry `id` meets the same point of the viewport, both in the
     /// scroll view's physical coordinates: `.top` is the live end's side.
     func scroll(to id: String, anchor: UnitPoint, animated: Bool = false) {
         PerfCounters.bump("offset.proxy")
-        guard let scroller, let frame = locate?(id) else { return }
+        guard let scroller else { return }
         if TranscriptFlingProbe.isolated, scroller.isDragging || scroller.isDecelerating {
             PerfCounters.bump("offset.blocked")
             return
         }
+        if animated { aiming?() }
+        guard let frame = locate?(id) else { return }
         let viewport = scroller.bounds.height
         let lowest = -scroller.adjustedContentInset.top
         let highest = max(lowest, scroller.contentSize.height + scroller.adjustedContentInset.bottom - viewport)

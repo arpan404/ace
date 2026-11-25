@@ -475,9 +475,10 @@ deleted.
   | `helper`, `compact`, `title` | `low`          |
 
   Every model call for the role carries it: the bot's steps (`main`; a helper's steps think as
-  its bot's `helper`), research (`main`), the reviewer (`review`), the check of done and replay
-  comparisons (`verify`), compaction (`compact`, or the turn's own effort when it runs on the
-  turn's model, so it still reads the turn's cache) and titles and digest polish (`title`). Each
+  its bot's `helper`), research's plan, answer and report words (`helper`), the reviewer
+  (`review`), the check of done and replay comparisons (`verify`), compaction (`compact`, or the
+  turn's own effort when it runs on the turn's model, so it still reads the turn's cache) and
+  titles and digest polish (`title`). Each
   format gets its own words: OpenAI Chat `reasoning_effort` (`none` for off, `xhigh` for max);
   OpenAI Responses `reasoning.effort`; Anthropic `output_config.effort` with adaptive thinking on
   models that take it, else `thinking.budget_tokens` (1,024 / 8,000 / 24,000). A call with an

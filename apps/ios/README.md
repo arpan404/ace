@@ -792,17 +792,18 @@ field, and neither does any machine before iOS gives a token.
   at once and never shown. The daemon waits 3 s for the ack.
 
 **The entitlement switch.** APNs needs `aps-environment`, which only a paid developer team can
-sign. It is **off by default** (`ACE_PUSH: NO` in `project.yml`), so CI and free Personal Teams
-keep signing and the app runs on local notifications alone: registration fails quietly and no
-machine gets a push address. To build with push, turn it on explicitly:
+sign. **Release** sets `ACE_PUSH: YES` in `project.yml`, so TestFlight and App Store archives sign
+with `Entitlements/AcePush.entitlements` and `production` APNs. Debug, Perf and CI keep
+`ACE_PUSH: NO`, so free Personal Teams and simulator workflows still build without push.
+
+For a local device build with push before Release, turn it on explicitly:
 
 ```sh
 xcodebuild -project Ace.xcodeproj -scheme Ace -configuration Debug ACE_PUSH=YES … build
 ```
 
-or set `ACE_PUSH` to `YES` in the Ace target's build settings in Xcode (regenerating the project
-resets it). The app then signs with `Entitlements/AcePush.entitlements`: `development` in Debug
-and Perf, `production` in Release.
+The app then signs with `Entitlements/AcePush.entitlements`: `development` in Debug and Perf,
+`production` in Release. Shipped push also needs the gateway ([docs/release/push-gateway.md](../../docs/release/push-gateway.md)).
 
 **Try it on a simulator.** `xcrun simctl push` needs no token or entitlement. Open the app once so
 it makes its key (allow notifications), then encrypt an alert to the key in the simulator's app

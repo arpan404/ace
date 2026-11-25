@@ -311,6 +311,32 @@ export class AutomationStore {
       unreadable,
     );
   }
+  /**
+   * The readable job due first that is not in `skip`: jobs whose model discovery is still
+   * running, and GitHub polls already in flight.
+   */
+  nextSkipping(skip: ReadonlySet<string>, unreadable?: Unreadable): JobMetadata | undefined {
+    const rows = this.sql(
+      "SELECT id FROM automation_jobs WHERE due IS NOT NULL ORDER BY due,id LIMIT 1001",
+    ).iterate();
+    function* remaining() {
+      for (const row of rows) if (!skip.has(String(row.id))) yield row;
+    }
+    return this.firstReadable(remaining(), unreadable);
+  }
+  /** The due schedule first that is not in `skip`, while every GitHub slot is in use. */
+  nextScheduledSkipping(
+    skip: ReadonlySet<string>,
+    unreadable?: Unreadable,
+  ): JobMetadata | undefined {
+    const rows = this.sql(
+      "SELECT id FROM automation_jobs WHERE due IS NOT NULL AND json_extract(body,'$.trigger.kind')='schedule' ORDER BY due,id LIMIT 1001",
+    ).iterate();
+    function* remaining() {
+      for (const row of rows) if (!skip.has(String(row.id))) yield row;
+    }
+    return this.firstReadable(remaining(), unreadable);
+  }
   nextScheduled(unreadable?: Unreadable): JobMetadata | undefined {
     return this.firstReadable(
       this.sql(

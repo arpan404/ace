@@ -12,7 +12,7 @@
 //! - **Video's share.** A view takes at most 70 % of its link estimate, and half that while
 //!   `session.link` shows its main session's round trip inflating (smoothed above 1.5 × its
 //!   10 s minimum), so live video never starves the session that owns it (ADR 0149).
-use super::pieces::{build, captured_ms};
+use super::pieces::{SourceLabels, build, captured_ms};
 use super::{Effect, normal};
 use media_core::fanout::{Event, Piece, Viewer as Fanout, Window};
 use media_core::link_rate::{Limits, LinkRate};
@@ -98,6 +98,7 @@ struct View {
     codecs: Vec<String>,
     viewport: Viewport,
     audio: bool,
+    local: bool,
     paused: bool,
     fanout: Fanout,
     rate: LinkRate,
@@ -117,6 +118,11 @@ struct View {
 struct SourceFacts {
     /// The page's CSS size and scale (`source.page`), or the last unit's display size.
     page: Option<(f64, f64, f64)>,
+    /// The page size the daemon announced (`source.page`): the only page size the browser
+    /// header carries. A unit's display size seeds planning above but never the header.
+    daemon_page: Option<(f64, f64, f64)>,
+    /// The announcement before it: frames in flight across a resize keep their own geometry.
+    previous_daemon_page: Option<(f64, f64, f64)>,
     /// What the producer can encode (`source.codecs`), possibly nothing; none told: whatever
     /// the views decode.
     codecs: Option<Vec<String>>,
@@ -195,11 +201,20 @@ fn id(value: &str) -> Id {
 
 impl Delivery {
     /// Removes a view, remembering the last sequence it used for its connection and target.
+    /// A retired view's planned encode loses its keyframe cut: the cut was computed against
+    /// the viewer set's minimum link share, which the membership change invalidates. A cut
+    /// that is still warranted comes back on the next oversized keyframe (whose oversized
+    /// bytes still go); a local-only survivor is never stuck at a remote viewer's cut rate.
     fn retire_view(&mut self, key: &str) -> Option<View> {
         let view = self.views.remove(key)?;
         let at = (view.connection.clone(), target_key(&view.target));
         let last = self.sequences.entry(at).or_default();
         *last = (*last).max(view.sequence);
+        if let Some(encode) = view.encode {
+            if let Some(facts) = self.sources.get_mut(&view.source) {
+                facts.cut.remove(&encode);
+            }
+        }
         Some(view)
     }
 
@@ -227,13 +242,14 @@ impl Delivery {
     /// A granted view. Replacing one with the same id starts it over.
     /// Returns the views it replaced (another view of the same target on the same connection).
     pub fn open(&mut self, open: Open, now_ms: u64, out: &mut Vec<Effect>) -> Vec<String> {
-        let limits = if open.local {
-            Limits {
-                initial: 8_000_000.0,
-                ..Limits::default()
-            }
+        // A view on this machine is not paced by the estimator: loopback has no link to
+        // estimate, and a late ack means a busy renderer. Its rate is fixed at `LOCAL_RATE`, so
+        // losses never collapse it (ADR 0149's floor is for real links), and the client's hint
+        // says nothing about loopback.
+        let (rate, hint_bps) = if open.local {
+            (LinkRate::local(), None)
         } else {
-            Limits::default()
+            (LinkRate::new(Limits::default()), open.hint_bps)
         };
         let source = open.source.clone();
         // One view per connection and target: the client can't tell two apart (their pieces
@@ -279,10 +295,11 @@ impl Delivery {
                 codecs: open.codecs,
                 viewport: open.viewport,
                 audio: open.audio,
+                local: open.local,
                 paused: false,
                 fanout: Fanout::new(Window::default()),
-                rate: LinkRate::new(limits),
-                hint_bps: open.hint_bps,
+                rate,
+                hint_bps,
                 encode: None,
                 taking: None,
                 sequence: start,
@@ -356,6 +373,13 @@ impl Delivery {
     ) {
         let facts = self.sources.entry(source.to_owned()).or_default();
         let page = Some((f64::from(width), f64::from(height), scale.max(0.1)));
+        // The announcement is the page even when it changes nothing planned: a unit's display
+        // size may already have seeded the same size, and the header takes only this. The
+        // one before stays while its frames are still in flight.
+        if facts.daemon_page != page {
+            facts.previous_daemon_page = facts.daemon_page;
+            facts.daemon_page = page;
+        }
         if facts.page == page {
             return;
         }
@@ -597,12 +621,22 @@ impl Delivery {
         self.stamp = captured_ms(frame, wall_ms);
         if frame.kind == 1 {
             let facts = self.sources.entry(source.to_owned()).or_default();
+            // Producers name the codec on keyframes only: a delta keeps the one recorded for
+            // its encode, rather than erasing what the viewer decodes with.
+            let codec = if frame.codec_string.is_empty() {
+                facts
+                    .seen
+                    .get(&frame.encode)
+                    .map_or_else(String::new, |seen| seen.codec.clone())
+            } else {
+                frame.codec_string.clone()
+            };
             facts.seen.insert(
                 frame.encode,
                 Seen {
                     width: frame.width,
                     height: frame.height,
-                    codec: frame.codec_string.clone(),
+                    codec,
                     at_ms: now_ms,
                 },
             );
@@ -629,6 +663,7 @@ impl Delivery {
         for key in keys {
             self.message = self.message.wrapping_add(1);
             let message = self.message;
+            let page = self.sources.get(source).and_then(|facts| facts.daemon_page);
             let Some(view) = self.views.get_mut(&key) else {
                 continue;
             };
@@ -644,6 +679,10 @@ impl Delivery {
                     view.sequence,
                     self.stamp,
                     frame,
+                    SourceLabels {
+                        page,
+                        recorded_codec: None,
+                    },
                 ) else {
                     continue;
                 };
@@ -713,13 +752,41 @@ impl Delivery {
         out: &mut Vec<Effect>,
     ) {
         {
+            let page = self.sources.get(source).and_then(|facts| {
+                header_page(
+                    facts.daemon_page,
+                    facts.previous_daemon_page,
+                    frame.display_width,
+                    frame.display_height,
+                )
+            });
+            // The codec recorded for the unit's encode: a producer's delta may name none.
+            let recorded_codec = self
+                .sources
+                .get(source)
+                .and_then(|facts| facts.seen.get(&frame.encode))
+                .map(|seen| seen.codec.as_str());
             let Some(view) = self.views.get_mut(key) else {
                 return;
             };
+            // A view that stopped acking is parked: its source is read for the others only.
+            if view.fanout.parked() {
+                return;
+            }
             view.sequence += 1;
             let sequence = view.sequence;
-            let Some(built) = build(&view.target, source, message, sequence, self.stamp, frame)
-            else {
+            let Some(built) = build(
+                &view.target,
+                source,
+                message,
+                sequence,
+                self.stamp,
+                frame,
+                SourceLabels {
+                    page,
+                    recorded_codec,
+                },
+            ) else {
                 return;
             };
             let mut events = Vec::new();
@@ -762,22 +829,33 @@ impl Delivery {
     /// second of their share of the link): one far over it cuts the rate its producer is asked
     /// for, so its next keyframes are smaller; each one within it lets the rate back up. The
     /// oversized one still goes (an empty window takes any unit). True when the cut changed.
+    /// Loopback viewers never cut: the cap protects slow links, and a local estimate (8-16
+    /// Mbit/s over loopback) would otherwise hold a still picture at the cut floor with no
+    /// keyframes to recover it.
     fn keyframe_sized(&mut self, source: &str, frame: &MediaFrame) -> bool {
         // The views taking this unit's encode, with the plan's id for it (the producer's id
         // differs while it runs its own encodes).
-        let taking: Vec<(f64, u32)> = self
+        let taking: Vec<(f64, u32, bool)> = self
             .views
             .values()
             .filter(|v| v.source == source && v.taking == Some(frame.encode))
-            .filter_map(|v| Some((carried(v) * self.share(&v.session), v.encode?)))
+            .filter_map(|v| Some((carried(v) * self.share(&v.session), v.encode?, v.local)))
             .collect();
-        let Some(rate) = taking.iter().map(|(rate, _)| *rate).reduce(f64::min) else {
+        if taking.iter().all(|(_, _, local)| *local) {
+            return false;
+        }
+        let Some(rate) = taking
+            .iter()
+            .filter(|(_, _, local)| !local)
+            .map(|(rate, _, _)| *rate)
+            .reduce(f64::min)
+        else {
             return false;
         };
         let cap = (rate.max(RATE_FLOOR) / 8.0 * KEYFRAME_SECONDS).max(1.0);
         let size = frame.payload.len() as f64;
         // One keyframe moves each planned encode's cut once, however many views share it.
-        let mut planned: Vec<u32> = taking.iter().map(|(_, id)| *id).collect();
+        let mut planned: Vec<u32> = taking.iter().map(|(_, id, _)| *id).collect();
         planned.sort_unstable();
         planned.dedup();
         let facts = self.sources.entry(source.to_owned()).or_default();
@@ -1202,6 +1280,28 @@ pub(crate) fn next_media_id(
         id += 1;
     }
     (id < range.end).then(|| (id, id + 1))
+}
+
+/// The announced page a browser frame's header carries: the announcement whose shape is
+/// closest to the frame's display shape, so frames in flight across a resize keep the
+/// geometry they were captured in. The newest wins ties, and frames with no display size.
+fn header_page(
+    current: Option<(f64, f64, f64)>,
+    previous: Option<(f64, f64, f64)>,
+    display_width: u16,
+    display_height: u16,
+) -> Option<(f64, f64, f64)> {
+    let (width, height) = (f64::from(display_width), f64::from(display_height));
+    let (Some(newest), Some(older), true) = (current, previous, width > 0.0 && height > 0.0) else {
+        return current.or(previous);
+    };
+    // |w1*h2 - w2*h1| nearer zero is nearer the display's shape; ties keep the newest.
+    let off = |page: (f64, f64, f64)| (page.0 * height - page.1 * width).abs();
+    if off(older) < off(newest) {
+        Some(older)
+    } else {
+        Some(newest)
+    }
 }
 
 /// The encode a view takes: its planned one while the producer sends it, else the produced encode

@@ -89,3 +89,32 @@ export async function sendHumanInput(
       break;
   }
 }
+
+/**
+ * The person's input in fitted pixels back to CSS pixels: the client maps its input into
+ * the fitted page the video shows, while Chrome takes CSS pixels. Positions scale; scroll
+ * deltas, keys and text do not.
+ */
+export function scaleHumanInput(
+  input: Exclude<BrowserInput, { kind: "pick" }>,
+  factor: number,
+): Exclude<BrowserInput, { kind: "pick" }> {
+  if (factor === 1) return input;
+  switch (input.kind) {
+    case "mouse":
+      return { ...input, x: input.x * factor, y: input.y * factor };
+    case "scroll":
+      return { ...input, x: input.x * factor, y: input.y * factor };
+    case "touch":
+      return {
+        ...input,
+        points: input.points.map((point) => ({
+          ...point,
+          x: point.x * factor,
+          y: point.y * factor,
+        })),
+      };
+    default:
+      return input;
+  }
+}
