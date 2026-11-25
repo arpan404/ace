@@ -468,9 +468,15 @@ fn an_oversized_server_request_is_refused_before_the_host_dispatches_it() {
         session.admit(Direction::Recv, &notification),
         super::super::host::Admission::Taken
     );
-    // An outgoing frame is the writer's; admission never refuses it.
+    // An outgoing frame over the bound is refused before the writer submits
+    // it, so its call fails as the TypeScript's throw does.
     assert_eq!(
         session.admit(Direction::Send, &request),
+        super::super::host::Admission::Failed("Provider payload exceeds byte limit".to_owned())
+    );
+    let small = json("{\"id\":8,\"method\":\"turn/start\",\"params\":{}}");
+    assert_eq!(
+        session.admit(Direction::Send, &small),
         super::super::host::Admission::Taken
     );
 }
