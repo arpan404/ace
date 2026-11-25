@@ -65,7 +65,6 @@ function nativeSniListener(deps: NativeSniListenerDeps, options: SniListenerOpti
   let binding: Promise<number> | undefined;
   let closing: Promise<void> | undefined;
   let closed = false;
-  let retiring = false;
   let certificate: TrustedCertificate | undefined;
   let unsubscribe: (() => void) | undefined;
   let cancelTimer: (() => void) | undefined;
@@ -147,8 +146,8 @@ function nativeSniListener(deps: NativeSniListenerDeps, options: SniListenerOpti
       return attempt;
     },
     retire: () => {
-      if (retiring) return;
-      retiring = true;
+      // `remoteDirect` marks the listener before it sweeps, so a `101` landing between the sweep
+      // and `close` is closed as it registers (T1b.4).
       upgrades.retire?.();
     },
     trust: (next) => {
@@ -161,8 +160,6 @@ function nativeSniListener(deps: NativeSniListenerDeps, options: SniListenerOpti
     },
     close() {
       closed = true;
-      retiring = true;
-      upgrades.retire?.();
       stopWatching();
       closing ??= (async () => {
         // A bind still in flight lands first, so what it opened is closed here and not later.

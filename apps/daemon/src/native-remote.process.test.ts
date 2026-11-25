@@ -24,13 +24,14 @@ import { createServer } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { connect as connectTcp } from "node:net";
 import { connect as connectTls } from "node:tls";
 import { afterEach, describe, expect, it } from "vitest";
-import { WebSocket, WebSocketServer } from "ws";
+import { WebSocket } from "ws";
 import { z } from "zod";
 import { SettingsService } from "@ace/settings";
 import { transportParts } from "@ace/provider-kit/native-switches";
-import { transportAddon } from "@ace/provider-kit/native-transport";
+import { nativeRemoteClass, transportAddon } from "@ace/provider-kit/native-transport";
 import { accessRequest } from "./client-access.ts";
 import { readConfig } from "./config.ts";
 import { systemDeliveryRuntime } from "./delivery-runtime.ts";
@@ -38,12 +39,10 @@ import { externalMcp, type ExternalMcp } from "./external-mcp/server.ts";
 import type { AutomationWebhookService } from "./automation-webhooks.ts";
 import { startNativeRemote } from "./native-remote.ts";
 import { nativeSniListeners } from "./native-sni-listener.ts";
-import { nativeUpgrade, type NativeUpgrade } from "./native-upgrade.ts";
+import type { NativeUpgrade } from "./native-upgrade.ts";
 import { NativeSocket } from "./native-socket.ts";
 import { tlsFixtureHome } from "./process-test-support.ts";
 import { Resources } from "./services/resources.ts";
-import type { MainSocket } from "./main-socket.ts";
-import { PreAuthAdmission } from "./socket-admission.ts";
 import type { ServiceContext } from "./services/types.ts";
 import { fixture, token } from "./socket-test-support.ts";
 import { Store } from "./store.ts";
@@ -555,63 +554,99 @@ it.runIf(transportParts().has("remote"))(
   30_000,
 );
 
+/** Whether something accepts a TCP connection on 127.0.0.1:`port`. */
+async function accepting(port: number): Promise<boolean> {
+  const socket = connectTcp(port, "127.0.0.1");
+  try {
+    await Promise.race([
+      once(socket, "connect"),
+      once(socket, "error").then(([error]) => Promise.reject(error)),
+    ]);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    socket.destroy();
+  }
+}
+
+/** The daemon's own LAN listener with nothing static in front of it: the run-time one alone. */
+async function lanDaemon(remotePort?: number) {
+  const home = mkdtempSync(join(tmpdir(), "ace-native-remote-lan-"));
+  cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+  const settings = new SettingsService({ dataDir: home });
+  cleanups.push(() => settings.close());
+  await settings.set("remote.enabled", true, { kind: "global" });
+  await settings.set("remote.transport", "lan", { kind: "global" });
+  const f = await fixture({
+    settings,
+    network: network(certificate(tailnet)),
+    remoteConfig: readConfig({
+      ACE_HOME: home,
+      ACE_PORT: "0",
+      ACE_ADVERTISE_HOST: "127.0.0.1",
+      ...(remotePort === undefined ? {} : { ACE_REMOTE_PORT: String(remotePort) }),
+      ACE_LOG_LEVEL: "silent",
+    }),
+  });
+  cleanups.push(() => f.close());
+  await f.server.remoteStarted.direct;
+  /** The bound port, once the LAN listener serves. */
+  const port = () => {
+    const url = f.server.remoteUrl;
+    if (url === undefined) throw new Error("No LAN listener");
+    return Number(new URL(url).port);
+  };
+  return { f, settings, port };
+}
+
 it.runIf(transportParts().has("remote"))(
-  "an upgrade whose 101 lands after the retire sweep is closed with 1001",
+  "a 101 that lands after a LAN retire is closed, so the retire completes",
   async () => {
-    // A runtime-only listener: no static one, so nothing outlives the retire. Its upgrades are
-    // the daemon's own, registered through the one socket set and the shutdown's close.
-    const sockets = new Set<MainSocket>();
+    // Hold the addon's registration: Rust has written the `101` while the settings change below
+    // retires the listener, so this socket registers after the retire's sweep, through the same
+    // wiring remote access off uses.
     const held: (() => void)[] = [];
-    const upgrade = nativeUpgrade({
-      kind: "remote",
-      preAuth: new PreAuthAdmission({}, systemDeliveryRuntime.delay),
-      allowedOrigins: new Set(),
-      servesRenderer: false,
-      publicPort: () => 0,
-      draining: () => false,
-      full: () => false,
-      wss: new WebSocketServer({ noServer: true }),
-      sockets,
-      closeSocket: (socket) => socket.close(1001, "Daemon shutdown"),
+    const remote = nativeRemoteClass();
+    const start = remote.start;
+    remote.start = (options, admit, release, opened, error) =>
+      start(
+        options,
+        admit,
+        release,
+        (handle, reservation, userAgent) => held.push(() => opened(handle, reservation, userAgent)),
+        error,
+      );
+    cleanups.push(() => {
+      remote.start = start;
     });
-    const listener = nativeSniListeners({
-      secret: transportAddon().NativeLoopback.generateSecret(),
-      upgrades: () => ({
-        admit: upgrade.admit,
-        release: upgrade.release,
-        // The `101` is written, but its registration waits: the sweep runs in between.
-        opened: (handle, reservation, userAgent) =>
-          held.push(() => upgrade.opened(handle, reservation, userAgent)),
-        retire: () => upgrade.retire?.(),
-      }),
-      delay: systemDeliveryRuntime.delay,
-      now: Date.now,
-      tunnel: { hold: () => () => {} },
-    }).make({
-      tls: identity,
-      requests: (_request, response) => response.writeHead(204).end(),
-      delay: systemDeliveryRuntime.delay,
-      log: () => {},
-    });
-    const port = await listener.listen("127.0.0.1", 0);
-    cleanups.push(() => listener.close());
-    const client = new WebSocket(`wss://127.0.0.1:${port}`, { rejectUnauthorized: false });
+
+    const { f, port } = await lanDaemon();
+    const client = new WebSocket(`wss://127.0.0.1:${port()}`, { rejectUnauthorized: false });
     client.on("error", () => {});
     cleanups.push(() => client.terminate());
     const code = once(client, "close").then(([value]) => value);
-    await expect.poll(() => held.length, { timeout: 10_000 }).toBe(1);
+    await expect.poll(() => held.length, { timeout: 15_000 }).toBe(1);
 
-    // What remote access turned off does, in order: mark, sweep, close. The listener's own close
-    // waits for the socket still in `Writing`, which the late registration then ends.
-    listener.retire?.();
-    for (const socket of sockets) socket.terminate();
-    const closing = listener.close();
+    // Turning remote access off: the runtime retires the listener, sweeps, then closes. Ingress
+    // goes once the sweep ran; the close waits for the held socket, which the registration ends.
+    const control = await f.connect();
+    await control.next();
+    control.send({
+      type: "settings.set",
+      requestId: "retire",
+      key: "remote.enabled",
+      value: false,
+      layer: { kind: "global" },
+    });
+    const bound = port();
+    await expect.poll(() => accepting(bound), { timeout: 15_000 }).toBe(false);
     held.shift()?.();
-    await closing;
+    expect(await control.next()).toMatchObject({ ok: true });
     expect(await code).toBe(1001);
-    expect(sockets.size).toBe(0);
+    expect(f.server.remoteUrl).toBeUndefined();
   },
-  30_000,
+  60_000,
 );
 
 it.runIf(transportParts().has("remote"))(
@@ -644,28 +679,10 @@ it("a LAN port taken at start is reported, and once freed the listener serves on
   await new Promise<void>((resolve) => taken.listen(0, "0.0.0.0", resolve));
   const address = taken.address();
   if (!address || typeof address === "string") throw new Error("No port");
-  const home = mkdtempSync(join(tmpdir(), "ace-native-remote-lan-"));
-  cleanups.push(() => rmSync(home, { recursive: true, force: true }));
-  const settings = new SettingsService({ dataDir: home });
-  cleanups.push(() => settings.close());
-  await settings.set("remote.enabled", true, { kind: "global" });
-  await settings.set("remote.transport", "lan", { kind: "global" });
-  const f = await fixture({
-    settings,
-    network: network(certificate(tailnet)),
-    remoteConfig: readConfig({
-      ACE_HOME: home,
-      ACE_PORT: "0",
-      ACE_ADVERTISE_HOST: "127.0.0.1",
-      ACE_REMOTE_PORT: String(address.port),
-      ACE_LOG_LEVEL: "silent",
-    }),
-  });
-  cleanups.push(() => f.close());
+  const { f, port } = await lanDaemon(address.port);
   const networks = async () =>
     LanStatus.parse(await accessRequest(f.server.httpUrl, "/v1/status", { token })).remoteAccess
       .networks;
-  await f.server.remoteStarted.direct;
   expect(await networks()).toMatchObject({
     lan: { state: "failed", error: expect.stringContaining(`port ${address.port}`) },
   });
@@ -674,5 +691,5 @@ it("a LAN port taken at start is reported, and once freed the listener serves on
   // Freed, the runtime's own retry opens it, whichever listener backend serves it.
   await new Promise<void>((resolve) => taken.close(() => resolve()));
   await expect.poll(async () => (await networks()).lan?.state, { timeout: 20_000 }).toBe("on");
-  expect(f.server.remoteUrl).toContain(`:${address.port}`);
+  expect(port()).toBe(address.port);
 }, 30_000);

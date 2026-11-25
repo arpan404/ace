@@ -169,10 +169,12 @@ expired`, `1009` for an oversized message, `1011 service_unavailable` when finis
 - A session's cleanup runs before the wire goodbye; a revoked device's sessions get `revoked()`
   while the socket is still open, then close (`services/socket.ts`).
 - **Recorded difference (T1b.4, an upgrade that finishes while its listener retires)**: turning
-  remote access off, or moving the listener to another address, retires the listener with deadline 0. An upgrade whose `101` was still being written when the retire began is terminated as soon as
-  it is registered; with `node:tls` such a socket could survive the retire
-  (`sni-listener.ts:172`–`:180` dropped it from `owned`), which was never intended. A daemon
-  shutdown gives it `1001 Daemon shutdown` instead, as every other socket gets.
+  remote access off, or moving the listener to another address, retires the listener with
+  deadline 0. A socket the sweep already reached is dropped as it always was (terminated, not
+  closed with a code). One whose `101` was still being written when the retire began registers
+  afterwards and is then closed with `1001 Daemon shutdown`, the same close a daemon shutdown gives
+  it, so Rust's own close is never held open by it; with `node:tls` such a socket could survive the retire
+  (`sni-listener.ts:172`–`:180` dropped it from `owned`), which was never intended.
 - Closes worth explaining are logged without identifying a person or device: heartbeat loss,
   limits, auth, daemon-initiated closes; unauthenticated ordinary closes (`1000`, `1001`, `1005`)
   are not (`socket-liveness.ts:24`–`:71`).
