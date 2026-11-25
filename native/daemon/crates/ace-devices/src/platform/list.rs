@@ -65,6 +65,7 @@ pub fn list(sources: Vec<Source>) -> Result<ListAnswer, Error> {
                 devices.extend(source.devices.iter().cloned());
             }
             Some(failure) if failure.code == super::Code::SdkMissing => {
+                first_failure.get_or_insert_with(|| failure.clone());
                 missing.push(Missing {
                     code: failure.code.as_str().to_string(),
                     message: failure.message.clone(),
@@ -72,11 +73,7 @@ pub fn list(sources: Vec<Source>) -> Result<ListAnswer, Error> {
                     platform: source.platform.clone(),
                 });
             }
-            Some(failure) => {
-                if first_failure.is_none() {
-                    first_failure = Some(failure.clone());
-                }
-            }
+            Some(failure) => return Err(Error::Failed(failure.clone())),
         }
     }
     if answered == 0
@@ -212,7 +209,7 @@ mod tests {
             },
         ])
         .expect_err("permission");
-        assert!(matches!(error, Error::Refused(refusal) if refusal.code == Code::PermissionDenied));
+        assert!(matches!(error, Error::Failed(failure) if failure.code == Code::PermissionDenied));
     }
 
     #[test]
