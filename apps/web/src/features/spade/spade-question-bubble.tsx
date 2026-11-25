@@ -1,4 +1,3 @@
-import { useTaskTitle } from "./lanes/lanes-context.ts";
 import {
   spadeAnswerWords,
   spadeCardAnswers,
@@ -13,7 +12,6 @@ import {
 } from "@ace/ui-core/spade-chat";
 import { Fragment, useRef, useState } from "react";
 import { QuestionPager } from "@/components/question-pager.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useCardFocus } from "./use-card-focus.ts";
 import type { QuestionReply } from "./use-spade-conversation.ts";
@@ -23,12 +21,8 @@ import { SpadeConnectBubble } from "./spade-connect-bubble.tsx";
 import { SpadeSuggestBubble } from "./spade-suggest-bubble.tsx";
 import {
   botBubble,
+  CardActions,
   CardBody,
-  cardKeyHint,
-  CardFooter,
-  CardPrimary,
-  CardSecondary,
-  CardWord,
   LaterClock,
   NeedsYouLine,
   personBubble,
@@ -55,9 +49,7 @@ export function SpadeQuestionBubble(props: {
   /** Resolves with undefined once sent, else what to say under the card ("" for nothing). */
   onReply(callId: string, reply: QuestionReply): Promise<string | undefined>;
 }) {
-  // A task's card, asked in main too, leads with the task (ADR 0217 §4).
-  const task = useTaskTitle(props.item.lane);
-  const botName = task ?? props.botName;
+  const { botName } = props;
   const ask = spadeConnectOf(props.item.questions);
   if (ask)
     return (
@@ -73,14 +65,12 @@ export function SpadeQuestionBubble(props: {
         onReply={props.onReply}
       />
     );
-  return <QuestionCard {...props} botName={botName} task={task} />;
+  return <QuestionCard {...props} botName={botName} />;
 }
 
 function QuestionCard(props: {
   item: Card;
   botName: string;
-  /** The task that asks, shown before its question. */
-  task?: string | undefined;
   onReply(callId: string, reply: QuestionReply): Promise<string | undefined>;
 }) {
   const { item } = props;
@@ -120,7 +110,6 @@ function QuestionCard(props: {
       <OpenCard
         item={item}
         label={label}
-        task={props.task}
         // Opened again from its line, Answer later folds it back; it is for later already.
         onFold={item.standing === "deferred" ? () => setOpened(false) : undefined}
         onReply={props.onReply}
@@ -132,8 +121,6 @@ function QuestionCard(props: {
 function OpenCard(props: {
   item: Card;
   label: string;
-  /** The task that asks (ADR 0217 §4), named before the question. */
-  task?: string | undefined;
   /** Fold it back to its line (a card already for later). */
   onFold: (() => void) | undefined;
   onReply(callId: string, reply: QuestionReply): Promise<string | undefined>;
@@ -152,6 +139,7 @@ function OpenCard(props: {
   const last = at === count - 1;
   // A lone yes-or-no question is answered by Yes or No themselves.
   const loneConfirm = count === 1 && current?.kind === "confirm";
+  const loneChoice = count === 1 && current?.kind === "choice";
   const draftOf = (index: number) => {
     const question = questions[index];
     return drafts[index] ?? (question ? spadeEmptyDraft(question) : undefined);
@@ -204,6 +192,8 @@ function OpenCard(props: {
     setDrafts(all);
     setProblem(undefined);
     if (loneConfirm && next.kind === "confirm") send(all);
+    // A lone pick-one question is answered by the row itself.
+    if (loneChoice && next.kind === "picks" && next.picked.length === 1) send(all);
   };
   const card = useRef<HTMLDivElement>(null);
   useCardFocus(card, at);
@@ -240,8 +230,9 @@ function OpenCard(props: {
           )
         }
       >
-        {props.task && <p className="text-muted-foreground">{props.task} asks</p>}
-        <SpadeBubbleText text={current.prompt} />
+        <div className="font-semibold">
+          <SpadeBubbleText text={current.prompt} />
+        </div>
       </NeedsYouLine>
       {(!loneConfirm || problem) && (
         <CardBody>
@@ -270,55 +261,49 @@ function OpenCard(props: {
           )}
         </CardBody>
       )}
-      <CardFooter
-        start={
-          <>
-            {(item.standing === "waiting" || props.onFold) && (
-              <CardWord
-                disabled={sending !== undefined}
-                onClick={() => (props.onFold ? props.onFold() : reply("defer", { defer: true }))}
-              >
-                Answer later
-              </CardWord>
-            )}
-            <CardWord
-              disabled={sending !== undefined}
-              onClick={() => reply("dismiss", { dismiss: true })}
-            >
-              Never mind
-            </CardWord>
-          </>
+      <CardActions
+        secondary={[
+          (item.standing === "waiting" || props.onFold) && {
+            key: "later",
+            label: "Answer later",
+            disabled: sending !== undefined,
+            onClick: () => (props.onFold ? props.onFold() : reply("defer", { defer: true })),
+          },
+          {
+            key: "dismiss",
+            label: "Never mind",
+            disabled: sending !== undefined,
+            onClick: () => reply("dismiss", { dismiss: true }),
+          },
+        ]}
+        companion={
+          loneConfirm
+            ? {
+                label: "No",
+                disabled: sending !== undefined,
+                onClick: () => draft({ kind: "confirm", value: false }),
+              }
+            : undefined
         }
-        end={
-          loneConfirm ? (
-            <>
-              <CardSecondary
-                disabled={sending !== undefined}
-                onClick={() => draft({ kind: "confirm", value: false })}
-              >
-                No
-              </CardSecondary>
-              <CardPrimary
-                disabled={sending !== undefined}
-                onClick={() => draft({ kind: "confirm", value: true })}
-              >
-                Yes
-              </CardPrimary>
-            </>
-          ) : last ? (
-            <CardPrimary disabled={sending !== undefined} onClick={() => send()}>
-              {sending === "send" ? "Sending…" : "Send"}
-              <Kbd
-                aria-hidden
-                keys="mod+enter"
-                resolve={false}
-                variant="on-primary"
-                className={cardKeyHint}
-              />
-            </CardPrimary>
-          ) : (
-            <CardPrimary onClick={advance}>Next</CardPrimary>
-          )
+        primary={
+          loneConfirm
+            ? {
+                label: "Yes",
+                disabled: sending !== undefined,
+                onClick: () => draft({ kind: "confirm", value: true }),
+              }
+            : last
+              ? {
+                  label: sending === "send" ? "Sending…" : "Send",
+                  disabled: sending !== undefined,
+                  hint: "mod+enter",
+                  onClick: () => send(),
+                }
+              : {
+                  label: "Next",
+                  hint: "enter",
+                  onClick: advance,
+                }
         }
       />
     </RaisedCard>

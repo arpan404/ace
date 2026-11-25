@@ -105,6 +105,10 @@ export function SpadeEditor(props: {
   /** "Show files", at the first strip's left while the explorer is put away. */
   explorerToggle?: ReactNode;
   onDownload(path: string): void;
+  /** Clean single-file reader in a narrow panel: no tab strip, breadcrumbs or status bar. */
+  compact?: boolean | undefined;
+  /** Container-query classes to hide desktop chrome bars when the panel is narrow. */
+  chromeClassName?: string | undefined;
 }) {
   const { root, layout, onLayoutChange: change, current } = props;
   const registry = spadeEditorRegistry(useSpadeClient());
@@ -241,11 +245,26 @@ export function SpadeEditor(props: {
         paneCap={paneCap}
         statusNotice={notice}
         explorerToggle={props.explorerToggle}
+        hideChrome={props.compact}
+        chromeClassName={props.chromeClassName}
         onConfirmClose={confirmClose}
         renderEditor={renderEditor}
         renderViewer={renderViewer}
         tabMenuItems={tabMenuItems}
       />
+      {props.compact && notice && (
+        <div
+          role="status"
+          className="flex shrink-0 items-center justify-between gap-2 border-t border-border-soft bg-surface-1 px-4 py-2 text-xs text-muted-foreground"
+        >
+          <span className="min-w-0 truncate">{notice.text}</span>
+          {notice.action && (
+            <Button size="xs" variant="secondary" onClick={notice.action.run}>
+              {notice.action.label}
+            </Button>
+          )}
+        </div>
+      )}
       <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
     </div>
   );

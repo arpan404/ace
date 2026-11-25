@@ -20,6 +20,7 @@ import { seedFakeDelegation, seedFakeSurvey } from "./fake-spade-delegation.ts";
 import { seedFakeAccounts } from "./fake-spade-accounts.ts";
 import { seedFakeModelAccess } from "./fake-spade-models.ts";
 import { seedFakeTexting } from "./fake-spade-texting.ts";
+import { seedFakeSpadeChatMedia, seedFakeSpadeWorkspaceMedia } from "./fake-spade-media.ts";
 
 /*
  * `?fakeWorld=spade`: Spade running on This Mac with its bots, mid-trip-planning, and a bot on the
@@ -53,6 +54,7 @@ export function seedFakeSpade(
         name: "Claude Sonnet 5.5",
         context: 200_000,
         capabilities: ["images", "tools"],
+        efforts: ["low", "medium", "high", "max"],
         source: "typed",
       },
       {
@@ -60,6 +62,7 @@ export function seedFakeSpade(
         name: "GPT-6.1 Mini",
         context: 400_000,
         capabilities: ["images", "tools"],
+        efforts: ["low", "medium", "high"],
         source: "typed",
       },
     ],
@@ -74,18 +77,21 @@ export function seedFakeSpade(
       name: "Claude Sonnet 5.5",
       context: 200_000,
       capabilities: ["images", "tools"],
+      efforts: ["low", "medium", "high", "max"],
     },
     {
       id: "anthropic/claude-haiku-5.5",
       name: "Claude Haiku 5.5",
       context: 200_000,
       capabilities: ["images", "tools"],
+      efforts: ["low", "medium", "high"],
     },
     {
       id: "openai/gpt-6.1-mini",
       name: "GPT-6.1 Mini",
       context: 400_000,
       capabilities: ["images", "tools"],
+      efforts: ["low", "medium", "high"],
     },
     { id: "meta/llama-4-scout", name: "Llama 4 Scout", context: 128_000 },
   ]);
@@ -218,16 +224,33 @@ export function seedFakeSpade(
     "Here's a first pass:\n- **Flights**: TAP `TP1351` on the 14th, back on the 18th\n- **Hotels**: three near Chiado, all under €180\n- **Day 2**: Sintra by train from Rossio\n\nThe whole plan is in [lisbon-trip.md](https://example.com/lisbon-trip.md).",
   );
   say("Which trains should I take to Sintra?");
+  // Two-way: the bot's answer quotes the question, and the person reacts to it.
+  const askedAt = here.eventsOf(spade.conversation).length;
   here.reply(
     spade,
-    "They leave Rossio every 20 minutes. The first two that get you there before the palace opens:\n```\n09:11  Rossio → Sintra  arr 09:51\n09:31  Rossio → Sintra  arr 10:11\n```",
+    `<msg reply="m${askedAt}">They leave Rossio every 20 minutes. The first two that get you there before the palace opens:\n\`\`\`\n09:11  Rossio → Sintra  arr 09:51\n09:31  Rossio → Sintra  arr 10:11\n\`\`\`</msg>`,
   );
+  const answeredAt = here.eventsOf(spade.conversation).length - 1;
+  here.store(spade.conversation, {
+    type: "reaction",
+    message: `m${answeredAt}`,
+    emoji: "👍",
+    by: "person",
+  });
   here.store(spade.conversation, {
     type: "user_message",
     text: "TAP sent the booking confirmation for TP1351. Reference `QX7K2P`.",
     from_agent: { id: "inbox", name: "Inbox", depth: 1 },
   });
+  seedFakeSpadeChatMedia(here, spade);
   say("Great. Book the cheapest of the three hotels.");
+  // The bot reacts to the person's message without a word.
+  here.store(spade.conversation, {
+    type: "reaction",
+    message: `m${here.eventsOf(spade.conversation).length}`,
+    emoji: "👍",
+    by: "bot",
+  });
   here.store(spade.conversation, { type: "reply_started", reply: "r-now" });
   here.status(spade, "working", "Comparing hotel prices");
   spade.last_message = {
@@ -406,6 +429,7 @@ export function seedFakeSpade(
   });
 
   seedComputers(here, now);
+  seedFakeSpadeWorkspaceMedia(here, now);
   // Flights checks fares on its own.
   for (const routine of [
     {
@@ -803,6 +827,35 @@ function seedConnectors(spade: FakeSpadeApi) {
         origin: "ace",
         written_by: [],
         used_by: ["inbox"],
+      },
+      {
+        id: "skl_renderer",
+        name: "renderer-perf-pass",
+        description: "Profile the renderer, then fix the slowest frame first.",
+        origin: "ace",
+        written_by: [],
+        used_by: [],
+        text: "Profile the renderer, find the slowest frame and fix that first.",
+      },
+      {
+        id: "sks_tidy",
+        name: "tidy-commits",
+        description: "Split a messy branch into small, well-named commits.",
+        origin: "spade",
+        written_by: ["spade"],
+        used_by: [],
+        text: "Split the branch into small commits, each with a clear message.",
+      },
+      {
+        id: "plg_review",
+        name: "review-pr",
+        description: "Review a pull request and list what to change.",
+        origin: "plugin",
+        source: "release-kit",
+        manual: true,
+        written_by: [],
+        used_by: [],
+        text: "Review the pull request $ARGUMENTS and list what to change, most important first.",
       },
     ],
   };

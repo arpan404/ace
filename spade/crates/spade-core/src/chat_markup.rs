@@ -1,5 +1,6 @@
 //! How a bot's text splits into chat messages and documents (ADR 0212 §2): `<msg>` is one bubble,
-//! `<msg reply="m7">` quotes message m7, `<doc title="…">` is long content shown as a card.
+//! `<msg reply="m7">` quotes message m7, `<doc title="…">` is long content shown as a card, and
+//! `<react to="m7">👍</react>` reacts to message m7 without a bubble.
 //! Pure, and run against the table of cases the TypeScript parser shares,
 //! `spade/docs/chat-markup.cases.json`.
 
@@ -22,6 +23,8 @@ pub const TITLE_CHARS: usize = 120;
 pub enum Kind {
     Msg,
     Doc,
+    /// A reaction to message `to`, its emoji the text. It takes no id and is never a bubble.
+    React,
 }
 
 /// One chat message or document of a bot's text.
@@ -32,6 +35,8 @@ pub struct Segment {
     /// The id of the message this one quotes.
     pub reply: Option<String>,
     pub title: Option<String>,
+    /// The id of the message a reaction is for; only on [`Kind::React`].
+    pub to: Option<String>,
     /// Still arriving: the last segment of streaming text whose tag hasn't closed.
     pub open: bool,
 }
@@ -83,11 +88,16 @@ pub(crate) fn split_id(value: &str) -> Option<(u64, usize)> {
     (seq >= 1).then_some((seq, index))
 }
 
+/// The messages and documents of `segments`, the ones that take ids: reactions left out.
+pub fn messages(segments: &[Segment]) -> impl Iterator<Item = &Segment> {
+    segments.iter().filter(|s| s.kind != Kind::React)
+}
+
 /// The words of `text` with the markup removed, messages apart by a blank line and a document as
-/// its title line then its text: for wherever the words leave the chat as plain text.
+/// its title line then its text: for wherever the words leave the chat as plain text. Reactions
+/// are not words.
 pub fn plain(text: &str) -> String {
-    parse(text)
-        .iter()
+    messages(&parse(text))
         .map(segment_plain)
         .collect::<Vec<_>>()
         .join("\n\n")
@@ -101,13 +111,18 @@ pub(crate) fn segment_plain(segment: &Segment) -> String {
 }
 
 /// The bot's own past words as the model reads them again: each message and document with its
-/// id, one per line. Text with no words stays empty.
+/// id, one per line, and its reactions as it wrote them. Text with no words stays empty.
 pub fn for_model(text: &str, seq: u64) -> String {
+    let mut index = 0;
     parse(text)
         .iter()
-        .enumerate()
-        .map(|(index, segment)| {
+        .map(|segment| {
+            if segment.kind == Kind::React {
+                let to = segment.to.as_deref().unwrap_or_default();
+                return format!("<react to=\"{to}\">{}</react>", segment.text);
+            }
             let id = id(seq, index);
+            index += 1;
             let reply = segment
                 .reply
                 .as_ref()
@@ -123,6 +138,7 @@ pub fn for_model(text: &str, seq: u64) -> String {
                         .unwrap_or_default();
                     format!("<doc id=\"{id}\"{title}>{}</doc>", segment.text)
                 }
+                Kind::React => String::new(),
             }
         })
         .collect::<Vec<_>>()
@@ -146,6 +162,15 @@ fn structured(text: &str, pieces: &[Piece], live: bool) -> Option<Vec<Segment>> 
     for piece in pieces {
         match piece {
             Piece::Words(from, to) => words.push_str(&text[*from..*to]),
+            // A reaction stands apart from the bubbles: words before it outside any tag are a
+            // message of their own, and inside a tag it comes before the segment it sits in.
+            Piece::React { to, emoji } => {
+                if current.is_none() {
+                    push(&mut out, Kind::Msg, &words, None, None, false);
+                    words.clear();
+                }
+                react(&mut out, to, emoji);
+            }
             Piece::Open { kind, reply, title } => {
                 if current.is_some() {
                     return None;
@@ -187,12 +212,29 @@ fn push(
         text: text.to_owned(),
         reply,
         title,
+        to: None,
         open,
     });
 }
 
+/// A reaction, unless its message id or its emoji is missing: then the tag is dropped.
+fn react(out: &mut Vec<Segment>, to: &Option<String>, emoji: &str) {
+    let emoji = emoji.trim();
+    let Some(to) = to.as_ref().filter(|_| !emoji.is_empty()) else {
+        return;
+    };
+    out.push(Segment {
+        kind: Kind::React,
+        text: emoji.to_owned(),
+        reply: None,
+        title: None,
+        to: Some(to.clone()),
+        open: false,
+    });
+}
+
 /// Plain words: every tag removed and the pieces between them joined by blank lines, as one
-/// message.
+/// message, then the reactions.
 fn fallback(text: &str, pieces: &[Piece], live: bool) -> Vec<Segment> {
     let joined = pieces
         .iter()
@@ -205,6 +247,11 @@ fn fallback(text: &str, pieces: &[Piece], live: bool) -> Vec<Segment> {
         .join("\n\n");
     let mut out = Vec::new();
     push(&mut out, Kind::Msg, &joined, None, None, live);
+    for piece in pieces {
+        if let Piece::React { to, emoji } = piece {
+            react(&mut out, to, emoji);
+        }
+    }
     out
 }
 
@@ -217,6 +264,10 @@ fn capped(found: Vec<Segment>) -> Vec<Segment> {
         let (count, most) = match segment.kind {
             Kind::Msg => (&mut messages, MOST_MESSAGES),
             Kind::Doc => (&mut documents, MOST_DOCUMENTS),
+            Kind::React => {
+                out.push(segment);
+                continue;
+            }
         };
         if *count < most {
             *count += 1;

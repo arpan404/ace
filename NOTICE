@@ -106,3 +106,10 @@ Font License 1.1, with its license text kept beside the font files in the Suit's
   (https://github.com/eifetx/Pixelify-Sans), in Loam.
 These fonts are accepted under that license and are not licensed under ace's license. The Suits'
 scenes and art are ace's own, drawn in code.
+
+Emoji in reactions and messages are drawn with Twemoji graphics, so they look the same on every
+platform. The graphics are Copyright 2020 Twitter, Inc and other contributors, maintained by the
+jdecked/twemoji project (https://github.com/jdecked/twemoji), and are licensed under CC-BY 4.0
+(https://creativecommons.org/licenses/by/4.0/). They are used unmodified except for the SVG
+optimisation done by @twemoji/svg 15.0.0, Copyright (c) 2023 Samuel Kopp, MIT licensed, which ships
+the files in apps/web. The Twemoji code is MIT licensed and none of it is used.

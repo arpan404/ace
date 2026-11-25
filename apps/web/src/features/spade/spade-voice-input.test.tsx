@@ -155,10 +155,12 @@ test("Read aloud stops when the person leaves the chat", async () => {
     },
     { history },
   );
-  await userEvent.click(await screen.findByRole("button", { name: "Read aloud" }));
-  await screen.findByRole("button", { name: "Stop reading" });
+  await userEvent.click((await screen.findAllByRole("button", { name: "More" })).at(-1)!);
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Read aloud" }));
+  await userEvent.click((await screen.findAllByRole("button", { name: "More" })).at(-1)!);
+  await screen.findByRole("menuitem", { name: "Stop reading" });
   const beforeLeaving = cancel.mock.calls.length;
   history.push("/settings/spade");
-  await waitFor(() => expect(screen.queryByRole("button", { name: "Stop reading" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Stop reading" })).toBeNull());
   expect(cancel.mock.calls.length).toBeGreaterThan(beforeLeaving);
 });

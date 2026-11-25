@@ -16,7 +16,7 @@ import { SpadeActivity } from "./spade-activity.tsx";
 import { pillButton, ProfileProblem, ProfileSection } from "./spade-profile-parts.tsx";
 import { endGoal } from "./spade-work-api.ts";
 import { WorkGoal, WorkPlan } from "./spade-work-goal.tsx";
-import { WorkDecisions, WorkWorkers } from "./spade-work-workers.tsx";
+import { WorkDecisions } from "./spade-work-decisions.tsx";
 import { workKey, type SpadeWork } from "./use-spade-work.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
 
@@ -77,7 +77,7 @@ function useEvidenceWords(bot: RosterBot, entries: readonly SpadeEntry[], wanted
 
 /**
  * Work: the goal the bot works toward with each criterion's verdict, the plan with evidence, the
- * workers it runs, what it decided for the person, and its whole activity log. Only the person changes the goal; End goal
+ * workers it runs and what it decided for the person (Activity's top). Only the person changes the goal; End goal
  * sits at the foot.
  */
 export function ProfileWork(props: { bot: RosterBot; work: SpadeWork; place: ProfileWorkPlace }) {
@@ -114,14 +114,18 @@ export function ProfileWork(props: { bot: RosterBot; work: SpadeWork; place: Pro
           }}
         />
       )}
-      <WorkWorkers bot={bot} tree={work.tree.data} rows={work.rows} roster={place.roster} />
       <WorkDecisions decisions={work.decisions} onChange={place.onChange} />
-      {/* The whole log: what it did and with which apps, never in the chat. */}
-      <ProfileSection label="Activity" bare>
-        <SpadeActivity bot={bot} scope="all" />
-      </ProfileSection>
       {goal && goal.goal.closed === undefined && <EndGoal bot={bot} />}
     </>
+  );
+}
+
+/** The whole log: what it did and with which apps, never in the chat. Settings holds it. */
+export function ProfileWorkLog(props: { bot: RosterBot }) {
+  return (
+    <ProfileSection label="Activity" bare>
+      <SpadeActivity bot={props.bot} scope="all" />
+    </ProfileSection>
   );
 }
 

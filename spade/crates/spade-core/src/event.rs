@@ -46,6 +46,10 @@ pub enum Known {
             deserialize_with = "lenient_reply_to"
         )]
         reply_to: Option<Box<ReplyTo>>,
+        /// The skill or command the person started with this message. Its text is fixed here, so
+        /// every rebuilt prompt carries the same bytes at the message's tail.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        invoke: Option<Box<Invoked>>,
     },
     /// The agent's task or model changed (ADR 0126). Used from the next turn on: a turn's prompt
     /// takes the task in effect when its reply started, and `reply_started` names its model.
@@ -883,6 +887,21 @@ pub enum Known {
         /// The choice's label, fixed when the card was shown.
         label: String,
     },
+    /// A reaction to message `message` (an id as in docs/chat-core.md): the person's through the
+    /// API, the bot's from a `<react>` in its words. One per side per message: a later one
+    /// replaces the earlier and `removed` takes it back. It opens no reply and steers none; the
+    /// model reads the person's at its next step.
+    Reaction {
+        message: String,
+        #[serde(default)]
+        emoji: String,
+        by: ReactionBy,
+        /// The reacting bot's agent id in a club; absent for the person and a bot's own chat.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        removed: bool,
+    },
     /// The bot set the state of its package's panel `surface` (ADR 0200 §5.2), checked against
     /// the panel's state schema. Every update is one; the panel shows the latest. The model reads
     /// only its call's result.
@@ -1033,6 +1052,14 @@ pub struct TaskChange {
     /// The bot's one line on what changed, or the person's own note; empty when none was given.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub why: String,
+}
+
+/// Whose reaction it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReactionBy {
+    Person,
+    Bot,
 }
 
 /// Who stands behind a panel's action (ADR 0200 §5.2, amendment 1): its page alone, whatever the
@@ -1226,6 +1253,22 @@ impl DocumentRef {
     }
 }
 
+/// A skill or command the person started from the composer's `/` menu: what it was, and the text
+/// it gave the model, with a command's arguments already put in.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Invoked {
+    /// `skill` or `command`.
+    pub kind: String,
+    /// Its id in the skill store.
+    pub id: String,
+    pub name: String,
+    /// What the person wrote after it, if anything.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<String>,
+    /// What the model reads after the message.
+    pub text: String,
+}
+
 /// The message a message replies to (ADR 0212 §4), stored as it read when the reply was sent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReplyTo {
@@ -1320,6 +1363,7 @@ impl Event {
             from_group: None,
             from_thread: None,
             reply_to: None,
+            invoke: None,
         })
     }
 

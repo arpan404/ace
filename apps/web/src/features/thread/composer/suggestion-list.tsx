@@ -113,6 +113,11 @@ export function SuggestionList(props: {
                       {item.detail}
                     </span>
                   )}
+                  {item.source && (
+                    <span className="ml-auto max-w-32 shrink-0 truncate text-xs text-subtle-foreground">
+                      {item.source}
+                    </span>
+                  )}
                 </div>
               </li>
             ))}

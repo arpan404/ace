@@ -1,15 +1,6 @@
 import type { SpadeBubble } from "@ace/ui-core/spade-chat";
 import { useState } from "react";
-import { Kbd } from "@/components/ui/kbd.tsx";
-import {
-  CardBody,
-  cardKeyHint,
-  CardFooter,
-  CardPrimary,
-  CardWord,
-  NeedsYouLine,
-  RaisedCard,
-} from "./spade-card.tsx";
+import { CardActions, CardBody, NeedsYouLine, RaisedCard } from "./spade-card.tsx";
 import type { RequestAnswer } from "./spade-request-bubble.tsx";
 
 type Outside = Extract<SpadeBubble, { kind: "plugin-outside" }>;
@@ -59,29 +50,27 @@ export function SpadeOutsideBubble(props: {
           {`${item.plugin} ${item.version}, ${item.what}`}
         </p>
       </CardBody>
-      <CardFooter
-        start={
-          <>
-            <CardWord disabled={answering !== undefined} onClick={() => answer("always")}>
-              {answering === "always" ? "Allowing…" : "Always for this plugin version"}
-            </CardWord>
-            <CardWord disabled={answering !== undefined} onClick={() => answer("deny")}>
-              {answering === "deny" ? "Denying…" : "Deny"}
-            </CardWord>
-          </>
-        }
-        end={
-          <CardPrimary disabled={answering !== undefined} onClick={() => answer("allow")}>
-            {answering === "allow" ? "Allowing…" : "Allow"}
-            <Kbd
-              aria-hidden
-              keys="enter"
-              resolve={false}
-              variant="on-primary"
-              className={cardKeyHint}
-            />
-          </CardPrimary>
-        }
+      <CardActions
+        secondary={[
+          {
+            key: "always",
+            label: answering === "always" ? "Allowing…" : "Always for this plugin version",
+            disabled: answering !== undefined,
+            onClick: () => answer("always"),
+          },
+          {
+            key: "deny",
+            label: answering === "deny" ? "Denying…" : "Deny",
+            disabled: answering !== undefined,
+            onClick: () => answer("deny"),
+          },
+        ]}
+        primary={{
+          label: answering === "allow" ? "Allowing…" : "Allow",
+          disabled: answering !== undefined,
+          hint: "enter",
+          onClick: () => answer("allow"),
+        }}
       />
     </RaisedCard>
   );

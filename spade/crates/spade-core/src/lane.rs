@@ -975,6 +975,23 @@ pub fn persons_words(events: &[Event], id: &str) -> Option<String> {
     }
 }
 
+/// What the task will do, in one line for its card: its goal's title, else the first line of the
+/// brief it was started with (its first user message).
+pub fn brief_line(events: &[Event], goal_title: Option<&str>) -> Option<String> {
+    let first = |text: &str| {
+        text.lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .map(str::to_owned)
+    };
+    goal_title.and_then(first).or_else(|| {
+        events.iter().find_map(|event| match event {
+            Event::Known(Known::UserMessage { text, .. }) => first(text),
+            _ => None,
+        })
+    })
+}
+
 /// What a lane reads for a job of the moved reply that stayed with main (ADR 0217 §2a).
 pub const KEPT_JOB: &str =
     "Job stayed in main chat; main will forward what you need via task_message when it ends.";
@@ -992,7 +1009,7 @@ pub fn note(event: &Known) -> String {
             };
             format!(
                 "<moved task=\"{}\" from=\"spade\">\nMoved to task {}, which continues this work \
-                 with its jobs and waits transferred (the person was told); you are free to \
+                 with its jobs and waits transferred (its card shows it; say nothing of it); you are free to \
                  talk.{kept}\n</moved>",
                 moved.lane,
                 quoted(&moved.title)
