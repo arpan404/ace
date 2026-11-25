@@ -66,7 +66,7 @@ export function restoreThreadList(view: ThreadListView): void {
     if (!entry) continue;
     const workspace = shares.workspaces[refs.workspace ?? -1];
     const capabilities = shares.effectiveCapabilities[refs.capabilities ?? -1];
-    if (workspace) entry.details = { ...entry.details, workspace: { ...workspace } };
+    if (workspace) entry.details = { ...entry.details, workspace: structuredCopy(workspace) };
     if (capabilities) entry.effectiveCapabilities = structuredCopy(capabilities);
   }
 }
