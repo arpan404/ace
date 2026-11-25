@@ -1,41 +1,61 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
- * T1b.5's paired bench (the porting guide's "Measurements to schedule" items 5 and 6, direct path):
- * `apps/daemon/bench/head-of-line.ts` and `apps/daemon/bench/slow-link.ts`, run on one build with
- * the native remote listener off and on, A B A B, three pairs. Item 1 of the guide's T1b.5 table
- * (`tools/daemon-bench`) is T1a's own run and is not this script's.
+ * T1b.5's paired bench (the porting guide's "Measurements to schedule" items 5 and 6, direct path,
+ * and item 1's daemon bench): `apps/daemon/bench/head-of-line.ts` and
+ * `apps/daemon/bench/slow-link.ts`, plus `tools/daemon-bench/src/run.ts` with `ACE_LISTEN=lan`, run
+ * on one build with the native remote listener off and on, A B A B, the configured number of pairs.
  *
  * Every leg runs the bench as a child in this checkout, with the on leg's `ACE_TRANSPORT` (default
- * `native,remote`) and a fresh `ACE_TRANSPORT_EVIDENCE` file. The bench's isolated daemons inherit
- * both (`tools/perf-kit/src/isolated-daemon.ts`), so the leg's evidence says what the Rust remote
- * listener handled. A pair is void when its two legs' recorded load differs by more than 2×, or
- * when the on leg's evidence has no remote close line with handled exchanges: then the switch
- * never carried the bench's traffic and the pair proves nothing.
+ * `native,remote`) and a fresh `ACE_TRANSPORT_EVIDENCE` file. The benches' isolated daemons inherit
+ * both (`tools/perf-kit/src/isolated-daemon.ts`, `tools/daemon-bench/src/daemon.ts`), so the leg's
+ * evidence says what the Rust remote listener handled. A pair is void when its two legs' recorded
+ * load differs by more than 2×, or when the on leg's evidence has no remote close line with handled
+ * exchanges: the switch never carried the bench's traffic, so the pair proves nothing.
  *
  *   node scripts/transport-bench.ts [--switch=native,remote] [--pairs=3] [--out=DIR]
- *     [--benches=head-of-line,slow-link]
+ *     [--benches=head-of-line,slow-link,daemon]
  *
- * Gates (`t1b-brief.md`): every latency median and the event-loop gap p99 at most off × 1.10, and
- * the bytes within ±3% of off. Report first: the numbers are printed whether they pass or not, and
- * the exit status is non-zero when a valid pair fails a gate or when no pair is valid.
+ * Gates (`t1b-brief.md`; the daemon bench's are T1a's rows): every latency median and the
+ * event-loop gap p99 at most off × 1.10; bytes within ±3% of off; the daemon bench's
+ * `transactionsPerTurn` within ±1%, `idle.cpuPercent` at most off + 0.2 points, `heapUsed` at most
+ * off + 4 MiB and `rss` at most off + 16 MiB. Report first: the numbers are printed whether they
+ * pass or not. The exit status is non-zero when any pair is void, any valid pair fails a gate, or
+ * any pair has no metric rows: a run that measured nothing proves nothing.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { loadavg, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { bunBinary } from "./runtimes.ts";
+import { bunBinary, realNode } from "./runtimes.ts";
 import { readEvidence } from "./transport-evidence.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
-type Bench = "head-of-line" | "slow-link";
+type Bench = "head-of-line" | "slow-link" | "daemon";
 type Side = "off" | "on";
+type Unit = "ms" | "bytes" | "points";
 
-/** One metric of one leg: its per-pair samples, in the bench's own units. */
+/** How a metric's on leg must compare with its off leg. */
+type Gate =
+  /** on ≤ off × limit. */
+  | { kind: "ratio"; limit: number }
+  /** |on − off| / off ≤ fraction. */
+  | { kind: "within"; fraction: number }
+  /** on ≤ off + limit, in the metric's own unit (bytes, or points of a core). */
+  | { kind: "absolute"; limit: number };
+
+/** One metric name's unit and gate. */
+interface Metric {
+  unit: Unit;
+  gate: Gate;
+}
+
+/** One metric's samples in a leg. */
 interface Samples {
   ms?: number[];
   bytes?: number[];
+  points?: number[];
 }
 
 /** A leg's report, its recorded load and its evidence file. */
@@ -58,6 +78,14 @@ interface Pair {
   void?: string;
 }
 
+/** One metric's two legs in a pair. */
+interface Compared {
+  metric: string;
+  metricSpec: Metric;
+  off: number;
+  on: number;
+}
+
 /** The argument form the benches take: `--name=value`. */
 function argument(name: string, fallback: string): string {
   const flag = `--${name}=`;
@@ -66,10 +94,32 @@ function argument(name: string, fallback: string): string {
 
 const transported = argument("switch", "native,remote");
 const pairs = Math.max(1, Number(argument("pairs", "3")));
-const benches = argument("benches", "head-of-line,slow-link")
+const benches = argument("benches", "head-of-line,slow-link,daemon")
   .split(",")
-  .filter((value): value is Bench => value === "head-of-line" || value === "slow-link");
+  .filter(
+    (value): value is Bench =>
+      value === "head-of-line" || value === "slow-link" || value === "daemon",
+  );
 const out = argument("out", join(tmpdir(), `ace-transport-bench-${process.pid}`));
+
+const MIB = 1024 * 1024;
+
+/** The unit and gate of one metric: the brief's rows, and T1a's for the daemon bench. */
+function metricFor(bench: Bench, metric: string): Metric {
+  const kind = metric.slice(metric.lastIndexOf("|") + 1);
+  if (bench === "daemon") {
+    if (kind === "cpuMsPerTurn") return { unit: "ms", gate: { kind: "ratio", limit: 1.1 } };
+    if (kind === "transactionsPerTurn")
+      return { unit: "points", gate: { kind: "within", fraction: 0.01 } };
+    if (kind === "cpuPercent") return { unit: "points", gate: { kind: "absolute", limit: 0.2 } };
+    if (kind === "heapUsed") return { unit: "bytes", gate: { kind: "absolute", limit: 4 * MIB } };
+    if (kind === "rss") return { unit: "bytes", gate: { kind: "absolute", limit: 16 * MIB } };
+    return { unit: "points", gate: { kind: "within", fraction: 0.01 } };
+  }
+  return metric.endsWith("Bytes")
+    ? { unit: "bytes", gate: { kind: "within", fraction: 0.03 } }
+    : { unit: "ms", gate: { kind: "ratio", limit: 1.1 } };
+}
 
 /** The median of a series; an empty series has none. */
 function median(values: readonly number[]): number | undefined {
@@ -94,12 +144,7 @@ function number(value: unknown): number | undefined {
 }
 
 /** Adds one sample under `key`. */
-function add(
-  samples: Map<string, Samples>,
-  key: string,
-  value: number,
-  unit: "ms" | "bytes",
-): void {
+function add(samples: Map<string, Samples>, key: string, value: number, unit: Unit): void {
   const entry = samples.get(key) ?? {};
   (entry[unit] ??= []).push(value);
   samples.set(key, entry);
@@ -146,18 +191,12 @@ function headOfLineMetrics(decoded: unknown): { metrics: Map<string, Samples>; l
       }
       const bytes = number(field(field(episode, "bulk"), "bytes"));
       if (bytes !== undefined) add(metrics, `${profile}|${kind}|bulkBytes`, bytes, "bytes");
-      // The probe keeps each episode's five longest event-loop gaps: the longest is the tail's tail.
-      const gaps = field(field(episode, "probe"), "longestGaps");
-      const longest = Array.isArray(gaps)
-        ? Math.max(0, ...gaps.map((gap) => number(field(gap, "ms")) ?? 0))
-        : undefined;
-      if (longest !== undefined) add(metrics, `${profile}|${kind}|eventLoopGapP99`, longest, "ms");
+      // The probe's own p99 over the episode's gaps (apps/daemon/bench/head-of-line-probe.ts).
+      const gaps = number(field(field(episode, "probe"), "gapP99Ms"));
+      if (gaps !== undefined) add(metrics, `${profile}|${kind}|eventLoopGapP99`, gaps, "ms");
     }
   }
-  return {
-    metrics,
-    load: worstLoad(runs.map((run) => field(run, "load"))),
-  };
+  return { metrics, load: worstLoad(runs.map((run) => field(run, "load"))) };
 }
 
 /** The slow-link spans the brief's rows name, with the two approval delays. */
@@ -201,10 +240,42 @@ function slowLinkMetrics(decoded: unknown): { metrics: Map<string, Samples>; loa
   };
 }
 
-/** The command one leg runs, and the directory it runs in. */
-function command(bench: Bench, file: string): { args: string[]; cwd: string } {
+/** The daemon bench's rows T1a gates: per-phase turns, idle CPU, heap and RSS, startup included. */
+function daemonMetrics(decoded: unknown): { metrics: Map<string, Samples>; load: number } {
+  const metrics = new Map<string, Samples>();
+  const phases = ["newThreads", "sameThread", "longText"];
+  for (const name of phases) {
+    const phase = path(decoded, `phases.${name}`);
+    for (const key of ["cpuMsPerTurn", "transactionsPerTurn"] as const) {
+      const value = number(field(phase, key));
+      if (value !== undefined) add(metrics, `${name}|${key}`, value, "points");
+    }
+    for (const key of ["heapUsed", "rss"] as const) {
+      const value = number(field(field(phase, "memory"), key));
+      if (value !== undefined) add(metrics, `${name}|${key}`, value, "bytes");
+    }
+  }
+  const idle = field(decoded, "idle");
+  const idleCpu = number(field(idle, "cpuPercent"));
+  if (idleCpu !== undefined) add(metrics, "idle|cpuPercent", idleCpu, "points");
+  for (const [where, memory] of [
+    ["idle", field(idle, "memory")],
+    ["startup", field(decoded, "startup")],
+  ] as const)
+    for (const key of ["heapUsed", "rss"] as const) {
+      const value = number(field(memory, key));
+      if (value !== undefined) add(metrics, `${where}|${key}`, value, "bytes");
+    }
+  // The daemon bench records the machine's load in the result's machine block under `load`.
+  const machine = field(decoded, "machine");
+  return { metrics, load: worstLoad([field(machine, "load"), field(decoded, "loadBefore")]) };
+}
+
+/** How one leg of one bench runs. */
+function command(bench: Bench, file: string): { command: string; args: string[]; cwd: string } {
   if (bench === "head-of-line")
     return {
+      command: bunBinary(),
       cwd: root,
       args: [
         join(root, "apps/daemon/bench/head-of-line.ts"),
@@ -214,14 +285,24 @@ function command(bench: Bench, file: string): { args: string[]; cwd: string } {
         `--output=${file}`,
       ],
     };
+  if (bench === "slow-link")
+    return {
+      command: bunBinary(),
+      cwd: join(root, "apps/daemon"),
+      args: [
+        "bench/slow-link.ts",
+        "--paths=direct",
+        "--profiles=3g-slow,3g-fast",
+        `--output=${file}`,
+      ],
+    };
+  const node = realNode();
+  if (node === undefined) throw new Error("the daemon bench runs on Node, and no node is on PATH");
   return {
-    cwd: join(root, "apps/daemon"),
-    args: [
-      "bench/slow-link.ts",
-      "--paths=direct",
-      "--profiles=3g-slow,3g-fast",
-      `--output=${file}`,
-    ],
+    command: node,
+    cwd: root,
+    // The daemon bench's daemon binds the LAN listener T1b.5's rows are about.
+    args: [join(root, "tools/daemon-bench/src/run.ts"), `--output=${file}`],
   };
 }
 
@@ -231,8 +312,8 @@ function runLeg(bench: Bench, side: Side, index: number): Leg {
   const evidence =
     side === "on" ? join(out, `${bench}-pair-${index}-on-evidence.jsonl`) : undefined;
   if (evidence !== undefined) rmSync(evidence, { force: true });
-  const { args, cwd } = command(bench, file);
-  const env: NodeJS.ProcessEnv = { ...process.env };
+  const { command: executable, args, cwd } = command(bench, file);
+  const env: NodeJS.ProcessEnv = { ...process.env, ACE_LISTEN: "lan" };
   delete env.ACE_TRANSPORT_EVIDENCE;
   if (side === "on") {
     env.ACE_TRANSPORT = transported;
@@ -241,7 +322,8 @@ function runLeg(bench: Bench, side: Side, index: number): Leg {
     delete env.ACE_TRANSPORT;
   }
   process.stderr.write(`transport-bench: ${bench} pair ${index} ${side}\n`);
-  const run = spawnSync(bunBinary(), args, {
+  const loadBefore = loadavg()[0] ?? 0;
+  const run = spawnSync(executable, args, {
     cwd,
     env,
     stdio: ["ignore", "pipe", "inherit"],
@@ -254,8 +336,21 @@ function runLeg(bench: Bench, side: Side, index: number): Leg {
   if (!existsSync(file)) throw new Error(`${bench} ${side} leg wrote no report at ${file}`);
   const decoded: unknown = JSON.parse(readFileSync(file, "utf8"));
   const { metrics, load } =
-    bench === "head-of-line" ? headOfLineMetrics(decoded) : slowLinkMetrics(decoded);
-  return { side, bench, file, load, metrics, ...(evidence === undefined ? {} : { evidence }) };
+    bench === "head-of-line"
+      ? headOfLineMetrics(decoded)
+      : bench === "slow-link"
+        ? slowLinkMetrics(decoded)
+        : daemonMetrics(decoded);
+  // The harness's own load reading covers a bench that records none (the daemon bench).
+  const harnessLoad = Math.max(loadBefore, loadavg()[0] ?? 0);
+  return {
+    side,
+    bench,
+    file,
+    load: Math.max(load, harnessLoad),
+    metrics,
+    ...(evidence === undefined ? {} : { evidence }),
+  };
 }
 
 /** Why a pair proves nothing, or undefined when both legs are comparable. */
@@ -276,69 +371,74 @@ function voidReason(pair: Pair): string | undefined {
   return undefined;
 }
 
-/** One metric's ratio over a pair. */
-interface Ratio {
-  metric: string;
-  unit: "ms" | "bytes";
-  value: number;
-}
-
-/** Every metric both legs report, as on/off ratios. */
-function ratios(pair: Pair): Ratio[] {
-  const values: Ratio[] = [];
+/** Every metric both legs report, with each side's median and its gate. */
+function comparisons(pair: Pair): Compared[] {
+  const values: Compared[] = [];
   for (const [metric, off] of pair.off.metrics) {
     const on = pair.on.metrics.get(metric);
     if (on === undefined) continue;
-    for (const unit of ["ms", "bytes"] as const) {
-      const offMedian = median(off[unit] ?? []);
-      const onMedian = median(on[unit] ?? []);
-      if (offMedian === undefined || onMedian === undefined || offMedian === 0) continue;
-      values.push({ metric, unit, value: onMedian / offMedian });
-    }
+    const metricSpec = metricFor(pair.off.bench, metric);
+    const offMedian = median(off[metricSpec.unit] ?? []);
+    const onMedian = median(on[metricSpec.unit] ?? []);
+    if (offMedian === undefined || onMedian === undefined) continue;
+    values.push({ metric, metricSpec, off: offMedian, on: onMedian });
   }
   return values;
 }
 
-/** The gate for one unit: latency may grow 10%, bytes must stay within 3%. */
-function withinGate(unit: "ms" | "bytes", ratio: number): boolean {
-  return unit === "ms" ? ratio <= 1.1 : Math.abs(ratio - 1) <= 0.03;
+/** Whether a comparison passes its gate. */
+function passes(gate: Gate, off: number, on: number): boolean {
+  if (gate.kind === "ratio") return on <= off * gate.limit;
+  if (gate.kind === "absolute") return on <= off + gate.limit;
+  return off === 0 ? on === 0 : Math.abs(on - off) / off <= gate.fraction;
 }
 
-/** Prints the per-pair and combined ratios, and returns whether every valid pair passed. */
+/** The gate in words, for the report. */
+function gateText(gate: Gate): string {
+  if (gate.kind === "ratio") return `on ≤ off × ${gate.limit.toFixed(2)}`;
+  if (gate.kind === "absolute")
+    return gate.limit >= MIB
+      ? `on ≤ off + ${String(Math.round(gate.limit / MIB))} MiB`
+      : `on ≤ off + ${gate.limit}`;
+  return `on within ±${(gate.fraction * 100).toFixed(0)}% of off`;
+}
+
+/** Prints the per-pair numbers and returns whether every pair, and every metric, passed. */
 function report(all: readonly Pair[], bench: Bench): boolean {
   const valid = all.filter((pair) => pair.void === undefined);
   console.log(`\n=== ${bench} (direct path) ===`);
-  for (const pair of all)
+  let passed = true;
+  for (const pair of all) {
+    if (pair.void === undefined) continue;
+    passed = false;
+    console.log(`pair ${pair.index}: VOID — ${pair.void}`);
+  }
+  if (valid.length !== all.length) {
     console.log(
-      `pair ${pair.index}: ${pair.void === undefined ? "counted" : `VOID — ${pair.void}`}`,
+      `  ${String(valid.length)} of ${String(all.length)} pairs valid: the run needs all of them`,
     );
-  if (!valid.length) {
-    console.log("  no valid pair: the run proves nothing");
     return false;
   }
-  const perPair = valid.map((pair) => ratios(pair));
-  const metrics = [
-    ...new Set(perPair.flatMap((list) => list.map((one) => `${one.unit} ${one.metric}`))),
-  ];
-  let passed = true;
-  for (const key of metrics.toSorted()) {
-    const [unit, ...rest] = key.split(" ");
-    const metric = rest.join(" ");
-    const unitKind = unit === "ms" ? "ms" : "bytes";
-    const values = perPair.map(
-      (list) => list.find((one) => one.metric === metric && one.unit === unitKind)?.value,
-    );
-    const medians = values.filter((value): value is number => value !== undefined);
-    const combined = median(medians);
-    if (combined === undefined) continue;
-    const ok = withinGate(unitKind, combined);
+  const perPair = valid.map((pair) => comparisons(pair));
+  if (perPair.some((rows) => rows.length === 0)) {
+    console.log("  a pair has no metric rows: the report held nothing to compare");
+    return false;
+  }
+  const metrics = [...new Set(perPair.flatMap((rows) => rows.map((row) => row.metric)))].toSorted();
+  for (const metric of metrics) {
+    const rows = perPair.map((list) => list.find((row) => row.metric === metric));
+    const spec = rows.find((row) => row !== undefined)?.metricSpec;
+    if (spec === undefined) continue;
+    const ok = rows.every((row) => row !== undefined && passes(spec.gate, row.off, row.on));
     if (!ok) passed = false;
-    const detail = values.map((value) => (value === undefined ? "—" : value.toFixed(3))).join(" ");
+    const detail = rows
+      .map((row) => (row === undefined ? "—" : `${row.off.toFixed(2)}→${row.on.toFixed(2)}`))
+      .join(" ");
     console.log(
-      `  ${ok ? "pass" : "FAIL"} ${metric.padEnd(46)} ${unitKind.padEnd(5)} ${combined.toFixed(3)}  [${detail}]`,
+      `  ${ok ? "pass" : "FAIL"} ${metric.padEnd(44)} ${spec.unit.padEnd(6)} ${detail}  [${gateText(spec.gate)}]`,
     );
   }
-  console.log(`  medians of ${valid.length} valid pair(s); gate: ms ≤ 1.10, bytes within ±3%`);
+  console.log(`  ${String(valid.length)} pair(s), every metric row gated as shown`);
   return passed;
 }
 
@@ -349,10 +449,11 @@ function main(): number {
         "scripts/transport-bench.ts — the paired bench: native remote listener off, then on, A B A B",
         "",
         "  node scripts/transport-bench.ts [--switch=native,remote] [--pairs=3] [--out=DIR]",
-        "    [--benches=head-of-line,slow-link]",
+        "    [--benches=head-of-line,slow-link,daemon]",
         "",
         "Requires ACE_TRANSPORT_ADDON to name this checkout's transport addon; every leg's",
         "isolated daemon inherits the switch and the on leg's ACE_TRANSPORT_EVIDENCE file.",
+        "Every configured pair must be valid, and every pair must report metrics, or the run fails.",
       ].join("\n"),
     );
     return 0;
