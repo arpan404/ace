@@ -70,6 +70,11 @@ impl SessionRouting {
         }
     }
 
+    /// The thread this session belongs to, for its own agent key (`keys.ts`).
+    pub fn thread_id(&self) -> &str {
+        &self.thread_id
+    }
+
     pub fn root(&self) -> &JsString {
         &self.root
     }

@@ -1,18 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The crate's typed errors, mapped by the binding to `git_failed` JS errors.
-//! G0 stub: only the deferral the shells run on today; each item adds the
-//! failure variants its module can return, in its own module.
 
-/// What a stubbed git operation reports before it defers to TypeScript.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+use crate::core::error::GitError;
+
+/// What a git operation reports when it fails or defers to TypeScript.
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum Error {
-    /// The native core is not ported yet; the shell runs the TypeScript path
+    /// The native part is not ported yet; the shell runs the TypeScript path
     /// and counts the fallback. Never a failure, never partial.
     #[error("ace-git {part} is not ported yet; deferred to TypeScript ({op})")]
     Unimplemented { part: String, op: String },
+    /// A typed Git failure matching `packages/git/src/types.ts`'s `GitError`.
+    #[error("{0}")]
+    Git(#[from] Box<GitError>),
     /// Something the binding cannot carry; thrown as `git_failed`, never deferred.
     #[error("ace-git internal failure: {0}")]
     Internal(String),
+}
+
+impl From<GitError> for Error {
+    fn from(error: GitError) -> Self {
+        Self::Git(Box::new(error))
+    }
 }
 
 impl Error {
@@ -28,6 +37,7 @@ impl Error {
     pub fn code(&self) -> &'static str {
         match self {
             Self::Unimplemented { .. } | Self::Internal(_) => "git_failed",
+            Self::Git(error) => error.code.as_str(),
         }
     }
 
@@ -43,9 +53,13 @@ impl Error {
             Self::Unimplemented { part, op } => format!(
                 "{{\"code\":\"git_failed\",\"message\":\"ace-git {part} is not ported yet\",\"details\":{{\"stub\":true,\"part\":\"{part}\",\"op\":\"{op}\"}}}}"
             ),
-            Self::Internal(message) => format!(
-                "{{\"code\":\"git_failed\",\"message\":\"ace-git internal failure: {message}\",\"details\":{{\"stub\":false}}}}"
-            ),
+            Self::Git(error) => error.to_payload(),
+            Self::Internal(message) => GitError::new(
+                crate::core::error::GitErrorCode::GitFailed,
+                format!("ace-git internal failure: {message}"),
+            )
+            .with_detail("stub", ace_json::Value::Bool(false))
+            .to_payload(),
         }
     }
 }

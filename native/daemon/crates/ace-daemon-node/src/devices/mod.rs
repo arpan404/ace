@@ -9,6 +9,7 @@
 // target every export reads as unused.
 #![cfg_attr(test, allow(dead_code))]
 
+pub mod input;
 pub mod platform;
 
 mod inventory;
