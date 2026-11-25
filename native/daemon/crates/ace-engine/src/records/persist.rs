@@ -82,35 +82,223 @@ const KNOWN_FIELDS: [&str; 46] = [
     "error",
 ];
 
-/// The fields of the nested record objects this build writes. A nested object is merged only
-/// when its type is known here: a cleared optional inside it (`retry.until`, `call.error`) must
-/// not come back, while an unknown field inside a known type (`call.futureField`) is kept.
-fn nested_known(key: &str) -> Option<&'static [&'static str]> {
-    match key {
-        "retry" => Some(&["on", "attempt", "until", "message"]),
-        "limited" => Some(&["until", "message"]),
-        "call" => Some(&[
-            "id",
-            "agentId",
-            "kind",
-            "title",
-            "status",
-            "detail",
-            "backgroundTaskId",
-            "error",
-            "result",
-            "startedAt",
-            "endedAt",
-            "raw",
-            "measurement",
-        ]),
-        _ => None,
-    }
+/// The fields of one nested record type, from `ace-core`'s serde definitions below. A nested
+/// object merges only against its own type's list, so a cleared optional inside it never comes
+/// back and an unknown field a newer build wrote is kept (`AGENTS.md`).
+struct Nested {
+    key: &'static str,
+    fields: &'static [&'static str],
+    /// The element type's fields when the value is an array of records.
+    element: Option<&'static [&'static str]>,
 }
 
-/// Copy every field the typed form does not know: a known field the fold cleared stays cleared,
-/// at any level. Objects of types not listed in [`nested_known`] are left as the typed form has
-/// them; arrays too.
+const AGENT: &[&str] = &[
+    "id",
+    "threadId",
+    "parentId",
+    "origin",
+    "native",
+    "fidelity",
+    "cwd",
+    "status",
+    "background",
+    "createdAt",
+    "spawnedBy",
+    "lineage",
+    "name",
+    "role",
+    "model",
+    "machine",
+    "childThreadId",
+    "endedAt",
+];
+const AGENT_STATUS: &[&str] = &[
+    "state",
+    "on",
+    "refs",
+    "until",
+    "attempt",
+    "message",
+    "retryOrder",
+    "detail",
+];
+const AGENT_ERROR: &[&str] = &["kind", "message", "code", "title", "detail", "details"];
+const THREAD_STATUS: &[&str] = &[
+    "state",
+    "agents",
+    "interactions",
+    "on",
+    "slotLimit",
+    "slotsInUse",
+    "queuePosition",
+    "refs",
+    "until",
+    "attempt",
+    "message",
+    "retryOrder",
+    "hostId",
+    "name",
+    "threadId",
+    "reason",
+    "raw",
+];
+const RETRY: &[&str] = &["on", "attempt", "until", "message"];
+const LIMITED: &[&str] = &["until", "message"];
+const TOOL_CALL: &[&str] = &[
+    "id",
+    "agentId",
+    "kind",
+    "title",
+    "status",
+    "detail",
+    "backgroundTaskId",
+    "error",
+    "result",
+    "startedAt",
+    "endedAt",
+    "raw",
+    "measurement",
+];
+const TOOL_DETAIL: &[&str] = &[
+    "kind",
+    "command",
+    "rawCommand",
+    "description",
+    "cwd",
+    "exitCode",
+    "output",
+    "path",
+    "diff",
+    "oldText",
+    "newText",
+    "movePath",
+    "pattern",
+    "query",
+    "title",
+    "url",
+    "language",
+    "bytes",
+    "lines",
+    "changes",
+    "target",
+    "arguments",
+    "result",
+    "text",
+    "files",
+];
+const TOOL_RESULT: &[&str] = &[
+    "isError",
+    "content",
+    "structuredContent",
+    "durationMs",
+    "target",
+    "mode",
+    "scale",
+    "size",
+];
+const OUTPUT_SUMMARY: &[&str] = &["streamId", "bytes", "tail", "truncated"];
+const RAW_PAYLOAD: &[&str] = &["type", "text", "blobRef", "bytes", "mimeType"];
+const CONTENT_PART: &[&str] = &[
+    "type", "text", "image", "mention", "entryId", "name", "bytes", "mimeType", "path",
+];
+const ATTACHMENT: &[&str] = &[
+    "sha256",
+    "bytes",
+    "mimeType",
+    "name",
+    "kind",
+    "delivery",
+    "width",
+    "height",
+    "thumbnailAvailable",
+];
+
+const NESTED: [Nested; 15] = [
+    Nested {
+        key: "agent",
+        fields: AGENT,
+        element: None,
+    },
+    Nested {
+        key: "status",
+        fields: AGENT_STATUS,
+        element: None,
+    },
+    Nested {
+        key: "lastError",
+        fields: AGENT_ERROR,
+        element: None,
+    },
+    Nested {
+        key: "externalStatus",
+        fields: THREAD_STATUS,
+        element: None,
+    },
+    Nested {
+        key: "processSettledStatus",
+        fields: AGENT_STATUS,
+        element: None,
+    },
+    Nested {
+        key: "retry",
+        fields: RETRY,
+        element: None,
+    },
+    Nested {
+        key: "limited",
+        fields: LIMITED,
+        element: None,
+    },
+    Nested {
+        key: "call",
+        fields: TOOL_CALL,
+        element: None,
+    },
+    Nested {
+        key: "detail",
+        fields: TOOL_DETAIL,
+        element: None,
+    },
+    Nested {
+        key: "result",
+        fields: TOOL_RESULT,
+        element: None,
+    },
+    Nested {
+        key: "output",
+        fields: OUTPUT_SUMMARY,
+        element: None,
+    },
+    Nested {
+        key: "raw",
+        fields: RAW_PAYLOAD,
+        element: Some(RAW_PAYLOAD),
+    },
+    Nested {
+        key: "parts",
+        fields: CONTENT_PART,
+        element: Some(CONTENT_PART),
+    },
+    Nested {
+        key: "content",
+        fields: CONTENT_PART,
+        element: Some(CONTENT_PART),
+    },
+    Nested {
+        key: "attachments",
+        fields: ATTACHMENT,
+        element: Some(ATTACHMENT),
+    },
+];
+
+fn nested(key: &str) -> Option<&'static Nested> {
+    NESTED.iter().find(|nested| nested.key == key)
+}
+
+/// Copy every field the typed form does not know, at every depth: a known field the fold cleared
+/// stays cleared, and an unknown one a newer build wrote is kept. Objects of types not in
+/// [`NESTED`] are left as the typed form has them; an array of a listed type merges element by
+/// element.
 fn merge_unknown(typed: &mut ace_json::Map, original: &ace_json::Map, known: &[&str]) -> bool {
     let mut added = false;
     for (key, value) in original {
@@ -123,8 +311,19 @@ fn merge_unknown(typed: &mut ace_json::Map, original: &ace_json::Map, known: &[&
                 added = true;
             }
             Some(Value::Object(inner)) => {
-                if let (Value::Object(outer), Some(nested)) = (value, nested_known(key)) {
-                    added |= merge_unknown(inner, outer, nested);
+                if let (Value::Object(outer), Some(nested)) = (value, nested(key)) {
+                    added |= merge_unknown(inner, outer, nested.fields);
+                }
+            }
+            Some(Value::Array(inner)) => {
+                if let (Value::Array(outer), Some(nested)) = (value, nested(key))
+                    && let Some(element) = nested.element
+                {
+                    for (typed, original) in inner.iter_mut().zip(outer) {
+                        if let (Value::Object(typed), Value::Object(original)) = (typed, original) {
+                            added |= merge_unknown(typed, original, element);
+                        }
+                    }
                 }
             }
             Some(_) => {}
@@ -235,16 +434,73 @@ impl<T: Clone + 'static> Records<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::keep_unknown_fields;
+    use super::*;
+
+    fn keys(value: &impl serde::Serialize) -> Vec<String> {
+        let json = ace_json::ser::to_string(value).unwrap();
+        match ace_json::parse(&json).unwrap() {
+            Value::Object(map) => map.keys().map(|key| key.as_str().to_owned()).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// A const must list every field the struct serializes: the literal forces each field, so a
+    /// field added to the struct fails this test until the const gains it too.
+    #[test]
+    fn each_nested_field_list_is_the_structs_serde_fields() {
+        let retry = ace_core::state::RetryInfo {
+            on: "network".to_owned(),
+            attempt: Some(1),
+            until: Some(2),
+            message: Some("m".to_owned()),
+        };
+        assert_eq!(keys(&retry), RETRY);
+        let limited = ace_core::state::LimitedInfo {
+            until: Some(1),
+            message: Some("m".to_owned()),
+        };
+        assert_eq!(keys(&limited), LIMITED);
+        let error = ace_core::status::AgentError {
+            kind: "k".to_owned(),
+            message: "m".to_owned(),
+            code: Some("c".to_owned()),
+            title: Some("t".to_owned()),
+            detail: Some("d".to_owned()),
+            details: Some(ace_core::status::ProviderErrorDetails {
+                code: "c".to_owned(),
+                provider: "p".to_owned(),
+                title: Some("t".to_owned()),
+                detail: Some("d".to_owned()),
+                model: Some("m".to_owned()),
+            }),
+        };
+        assert_eq!(keys(&error), AGENT_ERROR);
+        let attachment = ace_core::item_model::Attachment {
+            sha256: "s".to_owned(),
+            bytes: 1,
+            mime_type: "image/png".to_owned(),
+            name: "n".to_owned(),
+            kind: Some("image".to_owned()),
+            delivery: Some("inline".to_owned()),
+            width: Some(1),
+            height: Some(2),
+            thumbnail_available: Some(true),
+        };
+        let mut listed = keys(&attachment);
+        listed.sort();
+        let mut expected: Vec<String> = ATTACHMENT.iter().map(|key| (*key).to_owned()).collect();
+        expected.sort();
+        assert_eq!(listed, expected);
+    }
 
     #[test]
-    fn an_unknown_field_inside_a_nested_object_survives_a_rewrite() {
-        // A tool record's `call` gains a field this build does not know: the rewrite keeps it,
-        // as the TypeScript's passthrough schema does.
-        let typed = r#"{"call":{"status":"succeeded"}}"#;
-        let base = r#"{"call":{"status":"running","futureNested":{"b":2}}}"#;
+    fn an_unknown_field_inside_a_part_survives_and_a_cleared_one_does_not() {
+        let typed = r#"{"parts":[{"type":"text","text":"hi"}],"call":{"status":"succeeded"}}"#;
+        let base = r#"{"parts":[{"type":"text","text":"old","futurePart":true}],"call":{"status":"running","futureNested":{"b":2},"error":"old"}}"#;
         let merged = keep_unknown_fields(typed, base);
-        assert!(merged.contains(r#""status":"succeeded""#), "{merged}");
+        assert!(merged.contains(r#""futurePart":true"#), "{merged}");
         assert!(merged.contains(r#""futureNested":{"b":2}"#), "{merged}");
+        assert!(merged.contains(r#""text":"hi""#), "{merged}");
+        assert!(!merged.contains(r#""error":"old""#), "{merged}");
     }
 }

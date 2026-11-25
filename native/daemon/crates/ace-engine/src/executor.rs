@@ -102,6 +102,9 @@ pub struct Shared {
     /// `idle` never infers work from queue lengths: a producer paused between its count and its
     /// push still keeps the engine busy.
     ordinary_queued: AtomicUsize,
+    /// The shutdown test's window: a producer paused between its admission check and its push.
+    #[cfg(test)]
+    pub(crate) pause_producer: AtomicBool,
     /// Producers between their admission check and their push's move. A push that races
     /// `close_admission` may still land in the inbox, so close waits these out and the end of a
     /// turn never signals "drained" while one is in flight.
@@ -135,6 +138,22 @@ impl Shared {
                 }
                 Err(now) => seen = now,
             }
+        }
+    }
+
+    /// Counts a producer for its whole check-push-move span.
+    fn enter(&self) {
+        self.inflight.fetch_add(1, SeqCst);
+    }
+
+    /// A producer's span ended. The last one to leave an admission-closed executor schedules the
+    /// turn that drains what it just pushed; a guard runs this even while unwinding.
+    fn leave(&self) {
+        if self.inflight.fetch_sub(1, SeqCst) == 1
+            && self.closed.load(SeqCst)
+            && !self.shut.load(SeqCst)
+        {
+            self.moved();
         }
     }
 
@@ -203,6 +222,8 @@ impl Executor {
                 control: ConcurrentQueue::unbounded(),
                 work: ConcurrentQueue::unbounded(),
                 ordinary_queued: AtomicUsize::new(0),
+                #[cfg(test)]
+                pause_producer: AtomicBool::new(false),
                 inflight: AtomicUsize::new(0),
                 notifier,
                 next_task: AtomicU64::new(1),
@@ -335,12 +356,12 @@ impl Executor {
         self.shared.closed.store(true, SeqCst);
         self.shared.inbox.close();
         self.draining.set(Some(sender));
-        // A push that passed the admission check before it closed may still be landing: once it
-        // has, every admitted item is in the inbox and the drain below runs all of them.
-        while self.shared.inflight.load(SeqCst) != 0 {
-            std::thread::yield_now();
+        // A push that passed the admission check before it closed may still be landing. If one
+        // is, its guard's last leave moves the claim and the pump drains everything then; this
+        // call never spins on the JS thread, and the close deadline bounds the wait.
+        if self.shared.inflight.load(SeqCst) == 0 {
+            self.shared.moved();
         }
-        self.shared.moved();
         receiver
     }
 

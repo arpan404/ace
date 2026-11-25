@@ -15,19 +15,37 @@ impl ExecutorWake {
     /// it returns `Refused` and pushes nothing.
     pub fn push(&self, item: Item) -> Push {
         // Counted for its whole check-push-move span: a close that races this push waits it out,
-        // and a turn never reads "drained" while an admitted item is still on its way in.
-        self.shared.inflight.fetch_add(1, SeqCst);
+        // and a turn never reads "drained" while an admitted item is still on its way in. The
+        // guard unwinds with a panicking notifier, so the count can never be stranded.
+        self.shared.enter();
+        let _leave = Inflight(&self.shared);
         if self.shared.closed.load(SeqCst) {
-            self.shared.inflight.fetch_sub(1, SeqCst);
             return Push::Refused;
         }
+        // The shutdown test forces this window: a producer paused between its admission check
+        // and its push, so a close lands mid-span.
+        #[cfg(test)]
+        if self.shared.pause_producer.load(SeqCst) {
+            let mut waited = 0u64;
+            while self.shared.pause_producer.load(SeqCst) && waited < 200_000_000 {
+                std::hint::spin_loop();
+                waited += 1;
+            }
+        }
         if self.shared.inbox.push(item).is_err() {
-            self.shared.inflight.fetch_sub(1, SeqCst);
             return Push::Refused;
         }
         self.shared.moved();
-        self.shared.inflight.fetch_sub(1, SeqCst);
         Push::Accepted
+    }
+}
+
+/// Ends a producer's counted span when it leaves `push`, including by unwinding.
+struct Inflight<'a>(&'a Shared);
+
+impl Drop for Inflight<'_> {
+    fn drop(&mut self) {
+        self.0.leave();
     }
 }
 

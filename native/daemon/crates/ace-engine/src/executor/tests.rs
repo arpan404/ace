@@ -706,3 +706,45 @@ fn a_task_that_ends_the_turn_stops_the_turn_after_its_poll_and_the_rest_runs_in_
     assert_eq!(outcome, Pump::Done);
     assert_eq!(*ran.borrow(), vec!["first", "second"]);
 }
+
+#[test]
+fn a_producer_paused_between_its_check_and_its_push_never_blocks_close() {
+    let (exec, _posts) = executor();
+    let exec = Rc::new(exec);
+    let (count, waker) = parked(&exec, Lane::Work);
+    let wake = exec.waker();
+    // The producer's next push stops after its admission check, before its inbox push.
+    exec.shared.pause_producer.store(true, SeqCst);
+    let finished = Arc::new(AtomicBool::new(false));
+    let producer = {
+        let finished = Arc::clone(&finished);
+        let waker = waker.clone();
+        std::thread::spawn(move || {
+            let _ = wake.push(Item::Wake(waker));
+            finished.store(true, SeqCst);
+        })
+    };
+    // Wait until the producer is paused inside its counted span, then close admission.
+    while exec.shared.inflight.load(SeqCst) == 0 {
+        std::thread::yield_now();
+    }
+    let started = std::time::Instant::now();
+    let mut drain = exec.close_admission();
+    // The close returned at once, on the JS thread, with the producer still paused.
+    assert!(started.elapsed() < std::time::Duration::from_millis(300));
+    assert!(!finished.load(SeqCst));
+    // Its push is refused once the pause ends, and the drain still completes.
+    exec.shared.pause_producer.store(false, SeqCst);
+    producer.join().expect("producer thread");
+    let mut budget = Standard;
+    let mut done = false;
+    for _ in 0..10_000 {
+        let _ = exec.pump(&mut budget, &open);
+        if matches!(drain.try_recv(), Ok(Some(()))) {
+            done = true;
+            break;
+        }
+    }
+    assert!(done, "the drain completed");
+    assert_eq!(count.get(), 1, "the refused push never ran");
+}

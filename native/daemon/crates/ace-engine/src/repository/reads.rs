@@ -28,6 +28,22 @@ pub const CLEAR_THREAD_BLOBS: &str =
     "DELETE FROM streamed_blobs WHERE thread_id=? AND sha256 IS NULL";
 pub const SESSION_BACKEND: &str = "SELECT backend FROM engine_sessions WHERE thread_id=?";
 
+/// `clearIncompleteBlobs` (`:715`): one statement, no engine state. The transaction opens without
+/// a state borrow, so a live flush cannot re-enter the engine (`actor/fold.rs` calls it after a
+/// process exit).
+pub fn clear_incomplete_blobs_store(
+    store: &EngineStore,
+    id: Option<&str>,
+) -> Result<(), EngineError> {
+    store.atomic(|tx| {
+        match id {
+            None => stmt_cache::run(tx.conn(), CLEAR_BLOBS, vec![])?,
+            Some(id) => stmt_cache::run(tx.conn(), CLEAR_THREAD_BLOBS, vec![text(id)])?,
+        };
+        Ok(())
+    })
+}
+
 impl State {
     /// `nativeEntity` (`:547`).
     pub fn native_entity(
@@ -207,13 +223,7 @@ impl State {
         store: &EngineStore,
         id: Option<&str>,
     ) -> Result<(), EngineError> {
-        store.atomic(|tx| {
-            match id {
-                None => stmt_cache::run(tx.conn(), CLEAR_BLOBS, vec![])?,
-                Some(id) => stmt_cache::run(tx.conn(), CLEAR_THREAD_BLOBS, vec![text(id)])?,
-            };
-            Ok(())
-        })
+        clear_incomplete_blobs_store(store, id)
     }
 }
 
