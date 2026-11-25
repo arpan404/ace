@@ -66,6 +66,16 @@ const OWN_ID_BASE: u64 = 1 << 63;
 const INTERRUPT_MS: f64 = 10_000.0;
 /// A close's background-terminal reads and stops (`stopShells`, `:183`).
 const TERMINALS_MS: f64 = 10_000.0;
+/// A terminal-list page's bounds (`TerminalPage`, `background-terminals.ts:2`).
+const TERMINALS_PER_PAGE: usize = 256;
+/// A terminal's `processId` bound.
+const TERMINAL_ID_MAX: usize = 1024;
+/// A continuation cursor's bound.
+const CURSOR_MAX: usize = 4096;
+/// A close reads at most 4,096 terminals over at most 64 pages
+/// (`readBackgroundTerminals`).
+const TERMINAL_TOTAL: usize = 4096;
+const TERMINAL_PAGES: usize = 64;
 /// The idle deadline's facade key.
 pub const IDLE_TIMER: &str = "host:idle";
 /// A shared host's pending-request bound (`host.ts:256`).

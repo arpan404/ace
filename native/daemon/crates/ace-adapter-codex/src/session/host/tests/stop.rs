@@ -729,6 +729,101 @@ fn a_close_pages_through_every_shell_before_stopping_them() {
     assert!(stops[1].contains("\"processId\":\"p2\""));
 }
 
+/// A page the page schema refuses fails the cleanup: it is never read as an
+/// empty page, so a close cannot report success while terminals still run
+/// (`TerminalPage`, `background-terminals.ts:2`).
+#[test]
+fn a_malformed_terminal_page_fails_the_close_instead_of_reading_as_empty() {
+    let mut too_many = Vec::new();
+    for index in 0..257 {
+        too_many.push(ace_json::json!({"processId": format!("p{index}")}));
+    }
+    let pages = [
+        ace_json::json!({"nextCursor": null}),
+        ace_json::json!({"data": "p1"}),
+        ace_json::json!({"data": [{}], "nextCursor": null}),
+        ace_json::json!({"data": [{"processId": ""}], "nextCursor": null}),
+        ace_json::json!({"data": [{"processId": 7}], "nextCursor": null}),
+        ace_json::json!({"data": too_many, "nextCursor": null}),
+    ];
+    for page in pages {
+        let host = bare(true);
+        let events = Arc::new(crate::session::harness::Events::default());
+        let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+        claim_thread(&host, 1, "t");
+        busy_turn(&host, "t");
+
+        let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+        let interrupt = line_id(&lines, "turn/interrupt", Some("t")).expect("the interrupt");
+        let (_, lines) = pump(&host, host.line(&reply(&interrupt, ace_json::json!({}))));
+        let list = line_id(&lines, "thread/backgroundTerminals/list", Some("t"))
+            .expect("the terminal list");
+        let (effects, lines) = pump(&host, host.line(&reply(&list, page.clone())));
+
+        assert!(
+            effects.iter().any(|effect| matches!(
+                effect,
+                HostEffect::DetachFailed {
+                    tenant: 1,
+                    message,
+                    ..
+                } if message.contains("background terminals")
+            )),
+            "the malformed page fails the close: {page} -> {effects:#?}"
+        );
+        assert!(
+            line_ids(&lines, "thread/unsubscribe").is_empty(),
+            "the detached channel never leaves on a malformed page: {page} -> {lines:?}"
+        );
+        assert_eq!(host.tenant_count(), 1, "the channel stays attached: {page}");
+    }
+}
+
+/// A cursor the page schema refuses is not the end of the list: an empty or
+/// non-string `nextCursor` fails the cleanup instead of reporting the last
+/// page (`TerminalPage`, `background-terminals.ts:2`).
+#[test]
+fn a_malformed_terminal_cursor_fails_the_close_instead_of_ending_the_scan() {
+    for cursor in [ace_json::json!(""), ace_json::json!(7)] {
+        let host = bare(true);
+        let events = Arc::new(crate::session::harness::Events::default());
+        let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+        claim_thread(&host, 1, "t");
+
+        let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+        let list = line_id(&lines, "thread/backgroundTerminals/list", Some("t"))
+            .expect("the terminal list");
+        let (effects, lines) = pump(
+            &host,
+            host.line(&reply(
+                &list,
+                ace_json::json!({"data": [{"processId": "p1"}], "nextCursor": cursor}),
+            )),
+        );
+
+        assert!(
+            effects.iter().any(|effect| matches!(
+                effect,
+                HostEffect::DetachFailed {
+                    tenant: 1,
+                    message,
+                    ..
+                } if message.contains("background terminals")
+            )),
+            "the malformed cursor fails the close: {cursor} -> {effects:#?}"
+        );
+        assert!(
+            line_ids(&lines, "thread/unsubscribe").is_empty(),
+            "the detached channel never leaves on a malformed cursor: {cursor}"
+        );
+        assert_eq!(
+            host.tenant_count(),
+            1,
+            "the channel stays attached: {cursor}"
+        );
+    }
+}
+
 /// A terminal reply from a failed close is not the retry's: only the current
 /// attempt's pages and stops advance it.
 #[test]

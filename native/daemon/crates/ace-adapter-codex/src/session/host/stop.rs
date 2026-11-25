@@ -177,23 +177,21 @@ impl Inner {
             }
             Ok(value) => value,
         };
-        if let Some(listed) = page.get("data").and_then(Value::as_array) {
-            scan.terminals.extend(listed.iter().filter_map(|terminal| {
-                match terminal.get("processId") {
-                    Some(Value::String(text)) => Some(text.clone()),
-                    _ => None,
-                }
-            }));
-        }
-        if scan.terminals.len() > 4096 {
+        let (listed, next) = match read_terminal_page(page) {
+            Ok(read) => read,
+            Err(message) => {
+                self.detach_failed(
+                    tenant,
+                    &format!("Could not stop the background terminals: {message}"),
+                );
+                return;
+            }
+        };
+        scan.terminals.extend(listed);
+        if scan.terminals.len() > TERMINAL_TOTAL {
             self.detach_failed(tenant, "Codex terminal capacity reached");
             return;
         }
-        let next = page
-            .get("nextCursor")
-            .and_then(Value::as_str)
-            .filter(|cursor| !cursor.is_empty())
-            .map(JsString::from);
         match next {
             None => self.stop_listed_terminals(tenant, attempt, thread, scan.terminals),
             Some(cursor) => {
@@ -202,7 +200,7 @@ impl Inner {
                     return;
                 }
                 scan.cursors.insert(cursor.clone());
-                if scan.pages + 1 >= 64 {
+                if scan.pages + 1 >= TERMINAL_PAGES {
                     self.detach_failed(tenant, "Codex terminal pagination capacity reached");
                     return;
                 }
@@ -382,4 +380,38 @@ impl Inner {
         self.gate.drain();
         self.out.push(HostEffect::Retire { reason, awaited });
     }
+}
+
+/// One terminal-list page as `TerminalPage` reads it
+/// (`background-terminals.ts:2`): `data` is required, at most 256 terminals
+/// with a 1–1,024 character `processId`, and `nextCursor` is absent, null, or
+/// a 1–4,096 character string. A page that fails this is refused whole, never
+/// read as an empty page or as the end of the list.
+fn read_terminal_page(page: &Value) -> Result<(Vec<JsString>, Option<JsString>), &'static str> {
+    let data = match page.get("data") {
+        Some(Value::Array(items)) => items,
+        _ => return Err("the terminal page has no list of terminals"),
+    };
+    if data.len() > TERMINALS_PER_PAGE {
+        return Err("the terminal page lists too many terminals");
+    }
+    let mut terminals = Vec::with_capacity(data.len());
+    for terminal in data {
+        match terminal.get("processId") {
+            Some(Value::String(process))
+                if process.len_utf16() > 0 && process.len_utf16() <= TERMINAL_ID_MAX =>
+            {
+                terminals.push(process.clone());
+            }
+            _ => return Err("the terminal page names an invalid process"),
+        }
+    }
+    let next = match page.get("nextCursor") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(cursor)) if (1..=CURSOR_MAX).contains(&cursor.len_utf16()) => {
+            Some(cursor.clone())
+        }
+        Some(_) => return Err("the terminal page has an invalid cursor"),
+    };
+    Ok((terminals, next))
 }
