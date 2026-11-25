@@ -15,6 +15,7 @@ import { storageFixture } from "./test-support.ts";
 import { StorageInventory } from "./inventory.ts";
 import { createBuiltinSkillRoot } from "../builtin-skill-roots.ts";
 import { builtinSkillProcessLease } from "../builtin-skill-processes.ts";
+import { Engine } from "../engine/index.ts";
 
 const fixtures: Awaited<ReturnType<typeof storageFixture>>[] = [];
 afterEach(async () => {
@@ -92,6 +93,32 @@ test("pinned and human-waiting descendants protect their whole archived tree", a
       .filter((item) => item.kind === "threads")
       .every((item) => item.reasons.includes("pinned")),
   ).toBe(true);
+});
+
+test("an archived thread with missing queue metadata is protected while other candidates are planned", async () => {
+  const f = await setup();
+  const engine = new Engine(f.store);
+  try {
+    await engine.ready();
+    f.services.engine = engine;
+    const missing = f.thread("no-queue-metadata");
+    const known = f.thread("readable-queue");
+    f.store.statement("INSERT INTO engine_queue(thread_id) VALUES (?)").run(known.id);
+    const plan = await f.storage.plan("owner", {
+      op: "cleanup.plan",
+      kinds: ["threads"],
+      forceItems: [],
+    });
+    expect(plan.items.find((item) => item.label === missing.title)).toMatchObject({
+      disposition: "protect",
+      reasons: ["owner_unavailable"],
+    });
+    expect(plan.items.find((item) => item.label === known.title)).toMatchObject({
+      disposition: "remove",
+    });
+  } finally {
+    await engine.close();
+  }
 });
 
 test("a delegation root that joined another tree keeps its members while that tree is busy", async () => {

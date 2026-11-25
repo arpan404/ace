@@ -1,6 +1,7 @@
 import { ThreadId, type StorageReason } from "@ace/protocol";
 import type { BrowserService } from "@ace/browser";
 import type { Engine } from "../engine/index.ts";
+import { MissingQueueMetadata } from "../engine/queue-store.ts";
 import type { WorkspaceRuntime } from "../workspace-runtime.ts";
 import type { Store } from "../store.ts";
 import type { FrozenThread } from "../thread-cache.ts";
@@ -129,8 +130,14 @@ export function threadReasons(
     if (!["done", "failed", "new"].includes(thread.status.state)) own.add("active_tree");
     if (services.engine) {
       if (services.engine.hasSession(id)) own.add("leased");
-      if (Object.values(services.engine.liveWork(id)).some((count) => count > 0))
-        own.add("active_tree");
+      try {
+        if (Object.values(services.engine.liveWork(id)).some((count) => count > 0))
+          own.add("active_tree");
+      } catch (error) {
+        if (!(error instanceof MissingQueueMetadata)) throw error;
+        // The rest of the plan can finish. This tree still needs proof before cleanup.
+        own.add("owner_unavailable");
+      }
     } else if (sessions) own.add("owner_unavailable");
     if (services.workspaceActions?.hasOwnedWork(id) || services.browser?.hasActiveSession(id))
       own.add("active_tree");
