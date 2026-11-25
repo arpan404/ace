@@ -78,6 +78,26 @@ for (const empty of [false, true])
     },
   );
 
+test("an added OpenCode account lists its models while another account's service holds the default port", async () => {
+  const work = await workspace();
+  cleanup.push(work.close);
+  const rows = await createModelDiscovery()(
+    {
+      ...instance("opencode"),
+      executable: opencode,
+      cwd: work.path,
+      env: {
+        HOME: work.path,
+        // The service's own metadata lists nothing, so only the CLI listing supplies models.
+        ACE_TEST_EMPTY_MODELS: "true",
+        ACE_TEST_SERVICE_PORT_TAKEN: "1",
+      },
+    },
+    new AbortController().signal,
+  );
+  expect(rows.map((row) => row.id)).toContain("opencode-go/muse-spark-1.3-contributor");
+});
+
 test("a persisted OpenCode choice from before the fix opens after restart without catalog refresh", async () => {
   const work = await workspace();
   cleanup.push(work.close);
