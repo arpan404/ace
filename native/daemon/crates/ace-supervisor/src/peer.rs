@@ -615,6 +615,24 @@ impl RpcPeer {
         effects
     }
 
+    /// `#settle` for one facade promise (`jsonrpc.ts:277`–`:284`): a channel's
+    /// detach settles only the calls that channel is waiting on, by the promise
+    /// it holds, and nothing else on the shared pipe. Empty when that call was
+    /// already settled.
+    pub fn abort(&mut self, facade: u64, reason: &str) -> Vec<PeerEffect> {
+        let at = self
+            .pending
+            .iter()
+            .position(|(_, pending)| pending.facade == facade);
+        let Some(at) = at else {
+            return Vec::new();
+        };
+        let pending = self.pending.remove(at).1;
+        let mut effects = Vec::new();
+        self.settle_pending(pending, Err(PeerError::new(reason)), &mut effects);
+        effects
+    }
+
     /// One received line (`#receive`, `jsonrpc.ts:315`–`:347`).
     pub fn line(&mut self, line: &str) -> Vec<PeerEffect> {
         if self.closed {
