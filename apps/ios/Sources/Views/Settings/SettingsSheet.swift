@@ -6,7 +6,7 @@ enum SettingsRoute: Hashable {
     case settings, pulls, forge(ForgeRoute)
     case accountHome, account
     case machines, machine(String), pair
-    case notifications, lock, appearance, keyboard
+    case notifications, lock, appearance, keyboard, editor
     case archive, history, profiles, cache, thread(machine: String, id: String)
     case tool(SettingsTool, machine: String)
     case automation(machine: String, id: String)
@@ -195,6 +195,7 @@ struct SettingsSheet: View {
                 SettingsTools(inbox: inbox, machine: $toolsMachine)
                 Section {
                     link(.appearance, "Appearance", .palette, value: PhoneAppearance.label(appearance), id: "settings.appearance")
+                    link(.editor, "Editor", .code, id: "settings.editor")
                     link(.keyboard, "Keyboard", .keyboard, id: "settings.keyboard")
                 } header: { InsetHeader("Interface") }
                 .insetRowBackground()
@@ -275,6 +276,7 @@ struct SettingsSheet: View {
         case .lock:
             if let lock { AppLockView(lock: lock) }
         case .appearance: AppearanceView(inbox: inbox)
+        case .editor: EditorSettingsView()
         case .keyboard: KeyboardSettingsView()
         case .archive:
             ArchiveView(inbox: inbox, following: $following) { machine, id in
