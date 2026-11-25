@@ -362,6 +362,11 @@ impl<T: Clone + serde::Serialize + 'static> Records<T> {
     /// every section and persists the ones with changes).
     fn tracking_access(&mut self, _write: bool) {}
 
+    /// The keys this scope wrote, in overlay order (the snapshot's agent encode step).
+    pub fn changes(&self) -> Vec<(String, ace_core::section::Change<'_, T>)> {
+        self.section.changes()
+    }
+
     /// Whether the section has changes or patches to persist.
     pub fn has_changes(&self) -> bool {
         !self.patches.is_empty() || self.section.has_changes()

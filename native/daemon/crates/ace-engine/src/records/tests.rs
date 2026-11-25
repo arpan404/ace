@@ -173,3 +173,99 @@ fn an_agent_record_writes_the_agents_section_and_loads_back_without_a_native_run
     assert_eq!(stored[0][0], Value::Text("agents".to_owned()));
     assert!(matches!(&stored[0][2], Value::Text(text) if text.contains(r#""nativeRuns":"#)));
 }
+
+#[test]
+fn sections_share_one_bounded_cache_and_an_evicted_record_reloads_from_sqlite() {
+    let conn = database();
+    // One entry: the second write evicts the first, the way a full budget does.
+    let budget = Rc::new(RefCell::new(RecordBudget::new(1, records::MAX_BYTES)));
+    let mut items: Records<Item> = records(&conn, &budget, "items", decode::decode_record::<Item>);
+    for (id, text) in [("a", "first"), ("b", "second")] {
+        let item: Item = ace_json::from_value(
+            &ace_json::parse(&format!(
+                r#"{{"id":"{id}","threadId":"t","agentId":"x","createdAt":1,"complete":true,"type":"message","role":"assistant","parts":[{{"type":"text","text":"{text}"}}]}}"#
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+        items.write(id, item);
+        items.persist().unwrap();
+        items.committed();
+    }
+    assert_eq!(budget.borrow().size(), 1, "the sections share one budget");
+    // The evicted record is still readable: the read falls through to SQLite.
+    let reloaded = items.read("a").unwrap().expect("the stored record");
+    let Item::Message { parts, .. } = reloaded else {
+        panic!("a message");
+    };
+    assert!(
+        matches!(parts.first(), Some(ace_core::item_model::ContentPart::Text { text, .. }) if text.as_str() == "first")
+    );
+}
+
+#[test]
+fn appended_text_counts_against_the_budget_and_survives_eviction_and_replacement() {
+    let conn = database();
+    let budget = Rc::new(RefCell::new(RecordBudget::default()));
+    let item_json = r#"{"id":"i","threadId":"t","agentId":"a","createdAt":1,"complete":true,"type":"message","role":"assistant","parts":[{"type":"text","text":""}]}"#;
+    stmt_cache::run(
+        &conn,
+        "INSERT INTO engine_state_records VALUES (?,?,?,?)",
+        vec![
+            Value::Text("t".to_owned()),
+            Value::Text("items".to_owned()),
+            Value::Text("i".to_owned()),
+            Value::Text(item_json.to_owned()),
+        ],
+    )
+    .unwrap();
+    let mut items: Records<Item> = records(&conn, &budget, "items", decode::decode_record::<Item>);
+    assert!(items.read("i").unwrap().is_some());
+    let before = budget.borrow().byte_length();
+    items
+        .append(
+            "i",
+            crate::records::Append {
+                path: vec![
+                    crate::records::PathStep::Key("parts".to_owned()),
+                    crate::records::PathStep::Index(0),
+                    crate::records::PathStep::Key("text".to_owned()),
+                ],
+                text: "appended".to_owned(),
+                seed: Some(ace_json::parse(r#"{"type":"text"}"#).unwrap()),
+            },
+            false,
+        )
+        .unwrap();
+    assert!(
+        budget.borrow().byte_length() > before,
+        "the appended text is charged to the cached entry"
+    );
+    // Evict by filling the budget from another section, then read again.
+    let filler = records::section(&budget);
+    for index in 0..records::MAX_ENTRIES {
+        filler.set::<String>(
+            &format!("f{index}"),
+            {
+                let json = "{}".to_owned();
+                records::Cached {
+                    bytes: json.len(),
+                    value: Rc::new(json.clone()),
+                    json,
+                }
+            },
+            2,
+        );
+    }
+    items.section.clear();
+    let reloaded = items
+        .read("i")
+        .unwrap()
+        .expect("the stored record and its patch");
+    let Item::Message { parts, .. } = reloaded else {
+        panic!("a message");
+    };
+    assert!(
+        matches!(parts.first(), Some(ace_core::item_model::ContentPart::Text { text, .. }) if text.as_str() == "appended")
+    );
+}

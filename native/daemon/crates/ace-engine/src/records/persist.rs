@@ -103,9 +103,9 @@ impl<T: Clone + 'static> Records<T> {
     }
 
     /// `release` (`records.ts:182`): give back this dictionary's share of the budget.
-    /// Permanent: a released section caches nothing, and later reads use SQLite.
+    /// Permanent: a released section caches nothing, and later reads use SQLite. Unflushed
+    /// changes stay in the overlay, as the TypeScript's `touched` entries do.
     pub fn release(&mut self) {
         self.cache.disable();
-        self.section.committed();
     }
 }
