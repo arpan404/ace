@@ -17,8 +17,6 @@ workspace = true
 ace-adapter-api = { path = "../ace-adapter-api" }
 # ace-supervisor: sessions spawn the provider CLI through the supervisor, never directly.
 ace-supervisor = { path = "../ace-supervisor" }
-# agent-client-protocol: the ACP schema and bidirectional JSON-RPC connection (Apache-2.0, the protocol's official Rust crate, the counterpart of the TypeScript adapter's SDK).
-agent-client-protocol = "5"
 # ace-core: translators return its facts; only the core allocates ace ids.
 ace-core = { path = "../ace-core" }
 # serde: translator state and quirks serialize for tests and diagnostics.

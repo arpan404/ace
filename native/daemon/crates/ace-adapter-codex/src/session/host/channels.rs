@@ -3,6 +3,12 @@
 
 use super::*;
 
+/// A send frame the channel refused: its line must never reach the wire.
+pub(super) struct RefusedSend {
+    pub tenant: u64,
+    pub message: String,
+}
+
 impl Inner {
     /// Keep each thread's running turn, so a close can interrupt it.
     pub(super) fn track_active(&mut self, message: &Value) {
@@ -33,12 +39,26 @@ impl Inner {
 
     /// An outgoing frame: a tenant's own, its answer, or an init frame to
     /// everyone (`#sent`, `:437`).
-    pub(super) fn sent(&mut self, data: &Value) -> Option<String> {
+    pub(super) fn sent(&mut self, data: &Value) -> Option<RefusedSend> {
         let sender = self.sender;
         let tenant = self.router.sent(data, sender.as_ref());
         if let Some(tenant) = tenant {
+            // `Tenant.deliver` for a muted or closed channel: no frames reach
+            // its handlers, and it is not asked to admit one; its requests
+            // still flow so its tree can be stopped (`host.ts:126`, `:170`).
+            if self
+                .tenants
+                .get(&tenant)
+                .is_some_and(|entry| entry.muted || entry.closed.is_some())
+            {
+                return None;
+            }
+            let admitted = self.admitted_send == Some(tenant);
+            if admitted {
+                self.admitted_send = None;
+            }
             let mut failed = None;
-            if self.deliver(tenant, Direction::Send, data, Some(&mut failed)) {
+            if self.deliver_vetted(tenant, Direction::Send, data, admitted, Some(&mut failed)) {
                 return None;
             }
             if !self.tenants.contains_key(&tenant) {
@@ -53,7 +73,10 @@ impl Inner {
                 });
                 return None;
             }
-            return failed.or_else(|| Some("Codex send frame was not admitted".to_owned()));
+            return Some(RefusedSend {
+                tenant,
+                message: failed.unwrap_or_else(|| "Codex send frame was not admitted".to_owned()),
+            });
         }
         let method = data.get("method").and_then(Value::as_str)?;
         if method == "initialize" {
@@ -283,6 +306,19 @@ impl Inner {
         data: &Value,
         failed: Option<&mut Option<String>>,
     ) -> bool {
+        self.deliver_vetted(tenant, dir, data, false, failed)
+    }
+
+    /// Delivery whose admission the caller already decided (`admitted`), so a
+    /// channel is asked once per frame (`host.rs:233`).
+    fn deliver_vetted(
+        &mut self,
+        tenant: u64,
+        dir: Direction,
+        data: &Value,
+        admitted: bool,
+        failed: Option<&mut Option<String>>,
+    ) -> bool {
         let Some(entry) = self.tenants.get_mut(&tenant) else {
             return false;
         };
@@ -290,7 +326,12 @@ impl Inner {
             return false;
         }
         let handlers = Arc::clone(&entry.handlers);
-        match handlers.admit(dir, data) {
+        let verdict = if admitted {
+            Admission::Taken
+        } else {
+            handlers.admit(dir, data)
+        };
+        match verdict {
             // The frame's delivery is published where the host decides it: a
             // settlement or exit an earlier input decided is never overtaken by
             // the frame of a later one.
@@ -332,8 +373,12 @@ impl Inner {
     /// that owns the thread (`#dropped`, `:466`).
     pub(super) fn dropped(&mut self, line: &DroppedLine) {
         let mut rejected = false;
+        // Only a reply the framing layer lost rejects its request
+        // (`host.ts:469`-`:473`): a server request's id is the provider's, and
+        // may coincide with a client call's number.
         if line.phase != DroppedPhase::End
-            && let Some(id) = &line.response
+            && line.attributed.response
+            && let Some(id) = &line.attributed.id
         {
             let message = dropped_message(line.bytes);
             let peer = self
@@ -354,7 +399,7 @@ impl Inner {
                 }
             }
         }
-        let affected = match &line.thread {
+        let affected = match &line.attributed.thread_id {
             Some(thread) => match self.router.owner(thread).copied() {
                 Some(owner) => vec![owner],
                 None => self.tenant_ids(),

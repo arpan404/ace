@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { WebSocketServer } from "ws";
+import { APP_SOCKET_HEADER } from "@ace/protocol";
 import type {
   NativeSocketHandle,
   TransportAdmitAnswer,
@@ -49,6 +50,7 @@ export interface NativeUpgrade {
     handle: NativeSocketHandle,
     reservation: number,
     userAgent: string | null | undefined,
+    appSocketTag?: string,
   ): void;
   /**
    * The listener is retiring: its sweep runs next, so a `101` that finishes afterwards would
@@ -70,11 +72,14 @@ export interface OwnedUpgrade extends NativeUpgrade {
  * listener closes is released here, so a closing loopback never drops a remote upgrade's charge.
  */
 export function ownReservations(upgrade: NativeUpgrade): OwnedUpgrade {
-  const held = new Set<number>();
+  // Keep the upgrade header with its reservation until registration or release.
+  const held = new Map<number, string | undefined>();
   return {
     async admit(request) {
       const answer = await upgrade.admit(request);
-      if (answer.decision === "accept") held.add(answer.reservation);
+      if (answer.decision === "accept") {
+        held.set(answer.reservation, request.appSocketTag ?? undefined);
+      }
       return answer;
     },
     release(reservation) {
@@ -83,14 +88,15 @@ export function ownReservations(upgrade: NativeUpgrade): OwnedUpgrade {
     },
     opened(handle, reservation, userAgent) {
       // The registration consumes the reservation, exactly as a `ws` upgrade's does.
+      const appSocketTag = held.get(reservation);
       held.delete(reservation);
-      upgrade.opened(handle, reservation, userAgent);
+      upgrade.opened(handle, reservation, userAgent, appSocketTag);
     },
     retire() {
       upgrade.retire?.();
     },
     releaseHeld() {
-      for (const reservation of held) upgrade.release(reservation);
+      for (const reservation of held.keys()) upgrade.release(reservation);
       held.clear();
     },
   };
@@ -135,6 +141,7 @@ export function nativeUpgrade(wiring: NativeUpgradeWiring): NativeUpgrade {
     handle: NativeSocketHandle,
     reservation: number,
     userAgent: string | null | undefined,
+    appSocketTag?: string,
   ) => {
     const socket = new NativeSocket(handle);
     wiring.sockets.add(socket);
@@ -143,7 +150,7 @@ export function nativeUpgrade(wiring: NativeUpgradeWiring): NativeUpgrade {
       "connection",
       socket,
       isLocal,
-      { headers: { "user-agent": userAgent ?? undefined } },
+      { headers: { "user-agent": userAgent ?? undefined, [APP_SOCKET_HEADER]: appSocketTag } },
       undefined,
       reservation,
     );
