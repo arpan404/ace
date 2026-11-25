@@ -166,7 +166,11 @@ test("list asks the addon for each Simulator and for the composition", async () 
       },
     ],
   };
-  calls.android = { list: async () => [{ id: "android:Pixel_API_35", name: "Pixel_API_35" }] };
+  calls.android = {
+    list: async () => [
+      { id: "android:Pixel_API_35", platform: "android", name: "Pixel_API_35", state: "booted" },
+    ],
+  };
   addon.answers["devicePlatformSimulatorRecord"] = value(DEVICE);
   addon.answers["devicePlatformList"] = value({
     devices: [
@@ -188,6 +192,40 @@ test("list asks the addon for each Simulator and for the composition", async () 
     { platform: "ios", devices: [DEVICE] },
     { platform: "android", devices: [{ id: "android:Pixel_API_35" }] },
   ]);
+});
+
+test("a failed Rust composition keeps the reads a scoped trigger composes", async () => {
+  addon.calls.length = 0;
+  const instance = platform();
+  const calls = wiring(instance);
+  let androidReads = 0;
+  calls.simulators = {
+    list: async () => [
+      {
+        udid: UDID,
+        name: "iPhone",
+        state: "Booted",
+        runtime: "com.apple.CoreSimulator.SimRuntime.iOS-18-0",
+      },
+    ],
+  };
+  calls.android = {
+    list: async () => {
+      androidReads++;
+      return [
+        { id: "android:Pixel_API_35", platform: "android", name: "Pixel_API_35", state: "booted" },
+      ];
+    },
+  };
+  addon.answers["devicePlatformSimulatorRecord"] = value(DEVICE);
+  addon.answers["devicePlatformList"] =
+    '{"ok":false,"error":{"code":"command_failed","message":"compose failed","hint":"retry"}}';
+  await expect(instance.list()).rejects.toThrow("compose failed");
+  expect(androidReads).toBe(1);
+  addon.answers["devicePlatformList"] = value({ devices: [DEVICE], missing: [] });
+  const devices = await instance.listSource("ios");
+  expect(androidReads).toBe(1);
+  expect(devices.map((device) => device.id)).toEqual([`ios:${UDID}`, "android:Pixel_API_35"]);
 });
 
 test("a stale booted record does not stop a shut-down Simulator from booting", async () => {

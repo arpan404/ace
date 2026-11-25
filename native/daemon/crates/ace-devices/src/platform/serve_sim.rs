@@ -33,16 +33,6 @@ pub const TARBALL_LIMIT: u64 = 32 * 1024 * 1024;
 /// A download that hasn't finished in this long is stopped (slow links get a long allowance).
 pub const INSTALL_TIMEOUT_MS: u64 = 5 * 60_000;
 
-/// The catalog's tool hint, which the TypeScript raises the same way.
-fn download_hint() -> String {
-    words::hint("downloadHint").unwrap_or_default().to_string()
-}
-
-/// The catalog's scrcpy hint.
-fn scrcpy_hint() -> String {
-    words::hint("scrcpyHint").unwrap_or_default().to_string()
-}
-
 /// One npm package tarball ace downloads, pinned by version and the registry's sha512.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Artifact {
@@ -140,35 +130,56 @@ pub struct InstallRequest {
     pub scrcpy_server: Option<String>,
 }
 
-fn unavailable(message: String) -> Error {
-    Error::Failed(Failure {
-        code: Code::ToolMissing,
-        message,
-        hint: download_hint(),
-    })
+/// The catalog's tool words, resolved once per install; a missing key is a build error.
+#[derive(Debug, Clone)]
+struct Hints {
+    download: String,
+    scrcpy: String,
+    timeout: String,
 }
 
-fn scrcpy_unavailable(message: String) -> Error {
-    Error::Failed(Failure {
-        code: Code::ToolMissing,
-        message,
-        hint: scrcpy_hint(),
-    })
-}
+impl Hints {
+    fn load() -> Result<Self, Error> {
+        let required = |key: &str| {
+            words::hint(key).map(str::to_string).ok_or_else(|| {
+                Error::Invalid(format!("the device catalog names no tool word for {key}"))
+            })
+        };
+        Ok(Self {
+            download: required("downloadHint")?,
+            scrcpy: required("scrcpyHint")?,
+            timeout: required("downloadTimeout")?,
+        })
+    }
 
-/// The refusal a download that ran past its budget returns, wherever it stood.
-fn timeout_error() -> Error {
-    Error::Failed(Failure {
-        code: Code::Timeout,
-        message: words::hint("downloadTimeout")
-            .unwrap_or("The device tools download took too long")
-            .to_string(),
-        hint: download_hint(),
-    })
+    fn unavailable(&self, message: String) -> Error {
+        Error::Failed(Failure {
+            code: Code::ToolMissing,
+            message,
+            hint: self.download.clone(),
+        })
+    }
+
+    fn scrcpy_unavailable(&self, message: String) -> Error {
+        Error::Failed(Failure {
+            code: Code::ToolMissing,
+            message,
+            hint: self.scrcpy.clone(),
+        })
+    }
+
+    /// The refusal a download that ran past its budget returns, wherever it stood.
+    fn timeout(&self) -> Error {
+        Error::Failed(Failure {
+            code: Code::Timeout,
+            message: self.timeout.clone(),
+            hint: self.download.clone(),
+        })
+    }
 }
 
 /// A directory with the shell's private mode (0700), recursively.
-fn create_dir(path: &Path) -> Result<(), Error> {
+fn create_dir(hints: &Hints, path: &Path) -> Result<(), Error> {
     let mut builder = fs::DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]
@@ -178,7 +189,7 @@ fn create_dir(path: &Path) -> Result<(), Error> {
     }
     builder
         .create(path)
-        .map_err(|error| unavailable(format!("Couldn't unpack: {error}")))
+        .map_err(|error| hints.unavailable(format!("Couldn't unpack: {error}")))
 }
 
 /// `serveSimVersion`'s parse: the version a serve-sim executable printed, when it is one.
@@ -304,19 +315,22 @@ async fn fetch(client: &Client, label: &str, url: &str, limit: u64) -> Result<Ve
 
 /// Unpacks one gzipped tarball, optionally dropping its first path component (`--strip-components
 /// 1`). Every written path stays under `into`.
-fn untar_gz(archive: &Path, into: &Path, strip: bool) -> Result<(), Error> {
-    let file = fs::File::open(archive)
-        .map_err(|error| unavailable(format!("Couldn't unpack {}: {error}", archive.display())))?;
+fn untar_gz(hints: &Hints, archive: &Path, into: &Path, strip: bool) -> Result<(), Error> {
+    let file = fs::File::open(archive).map_err(|error| {
+        hints.unavailable(format!("Couldn't unpack {}: {error}", archive.display()))
+    })?;
     let mut archive = tar::Archive::new(GzDecoder::new(file));
-    fs::create_dir_all(into).map_err(|error| unavailable(format!("Couldn't unpack: {error}")))?;
+    fs::create_dir_all(into)
+        .map_err(|error| hints.unavailable(format!("Couldn't unpack: {error}")))?;
     let entries = archive
         .entries()
-        .map_err(|error| unavailable(format!("Couldn't unpack: {error}")))?;
+        .map_err(|error| hints.unavailable(format!("Couldn't unpack: {error}")))?;
     for entry in entries {
-        let mut entry = entry.map_err(|error| unavailable(format!("Couldn't unpack: {error}")))?;
+        let mut entry =
+            entry.map_err(|error| hints.unavailable(format!("Couldn't unpack: {error}")))?;
         let path = entry
             .path()
-            .map_err(|error| unavailable(format!("Couldn't unpack: {error}")))?
+            .map_err(|error| hints.unavailable(format!("Couldn't unpack: {error}")))?
             .into_owned();
         let relative = if strip {
             path.components().skip(1).collect::<PathBuf>()
@@ -330,21 +344,21 @@ fn untar_gz(archive: &Path, into: &Path, strip: bool) -> Result<(), Error> {
             .components()
             .any(|part| !matches!(part, Component::Normal(_)))
         {
-            return Err(unavailable(format!("Couldn't unpack {}", path.display())));
+            return Err(hints.unavailable(format!("Couldn't unpack {}", path.display())));
         }
         let destination = into.join(&relative);
         if entry.header().entry_type().is_dir() {
             fs::create_dir_all(&destination)
-                .map_err(|error| unavailable(format!("Couldn't unpack: {error}")))?;
+                .map_err(|error| hints.unavailable(format!("Couldn't unpack: {error}")))?;
             continue;
         }
         if let Some(parent) = destination.parent() {
             fs::create_dir_all(parent)
-                .map_err(|error| unavailable(format!("Couldn't unpack: {error}")))?;
+                .map_err(|error| hints.unavailable(format!("Couldn't unpack: {error}")))?;
         }
         entry
             .unpack(&destination)
-            .map_err(|error| unavailable(format!("Couldn't unpack: {error}")))?;
+            .map_err(|error| hints.unavailable(format!("Couldn't unpack: {error}")))?;
     }
     Ok(())
 }
@@ -353,6 +367,7 @@ fn untar_gz(archive: &Path, into: &Path, strip: bool) -> Result<(), Error> {
 /// ace's tools directory, all or nothing: a half-finished install is never found, and an install
 /// already in place is reused.
 fn install_serve_sim(
+    hints: &Hints,
     request: &InstallRequest,
     artifacts: &Artifacts,
     serve_sim: Vec<u8>,
@@ -361,20 +376,21 @@ fn install_serve_sim(
 ) -> Result<ServeSimCommand, Error> {
     let directory = Path::new(&request.directory);
     let root = install_directory(&request.directory, artifacts);
-    create_dir(directory)?;
+    create_dir(hints, directory)?;
     let staging = directory.join(format!(".serve-sim-{}.partial", request.id));
-    create_dir(&staging)?;
+    create_dir(hints, &staging)?;
     let result = (|| {
         let modules = staging.join("package").join("node_modules").join("ws");
-        create_dir(&modules)?;
+        create_dir(hints, &modules)?;
         let serve_sim_tgz = staging.join("serve-sim.tgz");
         let ws_tgz = staging.join("ws.tgz");
-        write_private(&serve_sim_tgz, &serve_sim)?;
-        write_private(&ws_tgz, &ws)?;
+        write_private(hints, &serve_sim_tgz, &serve_sim)?;
+        write_private(hints, &ws_tgz, &ws)?;
         // npm tarballs hold everything under `package/`.
-        untar_gz(&serve_sim_tgz, &staging, false)?;
-        untar_gz(&ws_tgz, &modules, true)?;
+        untar_gz(hints, &serve_sim_tgz, &staging, false)?;
+        untar_gz(hints, &ws_tgz, &modules, true)?;
         write_private(
+            hints,
             &staging.join("package").join(".ace-install.json"),
             format!(
                 "{{\"serveSim\":{},\"ws\":{}}}",
@@ -385,13 +401,13 @@ fn install_serve_sim(
         )?;
         // A timed-out install never replaces the copy in place.
         if cancel.load(Ordering::SeqCst) {
-            return Err(timeout_error());
+            return Err(hints.timeout());
         }
         let _ = fs::remove_dir_all(&root);
         if let Err(error) = fs::rename(staging.join("package"), &root) {
             // Another install finished first with the same pinned packages.
             if managed(&request.directory, &request.node, artifacts).is_none() {
-                return Err(unavailable(format!("serve-sim didn't install: {error}")));
+                return Err(hints.unavailable(format!("serve-sim didn't install: {error}")));
             }
         }
         Ok(())
@@ -399,10 +415,10 @@ fn install_serve_sim(
     let _ = fs::remove_dir_all(&staging);
     result?;
     managed(&request.directory, &request.node, artifacts)
-        .ok_or_else(|| unavailable("serve-sim didn't install".to_string()))
+        .ok_or_else(|| hints.unavailable("serve-sim didn't install".to_string()))
 }
 
-fn write_private(path: &Path, bytes: &[u8]) -> Result<(), Error> {
+fn write_private(hints: &Hints, path: &Path, bytes: &[u8]) -> Result<(), Error> {
     let mut options = fs::OpenOptions::new();
     options.create(true).truncate(true).write(true);
     #[cfg(unix)]
@@ -412,51 +428,61 @@ fn write_private(path: &Path, bytes: &[u8]) -> Result<(), Error> {
     }
     let mut file = options
         .open(path)
-        .map_err(|error| unavailable(format!("Couldn't unpack: {error}")))?;
+        .map_err(|error| hints.unavailable(format!("Couldn't unpack: {error}")))?;
     file.write_all(bytes)
-        .map_err(|error| unavailable(format!("Couldn't unpack: {error}")))
+        .map_err(|error| hints.unavailable(format!("Couldn't unpack: {error}")))
 }
 
 fn json_string(text: &str) -> String {
     serde_json::to_string(text).unwrap_or_else(|_| "\"\"".to_string())
 }
 
+/// The `ACE_SCRCPY_SERVER` the request names, when it is a path: the shell ignores an empty one.
+fn scrcpy_override(request: &InstallRequest) -> Option<&str> {
+    request
+        .scrcpy_server
+        .as_deref()
+        .filter(|value| !value.is_empty())
+}
+
 /// The pinned server already in place (verified by checksum), or a downloaded and verified copy.
 fn install_scrcpy(
+    hints: &Hints,
     request: &InstallRequest,
     release: &ScrcpyRelease,
     bytes: &[u8],
     cancel: &AtomicBool,
 ) -> Result<String, Error> {
-    if let Some(explicit) = request.scrcpy_server.as_deref() {
+    if let Some(explicit) = scrcpy_override(request) {
         if verified(explicit, &release.sha256) {
             return Ok(explicit.to_string());
         }
-        return Err(scrcpy_unavailable(format!(
+        return Err(hints.scrcpy_unavailable(format!(
             "ACE_SCRCPY_SERVER is not scrcpy-server v{}",
             release.version
         )));
     }
     let path = Path::new(&request.directory).join(format!("scrcpy-server-v{}", release.version));
     let path_text = path.to_string_lossy().into_owned();
-    create_dir(Path::new(&request.directory))?;
+    create_dir(hints, Path::new(&request.directory))?;
     let partial = PathBuf::from(format!("{path_text}.{}.partial", request.id));
-    let result = write_private_bytes(&partial, bytes).and_then(|()| {
+    let result = write_private_bytes(hints, &partial, bytes).and_then(|()| {
         // A timed-out install never publishes its partial file.
         if cancel.load(Ordering::SeqCst) {
-            return Err(timeout_error());
+            return Err(hints.timeout());
         }
-        fs::rename(&partial, &path)
-            .map_err(|error| scrcpy_unavailable(format!("scrcpy-server download failed: {error}")))
+        fs::rename(&partial, &path).map_err(|error| {
+            hints.scrcpy_unavailable(format!("scrcpy-server download failed: {error}"))
+        })
     });
     let _ = fs::remove_file(&partial);
     result?;
     Ok(path_text)
 }
 
-fn write_private_bytes(path: &Path, bytes: &[u8]) -> Result<(), Error> {
-    write_private(path, bytes).map_err(|error| match error {
-        Error::Failed(failure) => scrcpy_unavailable(failure.message),
+fn write_private_bytes(hints: &Hints, path: &Path, bytes: &[u8]) -> Result<(), Error> {
+    write_private(hints, path, bytes).map_err(|error| match error {
+        Error::Failed(failure) => hints.scrcpy_unavailable(failure.message),
         other => other,
     })
 }
@@ -470,6 +496,7 @@ fn verified(path: &str, sha256: &str) -> bool {
 /// `tools-entry`'s whole job on the native runtime: make sure serve-sim (a Mac) and scrcpy's
 /// server are installed, with today's URLs, checksums, limits, staging paths and atomic rename.
 pub async fn install(request: InstallRequest) -> Result<ToolsInstalled, Error> {
+    let hints = Hints::load()?;
     let timeout = Duration::from_millis(request.timeout_ms.unwrap_or(INSTALL_TIMEOUT_MS));
     let artifacts = request.artifacts.clone().unwrap_or_else(artifacts);
     let release = request
@@ -481,7 +508,7 @@ pub async fn install(request: InstallRequest) -> Result<ToolsInstalled, Error> {
     let scrcpy_path =
         Path::new(&request.directory).join(format!("scrcpy-server-v{}", release.version));
     let needs_scrcpy = request.scrcpy
-        && request.scrcpy_server.is_none()
+        && scrcpy_override(&request).is_none()
         && !verified(&scrcpy_path.to_string_lossy(), &release.sha256);
     if !needs_serve_sim && !needs_scrcpy {
         return Ok(ToolsInstalled {
@@ -491,15 +518,15 @@ pub async fn install(request: InstallRequest) -> Result<ToolsInstalled, Error> {
                 .flatten(),
             scrcpy: request
                 .scrcpy
-                .then(|| install_scrcpy_existing(&request, &release))
+                .then(|| install_scrcpy_existing(&hints, &request, &release))
                 .transpose()?,
         });
     }
-    let client = Client::new()?;
     // A timeout stops the waiting install from publishing; the blocking work checks this
     // immediately before its rename, so a late unpack never replaces the copy in place.
     let cancel = Arc::new(AtomicBool::new(false));
     let outcome = tokio::time::timeout(timeout, async {
+        let client = Client::new().await?;
         let serve_sim = if needs_serve_sim {
             let (serve_sim_tgz, ws_tgz) = tokio::try_join!(
                 fetch(
@@ -516,13 +543,13 @@ pub async fn install(request: InstallRequest) -> Result<ToolsInstalled, Error> {
                 ),
             )?;
             if digest_sha512_base64(&serve_sim_tgz) != artifacts.serve_sim.integrity {
-                return Err(unavailable(format!(
+                return Err(hints.unavailable(format!(
                     "{} {} failed its checksum",
                     artifacts.serve_sim.name, artifacts.serve_sim.version
                 )));
             }
             if digest_sha512_base64(&ws_tgz) != artifacts.ws.integrity {
-                return Err(unavailable(format!(
+                return Err(hints.unavailable(format!(
                     "{} {} failed its checksum",
                     artifacts.ws.name, artifacts.ws.version
                 )));
@@ -530,12 +557,22 @@ pub async fn install(request: InstallRequest) -> Result<ToolsInstalled, Error> {
             let owned = request.clone();
             let wanted = artifacts.clone();
             let stopped = cancel.clone();
+            let task_hints = hints.clone();
             Some(
                 tokio::task::spawn_blocking(move || {
-                    install_serve_sim(&owned, &wanted, serve_sim_tgz, ws_tgz, &stopped)
+                    install_serve_sim(
+                        &task_hints,
+                        &owned,
+                        &wanted,
+                        serve_sim_tgz,
+                        ws_tgz,
+                        &stopped,
+                    )
                 })
                 .await
-                .map_err(|error| unavailable(format!("serve-sim didn't install: {error}")))??,
+                .map_err(|error| {
+                    hints.unavailable(format!("serve-sim didn't install: {error}"))
+                })??,
             )
         } else {
             None
@@ -543,24 +580,24 @@ pub async fn install(request: InstallRequest) -> Result<ToolsInstalled, Error> {
         let scrcpy = if needs_scrcpy {
             let bytes = fetch(&client, "scrcpy-server", &release.url, release.bytes).await?;
             if digest_sha256_hex(&bytes) != release.sha256 {
-                return Err(scrcpy_unavailable(
-                    "scrcpy-server download failed its checksum".to_string(),
-                ));
+                return Err(hints
+                    .scrcpy_unavailable("scrcpy-server download failed its checksum".to_string()));
             }
             let owned = request.clone();
             let wanted = release.clone();
             let stopped = cancel.clone();
+            let task_hints = hints.clone();
             Some(
                 tokio::task::spawn_blocking(move || {
-                    install_scrcpy(&owned, &wanted, &bytes, &stopped)
+                    install_scrcpy(&task_hints, &owned, &wanted, &bytes, &stopped)
                 })
                 .await
                 .map_err(|error| {
-                    scrcpy_unavailable(format!("scrcpy-server download failed: {error}"))
+                    hints.scrcpy_unavailable(format!("scrcpy-server download failed: {error}"))
                 })??,
             )
         } else if request.scrcpy {
-            Some(install_scrcpy_existing(&request, &release)?)
+            Some(install_scrcpy_existing(&hints, &request, &release)?)
         } else {
             None
         };
@@ -579,21 +616,22 @@ pub async fn install(request: InstallRequest) -> Result<ToolsInstalled, Error> {
         Ok(result) => result,
         Err(_) => {
             cancel.store(true, Ordering::SeqCst);
-            Err(timeout_error())
+            Err(hints.timeout())
         }
     }
 }
 
 /// The scrcpy server already in place, without downloading.
 fn install_scrcpy_existing(
+    hints: &Hints,
     request: &InstallRequest,
     release: &ScrcpyRelease,
 ) -> Result<String, Error> {
-    if let Some(explicit) = request.scrcpy_server.as_deref() {
+    if let Some(explicit) = scrcpy_override(request) {
         if verified(explicit, &release.sha256) {
             return Ok(explicit.to_string());
         }
-        return Err(scrcpy_unavailable(format!(
+        return Err(hints.scrcpy_unavailable(format!(
             "ACE_SCRCPY_SERVER is not scrcpy-server v{}",
             release.version
         )));
@@ -603,9 +641,7 @@ fn install_scrcpy_existing(
     if verified(&text, &release.sha256) {
         Ok(text)
     } else {
-        Err(scrcpy_unavailable(
-            "No directory for the scrcpy server".to_string(),
-        ))
+        Err(hints.scrcpy_unavailable("No directory for the scrcpy server".to_string()))
     }
 }
 
@@ -632,6 +668,10 @@ mod tests {
             builder.finish().expect("finish");
         }
         decoder
+    }
+
+    fn hints() -> Hints {
+        Hints::load().expect("catalog tool words")
     }
 
     fn integrity(bytes: &[u8]) -> String {
@@ -699,13 +739,22 @@ mod tests {
         format!("http://{address}")
     }
 
-    /// A server that accepts and never answers, for a deadline test.
+    /// A server that accepts and never answers, for a deadline test. It gives up after two
+    /// seconds when the client never connects, so the test's join cannot hang.
     fn hanging_server() -> (String, JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        listener.set_nonblocking(true).expect("nonblocking");
         let address = listener.local_addr().expect("addr");
         let handle = thread::spawn(move || {
-            if let Ok((_stream, _)) = listener.accept() {
-                thread::sleep(std::time::Duration::from_millis(200));
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            while std::time::Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((_stream, _)) => {
+                        thread::sleep(std::time::Duration::from_millis(200));
+                        return;
+                    }
+                    Err(_) => thread::sleep(std::time::Duration::from_millis(10)),
+                }
             }
         });
         (format!("http://{address}"), handle)
@@ -919,6 +968,30 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_override_counts_as_unset_and_leaves_the_downloaded_copy() {
+        let root = scratch("override-empty");
+        let bytes = b"server";
+        let release = ScrcpyRelease {
+            version: "9.9.9".to_string(),
+            bytes: bytes.len() as u64,
+            sha256: digest_sha256_hex(bytes),
+            url: format!("{}/scrcpy", dead_url()),
+        };
+        fs::write(root.join("scrcpy-server-v9.9.9"), bytes).expect("jar");
+        let mut asked = request(&root, artifacts());
+        asked.serve_sim = false;
+        asked.scrcpy = true;
+        asked.scrcpy_release = Some(release);
+        asked.scrcpy_server = Some(String::new());
+        let installed = block_on(install(asked)).expect("unset");
+        assert_eq!(
+            installed.scrcpy.as_deref(),
+            Some(root.join("scrcpy-server-v9.9.9").to_string_lossy().as_ref())
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn a_verified_override_is_used_without_any_request() {
         let root = scratch("override");
         let bytes = b"override";
@@ -977,8 +1050,8 @@ mod tests {
         let cancel = AtomicBool::new(true);
         let serve_sim = tarball(&[("package/dist/serve-sim.js", b"script")]);
         let ws = tarball(&[("package/index.js", b"ws")]);
-        let error =
-            install_serve_sim(&asked, &artifacts, serve_sim, ws, &cancel).expect_err("cancelled");
+        let error = install_serve_sim(&hints(), &asked, &artifacts, serve_sim, ws, &cancel)
+            .expect_err("cancelled");
         assert!(error.to_string().contains("took too long"), "{error}");
         assert!(!install_directory(&root.to_string_lossy(), &artifacts).exists());
         assert!(!root.join(".serve-sim-test.partial").exists());
@@ -1010,9 +1083,18 @@ mod tests {
         let cancel = AtomicBool::new(true);
         let serve_sim = tarball(&[("package/dist/serve-sim.js", b"script")]);
         let ws = tarball(&[("package/index.js", b"ws")]);
-        let _ = install_serve_sim(&asked, &artifacts, serve_sim, ws, &cancel);
+        // Pre-create both names: the run may remove only the staging directory it was given.
+        fs::create_dir_all(root.join(".serve-sim-from-the-shell.partial")).expect("staging");
+        fs::write(
+            root.join(".serve-sim-from-the-shell.partial/sentinel"),
+            b"x",
+        )
+        .expect("sentinel");
+        fs::create_dir_all(root.join(".serve-sim-other.partial")).expect("other");
+        fs::write(root.join(".serve-sim-other.partial/sentinel"), b"x").expect("other sentinel");
+        let _ = install_serve_sim(&hints(), &asked, &artifacts, serve_sim, ws, &cancel);
         assert!(!root.join(".serve-sim-from-the-shell.partial").exists());
-        assert!(!root.join(".serve-sim-test.partial").exists());
+        assert!(root.join(".serve-sim-other.partial/sentinel").is_file());
         let _ = fs::remove_dir_all(&root);
     }
 }
