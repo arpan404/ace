@@ -15,7 +15,7 @@ struct ConversationFeed: View {
     let thread: ThreadModel
     let acceptedSend: Int
     let links: TranscriptLinks
-    /// The composer and its strip, floating over the feed's bottom edge.
+    /// The composer and either its strip or its live pills, floating over the feed.
     var barHeight: CGFloat = 0
     /// How far the keyboard lifts the composer, frame by frame; the rows following the end ride it.
     let keyboard: KeyboardRide
@@ -143,24 +143,27 @@ struct ConversationFeed: View {
                     .frame(maxWidth: .infinity))
             }
         }
-        func room(_ id: String, _ height: CGFloat) -> TranscriptEntry {
-            var room = entry(id, height) { Color.clear.frame(height: height).accessibilityHidden(true) }
+        func room(_ id: String, _ height: CGFloat, marksKeyboardLine: Bool = false) -> TranscriptEntry {
+            var room = entry(id, height) {
+                let space = Color.clear.frame(height: height).accessibilityHidden(true)
+                if marksKeyboardLine { space.keyboardDriftMark(.line) } else { space }
+            }
             // The cell measures to whole points (`TranscriptCell`).
             room.height = ceil(max(0, height))
             return room
         }
         var list: [TranscriptEntry] = []
         list.append(room("room.keyboard", CGFloat(keyboardRoom.leaving)))
-        let follows = self.pinned, bar = self.barHeight, live = self.thread
-        list.append(entry(TranscriptTail.id, [follows, bar] as [AnyHashable]) {
-            TranscriptTail(thread: live, following: follows, barHeight: bar) {
+        let follows = self.pinned, live = self.thread
+        // The drawing offset supplies any keyboard motion beyond the ride's base.
+        let laidOutLift = keyboardFollow.riding ? CGFloat(keyboardFollow.base) : keyboardLift
+        let barRoom = barHeight + laidOutLift + AceDesign.Space.group
+        list.append(entry(TranscriptTail.id, [follows, barRoom] as [AnyHashable]) {
+            TranscriptTail(thread: live, following: follows, barHeight: barRoom) {
                 if !keyboardMoving && !intent.active { toEnd(proxy) }
             }
         })
-        let barRoom = barHeight + keyboardLift + AceDesign.Space.group
-        list.append(entry("room.bar", barRoom) {
-            Color.clear.frame(height: barRoom).accessibilityHidden(true).keyboardDriftMark(.line)
-        })
+        list.append(room("room.bar", barRoom, marksKeyboardLine: true))
         let model = self.model
         list.append(entry("review.ready", 0) { ReviewReadyLine(model: model) })
         if reading.thread == nil || reading.joined {

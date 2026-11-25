@@ -24,6 +24,31 @@ import Testing
         ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { _, _, _, _ in fatalError("never connected") })
     }
 
+    @Test func roomForLivePillsMovesTheNewestMessageAboveThemInTheSameLayout() throws {
+        let thread = ThreadModel(id: "a")
+        thread.loaded = true
+        thread.screen.blocks["ask"] = try block("ask")
+        thread.screen.blockOrder = ["ask"]
+        let model = client()
+        let keyboard = KeyboardRide()
+        func entries(barHeight: CGFloat) -> [TranscriptEntry] {
+            ConversationFeed(model: model, thread: thread, acceptedSend: 0, links: links(),
+                             barHeight: barHeight, keyboard: keyboard, behind: .constant(false)).entries(TranscriptSurface())
+        }
+        func declared(_ entries: [TranscriptEntry]) -> [String: CGFloat] {
+            Dictionary(uniqueKeysWithValues: entries.compactMap { entry in entry.height.map { (entry.id, $0) } })
+        }
+        let before = entries(barHeight: 48)
+        let after = entries(barHeight: 92)
+        var geometry = TranscriptStackGeometry()
+        geometry.replace(before.map(\.id), declared: declared(before), estimate: { _ in 20 })
+        let first = try #require(geometry.top(of: "block:ask"))
+        let offsetChange = geometry.resize(declared: declared(after), keeping: TranscriptTail.id)
+
+        #expect(offsetChange == 0)
+        #expect(geometry.top(of: "block:ask") == first + 44)
+    }
+
     @Test func aFlingToTheOlderLimitStillHasLoadedHistoryInView() throws {
         let thread = ThreadModel(id: "a")
         thread.loaded = true
