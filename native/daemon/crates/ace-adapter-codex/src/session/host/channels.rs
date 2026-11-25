@@ -332,8 +332,12 @@ impl Inner {
     /// that owns the thread (`#dropped`, `:466`).
     pub(super) fn dropped(&mut self, line: &DroppedLine) {
         let mut rejected = false;
+        // Only a reply the framing layer lost rejects its request
+        // (`host.ts:469`-`:473`): a server request's id is the provider's, and
+        // may coincide with a client call's number.
         if line.phase != DroppedPhase::End
-            && let Some(id) = &line.response
+            && line.attributed.response
+            && let Some(id) = &line.attributed.id
         {
             let message = dropped_message(line.bytes);
             let peer = self
@@ -354,7 +358,7 @@ impl Inner {
                 }
             }
         }
-        let affected = match &line.thread {
+        let affected = match &line.attributed.thread_id {
             Some(thread) => match self.router.owner(thread).copied() {
                 Some(owner) => vec![owner],
                 None => self.tenant_ids(),

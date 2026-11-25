@@ -278,11 +278,21 @@ impl Session {
     }
 }
 
-/// A read's failure reaches its starter's retry rule.
-pub(crate) fn origin_failed(session: &mut Session, origin: Origin, thread: &str) -> Vec<Effect> {
+/// A read's failure reaches its starter's `catch`: `recoverThread` reports it
+/// and retries; `reconcileLoaded` was failed by the read's release; the
+/// session's own open hands it to its caller.
+pub(crate) fn origin_failed(
+    session: &mut Session,
+    origin: Origin,
+    thread: &str,
+    message: &str,
+) -> Vec<Effect> {
     match origin {
-        Origin::Recovery if !thread.is_empty() => session.schedule_recovery(thread),
-        Origin::Reconcile(task) => session.reconcile_failed(&task),
-        Origin::Recovery | Origin::Direct => Vec::new(),
+        Origin::Recovery if !thread.is_empty() => {
+            let mut effects = session.diagnostic(message);
+            effects.extend(session.schedule_recovery(thread));
+            effects
+        }
+        Origin::Recovery | Origin::Reconcile(_) | Origin::Direct => Vec::new(),
     }
 }

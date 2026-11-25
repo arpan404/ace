@@ -16,19 +16,12 @@ use super::{
 };
 
 impl Session {
-    /// `dropped(line)`: the loss, as a note.
+    /// `dropped(line)`: `emit("note", { event: "output-line-dropped", ...line })`
+    /// (`:337`-`:338`), with the parse's own `response` and the phase the
+    /// framing layer reported.
     pub fn dropped(&mut self, line: &DroppedLine) -> Vec<Effect> {
-        use crate::session::host::DroppedPhase;
-        let phase = match line.phase {
-            DroppedPhase::Line => "start",
-            DroppedPhase::End => "end",
-        };
-        let attributed = crate::session::dropped::LineAttribution {
-            id: line.response.clone(),
-            thread_id: line.thread.clone(),
-            response: line.response.is_some(),
-        };
-        let note = crate::session::frames::dropped_note(line.bytes, phase, &attributed);
+        let note =
+            crate::session::frames::dropped_note(line.bytes, line.phase.as_str(), &line.attributed);
         self.emit_note(&note)
     }
 
@@ -51,10 +44,15 @@ impl Session {
         self.lifetime.stderr_line(&self.frames, line)
     }
 
-    /// `failed()`: a received frame could not be admitted; the transport fails.
-    pub fn failed(&mut self) -> Vec<Effect> {
+    /// `failed(message)`: a received frame could not be admitted. The host's
+    /// reason is reported as a diagnostic, then the transport fails, in that
+    /// order (`session.ts:352`; the host refuses the frame before its request
+    /// is dispatched).
+    pub fn failed(&mut self, message: &str) -> Vec<Effect> {
+        let mut effects = self.diagnostic(message);
         let busy = self.busy();
-        self.lifetime.fail_transport(&self.frames, busy)
+        effects.extend(self.lifetime.fail_transport(&self.frames, busy));
+        effects
     }
 
     /// `exited(exit)`: the exit evidence, and the engine's own notice.

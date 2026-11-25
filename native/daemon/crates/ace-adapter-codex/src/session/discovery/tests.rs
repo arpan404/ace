@@ -324,6 +324,42 @@ fn a_dropped_line_makes_the_output_uncertain_and_recovers_every_known_thread() {
 }
 
 #[test]
+fn a_joined_read_that_fails_leaves_its_scan_unfinished_and_retries() {
+    let mut session = session();
+    session.recovered.insert("root-1".to_owned());
+    // The session's own read is running for child-1, and a scan joins it.
+    let effects = session.read_root("child-1");
+    let running = call_of(&effects[0]).expect("the running read's call");
+    let effects = session.reconcile_loaded("discovery:turn-1");
+    let call = call_of(&effects[0]).expect("the loaded list call");
+    session.settled(call, Ok(&json("{\"data\":[\"child-1\",\"child-2\"]}")));
+    let effects = session.settled(running, Err("thread/read refused"));
+    // The scan fails with the read: no finish, no further read, and a retry.
+    assert!(!effects.iter().any(|effect| {
+        note(effect).is_some_and(|note| {
+            note.get("event").and_then(Value::as_str) == Some("discovery-finished")
+        })
+    }));
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| method_of(effect) == Some("thread/read"))
+    );
+    assert!(effects.contains(&Effect::ArmTimer {
+        key: "discovery:turn-1".to_owned(),
+        ms: 2_000.0
+    }));
+    let reported = effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Frame { dir, text, .. } if *dir == FrameDir::Stderr => Some(text.clone()),
+            _ => None,
+        })
+        .any(|text| text.contains("thread/read refused"));
+    assert!(reported, "the scan reports the read's error once");
+}
+
+#[test]
 fn a_queue_refresh_counts_every_page_and_reports_the_total() {
     let mut session = session();
     let effects = session.refresh_queue("root-1");

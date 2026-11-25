@@ -184,20 +184,42 @@ impl HostExit {
 /// Which part of a dropped line the supervisor lost (`DroppedOutputLine`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DroppedPhase {
+    /// The line went over the limit; its last byte count follows at the end.
     Line,
     End,
+    /// A whole line lost at once, with no announcement before it.
+    Complete,
+}
+
+impl From<ace_supervisor::budget::DropPhase> for DroppedPhase {
+    fn from(phase: ace_supervisor::budget::DropPhase) -> DroppedPhase {
+        match phase {
+            ace_supervisor::budget::DropPhase::Start => DroppedPhase::Line,
+            ace_supervisor::budget::DropPhase::End => DroppedPhase::End,
+            ace_supervisor::budget::DropPhase::Complete => DroppedPhase::Complete,
+        }
+    }
+}
+
+impl DroppedPhase {
+    /// The phase as `DroppedOutputLine` spells it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DroppedPhase::Line => "start",
+            DroppedPhase::End => "end",
+            DroppedPhase::Complete => "complete",
+        }
+    }
 }
 
 /// One output line the supervisor dropped, already attributed by
-/// `attributeDroppedLine` (`dropped-line.ts`), which E3-codex.3 ports.
+/// `attributeDroppedLine` (`dropped-line.ts:8`): the whole parse result, so a
+/// reply is a reply even when its id did not survive the prefix.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DroppedLine {
     pub bytes: usize,
     pub phase: DroppedPhase,
-    /// The thread the line named, when it named one.
-    pub thread: Option<JsString>,
-    /// The request whose reply this line was.
-    pub response: Option<RpcId>,
+    pub attributed: crate::session::dropped::LineAttribution,
 }
 
 /// What `frame` did with a received frame.

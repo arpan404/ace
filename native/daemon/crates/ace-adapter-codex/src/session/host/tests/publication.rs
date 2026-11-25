@@ -248,8 +248,7 @@ fn a_dropped_line_is_published_after_the_settlement_before_it() {
         host.dropped(&DroppedLine {
             bytes: 20_000_000,
             phase: DroppedPhase::Line,
-            thread: None,
-            response: None,
+            attributed: crate::session::dropped::LineAttribution::default(),
         });
     });
     let settle = settle_at(&published);
