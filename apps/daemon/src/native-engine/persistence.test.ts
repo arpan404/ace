@@ -57,18 +57,16 @@ type Row = Record<string, unknown>;
 /** The engine's own rows, read with plain SQL from the test. */
 function engineRows(seam: EngineSeam, threadId: string) {
   return seam.store.atomic((db) => ({
-    header: db
-      .prepare("SELECT state,seq FROM thread_state WHERE thread_id=?")
-      .get(threadId) as Row | undefined,
+    header: db.prepare("SELECT state,seq FROM thread_state WHERE thread_id=?").get(threadId) as
+      | Row
+      | undefined,
     records: db
       .prepare(
         "SELECT section,key,value FROM engine_state_records WHERE thread_id=? ORDER BY rowid",
       )
       .all(threadId) as Row[],
     appends: db
-      .prepare(
-        "SELECT section,key,patch FROM engine_state_appends WHERE thread_id=? ORDER BY id",
-      )
+      .prepare("SELECT section,key,patch FROM engine_state_appends WHERE thread_id=? ORDER BY id")
       .all(threadId) as Row[],
   }));
 }
@@ -95,12 +93,6 @@ function turnFacts(text: string, agent = "root"): unknown[] {
     { type: "item.delta", agent, item: "item-1", field: "text", append: text },
     { type: "turn.ended", agent, nativeTurnId: "turn-1", outcome: "completed" },
   ];
-}
-
-/** Lets the pump's macrotasks run. */
-async function tick(times = 4): Promise<void> {
-  for (let index = 0; index < times; index += 1)
-    await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
 describe.runIf(native)("engine persistence", () => {
@@ -165,8 +157,6 @@ describe.runIf(native)("engine persistence", () => {
         (row) => row["section"] === "items" && row["key"] === "item-1",
       );
       expect(item).toBeDefined();
-      console.log("DEBUG records", JSON.stringify(rows.records));
-      console.log("DEBUG appends", JSON.stringify(rows.appends));
       // The text is stored as an append, not in the item record.
       const stored = JSON.parse(String(item?.value)) as Row;
       expect(JSON.stringify(stored["parts"])).toBe('[{"type":"text","text":""}]');
@@ -237,9 +227,12 @@ describe.runIf(native)("engine persistence", () => {
     const home = mkdtempSync(join(tmpdir(), "ace-engine-scan-"));
     const reports: string[] = [];
     const seam = await engineSeam({
-      options: { home, onError: (error: unknown) => {
-        reports.push(String(error));
-      } },
+      options: {
+        home,
+        onError: (error: unknown) => {
+          reports.push(String(error));
+        },
+      },
       afterOpen: (store) => {
         const workspace = store.createWorkspace(home, "Scan");
         store.atomic((db) => {

@@ -28,7 +28,8 @@ export const MAX_ACTIVE_THREADS = 64;
  * TypeScript engine throws it.
  */
 export function openEngineData(store: Store, options: EngineOptions, now: () => number): void {
-  new EngineRepository(
+  // Constructed for the schema setup only, so the reference is dropped at once.
+  const repository = new EngineRepository(
     store,
     options.ids,
     MAX_ACTIVE_THREADS,
@@ -36,4 +37,5 @@ export function openEngineData(store: Store, options: EngineOptions, now: () => 
     options.aceToolAction,
     now,
   );
+  void repository;
 }

@@ -304,8 +304,7 @@ function probeFor(native: NativeEngineHandle): EngineProbe {
     holds: (threadId) => required("probeHolds")(threadId) as boolean,
     rollbackGeneration: () => required("probeRollbackGeneration")() as number,
     quarantine: (threadId) => required("probeQuarantine")(threadId),
-    candidatePages: () =>
-      JSON.parse(required("probeCandidatePages")() as string) as string[][],
+    candidatePages: () => JSON.parse(required("probeCandidatePages")() as string) as string[][],
     async stats() {
       const parsed = JSON.parse(stats()) as {
         polls: number;
