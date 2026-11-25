@@ -75,6 +75,8 @@ export interface EngineBindings {
   settleCall(call: number, error: string | null): void;
   rejectPending(): void;
   finishClose(): void;
+  /** A provider or account the person turned off; the shell answers true when unconfigured. */
+  providerEnabled(provider: string, instanceId?: string): boolean;
 }
 
 /** The `options` JSON the binding reads: limits, idleMs and which ready ports were given. */
@@ -169,5 +171,7 @@ export function engineBindings(input: {
     settleCall: (call, error) => host.settleCall(call, error),
     rejectPending: () => host.rejectPending(),
     finishClose: () => host.finishClose(),
+    providerEnabled: (provider, instanceId) =>
+      options.providerEnabled ? options.providerEnabled(provider as never, instanceId) : true,
   };
 }

@@ -294,6 +294,9 @@ impl NativeDatabase {
             bindings
                 .get_named_property("finishClose")
                 .map_err(|_| napi::Error::from_reason("finishClose is missing"))?,
+            bindings
+                .get_named_property("providerEnabled")
+                .map_err(|_| napi::Error::from_reason("providerEnabled is missing"))?,
         )?);
         let stack = self.transaction_state();
         let pump: PumpHandle = Arc::new(Mutex::new(Some(

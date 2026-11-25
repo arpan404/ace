@@ -17,6 +17,7 @@ import { engineBindings, type PortHost } from "./ports.ts";
 import { FrameTable } from "./actor.ts";
 import { liveStorePort } from "./frames.ts";
 import { systemClock } from "../engine/actor.ts";
+import { receiptHandler, type Receipt } from "./commands.ts";
 import {
   closed,
   incomplete,
@@ -119,16 +120,14 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
       this.readySettled = { resolve, reject };
       this.hold();
     });
-    const internal: CommandHandler = {
-      handle: (command) => {
-        if (this.closingFlag)
-          return { commandId: command.id, ok: false, error: "daemon_shutting_down" };
-        if (!this.readyFlag) return { commandId: command.id, ok: false, error: "engine_starting" };
-        // E5.4: one synchronous binding call inside the receipt's transaction.
-        const receipt = this.member("handle", "E5.4") as (value: unknown) => unknown;
-        return receipt(command) as never;
-      },
-    };
+    const internal = receiptHandler({
+      closing: () => this.closingFlag,
+      ready: () => this.readyFlag,
+      store,
+      host: (command) => this.hostInteractions?.(command),
+      policy: (command, accept) => this.commandPolicy?.(command, accept),
+      receipt: (value) => (this.member("handle", "E5.4d") as Receipt)(value),
+    });
     this.internalHandler = internal;
     this.handler = {
       handle: (command, context) => internal.handle(personCommand(command), context),
@@ -376,6 +375,21 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
   override readRawBlob(id: string): Uint8Array | undefined {
     const bytes = this.member("readRawBlob", "E5.3")(id) as Uint8Array | null;
     return bytes ?? undefined;
+  }
+  /** The queue's deadline timer is armed again once the maintenance gate reopened. */
+  override admissionReopened(): void {
+    if (this.closingFlag) return;
+    (this.member("admissionReopened", "E5.4d") as () => void)();
+  }
+  /** Readiness stays in the shell; the receipt's store work is Rust's. */
+  override async prepareCommand(
+    ...args: Parameters<EngineSurface["prepareCommand"]>
+  ): ReturnType<EngineSurface["prepareCommand"]> {
+    await this.readyPromise;
+    // A resolveSilenceMs or preferences port is E5.6's; without one there is nothing to load.
+    (this.binding.prepareCommand as ((value: string) => void) | undefined)?.(
+      JSON.stringify(args[0]),
+    );
   }
 }
 

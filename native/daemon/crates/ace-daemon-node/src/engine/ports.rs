@@ -125,6 +125,7 @@ pub struct JsPorts {
     settle_call: FunctionRef<FnArgs<(f64, Option<String>)>, ()>,
     reject_pending: FunctionRef<(), ()>,
     finish_close: FunctionRef<(), ()>,
+    provider_enabled: FunctionRef<FnArgs<(String, Option<String>)>, bool>,
     timers: RefCell<HashMap<u64, ArmedTimer>>,
     /// The Rust port of `timeOrderedIds` (`time-ordered-id.ts:11`), used when no `ids` port
     /// was given: the same UUIDv7 layout, the clock and random bytes from the OS.
@@ -171,6 +172,7 @@ impl JsPorts {
         settle_call: FunctionRef<FnArgs<(f64, Option<String>)>, ()>,
         reject_pending: FunctionRef<(), ()>,
         finish_close: FunctionRef<(), ()>,
+        provider_enabled: FunctionRef<FnArgs<(String, Option<String>)>, bool>,
     ) -> napi::Result<JsPorts> {
         Ok(JsPorts {
             env: Cell::new(Some(env)),
@@ -203,6 +205,7 @@ impl JsPorts {
             settle_call,
             reject_pending,
             finish_close,
+            provider_enabled,
             timers: RefCell::new(HashMap::new()),
             ids: RefCell::new(UuidV7::default()),
             promises: RefCell::new(HashMap::new()),
@@ -568,5 +571,15 @@ impl Ports for JsPorts {
 
     fn finish_close(&self) {
         let _ = self.call(&self.finish_close, ());
+    }
+
+    fn provider_enabled(&self, provider: &str, instance: Option<&str>) -> bool {
+        self.call(
+            &self.provider_enabled,
+            FnArgs {
+                data: (provider.to_owned(), instance.map(str::to_owned)),
+            },
+        )
+        .unwrap_or(true)
     }
 }

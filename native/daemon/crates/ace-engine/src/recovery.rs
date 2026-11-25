@@ -5,9 +5,17 @@
 use crate::executor::TaskId;
 use crate::{EngineError, State, ThreadId};
 
-/// Recovery state: preferences, pending captures, the limit policy (E5.8).
+/// Recovery state: preferences, pending captures, the limit policy (E5.8), and the deadline
+/// timer a receipt arms (E5.4d).
 #[derive(Debug, Default)]
-pub struct Recovery;
+pub struct Recovery {
+    /// The queue deadline timer's key, when one is armed.
+    pub(crate) cancel: Option<u64>,
+    /// The engine's defaults for a thread without its own preferences.
+    pub(crate) defaults: ace_json::Value,
+    /// Close ran: no new deadline is armed.
+    pub(crate) closed: bool,
+}
 
 /// `repo.recovery.pruneIdle()`: the idle sweep's bounded batch (E5.8). Reported through
 /// `onError` once per firing, never thrown.

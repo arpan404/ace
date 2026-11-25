@@ -212,6 +212,11 @@ pub trait Ports {
         true
     }
     /// `options.machine` (E5.4).
+    /// `ports.moveTarget(thread, requested)` (E5.8): the account a limit move goes to.
+    fn move_target(&self, _thread: &str, _requested: Option<&str>) -> Result<String, PortError> {
+        Err(PortError::Unbound("moveTarget"))
+    }
+
     fn machine(&self) -> Result<String, PortError> {
         Err(PortError::Unbound("machine"))
     }

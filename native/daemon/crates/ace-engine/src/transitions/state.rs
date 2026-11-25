@@ -18,6 +18,9 @@ const GUARD: &str = "INSERT INTO engine_transition_guards VALUES (?, ?)";
 const GUARDED: &str = "SELECT thread_id FROM engine_transition_guards WHERE command_id=?";
 const RELEASE_GUARDS: &str = "DELETE FROM engine_transition_guards WHERE command_id=?";
 const GET: &str = "SELECT value FROM engine_transitions WHERE thread_id=?";
+const LATEST: &str = "SELECT value FROM engine_model_options WHERE thread_id=? AND provider=? ORDER BY rowid DESC LIMIT 1";
+const OPTION: &str =
+    "SELECT value FROM engine_model_options WHERE thread_id=? AND provider=? AND model=?";
 const SET: &str = "INSERT INTO engine_transitions VALUES (?, ?)
       ON CONFLICT(thread_id) DO UPDATE SET value=excluded.value";
 
@@ -91,6 +94,114 @@ impl State {
                 parse_metadata(&parsed)
             }
         }
+    }
+
+    /// `TransitionState.selection` (`:139`): the selection a requested change resolves to.
+    pub fn transition_selection(
+        &mut self,
+        store: &EngineStore,
+        id: &str,
+        fallback: &Value,
+        requested: &Value,
+    ) -> Result<Value, EngineError> {
+        let previous = self
+            .transition_get(store, id)?
+            .selection
+            .unwrap_or_else(|| fallback.clone());
+        let provider = |value: &Value| {
+            value
+                .get("provider")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned()
+        };
+        let requested_provider = provider(requested);
+        let previous_provider = provider(&previous);
+        // Another ACP agent is another agent: none of the previous one's model carries over.
+        let other_agent = requested_provider == "acp"
+            && requested.get("instanceId").is_some()
+            && requested.get("instanceId") != previous.get("instanceId");
+        let same = previous_provider == requested_provider && !other_agent;
+        let model = match requested.get("model").cloned() {
+            Some(model) => Some(model),
+            None if same => previous.get("model").cloned(),
+            None if other_agent => None,
+            None => self
+                .latest(store, id, &requested_provider)?
+                .and_then(|selection| selection.get("model").cloned()),
+        };
+        let selected = requested.get("instanceId").cloned().or_else(|| {
+            if same {
+                previous.get("instanceId").cloned()
+            } else {
+                None
+            }
+        });
+        let instance = if requested_provider == "cursor" {
+            match selected.as_ref().and_then(Value::as_str) {
+                Some("cursor-cli-default") => Some("cursor-sdk-default".to_owned()),
+                other => other.map(str::to_owned),
+            }
+        } else {
+            selected.as_ref().and_then(Value::as_str).map(str::to_owned)
+        };
+        let model_text = model.as_ref().and_then(Value::as_str).unwrap_or("");
+        let remembered = self.options(store, id, &requested_provider, model_text)?;
+        let options = requested
+            .get("options")
+            .cloned()
+            .or(remembered)
+            .or_else(|| {
+                (same && model == previous.get("model").cloned()).then(|| {
+                    previous
+                        .get("options")
+                        .cloned()
+                        .unwrap_or(Value::Object(ace_json::Map::new()))
+                })
+            })
+            .unwrap_or_else(|| Value::Object(ace_json::Map::new()));
+        let mut selection = ace_json::Map::new();
+        selection.insert("provider", Value::from(requested_provider.as_str()));
+        if let Some(model) = model {
+            selection.insert("model", model);
+        }
+        if let Some(instance) = instance {
+            selection.insert("instanceId", Value::from(instance.as_str()));
+        }
+        selection.insert("options", options);
+        Ok(Value::Object(selection))
+    }
+
+    /// The thread's last remembered selection for a provider.
+    fn latest(
+        &mut self,
+        store: &EngineStore,
+        id: &str,
+        provider: &str,
+    ) -> Result<Option<Value>, EngineError> {
+        let row = stmt_cache::get_row(store.conn(), LATEST, vec![text(id), text(provider)])?;
+        Ok(row
+            .and_then(|row| row.get("value").and_then(cell_text).map(str::to_owned))
+            .and_then(|text| ace_json::parse(&text).ok()))
+    }
+
+    /// The remembered options for one provider and model.
+    fn options(
+        &mut self,
+        store: &EngineStore,
+        id: &str,
+        provider: &str,
+        model: &str,
+    ) -> Result<Option<Value>, EngineError> {
+        let row = stmt_cache::get_row(
+            store.conn(),
+            OPTION,
+            vec![text(id), text(provider), text(model)],
+        )?;
+        Ok(row
+            .and_then(|row| row.get("value").and_then(cell_text).map(str::to_owned))
+            .and_then(|text| ace_json::parse(&text).ok())
+            .and_then(|selection| selection.get("options").cloned()))
     }
 
     /// `TransitionState.set` (`:130`): the metadata, in the schema's shape and bounded.

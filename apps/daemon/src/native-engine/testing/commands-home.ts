@@ -7,7 +7,8 @@
  * daemon: the TypeScript store modules write the rows, and the parent's native engine reads them.
  */
 import { join } from "node:path";
-import { Command, CommandId, Item, type ThreadId } from "@ace/protocol";
+import { AgentId, Command, CommandId, Item, NativeSessionId, ThreadId } from "@ace/protocol";
+import { createThreadState } from "@ace/core";
 import { Store } from "../../store.ts";
 import { createDevThread } from "../../commands.ts";
 import { IntentStore } from "../../engine/intents.ts";
@@ -120,6 +121,58 @@ for (const header of intents.headers(fate)) {
     intents.mark(header, "failed", "Cancelled before delivery");
   if (header.commandId === "removed-fate") intents.mark(header, "failed", "Removed from queue");
 }
+// E5.4d's threads: a plain queue for the edit, move, remove and pause receipts; a `not_sent`
+// hold whose head the person can remove; and a guest and a retired bot thread for refusals.
+/** A stored state, so the receipt's `repo.state` finds the thread (a dev thread has none). */
+function seedState(id: string): void {
+  const state = createThreadState({
+    threadId: ThreadId.parse(id),
+    rootAgent: {
+      agent: AgentId.parse("root"),
+      fidelity: "full",
+      native: { provider: "codex", nativeId: NativeSessionId.parse("native-root") },
+      cwd: home ?? process.cwd(),
+    },
+    config: { provider: "codex", silenceMs: 30_000 },
+  });
+  store.atomic((db) =>
+    db
+      .prepare("INSERT INTO thread_state VALUES (?, ?, ?)")
+      .run(id, JSON.stringify({ ...state, engineSnapshot: 9 }), store.headSeq()),
+  );
+}
+
+const edits = createDevThread(store, workspace).id;
+seedState(edits);
+queue.ensure(edits);
+add(edits, "edit-a", "first word");
+add(edits, "edit-b", "second word");
+add(edits, "edit-c", "third word");
+const held = createDevThread(store, workspace).id;
+seedState(held);
+queue.ensure(held);
+add(held, "held-head", "failed head");
+queue.set(held, { paused: true, reason: "not_sent" }, at);
+const heldBehind = createDevThread(store, workspace).id;
+seedState(heldBehind);
+queue.ensure(heldBehind);
+add(heldBehind, "held2-head", "failed head");
+add(heldBehind, "held2-behind", "behind it");
+queue.set(heldBehind, { paused: true, reason: "not_sent" }, at);
+const guest = createDevThread(store, workspace).id;
+store.appendEvents(
+  guest,
+  [
+    {
+      type: "thread.client.updated",
+      changes: { details: { guest: { host: "peer", name: "Rijan's MacBook" } } },
+    },
+  ],
+  at,
+);
+const bot = createDevThread(store, workspace).id;
+store.appendEvents(bot, [{ type: "thread.client.updated", changes: { host: "spade-bot" } }], at);
+
 // `input:cancelled-fate` was written before its delivery stopped it; `input:written` has no
 // intent at all; `input:delivered-fate` was written and the journal hands it a run.
 for (const [id, text] of [
