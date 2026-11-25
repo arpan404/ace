@@ -534,7 +534,9 @@ ticks>` from `/proc/sys/kernel/random/boot_id` and `/proc/<pid>/stat`, read twic
 - **A channel callback that unwinds poisons its host** (native only, E3-codex.2): a panic in the
   shell's sink is a bug, not a protocol event, so the host catches it once at the drain. The child
   is stopped directly, never through the queue, and a stop decided before the poison counts even
-  when its own delivery is what unwound — and never on a child that already exited or crashed.
+  when its own delivery is what unwound — and never on a child whose pipes have closed: a leader's
+  exit alone leaves a tree that still holds them. A stop that unwinds never counts as landed, so
+  its owner can ask again.
   A stop in flight is joined by a later retire, a landed one is not repeated, and only a stop the
   shell could not confirm may be asked for again. Every call still pending fails with the host error, and
   every channel gets an exit — one each, since effects already decided keep their place in the

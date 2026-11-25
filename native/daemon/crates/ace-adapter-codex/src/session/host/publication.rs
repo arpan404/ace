@@ -289,6 +289,7 @@ impl Host {
                 HostEffect::Retire { reason, awaited } => Some((*reason, *awaited)),
                 _ => None,
             };
+            let queued_stop = lost_stop.is_some();
             if matches!(next.1, HostEffect::Write { .. }) && self.poisoned() {
                 // The child is being stopped and the call this line carried has
                 // already failed: sending it would put work on a dying process.
@@ -307,6 +308,11 @@ impl Host {
                     self.poison(lost_stop);
                 }
                 continue;
+            }
+            if queued_stop {
+                // The shell took the stop: a poison now owes none, and neither
+                // does its owner after it.
+                self.stop_landed();
             }
         }
     }
@@ -388,15 +394,17 @@ impl Host {
     /// it, and none is issued once one landed or the child exited. A stop the
     /// shell could not confirm (`stop_failed`) may be asked for again.
     pub(super) fn stop_child(&self, reason: Retirement, awaited: bool) {
-        {
+        let generation = {
             let mut inner = self.lock();
             if inner.child_exited
                 || !matches!(inner.stop_state, StopState::None | StopState::Failed)
             {
                 return;
             }
+            inner.stop_generation += 1;
             inner.stop_state = StopState::InFlight;
-        }
+            inner.stop_generation
+        };
         let sink = self.publication().sink.clone();
         let unwound = sink.is_some_and(|sink| {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -408,8 +416,23 @@ impl Host {
             eprintln!("native host: the child's stop unwound in the sink");
         }
         let mut inner = self.lock();
-        if inner.stop_state == StopState::InFlight {
-            // A stop the shell could not confirm says so through `stop_failed`.
+        // Only this stop may write this stop's outcome: a later one has its own
+        // generation, and a `stop_failed` already said the stop failed.
+        if inner.stop_state == StopState::InFlight && inner.stop_generation == generation {
+            // A stop that unwound never landed; one the shell reported failed
+            // stays failed.
+            inner.stop_state = if unwound {
+                StopState::Failed
+            } else {
+                StopState::Landed
+            };
+        }
+    }
+
+    /// The shell took a queued child stop: it landed, so nothing repeats it.
+    fn stop_landed(&self) {
+        let mut inner = self.lock();
+        if inner.stop_state != StopState::InFlight {
             inner.stop_state = StopState::Landed;
         }
     }

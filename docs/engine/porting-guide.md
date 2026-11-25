@@ -1183,7 +1183,9 @@ fakes, and everything the E1 translator owns. Five tasks, in order.
   so the drain catches it once. The host stops the child directly, never through the queue
   (`HostSink::stop`), taking a stop already queued out of the order so a delivery that panicked
   cannot lose it; a stop is owed only when one was decided (the unwinding effect itself, or one
-  still queued), never for a child that exited or crashed. One stop at a time: a retire that
+  still queued), never for a child whose pipes closed (a leader's exit leaves a tree holding them,
+  and the supervisor never signals on it, `ace-supervisor/src/child/mod.rs:5`–`:8`). One stop at a
+  time, by generation: a retire that
   arrives while it is in flight joins it, a landed one is not repeated, and only a stop the shell
   could not confirm leaves the host stoppable, its owner's next retire handing the child another. Effects already decided keep their place, and only what the poison
   decides is appended — a failure for each call still pending and an exit for each channel without

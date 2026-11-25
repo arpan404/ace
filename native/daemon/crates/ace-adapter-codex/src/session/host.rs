@@ -575,8 +575,10 @@ struct Inner {
     idle_armed: bool,
     /// A channel callback unwound: the host cannot be trusted with more.
     poisoned: bool,
-    /// How far the poisoned host's child stop got, so no caller repeats one.
+    /// How far the poisoned host's child stop got, so no caller repeats one,
+    /// and which stop is whose: a late return never writes another's state.
     stop_state: StopState,
+    stop_generation: u64,
     /// The child really ended (a leader exit or the pipe barrier), not the
     /// synthetic exit a poison publishes for its channels: a process that is
     /// gone is never signalled again.

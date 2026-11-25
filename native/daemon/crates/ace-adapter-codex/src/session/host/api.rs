@@ -41,6 +41,7 @@ impl Host {
                 idle_armed: false,
                 poisoned: false,
                 stop_state: StopState::None,
+                stop_generation: 0,
                 child_exited: false,
                 out: Vec::new(),
             }),
@@ -261,7 +262,6 @@ impl Host {
                 return;
             }
             inner.exiting = true;
-            inner.child_exited = true;
             inner.gate.drain();
             let stopped = inner.peer.stop_requests("process exited");
             inner.apply(stopped);
@@ -272,7 +272,10 @@ impl Host {
     }
 
     /// The pipes are done (`close`, `:239`): settlements, then the held
-    /// requests, then the exit to every channel.
+    /// requests, then the exit to every channel. Only here is the child really
+    /// gone: a leader's exit alone leaves a tree that still holds the pipes
+    /// (the supervisor never signals on it, `ace-supervisor/src/child/mod.rs:5`
+    /// –`:8`), and a poison in that window must still stop it.
     pub fn closed(&self, exit: RawExit) {
         self.input(|inner| {
             inner.exiting = true;
