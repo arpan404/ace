@@ -40,6 +40,21 @@ function sources(directory: string): string[] {
 const files = sources(join(root, "packages/devices/src"));
 const texts = files.map((file) => ({ file, text: readFileSync(file, "utf8") }));
 
+/**
+ * The Rust that runs, up to its first `#[cfg(test)]`: every crate here keeps its test module
+ * last, and a test may name a word it asserts on.
+ */
+function rustSources(directory: string): { file: string; text: string }[] {
+  return readdirSync(directory, { recursive: true, withFileTypes: true }).flatMap((entry) => {
+    const path = join(entry.parentPath, entry.name);
+    if (entry.isDirectory() || !entry.name.endsWith(".rs")) return [];
+    const text = readFileSync(path, "utf8");
+    const tests = text.indexOf("#[cfg(test)]");
+    return [{ file: path, text: tests === -1 ? text : text.slice(0, tests) }];
+  });
+}
+const rust = rustSources(join(root, "native/daemon/crates"));
+
 /** The line a literal sits on, so a failure names the place to fix. */
 function find(text: string, literal: string): number[] {
   const lines: number[] = [];
@@ -70,6 +85,30 @@ for (const [key, literal] of Object.entries(catalog.tools ?? {})) {
       failed++;
       console.error(
         `devices catalog: ${key} is spelled at ${relative(root, file)}:${line}; read it from catalog.ts`,
+      );
+    }
+  }
+}
+for (const [key, word] of Object.entries(catalog.platform)) {
+  for (const field of ["message", "hint"] as const) {
+    const literal = word[field];
+    if (field === "hint" && genericHints.has(literal)) continue;
+    for (const { file, text } of rust) {
+      for (const line of find(text, literal)) {
+        failed++;
+        console.error(
+          `devices catalog: ${key}'s ${field} is spelled at ${relative(root, file)}:${line}; read it from words.rs`,
+        );
+      }
+    }
+  }
+}
+for (const [key, literal] of Object.entries(catalog.tools ?? {})) {
+  for (const { file, text } of rust) {
+    for (const line of find(text, literal)) {
+      failed++;
+      console.error(
+        `devices catalog: ${key} is spelled at ${relative(root, file)}:${line}; read it from words.rs`,
       );
     }
   }

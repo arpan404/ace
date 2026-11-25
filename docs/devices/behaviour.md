@@ -343,3 +343,18 @@ the shell that wires it, and the TypeScript that stays is the switch-off path un
 - **The catalog owns the tool words.** The download hints and the timeout text live in
   `catalog/devices.json`'s `tools` section, which both backends read; the check compares them and
   fails on a source that spells one.
+
+## 10. D3.1 round-5 review fixes (2026-11-25)
+
+- **The install client survives a bad system root and follows the shell's proxies.** Parsable
+  certificates are added one by one and only an empty store refuses; `HTTPS_PROXY`/`HTTP_PROXY`
+  and `NO_PROXY` are honoured, with HTTPS tunnelled through `CONNECT` as Bun's fetch does.
+- **Its reads are bounded and its chunk framing is counted separately.** A head line is capped as
+  it is read, a chunk-size line never counts toward the header cap, and an HTTPS redirect that
+  would downgrade to HTTP is refused.
+- **An empty `ACE_SCRCPY_SERVER` is unset**, in the shell and in Rust, so a verified downloaded
+  copy is reused rather than refused.
+- **The keychain is read off the async thread, inside the install deadline**, and a timed-out
+  install still cannot publish its staging copy.
+- **The catalog check reads Rust too**, and the tool words are resolved once per install: a
+  missing key is an error, never an empty hint.
