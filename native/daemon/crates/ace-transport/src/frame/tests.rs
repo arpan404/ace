@@ -727,3 +727,26 @@ async fn an_unstarted_frame_is_not_accepted_and_still_writes() {
         .expect("a fresh sink writes the close");
     assert_eq!(counts.lock().expect("no poison").writes, 1);
 }
+
+#[tokio::test]
+async fn a_watch_fill_never_passes_its_limit() {
+    // One byte of room on the last read: a whole read there would overshoot the
+    // limit, which is the bound a paused reader's buffer relies on.
+    let limit = super::read::READ_CHUNK + 1;
+    let (mut client, server) = tokio::io::duplex(1 << 16);
+    let mut reader = FrameReader::new(server);
+    client
+        .write_all(&vec![0u8; limit * 2])
+        .await
+        .expect("more than the limit is written");
+
+    let more = std::future::poll_fn(|cx| reader.poll_watch(cx, limit))
+        .await
+        .expect("the watch fill reads");
+    assert!(more, "the connection is still up");
+    assert_eq!(
+        reader.buffered_bytes(),
+        limit,
+        "the fill stopped at its limit, not a read past it"
+    );
+}

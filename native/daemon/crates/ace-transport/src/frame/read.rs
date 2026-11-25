@@ -18,7 +18,7 @@ use super::{Frame, FrameError, FrameLimits};
 
 /// One read buffer per connection: every fill appends here and every frame is
 /// consumed from it, so a frame does not allocate its own read buffer.
-const READ_CHUNK: usize = 8 * 1024;
+pub(crate) const READ_CHUNK: usize = 8 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum State {
@@ -87,13 +87,17 @@ impl<R: AsyncRead + Unpin, B: MessageBody> FrameReader<R, B> {
     /// allowed to read frames still notices the peer's end: true while the
     /// connection is up, false at a clean end. It stops at `limit` buffered
     /// bytes and answers true there; the caller waits instead of reading on.
+    /// Each read is limited to the room left, so the buffer never passes it.
     pub(crate) fn poll_watch(
         &mut self,
         cx: &mut Context<'_>,
         limit: usize,
     ) -> Poll<Result<bool, FrameError>> {
-        while self.buffer.len() < limit {
-            match self.poll_more(cx) {
+        while let Some(room) = limit
+            .checked_sub(self.buffer.len())
+            .filter(|room| *room > 0)
+        {
+            match self.poll_more_upto(cx, room) {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(Ok(true)) => {}
                 Poll::Ready(Ok(false)) => return Poll::Ready(Ok(false)),
@@ -105,8 +109,20 @@ impl<R: AsyncRead + Unpin, B: MessageBody> FrameReader<R, B> {
 
     /// Appends one read's bytes. False when the peer closed cleanly.
     fn poll_more(&mut self, cx: &mut Context<'_>) -> Poll<Result<bool, FrameError>> {
+        self.poll_more_upto(cx, READ_CHUNK)
+    }
+
+    /// Appends one read's bytes, at most `room`, which must not be zero: an
+    /// empty read buffer reads as the peer's end.
+    fn poll_more_upto(
+        &mut self,
+        cx: &mut Context<'_>,
+        room: usize,
+    ) -> Poll<Result<bool, FrameError>> {
+        let room = room.min(READ_CHUNK);
+        debug_assert!(room > 0, "a read needs room");
         let mut chunk = [0u8; READ_CHUNK];
-        let mut buf = ReadBuf::new(&mut chunk);
+        let mut buf = ReadBuf::new(&mut chunk[..room]);
         match Pin::new(&mut self.io).poll_read(cx, &mut buf) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(Err(error)) => Poll::Ready(Err(FrameError::Io(error))),
