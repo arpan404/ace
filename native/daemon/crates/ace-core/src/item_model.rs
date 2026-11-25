@@ -495,6 +495,10 @@ pub struct ToolCall {
     /// JavaScript appends a new own key at the end, so they serialize last.
     #[serde(skip)]
     pub trailing: Vec<&'static str>,
+
+    /// Fields a newer build wrote; the raw record keeps them.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl ToolCall {
