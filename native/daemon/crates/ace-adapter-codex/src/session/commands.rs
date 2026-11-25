@@ -193,11 +193,17 @@ impl Session {
     /// effect. What is left here is one synchronous step: assert, read, compare,
     /// queue the identity callback, push.
     pub(crate) fn send_to(&mut self, thread: &str, send: Send<'_>) -> Vec<Effect> {
+        let answering = send.answering.map(|key| key.to_owned());
         if let Err(message) = self.assert_open() {
-            return settle(send.operation, Err(Failure::failed(message)));
+            return self.follow(
+                send.operation,
+                thread,
+                answering,
+                Err(Failure::failed(message)),
+            );
         }
         if let Err(error) = assert_steer_target(send.delivery, send.fence) {
-            return settle(send.operation, Err(failure_of(error)));
+            return self.follow(send.operation, thread, answering, Err(failure_of(error)));
         }
         let turn = self.active.get(thread).cloned();
         if let Some(fence) = send.fence
@@ -205,8 +211,10 @@ impl Session {
             && let Some(expected) = fence.turn()
             && Some(expected) != turn.as_deref()
         {
-            return settle(
+            return self.follow(
                 send.operation,
+                thread,
+                answering,
                 Err(Failure::steer_target_lost(STEER_TARGET_LOST)),
             );
         }
@@ -223,12 +231,18 @@ impl Session {
         ) {
             effects.push(on_input_message(command_id, native_id));
         }
-        let answering = send.answering.map(|key| key.to_owned());
         match (turn, send.delivery) {
             (Some(_turn), Delivery::Queue) => {
                 let input = match native_input(send.parts) {
                     Ok(input) => input,
-                    Err(message) => return settle(send.operation, Err(Failure::failed(message))),
+                    Err(message) => {
+                        return self.follow(
+                            send.operation,
+                            thread,
+                            answering,
+                            Err(Failure::failed(message)),
+                        );
+                    }
                 };
                 let client_user_message_id =
                     client_user_message_id.unwrap_or_else(|| (send.user_message_id)());
@@ -254,7 +268,14 @@ impl Session {
             (Some(turn), Delivery::Steer) => {
                 let input = match native_input(send.parts) {
                     Ok(input) => input,
-                    Err(message) => return settle(send.operation, Err(Failure::failed(message))),
+                    Err(message) => {
+                        return self.follow(
+                            send.operation,
+                            thread,
+                            answering,
+                            Err(Failure::failed(message)),
+                        );
+                    }
                 };
                 let call = self.calls.take();
                 self.commands.insert(
@@ -281,7 +302,14 @@ impl Session {
             (None, _) => {
                 let params = match start_params(send.parts, send.origin, client_user_message_id) {
                     Ok(params) => params,
-                    Err(message) => return settle(send.operation, Err(Failure::failed(message))),
+                    Err(message) => {
+                        return self.follow(
+                            send.operation,
+                            thread,
+                            answering,
+                            Err(Failure::failed(message)),
+                        );
+                    }
                 };
                 effects.extend(self.begin_start(send.operation, thread, params, answering));
             }
@@ -320,7 +348,14 @@ impl Session {
         };
         let launch = match launch {
             Ok(launch) => launch,
-            Err(message) => return settle(operation, Err(Failure::failed(message))),
+            Err(message) => {
+                return self.follow(
+                    operation,
+                    &start.thread,
+                    start.answering,
+                    Err(Failure::failed(message)),
+                );
+            }
         };
         let mut note = Map::new();
         note.insert("event", Value::from("permission-turn-submitting"));

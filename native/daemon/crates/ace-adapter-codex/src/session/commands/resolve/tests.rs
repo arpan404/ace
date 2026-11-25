@@ -277,3 +277,40 @@ fn a_cancelled_plan_review_is_resolved_without_starting_a_turn() {
     assert!(matches!(effects[1], Effect::Settle { id: 26, .. }));
     assert!(session.plans.is_empty());
 }
+
+#[test]
+fn a_plan_approval_whose_launch_options_are_refused_marks_the_interaction_failed() {
+    let mut session = session();
+    session.plans.insert(
+        "plan:t3".to_owned(),
+        Plan {
+            thread: "root-1".to_owned(),
+            markdown: "# Plan".to_owned(),
+        },
+    );
+    let resolution = json(r#"{"kind":"plan_review","decision":"approve"}"#);
+    let effects = session.resolve(answer(27, "plan:t3", &resolution));
+    assert!(matches!(effects[1], Effect::LaunchOptions { id: 27, .. }));
+    // Codex reports no default, so the launch-options port refuses the turn.
+    let effects = session.launch_ready(
+        27,
+        Err(crate::session::permissions::CONFIGURED_DEFAULT_MISSING.to_owned()),
+    );
+    let written = notes(&effects);
+    assert_eq!(
+        written[0].get("event").and_then(Value::as_str),
+        Some("interaction-answer-failed")
+    );
+    assert_eq!(
+        written[0].get("threadId").and_then(Value::as_str),
+        Some("root-1")
+    );
+    assert_eq!(
+        written[0].get("interaction").and_then(Value::as_str),
+        Some("plan:t3")
+    );
+    assert_eq!(
+        settled(&effects[1]),
+        crate::session::permissions::CONFIGURED_DEFAULT_MISSING
+    );
+}

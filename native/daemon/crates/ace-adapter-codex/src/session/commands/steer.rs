@@ -28,7 +28,7 @@ impl Session {
 
     /// `sendAnswer`'s notes, then the send's own settlement: `interaction-
     /// resolved` on success, `interaction-answer-failed` on failure.
-    fn follow(
+    pub(super) fn follow(
         &mut self,
         operation: u64,
         thread: &str,
