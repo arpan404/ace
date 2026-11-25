@@ -9,6 +9,7 @@ import { createEngineThread } from "./create-thread.ts";
 import { handleQueue } from "./queue-commands.ts";
 import { EngineRepository } from "./repository.ts";
 import { activeRootRun } from "./steer-selection.ts";
+import { retireThreadIntents } from "./thread-liveness.ts";
 
 type Harness = ReturnType<typeof transitionHarness>;
 
@@ -243,6 +244,7 @@ test("the person's choice to steer an agent's message survives a restart", async
     await h.close();
   }
 });
+
 interface SteerThread {
   repo: EngineRepository;
   store: Store;
@@ -385,5 +387,30 @@ test("a resent steer is aimed at the turn running when it goes back in", async (
     // does: a cancel-steered session cancels that turn, never a later one it never saw.
     expect(replacement.delivery).toBe("steer");
     expect(repo.steerAims.aim(replacement.id)).toBe(run);
+  });
+});
+
+test("retiring a thread forgets the aim of an uncertain steer it never sent", async () => {
+  await withSteerThread(({ repo, id }) => {
+    const intent = repo.add(
+      Command.parse({
+        id: "uncertain-steer",
+        deviceId: "device",
+        payload: {
+          type: "thread.send",
+          threadId: id,
+          input: [{ type: "text", text: "maybe sent" }],
+          delivery: "steer",
+        },
+      }),
+      id,
+    );
+    repo.steerAims.record(intent, null);
+    repo.queue.uncertain(intent);
+    retireThreadIntents(repo, id, 4, "Retired for thread deletion");
+    // The intent is marked failed before its uncertainty is cleared, so its aim is pruned after,
+    // as it is for any send that ends.
+    expect(repo.pending.commandStatus(CommandId.parse("uncertain-steer"))).toBe("failed");
+    expect(repo.steerAims.aim(intent)).toBeUndefined();
   });
 });
