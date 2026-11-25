@@ -104,10 +104,13 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      # The editor bundle builds Wasm with the toolchain `native/editor/rust-toolchain.toml` pins,
+      # so the target and the CLI must be that toolchain's, not the runner's default.
       - name: Prepare the editor Wasm toolchain
+        working-directory: native/editor
         run: |
           rustup target add wasm32-unknown-unknown
-          version=$(sed -nE 's/^wasm-bindgen = "=([^"]+)"/\1/p' native/editor/crates/editor-wasm/Cargo.toml)
+          version=$(sed -nE 's/^wasm-bindgen = "=([^"]+)"/\1/p' crates/editor-wasm/Cargo.toml)
           cargo install --locked wasm-bindgen-cli --version "$version"
 
       - name: Generate the project (theme, bridge bundle, released markit package, Xcode project)
