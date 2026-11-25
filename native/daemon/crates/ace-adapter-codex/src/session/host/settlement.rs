@@ -90,13 +90,18 @@ impl Inner {
                 }
                 PeerEffect::Settle { id, result } => self.settle(id, result),
                 PeerEffect::Write { wire, ticket } => match refused.take() {
-                    // A frame the channel refused is never written; the tenant
-                    // hears why (a channel's own calls are refused before the
-                    // peer submits them, `api.rs`).
-                    Some(refusal) => self.out.push(HostEffect::Error {
-                        tenant: refusal.tenant,
-                        message: refusal.message,
-                    }),
+                    // Every frame a channel sends is vetted before the peer
+                    // claims it (`api.rs`), so a refusal here is a defect: the
+                    // line still goes out, because an unacknowledged ticket the
+                    // host dropped would stall shared stdin, and the channel
+                    // hears the refusal.
+                    Some(refusal) => {
+                        self.out.push(HostEffect::Error {
+                            tenant: refusal.tenant,
+                            message: refusal.message,
+                        });
+                        self.out.push(HostEffect::Write { wire, ticket });
+                    }
                     None => self.out.push(HostEffect::Write { wire, ticket }),
                 },
                 PeerEffect::ArmTimer { key, ms } => self.out.push(HostEffect::ArmTimer { key, ms }),

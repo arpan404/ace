@@ -37,16 +37,6 @@ impl Inner {
         }
     }
 
-    /// Whether a channel would refuse this outgoing frame, before the peer's
-    /// line is submitted (`jsonrpc.ts:291`-`:292`).
-    pub(super) fn refused_send(&self, tenant: u64, data: &Value) -> Option<String> {
-        let entry = self.tenants.get(&tenant)?;
-        match entry.handlers.admit(Direction::Send, data) {
-            Admission::Taken => None,
-            Admission::Failed(message) => Some(message),
-        }
-    }
-
     /// An outgoing frame: a tenant's own, its answer, or an init frame to
     /// everyone (`#sent`, `:437`).
     pub(super) fn sent(&mut self, data: &Value) -> Option<RefusedSend> {

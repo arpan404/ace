@@ -172,30 +172,28 @@ impl Host {
                 return Err(HostError::Refused(closed));
             }
             inner.sender = Some(tenant);
-            let requested = inner.peer.request(method, params, id, timeout);
+            // The channel vets the exact frame the peer would send, before
+            // any call slot or write ticket exists (`session.ts:153`-`:156`,
+            // `jsonrpc.ts:291`-`:292`).
+            let handlers = inner
+                .tenants
+                .get(&tenant)
+                .map(|entry| Arc::clone(&entry.handlers));
+            let veto = |value: &Value| match &handlers {
+                Some(handlers) => match handlers.admit(Direction::Send, value) {
+                    Admission::Taken => None,
+                    Admission::Failed(message) => Some(message),
+                },
+                None => None,
+            };
+            let requested = inner
+                .peer
+                .request_vetoed(method, params, id, timeout, &veto);
             match requested {
                 // The send frame is attributed while the sender is still known.
                 Ok(peer) => {
                     inner.calls.insert(id, tenant);
-                    // A frame the channel refuses never reaches the wire: the
-                    // peer's line is dropped and the call fails with the
-                    // refusal, as the TypeScript throws before `writer.send`
-                    // (`session.ts:153`-`:156`, `jsonrpc.ts:291`-`:292`).
-                    let refused = peer.iter().find_map(|effect| match effect {
-                        PeerEffect::Frame {
-                            dir: Direction::Send,
-                            value,
-                        } => inner.refused_send(tenant, value),
-                        _ => None,
-                    });
-                    match refused {
-                        Some(message) => {
-                            inner.calls.shift_remove(&id);
-                            let aborted = inner.peer.abort(id, &message);
-                            inner.apply(aborted);
-                        }
-                        None => inner.apply(peer),
-                    }
+                    inner.apply(peer);
                 }
                 Err(error) => {
                     inner.sender = None;
@@ -210,7 +208,9 @@ impl Host {
     /// A session's answer to a server request (`answer`).
     pub fn answer(&self, id: &RpcId, result: &Value) {
         self.input(|inner| {
-            let peer = inner.peer.answer(id, result);
+            let handlers = serving_handler(inner, id);
+            let veto = move |value: &Value| refused_send_by(handlers.as_ref(), value);
+            let peer = inner.peer.answer_vetoed(id, result, &veto);
             inner.apply(peer);
         });
     }
@@ -218,7 +218,9 @@ impl Host {
     /// A session's refusal of a server request.
     pub fn answer_error(&self, id: &RpcId, code: f64, message: &str) {
         self.input(|inner| {
-            let peer = inner.peer.answer_error(id, code, message);
+            let handlers = serving_handler(inner, id);
+            let veto = move |value: &Value| refused_send_by(handlers.as_ref(), value);
+            let peer = inner.peer.answer_error_vetoed(id, code, message, &veto);
             inner.apply(peer);
         });
     }
@@ -436,5 +438,24 @@ impl Host {
     /// still have to reach the shell.
     pub(super) fn lock(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|error| error.into_inner())
+    }
+}
+
+/// The channel a server request was served to: its reply is that channel's
+/// frame, so it vets the answer before the peer claims a ticket
+/// (`host.ts:437`).
+fn serving_handler(inner: &Inner, id: &RpcId) -> Option<Arc<dyn ChannelHandlers>> {
+    inner
+        .router
+        .serving(id)
+        .and_then(|tenant| inner.tenants.get(&tenant))
+        .map(|entry| Arc::clone(&entry.handlers))
+}
+
+/// A send frame's channel refuses it, by the frame bound.
+fn refused_send_by(handlers: Option<&Arc<dyn ChannelHandlers>>, value: &Value) -> Option<String> {
+    match handlers.map(|handlers| handlers.admit(Direction::Send, value)) {
+        Some(Admission::Failed(message)) => Some(message),
+        Some(Admission::Taken) | None => None,
     }
 }

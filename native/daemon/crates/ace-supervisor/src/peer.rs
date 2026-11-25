@@ -462,7 +462,22 @@ impl RpcPeer {
         id: u64,
         timeout: Timeout,
     ) -> Result<Vec<PeerEffect>, PeerError> {
-        self.enqueue_request(method, params, id, timeout, None)
+        self.enqueue_request(method, params, id, timeout, None, None)
+    }
+
+    /// `request` under a caller's veto of the frame it would send: the veto
+    /// runs on the exact value the emitter sees, before a call slot, a timer or
+    /// a write ticket exists, so a refused frame is one settlement and nothing
+    /// else. The shell vets its frame bound this way (`session.ts:153`).
+    pub fn request_vetoed(
+        &mut self,
+        method: &str,
+        params: Option<&Value>,
+        id: u64,
+        timeout: Timeout,
+        veto: FrameVeto<'_>,
+    ) -> Result<Vec<PeerEffect>, PeerError> {
+        self.enqueue_request(method, params, id, timeout, None, Some(veto))
     }
 
     /// `request` with `options.id`: the wire id is exact (`"7"` stays a string).
@@ -474,7 +489,7 @@ impl RpcPeer {
         timeout: Timeout,
         wire_id: RpcId,
     ) -> Result<Vec<PeerEffect>, PeerError> {
-        self.enqueue_request(method, params, id, timeout, Some(wire_id))
+        self.enqueue_request(method, params, id, timeout, Some(wire_id), None)
     }
 
     fn enqueue_request(
@@ -484,6 +499,7 @@ impl RpcPeer {
         id: u64,
         timeout: Timeout,
         wire_id: Option<RpcId>,
+        veto: Option<FrameVeto<'_>>,
     ) -> Result<Vec<PeerEffect>, PeerError> {
         if let Some(error) = &self.stopped {
             return Err(error.clone());
@@ -503,6 +519,12 @@ impl RpcPeer {
         }
         let request_id = self.owner.reserve(wire_id)?;
         let value = request_value(&request_id, method, params);
+        if let Some(message) = veto.and_then(|veto| veto(&value)) {
+            return Ok(vec![PeerEffect::Settle {
+                id,
+                result: Err(PeerError::new(message)),
+            }]);
+        }
         let wire = wire_bytes(&value);
         let mut effects = Vec::new();
         let timer = deadline.map(|ms| {
@@ -581,23 +603,33 @@ impl RpcPeer {
 
     /// `#answer`'s success reply (`jsonrpc.ts:349`): `result ?? null`.
     pub fn answer(&mut self, server_id: &RpcId, result: &Value) -> Vec<PeerEffect> {
-        let mut map = Map::with_capacity(3);
-        map.insert("jsonrpc", Value::from("2.0"));
-        map.insert("id", id_value(server_id));
-        map.insert("result", result.clone());
-        self.send_reply(Value::Object(map))
+        self.send_reply(answer_value(server_id, Ok(result)), None)
+    }
+
+    /// `answer` under a caller's veto, before the reply claims a ticket.
+    pub fn answer_vetoed(
+        &mut self,
+        server_id: &RpcId,
+        result: &Value,
+        veto: FrameVeto<'_>,
+    ) -> Vec<PeerEffect> {
+        self.send_reply(answer_value(server_id, Ok(result)), Some(veto))
     }
 
     /// `#answer`'s failure reply: `-32601` for a missing method, `-32603` else.
     pub fn answer_error(&mut self, server_id: &RpcId, code: f64, message: &str) -> Vec<PeerEffect> {
-        let mut error = Map::with_capacity(2);
-        error.insert("code", Value::from(code));
-        error.insert("message", Value::from(message));
-        let mut map = Map::with_capacity(3);
-        map.insert("jsonrpc", Value::from("2.0"));
-        map.insert("id", id_value(server_id));
-        map.insert("error", Value::Object(error));
-        self.send_reply(Value::Object(map))
+        self.send_reply(answer_value(server_id, Err((code, message))), None)
+    }
+
+    /// `answer_error` under a caller's veto.
+    pub fn answer_error_vetoed(
+        &mut self,
+        server_id: &RpcId,
+        code: f64,
+        message: &str,
+        veto: FrameVeto<'_>,
+    ) -> Vec<PeerEffect> {
+        self.send_reply(answer_value(server_id, Err((code, message))), Some(veto))
     }
 
     /// The default `onRequest`'s answer: `MethodNotFound("unhandled request")`.
@@ -800,10 +832,16 @@ impl RpcPeer {
 
     /// A server request's reply holds its incoming slot until `written`, as
     /// `#answer` decrements in its `finally` after the send resolves.
-    fn send_reply(&mut self, value: Value) -> Vec<PeerEffect> {
+    fn send_reply(&mut self, value: Value, veto: Option<FrameVeto<'_>>) -> Vec<PeerEffect> {
         let mut effects = Vec::new();
         if self.stopped.is_some() {
             self.finish_incoming();
+            return effects;
+        }
+        if let Some(message) = veto.and_then(|veto| veto(&value)) {
+            // The reply never claims a ticket: nothing is left to release.
+            self.finish_incoming();
+            effects.push(PeerEffect::Failed { message });
             return effects;
         }
         let wire = wire_bytes(&value);
@@ -866,6 +904,27 @@ fn method_of(value: &Value) -> Option<JsString> {
 
 fn params_of(value: &Value) -> Option<Value> {
     value.get("params").cloned()
+}
+
+/// A caller's veto of the frame it would send, by the exact value the emitter
+/// sees: `Some(message)` refuses it, with the error the caller gets.
+pub type FrameVeto<'a> = &'a dyn Fn(&Value) -> Option<String>;
+
+/// `#answer`'s reply value, success or failure.
+fn answer_value(server_id: &RpcId, result: Result<&Value, (f64, &str)>) -> Value {
+    let mut map = Map::with_capacity(3);
+    map.insert("jsonrpc", Value::from("2.0"));
+    map.insert("id", id_value(server_id));
+    match result {
+        Ok(result) => map.insert("result", result.clone()),
+        Err((code, message)) => {
+            let mut error = Map::with_capacity(2);
+            error.insert("code", Value::from(code));
+            error.insert("message", Value::from(message));
+            map.insert("error", Value::Object(error))
+        }
+    };
+    Value::Object(map)
 }
 
 fn id_value(id: &RpcId) -> Value {
