@@ -428,3 +428,41 @@ fn an_items_unknown_field_survives_an_in_place_write_and_a_reload() {
         "the unknown field survived"
     );
 }
+
+#[test]
+fn a_tool_calls_unknown_field_survives_an_in_place_write_and_a_reload() {
+    let conn = database();
+    stmt_cache::run(
+        &conn,
+        "INSERT INTO engine_state_records VALUES (?,?,?,?)",
+        vec![
+            Value::Text("t".to_owned()),
+            Value::Text("items".to_owned()),
+            Value::Text("tool".to_owned()),
+            Value::Text(
+                r#"{"id":"tool","threadId":"t","agentId":"a","createdAt":1,"complete":false,"type":"tool_call","call":{"id":"c","agentId":"a","kind":"shell","title":"run","status":"running","detail":{"kind":"shell","command":"ls"},"startedAt":1,"raw":[],"futureCall":{"a":1}}}"#
+                    .to_owned(),
+            ),
+        ],
+    )
+    .unwrap();
+    let budget = Rc::new(RefCell::new(RecordBudget::default()));
+    let mut items: Records<Item> = records(&conn, &budget, "items", decode::decode_record::<Item>);
+    let mut item = items.read("tool").unwrap().expect("the item");
+    let Item::ToolCall { call, .. } = &mut item else {
+        panic!("a tool call")
+    };
+    call.status = "succeeded".to_owned();
+    items.write("tool", item);
+    items.persist().unwrap();
+    let reloaded = items.read("tool").unwrap().expect("the stored item");
+    let Item::ToolCall { call, .. } = reloaded else {
+        panic!("a tool call")
+    };
+    assert_eq!(
+        call.extra.get("futureCall").cloned(),
+        Some(serde_json::json!({"a": 1})),
+        "the unknown field survived"
+    );
+    assert_eq!(call.status, "succeeded");
+}
