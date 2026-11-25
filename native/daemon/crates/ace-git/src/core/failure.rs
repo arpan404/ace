@@ -123,36 +123,36 @@ fn redact_patterns() -> Option<&'static RedactPatterns> {
     static PATS: OnceLock<Option<RedactPatterns>> = OnceLock::new();
     PATS.get_or_init(|| {
         let credentials = vec![
-            (compile(r"\bAIza[A-Za-z0-9_-]{35}")?, false),
-            (compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}")?, false),
-            (compile(r"\bnpm_[A-Za-z0-9]{20,}")?, false),
-            (compile(r"\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}")?, false),
-            (compile(r"\bgithub_pat_[A-Za-z0-9_]{16,}")?, false),
-            (compile(r"\bAKIA[A-Z0-9]{16}\b")?, false),
-            (compile(r"\bsk-[A-Za-z0-9_-]{16,}")?, false),
-            (compile(r"\bgh[opsur]_[A-Za-z0-9]{20,}")?, false),
+            (compile(r"(?-u:\b)AIza[A-Za-z0-9_-]{35}")?, false),
+            (compile(r"(?-u:\b)xox[baprs]-[A-Za-z0-9-]{10,}")?, false),
+            (compile(r"(?-u:\b)npm_[A-Za-z0-9]{20,}")?, false),
+            (compile(r"(?-u:\b)(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}")?, false),
+            (compile(r"(?-u:\b)github_pat_[A-Za-z0-9_]{16,}")?, false),
+            (compile(r"(?-u:\b)AKIA[A-Z0-9]{16}(?-u:\b)")?, false),
+            (compile(r"(?-u:\b)sk-[A-Za-z0-9_-]{16,}")?, false),
+            (compile(r"(?-u:\b)gh[opsur]_[A-Za-z0-9]{20,}")?, false),
             (
-                compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")?,
+                compile(r"(?-u:\b)eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")?,
                 false,
             ),
-            (compile(r"\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{43,}")?, false),
-            (compile(r"\bace\.grant\.[A-Za-z0-9_.-]+")?, false),
-            (compile(r"(?i)\b(?:Bearer|Basic)\s+[A-Za-z0-9+/=._-]+")?, false),
+            (compile(r"(?-u:\b)eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{43,}")?, false),
+            (compile(r"(?-u:\b)ace\.grant\.[A-Za-z0-9_.-]+")?, false),
+            (compile(r"(?i)(?-u:\b)(?:Bearer|Basic)\s+[A-Za-z0-9+/=._-]+")?, false),
             (
                 compile(
-                    r#"(?is)\b(?:token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code)\s*[=:]\s*(?:"(?:[^"\\]|\\.?)*(?:"|$)|'(?:[^'\\]|\\.?)*(?:'|$))"#,
+                    r#"(?is)(?-u:\b)(?:token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code)\s*[=:]\s*(?:"(?:[^"\\]|\\.?)*(?:"|$)|'(?:[^'\\]|\\.?)*(?:'|$))"#,
                 )?,
                 false,
             ),
             (
-                compile(r"(?i)\b(?:token|secret|password|api[_-]?key)\s*[=:]\s*[^\s,;]+")?,
+                compile(r"(?i)(?-u:\b)(?:token|secret|password|api[_-]?key)\s*[=:]\s*[^\s,;]+")?,
                 false,
             ),
             (compile(r"(?i)([#&](?:code|ticket|token)=)[^&#\s]+")?, true),
         ];
         Some(RedactPatterns {
             credentials,
-            file_home: compile(r#"(?i)(\bfile://[^/\s"'<>]*)/(?:Users|home)/[^/\s"'<>?#]+"#)?,
+            file_home: compile(r#"(?i)((?-u:\b)file://[^/\s"'<>]*)/(?:Users|home)/[^/\s"'<>?#]+"#)?,
             unix_home: compile(r#"/(?:Users|home)/[^/\s"'<>]+"#)?,
             mac_temp: compile(r#"/(?:private/)?var/folders/[^/\s"'<>]+/[^/\s"'<>]+/[TC]/"#)?,
             identifying_keys: compile(
@@ -404,6 +404,24 @@ mod tests {
         assert!(!text.contains("ghp_1234567890123456789012"));
         assert!(text.contains("<HOME>/repo"));
         assert!(text.contains("<SECRET>"));
+    }
+
+    #[test]
+    fn a_secret_after_a_non_ascii_letter_is_redacted_like_javascript_boundaries() {
+        // JavaScript's \b is ASCII-only: the accented letter ends the word before
+        // `token=`. A Unicode-aware boundary sees one word and leaks the value.
+        for text in [
+            "\u{e9}token=s3cret",
+            "\u{e9}secret: s3cret",
+            "\u{e9}github_pat_abcdefghijklmnopqrst",
+        ] {
+            let redacted = redact_stderr(text);
+            assert!(!redacted.contains("s3cret"), "{text} -> {redacted}");
+            assert!(
+                !redacted.contains("abcdefghijklmnopqrst"),
+                "{text} -> {redacted}"
+            );
+        }
     }
 
     #[test]
