@@ -357,7 +357,13 @@ impl Host {
     }
 
     /// Stop the whole process (`retire`, `:379`); every channel on it exits.
+    /// A poisoned host has already published its exits, so its owner's retire
+    /// only stops the child — a stop the poison's own may not have made.
     pub fn retire(&self, reason: Retirement) {
+        if self.poisoned() {
+            self.stop_child(reason, true);
+            return;
+        }
         self.input(|inner| {
             if inner.retiring && inner.exit.is_none() {
                 // The stop in flight is the shell's: its failure reaches this

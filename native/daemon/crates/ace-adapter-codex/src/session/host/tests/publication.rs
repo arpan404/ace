@@ -468,6 +468,94 @@ fn a_second_panic_during_cleanup_still_stops_the_child_and_exits_the_others() {
     assert_eq!(host.queued(), 0, "every effect was handed over or skipped");
 }
 
+/// A stop that was decided before the poison is still carried out: when the
+/// queued `Retire` is the effect that unwinds, the poison hands the stop over
+/// itself instead of trusting a delivery that panicked.
+#[test]
+fn a_stop_that_unwinds_is_still_carried_out_by_the_poison() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start();
+    sink.lose_next_retire();
+    host.retire(Retirement::User);
+
+    assert!(host.poisoned());
+    assert_eq!(
+        sink.stops(),
+        1,
+        "the child is stopped although its stop was the effect that unwound: {:?}",
+        sink.published()
+    );
+}
+
+/// A stop the poison could not make (a tree that outlived it) does not leave a
+/// host nobody can stop: its owner's next retire stops the child.
+#[test]
+fn a_failed_stop_after_the_poison_still_lets_its_owner_stop_the_child() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start();
+    sink.fail_next_stop();
+    let _ = sink.pump(&host, || {});
+    sink.lose_next_write(false);
+    host.request(
+        1,
+        "thread/read",
+        Some(&ace_json::json!({"threadId": "t"})),
+        7,
+        Timeout::Disabled,
+    )
+    .expect("the call is queued");
+    assert!(host.poisoned());
+    assert_eq!(sink.stops(), 1);
+    assert_eq!(sink.failed_stops(), 1, "the poison's own stop failed");
+
+    // The pool's shutdown asks again, and the child stops.
+    host.retire(Retirement::Shutdown);
+    assert_eq!(sink.stops(), 2, "the owner's retire stops the child");
+    assert_eq!(sink.failed_stops(), 1, "and this stop succeeds");
+}
+
+/// A write decided before the poison is not sent to a child that is being
+/// stopped: the turn it carried has already failed.
+#[test]
+fn a_write_queued_behind_the_panic_is_not_sent() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start();
+    sink.hold_next_frame();
+    let first = {
+        let host = Arc::clone(&host);
+        std::thread::spawn(move || host.line(&completed("first")))
+    };
+    assert!(sink.wait_parked(), "the publisher is inside a frame");
+    host.request(
+        1,
+        "thread/read",
+        Some(&ace_json::json!({"threadId": "t"})),
+        8,
+        Timeout::Disabled,
+    )
+    .expect("the call is queued");
+    let before = sink.published().len();
+    sink.lose_next_frame();
+    sink.let_go();
+    first.join().expect("the frame's input returns");
+
+    assert!(host.poisoned());
+    let published = sink.published();
+    assert!(
+        published[before..]
+            .iter()
+            .any(|thing| matches!(thing, Published::Frame { .. })),
+        "the frame decided before the poison still reaches its channel"
+    );
+    assert!(
+        !published[before..]
+            .iter()
+            .any(|thing| matches!(thing, Published::Effect(HostEffect::Write { .. }))),
+        "no write reaches the child after the poison: {:?}",
+        &published[before..]
+    );
+}
+
 /// The pool starts a new host for the next open once a poisoned one is retired.
 #[test]
 fn a_poisoned_host_is_replaced_by_the_pool() {
@@ -724,8 +812,9 @@ enum Published {
     Dropped { tenant: u64, bytes: usize },
     /// One diagnostic line.
     Diagnostic { tenant: u64, text: String },
-    /// The child was stopped, by a queued `Retire` or by the poison.
-    Stopped { awaited: bool },
+    /// The child was stopped, by a queued `Retire` or by the poison; `failed`
+    /// when the shell could not confirm it.
+    Stopped { awaited: bool, failed: bool },
 }
 
 /// A channel that records each frame it is given in the shell's own log, so a
@@ -908,6 +997,8 @@ struct Holding {
     hold: Mutex<bool>,
     hold_frame: Mutex<bool>,
     lose_frame: Mutex<bool>,
+    lose_retire: Mutex<bool>,
+    fail_stop: Mutex<bool>,
     lose_settlement: Mutex<bool>,
     lose_exit: Mutex<bool>,
     lose_write: Mutex<Option<bool>>,
@@ -1048,6 +1139,16 @@ impl Holding {
         *self.lose_frame.lock().expect("lose frame") = true;
     }
 
+    /// Unwinds on the next child stop, once.
+    fn lose_next_retire(&self) {
+        *self.lose_retire.lock().expect("lose retire") = true;
+    }
+
+    /// The next stop the shell makes cannot be confirmed.
+    fn fail_next_stop(&self) {
+        *self.fail_stop.lock().expect("fail stop") = true;
+    }
+
     /// Unwinds on the next settlement, once, after any hold.
     fn lose_next_settlement(&self) {
         *self.lose_settlement.lock().expect("lose settlement") = true;
@@ -1063,6 +1164,14 @@ impl Holding {
         self.published()
             .iter()
             .filter(|thing| matches!(thing, Published::Stopped { .. }))
+            .count()
+    }
+
+    /// How many of those stops the shell could not confirm.
+    fn failed_stops(&self) -> usize {
+        self.published()
+            .iter()
+            .filter(|thing| matches!(thing, Published::Stopped { failed: true, .. }))
             .count()
     }
 
@@ -1106,11 +1215,18 @@ impl Holding {
 }
 
 impl HostSink for Holding {
-    fn stop(&self, _host: &Host, _reason: Retirement, awaited: bool) {
+    fn stop(&self, host: &Host, _reason: Retirement, awaited: bool) {
+        if take(&self.lose_retire) {
+            panic!("the shell unwinds on a stop");
+        }
+        let failed = take(&self.fail_stop);
         self.log
             .lock()
             .expect("publication log")
-            .push(Published::Stopped { awaited });
+            .push(Published::Stopped { awaited, failed });
+        if failed {
+            host.stop_failed();
+        }
     }
 
     fn effect(&self, host: &Host, effect: HostEffect) {

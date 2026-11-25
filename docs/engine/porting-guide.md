@@ -1181,13 +1181,16 @@ fakes, and everything the E1 translator owns. Five tasks, in order.
   `answer`/`answer_error` so the reply keeps the order too.
 - **A sink that unwinds poisons the host**: a panic in the shell is a bug, not a protocol event,
   so the drain catches it once. The host stops the child directly, never through the queue
-  (`HostSink::stop`, idempotent against a stop already decided); effects already decided keep their
-  place, and only what the poison decides is appended — a failure for each call still pending and
-  an exit for each channel without one — so every call ends with exactly one settlement or failure
-  and every channel with one exit. After that each delivery has its own catch: a second panic skips
-  that effect, logs it and continues. TS has no equivalent (`behaviour.md` §15): a throwing
-  callback there is an uncaught error. Nothing here may reintroduce `RpcPeer::write_failed`: a
-  submitted write whose callback unwinds is the shell's, and the host's cleanup never waits on it.
+  (`HostSink::stop`), taking a stop already queued out of the order so a delivery that panicked
+  cannot lose it; a stop that did not land leaves the host stoppable, and its owner's next retire
+  hands the child another one. Effects already decided keep their place, and only what the poison
+  decides is appended — a failure for each call still pending and an exit for each channel without
+  one — so every call ends with exactly one settlement or failure and every channel with one exit.
+  A write still queued is dropped, since the call its line carried has failed. After that each
+  delivery has its own catch: a second panic skips that effect, logs it and continues. TS has no
+  equivalent (`behaviour.md` §15): a throwing callback there is an uncaught error. Nothing here may
+  reintroduce `RpcPeer::write_failed`: a submitted write whose callback unwinds is the shell's, and
+  the host's cleanup never waits on it.
 - **A served request keeps its reply until it is answered**: the host records the tenant that was
   served when it queues the dispatch and keeps that attribution until the answer arrives (freed at
   the host's exit). A reply produced after its channel closed is dropped silently, as TS does:
