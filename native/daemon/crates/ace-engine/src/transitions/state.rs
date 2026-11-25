@@ -5,6 +5,9 @@
 //! and `handoff-access.ts`'s `grant`: the metadata rows every create and send writes, the guard
 //! an in-flight transition holds, and the conversation a handoff cites. `releaseGuards` is
 //! E5.4d's, and `delivered` and `selection` stay E5.9's.
+//!
+//! A handoff or fallback envelope is kept as written: its own schema is `PortableHandoff`,
+//! which E5.9 owns with the transitions that build one.
 
 use ace_json::Value;
 use ace_store::stmt_cache;
