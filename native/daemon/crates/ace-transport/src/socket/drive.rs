@@ -195,15 +195,27 @@ async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver
     // The message in flight is compressed (its first data frame set RSV1), so
     // completing it counts one inflated message.
     let mut inflating = false;
+    // The peer ended its half, but bytes it sent before that may still wait in
+    // the buffer: `ws` feeds its receiver what it holds before it reports the
+    // close, so a message or a close frame there still counts.
+    let mut ended = false;
     let ending = loop {
         let readable = shared.readable();
         if !readable {
+            // Nothing ends before the buffer is parsed, and parsing waits for
+            // credit: a paused reader keeps what arrived instead of dropping it.
+            if ended && source.buffered_bytes() == 0 {
+                break Ending::lost();
+            }
             // No credit: no frame is read or delivered, but the connection is
             // still watched, so a peer that drops is seen here.
-            match wait(&shared, &mut source, &mut woken).await {
+            match wait(&shared, &mut source, &mut woken, ended).await {
                 Wait::Reading => continue,
                 Wait::Over => return,
-                Wait::End => break Ending::lost(),
+                Wait::End => {
+                    ended = true;
+                    continue;
+                }
                 Wait::Failed(error) => break Ending::failed(error),
             }
         }
@@ -259,7 +271,8 @@ enum Wait {
     Reading,
     /// The writer ended the conversation, so this side says nothing more.
     Over,
-    /// The peer's connection ended without a close frame.
+    /// The peer ended its half. Bytes it sent before that are still buffered,
+    /// so the socket ends only once they have been parsed.
     End,
     /// Waiting on the connection failed.
     Failed(FrameError),
@@ -273,9 +286,15 @@ const WATCH_BYTES: usize = DELIVERY_BYTES as usize;
 /// Waits while the reader has no credit, without turning its back on the
 /// connection: it pulls unparsed bytes up to [`WATCH_BYTES`], so a peer that
 /// drops is noticed here instead of holding the socket until a consumer reads
-/// again. Nothing is parsed or delivered while waiting.
-async fn wait(shared: &Shared, source: &mut Source, woken: &mut mpsc::Receiver<()>) -> Wait {
-    let watching = source.buffered_bytes() < WATCH_BYTES;
+/// again. Nothing is parsed or delivered while waiting. Once `ended`, there is
+/// nothing more to watch for.
+async fn wait(
+    shared: &Shared,
+    source: &mut Source,
+    woken: &mut mpsc::Receiver<()>,
+    ended: bool,
+) -> Wait {
+    let watching = !ended && source.buffered_bytes() < WATCH_BYTES;
     tokio::select! {
         biased;
         _ = shared.over.cancelled() => Wait::Over,
