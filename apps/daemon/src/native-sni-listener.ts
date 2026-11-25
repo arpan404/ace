@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { createServer } from "node:http";
-import { nativeRemoteClass } from "@ace/provider-kit/native-transport";
+import { nativeRemoteClass, noteTransportEvent } from "@ace/provider-kit/native-transport";
 import { closeListener, bindListener } from "./listener.ts";
 import type { NativeUpgrade } from "./native-upgrade.ts";
 import { startNativeRemote, type NativeRemoteListener } from "./native-remote.ts";
@@ -53,9 +53,14 @@ function nativeSniListener(deps: NativeSniListenerDeps, options: SniListenerOpti
   // An identity Rust can't use throws here, where `createServer` throws on Node's listener today.
   nativeRemoteClass().checkIdentity(cert, key);
   const limits = sniLimits(options.limits);
+  let closed = false;
+  const forward = proxyGuard(deps.secret, options.requests);
   // The hop target, as `sniListener` builds one HTTP server per listener: it never listens
   // publicly, and every request arrives from Rust on loopback with this boot's secret.
-  const internal = createServer(proxyGuard(deps.secret, options.requests));
+  const internal = createServer((request, response) => {
+    if (closed) request.socket.destroy();
+    else forward(request, response);
+  });
   // The SNI listener's contract leaves the exchange unbounded (`ConnectionLimits::remote_sni`),
   // so the hop holds neither a request nor a header beside Rust's own `first_head` limit.
   internal.requestTimeout = 0;
@@ -63,8 +68,11 @@ function nativeSniListener(deps: NativeSniListenerDeps, options: SniListenerOpti
   const upgrades = deps.upgrades();
   let handle: NativeRemoteListener | undefined;
   let binding: Promise<number> | undefined;
+  /** The port `listen` was asked for, so a close that ran before the bind can name it. */
+  let requested: number | undefined;
+  /** Whether `listen` returned the bind to its caller: before that, nothing could have reached it. */
+  let published = false;
   let closing: Promise<void> | undefined;
-  let closed = false;
   let certificate: TrustedCertificate | undefined;
   let unsubscribe: (() => void) | undefined;
   let cancelTimer: (() => void) | undefined;
@@ -106,6 +114,7 @@ function nativeSniListener(deps: NativeSniListenerDeps, options: SniListenerOpti
     async listen(host, port) {
       // A retired listener never binds: its close already ran, and the internal server with it.
       if (closed) throw new Error("The listener was closed before its bind");
+      requested = port;
       const attempt = (async () => {
         try {
           const internalPort = await bindListener(internal, "127.0.0.1", 0);
@@ -133,6 +142,7 @@ function nativeSniListener(deps: NativeSniListenerDeps, options: SniListenerOpti
           throw failure;
         }
         const bound = handle.port();
+        published = true;
         // A certificate fetched before the bind reaches Rust now, not at its next renewal. A
         // close that ran before this bind landed still closes it: nothing stays listening.
         syncCertificate();
@@ -159,9 +169,16 @@ function nativeSniListener(deps: NativeSniListenerDeps, options: SniListenerOpti
       if (handle !== undefined) syncCertificate();
     },
     close() {
+      // A close that runs before the listener reaches its caller is the one evidence line that
+      // says so: nothing could have served on it, and the bind it made (or still makes) closes at
+      // once (T1b.5's late-bind case).
+      if (!closed && !published && requested !== undefined)
+        noteTransportEvent("remote", requested, "close-requested", { bound: false });
       closed = true;
       stopWatching();
       closing ??= (async () => {
+        // Drop active HTTP exchanges now and keep the hop port bound until Rust stops forwarding.
+        internal.closeAllConnections();
         // A bind still in flight lands first, so what it opened is closed here and not later.
         await binding?.catch(() => {});
         try {
