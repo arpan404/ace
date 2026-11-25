@@ -289,6 +289,13 @@ export class NativeCoreCli {
   private readonly streams = new Map<number, StreamTarget>();
   private readonly killed: Set<string>;
   private readonly leaseProbe: LeaseProbe;
+  /**
+   * Calls still in flight, and the killed calls' lease settlements they started.
+   * `close` waits for both: a settlement removes the leftover locks a killed
+   * Git call held, and must finish before close resolves.
+   */
+  private readonly operations = new Set<Promise<unknown>>();
+  private readonly settlements = new Set<Promise<unknown>>();
   /** Unacknowledged stdin bytes per call, and the input paused by them. */
   private readonly stdinOutstanding = new Map<number, number>();
   private readonly stdinInputs = new Map<number, Readable>();
@@ -409,9 +416,19 @@ export class NativeCoreCli {
       this.handle.close(() => {
         for (const cancel of this.timers.values()) cancel();
         this.timers.clear();
-        resolve();
+        // The native core stops the killed calls before it answers, but their
+        // failure settlements (and the lease retirements that delete the
+        // leftover locks) run afterwards on this thread.
+        void this.settleOperations().then(resolve);
       });
     });
+  }
+
+  /** Waits until every in-flight call and every settlement it started has finished. */
+  private async settleOperations(): Promise<void> {
+    while (this.operations.size > 0 || this.settlements.size > 0) {
+      await Promise.allSettled([...this.operations, ...this.settlements]);
+    }
   }
 
   private awaitNativeCleanup(cleanupId: number): Promise<CleanupResult> {
@@ -441,9 +458,14 @@ export class NativeCoreCli {
     if (groupPid !== undefined && ownership.leases.length > 0) {
       const ids = ownership.leases.map(({ id }) => id);
       for (const id of ids) this.killed.add(id);
-      void settleOwnLeases(ids, this.leaseProbe).then(
+      const settlement = settleOwnLeases(ids, this.leaseProbe).then(
         () => ids.forEach((id) => this.killed.delete(id)),
         () => {},
+      );
+      this.settlements.add(settlement);
+      void settlement.then(
+        () => this.settlements.delete(settlement),
+        () => this.settlements.delete(settlement),
       );
     }
     return cleanup;
@@ -523,7 +545,7 @@ export class NativeCoreCli {
       abortedBeforeDispatch: params.signal?.aborted === true,
     };
 
-    return new Promise<NativeExecuteOutput>((resolve, reject) => {
+    const operation = new Promise<NativeExecuteOutput>((resolve, reject) => {
       let callId = 0;
       let settled = false;
       // TS pipes stdout into `output`: the pipe ends it at EOF whether Git
@@ -677,6 +699,12 @@ export class NativeCoreCli {
       }
       if (params.signal?.aborted) this.handle.abortCall(callId);
     });
+    this.operations.add(operation);
+    void operation.then(
+      () => this.operations.delete(operation),
+      () => this.operations.delete(operation),
+    );
+    return operation;
   }
 
   private onPort(eventJson: string, data: Uint8Array): void {
