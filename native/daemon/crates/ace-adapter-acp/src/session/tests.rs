@@ -9,6 +9,7 @@ use super::core::{
     AcpCore, AcpCoreConfig, AcpEffect, CODE_OPEN_FAILED, CODE_RESUME_UNAVAILABLE,
     CODE_RESUME_UNSUPPORTED,
 };
+use super::frames::MAX_PROVIDER_PAYLOAD_BYTES;
 use super::io::AcpSessionCore;
 use super::mcp::McpConfig;
 use super::negotiation::CompatibilityProfile;
@@ -692,6 +693,143 @@ fn resume_open_classifies_unsupported_and_unavailable_failures() {
     assert_eq!(
         settled2[0].as_ref().err().map(|(c, _)| c.as_str()),
         Some(CODE_RESUME_UNAVAILABLE)
+    );
+}
+
+/// An outbound frame whose capture throws ends the session, and none of that
+/// step's effects follow it: TS never reaches the write (`jsonrpc.ts:285`).
+#[test]
+fn uncapturable_outbound_frame_fails_before_any_byte_reaches_stdin() {
+    let (mut core, _) = AcpCore::new(AcpCoreConfig::new(
+        "t-big-send",
+        "/work",
+        AcpSessionQuirks::generic(),
+    ));
+    // Prose is never elided (only attachment bytes are), so capture cannot shrink it.
+    let blob = "hello world! ".repeat(MAX_PROVIDER_PAYLOAD_BYTES / 10);
+    let Ok(effects) = core.request(
+        "custom/huge",
+        Some(&json!({ "blob": blob })),
+        12,
+        Timeout::Disabled,
+    ) else {
+        panic!("request refused");
+    };
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, AcpEffect::Fatal { .. })),
+        "the capture failure is fatal"
+    );
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, AcpEffect::Write { .. })),
+        "no line reaches stdin after its frame failed to capture"
+    );
+    let settled = settlements(&effects, 12);
+    assert_eq!(settled.len(), 1, "the call settles once: {settled:?}");
+    assert!(settled[0].is_err());
+}
+
+/// An inbound reply whose capture throws never settles its call successfully:
+/// TS stops before dispatch (`jsonrpc.ts:299`), so the call fails with the
+/// capture error instead.
+#[test]
+fn uncapturable_inbound_reply_never_settles_its_call() {
+    let (mut core, _) = AcpCore::new(AcpCoreConfig::new(
+        "t-big-recv",
+        "/work",
+        AcpSessionQuirks::generic(),
+    ));
+    let Ok(_sent) = core.request("custom/ping", Some(&json!({})), 34, Timeout::Disabled) else {
+        panic!("request refused");
+    };
+    let padding = "hello world! ".repeat(MAX_PROVIDER_PAYLOAD_BYTES / 10);
+    let line = json!({ "jsonrpc": "2.0", "id": 1, "result": { "padding": padding } });
+    let effects = core.stdout_bytes(format!("{}\n", line.to_json()).as_bytes());
+    let settled = settlements(&effects, 34);
+    assert_eq!(settled.len(), 1, "the call settles once: {settled:?}");
+    let Err((code, message)) = &settled[0] else {
+        panic!("an uncapturable reply must not settle successfully: {settled:?}");
+    };
+    assert_eq!(code, "ACE_ACP_RPC_ERROR");
+    assert_eq!(message, "Provider payload exceeds byte limit");
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, AcpEffect::Fatal { .. })),
+        "the capture failure is fatal"
+    );
+}
+
+/// The prompt-end cancellation replies are captured after the prompt-end frame
+/// that was received: TS settles local state synchronously and sends them once
+/// the handler resumes (`jsonrpc.ts:344`), so the translator sees the end first.
+#[test]
+fn prompt_end_cancellation_replies_are_captured_after_the_prompt_end_frame() {
+    let (mut core, _) = AcpCore::new(AcpCoreConfig::new(
+        "t-order-reply",
+        "/work",
+        AcpSessionQuirks::generic(),
+    ));
+    core.native_session_id = JsString::from("root");
+    core.routing.bind_root(JsString::from("root"));
+    core.shells.set_root(JsString::from("root"));
+
+    // The agent asks for permission: held in `pending` until the prompt ends.
+    let ask = json!({
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "session/request_permission",
+        "params": {
+            "sessionId": "root",
+            "toolCall": { "toolCallId": "sh-order", "kind": "execute", "title": "Run ls" },
+            "options": [{ "optionId": "allow", "name": "Allow", "kind": "allow_once" }]
+        }
+    });
+    let mut asked = core.stdout_bytes(format!("{}\n", ask.to_json()).as_bytes());
+    ack_writes(&mut core, &mut asked);
+    assert_eq!(core.pending.len(), 1);
+
+    let Ok(mut sent) = core.request(
+        "session/prompt",
+        Some(&json!({ "sessionId": "root", "prompt": [] })),
+        5,
+        Timeout::Disabled,
+    ) else {
+        panic!("prompt request refused");
+    };
+    ack_writes(&mut core, &mut sent);
+
+    let reply = json!({ "jsonrpc": "2.0", "id": 1, "result": { "stopReason": "cancelled" } });
+    let effects = core.stdout_bytes(format!("{}\n", reply.to_json()).as_bytes());
+    assert!(core.prompt_id.is_none());
+    assert!(core.pending.is_empty(), "the end cancels the open request");
+
+    let prompt_end = effects
+        .iter()
+        .position(|effect| {
+            matches!(
+                effect,
+                AcpEffect::Frame { dir: FrameDirection::Recv, channel, text }
+                    if channel == "stdio" && text.contains("stopReason")
+            )
+        })
+        .unwrap_or(usize::MAX);
+    let cancellation = effects
+        .iter()
+        .position(|effect| {
+            matches!(
+                effect,
+                AcpEffect::Frame { dir: FrameDirection::Send, channel, text }
+                    if channel == "stdio" && text.contains("cancelled")
+            )
+        })
+        .unwrap_or(usize::MAX);
+    assert!(
+        prompt_end < cancellation,
+        "the prompt-end frame comes before the replies it cancels: {effects:?}"
     );
 }
 

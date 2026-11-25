@@ -492,9 +492,39 @@ impl AcpCore {
         peer_effects: Vec<PeerEffect>,
         effects: &mut Vec<AcpEffect>,
     ) {
+        // Set once a frame of this input failed to capture. TS acts on no part of such a
+        // line (`jsonrpc.ts:285`, `:299`): it stops before the write or the dispatch.
+        let mut capture_failed: Option<String> = None;
         for effect in peer_effects {
+            if let Some(message) = capture_failed.clone() {
+                // The call this line carried is already out of the peer, so nothing else
+                // would settle it; it ends as the capture failure, as TS's `close` ends it.
+                if let PeerEffect::Settle { id, .. } = effect {
+                    self.settle_call(id, Err(message), effects);
+                }
+                continue;
+            }
             match effect {
                 PeerEffect::Frame { dir, value } => {
+                    // The frame is captured first, so a capture that throws applies none of
+                    // the step's effects and no reply it causes is captured before it.
+                    let frame_dir = match dir {
+                        Direction::Send => FrameDirection::Send,
+                        Direction::Recv => FrameDirection::Recv,
+                    };
+                    match capture_frame(&value, &self.secrets) {
+                        Ok(captured) => effects.push(AcpEffect::Frame {
+                            dir: frame_dir,
+                            channel: "stdio".to_owned(),
+                            text: captured.json,
+                        }),
+                        Err(err) => {
+                            let message = self.redact_message(&err.to_string());
+                            self.fail_capture(&message, effects);
+                            capture_failed = Some(message);
+                            continue;
+                        }
+                    }
                     // Settlement happens here, in frame order, before any subsequent
                     // notification or reply in the same stdout chunk (`session.ts:201`–`:211`).
                     match dir {
@@ -508,11 +538,6 @@ impl AcpCore {
                             }
                         }
                     }
-                    let frame_dir = match dir {
-                        Direction::Send => FrameDirection::Send,
-                        Direction::Recv => FrameDirection::Recv,
-                    };
-                    self.emit_value_frame(frame_dir, "stdio", &value, effects);
                 }
                 PeerEffect::Write { wire, ticket } => {
                     self.active_write_ticket = Some(ticket);
@@ -520,21 +545,7 @@ impl AcpCore {
                 }
                 PeerEffect::Settle { id, result } => {
                     let mapped = result.map_err(|e| e.to_string());
-                    if self.on_open_rpc_settled(id, mapped.clone(), effects) {
-                        continue;
-                    }
-                    if id & INTERNAL_CALL_BIT != 0 {
-                        // Internal open call whose open state already settled (e.g. stall timeout).
-                        continue;
-                    }
-                    let settled = match mapped {
-                        Ok(val) => Ok(val.to_json()),
-                        Err(msg) => Err(AcpErrorWire::rpc_error(self.redact_message(&msg))),
-                    };
-                    effects.push(AcpEffect::Settle {
-                        id,
-                        result: settled,
-                    });
+                    self.settle_call(id, mapped, effects);
                 }
                 PeerEffect::ServerRequest { id, method, params } => {
                     self.handle_server_request(id, method, params, effects);
@@ -556,6 +567,30 @@ impl AcpCore {
                 }
             }
         }
+    }
+
+    /// Settle one facade call, routing the open's internal ids first (`session.ts:290`).
+    fn settle_call(
+        &mut self,
+        id: u64,
+        mapped: Result<Value, String>,
+        effects: &mut Vec<AcpEffect>,
+    ) {
+        if self.on_open_rpc_settled(id, mapped.clone(), effects) {
+            return;
+        }
+        if id & INTERNAL_CALL_BIT != 0 {
+            // Internal open call whose open state already settled (e.g. stall timeout).
+            return;
+        }
+        let settled = match mapped {
+            Ok(val) => Ok(val.to_json()),
+            Err(msg) => Err(AcpErrorWire::rpc_error(self.redact_message(&msg))),
+        };
+        effects.push(AcpEffect::Settle {
+            id,
+            result: settled,
+        });
     }
 
     /// Track outbound `session/prompt` and `session/new|load|resume` (`session.ts:277`–`:289`).
@@ -896,11 +931,7 @@ impl AcpCore {
             }),
             Err(err) => {
                 let message = err.to_string();
-                if self.closed {
-                    effects.push(AcpEffect::Fatal { message });
-                } else {
-                    self.fail(&message, effects);
-                }
+                self.fail_capture(&message, effects);
             }
         }
     }
@@ -920,12 +951,20 @@ impl AcpCore {
             }),
             Err(err) => {
                 let message = err.to_string();
-                if self.closed {
-                    effects.push(AcpEffect::Fatal { message });
-                } else {
-                    self.fail(&message, effects);
-                }
+                self.fail_capture(&message, effects);
             }
+        }
+    }
+
+    /// A frame that cannot be captured ends the session (`session.ts:373`–`:381`):
+    /// `fail` once, then only the failure is left to report.
+    fn fail_capture(&mut self, message: &str, effects: &mut Vec<AcpEffect>) {
+        if self.closed {
+            effects.push(AcpEffect::Fatal {
+                message: message.to_owned(),
+            });
+        } else {
+            self.fail(message, effects);
         }
     }
 
