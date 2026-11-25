@@ -14,7 +14,6 @@ use crate::session::state::Session;
 pub(super) struct StatusRead {
     pub(super) operation: u64,
     pub(super) thread: String,
-    pub(super) call: u64,
     pub(super) visited: Vec<String>,
     pub(super) pages: u32,
     pub(super) servers: Vec<Value>,
@@ -80,9 +79,8 @@ impl Session {
         }
         read.visited.push(next.clone());
         let call = self.calls.take();
-        read.call = call;
         let thread = read.thread.clone();
-        self.mcp.status = Some(read);
+        self.mcp.status.insert(call, read);
         vec![page(call, &thread, Some(&next))]
     }
 }

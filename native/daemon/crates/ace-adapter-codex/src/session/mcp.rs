@@ -56,7 +56,9 @@ enum Step {
 pub(crate) struct McpControls {
     enabled: IndexMap<String, bool>,
     writes: IndexMap<u64, Pending>,
-    status: Option<StatusRead>,
+    /// Each status read in flight, by the call that will answer its page: a
+    /// read never displaces another, and no other reply can take one away.
+    status: IndexMap<u64, StatusRead>,
 }
 
 impl McpControls {
@@ -73,7 +75,7 @@ impl McpControls {
                 Err(Failure::failed("Codex session ended")),
             ));
         }
-        if let Some(read) = self.status.take() {
+        for (_, read) in std::mem::take(&mut self.status) {
             effects.extend(settle(
                 read.operation,
                 Err(Failure::failed("Codex session ended")),
@@ -90,14 +92,16 @@ impl Session {
             return super::commands::closed(operation);
         }
         let call = self.calls.take();
-        self.mcp.status = Some(StatusRead {
-            operation,
-            thread: thread.to_owned(),
+        self.mcp.status.insert(
             call,
-            visited: Vec::new(),
-            pages: 0,
-            servers: Vec::new(),
-        });
+            StatusRead {
+                operation,
+                thread: thread.to_owned(),
+                visited: Vec::new(),
+                pages: 0,
+                servers: Vec::new(),
+            },
+        );
         vec![status::page(call, thread, None)]
     }
 
@@ -209,9 +213,7 @@ impl Session {
         call: u64,
         reply: Result<&Value, &str>,
     ) -> Option<Vec<Effect>> {
-        if let Some(read) = self.mcp.status.take()
-            && read.call == call
-        {
+        if let Some(read) = self.mcp.status.shift_remove(&call) {
             return Some(self.status_settled(read, reply));
         }
         let pending = self.mcp.writes.shift_remove(&call)?;

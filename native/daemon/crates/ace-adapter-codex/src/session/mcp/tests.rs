@@ -223,3 +223,52 @@ fn a_repeated_status_cursor_ends_the_read_instead_of_looping() {
         .expect("a status page");
     assert_eq!(failed(&effects[0]), "Repeated discovery cursor");
 }
+
+#[test]
+fn another_reply_reaching_the_session_first_does_not_drop_a_status_read() {
+    let mut session = session();
+    let effects = session.mcp_status(70, "root-1");
+    let (page, ..) = request(&effects[0]);
+    // A catalog refresh is in flight too, and its reply reaches the session
+    // before the status page does.
+    let effects = session.catalog_start();
+    let (skills, ..) = request(&effects[0]);
+    session.settled(
+        skills,
+        Ok(&json(r#"{"data":[{"name":"skill"}],"nextCursor":null}"#)),
+    );
+    let effects = session.settled(
+        page,
+        Ok(&json(r#"{"data":[{"name":"docs"}],"nextCursor":null}"#)),
+    );
+    assert_eq!(
+        settled(&effects[0]),
+        &json(r#"[{"name":"docs","status":"unknown"}]"#)
+    );
+}
+
+#[test]
+fn two_status_reads_in_flight_both_settle() {
+    let mut session = session();
+    let effects = session.mcp_status(71, "root-1");
+    let (first, ..) = request(&effects[0]);
+    let effects = session.mcp_status(72, "root-1");
+    let (second, ..) = request(&effects[0]);
+    assert_ne!(first, second);
+    let effects = session.settled(
+        first,
+        Ok(&json(r#"{"data":[{"name":"a"}],"nextCursor":null}"#)),
+    );
+    assert_eq!(
+        settled(&effects[0]),
+        &json(r#"[{"name":"a","status":"unknown"}]"#)
+    );
+    let effects = session.settled(
+        second,
+        Ok(&json(r#"{"data":[{"name":"b"}],"nextCursor":null}"#)),
+    );
+    assert_eq!(
+        settled(&effects[0]),
+        &json(r#"[{"name":"b","status":"unknown"}]"#)
+    );
+}
