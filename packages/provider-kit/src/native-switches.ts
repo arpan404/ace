@@ -235,6 +235,25 @@ const engineRefusal = engineSwitchRefusal({
 if (engineRefusal !== undefined) throw new Error(engineRefusal);
 
 /**
+ * Why `ACE_DEVICE_PLATFORM` cannot run, or `undefined` when it can (D3.1). The platform's SDK
+ * commands, serve-sim and tool downloads all spawn through the native supervisor, so a boot on
+ * the TypeScript supervisor has nowhere to run them and refuses instead of half-starting.
+ */
+export function devicePlatformSwitchRefusal(input: {
+  platform: boolean;
+  supervisor: boolean;
+}): string | undefined {
+  if (input.platform && !input.supervisor) return "ACE_DEVICE_PLATFORM needs ACE_SUPERVISOR=native";
+  return undefined;
+}
+
+const devicePlatformRefusal = devicePlatformSwitchRefusal({
+  platform: process.env.ACE_DEVICE_PLATFORM === "native",
+  supervisor,
+});
+if (devicePlatformRefusal !== undefined) throw new Error(devicePlatformRefusal);
+
+/**
  * `ACE_GIT=<parts>` (ADR 0224 §1, G0): a comma list of the git parts served
  * natively: `refs`, `core`, `reads`, `writes`, `checkpoints`, `snapshot-hash`,
  * `status-gix`. Unknown words refuse to start, as does a part without its
@@ -610,6 +629,52 @@ export function scrcpyVideoBackend(): NativeBackend {
   if (value === undefined) return "typescript";
   if (value === "media") return "native";
   throw new Error("ACE_SCRCPY_VIDEO takes media");
+}
+
+/**
+/**
+ * Why `ACE_DEVICE_INVENTORY` cannot run, or `undefined` when it can (D2, ADR 0225 §6).
+ * The native inventory starts `adb start-server` through `ace-supervisor`, so it needs
+ * `ACE_SUPERVISOR=native`.
+ */
+export function deviceInventorySwitchRefusal(input: {
+  deviceInventory: boolean;
+  supervisor: boolean;
+  cross: CrossSwitch | undefined;
+}): string | undefined {
+  if (input.deviceInventory && !input.supervisor)
+    return "ACE_DEVICE_INVENTORY needs ACE_SUPERVISOR=native";
+  if (input.deviceInventory && input.cross === "ACE_SUPERVISOR")
+    return "ACE_NATIVE_CROSS=ACE_SUPERVISOR cannot run with ACE_DEVICE_INVENTORY";
+  return undefined;
+}
+
+const deviceInventoryRaw = process.env.ACE_DEVICE_INVENTORY;
+if (deviceInventoryRaw !== undefined && deviceInventoryRaw !== "native")
+  throw new Error(`ACE_DEVICE_INVENTORY=${JSON.stringify(deviceInventoryRaw)} is not native`);
+const deviceInventory = deviceInventoryRaw === "native";
+const deviceInventoryRefusal = deviceInventorySwitchRefusal({
+  deviceInventory,
+  supervisor,
+  cross: crossSwitch,
+});
+if (deviceInventoryRefusal !== undefined) throw new Error(deviceInventoryRefusal);
+
+/** The backend for device inventory (D2): `native` when `ACE_DEVICE_INVENTORY=native`, else `typescript`. */
+export function deviceInventoryBackend(): NativeBackend {
+  return deviceInventory ? "native" : "typescript";
+}
+
+/**
+ * Whether the device platform is served by Rust (D3.1, `ACE_DEVICE_PLATFORM=native`) or by
+ * today's TypeScript. Read once per process, when `DevicePlatform` is constructed; with the
+ * switch on and no addon, the platform fails at its first native call rather than falling back.
+ */
+export function devicePlatformBackend(): NativeBackend {
+  const value = process.env.ACE_DEVICE_PLATFORM;
+  if (value === undefined) return "typescript";
+  if (value === "native") return "native";
+  throw new Error("ACE_DEVICE_PLATFORM takes native");
 }
 
 export function crossLogPath(): string | undefined {

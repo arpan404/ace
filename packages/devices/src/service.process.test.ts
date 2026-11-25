@@ -1,9 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
-import { readFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer, type Socket } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { CredentialRegistry, ToolRegistry } from "@ace/mcp-server";
+import { deviceInventoryBackend } from "@ace/provider-kit/native-switches";
+import { spawnRawSupervised } from "@ace/provider-kit/process";
+import type { Inventory } from "./inventory.ts";
 import { AgentId, ThreadId } from "@ace/protocol";
 import type { DeviceInput } from "@ace/protocol/devices";
-import { devicesToolkit, agentOwner, connectDevices } from "./index.ts";
+import {
+  DevicesService,
+  DevicePlatform,
+  devicesToolkit,
+  agentOwner,
+  connectDevices,
+} from "./index.ts";
 import { deviceImageStream } from "./stream-control.ts";
 import { decodeStreamMessage, StreamAssembler } from "@ace/browser/stream";
 import {
@@ -1130,4 +1142,338 @@ it("a view whose sink fails on its first frame, as it attaches, gives up its str
     Promise.reject(new Error("sink gone")),
   );
   await vi.waitFor(() => expect(h.profiles.at(-1)).toEqual(deviceImageStream), { timeout: 2_000 });
+});
+
+it("idle settleInventory resolves in the same single microtask as base", async () => {
+  const h = await harness();
+  const order: string[] = [];
+  void h.service.settleInventory().then(() => order.push("settled"));
+  void Promise.resolve()
+    .then(() => order.push("tick1"))
+    .then(() => order.push("tick2"));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(order).toEqual(["tick1", "settled", "tick2"]);
+});
+
+async function fakeSdkRoot(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "ace-devices-native-d2-"));
+  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  for (const rel of ["platform-tools/adb", "emulator/emulator"]) {
+    await mkdir(join(root, rel, ".."), { recursive: true });
+    await writeFile(join(root, rel), "#!/bin/sh\nexit 1\n");
+    await chmod(join(root, rel), 0o700);
+  }
+  return root;
+}
+
+async function unusedLoopbackPort(): Promise<number> {
+  const probe = createServer();
+  await new Promise<void>((resolve, reject) => {
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => resolve());
+  });
+  const addr = probe.address();
+  if (!addr || typeof addr === "string") throw new Error("expected TCP address");
+  const port = addr.port;
+  await new Promise<void>((resolve) => probe.close(() => resolve()));
+  return port;
+}
+
+function realAfter(ms: number, run: () => void): () => void {
+  const timer = setTimeout(run, ms);
+  return () => clearTimeout(timer);
+}
+
+async function startFakeAdbServer(port: number) {
+  const sockets = new Set<Socket>();
+  const server = createServer((socket) => {
+    sockets.add(socket);
+    socket.on("error", () => {});
+    socket.on("close", () => sockets.delete(socket));
+    let buf = Buffer.alloc(0);
+    let replied = false;
+    socket.on("data", (chunk) => {
+      buf = Buffer.concat([buf, typeof chunk === "string" ? Buffer.from(chunk) : chunk]);
+      if (!replied && buf.length >= 24) {
+        replied = true;
+        socket.write("OKAY0000");
+      }
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", () => resolve());
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("expected TCP address");
+  return {
+    port: address.port,
+    async stop() {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
+}
+
+describe.runIf(deviceInventoryBackend() === "native")("native inventory (D2)", () => {
+  it("AndroidPlatform.current serializes with an in-flight native reconcile read", async () => {
+    const root = await fakeSdkRoot();
+    const closedPort = await unusedLoopbackPort();
+    let activeAdbDevices = 0;
+    let maxConcurrentAdbDevices = 0;
+    let adbDevicesCalls = 0;
+    const firstEntered = deferred<void>();
+    const firstGate = deferred<void>();
+
+    const platform = new DevicePlatform({
+      platform: "linux",
+      home: root,
+      env: { ANDROID_HOME: root, ANDROID_ADB_SERVER_PORT: String(closedPort) },
+      async probe(_command, args) {
+        const cmd = args.join(" ");
+        if (cmd === "-list-avds") return { stdout: "Pixel\n", stderr: "", code: 0 };
+        if (cmd === "devices -l") {
+          const call = ++adbDevicesCalls;
+          activeAdbDevices++;
+          maxConcurrentAdbDevices = Math.max(maxConcurrentAdbDevices, activeAdbDevices);
+          try {
+            if (call === 1) {
+              firstEntered.resolve();
+              await firstGate.promise;
+            }
+            return {
+              stdout: "List of devices attached\nemulator-5554 device model:Pixel\n",
+              stderr: "",
+              code: 0,
+            };
+          } finally {
+            activeAdbDevices--;
+          }
+        }
+        if (cmd.includes("ro.boot.qemu.avd_name"))
+          return { stdout: "Pixel\n", stderr: "", code: 0 };
+        return { stdout: "", stderr: "", code: 0 };
+      },
+    });
+    const service = new DevicesService({
+      cowork: false,
+      platform,
+      env: { ANDROID_HOME: root, ANDROID_ADB_SERVER_PORT: String(closedPort) },
+      recordingDirectory: root,
+      publishArtifact: async () => {},
+      runtime: { now: () => 0, id: () => "stream-1", spawn: spawnRawSupervised, after: realAfter },
+    });
+    cleanups.push(() => service.close());
+
+    const release = service.holdInventoryView();
+    await firstEntered.promise;
+    // boot() on a booted emulator invokes AndroidPlatform.current() and returns without spawning.
+    const op = platform.boot({
+      id: "android:Pixel",
+      platform: "android",
+      name: "Pixel",
+      state: "booted",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(adbDevicesCalls).toBe(1);
+    expect(maxConcurrentAdbDevices).toBe(1);
+
+    firstGate.resolve();
+    await op;
+    release();
+    await service.settleInventory();
+    expect(adbDevicesCalls).toBeGreaterThanOrEqual(2);
+    expect(maxConcurrentAdbDevices).toBe(1);
+  });
+
+  it("ADB reconnect reconcile clears cached emulator AVD names when a serial switches AVDs", async () => {
+    const root = await fakeSdkRoot();
+    let currentAvd = "Pixel_8";
+    const server1 = await startFakeAdbServer(0);
+    let server2: Awaited<ReturnType<typeof startFakeAdbServer>> | undefined;
+    cleanups.push(async () => {
+      await server1.stop().catch(() => {});
+      await server2?.stop().catch(() => {});
+    });
+
+    const platform = new DevicePlatform({
+      platform: "linux",
+      home: root,
+      env: { ANDROID_HOME: root, ANDROID_ADB_SERVER_PORT: String(server1.port) },
+      async probe(_command, args) {
+        const cmd = args.join(" ");
+        if (cmd === "-list-avds") return { stdout: "Pixel_8\nPixel_9\n", stderr: "", code: 0 };
+        if (cmd === "devices -l") {
+          return {
+            stdout: "List of devices attached\nemulator-5554 device model:Pixel\n",
+            stderr: "",
+            code: 0,
+          };
+        }
+        if (cmd.includes("ro.boot.qemu.avd_name"))
+          return { stdout: `${currentAvd}\n`, stderr: "", code: 0 };
+        return { stdout: "", stderr: "", code: 0 };
+      },
+    });
+    const service = new DevicesService({
+      cowork: false,
+      platform,
+      env: { ANDROID_HOME: root, ANDROID_ADB_SERVER_PORT: String(server1.port) },
+      recordingDirectory: root,
+      publishArtifact: async () => {},
+      runtime: { now: () => 0, id: () => "stream-2", spawn: spawnRawSupervised, after: realAfter },
+    });
+    cleanups.push(() => service.close());
+
+    const seen: Inventory[] = [];
+    const unwatch = service.watchInventory((inv) => seen.push(inv));
+    const release = service.holdInventoryView();
+
+    await vi.waitFor(
+      () => {
+        const latest = seen.at(-1);
+        expect(latest?.devices.find((d) => d.id === "android:Pixel_8")?.state).toBe("booted");
+      },
+      { timeout: 5_000 },
+    );
+
+    // ADB restarts while emulator-5554 stays present but now runs Pixel_9.
+    currentAvd = "Pixel_9";
+    await server1.stop();
+    server2 = await startFakeAdbServer(server1.port);
+
+    await vi.waitFor(
+      () => {
+        const latest = seen.at(-1);
+        expect(latest?.devices.find((d) => d.id === "android:Pixel_9")?.state).toBe("booted");
+        expect(latest?.devices.find((d) => d.id === "android:Pixel_8")?.state).toBe("shutdown");
+      },
+      { timeout: 5_000 },
+    );
+
+    unwatch();
+    release();
+    await service.settleInventory();
+  });
+
+  it("releasing the view while a full reconcile read is in flight prevents a stale publish", async () => {
+    const root = await fakeSdkRoot();
+    const closedPort = await unusedLoopbackPort();
+    const entered = deferred<void>();
+    const gate = deferred<void>();
+
+    const platform = new DevicePlatform({
+      platform: "linux",
+      home: root,
+      env: { ANDROID_HOME: root, ANDROID_ADB_SERVER_PORT: String(closedPort) },
+      async probe(_command, args) {
+        const cmd = args.join(" ");
+        if (cmd === "-list-avds") return { stdout: "Pixel\n", stderr: "", code: 0 };
+        if (cmd === "devices -l") {
+          entered.resolve();
+          await gate.promise;
+          return {
+            stdout: "List of devices attached\nemulator-5554 device model:Pixel\n",
+            stderr: "",
+            code: 0,
+          };
+        }
+        if (cmd.includes("ro.boot.qemu.avd_name"))
+          return { stdout: "Pixel\n", stderr: "", code: 0 };
+        return { stdout: "", stderr: "", code: 0 };
+      },
+    });
+    const service = new DevicesService({
+      cowork: false,
+      platform,
+      env: { ANDROID_HOME: root, ANDROID_ADB_SERVER_PORT: String(closedPort) },
+      recordingDirectory: root,
+      publishArtifact: async () => {},
+      runtime: { now: () => 0, id: () => "stream-3", spawn: spawnRawSupervised, after: realAfter },
+    });
+    cleanups.push(() => service.close());
+
+    const published: Inventory[] = [];
+    const unwatch = service.watchInventory((inv) => published.push(inv));
+    const release = service.holdInventoryView();
+    await entered.promise;
+
+    // Stop invalidates the in-flight read id before the read resolves.
+    release();
+    gate.resolve();
+    await service.settleInventory();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(published).toEqual([]);
+    unwatch();
+  });
+
+  it("AndroidPlatform.boot port scan serializes with an in-flight native reconcile read", async () => {
+    const root = await fakeSdkRoot();
+    const closedPort = await unusedLoopbackPort();
+    let activeAdbDevices = 0;
+    let maxConcurrentAdbDevices = 0;
+    let adbDevicesCalls = 0;
+    const reconcileEntered = deferred<void>();
+    const reconcileGate = deferred<void>();
+    let releaseView: (() => void) | undefined;
+    let service!: DevicesService;
+
+    const platform = new DevicePlatform({
+      platform: "linux",
+      home: root,
+      env: { ANDROID_HOME: root, ANDROID_ADB_SERVER_PORT: String(closedPort) },
+      async emulatorWindow() {
+        releaseView = service.holdInventoryView();
+        await reconcileEntered.promise;
+        return false;
+      },
+      async probe(_command, args) {
+        const cmd = args.join(" ");
+        if (cmd === "-list-avds") return { stdout: "Pixel\n", stderr: "", code: 0 };
+        if (cmd === "devices -l") {
+          const call = ++adbDevicesCalls;
+          activeAdbDevices++;
+          maxConcurrentAdbDevices = Math.max(maxConcurrentAdbDevices, activeAdbDevices);
+          try {
+            if (call === 2) {
+              reconcileEntered.resolve();
+              await reconcileGate.promise;
+            }
+            return { stdout: "List of devices attached\n", stderr: "", code: 0 };
+          } finally {
+            activeAdbDevices--;
+          }
+        }
+        return { stdout: "", stderr: "", code: 0 };
+      },
+    });
+    service = new DevicesService({
+      cowork: false,
+      platform,
+      env: { ANDROID_HOME: root, ANDROID_ADB_SERVER_PORT: String(closedPort) },
+      recordingDirectory: root,
+      publishArtifact: async () => {},
+      runtime: { now: () => 0, id: () => "stream-4", spawn: spawnRawSupervised, after: realAfter },
+    });
+    cleanups.push(() => service.close());
+
+    const bootPromise = platform.boot(
+      { id: "android:Pixel", platform: "android", name: "Pixel", state: "shutdown" },
+      () => {
+        throw new Error("stop-before-spawn");
+      },
+    );
+    await reconcileEntered.promise;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(adbDevicesCalls).toBe(2);
+    expect(maxConcurrentAdbDevices).toBe(1);
+
+    reconcileGate.resolve();
+    await expect(bootPromise).rejects.toThrow("stop-before-spawn");
+    releaseView?.();
+    await service.settleInventory();
+    expect(adbDevicesCalls).toBeGreaterThanOrEqual(3);
+    expect(maxConcurrentAdbDevices).toBe(1);
+  });
 });

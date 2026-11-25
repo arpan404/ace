@@ -28,3 +28,13 @@ impl CoreError {
         Self::Contract(message.into())
     }
 }
+
+/// What a fold can fail with once a section reads from a source: the section's error joins
+/// the contract violations above (E5.3 step 3).
+#[derive(Debug, thiserror::Error)]
+pub enum FoldError {
+    #[error(transparent)]
+    Source(#[from] crate::section::SourceError),
+    #[error(transparent)]
+    Core(#[from] CoreError),
+}

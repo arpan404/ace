@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The live buffer behind `ACE_STORE_WRITER=live` (phases 5.4a and 5.4b). Delta compaction and
-//! the retry delay come from `ace_store::writer::live`; so does the buffer's state — weights,
+//! the retry delay come from `ace_store::writer::live`; so does the buffer's state: weights,
 //! the 64 KiB flush-now rule, the 8 MiB ceiling, the 75 ms and 1 s deadlines, the failure count
 //! and the retirement of a stored batch. This file holds the event objects, the snapshot objects
 //! and the timer, and schedules the deadlines the buffer returns on the owning thread between
-//! JavaScript turns (ADR 0222 §3).
+//! JavaScript turns (ADR 0222 section 3).
 
 import { appendFileSync } from "node:fs";
 import { storeWriterOn } from "@ace/provider-kit/native-switches";
@@ -173,6 +173,8 @@ export class NativeLiveBuffer implements LiveBuffer {
     return this.call((buffer) => buffer.overfull(bytes));
   }
   append(events: Event[], thread: ThreadId, snapshot: BufferedSnapshot): void {
+    // One snapshot per thread: a newer append replaces the older one and releases its token.
+    this.snapshots.get(thread)?.discarded?.();
     const pairs: number[] = [];
     for (const event of events) pairs.push(event.seq, this.encodings.bytes(event));
     const ms = this.call((buffer) => buffer.append(thread, pairs));
@@ -200,6 +202,7 @@ export class NativeLiveBuffer implements LiveBuffer {
   }
   /** Quarantine: forget a thread's events and snapshot without storing them. */
   discard(thread: ThreadId): void {
+    this.snapshots.get(thread)?.discarded?.();
     const removal = this.removal((buffer) => buffer.discard(thread));
     recordEvidence("live-discard");
     this.settle([thread], removal);

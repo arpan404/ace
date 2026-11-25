@@ -1,4 +1,6 @@
+import { deviceInventoryBackend } from "@ace/provider-kit/native-switches";
 import type { AppDevice as Device } from "@ace/protocol/devices";
+import { nativeAndroidInventory } from "./native-inventory.ts";
 import { blockedError, physicalIdPart, physicalName, type AdbTransport } from "./adb-transports.ts";
 import type { DeviceError } from "./sdk.ts";
 
@@ -26,6 +28,7 @@ export function androidInventory(input: {
   hardware: ReadonlyMap<string, DeviceHardware>;
   platform: string;
 }): AndroidInventory {
+  if (deviceInventoryBackend() === "native") return nativeAndroidInventory(input);
   const devices = new Map<string, Device>();
   const transports = new Map<string, Pick<AdbTransport, "kind" | "block">>();
   for (const name of input.avds) {

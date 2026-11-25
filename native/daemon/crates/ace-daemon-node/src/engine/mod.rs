@@ -17,6 +17,7 @@ pub mod hosts;
 pub mod inputs;
 pub mod intents;
 pub mod js_session;
+pub mod js_translator;
 pub mod liveness;
 pub mod meters;
 pub mod models;
@@ -24,12 +25,17 @@ pub mod moves;
 pub mod ports;
 #[cfg(feature = "engine-probe")]
 pub mod probe;
+#[cfg(feature = "engine-probe")]
+pub mod probe_actor;
+#[cfg(feature = "engine-probe")]
+pub mod probe_repository;
 pub mod queue;
 pub mod records;
 pub mod recovery;
 pub mod release;
 pub mod repository;
 pub mod restart;
+pub mod runtime;
 pub mod sessions;
 pub mod settle;
 pub mod snapshot;
@@ -111,6 +117,10 @@ impl transaction::AfterCommitSink for Sink {
         self.after.release(&tokens);
     }
 
+    fn release_runs(&self, tokens: Vec<u64>) -> Vec<u64> {
+        self.after.release_runs(&tokens)
+    }
+
     fn drop_tokens(&self, tokens: Vec<u64>) {
         self.after.drop_tokens(&tokens);
     }
@@ -162,6 +172,12 @@ pub struct NativeEngine {
     /// The connection's stack, for the probe's bookkeeping checks.
     #[cfg(feature = "engine-probe")]
     stack: Rc<RefCell<StackState>>,
+    /// The actor's dependencies and the shell's live-buffer hooks (E5.2).
+    actor: Rc<actor::ActorRuntime>,
+    live_hooks: Rc<RefCell<Option<actor::LiveHooks>>>,
+    /// The probe's per-thread logs, with `engine-probe`.
+    #[cfg(feature = "engine-probe")]
+    probe_threads: Rc<RefCell<probe_actor::ProbeThreads>>,
 }
 
 fn engine_error(error: ace_engine::EngineError) -> napi::Error {
@@ -235,6 +251,36 @@ impl NativeDatabase {
                 .get_named_property("appendEvents")
                 .map_err(|_| napi::Error::from_reason("appendEvents is missing"))?,
             bindings
+                .get_named_property("writeEvents")
+                .map_err(|_| napi::Error::from_reason("writeEvents is missing"))?,
+            bindings
+                .get_named_property("headSeq")
+                .map_err(|_| napi::Error::from_reason("headSeq is missing"))?,
+            bindings
+                .get_named_property("hasLiveWrite")
+                .map_err(|_| napi::Error::from_reason("hasLiveWrite is missing"))?,
+            bindings
+                .get_named_property("rollbackGeneration")
+                .map_err(|_| napi::Error::from_reason("rollbackGeneration is missing"))?,
+            bindings
+                .get_named_property("getThread")
+                .map_err(|_| napi::Error::from_reason("getThread is missing"))?,
+            bindings
+                .get_named_property("capRaw")
+                .map_err(|_| napi::Error::from_reason("capRaw is missing"))?,
+            bindings
+                .get_named_property("prepareLiveWrite")
+                .map_err(|_| napi::Error::from_reason("prepareLiveWrite is missing"))?,
+            bindings
+                .get_named_property("bufferLiveWrite")
+                .map_err(|_| napi::Error::from_reason("bufferLiveWrite is missing"))?,
+            bindings
+                .get_named_property("frameCall")
+                .map_err(|_| napi::Error::from_reason("frameCall is missing"))?,
+            bindings
+                .get_named_property("releaseFrames")
+                .map_err(|_| napi::Error::from_reason("releaseFrames is missing"))?,
+            bindings
                 .get_named_property("settleCall")
                 .map_err(|_| napi::Error::from_reason("settleCall is missing"))?,
             bindings
@@ -254,6 +300,12 @@ impl NativeDatabase {
         let bell = Bell {
             pump: Arc::clone(&pump),
         };
+        // The actor's dependencies (E5.2 correction 6). Until the shell's live buffer is wired,
+        // the store seam names the item that lands it.
+        let idle_ms = ace_engine::limits::validate_idle_ms(inputs.idle_ms.unwrap_or(0.0))
+            .map_err(engine_error)?;
+        let (actor_runtime, live_hooks) = self::actor::runtime(Rc::clone(&ports), idle_ms);
+        let deps = Rc::clone(&actor_runtime.deps);
         let engine = Engine::new(
             Rc::clone(&ports) as Rc<dyn Ports>,
             Rc::new(SharedStack {
@@ -262,6 +314,8 @@ impl NativeDatabase {
             inputs,
             &registry_json,
             Box::new(bell),
+            self.connection(),
+            deps,
         )
         .map_err(engine_error)?;
         let sink = Rc::new(Sink {
@@ -285,6 +339,10 @@ impl NativeDatabase {
             )))),
             #[cfg(feature = "engine-probe")]
             stack,
+            actor: actor_runtime,
+            live_hooks,
+            #[cfg(feature = "engine-probe")]
+            probe_threads: Rc::new(RefCell::new(probe_actor::ProbeThreads::default())),
         };
         let _ = env;
         Ok(native)

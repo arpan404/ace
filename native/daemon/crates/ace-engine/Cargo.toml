@@ -12,6 +12,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The probe hooks the seam tests drive: a forced open transaction, and the actor-probe seams.
+engine-probe = []
+
 [dependencies]
 # ace-store: the engine reads and writes its tables through the store's connection and transaction stack, in Rust once E5 lands.
 ace-store = { path = "../ace-store" }
@@ -27,6 +31,8 @@ concurrent-queue = "2.5"
 futures = "0.3"
 # lru: the engine's bounded record cache (today RecordBudget).
 lru = "0.19"
+# serde_json: the core's Run.executionSource is a serde_json value (E4's shape).
+serde_json = { version = "1", features = ["preserve_order"] }
 # serde: engine state and records serialize for tests and stored rows.
 serde = { version = "1", features = ["derive"] }
 # ace-json: JSON goes through it (rule 8), never serde_json: the registry view and later
@@ -34,3 +40,9 @@ serde = { version = "1", features = ["derive"] }
 ace-json = { path = "../ace-json" }
 # thiserror: one typed error enum for the crate, mapped in the binding.
 thiserror = { version = "2" }
+# indexmap: the actor maps iterate in insertion order, as the TypeScript `Map` does (rule 8).
+indexmap = "2"
+# sha2: an attachment echo hashes the bytes a data URL carries, as the TypeScript does.
+sha2 = "0.10"
+# base64: the echo decodes that data URL exactly as `Buffer.from(…, "base64")` does.
+base64 = "0.22"

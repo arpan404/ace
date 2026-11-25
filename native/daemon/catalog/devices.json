@@ -1,0 +1,177 @@
+{
+  "platform": {
+    "installSimulatorApp": {
+      "code": "not_supported",
+      "message": "iOS Simulator installs Simulator-built .app bundles",
+      "hint": "Extract a Simulator-built .app from the IPA; device-only IPA binaries cannot run in Simulator."
+    },
+    "installAndroidApk": {
+      "code": "invalid_data",
+      "message": "Android install requires an .apk",
+      "hint": "Select an APK built for the emulator architecture."
+    },
+    "installPathRelative": {
+      "code": "invalid_data",
+      "message": "Device install path must be absolute",
+      "hint": "Supply the full path to the package on this machine."
+    },
+    "installPathInvalid": {
+      "code": "invalid_data",
+      "message": "Device install path is not valid",
+      "hint": "Supply a path of 1 to 4096 bytes on this machine."
+    },
+    "appIdInvalid": {
+      "code": "invalid_data",
+      "message": "Device app identifier is not valid",
+      "hint": "Use a bundle id or package name, or package/activity for Android."
+    },
+    "appNotLaunchable": {
+      "code": "not_found",
+      "message": "Android app has no launchable activity",
+      "hint": "Supply a package/activity component or install the app first."
+    },
+    "urlInvalid": {
+      "code": "invalid_data",
+      "message": "Device URL is not valid",
+      "hint": "Use a URL with a scheme, such as https:// or myapp://."
+    },
+    "localeUnsupported": {
+      "code": "not_supported",
+      "message": "Runtime locale configuration is not supported by the installed public CLI contract",
+      "hint": "Change language in the device Settings app, then restart the app."
+    },
+    "locationPhysical": {
+      "code": "not_supported",
+      "message": "Only an emulator's location can be set",
+      "hint": "Use a mock location app on the device, or set the location on an emulator."
+    },
+    "simulatorNotBooted": {
+      "code": "not_booted",
+      "message": "Selected Simulator is not booted",
+      "hint": "Boot this Simulator before starting capture."
+    },
+    "simulatorNameAmbiguous": {
+      "code": "busy",
+      "message": "Booted Simulators have ambiguous display names",
+      "hint": "Rename one Simulator or shut down the duplicate before starting capture."
+    },
+    "identityPlatformMismatch": {
+      "code": "invalid_data",
+      "message": "Device identity does not match its platform",
+      "hint": "Refresh the device list."
+    },
+    "identityNotUdid": {
+      "code": "invalid_data",
+      "message": "Simulator identity is not a UDID",
+      "hint": "Refresh the device list."
+    },
+    "identityNotAvd": {
+      "code": "invalid_data",
+      "message": "Android device identity is not an AVD name",
+      "hint": "Refresh the device list."
+    },
+    "sizeUndecoded": {
+      "code": "invalid_data",
+      "message": "Android display size could not be decoded",
+      "hint": "Check adb shell wm size on the selected emulator."
+    },
+    "iosNeedsMac": {
+      "code": "not_supported",
+      "message": "iOS Simulators need a paired Mac",
+      "hint": "Pair a Mac running ace in Settings › Fleet and use its Simulators there; agents can delegate that work to the Mac. Android emulators and phones work on this Windows machine."
+    },
+    "iosNeedsMacOs": {
+      "code": "not_supported",
+      "message": "iOS Simulator requires macOS",
+      "hint": "Use a macOS daemon with Xcode installed."
+    },
+    "xcodeMissing": {
+      "code": "sdk_missing",
+      "message": "Xcode tools were not found",
+      "hint": "Install Xcode and select it with xcode-select -s /Applications/Xcode.app/Contents/Developer."
+    },
+    "xcodeUnavailable": {
+      "code": "sdk_missing",
+      "message": "Xcode developer directory is unavailable",
+      "hint": "Run xcode-select -s /Applications/Xcode.app/Contents/Developer."
+    },
+    "xcodeNotFull": {
+      "code": "sdk_missing",
+      "message": "A full Xcode installation is required",
+      "hint": "Run xcode-select -s /Applications/Xcode.app/Contents/Developer, then accept the Xcode license."
+    },
+    "adbMissingArm": {
+      "code": "sdk_missing",
+      "message": "adb was not found",
+      "hint": "Install your distribution's adb (Debian/Ubuntu: sudo apt install adb) to use Android phones and network devices. Android emulators aren't available on Linux arm64."
+    },
+    "adbMissingLinux": {
+      "code": "sdk_missing",
+      "message": "adb was not found",
+      "hint": "Install your distribution's adb (Debian/Ubuntu: sudo apt install adb) for Android phones, or Android Studio's Platform Tools and Android Emulator with ANDROID_HOME set to the SDK directory for emulators too."
+    },
+    "sdkMissing": {
+      "code": "sdk_missing",
+      "message": "Android SDK platform-tools were not found",
+      "hint": "Install Android Studio's Platform Tools and Android Emulator, then set ANDROID_HOME to the SDK directory."
+    },
+    "deviceServiceClosed": {
+      "code": "command_failed",
+      "message": "Device service is closed",
+      "hint": "Restart the device service."
+    },
+    "androidEmulatorMissing": {
+      "code": "sdk_missing",
+      "message": "The Android Emulator was not found",
+      "hint": "Install the Android Emulator from Android Studio's SDK Manager, then set ANDROID_HOME to the SDK directory."
+    },
+    "androidBootBusy": {
+      "code": "busy",
+      "message": "Emulator process limit or boot already in progress",
+      "hint": "Wait for the current boot or shut down another emulator."
+    },
+    "androidPortLimit": {
+      "code": "limit",
+      "message": "No emulator console port available",
+      "hint": "Close unused emulators."
+    },
+    "toolsNowhere": {
+      "code": "tool_missing",
+      "message": "ace has nowhere to keep device tools",
+      "hint": "Restart ace; its home directory should hold them."
+    },
+    "armEmulatorNote": {
+      "code": "not_supported",
+      "message": "Android emulators aren't available on Linux arm64",
+      "hint": "Google publishes the Android Emulator for x86-64 Linux only. Android phones on USB and devices on the network work here through adb."
+    }
+  },
+  "adbTransports": {
+    "defaultPhysicalName": "Android device",
+    "tooManyTransports": {
+      "message": "Too many Android devices are connected",
+      "hint": "Disconnect unused devices or emulators."
+    },
+    "blocked": {
+      "noPermissions": {
+        "messageSuffix": " is connected, but this user can't open it over USB",
+        "hintLinux": "Linux needs a udev rule for Android devices: install your distribution's rules (Debian/Ubuntu: sudo apt install android-udev-rules; Fedora: sudo dnf install android-tools; Arch: sudo pacman -S android-udev), add yourself to the plugdev group (sudo usermod -aG plugdev $USER, then sign out and back in), unplug and replug the device, then run adb kill-server.",
+        "hintOther": "Unplug and replug the device, then run adb kill-server."
+      },
+      "network": {
+        "messageSuffix": " hasn't allowed this computer yet",
+        "hint": "On the device, allow the debugging prompt. For wireless debugging, pair first: Developer options > Wireless debugging > Pair device with pairing code, then run adb pair HOST:PORT and adb connect HOST:PORT."
+      },
+      "usb": {
+        "messageSuffix": " is waiting for you to allow USB debugging",
+        "hint": "Unlock the device and tap Allow on the \"Allow USB debugging?\" prompt. No prompt? Unplug and replug it, or revoke USB debugging authorizations in Developer options and reconnect."
+      }
+    }
+  },
+  "tools": {
+    "downloadHint": "Check the network and download the device tools again from Devices.",
+    "againHint": "Download the device tools again from Devices.",
+    "scrcpyHint": "ace downloads scrcpy-server on first use. Check the network, or set ACE_SCRCPY_SERVER to a verified copy.",
+    "downloadTimeout": "The device tools download took too long"
+  }
+}

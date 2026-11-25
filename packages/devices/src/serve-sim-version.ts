@@ -1,4 +1,6 @@
 import { findExecutable } from "@ace/provider-kit/discovery";
+import { devicePlatformBackend } from "@ace/provider-kit/native-switches";
+import { nativeDevices } from "./native-devices-addon.ts";
 import type { DeviceRuntime } from "./runtime.ts";
 
 /** What a version probe needs from the runtime. */
@@ -14,6 +16,8 @@ export const pinnedServeSim = "0.1.49-beta.139.1";
 export const serveSimVersions: readonly string[] = [pinnedServeSim];
 
 export function serveSimSupported(version: string | undefined): boolean {
+  if (devicePlatformBackend() === "native")
+    return nativeDevices().devicePlatformServeSimSupported(version ?? null);
   return version !== undefined && serveSimVersions.includes(version);
 }
 
@@ -39,6 +43,8 @@ export async function serveSimVersion(
   });
   try {
     const exit = await child.exited;
+    if (devicePlatformBackend() === "native")
+      return nativeDevices().devicePlatformServeSimVersion(exit.code, output) ?? undefined;
     if (exit.code !== 0) return undefined;
     return /^\s*v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)\s*$/.exec(output)?.[1];
   } finally {

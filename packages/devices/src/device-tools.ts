@@ -1,8 +1,16 @@
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { devicePlatformBackend } from "@ace/provider-kit/native-switches";
 import { DeviceFailure } from "@ace/protocol/devices";
 import { ToolsReply, type ToolsRequest } from "./device-tools-wire.ts";
 import type { DeviceRuntime } from "./runtime.ts";
-import { DeviceError } from "./sdk.ts";
+import { catalogHint } from "./catalog.ts";
+import { DeviceError, deviceAnswer } from "./sdk.ts";
+import {
+  nativeDevices,
+  type ToolsInstallRequest,
+  type ToolsInstallReply,
+} from "./native-devices-addon.ts";
 import type { ServeSimCommand } from "./serve-sim-install.ts";
 
 /** A download that hasn't finished in this long is stopped (slow links get a long allowance). */
@@ -18,6 +26,8 @@ export interface DeviceToolsOptions {
   env: NodeJS.ProcessEnv;
   /** Other pinned serve-sim packages; tests serve their own. */
   artifacts?: ToolsRequest["artifacts"];
+  /** The download's budget; the platform decides it (`toolsPlan`). */
+  timeoutMs?: number;
 }
 
 /** What a tools download left in place. */
@@ -37,6 +47,7 @@ export async function downloadDeviceTools(
   options: DeviceToolsOptions,
   wants: Pick<ToolsRequest, "serveSim" | "scrcpy">,
 ): Promise<DeviceTools> {
+  if (devicePlatformBackend() === "native") return downloadNatively(options, wants);
   const request: ToolsRequest = {
     directory: options.directory,
     node: options.node,
@@ -55,7 +66,7 @@ export async function downloadDeviceTools(
   });
   child.stderr.resume();
   let timedOut = false;
-  const cancel = options.runtime.after(installTimeoutMs, () => {
+  const cancel = options.runtime.after(options.timeoutMs ?? installTimeoutMs, () => {
     timedOut = true;
     void child.stop({ graceMs: 0 }).catch(() => {});
   });
@@ -66,11 +77,7 @@ export async function downloadDeviceTools(
     await child.stop({ graceMs: 0 }).catch(() => {});
   }
   if (timedOut)
-    throw new DeviceError(
-      "timeout",
-      "The device tools download took too long",
-      "Check the network and download the device tools again from Devices.",
-    );
+    throw new DeviceError("timeout", catalogHint("downloadTimeout"), catalogHint("downloadHint"));
   const parsed = ToolsReply.safeParse(
     (() => {
       try {
@@ -84,7 +91,7 @@ export async function downloadDeviceTools(
     throw new DeviceError(
       "command_failed",
       "The device tools download stopped without an answer",
-      "Download the device tools again from Devices.",
+      catalogHint("againHint"),
     );
   const reply = parsed.data;
   if (reply.error) {
@@ -95,6 +102,32 @@ export async function downloadDeviceTools(
       reply.error.hint,
     );
   }
+  return {
+    ...(reply.serveSim ? { serveSim: reply.serveSim } : {}),
+    ...(reply.scrcpy ? { scrcpy: reply.scrcpy } : {}),
+  };
+}
+
+/**
+ * The same download on the native runtime (D3.1): `ace-devices` fetches, checks and unpacks off
+ * the JavaScript thread, with the budget the platform's plan set.
+ */
+async function downloadNatively(
+  options: DeviceToolsOptions,
+  wants: Pick<ToolsRequest, "serveSim" | "scrcpy">,
+): Promise<DeviceTools> {
+  const request: ToolsInstallRequest = {
+    directory: options.directory,
+    node: options.node,
+    ...wants,
+    ...(options.artifacts ? { artifacts: options.artifacts } : {}),
+    ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    id: randomUUID(),
+    // An empty setting is unset, as the child's `if (explicit)` read it.
+    ...(options.env["ACE_SCRCPY_SERVER"] ? { scrcpyServer: options.env["ACE_SCRCPY_SERVER"] } : {}),
+  };
+  const text = await nativeDevices().devicePlatformInstallTools(JSON.stringify(request));
+  const reply = deviceAnswer<ToolsInstallReply>(() => text);
   return {
     ...(reply.serveSim ? { serveSim: reply.serveSim } : {}),
     ...(reply.scrcpy ? { scrcpy: reply.scrcpy } : {}),

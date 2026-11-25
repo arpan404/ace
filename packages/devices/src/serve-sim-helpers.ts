@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { devicePlatformBackend } from "@ace/provider-kit/native-switches";
+import { nativeDevices } from "./native-devices-addon.ts";
 import type { DeviceRuntime } from "./runtime.ts";
 
 type HelperRuntime = Pick<DeviceRuntime, "spawn" | "after">;
@@ -16,6 +18,8 @@ const Listed = z.object({
  * from any other serve-sim belong to the person and are always kept.
  */
 export function replacesHelper(commandLine: string, version: string): boolean {
+  if (devicePlatformBackend() === "native")
+    return nativeDevices().devicePlatformReplacesHelper(commandLine, version);
   const managed =
     /\/serve-sim-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)\/dist\/serve-sim\.js(?:\s|$)/.exec(
       commandLine,
