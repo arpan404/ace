@@ -61,14 +61,36 @@ impl Snapshot {
                 // must find its run, not create a second one.
                 if record.native_runs.is_some() {
                     let runs = self.native_runs(&key)?;
-                    for run_id in runs.values() {
-                        if !self.state.runs.contains_key(run_id)
-                            && let Some(run) = self.runs.read(run_id)?
+                    let ids: Vec<String> = runs
+                        .values()
+                        .chain(record.active_run.iter())
+                        .chain(record.last_run.iter())
+                        .cloned()
+                        .collect();
+                    for run_id in ids {
+                        if !self.state.runs.contains_key(&run_id)
+                            && let Some(run) = self.runs.read(&run_id)?
                         {
-                            self.state.runs.insert(run_id.clone(), run);
+                            self.state.runs.insert(run_id, run);
                         }
                     }
                     record.native_runs = Some(runs);
+                } else {
+                    // A turn started without a native id leaves only `active_run`: the end must
+                    // still find the stored run after a restart.
+                    let ids: Vec<String> = record
+                        .active_run
+                        .iter()
+                        .chain(record.last_run.iter())
+                        .cloned()
+                        .collect();
+                    for run_id in ids {
+                        if !self.state.runs.contains_key(&run_id)
+                            && let Some(run) = self.runs.read(&run_id)?
+                        {
+                            self.state.runs.insert(run_id, run);
+                        }
+                    }
                 }
                 self.state.agents.insert(key, record);
             }

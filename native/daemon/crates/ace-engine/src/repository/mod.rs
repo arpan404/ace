@@ -67,7 +67,7 @@ pub struct Repo {
     pub(crate) live_token: u64,
     /// Each buffered live write's snapshot, by its callback token (E5.3 step 8: the pin settles
     /// the exact snapshot it was taken on, never a lookup by thread id).
-    pub(crate) live: HashMap<u64, Rc<RefCell<Snapshot>>>,
+    pub(crate) live: HashMap<u64, crate::repository::stream::Pin>,
 }
 
 impl Default for Repo {

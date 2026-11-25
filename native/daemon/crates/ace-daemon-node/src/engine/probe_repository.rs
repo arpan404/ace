@@ -27,8 +27,7 @@ impl NativeEngine {
     #[napi]
     pub fn probe_apply(&self, id: String, facts_json: String, now: f64) -> napi::Result<()> {
         let core = self.engine.core();
-        core.with_state(|state| state.apply(&core.store, &id, &facts_json, now, None))
-            .map_err(engine_error)?
+        core.apply(&id, &facts_json, now, None)
             .map_err(engine_error)
     }
 
@@ -52,7 +51,7 @@ impl NativeEngine {
     ) -> napi::Result<()> {
         let core = self.engine.core();
         let result = core.store.atomic(|_tx| {
-            core.with_state(|state| state.apply(&core.store, &id, &facts_json, now, None))??;
+            core.apply(&id, &facts_json, now, None)?;
             Err(EngineError::not_ported("a rolled-back probe fold", "E5.3"))
         });
         result.map_err(engine_error)

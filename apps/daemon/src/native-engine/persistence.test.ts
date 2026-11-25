@@ -234,6 +234,50 @@ describe.runIf(native)("engine persistence", () => {
     }
   });
 
+  test("a fold whose open flushes a pending live write completes without Reentrant", async () => {
+    const seam = await engineSeam();
+    let threadId = "";
+    try {
+      await seam.engine.ready();
+      seam.probe.passThroughCollaborators();
+      threadId = seedStatefulThread(seam);
+      seam.probe.apply(threadId, turnFacts("hello"), 1_000);
+      // A live batch stays pinned, so the fold's transaction has to flush it when it opens.
+      expect(
+        seam.probe.stream(
+          threadId,
+          [{ type: "item.delta", agent: "root", item: "item-1", field: "text", append: " more" }],
+          2_000,
+        ),
+      ).toBe(true);
+      seam.probe.apply(
+        threadId,
+        [
+          {
+            type: "item.upsert",
+            agent: "root",
+            item: "item-2",
+            draft: {
+              type: "message",
+              role: "assistant",
+              parts: [{ type: "text", text: "second" }],
+              complete: true,
+            },
+          },
+          { type: "turn.ended", agent: "root", outcome: "completed" },
+        ],
+        3_000,
+      );
+      // The open's flush stored the buffered append, and the fold stored its own rows.
+      expect(seam.store.hasLiveWrite(threadId as never)).toBe(false);
+      const rows = engineRows(seam, threadId);
+      expect(rows.appends.filter((row) => row["key"] === "item-1")).toHaveLength(1);
+      expect(rows.records.map((row) => row["key"])).toContain("item-2");
+    } finally {
+      await seam.close();
+    }
+  });
+
   test("a rolled-back fold leaves no record in the budget, its rows are unchanged, and the next fold reloads from SQLite", async () => {
     const seam = await engineSeam();
     try {

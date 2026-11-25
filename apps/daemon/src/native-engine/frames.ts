@@ -61,8 +61,8 @@ export function liveStorePort(store: Store, native: NativeEngineHandle): () => v
   });
   // The store's quarantine notification (E5.3 step 8): its pin is already removed, so the
   // engine evicts that snapshot whether or not an actor exists.
-  const stopQuarantine = store.onLiveWriteQuarantine((thread) => {
-    native.liveQuarantined?.(thread);
+  const stopQuarantine = store.onLiveWriteQuarantine((thread, error) => {
+    native.liveQuarantined?.(thread, String(error.message ?? error));
   });
   return () => stopQuarantine();
 }

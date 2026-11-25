@@ -42,6 +42,14 @@ pub(super) fn text_field<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
+/// Text as JSON carries it, a lone surrogate included (`JsString::to_rust`).
+pub(super) fn text_carrier(value: &Value, key: &str) -> Option<String> {
+    match value.get(key) {
+        Some(Value::String(text)) => Some(text.to_rust().into_owned()),
+        _ => None,
+    }
+}
+
 impl State {
     fn root_key(&self, snapshot: &Rc<RefCell<Snapshot>>) -> String {
         snapshot
@@ -265,9 +273,9 @@ impl State {
             }
             if delta
                 && events.iter().any(|event| kind(event) == "item.delta")
-                && let Some(append) = text_field(&fact, "append")
+                && let Some(append) = text_carrier(&fact, "append")
             {
-                snapshot.borrow_mut().delta(&item, append, true)?;
+                snapshot.borrow_mut().delta(&item, &append, true)?;
             }
             snapshot
                 .borrow_mut()

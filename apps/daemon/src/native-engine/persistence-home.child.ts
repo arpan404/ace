@@ -18,7 +18,6 @@ import { join } from "node:path";
 import { createScriptedAdapter, type ScriptedStep } from "@ace/adapter-testkit";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { AdapterRegistry, Engine, Store } from "@ace/daemon";
-import { EngineRepository } from "../engine/repository.ts";
 import type { Fact } from "@ace/core";
 import { Capabilities, Command, type CommandPayload } from "@ace/protocol";
 import type { SessionContext } from "@ace/engine-api";
@@ -121,32 +120,30 @@ async function create(text: string): Promise<string> {
 
 try {
   if (mode === "seed") {
-    registry.register(
-      adapter(
-        [
-          // Ended turns: a working thread is a restart candidate, and restart recovery is E5.8's.
-          { on: "send", frames: [frames.frame(start, message("first", "still going"), end)] },
-          { on: "send", frames: [frames.frame(start, message("done", "finished"), end)] },
-          { on: "send", frames: [frames.frame(start, message("long", ""))] },
-          // Left working on purpose: the scan visits it, cannot read it, and skips it.
-          { on: "send", frames: [frames.frame(start, message("refused", "refused"))] },
-        ],
-        contexts,
-      ),
-      { installed: true, auth: "logged_in", loginHint: "unused" },
-    );
+    // One adapter per thread: a scripted session consumes its own steps from the start.
+    const register = (facts: Fact[]) => {
+      registry.register(adapter([{ on: "send", frames: [frames.frame(...facts)] }], contexts), {
+        installed: true,
+        auth: "logged_in",
+        loginHint: "unused",
+      });
+    };
+    register([start, message("first", "still going"), end]);
     await create("first");
+    register([start, message("done", "finished"), end]);
     await create("done");
+    register([start, message("long", "")]);
     await create("long");
-    // A second batch of appends on the committed item: only these are stored as patches.
+    // A second batch of deltas on the committed item; a frame of only deltas takes the live
+    // path and is stored as patches.
     const longSession = contexts.at(-1);
     if (!longSession) throw new Error("the long thread opened no session");
-    // A frame of only deltas takes the live path and is stored as patches.
     await longSession.onFrame(
       frames.frame(...Array.from({ length: 40 }, () => delta("long", LONG_DELTA))),
     );
     await longSession.onFrame(frames.frame(end));
     await engine.flush();
+    register([start, message("refused", "refused")]);
     const refusedId = await create("refused");
     await engine.flush();
     refused = refusedId;
@@ -157,22 +154,33 @@ try {
         .join(",")}\n`,
     );
   } else if (mode === "continue") {
-    // The TypeScript repository reads the header the native engine wrote and folds one more
-    // batch on top. No session and no actor: a command send would need E5.6's session rows.
+    // The real frame path: a send opens the thread's session (its binding exists, as E5.6
+    // writes it) and the scripted frame then folds through the actor.
+    registry.register(adapter([{ on: "send" }], contexts), {
+      installed: true,
+      auth: "logged_in",
+      loginHint: "unused",
+    });
+    await engine.ready();
     const thread = process.env.ACE_THREAD;
     if (!thread) throw new Error("ACE_THREAD is required");
-    const repo = new EngineRepository(store);
-    const before = repo.state(thread as never);
-    if (before === undefined) throw new Error("the native engine left no state to read");
-    repo.apply(
-      thread as never,
-      [
-        message("ts-after", "after"),
-        { type: "turn.ended", agent: "root", outcome: "completed" },
-      ] as never,
-      clock.now(),
+    dispatch({
+      type: "thread.send",
+      threadId: thread as never,
+      input: [{ type: "text", text: "again" }],
+    });
+    await engine.flush();
+    const context = contexts.at(-1);
+    if (!context) throw new Error("the send opened no session");
+    await context.onFrame(
+      frames.frame(message("ts-after", "after"), {
+        type: "turn.ended",
+        agent: "root",
+        outcome: "completed",
+      }),
     );
-    process.stdout.write(`continue version ${JSON.stringify(before.threadId)}\n`);
+    await engine.flush();
+    process.stdout.write(`continue contexts ${contexts.length}\n`);
   } else {
     throw new Error(`unknown mode ${mode}`);
   }

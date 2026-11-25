@@ -216,6 +216,46 @@ mod memory_tests {
     use crate::repository::testsupport::{Shell, header, home};
 
     #[test]
+    fn a_restarted_turn_without_a_native_id_ends_the_run_it_activated() {
+        // No `nativeTurnId`: the agent's `active_run` is the only link, and hydration must load
+        // it or the end leaves the stored run active.
+        let conn = home("active", &header("active"));
+        let store = Shell::store(&conn);
+        let mut before = State::default();
+        before.repo.probe_passthrough = true;
+        before
+            .apply(
+                &store,
+                "active",
+                r#"[{"type":"turn.started","agent":"root","trigger":"user"}]"#,
+                1.0,
+                None,
+            )
+            .unwrap();
+        drop(before);
+        let mut after = State::default();
+        after.repo.probe_passthrough = true;
+        after
+            .apply(
+                &store,
+                "active",
+                r#"[{"type":"turn.ended","agent":"root","outcome":"interrupted"}]"#,
+                2.0,
+                None,
+            )
+            .unwrap();
+        let snapshot = after.repo.require_state(&store, "active").unwrap();
+        let runs: Vec<String> = snapshot
+            .borrow()
+            .state
+            .runs
+            .values()
+            .map(|run| run.state.clone())
+            .collect();
+        assert_eq!(runs, vec!["interrupted".to_owned()]);
+    }
+
+    #[test]
     fn a_committed_batch_keeps_no_transcript_in_the_state() {
         // The transcript is the sections' and the store's after a commit; keeping it in the
         // state as well would hold a long thread's messages outside the shared 8 MiB budget.

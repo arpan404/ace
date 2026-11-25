@@ -23,15 +23,33 @@ fn keep_unknown_fields(encoded: &str, base: &str) -> String {
         return encoded.to_owned();
     };
     let mut merged = typed.clone();
-    for (key, value) in &original {
-        if !merged.contains_key(key) {
-            merged.insert(key.clone(), value.clone());
-        }
-    }
-    if merged.len() == typed.len() {
+    let added = merge_unknown(&mut merged, &original);
+    if !added {
         return encoded.to_owned();
     }
     ace_json::to_string(&Value::Object(merged))
+}
+
+/// Copy every field the typed form does not know, at any depth of objects: a tool record's
+/// unknown field inside `call` survives the rewrite too. Arrays are left as the typed form has
+/// them.
+fn merge_unknown(typed: &mut ace_json::Map, original: &ace_json::Map) -> bool {
+    let mut added = false;
+    for (key, value) in original {
+        match typed.get_mut(key) {
+            None => {
+                typed.insert(key.clone(), value.clone());
+                added = true;
+            }
+            Some(Value::Object(inner)) => {
+                if let Value::Object(outer) = value {
+                    added |= merge_unknown(inner, outer);
+                }
+            }
+            Some(_) => {}
+        }
+    }
+    added
 }
 
 impl<T: Clone + 'static> Records<T> {
@@ -131,5 +149,21 @@ impl<T: Clone + 'static> Records<T> {
     /// changes stay in the overlay, as the TypeScript's `touched` entries do.
     pub fn release(&mut self) {
         self.cache.disable();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::keep_unknown_fields;
+
+    #[test]
+    fn an_unknown_field_inside_a_nested_object_survives_a_rewrite() {
+        // A tool record's `call` gains a field this build does not know: the rewrite keeps it,
+        // as the TypeScript's passthrough schema does.
+        let typed = r#"{"call":{"status":"succeeded"}}"#;
+        let base = r#"{"call":{"status":"running","futureNested":{"b":2}}}"#;
+        let merged = keep_unknown_fields(typed, base);
+        assert!(merged.contains(r#""status":"succeeded""#), "{merged}");
+        assert!(merged.contains(r#""futureNested":{"b":2}"#), "{merged}");
     }
 }

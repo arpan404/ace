@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use ace_json::Value;
 
-use crate::repository::collaborators::FrameFacts;
+use crate::repository::collaborators::{FrameFacts, MoveFacts};
 use crate::{EngineError, EngineStore, State};
 
 /// The most facts one live batch may carry (`repository.ts:367`).
@@ -18,6 +18,12 @@ pub const MAX_STREAM_BYTES: f64 = 512.0 * 1024.0;
 
 /// A live batch that passed every refusal, ready to be buffered: its events, the token its
 /// snapshot is pinned under, and the snapshot itself.
+/// One buffered live write's pin: the snapshot it settles and the events it carried.
+pub struct Pin {
+    pub snapshot: Rc<RefCell<crate::snapshot::Snapshot>>,
+    pub events: String,
+}
+
 pub struct Prepared {
     pub snapshot: Rc<RefCell<crate::snapshot::Snapshot>>,
     pub events: String,
@@ -115,21 +121,53 @@ impl State {
         }))
     }
 
-    /// The buffer's `persist(token)` (`native-writer/live.ts:196`): the pinned snapshot's rows,
+    /// The buffer's `persist(token)` (`native-writer/live.ts:196`, `repository.ts:396`): the
+    /// batch's readiness, the header and its sequence, then the pinned snapshot's records, all
     /// inside the flush's transaction.
-    pub fn live_persist(&mut self, token: u64) -> Result<(), EngineError> {
-        let Some(snapshot) = self.repo.live.get(&token).cloned() else {
+    pub fn live_persist(&mut self, store: &EngineStore, token: u64) -> Result<(), EngineError> {
+        let Some(snapshot) = self
+            .repo
+            .live
+            .get(&token)
+            .map(|pin| Rc::clone(&pin.snapshot))
+        else {
             return Ok(());
         };
+        let events: Vec<Value> = {
+            let Some(pin) = self.repo.live.get(&token) else {
+                return Ok(());
+            };
+            match ace_json::parse(&pin.events) {
+                Ok(Value::Array(items)) => items.into_vec(),
+                _ => Vec::new(),
+            }
+        };
+        let (thread, header) = {
+            let borrowed = snapshot.borrow();
+            // `readiness.capture` (E5.9) reads the state this batch produced.
+            self.readiness_capture(&borrowed.state, &events)?;
+            (borrowed.state.thread_id.clone(), borrowed.header()?)
+        };
+        let seq = store.head_seq()? as i64;
+        ace_store::stmt_cache::run(
+            store.conn(),
+            super::save::UPSERT_STATE,
+            vec![
+                super::residency::text(&thread),
+                super::residency::text(&header),
+                super::residency::integer(seq),
+            ],
+        )?;
         snapshot.borrow_mut().persist()
     }
 
     /// The buffer's `committed(token)` (`:196`): the snapshot's overlay clears, its stored `seq`
     /// is the commit's head seq, and it is stamped at the current generation.
     pub fn live_committed(&mut self, store: &EngineStore, token: u64) -> Result<(), EngineError> {
-        let Some(snapshot) = self.repo.live.remove(&token) else {
+        let Some(pin) = self.repo.live.remove(&token) else {
             return Ok(());
         };
+        let snapshot = pin.snapshot;
         let thread = snapshot.borrow().state.thread_id.clone();
         snapshot.borrow_mut().committed();
         let seq = store.head_seq()? as i64;
@@ -145,7 +183,7 @@ impl State {
     pub fn quarantined(&mut self, store: &EngineStore, thread: &str) -> Result<(), EngineError> {
         self.repo
             .live
-            .retain(|_, snapshot| snapshot.borrow().state.thread_id != thread);
+            .retain(|_, pin| pin.snapshot.borrow().state.thread_id != thread);
         self.repo.quarantined(store, thread)
     }
 
@@ -195,12 +233,18 @@ mod tests {
             0,
             "the fold itself calls no buffer port"
         );
-        state.repo.live.insert(token, Rc::clone(&prepared.snapshot));
+        state.repo.live.insert(
+            token,
+            Pin {
+                snapshot: Rc::clone(&prepared.snapshot),
+                events: prepared.events.clone(),
+            },
+        );
         assert!(
             state.repo.live.contains_key(&token),
             "the token pins its snapshot"
         );
-        state.live_persist(token).unwrap();
+        state.live_persist(&store, token).unwrap();
         let row = ace_store::stmt_cache::get_row(
             &conn,
             "SELECT patch FROM engine_state_appends WHERE thread_id='stream' AND key='item-1'",

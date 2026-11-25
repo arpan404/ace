@@ -91,7 +91,17 @@ describe.runIf(native)("engine persistence across modes", () => {
       // the patch form needs the live path (the seam's live-delta test covers it).
       // The long thread's text is readable through the native engine below; its patch form
       // needs the live path, which the seam's live-delta test covers.
-      expect(longRows.records.map((row) => row["key"])).toContain("long");
+      const longRecord = longRows.records.find((row) => row["key"] === "long");
+      const longParts = (JSON.parse(String(longRecord?.value)) as Row)["parts"];
+      const recordText = (longParts as { type: string; text: string }[])
+        .map((part) => part.text)
+        .join("");
+      // The text is either in the record or in its patches (a live append batch).
+      const patchText = longRows.appends
+        .filter((row) => row["key"] === "long")
+        .map((row) => (JSON.parse(String(row["patch"])) as { text: string }).text)
+        .join("");
+      expect(recordText.length + patchText.length).toBeGreaterThan(32_768);
       expect(JSON.parse(String(engineRows(seam.store, refused).header?.state))["items"]).toBe(
         undefined,
       );
@@ -203,6 +213,14 @@ describe.runIf(native)("engine persistence across modes", () => {
       // The TypeScript engine read the header this build wrote and kept its version.
       expect(JSON.parse(String(rows.header?.state))["engineSnapshot"]).toBe(9);
       expect(rows.records.map((row) => row["key"])).toContain("before");
+      // The reopened transcript holds both sides' messages.
+      const transcript = store.snapshotThread(working as never);
+      const texts = Object.values(transcript.items)
+        .flatMap((entry) => ("parts" in entry ? entry.parts : []))
+        .map((part) => (part.type === "text" ? part.text : ""))
+        .join(" ");
+      expect(texts).toContain("before");
+      expect(texts).toContain("after");
     } finally {
       await store.close();
       rmSync(other, { recursive: true, force: true });

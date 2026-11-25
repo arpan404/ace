@@ -207,11 +207,13 @@ impl State {
         store: &EngineStore,
         id: Option<&str>,
     ) -> Result<(), EngineError> {
-        match id {
-            None => stmt_cache::run(store.conn(), CLEAR_BLOBS, vec![])?,
-            Some(id) => stmt_cache::run(store.conn(), CLEAR_THREAD_BLOBS, vec![text(id)])?,
-        };
-        Ok(())
+        store.atomic(|tx| {
+            match id {
+                None => stmt_cache::run(tx.conn(), CLEAR_BLOBS, vec![])?,
+                Some(id) => stmt_cache::run(tx.conn(), CLEAR_THREAD_BLOBS, vec![text(id)])?,
+            };
+            Ok(())
+        })
     }
 }
 
@@ -239,5 +241,10 @@ mod tests {
         assert!(state.workspace(&failing, "workspace").is_err());
         assert!(state.answer(&failing, "no-such-command").is_err());
         assert!(state.repo.reserved_slot(&failing, "reads").is_err());
+        assert!(
+            state
+                .clear_incomplete_blobs(&failing, Some("reads"))
+                .is_err()
+        );
     }
 }

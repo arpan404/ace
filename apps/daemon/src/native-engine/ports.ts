@@ -35,7 +35,7 @@ export interface PortHost {
   /** The live buffer's token callbacks (`repository.ts:396`-`:409`, E5.3). */
   livePersist(token: number): void;
   liveCommitted(token: number): void;
-  liveQuarantined(thread: string): void;
+  liveQuarantined(thread: string, message: string): void;
 }
 
 export interface EngineBindings {

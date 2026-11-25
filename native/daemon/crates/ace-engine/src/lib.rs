@@ -128,8 +128,9 @@ impl EngineError {
     pub fn skippable_at_startup(&self) -> bool {
         match self {
             EngineError::Incompatible { .. } => false,
-            // SQLITE_BUSY (5) and SQLITE_FULL (13): `isStoreRetry` (`store-busy.ts:27`).
-            EngineError::Store(error) => !matches!(error.code, 5 | 13),
+            // SQLITE_BUSY (5), SQLITE_LOCKED (6) and SQLITE_FULL (13): `isStoreBusy`
+            // (`store-busy.ts:4`) and disk-full are the retryable ones.
+            EngineError::Store(error) => !matches!(error.code, 5 | 6 | 13),
             _ => true,
         }
     }
@@ -474,6 +475,29 @@ impl Core {
         Ok(f(&mut state))
     }
 
+    /// `repo.apply` (`repository.ts:413`): the fold in the store's transaction, with the borrow
+    /// released around the transaction's open, which can flush a pinned live batch and re-enter
+    /// this engine through `persist`/`committed`.
+    pub fn apply(
+        &self,
+        id: &str,
+        facts_json: &str,
+        now: f64,
+        generation: Option<f64>,
+    ) -> Result<(), EngineError> {
+        let snapshot = self.with_state(|state| state.repo.require_state(&self.store, id))??;
+        let outcome = self.store.atomic(|_tx| {
+            self.with_state(|state| {
+                state.fold_frame(&self.store, id, &snapshot, facts_json, now, generation)
+            })?
+        });
+        if let Err(error) = outcome {
+            let _ = self.with_state(|state| state.repo.evict(&self.store, id));
+            return Err(error);
+        }
+        Ok(())
+    }
+
     /// `repo.stream` (`repository.ts:363`): the live batch's refusals and fold inside one state
     /// borrow, then the store's buffer outside it, since buffering can flush and the flush
     /// re-enters this engine.
@@ -483,18 +507,34 @@ impl Core {
         let Some(prepared) = prepared else {
             return Ok(false);
         };
-        self.store.prepare_live_write(prepared.bytes)?;
-        self.store
-            .buffer_live_write(id, &prepared.events, now, prepared.token)?;
+        // The pin is registered before admission: the buffer may flush synchronously while
+        // admitting, and the flush settles this token.
         self.with_state(|state| {
-            state.repo.live.insert(prepared.token, prepared.snapshot);
+            state.repo.live.insert(
+                prepared.token,
+                crate::repository::stream::Pin {
+                    snapshot: Rc::clone(&prepared.snapshot),
+                    events: prepared.events.clone(),
+                },
+            );
         })?;
+        if let Err(error) = self
+            .store
+            .prepare_live_write(prepared.bytes)
+            .and_then(|()| {
+                self.store
+                    .buffer_live_write(id, &prepared.events, now, prepared.token)
+            })
+        {
+            let _ = self.with_state(|state| state.repo.live.remove(&prepared.token).is_some());
+            return Err(error);
+        }
         Ok(true)
     }
 
     /// The live buffer's `persist(token)` (E5.3 step 8): the pinned snapshot's rows.
     pub fn live_persist(&self, token: u64) -> Result<(), EngineError> {
-        self.with_state(|state| state.live_persist(token))?
+        self.with_state(|state| state.live_persist(&self.store, token))?
     }
 
     /// The live buffer's `committed(token)`: the pin settles its snapshot and the repository
@@ -503,9 +543,14 @@ impl Core {
         self.with_state(|state| state.live_committed(&self.store, token))?
     }
 
-    /// The store's quarantine notification for one thread.
-    pub fn quarantined(&self, thread: &str) -> Result<(), EngineError> {
-        self.with_state(|state| state.quarantined(&self.store, thread))?
+    /// The store's quarantine notification for one thread (E5.3 step 8): the pin is already
+    /// removed, so the snapshot is evicted and released, then the actor is told.
+    pub fn quarantined(&self, thread: &str, message: &str) -> Result<(), EngineError> {
+        self.with_state(|state| state.quarantined(&self.store, thread))??;
+        if let Some(core) = self.self_rc() {
+            crate::actor::failure::quarantine(&core, &thread.to_owned(), message);
+        }
+        Ok(())
     }
 
     /// A strong handle to this engine, for a synchronous entry that starts work.
@@ -1033,6 +1078,16 @@ mod tests {
             errstr: "database is locked".to_owned(),
         };
         assert!(!EngineError::Store(busy).skippable_at_startup());
+        let locked = ace_store::Error {
+            kind: ace_store::ErrorKind::Sqlite,
+            code: 6,
+            message: "database table is locked".to_owned(),
+            errstr: "database table is locked".to_owned(),
+        };
+        assert!(
+            !EngineError::Store(locked).skippable_at_startup(),
+            "SQLITE_LOCKED is contention, so startup reports it, never skips it"
+        );
     }
 
     #[test]

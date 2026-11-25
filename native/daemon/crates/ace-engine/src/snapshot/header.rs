@@ -91,10 +91,45 @@ pub fn header_json(state: &ThreadState, original: Option<&Value>) -> Result<Stri
     Ok(ace_json::to_string(&Value::Object(header)))
 }
 
+/// Every field of `ThreadState`'s own JSON, from `state_json.rs`' serializer: the ones it omits
+/// while unset (`OPTIONAL`) and the ones always written (`header`), `initialRoot` included.
+const STATE_FIELDS: [&str; 28] = [
+    "threadId",
+    "config",
+    "rootKey",
+    "initialRoot",
+    "processExit",
+    "lastTransportSignalAt",
+    "statusObservedAt",
+    "agents",
+    "runs",
+    "items",
+    "interactions",
+    "tasks",
+    "uncertainTasks",
+    "personTasks",
+    "interactionHistory",
+    "taskHistory",
+    "indexes",
+    "outcomeOrder",
+    "runSeq",
+    "pendingNotices",
+    "itemLinks",
+    "queueCount",
+    "queueSources",
+    "hasRun",
+    "status",
+    "rejectionNotices",
+    "queueHeld",
+    "queueStopped",
+];
+
 /// A field of the state's own JSON shape that serialization omits while it is unset: the fold
 /// cleared it, so the stored header must not bring it back.
 fn known_field(name: &str) -> bool {
-    ace_core::state_json::OPTIONAL.contains(&name)
+    STATE_FIELDS.contains(&name)
+        || ace_core::state_json::OPTIONAL.contains(&name)
+        || name == "movedTo"
 }
 
 /// The emptied value of a section key, or `None` for a key that is not overridden.
@@ -139,6 +174,18 @@ mod tests {
         .unwrap();
         let header = header_json(&state(), Some(&original)).unwrap();
         assert!(!header.contains("processExit"), "{header}");
+    }
+
+    #[test]
+    fn a_consumed_initial_root_is_not_restored_from_the_old_header() {
+        // The first fold consumes `initialRoot`; the next save must not write it back, or the
+        // following reopen initialises the root again.
+        let original = ace_json::parse(
+            r#"{"engineSnapshot":9,"threadId":"t","config":{"provider":"claude","silenceMs":1000},"initialRoot":{"agent":"root","fidelity":"full","native":{"provider":"claude","nativeId":"n"},"cwd":"/tmp"},"agents":{},"outcomeOrder":0,"pendingNotices":[],"itemLinks":{},"queueCount":0,"queueSources":{"engine":0,"provider":0},"hasRun":false,"status":{"state":"new"}}"#,
+        )
+        .unwrap();
+        let header = header_json(&state(), Some(&original)).unwrap();
+        assert!(!header.contains("initialRoot"), "{header}");
     }
 
     #[test]

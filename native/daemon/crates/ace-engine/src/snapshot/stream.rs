@@ -99,7 +99,11 @@ impl StreamSnapshot for LiveStream<'_> {
 
     fn delta(&mut self, fact: &Value) {
         let item = text_field(fact, "item").unwrap_or_default().to_owned();
-        let append = text_field(fact, "append").unwrap_or_default().to_owned();
+        // The carrier keeps a lone surrogate what JSON wrote (`JsString::to_rust`).
+        let append = match fact.get("append") {
+            Some(Value::String(text)) => text.to_rust().into_owned(),
+            _ => String::new(),
+        };
         let outcome = self.snapshot.delta(&item, &append, true);
         self.record(outcome);
     }

@@ -60,10 +60,10 @@ impl NativeEngine {
 
     /// The store quarantined one thread's live batch (`store-stream.ts:272`).
     #[napi]
-    pub fn live_quarantined(&self, thread: String) -> napi::Result<()> {
+    pub fn live_quarantined(&self, thread: String, message: String) -> napi::Result<()> {
         self.engine
             .core()
-            .quarantined(&thread)
+            .quarantined(&thread, &message)
             .map_err(engine_error)
     }
 

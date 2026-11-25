@@ -40,9 +40,11 @@ impl State {
         id: &str,
         command_id: &str,
     ) -> Result<Vec<u32>, EngineError> {
-        let rows =
-            stmt_cache::all_rows(store.conn(), CORRELATED, vec![text(id), text(command_id)])?;
-        Ok(ids(&rows))
+        store.atomic(|tx| {
+            let rows =
+                stmt_cache::all_rows(tx.conn(), CORRELATED, vec![text(id), text(command_id)])?;
+            Ok(ids(&rows))
+        })
     }
 
     /// The ids a run start's admission takes (`:271`).
@@ -330,4 +332,27 @@ fn set_field(
     let mut object = ace_json::parse(&json).ok()?;
     object.as_object_mut()?.insert(key, value);
     ace_json::from_value(&ace_json::parse(&ace_json::to_string(&object)).ok()?).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::State;
+    use crate::repository::testsupport::{Shell, header, home};
+
+    #[test]
+    fn an_acknowledgement_takes_the_stores_transaction_boundary() {
+        // `repository.ts:177` wraps `acknowledgeCommand` in `store.atomic`; a failing store is
+        // reported, never read around.
+        let conn = home("ack", &header("ack"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        assert!(
+            state
+                .acknowledge_command(&store, "ack", "none")
+                .unwrap()
+                .is_empty()
+        );
+        let failing = Shell::failing_store(&conn);
+        assert!(state.acknowledge_command(&failing, "ack", "none").is_err());
+    }
 }

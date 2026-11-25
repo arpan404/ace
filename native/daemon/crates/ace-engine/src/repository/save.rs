@@ -269,12 +269,23 @@ mod tests {
         store
             .atomic(|_tx| {
                 let discarded = store.atomic(|_inner| {
+                    let snapshot = state.repo.require_state(&store, "savepoint")?;
+                    {
+                        let mut borrowed = snapshot.borrow_mut();
+                        borrowed
+                            .items
+                            .write("leaked", message("leaked", "savepoint", "leaked"));
+                    }
                     Err::<(), EngineError>(EngineError::Records("savepoint".to_owned()))
                 });
                 assert!(discarded.is_err());
                 let snapshot = state.repo.require_state(&store, "savepoint")?;
                 {
                     let mut borrowed = snapshot.borrow_mut();
+                    assert!(
+                        !borrowed.state.items.contains_key("leaked"),
+                        "the discarded savepoint's item is gone"
+                    );
                     borrowed
                         .items
                         .write("item-1", message("item-1", "savepoint", "kept"));
@@ -290,6 +301,7 @@ mod tests {
             })
             .unwrap();
         assert!(record(&conn, "savepoint", "item-1").is_some());
+        assert_eq!(record(&conn, "savepoint", "leaked"), None);
         assert!(store.rollback_generation().unwrap() > 0.0);
     }
 }
