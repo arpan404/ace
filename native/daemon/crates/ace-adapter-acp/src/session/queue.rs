@@ -132,12 +132,14 @@ impl AcpCore {
             }
             if let Some(message) = refusal {
                 self.active = false;
-                self.settle_job(
-                    job.batch,
-                    Err(AcpErrorWire::input_rejected(message)),
-                    effects,
-                );
-                self.drop_batch(job.batch, effects);
+                // `next.input.map(encodeContent)` throwing: `send`'s catch rethrows the raw
+                // error once a prompt of the batch went out, and drops the rest otherwise
+                // (`session.ts:629`-`:636`).
+                let error = self.unread_or_uncertain(job.batch, &message);
+                self.settle_job(job.batch, Err(error), effects);
+                if !written {
+                    self.drop_batch(job.batch, effects);
+                }
                 self.queue_changed(effects);
                 continue;
             }
@@ -157,12 +159,11 @@ impl AcpCore {
                 Ok(peer_effects) => peer_effects,
                 Err(err) => {
                     self.active = false;
-                    self.settle_job(
-                        job.batch,
-                        Err(AcpErrorWire::input_rejected(err.message().to_owned())),
-                        effects,
-                    );
-                    self.drop_batch(job.batch, effects);
+                    let error = self.unread_or_uncertain(job.batch, err.message());
+                    self.settle_job(job.batch, Err(error), effects);
+                    if !written {
+                        self.drop_batch(job.batch, effects);
+                    }
                     continue;
                 }
             };

@@ -71,6 +71,44 @@ fn a_queued_fenced_prompt_is_refused_unread_once_the_session_is_idle() {
 /// A queued steer whose fence is still current when the queue reaches it is sent: TS asks
 /// `fence.current()` again at that moment (`session.ts:718`), it never assumes the turn is
 /// over just because a prompt ended.
+/// A prompt that fails after an earlier one of its batch wrote rethrows the raw error, so
+/// the engine counts the send uncertain, and the rest of the batch is not dropped
+/// (`session.ts:629`-`:636`).
+#[test]
+fn a_written_batch_rethrows_the_raw_error() {
+    let mut core = session_core("t-written-batch");
+    let input = vec![
+        json!({ "type": "mention", "name": "one", "invocation": { "type": "slash", "name": "one" } }),
+        json!({ "type": "mention", "name": "two", "invocation": { "type": "slash", "name": "two" } }),
+        json!({ "type": "mention", "name": "three", "invocation": { "type": "slash", "name": "three" } }),
+    ];
+    let mut sent = Vec::new();
+    core.send(
+        InputSend {
+            operation: 90,
+            input: &input,
+            delivery: Delivery::Queue,
+            command_id: None,
+            origin: None,
+            fence: None,
+        },
+        &mut sent,
+    );
+    assert_eq!(core.queue_len(), 2, "one prompt is in flight");
+    let prompt = sent_id(&sent, "session/prompt").unwrap_or_default();
+    // The leader exits: the peer refuses the prompts still to go.
+    core.mark_exited();
+
+    let after = core.stdout_bytes(&prompt_reply(&prompt, "end_turn"));
+    let settled = settlements(&after, 90);
+    assert_eq!(settled.len(), 1, "one promise, one settlement");
+    assert_eq!(
+        settled[0].as_ref().err().map(|(code, _)| code.as_str()),
+        Some("ACE_ACP_RPC_ERROR"),
+        "a prompt of the batch wrote, so the error is uncertain"
+    );
+}
+
 #[test]
 fn a_queued_steer_whose_fence_is_still_current_is_sent() {
     let (mut core, prompt) = core_with_prompt("t-live-fence");
