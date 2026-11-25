@@ -196,3 +196,25 @@ Spade accepts surrounding whitespace and refuses text beyond the ledger's
 length limit so truncation cannot change the instruction. Other changes under
 taint stay limited to ask states. Lifting still requires a later message from
 the person and an untainted view.
+
+## Amendment (2026-11-25) — The asks block is stored where it was read
+
+§2's block was rebuilt for every call and never stored, so each call read a prompt the next call
+never sent again. Anthropic binds a thinking block's signature to everything sent before it, so
+a reply's thinking no longer matched once the block was gone, and the endpoint refused the whole
+request (`Invalid signature in thinking block ... bound to a different conversation`). The
+owner's rule: nothing goes into a prompt that isn't stored.
+
+- Before a model call, Spade builds the block's text as before. When that text differs from the
+  latest block stored since the last compaction (or none is stored and the text isn't empty),
+  Spade stores it as `asks_shown { text }` in the same write path as the call's other events,
+  before the call is sent. Equal text stores nothing.
+- The model reads each `asks_shown` as a person message at its position in history, like
+  `asks_reminded`. Nothing is appended after the stored conversation any more, so every call's
+  prompt is a prefix of the next one, and a step's thinking stays valid.
+- The block is stored only when the ledger's view changes (a new message, an `asks` update, a
+  state change), not on every call, so history grows by a block per change, not per step.
+- A compaction drops earlier `asks_shown` like any other event before its cut; the ledger itself
+  still lives in `context_compacted.asks`, and the next call stores a fresh block.
+- A subscription brain (`cli:`) is unchanged: its CLI keeps its own context.
+- `asks_shown` folds to nothing in the transcript and the clients.

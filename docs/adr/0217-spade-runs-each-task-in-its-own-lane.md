@@ -525,3 +525,14 @@ A move waits for pending approvals and questions in the reply to resolve.
 A question left for later no longer pauses model steps, but still blocks
 the move. This lets the original card stay answerable in main without
 copied events opening a second card in the lane.
+
+## Amendment (2026-11-25) — No live tasks block; lanes report to main
+
+The tasks block that closed every main step while lanes hadn't ended (As built, "Main's tasks
+block") is removed, for the reason in ADR 0215's amendment of the same day: a block that isn't
+stored breaks Anthropic's thinking signatures on the next call. The owner's rule: lanes, and
+every other kind of worker (helpers, ADR 0152; bot workers, ADR 0161), give main a summary of
+what they did, stored as their report (`worker_reported`, §4); main never reads a live view
+rebuilt per call. Main still learns of a lane from its `lane_started` line, of its outcome from
+its report, of its live state from `tasks` when it asks, and after a compaction from the list in
+its instructions (§6).
