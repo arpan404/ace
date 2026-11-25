@@ -33,6 +33,7 @@ pub mod recovery;
 pub mod release;
 pub mod repository;
 pub mod restart;
+pub mod runtime;
 pub mod sessions;
 pub mod settle;
 pub mod snapshot;

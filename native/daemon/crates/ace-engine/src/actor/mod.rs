@@ -6,10 +6,14 @@ pub mod deps;
 pub mod failure;
 pub mod flow;
 pub mod fold;
+pub mod frame_ack;
 pub mod intake;
 pub mod leases;
 pub mod mailbox;
 pub mod native;
+#[cfg(feature = "engine-probe")]
+pub mod probe;
+pub mod promotion;
 pub mod rules;
 pub mod state;
 pub mod timer;
@@ -18,6 +22,9 @@ pub use deps::{
     ActorDeps, ActorLinks, ActorRepo, ActorTranslator, BatchAck, JsBatchTranslator, Route,
     ScheduleView, TranslatedFrame, Unported,
 };
+#[cfg(feature = "engine-probe")]
+pub use probe::run_op_opened;
+pub use promotion::restore_promotion;
 pub use state::{Actor, Actors, FrameRef, Pending};
 pub use timer::keeps_timer;
 
@@ -289,165 +296,10 @@ pub fn get_or_create(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineErr
     let owner = Rc::clone(core);
     let committed = Rc::clone(&promotion);
     core.defer(crate::executor::Deferred::Run(Box::new(move || {
-        commit_promotion(&owner, &committed);
+        promotion::commit_promotion(&owner, &committed);
     })));
     core.record_wake(thread);
     Ok(())
-}
-
-/// The commit: the provisional actor takes the slot its reservation held, and the pledged
-/// victims are stopped and evicted, which is what the TypeScript did at the call. A reservation
-/// missing here is an invariant break, never a normal path: the actor is discarded and its work
-/// fails visibly instead of acknowledging as success.
-fn commit_promotion(core: &Rc<Core>, promotion: &Rc<state::Promotion>) {
-    {
-        let mut state = promotion.state.borrow_mut();
-        if state.done || state.rolled_back {
-            return;
-        }
-        state.done = true;
-    }
-    let thread = promotion.created.clone();
-    let held = core
-        .with_state(|state| state.actors.reserved.contains_key(&thread))
-        .unwrap_or(false);
-    if !held {
-        let counts = restore_promotion(core, promotion);
-        lost_reservation(core, &thread, counts);
-        return;
-    }
-    let deps = core.actor_deps.borrow().clone();
-    // The victims stop the way the TypeScript's eviction stopped them: their leases release,
-    // their drains resolve, and every acknowledgement they still hold settles as failed.
-    let aside = std::mem::take(&mut *promotion.kept_aside.borrow_mut());
-    for (_, actor) in aside {
-        stop_aside(core, &deps, actor);
-    }
-    core.with_state(|state| {
-        state.actors.reserved.shift_remove(&thread);
-        for victim in &promotion.pledges {
-            state.actors.pledges.shift_remove(victim);
-        }
-        if let Some(actor) = state.actors.by_thread.get_mut(&thread) {
-            actor.provisional = false;
-        }
-    })
-    .ok();
-    spawn_mailbox(core, &thread);
-}
-
-/// Stops an actor that a promotion moved aside: what `stop()` does, for one that is no longer
-/// in the map.
-fn stop_aside(core: &Rc<Core>, deps: &Rc<deps::ActorDeps>, mut actor: state::Actor) {
-    let tokens: Vec<u64> = actor.leases.keys().copied().collect();
-    if !tokens.is_empty() {
-        deps.links.release_leases(core, &tokens);
-    }
-    for drain in actor.drains.drain(..) {
-        let _ = drain.send(());
-    }
-    if let Some((timer, _)) = actor.timer.as_ref() {
-        core.ports.cancel_timer(timer.key);
-    }
-    let id = actor.id.clone();
-    state::discard_acks(core, actor);
-    deps.repo.evict(core, &id);
-}
-
-/// A promotion that will not commit: release its reservation, restore the pledged victims at
-/// their old positions, and remove the provisional actor (its acknowledgements still rejecting).
-pub fn restore_promotion(core: &Rc<Core>, promotion: &state::Promotion) -> (usize, usize) {
-    let created = promotion.created.clone();
-    let discarded = core
-        .with_state(|state| {
-            for victim in &promotion.pledges {
-                state.actors.pledges.shift_remove(victim);
-            }
-            state.actors.reserved.shift_remove(&created);
-            // Only the provisional actor this promotion created is discarded: by now another
-            // promotion's rollback may have restored this thread's committed actor in its place.
-            match state.actors.by_thread.get(&created) {
-                Some(actor) if actor.provisional => state.actors.by_thread.shift_remove(&created),
-                _ => None,
-            }
-        })
-        .ok()
-        .flatten();
-    let mut aside = std::mem::take(&mut *promotion.kept_aside.borrow_mut());
-    aside.sort_unstable_by_key(|(index, _)| *index);
-    for (index, actor) in aside {
-        let id = actor.id.clone();
-        core.with_state(|state| {
-            let at = index.min(state.actors.by_thread.len());
-            state.actors.by_thread.shift_insert(at, id, actor);
-        })
-        .ok();
-    }
-    // Restored actors go back to their old seats, so a transaction that pledged two victims
-    // restores the same order it found, whatever order its promotions drop in.
-    core.with_state(|state| {
-        state
-            .actors
-            .by_thread
-            .sort_by(|_, left, _, right| left.seat.cmp(&right.seat))
-    })
-    .ok();
-    let mut counts = (0, 0);
-    if let Some(actor) = discarded {
-        counts = (actor.staged.len(), actor.mailbox.len());
-        state::discard_acks(core, actor);
-    }
-    counts
-}
-
-/// A reservation that could not be used at promotion: the actor's work is failed visibly and
-/// the durable work behind it is woken to redeliver through a fresh actor.
-fn lost_reservation(core: &Rc<Core>, thread: &ThreadId, counts: (usize, usize)) {
-    let deps = core.actor_deps.borrow().clone();
-    let (staged, queued) = counts;
-    for _ in 0..staged.max(queued) {
-        core.ports.report(format!(
-            "Engine actor capacity reservation lost for {thread}"
-        ));
-    }
-    if staged == 0 && queued == 0 {
-        core.ports.report(format!(
-            "Engine actor capacity reservation lost for {thread}"
-        ));
-    }
-    deps.links.wake(core, thread);
-}
-
-/// The outermost rule, synchronously, for the probe (seam test 11): one op run inside an open
-/// transaction fails before it can acknowledge on a savepoint's release.
-#[cfg(feature = "engine-probe")]
-pub fn run_op_opened(core: &Rc<Core>, thread: &ThreadId, op: mailbox::Op) -> bool {
-    if !core.store.is_open() {
-        return false;
-    }
-    failure::fail(core, thread, EngineError::NotOutermost);
-    let settled = match op {
-        mailbox::Op::Batch(batch) => {
-            mailbox::settle(core, thread, batch.frames.len(), batch.bytes, batch.ack)
-        }
-        mailbox::Op::Run(run) => mailbox::settle(
-            core,
-            thread,
-            run.frames,
-            run.bytes,
-            run.ack.unwrap_or_default(),
-        ),
-        mailbox::Op::Settle(ack) => mailbox::settle_rejected(core, ack),
-        _ => false,
-    };
-    core.with_state(|state| {
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
-            actor.running = false;
-            mailbox::resolve_flush_waiters(actor);
-        }
-    })
-    .ok();
-    settled
 }
 
 /// `stop()` (`actor.ts:599`): seal first, then stop everything the actor holds.
