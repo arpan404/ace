@@ -1942,15 +1942,16 @@ Steps, in order:
 3. `control.rs`: `Request`, `Initialize`, `Controls`. Request ids are `ace-<n>` from a counter in
    `Controls`. `settle` of an unknown id returns `None`. `drain` returns every pending tag in
    insertion order and marks the controls closed, so `request` then returns `ControlError::Closed`.
-4. `launch.rs`: `args` in this order: `-p`, `--input-format`, `stream-json`, `--output-format`,
-   `stream-json`, `--verbose`, then the session flags (`--session-id <id>`; or `--resume=<id>`; or
-   `--resume=<source>`, `--fork-session`, `--resume-session-at=<at>` when given, `--session-id
-<id>`), then `--model`, `--effort`, `--permission-mode`, `--allow-dangerously-skip-permissions`,
-   `--setting-sources=<a,b>`, `--strict-mcp-config`, `--mcp-config <value>`, each `--plugin-dir
-<path>`, `--include-partial-messages`, `--include-hook-events`, then `extra` as `--<name>` or
+4. `launch.rs`: `args` in the recorded order (claude-session.md Q2,
+   `fixtures/claude/handshake-2.1.331/argv.*.json`): `--output-format stream-json --verbose
+--input-format stream-json --permission-prompt-tool stdio` (no `-p`), then the session flags
+   (`--session-id <id>`; or `--resume=<id>`; or `--resume=<source>`, `--fork-session`,
+   `--resume-session-at=<at>` when given, `--session-id <id>`), then `--model`, `--effort`,
+   `--permission-mode`, `--allow-dangerously-skip-permissions`, `--setting-sources=<a,b>`,
+   `--strict-mcp-config`, `--mcp-config <value>`, each `--plugin-dir <path>`,
+   `--include-hook-events`, `--include-partial-messages`, then `extra` as `--<name>` or
    `--<name>=<value>`. The `=` forms are the ones `[test]` pins; the others take the value as the
-   next argument, as the fake's `option()` reads both (`testing/cli.ts:11`–`:15`). Any flag Q2
-   adds goes in when Q2 is settled, not before.
+   next argument, as the fake's `option()` reads both (`testing/cli.ts:11`–`:15`).
 5. Tests (new behaviour, the crate's own API; the commit says so): one table per module, rows
    named after the behaviour. Only what the session files of E3-claude.4 can't reach: each
    mapping's unpinned fields (`blockedPath`, `decisionReason`, `agentID`, `matchedAskRule`,
