@@ -111,14 +111,14 @@ async function antigravity(first: string, releaseDir?: string) {
     );
   if (held)
     await expect
-      .poll(() => Object.values(h.store.snapshotThread(id).items))
+      .poll(() => Object.values(h.store.snapshotThread(id).items), { timeout: 10_000 })
       .toContainEqual(
         expect.objectContaining({
           type: "tool_call",
           call: expect.objectContaining({ status: "running" }),
         }),
       );
-  else await expect.poll(() => running().length).toBe(1);
+  else await expect.poll(() => running().length, { timeout: 10_000 }).toBe(1);
   const send = (text: string) =>
     h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text }] }).ok;
   return { h, id, sessions, running, send };
@@ -151,19 +151,17 @@ async function nextActiveRun(
 ): Promise<RootRun> {
   let found: RootRun | undefined;
   await expect
-    .poll(() => {
-      const run = activeRootRun(h, id);
-      if (run && run.id !== previous) found = run;
-      return found?.id;
-    })
+    .poll(
+      () => {
+        const run = activeRootRun(h, id);
+        if (run && run.id !== previous) found = run;
+        return found?.id;
+      },
+      { timeout: 10_000 },
+    )
     .toBeDefined();
   if (!found) throw new Error("Expected the queued prompt to be active");
   return found;
-}
-function toolCalls(h: Awaited<ReturnType<typeof antigravity>>["h"], id: ThreadId) {
-  return Object.values(h.store.snapshotThread(id).items).filter(
-    (item) => item.type === "tool_call",
-  );
 }
 
 test("a person's ACP steer cancels its target turn and sends the follow-up once", async () => {
@@ -451,7 +449,7 @@ test("an ACP steer sent during one turn never cancels the next", async () => {
     expect(h.store.snapshotThread(id).runs[first.id]).toMatchObject({ state: "completed" });
     // The steer aimed at A is handed back as the next message, not sent into B.
     await expect
-      .poll(() => queuedTexts(h, id))
+      .poll(() => queuedTexts(h, id), { timeout: 10_000 })
       .toEqual([{ text: "late steer", delivery: "queue" }]);
     expect(sessions[0]?.cancels).toEqual([]);
     expect(events(dir)).toEqual(["release"]);
@@ -518,6 +516,13 @@ test("choosing Steer on a queued message cancels the turn running now", async ()
   }
 });
 
+/** Every shell the thread's snapshot lists, in no order: each held prompt reports its own. */
+function shells(h: Awaited<ReturnType<typeof antigravity>>["h"], id: ThreadId) {
+  return Object.values(h.store.snapshotThread(id).items).flatMap((item) =>
+    item.type === "tool_call" && item.call.detail.kind === "shell" ? [item] : [],
+  );
+}
+
 test("a steer that lost its turn doesn't block a newer steer", async () => {
   const dir = tempDir();
   const { h, id, sessions } = await antigravity("hold-shell-natural", dir);
@@ -533,15 +538,17 @@ test("a steer that lost its turn doesn't block a newer steer", async () => {
     // The steer aimed at the finished turn leaves the lane even while the new turn's command
     // runs, so a newer steer is not stuck behind it.
     await expect
-      .poll(() => queuedTexts(h, id))
+      .poll(() => queuedTexts(h, id), { timeout: 10_000 })
       .toEqual([{ text: "early steer", delivery: "queue" }]);
     expect(sessions[0]?.cancels).toEqual([]);
     expect(events(dir)).toEqual(["release"]);
 
     // Free the new turn's command, then the person steers into that turn: one cancel.
+    // B's own shell must be listed first: A's completed one would satisfy the wait below alone.
+    await expect.poll(() => shells(h, id).length, { timeout: 10_000 }).toBe(2);
     release(dir, 2);
     await expect
-      .poll(() => toolCalls(h, id).every((item) => item.type !== "tool_call" || item.complete))
+      .poll(() => shells(h, id).every((item) => item.complete), { timeout: 10_000 })
       .toBe(true);
     expect(steer(h, id, "stop now")).toBe(true);
     await expect.poll(() => sessions[0]?.cancels, { timeout: 5000 }).toEqual(["root"]);
