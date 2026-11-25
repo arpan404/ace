@@ -144,7 +144,7 @@ dependencies = [
  "ace-transport",
  "bytes",
  "getrandom 0.4.3",
- "indexmap 2.14.2",
+ "indexmap",
  "napi",
  "napi-build",
  "napi-derive",
