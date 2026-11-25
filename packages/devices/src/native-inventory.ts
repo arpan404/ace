@@ -247,7 +247,13 @@ function findAdbSync(
 type CoordinatorJsAction =
   | { op: "arm_timer"; id: number; delayMs: number }
   | { op: "cancel_timer"; id: number }
-  | { op: "start_read"; readId: number; scope: InventoryReadScope; liveness: boolean }
+  | {
+      op: "start_read";
+      readId: number;
+      scope: InventoryReadScope;
+      liveness: boolean;
+      invalidateAdbCache: boolean;
+    }
   | { op: "publish"; inventory: Inventory }
   | { op: "log_warn"; message: string; detail: string };
 
@@ -258,7 +264,11 @@ export interface NativeInventoryWatchConfig {
 }
 
 export interface NativeInventoryWatchOptions {
-  readSource(scope: InventoryReadScope, liveness: boolean): Promise<Inventory>;
+  readSource(
+    scope: InventoryReadScope,
+    liveness: boolean,
+    invalidateAdbCache: boolean,
+  ): Promise<Inventory>;
   after: DeviceRuntime["after"];
   intervalMs: number;
   log?: DeviceLog | undefined;
@@ -395,20 +405,25 @@ export class NativeDeviceInventoryWatch {
             this.runActions(this.handle.readCancelled(action.readId));
             break;
           }
-          void this.options.readSource(action.scope, action.liveness).then(
-            (inventory) => {
-              if (this.closed) return;
-              this.runActions(this.handle.readSucceeded(action.readId, JSON.stringify(inventory)));
-            },
-            (error: unknown) => {
-              if (this.closed) return;
-              const rawMessage = error instanceof Error ? error.message : "Device inventory failed";
-              const failure = deviceFailure(error);
-              this.runActions(
-                this.handle.readFailed(action.readId, JSON.stringify(failure), rawMessage),
-              );
-            },
-          );
+          void this.options
+            .readSource(action.scope, action.liveness, action.invalidateAdbCache)
+            .then(
+              (inventory) => {
+                if (this.closed) return;
+                this.runActions(
+                  this.handle.readSucceeded(action.readId, JSON.stringify(inventory)),
+                );
+              },
+              (error: unknown) => {
+                if (this.closed) return;
+                const rawMessage =
+                  error instanceof Error ? error.message : "Device inventory failed";
+                const failure = deviceFailure(error);
+                this.runActions(
+                  this.handle.readFailed(action.readId, JSON.stringify(failure), rawMessage),
+                );
+              },
+            );
           break;
         }
         case "publish": {

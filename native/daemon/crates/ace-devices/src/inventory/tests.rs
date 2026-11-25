@@ -70,7 +70,20 @@ fn find_read(actions: &[CoordinatorAction]) -> Option<(u64, ReadScope, bool)> {
             read_id,
             scope,
             liveness,
+            ..
         } => Some((*read_id, *scope, *liveness)),
+        _ => None,
+    })
+}
+
+fn find_read_full(actions: &[CoordinatorAction]) -> Option<(u64, ReadScope, bool, bool)> {
+    actions.iter().find_map(|a| match a {
+        CoordinatorAction::StartRead {
+            read_id,
+            scope,
+            liveness,
+            invalidate_adb_cache,
+        } => Some((*read_id, *scope, *liveness, *invalidate_adb_cache)),
         _ => None,
     })
 }
@@ -83,6 +96,7 @@ fn read_ids(actions: &[CoordinatorAction]) -> Vec<(u64, ReadScope, bool)> {
                 read_id,
                 scope,
                 liveness,
+                ..
             } => Some((*read_id, *scope, *liveness)),
             _ => None,
         })
@@ -521,7 +535,16 @@ fn stopping_and_reopening_after_dropped_start_read_does_not_block_reconcile() {
     };
     assert_ne!(read1, read2);
 
-    // A stale failure from the pre-stop read must not overwrite state or break the active read.
+    // A stale completion or failure from the pre-stop read must not publish or break the active read.
+    let stale_ok = coord.on_read_succeeded(
+        read1,
+        Inventory {
+            devices: vec![ios_device("stale-0000", DeviceState::Booted)],
+            issues: vec![],
+        },
+    );
+    assert!(stale_ok.is_empty());
+    assert!(coord.current().is_none());
     let stale = coord.on_read_failed(read1, sample_failure("stale"), "stale");
     assert!(stale.is_empty());
     assert!(coord.has_in_flight_reads());
@@ -815,9 +838,13 @@ async fn real_adb_restart_and_folder_replacement_reconcile_missed_updates() {
     assert_eq!(conn2, Ok(Some(AdbTrackEvent::Connected)));
 
     let ready2 = coord.on_watcher_ready(InventorySource::Adb, true);
-    let Some((rec2, ReadScope::All, false)) = find_read(&ready2) else {
+    let Some((rec2, ReadScope::All, false, inv_adb2)) = find_read_full(&ready2) else {
         panic!("expected full reconcile read on ADB reconnect");
     };
+    assert!(
+        inv_adb2,
+        "real ADB restart reconcile must invalidate cached serial->AVD names"
+    );
     let pub_adb = coord.on_read_succeeded(rec2, read_real_inventory(&adb_devices, &avd_dir));
     assert_eq!(
         coord.source_health(InventorySource::Adb),
@@ -922,4 +949,83 @@ async fn real_adb_restart_and_folder_replacement_reconcile_missed_updates() {
 
     drop(watch2);
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn adb_restart_and_liveness_request_adb_identity_cache_invalidation() {
+    let mut coord = InventoryCoordinator::new(CoordinatorConfig {
+        enable_ios: true,
+        ..CoordinatorConfig::default()
+    });
+    let liveness_id = make_all_healthy(&mut coord, Inventory::default());
+
+    // Normal healthy ADB trigger keeps cached per-serial AVD names.
+    let trig = coord.on_source_trigger(InventorySource::Adb);
+    let Some((deb, _)) = find_timer(&trig, TimerKind::Debounce(InventorySource::Adb)) else {
+        panic!("expected debounce timer");
+    };
+    let Some((r_healthy, ReadScope::Source(InventorySource::Adb), false, inv_healthy)) =
+        find_read_full(&coord.on_timer_fired(deb))
+    else {
+        panic!("expected healthy scoped ADB read");
+    };
+    assert!(
+        !inv_healthy,
+        "healthy ADB trigger should not invalidate cache"
+    );
+    let _ = coord.on_read_succeeded(r_healthy, Inventory::default());
+
+    // ADB disconnects and reconnects -> reconcile read MUST request cache invalidation.
+    let lost = coord.on_watcher_lost(InventorySource::Adb);
+    let Some((fb_id, _)) = find_timer(&lost, TimerKind::Fallback(InventorySource::Adb)) else {
+        panic!("expected fallback timer on ADB loss");
+    };
+    let ready = coord.on_watcher_ready(InventorySource::Adb, true);
+    let Some((r_rec1, ReadScope::All, false, inv_rec1)) = find_read_full(&ready) else {
+        panic!("expected reconnect reconcile read");
+    };
+    assert!(
+        inv_rec1,
+        "ADB reconnect reconcile must invalidate cached serial->AVD names"
+    );
+
+    // If that reconcile fails, the existing 4 s fallback retry MUST STILL request cache invalidation.
+    let _fail = coord.on_read_failed(r_rec1, sample_failure("adb busy"), "adb busy");
+    let Some((r_rec2, ReadScope::All, false, inv_rec2)) =
+        find_read_full(&coord.on_timer_fired(fb_id))
+    else {
+        panic!("expected fallback reconcile read");
+    };
+    assert!(
+        inv_rec2,
+        "retry after failed reconnect reconcile must still invalidate cache"
+    );
+
+    // Once reconcile succeeds, normal healthy ADB triggers stop invalidating.
+    let _ = coord.on_read_succeeded(r_rec2, Inventory::default());
+    let trig2 = coord.on_source_trigger(InventorySource::Adb);
+    let Some((deb2, _)) = find_timer(&trig2, TimerKind::Debounce(InventorySource::Adb)) else {
+        panic!("expected debounce timer");
+    };
+    let Some((r_healthy2, ReadScope::Source(InventorySource::Adb), false, inv_healthy2)) =
+        find_read_full(&coord.on_timer_fired(deb2))
+    else {
+        panic!("expected healthy scoped ADB read after recovery");
+    };
+    assert!(
+        !inv_healthy2,
+        "post-recovery healthy ADB trigger should keep cache"
+    );
+    let _ = coord.on_read_succeeded(r_healthy2, Inventory::default());
+
+    // 60 s liveness reconcile also requests cache invalidation so swapped AVDs on the same serial are caught.
+    let Some((_r_live, ReadScope::All, true, inv_live)) =
+        find_read_full(&coord.on_timer_fired(liveness_id))
+    else {
+        panic!("expected liveness read");
+    };
+    assert!(
+        inv_live,
+        "60 s liveness reconcile must invalidate cached serial->AVD names"
+    );
 }

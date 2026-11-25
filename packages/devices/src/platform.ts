@@ -466,6 +466,12 @@ export class DevicePlatform {
     return devices;
   }
   /** Re-reads only the triggered list (`ios`, `avds`, or `adb`) when cached peers exist (D2). */
+  setInventoryListGuard(guard: (<T>(read: () => Promise<T>) => Promise<T>) | undefined): void {
+    this.android.setListGuard(guard);
+  }
+  invalidateAndroidIdentityCache(): void {
+    if (deviceInventoryBackend() === "native") this.android.invalidateIdentityCache();
+  }
   async listSource(scope: "all" | "ios" | "avds" | "adb"): Promise<Device[]> {
     if (scope === "all" || this.list !== DevicePlatform.prototype.list) return this.list();
     if (scope === "ios") {

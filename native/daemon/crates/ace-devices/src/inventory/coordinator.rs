@@ -50,6 +50,8 @@ struct InFlightRead {
     read_id: u64,
     scope: ReadScope,
     liveness: bool,
+    invalidate_adb_cache: bool,
+    adb_cache_seq: u64,
     ready_snapshot: [u64; 3],
     liveness_baseline: Option<Inventory>,
 }
@@ -67,6 +69,8 @@ pub struct InventoryCoordinator {
     liveness_timer: Option<u64>,
     pending_reconcile: bool,
     pending_liveness: bool,
+    adb_cache_stale: bool,
+    adb_cache_seq: u64,
     reads: Vec<InFlightRead>,
 }
 
@@ -87,6 +91,8 @@ impl InventoryCoordinator {
             liveness_timer: None,
             pending_reconcile: false,
             pending_liveness: false,
+            adb_cache_stale: false,
+            adb_cache_seq: 0,
             reads: Vec::new(),
         }
     }
@@ -150,6 +156,7 @@ impl InventoryCoordinator {
         } else {
             self.pending_reconcile = false;
             self.pending_liveness = false;
+            self.adb_cache_stale = false;
             self.reads.clear();
             if let Some(id) = self.liveness_timer.take() {
                 actions.push(CoordinatorAction::CancelTimer { id });
@@ -198,6 +205,9 @@ impl InventoryCoordinator {
         if on_target {
             st.ready_seq = st.ready_seq.saturating_add(1);
             st.health = SourceHealth::Reconciling;
+            if source == InventorySource::Adb {
+                self.mark_adb_cache_stale();
+            }
             self.request_full_read(false, &mut actions);
         } else {
             st.health = SourceHealth::Unhealthy;
@@ -289,6 +299,15 @@ impl InventoryCoordinator {
         let finished = self.reads.remove(pos);
         self.clear_in_flight(finished.scope);
         self.last_failure.clear();
+        if finished.invalidate_adb_cache
+            && finished.adb_cache_seq == self.adb_cache_seq
+            && matches!(
+                finished.scope,
+                ReadScope::All | ReadScope::Source(InventorySource::Adb)
+            )
+        {
+            self.adb_cache_stale = false;
+        }
 
         // Check liveness reconcile for silent sources before overwriting `self.last`.
         let mut silent_sources = Vec::new();
@@ -498,6 +517,11 @@ impl InventoryCoordinator {
         }
     }
 
+    fn mark_adb_cache_stale(&mut self) {
+        self.adb_cache_stale = true;
+        self.adb_cache_seq = self.adb_cache_seq.saturating_add(1);
+    }
+
     fn mark_unhealthy_and_reconnect(
         &mut self,
         source: InventorySource,
@@ -505,6 +529,9 @@ impl InventoryCoordinator {
     ) {
         let idx = source.index();
         self.sources[idx].health = SourceHealth::Unhealthy;
+        if source == InventorySource::Adb {
+            self.mark_adb_cache_stale();
+        }
         actions.push(CoordinatorAction::StopWatcher(source));
         self.arm_fallback(source, actions);
         // Never run concurrent reconnects for the same source.
@@ -558,10 +585,14 @@ impl InventoryCoordinator {
                 }
             }
         }
+        let invalidate_adb_cache = liveness || self.adb_cache_stale;
+        let adb_cache_seq = self.adb_cache_seq;
         self.reads.push(InFlightRead {
             read_id,
             scope: ReadScope::All,
             liveness,
+            invalidate_adb_cache,
+            adb_cache_seq,
             ready_snapshot,
             liveness_baseline: if liveness { self.last.clone() } else { None },
         });
@@ -569,6 +600,7 @@ impl InventoryCoordinator {
             read_id,
             scope: ReadScope::All,
             liveness,
+            invalidate_adb_cache,
         });
     }
 
@@ -599,10 +631,14 @@ impl InventoryCoordinator {
             self.sources[1].ready_seq,
             self.sources[2].ready_seq,
         ];
+        let invalidate_adb_cache = source == InventorySource::Adb && self.adb_cache_stale;
+        let adb_cache_seq = self.adb_cache_seq;
         self.reads.push(InFlightRead {
             read_id,
             scope: ReadScope::Source(source),
             liveness: false,
+            invalidate_adb_cache,
+            adb_cache_seq,
             ready_snapshot,
             liveness_baseline: None,
         });
@@ -610,6 +646,7 @@ impl InventoryCoordinator {
             read_id,
             scope: ReadScope::Source(source),
             liveness: false,
+            invalidate_adb_cache,
         });
     }
 

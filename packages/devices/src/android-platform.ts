@@ -56,6 +56,15 @@ export class AndroidPlatform {
   private noEmulator = false;
   private lastAvdStdout: string | undefined;
   private lastAdbStdout: string | undefined;
+  private listGuard: (<T>(read: () => Promise<T>) => Promise<T>) | undefined;
+  setListGuard(guard: (<T>(read: () => Promise<T>) => Promise<T>) | undefined): void {
+    this.listGuard = guard;
+  }
+  invalidateIdentityCache(): void {
+    if (deviceInventoryBackend() !== "native") return;
+    this.serialNames.clear();
+    this.hardware.clear();
+  }
   diagnostics() {
     return [
       ...(this.duplicate
@@ -194,7 +203,11 @@ export class AndroidPlatform {
   async current(input: Device): Promise<Device> {
     const device = DeviceSchema.parse(input);
     nativeId(device);
-    const found = (await this.list()).find((candidate) => candidate.id === device.id);
+    const devices =
+      deviceInventoryBackend() === "native" && this.listGuard
+        ? await this.listGuard(() => this.list())
+        : await this.list();
+    const found = devices.find((candidate) => candidate.id === device.id);
     if (!found)
       throw new DeviceError(
         "not_found",

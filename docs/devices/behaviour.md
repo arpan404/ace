@@ -146,6 +146,11 @@ screenshot`, or `screencap` over adb), fitted inside the frame bounds by ace-med
 - Each read runs `xcrun simctl list` (through `Simulators`, `@ace/screen`), `emulator -list-avds`
   and `adb devices -l` (`android-platform.ts:104`–`:105`). An emulator's AVD name and a phone's
   hardware are read once per serial and cached (`android-platform.ts:121`–`:133`).
+- Intended difference under `ACE_DEVICE_INVENTORY=native` (D2): ADB reconnect reconciles and 60 s
+  liveness reconciles clear the cached per-serial emulator AVD names and hardware before reading
+  (`coordinator.rs` `invalidate_adb_cache`, `android-platform.ts` `invalidateIdentityCache`), so an
+  emulator serial reused by a different AVD across an ADB restart (such as `emulator-5554`) reports
+  the new device id instead of keeping the pre-restart name.
 
 ### Timeouts, cancellation and lenient decoding
 

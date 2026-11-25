@@ -514,12 +514,14 @@ fn encode_js_actions(actions: &[CoordinatorAction]) -> String {
                 read_id,
                 scope,
                 liveness,
+                invalidate_adb_cache,
             } => {
                 let mut obj = ObjectWriter::new(&mut out);
                 obj.str("op", "start_read");
                 obj.number("readId", *read_id as f64);
                 obj.str("scope", scope.as_str());
                 obj.bool("liveness", *liveness);
+                obj.bool("invalidateAdbCache", *invalidate_adb_cache);
                 obj.finish();
             }
             CoordinatorAction::Publish(inventory) => {

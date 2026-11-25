@@ -190,6 +190,7 @@ pub enum CoordinatorAction {
         read_id: u64,
         scope: ReadScope,
         liveness: bool,
+        invalidate_adb_cache: bool,
     },
     Publish(Inventory),
     LogWarn {

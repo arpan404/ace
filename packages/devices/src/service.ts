@@ -73,7 +73,13 @@ export class DevicesService {
   private readonly options: DevicesOptions;
   /** The inventory read in flight, numbered in the order reads started. */
   private listing:
-    | { read: number; scope: InventoryReadScope; devices: Promise<Device[]> }
+    | {
+        read: number;
+        scope: InventoryReadScope | "android";
+        publishInventory: boolean;
+        invalidatedAdbCache: boolean;
+        devices: Promise<Device[]>;
+      }
     | undefined;
   private reads = 0;
   private inventoryViews = 0;
@@ -91,10 +97,17 @@ export class DevicesService {
           })
         : undefined;
     this.enabled = options.enabled ?? true;
+    if (
+      deviceInventoryBackend() === "native" &&
+      typeof options.platform.setInventoryListGuard === "function"
+    ) {
+      options.platform.setInventoryListGuard((read) => this.guardedAndroidList(read));
+    }
     this.inventory =
       deviceInventoryBackend() === "native"
         ? new NativeDeviceInventoryWatch({
-            readSource: (scope, liveness) => this.readInventorySource(scope, liveness),
+            readSource: (scope, liveness, invalidateAdbCache) =>
+              this.readInventorySource(scope, liveness, invalidateAdbCache),
             after: options.runtime.after,
             intervalMs: options.inventoryIntervalMs ?? 4000,
             log: options.log,
@@ -112,10 +125,21 @@ export class DevicesService {
   }
   /** The inventory, joining a read already in flight. */
   async settleInventory(): Promise<void> {
-    await Promise.allSettled([this.listing?.devices, ...this.sourceReads]);
+    if (this.sourceReads.size === 0) {
+      await this.listing?.devices.catch(() => {});
+      return;
+    }
+    await Promise.allSettled([
+      ...(this.listing ? [this.listing.devices] : []),
+      ...this.sourceReads,
+    ]);
   }
-  private readInventorySource(scope: InventoryReadScope, liveness: boolean): Promise<Inventory> {
-    const task = this.runInventorySource(scope, liveness);
+  private readInventorySource(
+    scope: InventoryReadScope,
+    liveness: boolean,
+    invalidateAdbCache: boolean,
+  ): Promise<Inventory> {
+    const task = this.runInventorySource(scope, liveness, invalidateAdbCache);
     this.sourceReads.add(task);
     void task.finally(() => this.sourceReads.delete(task)).catch(() => {});
     return task;
@@ -123,35 +147,111 @@ export class DevicesService {
   private async runInventorySource(
     scope: InventoryReadScope,
     _liveness: boolean,
+    invalidateAdbCache: boolean,
   ): Promise<Inventory> {
     const platform = this.options.platform;
     const canScope =
       scope !== "all" &&
       typeof platform.listSource === "function" &&
       platform.list === DevicePlatform.prototype.list;
-    // Full reads (view hold, source start/reconnect, 60 s liveness) always wait out any earlier
-    // in-flight read and start a fresh one; scoped reads serialize through the same single-flight guard.
-    const devices = canScope ? await this.scopedList(scope) : await this.freshList();
+    // Watch-driven reads never publish directly from refreshWith: NativeDeviceInventoryWatch
+    // reports the snapshot to Rust's coordinator, which gates publishing on read_id still being current.
+    const devices = canScope
+      ? await this.scopedList(scope, invalidateAdbCache)
+      : await this.watchFreshList(invalidateAdbCache);
     return { devices, issues: platform.diagnostics() };
   }
   private startListing(
     scope: InventoryReadScope,
     read: () => Promise<Device[]>,
     publishInventory: boolean,
+    invalidatedAdbCache = false,
   ): Promise<Device[]> {
-    const listing = { read: ++this.reads, scope, devices: Promise.resolve<Device[]>([]) };
+    const listing = {
+      read: ++this.reads,
+      scope,
+      publishInventory,
+      invalidatedAdbCache,
+      devices: Promise.resolve<Device[]>([]),
+    };
     listing.devices = this.refreshWith(read, publishInventory).finally(() => {
       if (this.listing === listing) this.listing = undefined;
     });
     this.listing = listing;
     return listing.devices;
   }
-  private async scopedList(scope: Exclude<InventoryReadScope, "all">): Promise<Device[]> {
+  private async guardedAndroidList<T>(read: () => Promise<T>): Promise<T> {
+    for (;;) {
+      const current = this.listing;
+      if (!current) {
+        let resolveDone!: () => void;
+        const done = new Promise<void>((resolve) => {
+          resolveDone = resolve;
+        });
+        const listing = {
+          read: ++this.reads,
+          scope: "android" as const,
+          publishInventory: false,
+          invalidatedAdbCache: false,
+          devices: done.then(() => [] as Device[]),
+        };
+        this.listing = listing;
+        try {
+          return await read();
+        } finally {
+          if (this.listing === listing) this.listing = undefined;
+          resolveDone();
+        }
+      }
+      await current.devices.catch(() => {});
+    }
+  }
+  private async scopedList(
+    scope: Exclude<InventoryReadScope, "all">,
+    invalidateAdbCache: boolean,
+  ): Promise<Device[]> {
     for (;;) {
       const current = this.listing;
       if (!current) {
         const platform = this.options.platform;
-        return this.startListing(scope, () => platform.listSource(scope), false);
+        return this.startListing(
+          scope,
+          () => {
+            if (invalidateAdbCache && typeof platform.invalidateAndroidIdentityCache === "function")
+              platform.invalidateAndroidIdentityCache();
+            return platform.listSource(scope);
+          },
+          false,
+          invalidateAdbCache,
+        );
+      }
+      await current.devices.catch(() => {});
+    }
+  }
+  private async watchFreshList(invalidateAdbCache: boolean): Promise<Device[]> {
+    const before = this.reads;
+    for (;;) {
+      const current = this.listing;
+      if (!current) {
+        const platform = this.options.platform;
+        return this.startListing(
+          "all",
+          () => {
+            if (invalidateAdbCache && typeof platform.invalidateAndroidIdentityCache === "function")
+              platform.invalidateAndroidIdentityCache();
+            return platform.list();
+          },
+          false,
+          invalidateAdbCache,
+        );
+      }
+      if (
+        current.read > before &&
+        current.scope === "all" &&
+        !current.publishInventory &&
+        (!invalidateAdbCache || current.invalidatedAdbCache)
+      ) {
+        return current.devices;
       }
       await current.devices.catch(() => {});
     }
@@ -160,7 +260,7 @@ export class DevicesService {
     for (;;) {
       const current = this.listing;
       if (!current) return this.startListing("all", () => this.options.platform.list(), true);
-      if (current.scope === "all") return current.devices;
+      if (current.scope === "all" && current.publishInventory) return current.devices;
       await current.devices.catch(() => {});
     }
   }
@@ -173,7 +273,8 @@ export class DevicesService {
     for (;;) {
       const current = this.listing;
       if (!current) return this.startListing("all", () => this.options.platform.list(), true);
-      if (current.read > before && current.scope === "all") return current.devices;
+      if (current.read > before && current.scope === "all" && current.publishInventory)
+        return current.devices;
       await current.devices.catch(() => {});
     }
   }
