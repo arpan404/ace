@@ -37,7 +37,6 @@ import { homedir } from "node:os";
 import { deviceInventoryBackend } from "@ace/provider-kit/native-switches";
 import { InventoryWatch, sameDevice, type DeviceLog, type Inventory } from "./inventory.ts";
 import { NativeDeviceInventoryWatch, type InventoryReadScope } from "./native-inventory.ts";
-import { DevicePlatform } from "./platform.ts";
 import { SimAgentState } from "./sim-state.ts";
 import { oneOffFrame } from "./one-off-screenshot.ts";
 import { StillTooLarge } from "./simulator-frames.ts";
@@ -151,9 +150,7 @@ export class DevicesService {
   ): Promise<Inventory> {
     const platform = this.options.platform;
     const canScope =
-      scope !== "all" &&
-      typeof platform.listSource === "function" &&
-      platform.list === DevicePlatform.prototype.list;
+      scope !== "all" && typeof platform.listSource === "function" && platform.scopedListing();
     // Watch-driven reads never publish directly from refreshWith: NativeDeviceInventoryWatch
     // reports the snapshot to Rust's coordinator, which gates publishing on read_id still being current.
     const devices = canScope
