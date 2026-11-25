@@ -4,6 +4,10 @@
 //! socket itself, the display a frame of a size shows, the frame the daemon forwards, and the
 //! capture's own errors. The sockets, processes, timers and ace-media are the shell's.
 
+mod control;
+
+pub use control::{InputStep, KeyframeAsker, KeyframeStep, input_step, writable};
+
 use serde::Serialize;
 
 use crate::platform::media_paths::{VideoUnit, encode_producer_stamp};

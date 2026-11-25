@@ -526,7 +526,11 @@ restarting the server (a new size or frame rate always; a lone bit rate only at 
 the profile a run asks for (`scrcpyMaxSize` over the transport), whether ace-media reads the
 video socket itself, the display a frame of a size shows, the frame the daemon forwards (the
 producer stamp's sequence and capture time), and the capture's own errors with their codes and
-next steps. The socket loops, handshakes, retries and media forwarding are the next parts.
+next steps. `capture/control/` keeps control dispatch: a keyframe is asked for at most once a
+second and never before the stream starts, a missing control socket is the capture's own
+unavailable error while more than 256 KiB queued is the backlog refusal, and a set-clipboard
+input step goes through the clipboard machine rather than the socket. The socket loops,
+handshakes, retries and media forwarding are the next part.
 
 `scrcpy/server/mod.rs` keeps the device side of a capture before any socket exists: the remote
 jar's name, the push and forward commands with today's byte caps and deadlines, the removed
