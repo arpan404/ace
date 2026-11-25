@@ -50,6 +50,9 @@ export function liveStorePort(store: Store, native: NativeEngineHandle): () => v
         committed: () => {
           native.committedLive?.(entry.token);
         },
+        discarded: () => {
+          native.discardLive?.(entry.token);
+        },
       };
       try {
         store.bufferLiveWrite(entry.thread, entry.events, entry.at, snapshot);

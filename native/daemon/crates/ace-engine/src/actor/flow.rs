@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Flow control (`actor.ts:84`–`:113`): the two thresholds that pause a session's output and
+//! Flow control (`actor.ts:84`-`:113`): the two thresholds that pause a session's output and
 //! resume it, and the native session's mirror of them into its read gate.
 
 use crate::actor::state::Actor;

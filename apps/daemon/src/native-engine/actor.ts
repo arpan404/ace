@@ -13,14 +13,19 @@ import type { NativeEngineHandle } from "./engine.ts";
 interface Translated {
   facts: Fact[];
   diagnostics: unknown[];
-  data?: unknown;
+  frame?: Frame;
+  usageAccount?: Frame["usageAccount"];
 }
 
 /** The session's frames, held by handle for the batch that will translate them. */
 export class FrameTable {
   private readonly frames = new Map<number, Frame>();
   private readonly translators = new Map<string, Translator>();
+  private readonly now: () => number;
   private next = 1;
+  constructor(now: () => number = () => Date.now()) {
+    this.now = now;
+  }
 
   attach(threadId: string, translator: Translator): void {
     this.translators.set(threadId, translator);
@@ -47,7 +52,6 @@ export class FrameTable {
    */
   translate(threadId: string, requestJson: string): string {
     const request = JSON.parse(requestJson) as {
-      now?: number;
       frames?: number[];
       tick?: number;
       nextDeadline?: boolean;
@@ -55,7 +59,6 @@ export class FrameTable {
     const translator = this.translators.get(threadId);
     if (request.nextDeadline) return JSON.stringify(translator?.nextDeadline?.() ?? null);
     if (request.tick !== undefined) return JSON.stringify(translator?.tick(request.tick) ?? []);
-    const now = request.now ?? 0;
     const out: Translated[] = [];
     for (const handle of request.frames ?? []) {
       const frame = this.frames.get(handle);
@@ -64,11 +67,15 @@ export class FrameTable {
         out.push({ facts: [], diagnostics: [] });
         continue;
       }
-      const facts = translator?.translate(frame, now) ?? [];
+      // The TypeScript reads the clock per frame, so two frames of one batch can see two times.
+      const facts = translator?.translate(frame, this.now()) ?? [];
       const diagnostics = translator?.takeDiagnostics?.() ?? [];
       const entry: Translated = { facts, diagnostics };
-      // The Cursor SDK path needs the frame's own data in Rust: the record and the send test.
-      if (frame.channel === "sdk") entry.data = frame.data;
+      // The Cursor SDK path needs the whole frame in Rust: its record, the send test and its
+      // account (`actor.ts:475`–`:491`).
+      if (frame.channel === "sdk") entry.frame = frame;
+      // A usage fact carries the frame's own account, whichever channel it came from.
+      entry.usageAccount = frame.usageAccount;
       out.push(entry);
     }
     return JSON.stringify(out);
@@ -77,7 +84,9 @@ export class FrameTable {
 
 /** What `onFrame` needs from the engine's facade: one promise per batch, by call id. */
 export interface FramePromises {
-  frameCall(): { promise: Promise<void>; call: number };
+  /** Allocates one promise for the batch a frame starts; its call id settles it. */
+  alloc(): number;
+  promiseOf(call: number): Promise<void> | undefined;
 }
 
 /** What a bound context hands a session. */
@@ -101,16 +110,14 @@ export function actorContext(
   native.attachTranslatorHelper?.((thread: string, request: string) =>
     frames.translate(thread, request),
   );
-  // One promise per batch (decision 4): every frame that joins the open batch gets it, by the
-  // batch's own call id, so a refused batch never inherits an older batch's promise.
-  const open = new Map<number, Promise<void>>();
   return {
     onFrame(frame: Frame): Promise<void> {
       const input = frame as unknown;
       const isObject = typeof input === "object" && input !== null;
       const data = isObject ? (input as Frame) : undefined;
-      const certified =
-        data !== undefined && ProviderPayload.is(data.payload) && data.payload.data === data.data;
+      // The brand is the envelope's payload check; the data equality is the certificate's.
+      const branded = data !== undefined && ProviderPayload.is(data.payload);
+      const certified = branded && data.payload!.data === data.data;
       let handle = 0;
       let bytes: number | null = null;
       let error: string | null = null;
@@ -126,46 +133,54 @@ export function actorContext(
           }
         }
       }
-      const { promise, call } = threads.frameCall();
-      open.set(call, promise);
-      const forget = () => open.delete(call);
-      void promise.then(forget, forget);
-      const answer = native.actorFrame?.(
-        threadId,
-        generation,
-        handle,
-        data ?? {},
-        isObject,
-        certified,
-        bytes,
-        error,
-        call,
-      ) as string | undefined;
-      if (answer === undefined) return Promise.resolve();
-      if (answer === "done") {
-        open.delete(call);
+      let answer: string | undefined;
+      try {
+        // The binding allocates one promise per batch and names it in its answer; a joined
+        // frame allocates nothing.
+        answer = native.actorFrame?.(
+          threadId,
+          generation,
+          handle,
+          data ?? {},
+          isObject,
+          branded,
+          certified,
+          bytes,
+          error,
+        ) as string | undefined;
+      } catch (thrown) {
+        frames.release(handle);
+        throw thrown;
+      }
+      if (answer === undefined || answer === "done") {
+        frames.release(handle);
         return Promise.resolve();
       }
       if (answer.startsWith("rejected:")) {
-        open.delete(call);
+        frames.release(handle);
         return Promise.reject(new Error(answer.slice("rejected:".length)));
       }
-      if (answer.startsWith("batch:")) {
-        // Every frame that joined the open batch settles with it, never with another batch's.
-        return open.get(Number(answer.slice("batch:".length))) ?? promise;
+      // A batch or a refused frame the flush settles: the batch's own promise, by call id.
+      const settled = answer.slice(answer.indexOf(":") + 1);
+      if (answer.startsWith("batch:") || answer.startsWith("flush:")) {
+        return threads.promiseOf(Number(settled)) ?? Promise.resolve();
       }
-      return promise;
+      frames.release(handle);
+      return Promise.resolve();
     },
     outputFlow: {
       paused: () => native.actorPaused?.(threadId) ?? false,
       wait: () =>
         new Promise<void>((resolve) => {
-          const { promise, call } = threads.frameCall();
+          const call = threads.alloc();
           native.actorWait?.(threadId, call);
-          void promise.then(
-            () => resolve(),
-            () => resolve(),
-          );
+          const promise = threads.promiseOf(call);
+          if (promise === undefined) resolve();
+          else
+            void promise.then(
+              () => resolve(),
+              () => resolve(),
+            );
         }),
     },
   };

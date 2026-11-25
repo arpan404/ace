@@ -568,6 +568,10 @@ impl DeferredHost for Core {
         let task = self.executor.spawn(lane, future);
         task.detach();
     }
+
+    fn run(&self, run: Box<dyn FnOnce()>) {
+        run();
+    }
 }
 
 /// The facade's Rust half. Every `#[napi]` member holds this through `Rc` and takes `&self`.

@@ -9,16 +9,22 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 
-/// Work a synchronous entry starts: a wake of a parked task, or a future to spawn.
+/// Work a synchronous entry starts: a wake of a parked task, a future to spawn, or a decision
+/// whose effects must be visible the instant the commit lands.
 pub enum Deferred {
     Wake(String, Lane),
     Spawn(Lane, LocalBoxFuture<'static, ()>),
+    /// Run at the commit itself, in place: a promoted actor must be visible to the very next
+    /// synchronous lookup, as the TypeScript's eviction at the call was.
+    Run(Box<dyn FnOnce()>),
 }
 
 /// Where a released deferred goes: the engine wakes a parked task or spawns the future.
 pub trait DeferredHost {
     fn wake(&self, thread: &str, lane: Lane);
     fn spawn(&self, lane: Lane, future: LocalBoxFuture<'static, ()>);
+    /// Run a deferred decision now, inside the commit's own turn.
+    fn run(&self, run: Box<dyn FnOnce()>);
 }
 
 /// The after-commit sink the store's shared stack hands released tokens to.
@@ -72,6 +78,7 @@ impl AfterCommit {
                 match (host.as_deref(), item) {
                     (Some(host), Deferred::Wake(thread, lane)) => host.wake(&thread, lane),
                     (Some(host), Deferred::Spawn(lane, future)) => host.spawn(lane, future),
+                    (Some(host), Deferred::Run(run)) => host.run(run),
                     // Detached: the engine is closing, and the work is dropped.
                     (None, _) => {}
                 }
@@ -136,6 +143,9 @@ mod tests {
             });
             futures::executor::block_on(future);
             self.spawned.borrow_mut().push(ran.get());
+        }
+        fn run(&self, run: Box<dyn FnOnce()>) {
+            run();
         }
     }
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The per-thread mailbox (`actor.ts:191`–`:266`, `:589`–`:608`): one ordered queue of sealed
+//! The per-thread mailbox (`actor.ts:191`-`:266`, `:589`-`:608`): one ordered queue of sealed
 //! batches, ticks and engine operations, run one per poll by the actor's own task.
 
 use crate::actor::deps::BatchAck;
@@ -126,9 +126,10 @@ fn admit(core: &Core, thread: &ThreadId, bytes: usize, frames: usize) -> Option<
     Some(true)
 }
 
-/// `enqueue(run)` (`actor.ts:191`): seal first, then admit the wrapped run.
+/// `enqueue(run)` (`actor.ts:191`): seal first, then admit the wrapped run. A timer that fired
+/// before this call is caught up first, so its tick keeps its place ahead of this op.
 pub fn enqueue(core: &Rc<Core>, thread: &ThreadId, run: RunFn) {
-    crate::actor::promote_all(core);
+    intake::catch_up(core, thread);
     intake::seal(core, thread);
     if core.store.is_open() {
         stage(core, thread, run);
@@ -137,11 +138,19 @@ pub fn enqueue(core: &Rc<Core>, thread: &ThreadId, run: RunFn) {
     admit_run(core, thread, run);
 }
 
+/// A run the caller made must open its own transaction, exactly as `accept` wraps it
+/// (`actor.ts:195`–`:197`): the op is one outermost write, never a bare port call.
+fn atomic_run(run: RunFn) -> RunFn {
+    let mut inner = run;
+    Box::new(move |core: &Rc<Core>| core.store.atomic(|_tx| inner(core)))
+}
+
 /// `accept` outside a transaction: the capacity check, then the queue.
 fn admit_run(core: &Rc<Core>, thread: &ThreadId, run: RunFn) {
     let Some(true) = admit(core, thread, 0, 1) else {
         return;
     };
+    let run = atomic_run(run);
     core.with_state(|state| {
         if let Some(actor) = state.actors.by_thread.get_mut(thread) {
             actor.mailbox.push_back(Op::Run(Box::new(RunOp {
@@ -236,6 +245,25 @@ fn admit_staged(core: &Rc<Core>, thread: &ThreadId, slot: u64, run: Option<RunFn
     let Some(run) = run else {
         return;
     };
+    // A slot whose actor was discarded in the same transaction is never admitted: nothing is
+    // charged to the actor restored in its place.
+    let still_pending = core
+        .with_state(|state| {
+            let shared = state
+                .actors
+                .by_thread
+                .get(thread)?
+                .staged
+                .get(&slot)?
+                .clone();
+            Some(matches!(*shared.borrow(), Staged::Pending))
+        })
+        .ok()
+        .flatten()
+        .unwrap_or(false);
+    if !still_pending {
+        return;
+    }
     let Some(true) = admit(core, thread, 0, 1) else {
         discard_staged(core, thread, slot);
         return;
@@ -252,7 +280,7 @@ fn admit_staged(core: &Rc<Core>, thread: &ThreadId, slot: u64, run: Option<RunFn
         .flatten();
     if let Some(shared) = shared {
         *shared.borrow_mut() = Staged::Ready(Box::new(RunOp {
-            run,
+            run: atomic_run(run),
             bytes: 0,
             frames: 1,
             ack: None,
@@ -302,11 +330,14 @@ pub fn take_next(core: &Core, thread: &ThreadId) -> Next {
                 };
                 if !staged {
                     let op = core.with_state(|state| {
-                        state
-                            .actors
-                            .by_thread
-                            .get_mut(thread)
-                            .and_then(|actor| actor.mailbox.pop_front())
+                        let actor = state.actors.by_thread.get_mut(thread)?;
+                        let op = actor.mailbox.pop_front();
+                        // The op is in flight until it settles, so a flush waits for it even
+                        // while it is parked on the store's retry timer.
+                        if op.is_some() {
+                            actor.running = true;
+                        }
+                        op
                     });
                     return match op {
                         Ok(Some(op)) => Next::Run(op),
@@ -326,6 +357,7 @@ pub fn take_next(core: &Core, thread: &ThreadId) -> Next {
                             };
                             actor.staged.shift_remove(&slot);
                             actor.mailbox.pop_front();
+                            actor.running = true;
                             Some(Next::Run(Op::Run(run)))
                         }
                         Staged::Discarded => {
@@ -535,7 +567,7 @@ pub fn actor_quiescent(actor: &Actor) -> bool {
 /// The tick a fired actor timer stands for (`actor.ts:564`).
 pub fn fire_tick(core: &Rc<Core>, thread: &ThreadId) {
     let op_thread = thread.clone();
-    enqueue(
+    admit_now(
         core,
         thread,
         Box::new(move |core: &Rc<Core>| {
@@ -594,4 +626,11 @@ pub fn fire_tick(core: &Rc<Core>, thread: &ThreadId) {
             Ok(())
         }),
     );
+}
+
+/// Work of the first kind: a zone that does not depend on an enclosing transaction (a timer's
+/// tick) seals and admits at once, so a rollback cannot discard it.
+pub fn admit_now(core: &Rc<Core>, thread: &ThreadId, run: RunFn) {
+    intake::seal(core, thread);
+    admit_run(core, thread, run);
 }

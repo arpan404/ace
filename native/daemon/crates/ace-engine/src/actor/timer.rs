@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The actor's deadline timer (`actor.ts:529`–`:582`). A firing only completes its receiver; the
+//! The actor's deadline timer (`actor.ts:529`-`:582`). A firing only completes its receiver; the
 //! tick it stands for is enqueued by `catch_up`, at the firing instant, never by the pump.
 
 use crate::actor::state::{Actor, ArmedTimer};

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The actor's input leases (`actor.ts:154`–`:190`). A redelivered intent replaces its earlier
+//! The actor's input leases (`actor.ts:154`-`:190`). A redelivered intent replaces its earlier
 //! lease; a provider process that exited reads nothing more, so its inputs end too.
 
 use crate::actor::state::Lease;

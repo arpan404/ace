@@ -144,8 +144,10 @@ pub trait ActorLinks {
 pub struct TranslatedFrame {
     pub facts: Vec<Value>,
     pub diagnostics: Vec<Value>,
-    /// The frame's `data`, for the Cursor SDK path only.
-    pub data: Option<Value>,
+    /// The whole frame, for the Cursor SDK journal (`actor.ts:475`–`:491`) only.
+    pub frame: Option<Value>,
+    /// The frame's own account, when it has one: `{id, billingMode}`.
+    pub usage_account: Option<Value>,
 }
 
 /// A JavaScript translator, called once per batch (`engine/js_translator.rs`).
@@ -167,6 +169,8 @@ pub enum ActorTranslator {
 
 /// The shell's promises for frame acknowledgements: one per batch.
 pub trait FrameAcks {
+    /// One promise for a batch this frame starts; `None` before the shell registers any.
+    fn alloc(&self) -> Option<u64>;
     fn settle(&self, call: u64, reject: Option<String>);
 }
 
@@ -174,6 +178,10 @@ pub trait FrameAcks {
 pub struct UnportedAcks;
 
 impl FrameAcks for UnportedAcks {
+    fn alloc(&self) -> Option<u64> {
+        None
+    }
+
     fn settle(&self, _call: u64, reject: Option<String>) {
         if let Some(message) = reject {
             eprintln!("engine frame acknowledgement settled with no shell promise: {message}");

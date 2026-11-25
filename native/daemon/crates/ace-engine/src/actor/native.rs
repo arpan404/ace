@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Native frames (`native-session-bridge.ts:145`–`:166`): the same intake as a JavaScript session's,
+//! Native frames (`native-session-bridge.ts:145`-`:166`): the same intake as a JavaScript session's,
 //! without building a JavaScript object, and with `ProviderPayload`'s limits enforced where the
 //! bridge's constructor enforces them.
 
@@ -8,6 +8,7 @@ use crate::actor::flow::NativeFlow;
 use crate::actor::intake::{self, Ack, FrameInput, Measure};
 use crate::actor::state::FrameRef;
 use crate::frames::envelope::Envelope;
+use crate::futures::channel::oneshot;
 use crate::{Core, ThreadId};
 use ace_adapter_api::Frame;
 use ace_json::Value;
@@ -59,6 +60,34 @@ pub fn native_frame(
     started: f64,
     flow: &mut NativeFlow,
     set_paused: Rc<dyn Fn(bool)>,
+) -> (Ack, oneshot::Receiver<Result<(), String>>) {
+    let (sender, completion) = oneshot::channel();
+    let ack = native_frame_ack(
+        core,
+        thread,
+        generation,
+        frame,
+        now,
+        started,
+        flow,
+        set_paused,
+        Some(sender),
+    );
+    (ack, completion)
+}
+
+/// The same intake, with the acknowledgement sender the caller already holds (the probe's).
+#[allow(clippy::too_many_arguments)]
+pub fn native_frame_ack(
+    core: &Rc<Core>,
+    thread: &ThreadId,
+    generation: u64,
+    frame: Frame,
+    now: f64,
+    started: f64,
+    flow: &mut NativeFlow,
+    set_paused: Rc<dyn Fn(bool)>,
+    native_ack: Option<oneshot::Sender<Result<(), String>>>,
 ) -> Ack {
     let text = frame.data.get();
     match check_payload(text) {
@@ -68,6 +97,9 @@ pub fn native_frame(
             // frame: no acknowledgement, no flow mirror, no effect on the actor.
             core.ports
                 .report(format!("native session frame event failed: {message}"));
+            if let Some(sender) = native_ack {
+                let _ = sender.send(Ok(()));
+            }
             return Ack::Done;
         }
     }
@@ -88,12 +120,39 @@ pub fn native_frame(
             envelope,
             channel_sdk: sdk,
             measure: Measure::Certified { bytes },
+            native_ack,
         },
-        None,
     );
     // The flow mirror runs after each delivered frame (`:165`).
     flow.mirror(core, thread, set_paused);
     ack
+}
+
+/// The whole frame as the JSON a Cursor SDK journal stores, as the TypeScript's `Frame`.
+pub fn frame_value(frame: &Frame) -> Value {
+    ace_json::json!({
+        "seq": frame.seq,
+        "t": frame.t,
+        "dir": match frame.dir {
+            ace_adapter_api::FrameDirection::Send => "send",
+            ace_adapter_api::FrameDirection::Recv => "recv",
+            ace_adapter_api::FrameDirection::Stderr => "stderr",
+            ace_adapter_api::FrameDirection::Note => "note",
+        },
+        "channel": frame.channel,
+        "data": frame.data.to_value(),
+    })
+}
+
+/// The frame's `{id, billingMode}`, when it carries an account.
+pub fn account_value(frame: &Frame) -> Option<Value> {
+    let account = frame.usage_account.as_ref()?;
+    let billing_mode = match account.billing_mode {
+        ace_adapter_api::BillingMode::Api => "api",
+        ace_adapter_api::BillingMode::Subscription => "subscription",
+        ace_adapter_api::BillingMode::Unknown => "unknown",
+    };
+    Some(ace_json::json!({"id": account.id, "billingMode": billing_mode}))
 }
 
 /// A native translator's fact as the JSON the fold works on.

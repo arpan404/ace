@@ -151,7 +151,11 @@ store. One mailbox per thread orders frames, ticks and engine operations.
 5. **Translation once.** A sealed batch is translated exactly once; a retry after a rollback
    reuses the facts (translators keep state) and rewrites only the Cursor frame records that
    rolled back (`actor.ts:358`–`:366`, `translateBatch` at `:448`). Usage facts gain the frame's
-   account; attachment echoes are resolved (`translateFrame`, `actor.ts:492`).
+   account; attachment echoes are resolved (`translateFrame`, `actor.ts:492`). The native engine
+   caches the translator's output _before_ the echoes: the TypeScript caches the batch only once
+   the echoes succeed, so a retryable attachment-lookup failure translates a frame twice, which a
+   native translator with state or a consumed JavaScript frame handle cannot survive. The native
+   engine retries only the enrichment, and the facts it commits are the same.
 6. **Stream or commit.** A batch of only `item.delta` and `signal` facts on an established item,
    at most 256 facts and 512 KiB, with no deadline due and no process exit, goes to the store's
    live buffer without a transaction of its own (`EngineRepository.stream`,

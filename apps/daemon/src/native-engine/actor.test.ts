@@ -125,6 +125,17 @@ function watchEvents(seam: EngineSeam): { seen: string[]; stop: () => void } {
   return { seen, stop };
 }
 
+/** The stored event types for one thread, in sequence order. */
+function storedTypes(seam: EngineSeam, threadId: ThreadId): string[] {
+  const rows = seam.store.atomic(
+    (db) =>
+      db.prepare("SELECT type FROM events WHERE thread_id = ? ORDER BY seq").all(threadId) as {
+        type?: unknown;
+      }[],
+  );
+  return rows.map((row) => String(row.type));
+}
+
 /** The messages `onError` received, in order. */
 function errors(seam: EngineSeam): string[] {
   return seam.ports.calls
@@ -172,6 +183,8 @@ describe.runIf(native)("the native actor and frames", () => {
       expect(log.applied[0]?.outermost).toBe(true);
       expect(log.applied[0]?.committed).toBe(true);
       expect(watched.seen).toContain("probe.batch");
+      // A real row, so a publication-only implementation cannot pass this test.
+      expect(storedTypes(seam, thread("t1"))).toEqual(["probe.batch"]);
     } finally {
       watched.stop();
       await seam.close();
@@ -371,6 +384,32 @@ describe.runIf(native)("the native actor and frames", () => {
       ).toBe(true);
     } finally {
       await second.seam.close();
+    }
+  });
+
+  test("flush waits for a batch parked on its retry timer", async () => {
+    // (a) `signal-batching`, `reliability`
+    const { seam, session } = await seamWithSession();
+    try {
+      seam.probe.failApply("t1", 1);
+      const ack = track(session.context.onFrame(frame(0)));
+      seam.clock.advance(seam.clock.time + 1);
+      await tick();
+      // The batch is in flight, parked on the store's 100 ms retry: the mailbox holds no op.
+      let flushed = false;
+      const flushing = seam.engine.flush().then(() => {
+        flushed = true;
+      });
+      await tick();
+      expect(flushed).toBe(false);
+      expect(ack.done).toBe(false);
+      seam.clock.advance(seam.clock.time + 100);
+      await flushing;
+      expect(ack.done).toBe(true);
+      expect(ack.error).toBeUndefined();
+      expect(session.log().applied.length).toBe(1);
+    } finally {
+      await seam.close();
     }
   });
 
@@ -609,6 +648,8 @@ describe.runIf(native)("the native actor and frames", () => {
     const seam = await bareSeam();
     try {
       seam.probe.useDeps("t1");
+      await tick();
+      const pollsBefore = (await seam.probe.turns()).turns.reduce((sum, polls) => sum + polls, 0);
       expect(() =>
         seam.store.atomic(() => {
           seam.engine.rootAgent(thread("a"));
@@ -617,8 +658,9 @@ describe.runIf(native)("the native actor and frames", () => {
       ).toThrow("rollback");
       expect(seam.engine.liveThreadIds()).toEqual([]);
       expect(seam.probe.registeredWakers()).toBe(0);
-      const turns = await seam.probe.turns();
-      expect(turns.turns.every((polls) => polls >= 0)).toBe(true);
+      // No task was spawned for the rolled-back actor, so no poll was added.
+      const after = (await seam.probe.turns()).turns;
+      expect(after.reduce((sum, polls) => sum + polls, 0)).toBe(pollsBefore);
       seam.store.atomic(() => {
         seam.engine.rootAgent(thread("b"));
       });
@@ -728,6 +770,154 @@ describe.runIf(native)("the native actor and frames", () => {
     }
   });
 
+  test("a native frame whose commit fails notifies the session's read gate", async () => {
+    // (a) `sdk-burst`
+    const { seam, session } = await seamWithSession();
+    try {
+      seam.probe.attachNativeTranslator("t1");
+      seam.probe.failApplyFatal("t1", 1);
+      seam.probe.bridgeFrame("t1", 0, 0, "stdio", JSON.stringify({ type: "x" }));
+      seam.clock.advance(seam.clock.time + 1);
+      await tick(24);
+      await seam.engine.flush();
+      expect(session.log().nativeAcks).toEqual(["rejected:Provider frame failed to commit"]);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a batch allocates one promise, however many frames join it", async () => {
+    // (a) `signal-batching` (decision 4)
+    const { seam, session } = await seamWithSession();
+    try {
+      const counter = seam.engine as unknown as { allocatedFrameCalls: number };
+      const before = counter.allocatedFrameCalls;
+      void session.context.onFrame(frame(0));
+      void session.context.onFrame(frame(1));
+      void session.context.onFrame(frame(2));
+      expect(counter.allocatedFrameCalls - before).toBe(1);
+      await seam.engine.flush();
+      expect(session.log().applied.map((entry) => entry.facts)).toEqual([3]);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("two live appends before a flush retire the older snapshot's token", async () => {
+    // (a) `live-write-buffer`
+    const { seam, session, threadId } = await streamSeam();
+    try {
+      void session.context.onFrame(frame(0));
+      seam.clock.advance(seam.clock.time + 1);
+      await tick();
+      void session.context.onFrame(frame(1));
+      seam.clock.advance(seam.clock.time + 1);
+      await tick();
+      expect(seam.store.hasLiveWrite(threadId)).toBe(true);
+      expect(seam.probe.liveTokens()).toBe(1);
+      seam.clock.advance(seam.clock.time + 100);
+      await tick();
+      expect(seam.probe.liveTokens()).toBe(0);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a quarantined live batch retires its snapshot's token", async () => {
+    // (a) `live-write-quarantine`
+    const { seam, session, threadId } = await streamSeam();
+    try {
+      seam.probe.failPersistFatal(threadId, 1);
+      void session.context.onFrame(frame(0));
+      seam.clock.advance(seam.clock.time + 1);
+      await tick();
+      expect(seam.probe.liveTokens()).toBe(1);
+      // Six strikes quarantine the thread's share, dropping it instead of storing it.
+      for (let strike = 0; strike < 7; strike += 1) {
+        seam.clock.advance(seam.clock.time + 6_000);
+        await tick(24);
+      }
+      expect(seam.probe.liveTokens()).toBe(0);
+      expect(seam.store.hasLiveWrite(threadId)).toBe(false);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("two frames of one batch read the clock per frame", async () => {
+    // (a) `signal-batching`
+    const seen: number[] = [];
+    let advance: (() => void) | undefined;
+    const clocked = {
+      translate: (_frame: unknown, now: number) => {
+        seen.push(now);
+        advance?.();
+        return [{ type: "signal" }];
+      },
+      tick: () => [{ type: "signal" }],
+      takeDiagnostics: () => [],
+    } as never;
+    const seam = await bareSeam();
+    try {
+      const session = await seam.probe.attachSession("t1", { translator: clocked });
+      advance = () => seam.clock.advance(seam.clock.time + 5);
+      void session.context.onFrame(frame(0));
+      void session.context.onFrame(frame(1));
+      await seam.engine.flush();
+      expect(seen.length).toBe(2);
+      expect(seen[1]! - seen[0]!).toBe(5);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a usage frame with its own account keeps the account and its billing mode", async () => {
+    // (a) `signal-batching`
+    const usage = {
+      translate: () => [{ type: "usage" }],
+      tick: () => [{ type: "signal" }],
+      takeDiagnostics: () => [],
+    } as never;
+    const seam = await bareSeam();
+    try {
+      const session = await seam.probe.attachSession("t1", { translator: usage });
+      const account = { id: "acct-1", billingMode: "subscription", provider: "claude" };
+      void session.context.onFrame({ ...frame(0), usageAccount: account } as unknown as Frame);
+      await seam.engine.flush();
+      const facts = session.log().facts;
+      expect(facts[0]).toMatchObject({ accountId: "acct-1", billingMode: "subscription" });
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("an SDK frame with a branded payload of different data fails the certificate, not the envelope", async () => {
+    // (a) `sdk-burst`
+    const { seam, session } = await seamWithSession();
+    try {
+      const certified = scriptFrames().frame({ type: "tick" });
+      const mismatched = {
+        ...certified,
+        channel: "sdk",
+        data: { type: "other" },
+      } as unknown as Frame;
+      const ack = track(session.context.onFrame(mismatched));
+      await seam.engine.flush();
+      expect(ack.done).toBe(true);
+      expect(ack.error).toBeUndefined();
+      expect(
+        errors(seam).some((message) =>
+          message.includes("SDK frame lacks matching encoded admission certificate"),
+        ),
+      ).toBe(true);
+      expect(
+        errors(seam).some((message) => message.includes("Provider frame envelope is malformed")),
+      ).toBe(false);
+    } finally {
+      await seam.close();
+    }
+  });
+
   test("a reservation lost at promotion never acknowledges as success", async () => {
     const seam = await bareSeam({ limits: { maxActiveThreads: 2 } });
     seam.probe.useDeps("t1");
@@ -740,8 +930,9 @@ describe.runIf(native)("the native actor and frames", () => {
         seam.engine.rootAgent(thread("c"));
         frameAck = seam.probe.nativeFrame("c", 0, 0, "stdio", JSON.stringify({ type: "x" }));
         seam.probe.enqueue("c", "staged");
+        // The reservation is gone before the commit runs, as an invariant break would leave it.
+        seam.probe.loseReservation("c");
       });
-      seam.probe.loseReservation("c");
       const ack = track(frameAck!);
       await tick(24);
       expect(ack.error).toBe("Provider frame failed to commit");
@@ -797,6 +988,185 @@ describe.runIf(native)("the native actor and frames", () => {
       expect(rolled.probe.generation("a")).toBe(2);
     } finally {
       await rolled.close();
+    }
+  });
+
+  test("a committed creation promotes the actor and evicts its victim before any pump turn", async () => {
+    // (a) `signal-batching`; `index.ts:528`-`:562`
+    const seam = await bareSeam({ limits: { maxActiveThreads: 1 } });
+    seam.probe.useDeps("t1");
+    try {
+      seam.engine.rootAgent(thread("a"));
+      seam.store.atomic(() => {
+        seam.engine.rootAgent(thread("c"));
+      });
+      // The promotion ran at the commit: with max 1, a third lookup must evict c, not throw.
+      expect(seam.engine.liveThreadIds()).toEqual(["c"]);
+      expect(() => seam.engine.rootAgent(thread("d"))).not.toThrow();
+      expect(seam.engine.liveThreadIds()).toEqual(["d"]);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a victim evicted at commit settles the batch it had sealed", async () => {
+    // (a) `resource-limits`
+    const seam = await bareSeam({ limits: { maxActiveThreads: 2 } });
+    seam.probe.useDeps("t1");
+    try {
+      const session = await seam.probe.attachSession("a", { translator: translator() });
+      seam.engine.rootAgent(thread("b"));
+      await tick();
+      const ack = track(session.context.onFrame(frame(0)));
+      seam.probe.seal("a");
+      seam.store.atomic(() => {
+        seam.engine.rootAgent(thread("c"));
+      });
+      await tick();
+      expect(ack.done).toBe(true);
+      expect(ack.error).toBe("Provider frame failed to commit");
+      expect(seam.engine.liveThreadIds().toSorted()).toEqual(["b", "c"]);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("an enqueued op opens its own transaction", async () => {
+    // (a) `signal-batching`; `actor.ts:191`-`:197`
+    const { seam, session } = await seamWithSession();
+    try {
+      seam.probe.enqueue("t1", "one");
+      await seam.engine.flush();
+      expect(session.log().enqueued).toEqual(["one"]);
+      expect(session.log().opsOutermost).toEqual([true]);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("overflow waits for the writable gate before ending the session", async () => {
+    // (a) `resource-limits`; `actor.ts:203`-`:237`
+    const { seam, session } = await seamWithSession({ limits: { maxQueuedFrames: 2 } });
+    try {
+      const hold = holdWrites(seam.store);
+      for (let index = 0; index < 3; index += 1) {
+        void session.context.onFrame(frame(index));
+        seam.probe.seal("t1");
+      }
+      expect(session.aborted()).toBe(0);
+      await hold.release();
+      await seam.engine.flush();
+      expect(session.aborted()).toBe(1);
+      expect(session.log().applied.at(-1)?.facts).toBe(3);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a timer's tick keeps its place ahead of an exit enqueued after it", async () => {
+    // (a) `actor-timer`
+    let clock = 0;
+    const { seam, session } = await seamWithSession({ deadline: () => clock + 1000 });
+    try {
+      clock = seam.clock.now();
+      void session.context.onFrame(frame(0));
+      await seam.engine.flush();
+      seam.clock.advance(clock + 1000);
+      // The exit is enqueued after the firing but before any pump turn.
+      seam.probe.enqueue("t1", "exit");
+      await seam.engine.flush();
+      expect(session.log().order).toEqual(["apply", "apply", "op:exit"]);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a tick caught by intake inside a rolled-back transaction still runs", async () => {
+    // (a) `actor-timer`
+    let clock = 0;
+    const { seam, session } = await seamWithSession({ deadline: () => clock + 1000 });
+    try {
+      clock = seam.clock.now();
+      void session.context.onFrame(frame(0));
+      await seam.engine.flush();
+      seam.clock.advance(clock + 1000);
+      expect(() =>
+        seam.store.atomic(() => {
+          void session.context.onFrame(frame(1));
+          throw new Error("rollback");
+        }),
+      ).toThrow("rollback");
+      await seam.engine.flush();
+      const applied = session.log().applied;
+      // The tick fired before the frame arrived, so it folds first, then the frame's batch.
+      expect(applied.map((entry) => entry.facts)).toEqual([1, 2, 1]);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a retryable attachment lookup does not translate the batch twice", async () => {
+    // (a) `attachment-echo`
+    let translations = 0;
+    const hash = "a".repeat(64);
+    const carrier = {
+      translate: () => {
+        translations += 1;
+        return [
+          {
+            type: "item.upsert",
+            agent: "root",
+            item: "message",
+            draft: {
+              type: "message",
+              role: "user",
+              raw: [{ data: { path: `/tmp/${hash}.png` } }],
+            },
+          },
+        ];
+      },
+      tick: () => [{ type: "signal" }],
+      takeDiagnostics: () => [],
+    } as never;
+    const seam = await bareSeam();
+    try {
+      const session = await seam.probe.attachSession("t1", { translator: carrier });
+      seam.probe.failAttachment("t1", 1);
+      const ack = track(session.context.onFrame(frame(0)));
+      seam.clock.advance(seam.clock.time + 1);
+      await tick();
+      seam.clock.advance(seam.clock.time + 100);
+      await seam.engine.flush();
+      expect(ack.done).toBe(true);
+      expect(ack.error).toBeUndefined();
+      expect(translations).toBe(1);
+      expect(session.log().applied.length).toBe(1);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a Cursor batch commits its frame record, facts and queue sync in one transaction", async () => {
+    // (a) `streaming-behaviour`
+    const { seam, session } = await seamWithSession();
+    try {
+      seam.probe.attachNativeTranslator("t1");
+      seam.probe.useCursorRoute("t1");
+      void seam.probe.nativeFrame("t1", 0, 0, "sdk", JSON.stringify({ kind: "send" }));
+      seam.probe.seal("t1");
+      await seam.engine.flush();
+      const log = session.log();
+      expect(log.journal.length).toBe(1);
+      expect(log.journalInTransaction).toEqual([true]);
+      expect(log.journal[0]).toMatchObject({
+        beginsTurn: true,
+        frame: { channel: "sdk", seq: 0, dir: "recv" },
+      });
+      // The apply nested inside the batch's one transaction.
+      expect(log.applied[0]?.outermost).toBe(false);
+      expect(log.applied[0]?.committed).toBe(true);
+    } finally {
+      await seam.close();
     }
   });
 

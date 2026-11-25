@@ -58,10 +58,10 @@ export interface NativeEngineHandle {
     handle: number,
     frame: unknown,
     isObject: boolean,
+    branded: boolean,
     certified: boolean,
     bytes: number | null,
     error: string | null,
-    call: number,
   ): string;
   actorPaused?(threadId: string): boolean;
   actorWait?(threadId: string, call: number): void;
@@ -69,6 +69,7 @@ export interface NativeEngineHandle {
   actorQuarantine?(threadId: string, message: string): void;
   persistLive?(token: number): void;
   committedLive?(token: number): void;
+  discardLive?(token: number): void;
   attachTranslatorHelper?(helper: (thread: string, request: string) => string): void;
   attachLiveStore?(hooks: Record<string, unknown>): void;
   [member: string]: unknown;
@@ -159,6 +160,7 @@ export class NativeEngine implements EngineSurface {
       throw new Error(`ACE_ENGINE=native needs the engine addon at ${sessionsAddonPath()}`);
     let native: NativeEngineHandle | undefined;
     const host: PortHost = {
+      frameCall: () => this.alloc(),
       settleCall: (call, error) => this.settle(call, error),
       rejectPending: () => this.rejectPending(),
       finishClose: () => this.finishClose(),
@@ -301,6 +303,26 @@ export class NativeEngine implements EngineSurface {
     void promise.catch(() => {});
     return { promise, call };
   }
+
+  /** How many batch promises were allocated: one per batch, whatever the frame count. */
+  allocatedFrameCalls = 0;
+
+  /** One promise for the batch a frame starts (decision 4): the binding settles it by call. */
+  alloc(): number {
+    this.allocatedFrameCalls += 1;
+    const { promise, call } = this.frameCall();
+    this.framePromiseByCall.set(call, promise);
+    const forget = () => this.framePromiseByCall.delete(call);
+    void promise.then(forget, forget);
+    return call;
+  }
+
+  /** The promise `alloc` made, so a joined frame returns the batch's own. */
+  promiseOf(call: number): Promise<void> | undefined {
+    return this.framePromiseByCall.get(call);
+  }
+
+  private readonly framePromiseByCall = new Map<number, Promise<void>>();
 
   flush(): Promise<void> {
     // Admission closed: no holder is taken and nothing is enqueued onto the shut executor.

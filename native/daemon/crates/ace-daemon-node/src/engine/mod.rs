@@ -244,6 +244,9 @@ impl NativeDatabase {
                 .get_named_property("appendEvents")
                 .map_err(|_| napi::Error::from_reason("appendEvents is missing"))?,
             bindings
+                .get_named_property("frameCall")
+                .map_err(|_| napi::Error::from_reason("frameCall is missing"))?,
+            bindings
                 .get_named_property("settleCall")
                 .map_err(|_| napi::Error::from_reason("settleCall is missing"))?,
             bindings

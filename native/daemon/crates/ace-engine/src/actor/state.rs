@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The actor's state (`actor.ts:52`–`:147`). Everything here is plain data: the translator is a
+//! The actor's state (`actor.ts:52`-`:147`). Everything here is plain data: the translator is a
 //! port and lives in `ActorDeps.translators`, and every read or change is one short `with_state`
 //! closure that copies out what the next step needs.
 
@@ -178,6 +178,11 @@ impl Drop for Promotion {
 /// Nothing a discarded actor held resolves: its acknowledgements reject, as a failed commit does.
 /// A JavaScript acknowledgement is settled through its facade call, exactly as `settle` does.
 pub(crate) fn discard_acks(core: &Core, actor: Actor) {
+    // A slot that never reached its actor never admits: the transaction's deferred admission
+    // is a no-op, so it cannot charge a restored actor for work that was discarded.
+    for shared in actor.staged.values() {
+        *shared.borrow_mut() = crate::actor::mailbox::Staged::Discarded;
+    }
     let mut acks: Vec<BatchAck> = Vec::new();
     if let Some(ack) = actor.pending_ack {
         acks.push(ack);
@@ -208,10 +213,6 @@ pub struct Actors {
     pub reserved: IndexMap<ThreadId, ()>,
     /// Victims pledged by an uncommitted creation; the promotion keeps the actors aside.
     pub pledges: IndexMap<ThreadId, ()>,
-    /// Commit-or-polled promotions, completed in commit order by the next sync entry or poll.
-    pub promotions: Vec<Rc<Promotion>>,
-    /// Reservations the probe invalidated before their first poll (seam test 17d).
-    pub lost: IndexMap<ThreadId, ()>,
     /// Flushes that asked every actor to seal its pending frame batch (the probe's count).
     pub seals: u32,
     /// The next staged slot's id.

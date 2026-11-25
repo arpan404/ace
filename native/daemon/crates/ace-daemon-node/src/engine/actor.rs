@@ -55,6 +55,10 @@ pub struct JsAcks {
 }
 
 impl FrameAcks for JsAcks {
+    fn alloc(&self) -> Option<u64> {
+        self.ports.frame_call()
+    }
+
     fn settle(&self, call: u64, reject: Option<String>) {
         self.ports.settle_call(call, reject);
     }
@@ -237,9 +241,9 @@ impl NativeEngine {
     /// `liveThreadIds()` (`index.ts:1049`).
     #[napi]
     pub fn live_thread_ids(&self) -> Vec<String> {
-        let core = self.engine.core();
-        ace_engine::actor::promote_all(core);
-        core.with_state(|state| ace_engine::actor::live_thread_ids(state))
+        self.engine
+            .core()
+            .with_state(|state| ace_engine::actor::live_thread_ids(state))
             .unwrap_or_default()
     }
 
@@ -247,7 +251,6 @@ impl NativeEngine {
     #[napi]
     pub fn workload(&self) -> napi::Result<String> {
         let core = self.engine.core();
-        ace_engine::actor::promote_all(core);
         let deps = core.actor_deps.borrow().clone();
         let (sessions, frames, bytes) = core
             .with_state(|state| {
@@ -331,14 +334,14 @@ impl NativeEngine {
         handle: f64,
         frame: Object,
         is_object: bool,
+        branded: bool,
         certified: bool,
         bytes: Option<f64>,
         measure_error: Option<String>,
-        call: f64,
     ) -> napi::Result<String> {
         let _guard = self.ports.enter(env);
         let core = self.engine.core();
-        let envelope = super::frames::read_envelope(&frame, is_object, certified)?;
+        let envelope = super::frames::read_envelope(&frame, is_object, branded)?;
         let channel_sdk = super::frames::string_property(&frame, "channel")
             .is_some_and(|channel| channel == "sdk");
         let measure = if certified {
@@ -364,33 +367,31 @@ impl NativeEngine {
                 envelope,
                 channel_sdk,
                 measure,
+                native_ack: None,
             },
-            Some(call as u64),
         );
         Ok(match ack {
-            intake::Ack::Done => {
-                // The shell answers at once; the facade's own call must not dangle.
-                self.ports.settle_call(call as u64, None);
-                "done".to_string()
-            }
-            intake::Ack::Rejected(message) => {
-                // The shell returns its own rejection; this call settles behind it.
-                self.ports.settle_call(call as u64, None);
-                format!("rejected:{message}")
-            }
+            intake::Ack::Done => "done".to_string(),
+            intake::Ack::Rejected(message) => format!("rejected:{message}"),
             intake::Ack::Batch(call) => match call {
                 Some(call) => format!("batch:{call}"),
                 None => "batch".to_string(),
             },
             intake::Ack::AfterFlush(receiver) => {
-                let ports = Rc::clone(&self.ports);
-                let core = Rc::clone(core);
-                let task = core.executor.spawn(Lane::Work, async move {
-                    let _ = receiver.await;
-                    ports.settle_call(call as u64, None);
-                });
-                task.detach();
-                "flush".to_string()
+                // The frame is refused visibly; its promise settles when the flush does.
+                let call = core.actor_deps.borrow().clone().acks.alloc();
+                if let Some(call) = call {
+                    let ports = Rc::clone(&self.ports);
+                    let core = Rc::clone(core);
+                    let task = core.executor.spawn(Lane::Work, async move {
+                        let _ = receiver.await;
+                        ports.settle_call(call, None);
+                    });
+                    task.detach();
+                    format!("flush:{call}")
+                } else {
+                    "flush".to_string()
+                }
             }
         })
     }
@@ -431,6 +432,12 @@ impl NativeEngine {
             Some(snapshot) => snapshot.persist().map_err(engine_error),
             None => Ok(()),
         }
+    }
+
+    /// A live write was replaced or dropped without storing it: release its snapshot's token.
+    #[napi]
+    pub fn discard_live(&self, token: f64) {
+        self.actor.snapshots.borrow_mut().remove(&(token as u64));
     }
 
     /// After the outermost commit, before the buffer retires the batch: the batch is durable.

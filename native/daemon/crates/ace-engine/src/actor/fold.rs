@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The fold of one batch (`actor.ts:353`–`:528`): what the mailbox runs for a sealed batch. The
+//! The fold of one batch (`actor.ts:353`-`:528`): what the mailbox runs for a sealed batch. The
 //! translation and the streaming answer are computed once and reused by a retry, because
 //! translators keep state and a retried batch must not stream its facts twice.
 
@@ -10,13 +10,6 @@ use crate::actor::{flow, leases, timer};
 use crate::{Core, EngineError, ThreadId};
 use ace_json::Value;
 use std::rc::Rc;
-
-/// A batch's facts and the Cursor frame records they need, without writing anything.
-#[derive(Default, Clone)]
-pub struct Translation {
-    pub facts: Vec<Value>,
-    pub journal: Vec<Value>,
-}
 
 fn text<'a>(value: &'a Value, name: &str) -> Option<&'a str> {
     match value {
@@ -86,24 +79,17 @@ pub fn fold_batch(core: &Rc<Core>, thread: &ThreadId, op: &mut BatchOp) -> Resul
         .filter(|pending| pending.generation == generation)
         .map(|pending| &pending.frame)
         .collect();
-    let sdk = op
-        .frames
-        .iter()
-        .filter(|pending| pending.generation == generation)
-        .any(|pending| match &pending.frame {
-            FrameRef::Js { sdk, .. } => *sdk,
-            FrameRef::Native(frame) => frame.channel == "sdk",
-        });
+    let sdk = live.iter().any(|frame| frame.is_sdk());
     let route = deps.repo.route(core, thread)?;
     let cursor_sdk = route.provider == "cursor" && route.backend.as_deref() == Some("cursor-sdk");
     let mut memory = std::mem::take(&mut op.memory);
-    let outcome = (|| -> Result<(), EngineError> {
+    let mut fold = |core: &Rc<Core>| -> Result<(), EngineError> {
         if memory.status_before.is_none() {
             memory.status_before = Some(deps.repo.status(core, thread)?);
         }
         let now = core.ports.now();
-        // Translation runs once per batch, before any write: a retry reuses the facts and the
-        // journal, because translators keep state (actor.ts:358–:366).
+        // Translation runs once per batch: translators keep state, a JS frame handle is consumed
+        // once, and enrichment (which can fail with a retryable store error) runs again instead.
         if memory.translated.is_none() {
             memory.translated = Some(translate_batch(
                 core, &deps, thread, &live, cursor_sdk, generation,
@@ -115,10 +101,11 @@ pub fn fold_batch(core: &Rc<Core>, thread: &ThreadId, op: &mut BatchOp) -> Resul
             // The record rolls back with the rest, so every attempt writes it again.
             deps.repo.cursor_record(core, thread, &translated.journal)?;
         }
-        let boundary = memory
-            .translated
-            .as_ref()
-            .is_some_and(|translated| translated.facts.iter().any(tool_boundary));
+        let facts = match memory.translated.as_ref() {
+            Some(translated) => enrich(core, &deps, thread, translated)?,
+            None => Vec::new(),
+        };
+        let boundary = facts.iter().any(tool_boundary);
         let command_running = if boundary {
             deps.repo.running_foreground_command(core, thread)?
         } else {
@@ -128,26 +115,16 @@ pub fn fold_batch(core: &Rc<Core>, thread: &ThreadId, op: &mut BatchOp) -> Resul
         let streamed = match memory.streamed {
             Some(streamed) => streamed,
             None => {
-                let answer = match memory.translated.as_ref() {
-                    Some(translated) if !cursor_sdk => {
-                        deps.repo.stream(core, thread, &translated.facts, now)?
-                    }
-                    _ => false,
-                };
+                let answer = !cursor_sdk && deps.repo.stream(core, thread, &facts, now)?;
                 memory.streamed = Some(answer);
                 answer
             }
         };
         let settle = |core: &Rc<Core>, streamed: bool| -> Result<(), EngineError> {
-            let facts: &[Value] = memory
-                .translated
-                .as_ref()
-                .map(|translated| translated.facts.as_slice())
-                .unwrap_or(&[]);
             if streamed {
                 timer::schedule(core, thread);
             } else {
-                apply(core, thread, facts)?;
+                apply(core, thread, &facts)?;
             }
             if sdk
                 && facts.iter().any(|fact| {
@@ -179,12 +156,27 @@ pub fn fold_batch(core: &Rc<Core>, thread: &ThreadId, op: &mut BatchOp) -> Resul
             settle(core, streamed)?;
         }
         Ok(())
-    })();
+    };
+    // A Cursor SDK batch's frame records, facts and queue sync commit in one transaction, so a
+    // busy queue sync rolls the facts back instead of committing them twice on the retry.
+    let outcome = if sdk && cursor_sdk {
+        core.store.atomic(|_tx| fold(core))
+    } else {
+        fold(core)
+    };
     op.memory = memory;
     outcome
 }
 
-/// `translateBatch` (`actor.ts:448`): one translator call for the batch, then the per-frame steps.
+/// The translator's output for one batch, before enrichment. Cached across a retry.
+#[derive(Default, Clone)]
+pub struct Translation {
+    pub frames: Vec<TranslatedFrame>,
+    pub journal: Vec<Value>,
+}
+
+/// One translator call for the batch, then the Cursor journal's entries. No writes, no
+/// enrichment: both run after this, so a ruffled retry reuses what the translator already said.
 fn translate_batch(
     core: &Rc<Core>,
     deps: &Rc<ActorDeps>,
@@ -213,7 +205,8 @@ fn translate_batch(
                                 .into_iter()
                                 .map(|line| Value::String(line.into()))
                                 .collect(),
-                            data: Some(frame.data.to_value()),
+                            frame: Some(crate::actor::native::frame_value(frame)),
+                            usage_account: crate::actor::native::account_value(frame),
                         });
                     }
                     FrameRef::Js { .. } => out.push(TranslatedFrame::default()),
@@ -226,28 +219,37 @@ fn translate_batch(
     deps.return_translator(thread, generation, taken);
     let translated = translated?;
     let mut journal = Vec::new();
-    let mut facts = Vec::with_capacity(frames.len());
+    let mut out = Vec::with_capacity(frames.len());
     for (frame, entry) in frames.iter().zip(translated) {
-        let sdk = match frame {
-            FrameRef::Js { sdk, .. } => *sdk,
-            FrameRef::Native(frame) => frame.channel == "sdk",
-        };
-        let data = entry.data.clone().or_else(|| match frame {
-            FrameRef::Native(frame) => Some(frame.data.to_value()),
-            FrameRef::Js { .. } => None,
-        });
-        if sdk
-            && cursor_sdk
-            && let Some(data) = &data
+        if cursor_sdk
+            && frame.is_sdk()
+            && let Some(value) = entry.frame.as_ref()
         {
-            let begins_turn = text(data, "kind") == Some("send")
+            let begins_turn = field(value, "data").and_then(|data| text(data, "kind"))
+                == Some("send")
                 && deps.repo.quiescent(core, thread).unwrap_or(false);
-            journal.push(ace_json::json!({"frame": data.clone(), "beginsTurn": begins_turn}));
+            journal.push(ace_json::json!({"frame": value.clone(), "beginsTurn": begins_turn}));
         }
-        facts.extend(translate_frame(core, deps, thread, frame, &entry)?);
+        out.push(entry);
     }
-    let facts = deps.repo.mark_yielded_end(core, thread, facts)?;
-    Ok(Translation { facts, journal })
+    Ok(Translation {
+        frames: out,
+        journal,
+    })
+}
+
+/// Per-frame enrichment: diagnostics, the usage account, then the attachment echo.
+fn enrich(
+    core: &Rc<Core>,
+    deps: &Rc<ActorDeps>,
+    thread: &ThreadId,
+    translated: &Translation,
+) -> Result<Vec<Value>, EngineError> {
+    let mut facts = Vec::with_capacity(translated.frames.len());
+    for entry in &translated.frames {
+        facts.extend(translate_frame(core, deps, thread, entry)?);
+    }
+    deps.repo.mark_yielded_end(core, thread, facts)
 }
 
 /// `translateFrame` (`actor.ts:492`): diagnostics, the usage account, then the attachment echo.
@@ -255,23 +257,18 @@ fn translate_frame(
     core: &Rc<Core>,
     deps: &ActorDeps,
     thread: &ThreadId,
-    frame: &FrameRef,
     entry: &TranslatedFrame,
 ) -> Result<Vec<Value>, EngineError> {
     if !entry.diagnostics.is_empty() {
         deps.links.diagnostic(core, thread, &entry.diagnostics);
     }
-    let usage_account = match frame {
-        FrameRef::Native(frame) => frame.usage_account.clone(),
-        FrameRef::Js { .. } => None,
-    };
     let uses_account = entry
         .facts
         .iter()
         .any(|fact| text(fact, "type") == Some("usage"));
     let account_id = if uses_account {
-        match &usage_account {
-            Some(account) => Some(account.id.clone()),
+        match &entry.usage_account {
+            Some(account) => text(account, "id").map(|id| id.to_string()),
             None => deps.repo.session_instance(core, thread)?,
         }
     } else {
@@ -286,13 +283,11 @@ fn translate_frame(
         {
             map.insert("accountId", Value::String(account_id.as_str().into()));
             if map.get("billingMode").is_none()
-                && let Some(account) = &usage_account
+                && let Some(mode) = entry
+                    .usage_account
+                    .as_ref()
+                    .and_then(|account| text(account, "billingMode"))
             {
-                let mode = match account.billing_mode {
-                    ace_adapter_api::BillingMode::Api => "api",
-                    ace_adapter_api::BillingMode::Subscription => "subscription",
-                    ace_adapter_api::BillingMode::Unknown => "unknown",
-                };
                 map.insert("billingMode", Value::String(mode.into()));
             }
         }

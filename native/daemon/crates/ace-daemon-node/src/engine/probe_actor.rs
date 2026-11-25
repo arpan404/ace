@@ -9,6 +9,7 @@ use ace_engine::actor::deps::{
     ActorDeps, ActorLinks, ActorRepo, ActorTranslator, Route, ScheduleView,
 };
 use ace_engine::actor::{intake, mailbox};
+use ace_engine::executor::Lane;
 use ace_engine::frames::live::LiveSnapshot;
 use ace_engine::ports::PortError;
 use ace_engine::{Core, EngineError, ThreadId};
@@ -17,6 +18,9 @@ use napi::Env;
 use napi_derive::napi;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+
+use ace_store::Connection;
 use std::rc::Rc;
 
 use super::js_translator::JsTranslator;
@@ -54,10 +58,29 @@ pub struct ProbeLog {
     pub fail_apply: Cell<u32>,
     /// `persist` calls that throw a retryable store error, for the live retry case.
     pub fail_persist: Cell<u32>,
+    /// `persist` calls that throw a fatal error, for the quarantine case.
+    pub fail_persist_fatal: Cell<u32>,
     /// The labels scripted `enqueue` operations ran, in order.
     pub enqueued: RefCell<Vec<String>>,
     /// Each native flow mirror's `set_paused`, in order.
     pub flowed: RefCell<Vec<bool>>,
+    /// Each real native-path acknowledgement, as `ok` or `rejected:<message>`.
+    pub native_acks: RefCell<Vec<String>>,
+    /// The facts each `apply` received, in order.
+    pub facts: RefCell<Vec<Value>>,
+    /// What the fold did, in order: an apply or a labelled enqueued op.
+    pub order: RefCell<Vec<String>>,
+    /// Each enqueued op's own transaction: whether it ran outermost.
+    pub ops_outermost: RefCell<Vec<bool>>,
+    /// Each `cursor_record` call: its entries and whether a transaction was open.
+    pub journal: RefCell<Vec<Value>>,
+    pub journal_in_transaction: RefCell<Vec<bool>>,
+    /// `attachment` lookups that throw a retryable store error before answering.
+    pub fail_attachment: Cell<u32>,
+    /// A non-retryable failure before writing, for the native acknowledgement's rejection.
+    pub fail_apply_fatal: Cell<u32>,
+    /// The repository reports a Cursor SDK thread, so the journal path runs.
+    pub cursor_route: Cell<bool>,
 }
 
 impl Default for ProbeLog {
@@ -78,8 +101,18 @@ impl Default for ProbeLog {
             rooted: RefCell::new(HashSet::new()),
             fail_apply: Cell::new(0),
             fail_persist: Cell::new(0),
+            fail_persist_fatal: Cell::new(0),
             enqueued: RefCell::new(Vec::new()),
             flowed: RefCell::new(Vec::new()),
+            native_acks: RefCell::new(Vec::new()),
+            facts: RefCell::new(Vec::new()),
+            order: RefCell::new(Vec::new()),
+            ops_outermost: RefCell::new(Vec::new()),
+            journal: RefCell::new(Vec::new()),
+            journal_in_transaction: RefCell::new(Vec::new()),
+            fail_attachment: Cell::new(0),
+            fail_apply_fatal: Cell::new(0),
+            cursor_route: Cell::new(false),
         }
     }
 }
@@ -130,6 +163,12 @@ impl ProbeLog {
             "live": Value::Array(self.live.borrow().clone().into()),
             "enqueued": Value::Array(self.enqueued.borrow().iter().map(|label| Value::String(label.clone().into())).collect::<Vec<Value>>().into()),
             "flowed": Value::Array(self.flowed.borrow().iter().map(|paused| Value::Bool(*paused)).collect::<Vec<Value>>().into()),
+            "facts": Value::Array(self.facts.borrow().clone().into()),
+            "nativeAcks": Value::Array(self.native_acks.borrow().iter().map(|entry| Value::String(entry.clone().into())).collect::<Vec<Value>>().into()),
+            "order": Value::Array(self.order.borrow().iter().map(|entry| Value::String(entry.clone().into())).collect::<Vec<Value>>().into()),
+            "opsOutermost": Value::Array(self.ops_outermost.borrow().iter().map(|value| Value::Bool(*value)).collect::<Vec<Value>>().into()),
+            "journal": Value::Array(self.journal.borrow().clone().into()),
+            "journalInTransaction": Value::Array(self.journal_in_transaction.borrow().iter().map(|value| Value::Bool(*value)).collect::<Vec<Value>>().into()),
         }))
     }
 }
@@ -138,6 +177,8 @@ impl ProbeLog {
 struct ProbeRepo {
     log: Rc<ProbeLog>,
     deps: RefCell<Rc<ActorDeps>>,
+    /// The shell's connection: `apply` writes a real event row, not only a publication.
+    connection: Arc<Connection>,
 }
 
 impl ActorRepo for ProbeRepo {
@@ -145,6 +186,12 @@ impl ActorRepo for ProbeRepo {
         Ok(self.log.status.borrow().clone())
     }
     fn route(&self, _core: &Core, _thread: &ThreadId) -> Result<Route, EngineError> {
+        if self.log.cursor_route.get() {
+            return Ok(Route {
+                provider: "cursor".to_string(),
+                backend: Some("cursor-sdk".to_string()),
+            });
+        }
         Ok(Route {
             provider: "probe".to_string(),
             backend: None,
@@ -203,6 +250,14 @@ impl ActorRepo for ProbeRepo {
         now: f64,
         generation: u64,
     ) -> Result<(), EngineError> {
+        if self.log.fail_apply_fatal.get() > 0 {
+            self.log
+                .fail_apply_fatal
+                .set(self.log.fail_apply_fatal.get() - 1);
+            return Err(EngineError::Port(PortError::Threw(
+                "the probe's apply failed".to_string(),
+            )));
+        }
         if self.log.fail_apply.get() > 0 {
             self.log.fail_apply.set(self.log.fail_apply.get() - 1);
             return Err(EngineError::Port(PortError::Threw(
@@ -227,10 +282,14 @@ impl ActorRepo for ProbeRepo {
         let json = ace_json::to_string(&Value::Array(vec![event].into()));
         core.store.atomic(|tx| {
             entry.outermost = core.store.is_outermost();
+            // A real row, so a publication-only implementation cannot pass the commit test.
+            write_probe_event(&self.connection, thread, now, facts.len())?;
             tx.append_events(&json)?;
             entry.committed = true;
             Ok(())
         })?;
+        self.log.facts.borrow_mut().extend_from_slice(facts);
+        self.log.order.borrow_mut().push("apply".to_string());
         if facts
             .iter()
             .any(|fact| matches!(ProbeLog::text(fact, "type"), Some("tick")))
@@ -320,16 +379,65 @@ impl ActorRepo for ProbeRepo {
         _thread: &ThreadId,
         _hash: &str,
     ) -> Result<Option<Value>, EngineError> {
+        if self.log.fail_attachment.get() > 0 {
+            self.log
+                .fail_attachment
+                .set(self.log.fail_attachment.get() - 1);
+            return Err(EngineError::Port(PortError::Threw(
+                "Store is busy".to_string(),
+            )));
+        }
         Ok(None)
     }
     fn cursor_record(
         &self,
-        _core: &Core,
+        core: &Core,
         _thread: &ThreadId,
-        _entries: &[Value],
+        entries: &[Value],
     ) -> Result<(), EngineError> {
+        self.log.journal.borrow_mut().extend_from_slice(entries);
+        self.log
+            .journal_in_transaction
+            .borrow_mut()
+            .push(core.store.is_open());
         Ok(())
     }
+}
+
+/// The probe's one real event row, inside the engine's transaction.
+fn write_probe_event(
+    connection: &Arc<Connection>,
+    thread: &str,
+    at: f64,
+    facts: usize,
+) -> Result<(), EngineError> {
+    let next = connection
+        .prepare("SELECT COALESCE(MAX(seq), 0) + 1 FROM events")?
+        .step()?
+        .and_then(|row| row.into_iter().next())
+        .map(|value| match value {
+            ace_store::Value::Integer(seq) => seq,
+            _ => 1,
+        })
+        .unwrap_or(1);
+    let payload = ace_json::to_string(&ace_json::json!({
+        "type": "probe.batch",
+        "facts": facts as u64,
+    }));
+    let insert = connection
+        .prepare("INSERT INTO events (seq, id, thread_id, at, type, payload) VALUES (?1, ?2, ?3, ?4, 'probe.batch', ?5)")?;
+    insert.bind(&[
+        Some(ace_store::Value::Integer(next)),
+        Some(ace_store::Value::Text(format!("probe-{next}"))),
+        Some(ace_store::Value::Text(thread.to_string())),
+        Some(ace_store::Value::Integer(at as i64)),
+        Some(ace_store::Value::Text(payload)),
+    ])?;
+    insert.step()?;
+    let bump = connection.prepare("UPDATE host_sequence SET seq = MAX(seq, ?1) WHERE id = 1")?;
+    bump.bind(&[Some(ace_store::Value::Integer(next))])?;
+    bump.step()?;
+    Ok(())
 }
 
 /// One probe live write's snapshot: it records the order, nothing else.
@@ -340,6 +448,14 @@ struct ProbeSnapshot {
 impl LiveSnapshot for ProbeSnapshot {
     fn persist(&self) -> Result<(), EngineError> {
         self.log.snapshots.borrow_mut().push("persist");
+        if self.log.fail_persist_fatal.get() > 0 {
+            self.log
+                .fail_persist_fatal
+                .set(self.log.fail_persist_fatal.get() - 1);
+            return Err(EngineError::Port(PortError::Threw(
+                "the probe's persist failed".to_string(),
+            )));
+        }
         if self.log.fail_persist.get() > 0 {
             self.log.fail_persist.set(self.log.fail_persist.get() - 1);
             return Err(EngineError::Port(PortError::Threw(
@@ -403,6 +519,7 @@ impl NativeEngine {
         let repo = Rc::new(ProbeRepo {
             log: Rc::clone(&log),
             deps: RefCell::new(Rc::clone(&self.actor.deps)),
+            connection: self.probe.borrow().connection(),
         }) as Rc<dyn ActorRepo>;
         let links = Rc::new(ProbeLinks {
             log: Rc::clone(&log),
@@ -526,13 +643,50 @@ impl NativeEngine {
         }
     }
 
-    /// Invalidates a provisional actor's reservation before its first poll (seam test 17d).
+    /// The next `persist` calls throw a fatal error, so the batch is quarantined.
+    #[napi]
+    pub fn probe_fail_persist_fatal(&self, thread_id: String, times: f64) {
+        if let Some(log) = self.probe_threads.borrow().logs.get(&thread_id) {
+            log.fail_persist_fatal.set(times as u32);
+        }
+    }
+
+    /// The Rust tokens still held for live snapshots: a replaced or quarantined one is retired.
+    #[napi]
+    pub fn probe_live_tokens(&self) -> u32 {
+        self.actor.snapshots.borrow().len() as u32
+    }
+
+    /// The probe repository reports a Cursor SDK thread, so the journal path runs.
+    #[napi]
+    pub fn probe_use_cursor_route(&self, thread_id: String) {
+        if let Some(log) = self.probe_threads.borrow().logs.get(&thread_id) {
+            log.cursor_route.set(true);
+        }
+    }
+
+    /// The next `attachment` lookups throw a busy error (the retried enrichment case).
+    #[napi]
+    pub fn probe_fail_attachment(&self, thread_id: String, times: f64) {
+        if let Some(log) = self.probe_threads.borrow().logs.get(&thread_id) {
+            log.fail_attachment.set(times as u32);
+        }
+    }
+
+    /// The next `apply` calls fail with a non-retryable error (the native gate's rejection).
+    #[napi]
+    pub fn probe_fail_apply_fatal(&self, thread_id: String, times: f64) {
+        if let Some(log) = self.probe_threads.borrow().logs.get(&thread_id) {
+            log.fail_apply_fatal.set(times as u32);
+        }
+    }
+
+    /// Takes a provisional actor's held reservation away, as an invariant break would
+    /// (seam test 17d): the commit checks the real reservation, never a probe flag.
     #[napi]
     pub fn probe_lose_reservation(&self, thread_id: String) {
         let core = self.engine.core();
-        let _ = core.with_state(|state| {
-            state.actors.lost.insert(thread_id.clone(), ());
-        });
+        let _ = core.with_state(|state| state.actors.reserved.shift_remove(&thread_id));
     }
 
     /// Seals the pending frame batch now, as a flush would.
@@ -551,9 +705,13 @@ impl NativeEngine {
         mailbox::enqueue(
             core,
             &thread_id,
-            Box::new(move |_core: &Rc<Core>| {
+            Box::new(move |core: &Rc<Core>| {
                 if let Some(log) = &log {
                     log.enqueued.borrow_mut().push(label.clone());
+                    log.order.borrow_mut().push(format!("op:{label}"));
+                    log.ops_outermost
+                        .borrow_mut()
+                        .push(core.store.is_outermost());
                 }
                 Ok(())
             }),
@@ -629,7 +787,7 @@ impl NativeEngine {
         self.engine.core().registered() as u32
     }
 
-    /// One frame through the native path's intake, with a JavaScript acknowledgement.
+    /// One frame through the native path's intake, with the binding's own batch promise.
     #[napi]
     #[allow(clippy::too_many_arguments)]
     pub fn probe_native_frame(
@@ -640,7 +798,6 @@ impl NativeEngine {
         seq: f64,
         channel: String,
         data: String,
-        call: f64,
     ) -> napi::Result<String> {
         let _guard = self.ports.enter(env);
         let core = self.engine.core();
@@ -668,8 +825,8 @@ impl NativeEngine {
                 envelope,
                 channel_sdk: sdk,
                 measure: intake::Measure::Certified { bytes: data.len() },
+                native_ack: None,
             },
-            Some(call as u64),
         );
         Ok(match ack {
             intake::Ack::Done => "done".to_string(),
@@ -721,7 +878,7 @@ impl NativeEngine {
                 log.flowed.borrow_mut().push(paused);
             }
         });
-        ace_engine::actor::native::native_frame(
+        let (_, completion) = ace_engine::actor::native::native_frame(
             core,
             &thread_id,
             generation as u64,
@@ -731,7 +888,24 @@ impl NativeEngine {
             &mut flow,
             set,
         );
-        self.actor.flows.borrow_mut().insert(thread_id, flow);
+        self.actor
+            .flows
+            .borrow_mut()
+            .insert(thread_id.clone(), flow);
+        // The real path's acknowledgement: a rejected batch fails the session's read gate.
+        let log = self.probe_threads.borrow().logs.get(&thread_id).cloned();
+        let task = core.executor.spawn(Lane::Work, async move {
+            if let Ok(result) = completion.await {
+                let entry = match result {
+                    Ok(()) => "ok".to_string(),
+                    Err(message) => format!("rejected:{message}"),
+                };
+                if let Some(log) = log {
+                    log.native_acks.borrow_mut().push(entry);
+                }
+            }
+        });
+        task.detach();
         Ok(())
     }
 
@@ -766,6 +940,7 @@ impl NativeEngine {
         let repo = Rc::new(ProbeRepo {
             log: Rc::clone(&log),
             deps: RefCell::new(Rc::clone(&self.actor.deps)),
+            connection: self.probe.borrow().connection(),
         }) as Rc<dyn ActorRepo>;
         let links = Rc::new(ProbeLinks {
             log: Rc::clone(&log),

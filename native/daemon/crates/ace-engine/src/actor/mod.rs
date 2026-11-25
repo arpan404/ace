@@ -22,7 +22,6 @@ pub use state::{Actor, Actors, FrameRef, Pending};
 pub use timer::keeps_timer;
 
 use crate::executor::{Lane, TaskId};
-use crate::futures::future::LocalBoxFuture;
 use crate::{Core, EngineError, State, ThreadId};
 use std::rc::Rc;
 
@@ -79,6 +78,14 @@ async fn mailbox_loop(core: Rc<Core>, thread: ThreadId) {
             }
             mailbox::Next::Run(op) => {
                 let end_turn = run_op(&core, &thread, op).await;
+                // The op settled: the mailbox is idle again, and a flush waiting on it resumes.
+                core.with_state(|state| {
+                    if let Some(actor) = state.actors.by_thread.get_mut(&thread) {
+                        actor.running = false;
+                        mailbox::resolve_flush_waiters(actor);
+                    }
+                })
+                .ok();
                 if end_turn {
                     core.executor.end_turn();
                 }
@@ -109,7 +116,12 @@ async fn run_op(core: &Rc<Core>, thread: &ThreadId, op: mailbox::Op) -> bool {
         }
         mailbox::Op::Settle(ack) => mailbox::settle_rejected(core, ack),
         mailbox::Op::Overflow => {
-            if let Err(error) = failure::overflow(core, thread) {
+            // The overflow behind the same writable gate as any op: a held store waits, as the
+            // TypeScript's `runWhenWritable` does, instead of aborting the session mid-write.
+            let op_thread = thread.clone();
+            let mut run: mailbox::RunFn =
+                Box::new(move |core: &Rc<Core>| failure::overflow(core, &op_thread));
+            if let Err(error) = mailbox::run_when_writable(core, thread, &mut run).await {
                 failure::fail(core, thread, error);
             }
             false
@@ -160,7 +172,6 @@ async fn yield_once() {
 
 /// `actor(id)` (`index.ts:528`–`:562`): the actor, created at capacity or inside a transaction.
 pub fn get_or_create(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineError> {
-    promote_all(core);
     if core.with_state(|state| state.actors.by_thread.contains_key(thread))? {
         return Ok(());
     }
@@ -273,53 +284,74 @@ pub fn get_or_create(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineErr
             state.actors.pledges.insert(victim.clone(), ());
         }
     })?;
-    let future = promotion_future(Rc::clone(core), Rc::clone(&promotion));
-    core.defer(crate::executor::Deferred::Spawn(Lane::Work, future));
+    // The promotion runs at the commit itself, so the next synchronous lookup sees it, exactly
+    // as the TypeScript's eviction at the call was visible at once (step 7).
+    let owner = Rc::clone(core);
+    let committed = Rc::clone(&promotion);
+    core.defer(crate::executor::Deferred::Run(Box::new(move || {
+        commit_promotion(&owner, &committed);
+    })));
     core.record_wake(thread);
     Ok(())
 }
 
-/// The deferred promotion: on commit it evicts the pledged victims and commits the actor; on
-/// rollback its guard discards the reservation and restores what was kept aside.
-fn promotion_future(
-    core: Rc<Core>,
-    promotion: Rc<state::Promotion>,
-) -> LocalBoxFuture<'static, ()> {
-    Box::pin(async move {
-        {
-            let mut state = promotion.state.borrow_mut();
-            if state.rolled_back || state.done {
-                return;
-            }
-            state.done = true;
-        }
-        let thread = promotion.created.clone();
-        let lost = core
-            .with_state(|state| state.actors.lost.shift_remove(&thread).is_some())
-            .unwrap_or(false);
-        core.with_state(|state| {
-            state.actors.reserved.shift_remove(&thread);
-            for victim in &promotion.pledges {
-                state.actors.pledges.shift_remove(victim);
-            }
-            state.actors.promotions.push(Rc::clone(&promotion));
-        })
-        .ok();
-        if lost {
-            // An invariant break, never a normal path: nothing reads as a false success.
-            let counts = restore_promotion(&core, &promotion);
-            lost_reservation(&core, &thread, counts);
+/// The commit: the provisional actor takes the slot its reservation held, and the pledged
+/// victims are stopped and evicted, which is what the TypeScript did at the call. A reservation
+/// missing here is an invariant break, never a normal path: the actor is discarded and its work
+/// fails visibly instead of acknowledging as success.
+fn commit_promotion(core: &Rc<Core>, promotion: &Rc<state::Promotion>) {
+    {
+        let mut state = promotion.state.borrow_mut();
+        if state.done || state.rolled_back {
             return;
         }
-        core.with_state(|state| {
-            if let Some(actor) = state.actors.by_thread.get_mut(&thread) {
-                actor.provisional = false;
-            }
-        })
-        .ok();
-        spawn_mailbox(&core, &thread);
-        complete_promotion(&core, &promotion);
+        state.done = true;
+    }
+    let thread = promotion.created.clone();
+    let held = core
+        .with_state(|state| state.actors.reserved.contains_key(&thread))
+        .unwrap_or(false);
+    if !held {
+        let counts = restore_promotion(core, promotion);
+        lost_reservation(core, &thread, counts);
+        return;
+    }
+    let deps = core.actor_deps.borrow().clone();
+    // The victims stop the way the TypeScript's eviction stopped them: their leases release,
+    // their drains resolve, and every acknowledgement they still hold settles as failed.
+    let aside = std::mem::take(&mut *promotion.kept_aside.borrow_mut());
+    for (_, actor) in aside {
+        stop_aside(core, &deps, actor);
+    }
+    core.with_state(|state| {
+        state.actors.reserved.shift_remove(&thread);
+        for victim in &promotion.pledges {
+            state.actors.pledges.shift_remove(victim);
+        }
+        if let Some(actor) = state.actors.by_thread.get_mut(&thread) {
+            actor.provisional = false;
+        }
     })
+    .ok();
+    spawn_mailbox(core, &thread);
+}
+
+/// Stops an actor that a promotion moved aside: what `stop()` does, for one that is no longer
+/// in the map.
+fn stop_aside(core: &Rc<Core>, deps: &Rc<deps::ActorDeps>, mut actor: state::Actor) {
+    let tokens: Vec<u64> = actor.leases.keys().copied().collect();
+    if !tokens.is_empty() {
+        deps.links.release_leases(core, &tokens);
+    }
+    for drain in actor.drains.drain(..) {
+        let _ = drain.send(());
+    }
+    if let Some((timer, _)) = actor.timer.as_ref() {
+        core.ports.cancel_timer(timer.key);
+    }
+    let id = actor.id.clone();
+    state::discard_acks(core, actor);
+    deps.repo.evict(core, &id);
 }
 
 /// A promotion that will not commit: release its reservation, restore the pledged victims at
@@ -386,36 +418,15 @@ fn lost_reservation(core: &Rc<Core>, thread: &ThreadId, counts: (usize, usize)) 
     deps.links.wake(core, thread);
 }
 
-/// Commit: the pledged victims are evicted (memory only, what TypeScript did at the call).
-fn complete_promotion(core: &Rc<Core>, promotion: &Rc<state::Promotion>) {
-    if promotion.state.borrow().rolled_back {
-        return;
-    }
-    let deps = core.actor_deps.borrow().clone();
-    let aside = std::mem::take(&mut *promotion.kept_aside.borrow_mut());
-    for (_, actor) in aside {
-        deps.repo.evict(core, &actor.id);
-    }
-}
-
-/// Every committed transaction's promotions, in commit order.
-pub fn promote_all(core: &Rc<Core>) {
-    let pending = core
-        .with_state(|state| std::mem::take(&mut state.actors.promotions))
-        .unwrap_or_default();
-    for promotion in pending {
-        complete_promotion(core, &promotion);
-    }
-}
-
 /// The outermost rule, synchronously, for the probe (seam test 11): one op run inside an open
 /// transaction fails before it can acknowledge on a savepoint's release.
+#[cfg(feature = "engine-probe")]
 pub fn run_op_opened(core: &Rc<Core>, thread: &ThreadId, op: mailbox::Op) -> bool {
     if !core.store.is_open() {
         return false;
     }
     failure::fail(core, thread, EngineError::NotOutermost);
-    match op {
+    let settled = match op {
         mailbox::Op::Batch(batch) => {
             mailbox::settle(core, thread, batch.frames.len(), batch.bytes, batch.ack)
         }
@@ -428,7 +439,15 @@ pub fn run_op_opened(core: &Rc<Core>, thread: &ThreadId, op: mailbox::Op) -> boo
         ),
         mailbox::Op::Settle(ack) => mailbox::settle_rejected(core, ack),
         _ => false,
-    }
+    };
+    core.with_state(|state| {
+        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
+            actor.running = false;
+            mailbox::resolve_flush_waiters(actor);
+        }
+    })
+    .ok();
+    settled
 }
 
 /// `stop()` (`actor.ts:599`): seal first, then stop everything the actor holds.

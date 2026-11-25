@@ -30,6 +30,11 @@ pub struct ProbeState {
 }
 
 impl ProbeState {
+    /// The connection Rust probe writes share with the shell's transactions.
+    pub fn connection(&self) -> Arc<Connection> {
+        std::sync::Arc::clone(&self.connection)
+    }
+
     pub fn new(connection: Arc<Connection>) -> ProbeState {
         ProbeState {
             marks: Vec::new(),

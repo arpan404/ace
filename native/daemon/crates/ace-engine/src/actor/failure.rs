@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Failure, overflow and quarantine (`actor.ts:268`–`:301`, `:203`–`:237`): a poisoned actor
+//! Failure, overflow and quarantine (`actor.ts:268`-`:301`, `:203`-`:237`): a poisoned actor
 //! fails visibly, and a full mailbox ends its session with the three facts the TypeScript writes.
 
 use crate::actor::{fold, leases, timer};

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The connection's one live buffer, reached from Rust (ADR 0223 §5). The engine appends its
+//! The connection's one live buffer, reached from Rust (ADR 0223 section 5). The engine appends its
 //! events to the same buffer the shell drives, with the buffer's flush run as a pump task, so it
 //! is never inside another transaction. The shell implements this trait over its public methods;
 //! the trait itself holds the actor's decisions and no I/O.

@@ -48,6 +48,16 @@ export interface EngineProbe {
   failApply(threadId: string, times: number): void;
   /** The next live `persist` calls throw a busy error. */
   failPersist(threadId: string, times: number): void;
+  /** The next live `persist` calls throw a fatal error, so the batch is quarantined. */
+  failPersistFatal(threadId: string, times: number): void;
+  /** The Rust tokens still held for live snapshots. */
+  liveTokens(): number;
+  /** The repository reports a Cursor SDK thread, so the journal path runs. */
+  useCursorRoute(threadId: string): void;
+  /** The next attachment lookups throw a busy error. */
+  failAttachment(threadId: string, times: number): void;
+  /** The next applies fail with a non-retryable error. */
+  failApplyFatal(threadId: string, times: number): void;
   /** Invalidates a provisional actor's reservation before its first poll. */
   loseReservation(threadId: string): void;
   /** Seals the pending frame batch now, as a flush would. */
@@ -137,6 +147,21 @@ export interface ProbeActorLog {
   live: unknown[];
   enqueued: string[];
   flowed: boolean[];
+  /** Each real native-path acknowledgement: `ok` or `rejected:<message>`. */
+  nativeAcks: string[];
+  /** The facts each apply received, in order. */
+  facts: Record<string, unknown>[];
+  /** What the fold did, in order. */
+  order: string[];
+  /** Each enqueued op's own transaction: whether it ran outermost. */
+  opsOutermost: boolean[];
+  /** Each Cursor record call's entries. */
+  journal: {
+    beginsTurn?: boolean;
+    frame?: { channel?: string; seq?: number; dir?: string };
+  }[];
+  /** Each Cursor record call: whether a transaction was open. */
+  journalInTransaction: boolean[];
 }
 
 /** One scripted session. */
@@ -261,7 +286,7 @@ export async function engineSeam(input: EngineSeamInput = {}): Promise<EngineSea
   if (native === undefined) throw new Error("the engine seam built the TypeScript engine");
   const probe = probeFor(
     native,
-    new FrameTable(),
+    new FrameTable(() => clock.now()),
     engine as unknown as NativeEngine,
     options,
     clock,
@@ -406,6 +431,11 @@ function probeFor(
     },
     failApply: (thread, times) => required("probeFailApply")(thread, times),
     failPersist: (thread, times) => required("probeFailPersist")(thread, times),
+    failPersistFatal: (thread, times) => required("probeFailPersistFatal")(thread, times),
+    liveTokens: () => required("probeLiveTokens")() as number,
+    useCursorRoute: (thread) => required("probeUseCursorRoute")(thread),
+    failAttachment: (thread, times) => required("probeFailAttachment")(thread, times),
+    failApplyFatal: (thread, times) => required("probeFailApplyFatal")(thread, times),
     loseReservation: (thread) => required("probeLoseReservation")(thread),
     seal: (thread) => required("probeSeal")(thread),
     enqueue: (thread, label) => required("probeEnqueue")(thread, label),
@@ -417,14 +447,22 @@ function probeFor(
       const open = nativeBatches.get(threadId);
       if (open !== undefined) {
         // Decision 4: every frame of an open batch gets that batch's promise.
-        required("probeNativeFrame")(threadId, generation, seq, channel, data, 0);
+        required("probeNativeFrame")(threadId, generation, seq, channel, data);
         return open;
       }
-      const pending = facade.frameCall();
-      required("probeNativeFrame")(threadId, generation, seq, channel, data, pending.call);
-      const promise = pending.promise.finally(() => nativeBatches.delete(threadId));
-      nativeBatches.set(threadId, promise);
-      return promise;
+      const answer = required("probeNativeFrame")(
+        threadId,
+        generation,
+        seq,
+        channel,
+        data,
+      ) as string;
+      if (!answer.startsWith("batch:")) return Promise.resolve();
+      const promise = facade.promiseOf(Number(answer.slice("batch:".length)));
+      if (promise === undefined) return Promise.resolve();
+      const tracked = promise.finally(() => nativeBatches.delete(threadId));
+      nativeBatches.set(threadId, tracked);
+      return tracked;
     },
     bridgeFrame(threadId, generation, seq, channel, data) {
       required("probeBridgeFrame")(
