@@ -522,6 +522,70 @@ fn a_blocked_sink_counts_diagnostics_against_the_intake_budget() {
     assert!(!host.paused(), "the sink drained: the gate reopens");
 }
 
+/// A single input can release a hold above the byte budget with far fewer than
+/// 256 entries: that batch must be measured too, so the gate closes while it
+/// waits for a blocked sink.
+#[test]
+fn a_released_hold_above_the_byte_budget_closes_the_gate() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start_pair();
+
+    // Two channels, so a frame for a thread nobody owns waits in the host's
+    // hold instead of reaching one of them: three 2 MiB frames, one batch.
+    let big = "x".repeat(2 * 1024 * 1024);
+    for index in 0..3 {
+        host.line(&completed_for("owner", &format!("{index}{big}")));
+    }
+
+    host.request(
+        1,
+        "thread/resume",
+        Some(&ace_json::json!({"threadId": "owner"})),
+        9,
+        Timeout::Default,
+    )
+    .expect("the open is queued");
+    let (_, lines) = sink.pump(&host, || {});
+    let opening = line_id(&lines, "thread/resume", Some("owner")).expect("the open's id");
+
+    // Claiming the thread releases the hold in one input; the publisher is held
+    // inside the first frame, so the rest of the batch waits.
+    sink.hold_next_frame();
+    let claiming = {
+        let host = Arc::clone(&host);
+        let reply = reply(&opening, ace_json::json!({"thread": {"id": "owner"}}));
+        std::thread::spawn(move || host.line(&reply))
+    };
+    assert!(
+        sink.wait_parked(),
+        "the publisher is inside a released frame"
+    );
+    assert!(
+        host.paused(),
+        "the gate closes on a released hold above the budget"
+    );
+
+    sink.let_go();
+    claiming.join().expect("the open's reply returns");
+    assert!(!host.paused(), "the hold drained: the gate reopens");
+    let delivered = sink
+        .published()
+        .iter()
+        .filter(|thing| {
+            matches!(
+                thing,
+                Published::Frame {
+                    tenant: 1,
+                    dir: Direction::Recv,
+                    method,
+                    ..
+                } if method == "item/completed"
+            )
+        })
+        .count();
+    assert_eq!(delivered, 3, "every held frame reached the channel");
+}
+
 /// One thing the shell published, in the order it published it.
 #[derive(Debug, Clone, PartialEq)]
 enum Published {
@@ -640,6 +704,19 @@ fn renamed(name: &str) -> String {
     }))
 }
 
+/// One `item/completed` frame for `thread`.
+fn completed_for(thread: &str, text: &str) -> String {
+    frame(ace_json::json!({
+        "jsonrpc": "2.0",
+        "method": "item/completed",
+        "params": {
+            "threadId": thread,
+            "turnId": "turn-1",
+            "item": {"type": "agentMessage", "id": "m", "text": text},
+        },
+    }))
+}
+
 /// One `item/completed` frame for the channel's thread.
 fn completed(text: &str) -> String {
     frame(ace_json::json!({
@@ -744,9 +821,19 @@ impl Holding {
         host
     }
 
+    /// A host with two channels attached and no threads of their own.
+    fn start_pair(self: &Arc<Self>) -> Arc<Host> {
+        self.start_with(&[1, 2])
+    }
+
     /// A host whose shell is this sink, its handshake answered and one channel
     /// attached, with no thread of its own.
     fn start_alone(self: &Arc<Self>) -> Arc<Host> {
+        self.start_with(&[1])
+    }
+
+    /// A host with the given channels attached.
+    fn start_with(self: &Arc<Self>, tenants: &[u64]) -> Arc<Host> {
         let host = Arc::new(Host::new(HostConfig::shared(initialize(), 60_000.0)));
         host.set_sink(Arc::clone(self) as Arc<dyn HostSink>);
         let (_, lines) = self.pump(&host, || {});
@@ -754,16 +841,19 @@ impl Holding {
         let _ = self.pump(&host, || {
             host.line(&reply(&id, ace_json::json!({"userAgent": "fake"})));
         });
-        let channel: Arc<dyn ChannelHandlers> = Arc::new(Channel {
-            tenant: 1,
-            log: Arc::clone(&self.log),
-            refuse: Arc::clone(&self.refuse),
-        });
-        self.handlers
-            .lock()
-            .expect("channel handlers")
-            .insert(1, Arc::clone(&channel));
-        host.attach(1, channel).expect("the host accepts a channel");
+        for tenant in tenants {
+            let channel: Arc<dyn ChannelHandlers> = Arc::new(Channel {
+                tenant: *tenant,
+                log: Arc::clone(&self.log),
+                refuse: Arc::clone(&self.refuse),
+            });
+            self.handlers
+                .lock()
+                .expect("channel handlers")
+                .insert(*tenant, Arc::clone(&channel));
+            host.attach(*tenant, channel)
+                .expect("the host accepts a channel");
+        }
         let _ = self.pump(&host, || {});
         host
     }

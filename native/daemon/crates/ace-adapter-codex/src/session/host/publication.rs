@@ -167,15 +167,12 @@ impl Host {
                 (result, false)
             } else {
                 let mut publication = self.publication();
-                // A frame decided while the queue is empty leaves at once, so
-                // only a backlog pays for measuring it.
-                let backlogged = publication.publishing || !publication.queue.is_empty();
+                // Every effect is measured, not only one queued behind another:
+                // a single input can release a hold above the byte budget with
+                // far fewer entries than the entry bound allows, and that batch
+                // is exactly what a blocked sink leaves waiting.
                 for effect in inner.out.drain(..) {
-                    let payload = if backlogged {
-                        effect.payload_bytes()
-                    } else {
-                        None
-                    };
+                    let payload = effect.payload_bytes();
                     publication.hold(effect, payload);
                 }
                 self.pace(&mut publication);

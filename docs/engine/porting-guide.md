@@ -1186,7 +1186,9 @@ fakes, and everything the E1 translator owns. Five tasks, in order.
   the dispatch, and keeps that attribution after the tenant leaves until the answer arrives, so a
   reply is always the served channel's own send frame and never an unowned one (TS answers in the
   same step it dispatches, so a detach cannot come between them there).
-- **A backlog closes the gate**: an effect that waits behind another input stays in that queue,
+- **A backlog closes the gate**: every effect is measured as it is queued, so a single input that
+  releases a hold above the byte budget closes the gate too; an effect that waits behind another
+  input stays in that queue,
   and once it holds TS's intake budget — 256 entries or 4 MiB, reopened below 64 and 1 MiB
   (`apps/daemon/src/engine/actor.ts:84`–`:103`, `apps/daemon/src/engine/limits.ts:9`–`:17`; TS
   counts frames, the host counts every payload-bearing effect so diagnostics and malformed lines
