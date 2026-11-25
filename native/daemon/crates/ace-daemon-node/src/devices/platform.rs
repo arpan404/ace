@@ -137,9 +137,11 @@ pub fn device_platform_choose_android_tools(
             emulator: root.emulator,
         })
         .collect();
-    let tools = ace_devices::platform::sdk::choose_android_tools(&found, path_adb);
-    ace_json::ser::to_string(&tools)
-        .map_err(|error| napi::Error::from_reason(format!("ace-devices: {error}")))
+    answered(|| {
+        Ok(ace_devices::platform::sdk::choose_android_tools(
+            &found, path_adb,
+        ))
+    })
 }
 
 /// `resolveAndroidSDK`: the tools, or the refusal that names the install this host needs.

@@ -21,10 +21,12 @@ pub struct FoundTools {
     pub emulator: Option<String>,
 }
 
-/// The Android tools ace runs, by absolute path.
+/// The Android tools ace runs, by absolute path; a tool that was not found is absent.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct AndroidTools {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub adb: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub emulator: Option<String>,
 }
 
