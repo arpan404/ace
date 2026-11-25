@@ -194,7 +194,7 @@ fn text_part(text: &str) -> Value {
 }
 
 fn unavailable() -> crate::session::frames::Failure {
-    failure(UNAVAILABLE.to_owned())
+    crate::session::frames::Failure::interaction_unavailable(UNAVAILABLE)
 }
 
 fn failure(message: String) -> crate::session::frames::Failure {

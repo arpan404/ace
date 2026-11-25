@@ -135,6 +135,8 @@ pub struct Failure {
 
 /// A failure only the session itself can report.
 pub const CODEX_FAILED: &str = "ACE_CODEX_FAILED";
+/// `CodexInteractionUnavailable`'s own code, which the facade keeps.
+pub const INTERACTION_UNAVAILABLE: &str = "interaction_unavailable";
 
 impl Failure {
     /// The turn the input was meant to join has ended: unread, never retried.
@@ -149,6 +151,14 @@ impl Failure {
     pub fn input_rejected(message: impl Into<String>) -> Failure {
         Failure {
             code: ace_adapter_api::bridge::queue::INPUT_REJECTED,
+            message: message.into(),
+        }
+    }
+
+    /// The question or approval is no longer active (`:19`).
+    pub fn interaction_unavailable(message: impl Into<String>) -> Failure {
+        Failure {
+            code: INTERACTION_UNAVAILABLE,
             message: message.into(),
         }
     }

@@ -314,3 +314,23 @@ fn a_plan_approval_whose_launch_options_are_refused_marks_the_interaction_failed
         crate::session::permissions::CONFIGURED_DEFAULT_MISSING
     );
 }
+
+#[test]
+fn an_interaction_no_longer_held_carries_the_typescripts_own_code() {
+    let mut session = session();
+    let resolution = json(r#"{"kind":"approval","optionId":"accept"}"#);
+    let effects = session.resolve(answer(28, "request:gone", &resolution));
+    match &effects[0] {
+        Effect::Settle {
+            result: Err(failure),
+            ..
+        } => {
+            assert_eq!(failure.code, "interaction_unavailable");
+            assert_eq!(
+                failure.message,
+                "This question or approval is no longer active"
+            );
+        }
+        other => panic!("expected a failure, got {other:?}"),
+    }
+}

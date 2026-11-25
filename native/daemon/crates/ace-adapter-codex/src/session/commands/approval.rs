@@ -80,28 +80,32 @@ pub(crate) fn approval_result(pending: &Pending, resolution: &Value) -> Result<V
         result.insert(
             "permissions",
             match resolution.get("optionId").and_then(Value::as_str) {
-                Some("accept") => params
-                    .get("permissions")
-                    .cloned()
-                    .unwrap_or_else(|| Value::Object(Map::new())),
+                Some("accept") => match params.get("permissions") {
+                    // `p["permissions"] ?? {}`: a null permission is no
+                    // permission.
+                    None | Some(Value::Null) => Value::Object(Map::new()),
+                    Some(permissions) => permissions.clone(),
+                },
                 _ => Value::Object(Map::new()),
             },
         );
         result.insert("scope", Value::from("turn"));
         return Ok(Value::Object(result));
     }
-    let offered = params
-        .get("availableDecisions")
-        .cloned()
-        .unwrap_or_else(|| {
-            Value::Array(
-                DECISIONS
-                    .iter()
-                    .map(|id| Value::from(*id))
-                    .collect::<Vec<Value>>()
-                    .into(),
-            )
-        });
+    let offered = match params.get("availableDecisions") {
+        // `p["availableDecisions"] ?? [...]`: null names no decision list.
+        None | Some(Value::Null) => None,
+        Some(decisions) => Some(decisions.clone()),
+    }
+    .unwrap_or_else(|| {
+        Value::Array(
+            DECISIONS
+                .iter()
+                .map(|id| Value::from(*id))
+                .collect::<Vec<Value>>()
+                .into(),
+        )
+    });
     let option = resolution
         .get("optionId")
         .and_then(Value::as_str)
@@ -266,6 +270,32 @@ mod tests {
                 &json(r#"{"kind":"elicitation","action":"accept","content":{"a":"b"}}"#)
             ),
             Ok(json(r#"{"action":"accept","content":{"a":"b"}}"#))
+        );
+    }
+
+    #[test]
+    fn a_null_permission_or_decision_list_is_absent_as_the_double_question_mark_says() {
+        let request = pending(
+            "item/permissions/requestApproval",
+            r#"{"permissions":null}"#,
+        );
+        assert_eq!(
+            approval_result(
+                &request,
+                &json(r#"{"kind":"approval","optionId":"accept"}"#)
+            ),
+            Ok(json(r#"{"permissions":{},"scope":"turn"}"#))
+        );
+        let request = pending(
+            "item/commandExecution/requestApproval",
+            r#"{"availableDecisions":null}"#,
+        );
+        assert_eq!(
+            approval_result(
+                &request,
+                &json(r#"{"kind":"approval","optionId":"accept"}"#)
+            ),
+            Ok(json(r#"{"decision":"accept"}"#))
         );
     }
 
