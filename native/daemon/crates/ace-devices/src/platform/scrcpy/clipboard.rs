@@ -65,12 +65,12 @@ pub enum ClipboardEvent {
 pub enum ClipboardOut {
     Send {
         message: Box<ControlMessage>,
+        /// The read this request belongs to, when it is a clipboard read: the shell rejects
+        /// that read alone if the write throws, even when its request was sent while deferred.
+        read: Option<u64>,
     },
     /// Arm `after_ms` from now; a [`ClipboardEvent::Tick`] with this `id` fires it.
-    Timer {
-        id: u64,
-        after_ms: u64,
-    },
+    Timer { id: u64, after_ms: u64 },
     ReadDone {
         id: u64,
         result: Result<String, Failure>,
@@ -191,6 +191,7 @@ impl ScrcpyClipboard {
                         text,
                         paste,
                     }),
+                    read: None,
                 });
             }
             ClipboardEvent::Received { message } => self.received(message, &mut out),
@@ -320,6 +321,7 @@ impl ScrcpyClipboard {
         self.arm(CLIPBOARD_REPLY_MS, Deadline::reply(id), out);
         out.push(ClipboardOut::Send {
             message: Box::new(ControlMessage::GetClipboard),
+            read: Some(id),
         });
     }
 
@@ -401,7 +403,7 @@ mod tests {
         fn apply(&mut self, event: ClipboardEvent) {
             for out in self.clipboard.step(event) {
                 match out {
-                    ClipboardOut::Send { message } => self.sent.push(*message),
+                    ClipboardOut::Send { message, .. } => self.sent.push(*message),
                     ClipboardOut::Timer { id, after_ms } => {
                         self.timers.push((id, self.now + after_ms))
                     }

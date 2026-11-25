@@ -182,7 +182,13 @@ export class DeviceMessageReader {
   private readonly emit: (message: DeviceMessage) => void;
   constructor(emit: (message: DeviceMessage) => void) {
     this.emit = emit;
-    if (nativeInput) readerDrop.register(this, 0);
+  }
+  /** Frees the addon's buffer for good; the socket's end calls it, and nothing pushes after. */
+  close(): void {
+    if (this.native === undefined) return;
+    readerDrop.unregister(this);
+    nativeDeviceReaderDrop(this.native);
+    this.native = undefined;
   }
   push(chunk: Buffer): void {
     if (nativeInput) {
@@ -203,8 +209,7 @@ export class DeviceMessageReader {
   }
   #createReader(): number {
     const id = nativeDeviceReaderNew();
-    readerDrop.unregister(this);
-    readerDrop.register(this, id);
+    readerDrop.register(this, id, this);
     return id;
   }
 

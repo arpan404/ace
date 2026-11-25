@@ -157,7 +157,7 @@ export class ScrcpyClipboard {
 
 /** What one step of the Rust clipboard asks the shell to do. */
 type ClipboardOut =
-  | { kind: "send"; message: ControlMessage }
+  | { kind: "send"; message: ControlMessage; read: number | null }
   | { kind: "timer"; id: number; afterMs: number }
   | { kind: "readDone"; id: number; result: { Ok: string } | { Err: RefusalWord } }
   | { kind: "writeDone"; sequence: number; result: { Ok?: null } | { Err: RefusalWord } };
@@ -169,7 +169,6 @@ type ClipboardOut =
 class NativeClipboard {
   #state: string | null = null;
   #nextId = 1;
-  #active: number | undefined;
   #readers = new Map<number, { resolve(text: string): void; reject(error: unknown): void }>();
   #writes: { sequence?: bigint; resolve(): void; reject(error: unknown): void }[] = [];
   readonly #options: ScrcpyClipboardOptions;
@@ -182,7 +181,6 @@ class NativeClipboard {
     const id = this.#nextId++;
     return new Promise<string>((resolve, reject) => {
       this.#readers.set(id, { resolve, reject });
-      this.#active = id;
       this.#step({ kind: "read", id, owner });
     });
   }
@@ -209,13 +207,12 @@ class NativeClipboard {
   }
 
   #apply(out: ClipboardOut): void {
-    if (out.kind === "send") return this.#send(out.message);
+    if (out.kind === "send") return this.#send(out.message, out.read);
     if (out.kind === "timer") {
       this.#options.after(out.afterMs, () => this.#step({ kind: "tick", id: out.id }));
       return;
     }
     if (out.kind === "readDone") {
-      this.#active = undefined;
       const reader = this.#readers.get(out.id);
       this.#readers.delete(out.id);
       if (!reader) return;
@@ -231,7 +228,7 @@ class NativeClipboard {
   }
 
   /** Sends one message; a send that throws settles what it belonged to, as today's code does. */
-  #send(message: ControlMessage): void {
+  #send(message: ControlMessage, read: number | null): void {
     if (message.type === "setClipboard") {
       const write = this.#writes.find((each) => each.sequence === undefined);
       if (write) write.sequence = message.sequence;
@@ -246,11 +243,10 @@ class NativeClipboard {
         write?.reject(error);
         return;
       }
-      const read = this.#active;
+      // The read whose request this was, even when it was sent after a deferral.
       this.#step({ kind: "sendFailed", read });
-      this.#active = undefined;
-      const reader = read === undefined ? undefined : this.#readers.get(read);
-      if (read !== undefined) this.#readers.delete(read);
+      const reader = read === null ? undefined : this.#readers.get(read);
+      if (read !== null) this.#readers.delete(read);
       reader?.reject(error);
     }
   }

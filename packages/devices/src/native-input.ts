@@ -116,6 +116,11 @@ export function nativeHeldPointersStep(state: string | null, input?: unknown) {
   ) as { state: unknown; released: unknown[] };
 }
 
+/** How many decisions the addon has answered; a test reads it to prove a path reached Rust. */
+export function nativeCalls(): number {
+  return nativeDevices().devicePlatformNativeCalls();
+}
+
 /** A new reader in the addon, whose buffer stays there; only each chunk crosses. */
 export function nativeDeviceReaderNew(): number {
   return nativeDevices().devicePlatformScrcpyDeviceReaderNew();

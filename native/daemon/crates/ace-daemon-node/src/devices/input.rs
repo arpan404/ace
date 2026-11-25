@@ -398,6 +398,7 @@ pub fn device_platform_scrcpy_clipboard_step(
     state: Option<String>,
     event: String,
 ) -> napi::Result<String> {
+    counted();
     let mut machine = match state {
         Some(text) => parse::<ace_devices::platform::scrcpy::clipboard::ScrcpyClipboard>(&text)?,
         None => ace_devices::platform::scrcpy::clipboard::ScrcpyClipboard::new(),
@@ -425,6 +426,7 @@ pub fn device_platform_held_pointers_step(
     state: Option<String>,
     input: Option<String>,
 ) -> napi::Result<String> {
+    counted();
     let mut pointers = match state {
         Some(text) => parse::<scrcpy_input::HeldPointers>(&text)?,
         None => scrcpy_input::HeldPointers::new(),
@@ -451,6 +453,19 @@ struct PointersStep {
     released: Vec<ace_devices::platform::device_input::DeviceInput>,
 }
 
+/// Every decision this addon has answered, so a test can prove a wired path reached Rust.
+static NATIVE_CALLS: AtomicU32 = AtomicU32::new(0);
+
+/// How many decisions the addon has answered; a test reads it before and after one call.
+#[napi]
+pub fn device_platform_native_calls() -> u32 {
+    NATIVE_CALLS.load(Ordering::Relaxed)
+}
+
+fn counted() {
+    NATIVE_CALLS.fetch_add(1, Ordering::Relaxed);
+}
+
 /// The readers this addon holds: one per control socket, its buffer kept here so a push carries
 /// only the new chunk.
 fn readers() -> &'static Mutex<HashMap<u32, scrcpy_protocol::DeviceMessageReader>> {
@@ -475,6 +490,7 @@ pub fn device_platform_scrcpy_device_reader_new() -> u32 {
 /// One socket chunk through the reader: the messages it completed. Only the chunk crosses.
 #[napi]
 pub fn device_platform_scrcpy_device_reader_push(id: u32, chunk: String) -> napi::Result<String> {
+    counted();
     let bytes = hex_chunk(&chunk)?;
     let pushed = readers()
         .lock()

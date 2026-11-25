@@ -259,6 +259,7 @@ interface DevicesAddon {
   devicePlatformScrcpyDeviceReaderPush(id: number, chunk: string): string;
   devicePlatformScrcpyDeviceReaderDrop(id: number): void;
   devicePlatformSimulatorAxLimits(): string;
+  devicePlatformNativeCalls(): number;
 }
 
 const library =
