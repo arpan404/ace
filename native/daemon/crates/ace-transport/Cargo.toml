@@ -79,3 +79,7 @@ tokio = { version = "1.54", features = ["test-util"] }
 # tokio-tungstenite: the client in the socket tests, so every framing test runs
 # against another implementation instead of this one's writer. No TLS, no URL.
 tokio-tungstenite = { version = "0.30", default-features = false }
+
+[[example]]
+name = "autobahn_echo"
+test = true

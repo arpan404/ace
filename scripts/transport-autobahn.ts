@@ -235,21 +235,36 @@ function startExample(): ChildProcess {
   return child;
 }
 
-/** Starts a scratch `ws` echo server with `remoteDeflate`, from the checkout's own dependency. */
+/** Starts a scratch `ws` echo server with `remoteDeflate`, from the daemon's own dependency. */
 function startWs(): ChildProcess {
   const script = join(out, "ws-echo.ts");
   // The installed package's entry by absolute path: no bare specifier a runtime could resolve
-  // from the network or from a different tree.
-  const wsEntry = createRequire(import.meta.url).resolve("ws");
+  // from the network or from a different tree. `ws` is the daemon's dependency, not the root's,
+  // so it resolves from the daemon's manifest; the example's server mirrors this file's bounds.
+  const wsEntry = createRequire(new URL("../apps/daemon/package.json", import.meta.url)).resolve(
+    "ws",
+  );
   writeFileSync(
     script,
     `import { WebSocketServer } from ${JSON.stringify(wsEntry)};
 import { remoteDeflate } from ${JSON.stringify(join(root, "apps/daemon/src/compression-policy.ts"))};
 
-const server = new WebSocketServer({ host: "127.0.0.1", port: ${port}, perMessageDeflate: remoteDeflate });
-server.on("connection", (socket) =>
-  socket.on("message", (data: Buffer, binary: boolean) => socket.send(data, { binary })),
-);
+// The suite's largest cases: a 16 MiB message (9.1.6) and 4 MiB in 64-byte fragments plus the
+// closing empty one (9.3.1/9.4.1), both past both servers' defaults. The Rust example keeps the
+// same numbers, so the two legs refuse the same cases; the daemon's own listeners keep 1 MiB and
+// 16,384.
+const server = new WebSocketServer({
+  host: "127.0.0.1",
+  port: ${port},
+  maxPayload: 16 * 1024 * 1024,
+  maxFragments: 131_072,
+  perMessageDeflate: remoteDeflate,
+});
+server.on("connection", (socket) => {
+  // The suite sends invalid frames on purpose; the reference must survive them to report.
+  socket.on("error", () => {});
+  socket.on("message", (data: Buffer, binary: boolean) => socket.send(data, { binary }));
+});
 process.stderr.write("ws echo listening\\n");
 `,
   );

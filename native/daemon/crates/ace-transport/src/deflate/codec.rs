@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! RFC 7692 §7's DEFLATE half over `flate2` with the zlib-rs backend: raw
+//! RFC 7692 section 7's DEFLATE half over `flate2` with the zlib-rs backend: raw
 //! deflate at level 6, `Z_SYNC_FLUSH`, the four-byte trailer stripped on send and
 //! restored on receive, and a fresh context per message in both directions
 //! (no context takeover was negotiated, always). Inflating counts each chunk as
@@ -94,14 +94,20 @@ pub struct Inflating {
     decompress: Decompress,
     buffer: Vec<u8>,
     chunk: Vec<u8>,
+    max_payload: usize,
 }
 
 impl Inflating {
     pub fn new() -> Self {
+        Self::with_payload_limit(MAX_MESSAGE_BYTES)
+    }
+
+    pub(crate) fn with_payload_limit(max_payload: usize) -> Self {
         Self {
             decompress: Decompress::new_with_window_bits(false, INFLATE_WINDOW),
             buffer: Vec::new(),
             chunk: vec![0; CHUNK],
+            max_payload,
         }
     }
 
@@ -131,7 +137,7 @@ impl Inflating {
             // The chunk and the message buffer are separate fields, so the
             // borrows do not overlap.
             let chunk = &self.chunk[..produced];
-            append(&mut self.buffer, chunk)?;
+            append(&mut self.buffer, chunk, self.max_payload)?;
             match status {
                 // The rest of the input, or more output zlib still holds.
                 Status::Ok if consumed < input.len() || produced == self.chunk.len() => {}
@@ -151,8 +157,8 @@ impl Default for Inflating {
 /// Appends one produced chunk, reserving exactly its bytes: a doubling
 /// `extend_from_slice` could reserve past the cap on an uneven chunk, and the
 /// brief's bound is the cap plus this one staging chunk.
-fn append(buffer: &mut Vec<u8>, bytes: &[u8]) -> Result<(), CloseCode> {
-    if buffer.len() + bytes.len() > MAX_MESSAGE_BYTES {
+fn append(buffer: &mut Vec<u8>, bytes: &[u8], max_payload: usize) -> Result<(), CloseCode> {
+    if buffer.len() + bytes.len() > max_payload {
         return Err(CloseCode::TooBig);
     }
     if buffer.capacity() < buffer.len() + bytes.len()
