@@ -657,7 +657,13 @@ viewer: up to 2 MB (`checkoutViewLimit`), coloured by markit off the main thread
 change bars from `git.diff` (`lineMarks`), in a TextKit 2 view with a fixed line-number gutter
 and the system find navigator. Markdown renders with its source a tap away; images draw;
 binary and larger files offer Share. Text up to 1 MB edits and saves with `write` over the
-version opened; a newer version is only replaced on Replace. Larger text (`LargeFileView`) reads
+version opened; a newer version is only replaced on Replace. Settings › Editor
+(`EditorSettingsView`, kept on this phone as the web keeps its device settings) sets auto save
+(after a pause, and how long), font size, line height, tab size and indentation, and word wrap;
+an open editor takes a change at once, and auto save makes the same versioned write Save does,
+stopping to ask when the file changed. The phone's editor draws no indent guides, sticky scroll
+or whitespace marks and has SF Mono alone, so the web's settings for those aren't on its page.
+Larger text (`LargeFileView`) reads
 a part (about 256 KB, `page`) at a time and holds at most eight (`LargeFileText`). Find
 (`LargeFileFind`) searches the file a page at a time without keeping it, holds at most 10,000
 matches with a point to go on from, and jumps to a match's part by its offset. A thread's file
