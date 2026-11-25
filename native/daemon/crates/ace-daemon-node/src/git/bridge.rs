@@ -10,18 +10,18 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use super::wire::{self, Frame};
 use ace_git::core::cli::StreamCallbacks;
 use ace_git::core::error::{CleanupResult, GitError, GitErrorCode};
 use ace_git::core::spawn::{
-    BoxFuture, CancelHandle, CleanupSupervisorPort, GitLocatorPort, GroupPort, ProcessChild,
-    EventQueue, OutputChunk, ProcessEvent, ProcessSpawner, SpawnRequest, SpawnedProcess,
+    BoxFuture, CancelHandle, CleanupSupervisorPort, EventQueue, GitLocatorPort, GroupPort,
+    OutputChunk, ProcessChild, ProcessEvent, ProcessSpawner, SpawnRequest, SpawnedProcess,
     TimeoutScheduler,
 };
 use napi::Status;
 use napi::bindgen_prelude::{FnArgs, Uint8Array};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
-use serde::{Deserialize, Serialize};
 use tokio::sync::{Notify, oneshot};
 
 use super::{caught, unwind};
@@ -206,27 +206,18 @@ impl PortHub {
         let Some(entry) = entry else {
             return;
         };
-        #[derive(Deserialize, Default)]
-        struct Payload {
-            code: Option<serde_json::Value>,
-            signal: Option<String>,
-            pid: Option<u32>,
-            message: Option<String>,
-        }
-        let payload: Payload = serde_json::from_str(payload_json).unwrap_or_default();
-        let str_code = || {
-            payload
-                .code
-                .as_ref()
-                .and_then(|v| v.as_str())
-                .map(str::to_owned)
+        let payload = wire::object(payload_json).unwrap_or_default();
+        let code_value = wire::field(&payload, "code").cloned();
+        let signal = wire::string(&payload, "signal");
+        let pid = wire::count(&payload, "pid").map(|pid| pid as u32);
+        let message = wire::string(&payload, "message");
+        let str_code = || match code_value.as_ref() {
+            Some(ace_json::Value::String(code)) => Some(code.to_string_lossy().into_owned()),
+            _ => None,
         };
-        let int_code = || {
-            payload
-                .code
-                .as_ref()
-                .and_then(|v| v.as_i64())
-                .map(|n| n as i32)
+        let int_code = || match code_value.as_ref() {
+            Some(ace_json::Value::Number(number)) => number.as_f64().map(|value| value as i32),
+            _ => None,
         };
 
         let event = match kind {
@@ -234,32 +225,32 @@ impl PortHub {
             "stderr" => ProcessEvent::Stderr(OutputChunk::new(chunk.unwrap_or_default())),
             "stdout_error" => ProcessEvent::StdoutError {
                 code: str_code(),
-                message: payload.message.unwrap_or_default(),
+                message: message.clone().unwrap_or_default(),
             },
             "stderr_error" => ProcessEvent::StderrError {
                 code: str_code(),
-                message: payload.message.unwrap_or_default(),
+                message: message.clone().unwrap_or_default(),
             },
             "stdin_ack" => ProcessEvent::StdinAck,
             "stdin_finish" => ProcessEvent::StdinFinish,
             "stdin_error" => ProcessEvent::StdinError {
                 code: str_code(),
-                message: payload.message.unwrap_or_default(),
+                message: message.clone().unwrap_or_default(),
             },
             "spawn_error" => ProcessEvent::SpawnError {
                 code: str_code(),
-                message: payload.message.unwrap_or_default(),
+                message: message.clone().unwrap_or_default(),
             },
             "exit" => {
-                if let Some(p) = payload.pid {
+                if let Some(p) = pid {
                     entry.pid.store(p, Ordering::Release);
                 }
                 entry.exited.store(true, Ordering::Release);
                 entry.exit_notify.notify_waiters();
                 ProcessEvent::Exit {
                     code: int_code(),
-                    signal: payload.signal,
-                    pid: payload.pid,
+                    signal,
+                    pid,
                 }
             }
             "close" => {
@@ -267,7 +258,7 @@ impl PortHub {
                 entry.exit_notify.notify_waiters();
                 ProcessEvent::Close {
                     code: int_code(),
-                    signal: payload.signal,
+                    signal,
                 }
             }
             _ => return,
@@ -324,20 +315,12 @@ impl ProcessChild for BridgedChild {
     }
 
     fn kill_leader(&self, signal: &str) {
-        #[derive(Serialize)]
-        struct Msg<'a> {
-            op: &'static str,
-            #[serde(rename = "spawnId")]
-            spawn_id: u64,
-            signal: &'a str,
-        }
-        if let Ok(json) = serde_json::to_string(&Msg {
-            op: "kill_leader",
-            spawn_id: self.spawn_id,
-            signal,
-        }) {
-            self.hub.emit(json, Vec::new());
-        }
+        let json = Frame::new()
+            .text("op", "kill_leader")
+            .number("spawnId", self.spawn_id)
+            .text("signal", signal)
+            .json();
+        self.hub.emit(json, Vec::new());
     }
 
     fn signal_group(&self, signal: &str) -> BoxFuture<'_, Result<(), String>> {
@@ -412,50 +395,39 @@ impl ProcessSpawner for JsSpawner {
             if let Ok(mut map) = hub.spawns.lock() {
                 map.insert(spawn_id, entry);
             }
-            #[derive(Serialize)]
-            struct SpawnMsg {
-                op: &'static str,
-                #[serde(rename = "reqId")]
-                req_id: u64,
-                #[serde(rename = "spawnId")]
-                spawn_id: u64,
-                command: String,
-                args: Vec<String>,
-                cwd: Option<String>,
-                env: Vec<(String, String)>,
-                detached: bool,
-                #[serde(rename = "hideWindow")]
-                hide_window: bool,
-            }
-            let json = serde_json::to_string(&SpawnMsg {
-                op: "spawn",
-                req_id,
-                spawn_id,
-                command: request.command,
-                args: request.args,
-                cwd: request.cwd,
-                env: request.env,
-                detached: request.detached,
-                hide_window: request.hide_window,
-            })
-            .unwrap_or_default();
+            let env: Vec<ace_json::Value> = request
+                .env
+                .iter()
+                .map(|(key, value)| {
+                    ace_json::Value::Array(ace_json::Array::from(vec![
+                        ace_json::Value::from(key.as_str()),
+                        ace_json::Value::from(value.as_str()),
+                    ]))
+                })
+                .collect();
+            let env = ace_json::Value::Array(ace_json::Array::from(env));
+            let json = Frame::new()
+                .text("op", "spawn")
+                .number("reqId", req_id)
+                .number("spawnId", spawn_id)
+                .text("command", &request.command)
+                .set("args", wire::string_array(&request.args))
+                .maybe("cwd", request.cwd.as_deref())
+                .set("env", env)
+                .boolean("detached", request.detached)
+                .boolean("hideWindow", request.hide_window)
+                .json();
 
-            #[derive(Deserialize, Default)]
-            struct SpawnReply {
-                pid: Option<u32>,
-                error: Option<String>,
-                code: Option<String>,
-            }
             if let Some(reply_str) = hub.request_with_id(req_id, json, Vec::new()).await {
-                let parsed: SpawnReply = serde_json::from_str(&reply_str).unwrap_or_default();
-                if let Some(p) = parsed.pid {
-                    pid_cell.store(p, Ordering::Release);
+                let parsed = wire::object(&reply_str).unwrap_or_default();
+                if let Some(p) = wire::count(&parsed, "pid") {
+                    pid_cell.store(p as u32, Ordering::Release);
                 }
-                if let Some(err) = parsed.error {
+                if let Some(err) = wire::string(&parsed, "error") {
                     exited.store(true, Ordering::Release);
                     exit_notify.notify_waiters();
                     queue.push(ProcessEvent::SpawnError {
-                        code: parsed.code,
+                        code: wire::string(&parsed, "code"),
                         message: err,
                     });
                     queue.push(ProcessEvent::Close {
@@ -557,66 +529,40 @@ async fn call_signal_group(
     spawn_id: Option<u64>,
 ) -> Result<(), String> {
     let req_id = hub.alloc_id();
-    #[derive(Serialize)]
-    struct Msg<'a> {
-        op: &'static str,
-        #[serde(rename = "reqId")]
-        req_id: u64,
-        pid: u32,
-        signal: &'a str,
-        #[serde(rename = "spawnId")]
-        spawn_id: Option<u64>,
+    let mut frame = Frame::new()
+        .text("op", "signal_group")
+        .number("reqId", req_id)
+        .number("pid", pid as u64)
+        .text("signal", signal);
+    if let Some(spawn_id) = spawn_id {
+        frame = frame.number("spawnId", spawn_id);
     }
-    let json = serde_json::to_string(&Msg {
-        op: "signal_group",
-        req_id,
-        pid,
-        signal,
-        spawn_id,
-    })
-    .unwrap_or_default();
+    let json = frame.json();
     let Some(reply) = hub.request_with_id(req_id, json, Vec::new()).await else {
         return Err("port bridge closed".to_owned());
     };
-    #[derive(Deserialize, Default)]
-    struct Reply {
-        ok: bool,
-        error: Option<String>,
-    }
-    let parsed: Reply = serde_json::from_str(&reply).unwrap_or_default();
-    if parsed.ok {
+    let parsed = wire::object(&reply).unwrap_or_default();
+    if wire::flag(&parsed, "ok") {
         Ok(())
     } else {
-        Err(parsed.error.unwrap_or_else(|| "signal failed".to_owned()))
+        Err(wire::string(&parsed, "error").unwrap_or_else(|| "signal failed".to_owned()))
     }
 }
 
 async fn call_group_alive(hub: &PortHub, pid: u32, spawn_id: Option<u64>) -> bool {
     let req_id = hub.alloc_id();
-    #[derive(Serialize)]
-    struct Msg {
-        op: &'static str,
-        #[serde(rename = "reqId")]
-        req_id: u64,
-        pid: u32,
-        #[serde(rename = "spawnId")]
-        spawn_id: Option<u64>,
+    let mut frame = Frame::new()
+        .text("op", "group_alive")
+        .number("reqId", req_id)
+        .number("pid", pid as u64);
+    if let Some(spawn_id) = spawn_id {
+        frame = frame.number("spawnId", spawn_id);
     }
-    let json = serde_json::to_string(&Msg {
-        op: "group_alive",
-        req_id,
-        pid,
-        spawn_id,
-    })
-    .unwrap_or_default();
+    let json = frame.json();
     let Some(reply) = hub.request_with_id(req_id, json, Vec::new()).await else {
         return false;
     };
-    #[derive(Deserialize, Default)]
-    struct Reply {
-        alive: bool,
-    }
-    serde_json::from_str::<Reply>(&reply).is_ok_and(|r| r.alive)
+    wire::object(&reply).is_some_and(|parsed| wire::flag(&parsed, "alive"))
 }
 
 pub(crate) struct JsLocatorPort {
@@ -632,27 +578,23 @@ impl GitLocatorPort for JsLocatorPort {
         let hub = Arc::clone(&self.hub);
         Box::pin(async move {
             let req_id = hub.alloc_id();
-            #[derive(Serialize)]
-            struct Msg {
-                op: &'static str,
-                #[serde(rename = "reqId")]
-                req_id: u64,
-                env: Vec<(String, String)>,
-            }
-            let json = serde_json::to_string(&Msg {
-                op: "locate_git",
-                req_id,
-                env,
-            })
-            .ok()?;
+            let pairs: Vec<ace_json::Value> = env
+                .iter()
+                .map(|(key, value)| {
+                    ace_json::Value::Array(ace_json::Array::from(vec![
+                        ace_json::Value::from(key.as_str()),
+                        ace_json::Value::from(value.as_str()),
+                    ]))
+                })
+                .collect();
+            let env = ace_json::Value::Array(ace_json::Array::from(pairs));
+            let json = Frame::new()
+                .text("op", "locate_git")
+                .number("reqId", req_id)
+                .set("env", env)
+                .json();
             let reply = hub.request_with_id(req_id, json, Vec::new()).await?;
-            #[derive(Deserialize, Default)]
-            struct Reply {
-                path: Option<String>,
-            }
-            serde_json::from_str::<Reply>(&reply)
-                .ok()
-                .and_then(|r| r.path)
+            wire::object(&reply).and_then(|parsed| wire::string(&parsed, "path"))
         })
     }
 }
@@ -670,46 +612,27 @@ impl CleanupSupervisorPort for JsCleanupSupervisorPort {
         let hub = Arc::clone(&self.hub);
         Box::pin(async move {
             let req_id = hub.alloc_id();
-            #[derive(Serialize)]
-            struct Msg {
-                op: &'static str,
-                #[serde(rename = "reqId")]
-                req_id: u64,
-                #[serde(rename = "spawnId")]
-                spawn_id: u64,
-                #[serde(rename = "leasesJson")]
-                leases_json: String,
-            }
-            let json = serde_json::to_string(&Msg {
-                op: "cleanup_stop",
-                req_id,
-                spawn_id,
-                leases_json,
-            })
-            .map_err(|e| e.to_string())?;
+            let json = Frame::new()
+                .text("op", "cleanup_stop")
+                .number("reqId", req_id)
+                .number("spawnId", spawn_id)
+                .text("leasesJson", &leases_json)
+                .json();
             let reply = hub
                 .request_with_id(req_id, json, Vec::new())
                 .await
                 .ok_or_else(|| "port bridge closed".to_owned())?;
-            #[derive(Deserialize, Default)]
-            struct Reply {
-                status: Option<String>,
-                evidence: Option<String>,
-                reason: Option<String>,
-                error: Option<String>,
-            }
-            let parsed: Reply = serde_json::from_str(&reply).unwrap_or_default();
-            if let Some(err) = parsed.error {
+            let parsed = wire::object(&reply).unwrap_or_default();
+            if let Some(err) = wire::string(&parsed, "error") {
                 return Err(err);
             }
-            if parsed.status.as_deref() == Some("confirmed") {
+            if wire::string(&parsed, "status").as_deref() == Some("confirmed") {
                 Ok(CleanupResult::Confirmed {
-                    evidence: parsed.evidence.unwrap_or_default(),
+                    evidence: wire::string(&parsed, "evidence").unwrap_or_default(),
                 })
             } else {
                 Ok(CleanupResult::Unconfirmed {
-                    reason: parsed
-                        .reason
+                    reason: wire::string(&parsed, "reason")
                         .unwrap_or_else(|| "Cleanup unconfirmed".to_owned()),
                 })
             }
@@ -750,32 +673,19 @@ async fn call_stream_cb(
             "Stream callback failed",
         ));
     };
-    #[derive(Deserialize, Default)]
-    struct Reply {
-        ok: bool,
-        code: Option<String>,
-        errno: Option<String>,
-        message: Option<String>,
-    }
-    let parsed: Reply = serde_json::from_str(&reply).unwrap_or_default();
-    if parsed.ok {
+    let parsed = wire::object(&reply).unwrap_or_default();
+    if wire::flag(&parsed, "ok") {
         return Ok(());
     }
-    if let Some(errno) = parsed.errno {
-        return Err(GitError::filesystem(
-            errno,
-            parsed.message.unwrap_or_else(|| "Stream error".to_owned()),
-        ));
+    let message = wire::string(&parsed, "message").unwrap_or_else(|| "Stream error".to_owned());
+    if let Some(errno) = wire::string(&parsed, "errno") {
+        return Err(GitError::filesystem(errno, message));
     }
-    let code = parsed
-        .code
+    let code = wire::string(&parsed, "code")
         .as_deref()
         .and_then(parse_git_error_code)
         .unwrap_or(GitErrorCode::GitFailed);
-    Err(GitError::new(
-        code,
-        parsed.message.unwrap_or_else(|| "Stream error".to_owned()),
-    ))
+    Err(GitError::new(code, message))
 }
 
 pub(crate) fn parse_git_error_code(raw: &str) -> Option<GitErrorCode> {

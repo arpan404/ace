@@ -17,13 +17,13 @@ use ace_git::core::spawn::{
 use napi::bindgen_prelude::{FnArgs, Uint8Array};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
-use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use super::bridge::{
     JsCleanupSupervisorPort, JsGroupPort, JsLocatorPort, JsScheduler, JsSpawner, JsStreamCallbacks,
     PortCallFn, PortHub, parse_git_error_code,
 };
+use super::wire::{self, Frame};
 use super::{caught, failed, unwind};
 
 /// Settle callback for `executeRaw`: `(error, metaJson, stdoutBytes) => void`.
@@ -66,91 +66,99 @@ pub struct NativeGitCore {
     stdin_senders: Arc<Mutex<HashMap<u64, mpsc::UnboundedSender<StdinCommand>>>>,
 }
 
-#[derive(Deserialize, Default)]
-struct CoreConfigJson {
+/// One core config frame, read with `ace-json` like every other JS value.
+#[derive(Default)]
+struct CoreConfig {
     binary: Option<String>,
-    #[serde(rename = "timeoutMs")]
     timeout_ms: Option<f64>,
     platform: Option<String>,
-    #[serde(rename = "useJsSpawn", default)]
     use_js_spawn: bool,
-    #[serde(rename = "useJsScheduler", default)]
     use_js_scheduler: bool,
-    #[serde(rename = "useJsSignalGroup", default)]
     use_js_signal_group: bool,
-    #[serde(rename = "useJsGroupAlive", default)]
     use_js_group_alive: bool,
-    #[serde(rename = "useJsLocateGit", default)]
     use_js_locate_git: bool,
-    #[serde(rename = "useJsCleanupSupervisor", default)]
     use_js_cleanup_supervisor: bool,
 }
 
-#[derive(Deserialize)]
-struct ExecuteRawJson {
+impl CoreConfig {
+    fn parse(json: &str) -> Option<Self> {
+        let map = wire::object(json)?;
+        Some(Self {
+            binary: wire::string(&map, "binary"),
+            timeout_ms: wire::number(&map, "timeoutMs"),
+            platform: wire::string(&map, "platform"),
+            use_js_spawn: wire::flag(&map, "useJsSpawn"),
+            use_js_scheduler: wire::flag(&map, "useJsScheduler"),
+            use_js_signal_group: wire::flag(&map, "useJsSignalGroup"),
+            use_js_group_alive: wire::flag(&map, "useJsGroupAlive"),
+            use_js_locate_git: wire::flag(&map, "useJsLocateGit"),
+            use_js_cleanup_supervisor: wire::flag(&map, "useJsCleanupSupervisor"),
+        })
+    }
+}
+
+/// One `executeRaw` request frame (`ExecuteRawJson`).
+struct ExecuteRawRequest {
     cwd: String,
     args: Vec<String>,
     binary: Option<String>,
-    #[serde(default)]
     env: Vec<(String, String)>,
-    #[serde(default)]
     write: bool,
-    #[serde(rename = "stripAskpass", default)]
     strip_askpass: bool,
-    #[serde(rename = "executionDisabled", default)]
     execution_disabled: bool,
-    #[serde(rename = "allowFailure", default)]
     allow_failure: bool,
-    #[serde(rename = "captureBytes")]
     capture_bytes: Option<u64>,
-    #[serde(rename = "timeoutMs")]
     timeout_ms: Option<f64>,
-    #[serde(rename = "stopAtCapture", default)]
     stop_at_capture: bool,
-    #[serde(rename = "stopAfterMs")]
     stop_after_ms: Option<f64>,
-    #[serde(default)]
     bounded: bool,
-    #[serde(rename = "hasInput", default)]
     has_input: bool,
-    #[serde(rename = "streamStdin", default)]
     stream_stdin: bool,
-    #[serde(rename = "streamStdout", default)]
     stream_stdout: bool,
-    #[serde(rename = "streamStderr", default)]
     stream_stderr: bool,
-    #[serde(rename = "leasesJson", default = "empty_array_json")]
     leases_json: String,
-    #[serde(rename = "abortedBeforeDispatch", default)]
     aborted_before_dispatch: bool,
+}
+
+impl ExecuteRawRequest {
+    fn parse(json: &str) -> Option<Self> {
+        let map = wire::object(json)?;
+        Some(Self {
+            cwd: wire::string(&map, "cwd")?,
+            args: wire::strings(&map, "args")?,
+            binary: wire::string(&map, "binary"),
+            env: wire::pairs(&map, "env").unwrap_or_default(),
+            write: wire::flag(&map, "write"),
+            strip_askpass: wire::flag(&map, "stripAskpass"),
+            execution_disabled: wire::flag(&map, "executionDisabled"),
+            allow_failure: wire::flag(&map, "allowFailure"),
+            capture_bytes: wire::count(&map, "captureBytes"),
+            timeout_ms: wire::number(&map, "timeoutMs"),
+            stop_at_capture: wire::flag(&map, "stopAtCapture"),
+            stop_after_ms: wire::number(&map, "stopAfterMs"),
+            bounded: wire::flag(&map, "bounded"),
+            has_input: wire::flag(&map, "hasInput"),
+            stream_stdin: wire::flag(&map, "streamStdin"),
+            stream_stdout: wire::flag(&map, "streamStdout"),
+            stream_stderr: wire::flag(&map, "streamStderr"),
+            leases_json: wire::string(&map, "leasesJson").unwrap_or_else(empty_array_json),
+            aborted_before_dispatch: wire::flag(&map, "abortedBeforeDispatch"),
+        })
+    }
 }
 
 fn empty_array_json() -> String {
     "[]".to_owned()
 }
 
-#[derive(Serialize)]
-struct ExecuteRawMeta<'a> {
-    stderr: &'a str,
-    #[serde(rename = "exitCode")]
-    exit_code: i32,
-    truncated: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    stopped: Option<&'static str>,
-    #[serde(rename = "cleanupId", skip_serializing_if = "Option::is_none")]
-    cleanup_id: Option<u64>,
-    #[serde(rename = "cleanupGroupPid", skip_serializing_if = "Option::is_none")]
-    cleanup_group_pid: Option<u32>,
-}
-
 #[napi]
 impl NativeGitCore {
     #[napi(constructor, catch_unwind)]
     pub fn new(config_json: String, on_port: PortCallFn) -> napi::Result<Self> {
-        let cfg: CoreConfigJson = serde_json::from_str(&config_json).map_err(|e| {
+        let cfg = CoreConfig::parse(&config_json).ok_or_else(|| {
             failed(ace_git::error::Error::from(GitError::new(
                 GitErrorCode::InvalidArgument,
-                format!("invalid core config: {e}"),
+                "invalid core config",
             )))
         })?;
         let runtime = crate::supervisor::runtime()?.handle().clone();
@@ -229,10 +237,10 @@ impl NativeGitCore {
         input: Option<Uint8Array>,
         settle: RawSettle,
     ) -> napi::Result<f64> {
-        let req: ExecuteRawJson = serde_json::from_str(&req_json).map_err(|e| {
+        let req = ExecuteRawRequest::parse(&req_json).ok_or_else(|| {
             failed(ace_git::error::Error::from(GitError::new(
                 GitErrorCode::InvalidArgument,
-                format!("invalid executeRaw request: {e}"),
+                "invalid executeRaw request",
             )))
         })?;
         let timeout_ms = match req.timeout_ms {
@@ -304,17 +312,20 @@ impl NativeGitCore {
             }
             match outcome {
                 Ok(out) => {
-                    let meta = serde_json::to_string(&ExecuteRawMeta {
-                        stderr: &out.stderr,
-                        exit_code: out.exit_code,
-                        truncated: out.truncated,
-                        stopped: out.stopped.map(|s| s.as_str()),
-                        cleanup_id: out.cleanup_id,
-                        cleanup_group_pid: out.cleanup_group_pid,
-                    })
-                    .unwrap_or_else(|_| {
-                        "{\"stderr\":\"\",\"exitCode\":0,\"truncated\":false}".to_owned()
-                    });
+                    let mut frame = Frame::new()
+                        .text("stderr", &out.stderr)
+                        .integer("exitCode", out.exit_code as i64)
+                        .boolean("truncated", out.truncated);
+                    if let Some(stopped) = out.stopped {
+                        frame = frame.text("stopped", stopped.as_str());
+                    }
+                    if let Some(cleanup_id) = out.cleanup_id {
+                        frame = frame.number("cleanupId", cleanup_id);
+                    }
+                    if let Some(pid) = out.cleanup_group_pid {
+                        frame = frame.number("cleanupGroupPid", pid as u64);
+                    }
+                    let meta = frame.json();
                     let _ = settle.call(
                         Ok(FnArgs::from((meta, Uint8Array::new(out.stdout)))),
                         ThreadsafeFunctionCallMode::NonBlocking,
