@@ -1,10 +1,30 @@
 #!/usr/bin/env node
 // Local boundary double. It never executes model prompts or provider tools.
 import { createServer } from "node:http";
-import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
+import {
+  accessSync,
+  appendFileSync,
+  constants,
+  existsSync,
+  readFileSync,
+  readdirSync,
+} from "node:fs";
 import { join } from "node:path";
 import { openApiDocument, requiredRoutes } from "../contract.ts";
 const args = process.argv.slice(2);
+// OpenCode 2.4.1 fails every command when its data folder lost the owner's search bit: it
+// cannot create `<data>/opencode/log`. A managed home measures this failure.
+if (process.env.XDG_DATA_HOME) {
+  const data = join(process.env.XDG_DATA_HOME, "opencode");
+  if (existsSync(data)) {
+    try {
+      accessSync(data, constants.X_OK);
+    } catch {
+      console.error(`EACCES: permission denied, mkdir '${join(data, "log")}'`);
+      process.exit(1);
+    }
+  }
+}
 const freeModels =
   process.env.ACE_TEST_FREE_MODELS === "1"
     ? ["big-pickle", "mimo-v2.5-free", "ling-3.0-tiny-free"].map((modelID) => ({
