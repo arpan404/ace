@@ -61,8 +61,34 @@ pub enum Effect {
     },
     /// `lifetime.failTransport()`: the transport is gone and the session stops.
     FailTransport,
+    /// `run.cleanup()`: the session releases its state and its timers.
+    Cleanup,
+    /// `channel.retire()`: the host stops; answered with `Lifetime::retired`.
+    Retire {
+        reason: Retirement,
+    },
+    /// `stopWork()`: the tree's root interrupt with `cascade: true`, bounded at
+    /// 10 seconds; answered with `Lifetime::work_stopped`.
+    StopWork {
+        reason: Retirement,
+    },
+    /// `channel.detach()`: this tenant lets go; answered with
+    /// `Lifetime::detached`.
+    Detach {
+        reason: Retirement,
+        message: String,
+    },
+    /// The close settled: its promise resolves or rejects.
+    Closed(Result<(), String>),
+    /// `ctx.onExit`: the engine learns the session is gone, and whether it was
+    /// deliberate.
+    Exited {
+        deliberate: bool,
+        message: String,
+    },
 }
 
+pub use super::host::Retirement;
 pub use ace_adapter_api::FrameDirection as FrameDir;
 pub use ace_supervisor::jsonrpc::RpcId;
 

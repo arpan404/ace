@@ -9,6 +9,7 @@ pub mod dropped;
 pub mod frames;
 pub mod host;
 pub mod lease;
+pub mod lifetime;
 pub mod pool;
 pub mod routing;
 pub mod terminals;
