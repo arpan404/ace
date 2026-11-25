@@ -548,7 +548,16 @@ impl AcpCore {
                         }),
                         Err(err) => {
                             let message = self.redact_message(&err.to_string());
-                            self.fail_capture(&message, effects);
+                            if dir == Direction::Recv {
+                                // The observer closes the peer before it reports, so no
+                                // line still draining after this one is acted on
+                                // (`jsonrpc.ts:300`-`:305`).
+                                let closing = self.peer.close(&message);
+                                self.fail_capture(&message, effects);
+                                self.apply_peer_effects(closing, effects);
+                            } else {
+                                self.fail_capture(&message, effects);
+                            }
                             capture_failed = Some(message);
                             continue;
                         }

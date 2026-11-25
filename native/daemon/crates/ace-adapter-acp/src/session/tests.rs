@@ -1208,6 +1208,50 @@ fn abandon_settles_a_call_still_pending_before_it_drains() {
     assert!(matches!(effects.last(), Some(AcpEffect::Drained)));
 }
 
+/// A reply whose frame cannot be captured closes the peer, as the TypeScript observer
+/// does before it reports (`jsonrpc.ts:300`-`:305`), so the lines still draining after
+/// it never reach the state.
+#[test]
+fn an_uncapturable_reply_closes_the_peer_and_drops_the_lines_after_it() {
+    let (mut core, _) = AcpCore::new(AcpCoreConfig::new(
+        "t-close-recv",
+        "/work",
+        AcpSessionQuirks::generic(),
+    ));
+    let Ok(_sent) = core.request("custom/ping", Some(&json!({})), 35, Timeout::Disabled) else {
+        panic!("request refused");
+    };
+    let padding = "hello world! ".repeat(MAX_PROVIDER_PAYLOAD_BYTES / 10);
+    let reply = json!({ "jsonrpc": "2.0", "id": 1, "result": { "padding": padding } });
+    let late = json!({
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+            "sessionId": "root",
+            "update": { "sessionUpdate": "tool_call", "toolCallId": "late-1", "kind": "read", "status": "in_progress" }
+        }
+    });
+    let chunk = format!("{}\n{}\n", reply.to_json(), late.to_json());
+    let effects = core.stdout_bytes(chunk.as_bytes());
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, AcpEffect::Fatal { .. })),
+        "the capture failure is fatal"
+    );
+    assert!(
+        !effects.iter().any(|effect| matches!(
+            effect,
+            AcpEffect::Frame {
+                dir: FrameDirection::Recv,
+                channel,
+                text,
+            } if channel == "stdio" && text.contains("late-1")
+        )),
+        "a closed peer drops the lines after the failure"
+    );
+}
+
 #[test]
 fn session_io_shell_publishes_process_start_and_settles_on_abandon() {
     let config = AcpCoreConfig::new("t-io", "/work", AcpSessionQuirks::generic());
