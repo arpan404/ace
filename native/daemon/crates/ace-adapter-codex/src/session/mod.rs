@@ -9,3 +9,6 @@ pub mod host;
 pub mod lease;
 pub mod pool;
 pub mod routing;
+
+#[cfg(test)]
+pub(crate) mod harness;
