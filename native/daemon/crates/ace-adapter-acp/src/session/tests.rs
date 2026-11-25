@@ -750,10 +750,11 @@ fn resume_open_classifies_unsupported_and_unavailable_failures() {
     );
 }
 
-/// An outbound frame whose capture throws ends the session, and none of that
-/// step's effects follow it: TS never reaches the write (`jsonrpc.ts:285`).
+/// An outbound request whose frame cannot be captured rejects only its own call, as
+/// `#send` throws at the observer before the write (`jsonrpc.ts:285`, `:229`), and the
+/// session lives on.
 #[test]
-fn uncapturable_outbound_frame_fails_before_any_byte_reaches_stdin() {
+fn an_uncapturable_outbound_frame_rejects_only_its_call() {
     let (mut core, _) = AcpCore::new(AcpCoreConfig::new(
         "t-big-send",
         "/work",
@@ -764,26 +765,70 @@ fn uncapturable_outbound_frame_fails_before_any_byte_reaches_stdin() {
     let Ok(effects) = core.request(
         "custom/huge",
         Some(&json!({ "blob": blob })),
-        12,
+        13,
         Timeout::Disabled,
     ) else {
         panic!("request refused");
     };
-    assert!(
-        effects
-            .iter()
-            .any(|effect| matches!(effect, AcpEffect::Fatal { .. })),
-        "the capture failure is fatal"
-    );
     assert!(
         !effects
             .iter()
             .any(|effect| matches!(effect, AcpEffect::Write { .. })),
         "no line reaches stdin after its frame failed to capture"
     );
-    let settled = settlements(&effects, 12);
-    assert_eq!(settled.len(), 1, "the call settles once: {settled:?}");
-    assert!(settled[0].is_err());
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, AcpEffect::Fatal { .. })),
+        "only the call fails, not the session: {effects:?}"
+    );
+    let settled = settlements(&effects, 13);
+    assert_eq!(settled.len(), 1);
+    assert_eq!(
+        settled[0],
+        Err((
+            CODE_RPC_ERROR.to_owned(),
+            "Provider payload exceeds byte limit".to_owned()
+        ))
+    );
+    assert!(!core.closed, "the session lives on");
+    // The dropped write released its charge: the next request still takes the pipe.
+    let Ok(next) = core.request("custom/ping", Some(&json!({})), 14, Timeout::Disabled) else {
+        panic!("the peer still accepts work");
+    };
+    assert!(
+        next.iter()
+            .any(|effect| matches!(effect, AcpEffect::Write { .. })),
+        "the write queue moves on: {next:?}"
+    );
+}
+
+/// A notification has no promise to reject, so its capture failure reaches `onError`
+/// and fails the session (`jsonrpc.ts:241`-`:247`).
+#[test]
+fn an_uncapturable_notification_fails_the_session() {
+    let (mut core, _) = AcpCore::new(AcpCoreConfig::new(
+        "t-big-notify",
+        "/work",
+        AcpSessionQuirks::generic(),
+    ));
+    let blob = "hello world! ".repeat(MAX_PROVIDER_PAYLOAD_BYTES / 10);
+    let Ok(effects) = core.notify("custom/huge", Some(&json!({ "blob": blob }))) else {
+        panic!("notification refused");
+    };
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, AcpEffect::Fatal { .. })),
+        "a notification's capture failure is fatal"
+    );
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, AcpEffect::Write { .. })),
+        "no line reaches stdin"
+    );
+    assert!(core.closed);
 }
 
 /// An inbound reply whose capture throws never settles its call successfully:

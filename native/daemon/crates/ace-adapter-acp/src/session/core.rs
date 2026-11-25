@@ -520,15 +520,25 @@ impl AcpCore {
         peer_effects: Vec<PeerEffect>,
         effects: &mut Vec<AcpEffect>,
     ) {
-        // Set once a frame of this input failed to capture. TS acts on no part of such a
-        // line (`jsonrpc.ts:285`, `:299`): it stops before the write or the dispatch.
-        let mut capture_failed: Option<String> = None;
+        // Set once a frame of this input failed to capture, with the direction it had.
+        // TS acts on no part of such a line (`jsonrpc.ts:285`, `:299`): it stops before
+        // the write or the dispatch.
+        let mut capture_failed: Option<(String, bool)> = None;
         for effect in peer_effects {
-            if let Some(message) = capture_failed.clone() {
-                // The call this line carried is already out of the peer, so nothing else
-                // would settle it; it ends as the capture failure, as TS's `close` ends it.
-                if let PeerEffect::Settle { id, .. } = effect {
-                    self.settle_call(id, Err(message), effects);
+            if let Some((message, sent)) = capture_failed.clone() {
+                match effect {
+                    // The received line's call is already out of the peer, so nothing
+                    // else settles it; it ends as the capture failure, as TS's close ends it.
+                    PeerEffect::Settle { id, .. } if !sent => {
+                        self.settle_call(id, Err(message), effects);
+                    }
+                    // The sent line never reached the pipe: release the charge its write
+                    // took, so the queue hands out the next one (`jsonrpc.ts:285`).
+                    PeerEffect::Write { ticket, .. } if sent => {
+                        let released = self.written(ticket);
+                        effects.extend(released);
+                    }
+                    _ => {}
                 }
                 continue;
             }
@@ -556,9 +566,9 @@ impl AcpCore {
                                 self.fail_capture(&message, effects);
                                 self.apply_peer_effects(closing, effects);
                             } else {
-                                self.fail_capture(&message, effects);
+                                self.fail_send_capture(&value, &message, effects);
                             }
-                            capture_failed = Some(message);
+                            capture_failed = Some((message, dir == Direction::Send));
                             continue;
                         }
                     }
@@ -983,6 +993,20 @@ impl AcpCore {
                 let message = err.to_string();
                 self.fail_capture(&message, effects);
             }
+        }
+    }
+
+    /// An outbound frame that cannot be captured ends only the call it carried: `#send`
+    /// throws before the write (`jsonrpc.ts:285`), and its rejection settles that promise
+    /// (`:229`). A notification has no promise, so its failure reaches `onError` and fails
+    /// the session (`:244`).
+    fn fail_send_capture(&mut self, value: &Value, message: &str, effects: &mut Vec<AcpEffect>) {
+        match value_rpc_id(object(value).get("id")) {
+            Some(id) => {
+                let rejection = self.peer.reject_request(&id, PeerError::new(message));
+                self.apply_peer_effects(rejection, effects);
+            }
+            None => self.fail_capture(message, effects),
         }
     }
 
