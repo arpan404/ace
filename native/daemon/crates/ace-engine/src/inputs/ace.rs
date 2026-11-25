@@ -12,6 +12,8 @@ use std::sync::Arc;
 use crate::EngineError;
 use crate::repository::residency::{cell_text, text};
 
+pub const RECORD: &str = "INSERT OR IGNORE INTO engine_ace_inputs VALUES (?,?,?)";
+
 pub const SELECT_VALUE: &str =
     "SELECT value FROM engine_ace_inputs WHERE thread_id=? AND command_id=?";
 
@@ -19,11 +21,28 @@ pub const SELECT_VALUE: &str =
 pub const MAX_RESULTS: usize = 64;
 
 /// One recorded delegation summary.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct AceInput {
     pub agent: String,
     pub item: String,
     pub results: Value,
+}
+
+/// `AceInputs.record` (`ace-inputs.ts:20`): retain the delegation summary for a command.
+pub fn record(
+    conn: &Arc<ace_store::Connection>,
+    thread: &str,
+    command: &str,
+    input: &AceInput,
+) -> Result<(), EngineError> {
+    let value =
+        ace_json::ser::to_string(input).map_err(|error| EngineError::Records(error.to_string()))?;
+    stmt_cache::run(
+        conn,
+        RECORD,
+        vec![text(thread), text(command), text(&value)],
+    )?;
+    Ok(())
 }
 
 /// `AceInputs.get`: the record for a command, when this home wrote one it can read.
