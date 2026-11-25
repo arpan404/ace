@@ -424,7 +424,7 @@ divergences have their own cases: a node's value and find fallback (Android and 
 unusable children, a lone-surrogate label, `js_round`, control text and a non-object scroll.
 `platform/keys.rs`, `platform/clipboard.rs`, `platform/android_ui.rs` and `platform/helper.rs`
 have no TypeScript test file of their own (behaviour.md §5 lists none), so their Rust tests are
-the only guard: keys (5), clipboard (3), Android UI (7), the Android helper and input shell (4).
+the only guard: keys (5), clipboard (3), Android UI (8), the Android helper and input shell (4).
 
 Intended differences, each proven in Rust:
 
