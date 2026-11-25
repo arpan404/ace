@@ -165,6 +165,15 @@ async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver
             _ = woken.recv() => {}
         }
     };
+    // A compressed message that inflated past the payload limit was still inflated before it was
+    // refused, and T1b.5's evidence counts that (`inflatedIn`): its case's whole point is the
+    // refused message, so a count only on delivered messages would say it never inflated one.
+    if inflating
+        && matches!(ending.error, Some(("too_big", _)))
+        && let Some(stats) = &shared.stats
+    {
+        stats.inflated_in();
+    }
     shared.end(ending);
 }
 
