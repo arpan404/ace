@@ -17,12 +17,24 @@ afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
 });
 
-async function setup(options: { serverFails?: boolean; authJson?: unknown } = {}) {
+async function setup(
+  options: {
+    serverFails?: boolean;
+    authJson?: unknown;
+    emptyIntegrations?: number | "always";
+  } = {},
+) {
   const root = await mkdtemp(join(tmpdir(), "ace-opencode-browser-"));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   if (options.authJson) await writeFile(join(root, "auth.json"), JSON.stringify(options.authJson));
   const log = join(root, "sign-in.log");
-  const env = { HOME: root, ACE_TEST_SIGN_IN_LOG: log };
+  const env = {
+    HOME: root,
+    ACE_TEST_SIGN_IN_LOG: log,
+    ...(options.emptyIntegrations === undefined
+      ? {}
+      : { ACE_TEST_EMPTY_INTEGRATIONS: String(options.emptyIntegrations) }),
+  };
   const events: ProviderLoginProgress[] = [];
   const terminals: string[][] = [];
   const integrations: string[] = [];
@@ -43,7 +55,14 @@ async function setup(options: { serverFails?: boolean; authJson?: unknown } = {}
         signIn: (signal) =>
           options.serverFails
             ? Promise.reject(new Error("OpenCode server unavailable"))
-            : openOpenCodeSignIn({ command: opencode, env, cwd: root, signal }),
+            : openOpenCodeSignIn({
+                command: opencode,
+                env,
+                cwd: root,
+                signal,
+                integrationsWaitMs: 300,
+                integrationsPollMs: 20,
+              }),
         openTerminal(launch) {
           terminals.push(launch.args ?? []);
           return { id: "opencode-terminal", exited: Promise.resolve(true), stop: async () => {} };
@@ -163,6 +182,24 @@ test("when OpenCode's server can't answer, its terminal picker still signs in", 
   const f = await setup({ serverFails: true });
   const offered = await f.choices();
   expect(offered.map((choice) => choice.id)).toContain("opencode-go");
+  await f.choose("anthropic");
+  expect((await f.done()).state).toBe("succeeded");
+  expect(f.terminals).toEqual([["auth", "login", "--standalone", "anthropic"]]);
+});
+
+test("services OpenCode is still loading when its server starts are offered once it lists them", async () => {
+  const f = await setup({ emptyIntegrations: 2 });
+  const offered = (await f.choices()).map((choice) => choice.id);
+  expect(offered).toEqual(expect.arrayContaining(["groq", "wafer.ai", "anthropic"]));
+  expect(offered.at(-1)).toBe("other");
+});
+
+test("when OpenCode's server lists no services, the usual ones are offered for its terminal", async () => {
+  const f = await setup({ emptyIntegrations: "always" });
+  const offered = (await f.choices()).map((choice) => choice.id);
+  expect(offered).toEqual(expect.arrayContaining(["opencode-go", "anthropic"]));
+  // Groq is only in OpenCode's own list, so its absence proves the fallback list was offered.
+  expect(offered).not.toContain("groq");
   await f.choose("anthropic");
   expect((await f.done()).state).toBe("succeeded");
   expect(f.terminals).toEqual([["auth", "login", "--standalone", "anthropic"]]);
