@@ -45,7 +45,7 @@ pub fn message_origin(stored: &str) -> Option<Value> {
         );
         origin.insert("client", Value::Object(kept));
     }
-    for key in ["commandId", "interactionId", "parentThreadId"] {
+    for key in ["commandId", "interactionId"] {
         if let Some(field) = source.get(key) {
             origin.insert(key, Value::from(non_empty(field)?.as_str()));
         }
@@ -58,12 +58,15 @@ pub fn message_origin(stored: &str) -> Option<Value> {
         }
         origin.insert("threadIds", Value::Array(kept.into()));
     }
+    if let Some(parent) = source.get("parentThreadId") {
+        origin.insert("parentThreadId", Value::from(non_empty(parent)?.as_str()));
+    }
     if let Some(role) = source.get("role") {
         origin.insert("role", Value::from(role.as_str()?.to_owned()));
     }
     for key in ["from", "to"] {
         if let Some(model) = source.get(key) {
-            origin.insert(key, handoff_model(model)?);
+            origin.insert(key, handoff_model(model, None)?);
         }
     }
     if let Some(sources) = source.get("sources") {
@@ -73,7 +76,7 @@ pub fn message_origin(stored: &str) -> Option<Value> {
         }
         let mut kept = Vec::with_capacity(sources.len());
         for model in sources {
-            kept.push(handoff_model(model)?);
+            kept.push(handoff_model(model, Some(256))?);
         }
         origin.insert("sources", Value::Array(kept.into()));
     }
@@ -113,8 +116,9 @@ fn bounded(value: &Value, max: usize) -> Option<String> {
     (text.encode_utf16().count() <= max).then_some(text)
 }
 
-/// `{ provider, model? }` (`HandoffModel`), rebuilt in schema order.
-fn handoff_model(value: &Value) -> Option<Value> {
+/// `{ provider, model? }` (`HandoffModel`), rebuilt in schema order. A `sources` model is
+/// 1..256 UTF-16 units; `from` and `to` take any string.
+fn handoff_model(value: &Value, maximum: Option<usize>) -> Option<Value> {
     let object = value.as_object()?;
     let provider = object.get("provider")?.as_str()?;
     const PROVIDERS: [&str; 7] = [
@@ -132,7 +136,11 @@ fn handoff_model(value: &Value) -> Option<Value> {
     let mut kept = ace_json::Map::new();
     kept.insert("provider", Value::from(provider));
     if let Some(model) = object.get("model") {
-        kept.insert("model", Value::from(model.as_str()?.to_owned()));
+        let model = match maximum {
+            Some(maximum) => bounded(model, maximum)?,
+            None => model.as_str()?.to_owned(),
+        };
+        kept.insert("model", Value::from(model));
     }
     Some(Value::Object(kept))
 }
@@ -252,9 +260,29 @@ mod tests {
             acjson(&origin),
             r#"{"kind":"handoff","commandId":"c1","threadIds":["t"],"from":{"provider":"codex","model":"m"},"sources":[{"provider":"claude"}],"lossy":true,"freshSession":true}"#
         );
+        // The schema order, with threadIds before parentThreadId however they are stored.
+        let stored = r#"{"parentThreadId":"p","threadIds":["t1","t2"],"interactionId":"i","kind":"spawn","commandId":"c"}"#;
+        assert_eq!(
+            acjson(&message_origin(stored).expect("an origin")),
+            r#"{"kind":"spawn","commandId":"c","interactionId":"i","threadIds":["t1","t2"],"parentThreadId":"p"}"#
+        );
         // A value the schema refuses is not an origin.
         assert!(message_origin(r#"{"kind":"handoff","freshSession":false}"#).is_none());
         assert!(message_origin(r#"{"kind":"person","commandId":""}"#).is_none());
+        // `HandoffModel`'s model is 1..256 units; `from`/`to` place no such bound.
+        assert!(
+            message_origin(r#"{"kind":"handoff","sources":[{"provider":"claude","model":""}]}"#)
+                .is_none()
+        );
+        let long = format!(
+            r#"{{"kind":"handoff","sources":[{{"provider":"claude","model":"{}"}}]}}"#,
+            "\u{1f600}".repeat(129)
+        );
+        assert!(message_origin(&long).is_none());
+        assert!(
+            message_origin(r#"{"kind":"handoff","from":{"provider":"claude","model":""}}"#)
+                .is_some()
+        );
     }
 
     fn acjson(value: &Value) -> String {

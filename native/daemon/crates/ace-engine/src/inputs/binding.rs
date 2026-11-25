@@ -53,8 +53,8 @@ impl State {
         })
     }
 
-    /// `correlate` with the root and generation the caller decides: the fold derives both from
-    /// the state, and the probe passes a generation of its own.
+    /// `correlate` with the root and generation the caller decides: the fold passes both it
+    /// knows, and the probe passes a generation of its own.
     pub fn correlate_with(
         &mut self,
         thread: &str,
