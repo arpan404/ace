@@ -133,6 +133,11 @@ pub struct AcpCoreConfig {
     pub profile: Option<CompatibilityProfile>,
     pub profile_fit: Option<ProfileFit>,
     pub resume: Option<ResumeTarget>,
+    /// The launch's saved permission mode, model and effort: applied once the session
+    /// opens, before its open settles (`session.ts:499`–`:509`).
+    pub permission_mode: Option<String>,
+    pub model: Option<String>,
+    pub effort: Option<String>,
     pub mcp: Option<McpConfig>,
     pub peer_config: PeerConfig,
 }
@@ -151,6 +156,9 @@ impl AcpCoreConfig {
             profile: None,
             profile_fit: None,
             resume: None,
+            permission_mode: None,
+            model: None,
+            effort: None,
             mcp: None,
             peer_config: PeerConfig::default(),
         }
@@ -164,6 +172,9 @@ pub struct AcpCore {
     pub(crate) launch_version: Option<String>,
     pub(crate) launch_profile: Option<CompatibilityProfile>,
     pub(crate) resume: Option<ResumeTarget>,
+    pub(crate) permission_mode: Option<String>,
+    pub(crate) model: Option<String>,
+    pub(crate) effort: Option<String>,
     pub(crate) mcp: Option<McpConfig>,
     secrets: Vec<String>,
 
@@ -181,6 +192,9 @@ pub struct AcpCore {
 
     pub native_session_id: JsString,
     pub steer_via_cancel: bool,
+    /// The mode ace last set; a model's reply that resets it gets it back
+    /// (`session.ts:570`–`:586`).
+    pub wanted_mode: Option<String>,
     pub loading: bool,
     pub closed: bool,
     pub deliberate: bool,
@@ -234,6 +248,9 @@ impl AcpCore {
             launch_version: config.version,
             launch_profile: config.profile,
             resume: config.resume,
+            permission_mode: config.permission_mode,
+            model: config.model,
+            effort: config.effort,
             mcp: config.mcp,
             secrets,
             peer,
@@ -248,6 +265,7 @@ impl AcpCore {
             cancelling_children: IndexSet::new(),
             native_session_id: JsString::default(),
             steer_via_cancel: false,
+            wanted_mode: None,
             loading: false,
             closed: false,
             deliberate: false,

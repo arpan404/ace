@@ -13,6 +13,7 @@ use super::mcp::{McpTransport, prepare_acp_mcp};
 use super::negotiation::{ProfileFit, ResumeMethod};
 use super::protocol::{PROTOCOL_VERSION, agent_methods};
 use super::resume_error::{ResumeFailure, resume_load_failure};
+use super::selections::PostOpen;
 use crate::session::core::{AcpCore, AcpEffect, AcpErrorWire};
 use crate::translate::data::object;
 
@@ -35,11 +36,14 @@ pub struct OpenResult {
     pub capabilities: Map,
     pub support: Map,
     pub raw_selectors: Value,
+    /// Saved options the agent did not apply, as the daemon records them
+    /// (`session.ts:501`–`:509`, `refusedOptions`).
+    pub refused_options: Vec<String>,
 }
 
 impl OpenResult {
     pub fn to_json(&self) -> String {
-        let mut map = Map::with_capacity(6);
+        let mut map = Map::with_capacity(7);
         map.insert(
             "nativeSessionId",
             Value::String(self.native_session_id.clone()),
@@ -49,6 +53,16 @@ impl OpenResult {
         map.insert("capabilities", Value::Object(self.capabilities.clone()));
         map.insert("support", Value::Object(self.support.clone()));
         map.insert("rawSelectors", self.raw_selectors.clone());
+        map.insert(
+            "refusedOptions",
+            Value::Array(
+                self.refused_options
+                    .iter()
+                    .map(|name| Value::from(name.as_str()))
+                    .collect::<Vec<_>>()
+                    .into(),
+            ),
+        );
         Value::Object(map).to_json()
     }
 }
@@ -63,8 +77,16 @@ pub(crate) struct OpenRequestSpec {
 
 #[derive(Debug)]
 pub(crate) enum OpenPhase {
-    Initializing { rpc_id: u64 },
-    Opening { rpc_id: u64, spec: OpenRequestSpec },
+    Initializing {
+        rpc_id: u64,
+    },
+    Opening {
+        rpc_id: u64,
+        spec: OpenRequestSpec,
+    },
+    /// The session is open: its saved mode, model and effort still apply before the
+    /// open settles (`session.ts:495`–`:509`).
+    Selecting(Box<PostOpen>),
 }
 
 #[derive(Debug)]
@@ -74,9 +96,11 @@ pub(crate) struct OpenState {
 }
 
 impl OpenState {
-    pub fn active_rpc_id(&self) -> u64 {
+    /// The id of the request whose reply moves this open on, when one is in flight.
+    pub fn active_rpc_id(&self) -> Option<u64> {
         match &self.phase {
-            OpenPhase::Initializing { rpc_id } | OpenPhase::Opening { rpc_id, .. } => *rpc_id,
+            OpenPhase::Initializing { rpc_id } | OpenPhase::Opening { rpc_id, .. } => Some(*rpc_id),
+            OpenPhase::Selecting(post) => post.active.as_ref().map(|active| active.rpc_id),
         }
     }
 }
@@ -163,8 +187,11 @@ impl AcpCore {
         let Some(state) = self.open.as_ref() else {
             return false;
         };
-        if state.active_rpc_id() != rpc_id {
+        if state.active_rpc_id() != Some(rpc_id) {
             return false;
+        }
+        if matches!(state.phase, OpenPhase::Selecting(_)) {
+            return self.finish_saved_selection(rpc_id, result, effects);
         }
         let Some(state) = self.open.take() else {
             return false;
@@ -176,6 +203,7 @@ impl AcpCore {
             OpenPhase::Opening { spec, .. } => {
                 self.finish_session_open(state.facade_id, spec, result, effects);
             }
+            OpenPhase::Selecting(_) => unreachable!("handled above"),
         }
         true
     }
@@ -375,19 +403,9 @@ impl AcpCore {
                 let session_val = Value::Object(object(&opened).clone());
                 let cfg_effects = self.configuration.setup(&session_val, spec.mcp_transport);
                 self.push_config_effects(cfg_effects, effects);
-
-                let open_result = OpenResult {
-                    native_session_id: self.native_session_id.clone(),
-                    steer_via_cancel: self.steer_via_cancel,
-                    mcp_transport: spec.mcp_transport,
-                    capabilities: self.configuration.capabilities.clone().unwrap_or_default(),
-                    support: self.configuration.support.clone().unwrap_or_default(),
-                    raw_selectors: self.configuration.selectors.raw.clone(),
-                };
-                effects.push(AcpEffect::Settle {
-                    id: facade_id,
-                    result: Ok(open_result.to_json()),
-                });
+                // The saved mode, model and effort apply next, and only then does this
+                // open settle (`session.ts:495`–`:509`).
+                self.start_saved_selections(facade_id, spec.mcp_transport, effects);
             }
             Err(message) => {
                 self.clear_open_guards(effects);
@@ -415,7 +433,7 @@ impl AcpCore {
         };
         let cancel_wire_id = match &state.phase {
             OpenPhase::Opening { .. } => open_wire_id,
-            OpenPhase::Initializing { .. } => None,
+            OpenPhase::Initializing { .. } | OpenPhase::Selecting(_) => None,
         };
         if let Some(wire_id) = cancel_wire_id {
             let peer_effects = self
@@ -442,7 +460,12 @@ impl AcpCore {
         }
     }
 
-    fn settle_open_error(&self, facade_id: u64, error: AcpErrorWire, effects: &mut Vec<AcpEffect>) {
+    pub(crate) fn settle_open_error(
+        &self,
+        facade_id: u64,
+        error: AcpErrorWire,
+        effects: &mut Vec<AcpEffect>,
+    ) {
         let redacted_msg = self.redact_message(&error.message);
         effects.push(AcpEffect::Settle {
             id: facade_id,

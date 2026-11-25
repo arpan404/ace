@@ -922,6 +922,205 @@ fn system_prompt_append_carries_lease_or_developer_instructions() {
     }
 }
 
+/// A launch's saved mode, model and effort each apply, in that order, before the
+/// open settles; only then does the daemon hear what runs (`session.ts:495`–`:509`).
+#[test]
+fn open_applies_saved_mode_model_and_effort_before_it_settles() {
+    let mut config = AcpCoreConfig::new("t-saved", "/work", AcpSessionQuirks::generic());
+    config.permission_mode = Some("plan".to_owned());
+    config.model = Some("model-b".to_owned());
+    let (mut core, opened, mut effects) = open_with_saved(config, 21);
+    assert!(
+        settlements(&effects, 21).is_empty(),
+        "the open waits for its saved options"
+    );
+    let sent = sent_json_messages(&opened);
+    assert_eq!(
+        sent[0].get("method").and_then(Value::as_str),
+        Some("session/set_mode")
+    );
+    assert_eq!(
+        sent[0].pointer("/params/modeId").and_then(Value::as_str),
+        Some("plan")
+    );
+
+    let mode_ok =
+        json!({ "jsonrpc": "2.0", "id": 3, "result": { "modes": { "currentModeId": "plan" } } });
+    let mut after_mode = core.stdout_bytes(format!("{}\n", mode_ok.to_json()).as_bytes());
+    ack_writes(&mut core, &mut after_mode);
+    effects.extend(after_mode.clone());
+    assert!(settlements(&after_mode, 21).is_empty());
+    let sent = sent_json_messages(&after_mode);
+    assert_eq!(
+        sent[0].get("method").and_then(Value::as_str),
+        Some("session/set_model")
+    );
+    assert_eq!(
+        sent[0].pointer("/params/modelId").and_then(Value::as_str),
+        Some("model-b")
+    );
+
+    let model_ok = json!({ "jsonrpc": "2.0", "id": 4, "result": { "models": { "currentModelId": "model-b" } } });
+    let settled = core.stdout_bytes(format!("{}\n", model_ok.to_json()).as_bytes());
+    let done = settlements(&settled, 21);
+    assert_eq!(
+        done.len(),
+        1,
+        "the open settles after its last saved option"
+    );
+    let parsed = ace_json::parse(done[0].as_ref().map(String::as_str).unwrap_or("null"))
+        .unwrap_or(Value::Null);
+    assert_eq!(parsed.get("refusedOptions"), Some(&json!([])));
+    assert_eq!(
+        parsed.get("nativeSessionId").and_then(Value::as_str),
+        Some("sess-1")
+    );
+}
+
+/// A saved option the agent no longer lists is reported refused, never failed:
+/// the start goes on and the daemon records what runs instead (`session.ts:496`).
+#[test]
+fn open_reports_saved_options_the_agent_no_longer_lists_as_refused() {
+    let mut config = AcpCoreConfig::new("t-refused", "/work", AcpSessionQuirks::generic());
+    config.permission_mode = Some("plan".to_owned());
+    config.model = Some("model-b".to_owned());
+    config.effort = Some("high".to_owned());
+    let reply = json!({ "jsonrpc": "2.0", "id": 2, "result": { "sessionId": "sess-1" } });
+    let (_core, _opened, effects) = open_with_saved_reply(config, 22, &reply);
+    let done = settlements(&effects, 22);
+    assert_eq!(done.len(), 1);
+    let parsed = ace_json::parse(done[0].as_ref().map(String::as_str).unwrap_or("null"))
+        .unwrap_or(Value::Null);
+    assert_eq!(
+        parsed.get("refusedOptions"),
+        Some(&json!(["permissionMode", "model", "effort"]))
+    );
+}
+
+/// A model's reply can reset the mode: the mode ace set is restored before the open
+/// settles, and a restore the agent refuses is swallowed, not reported (`session.ts:577`).
+#[test]
+fn open_restores_the_saved_mode_a_model_reply_reset() {
+    let mut config = AcpCoreConfig::new("t-restore", "/work", AcpSessionQuirks::generic());
+    config.permission_mode = Some("plan".to_owned());
+    config.model = Some("model-b".to_owned());
+    let reply = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+            "sessionId": "sess-1",
+            "configOptions": [
+                option("model", "model", "model-a"),
+                option("mode", "mode", "default")
+            ]
+        }
+    });
+    let (mut core, _opened, mut effects) = open_with_saved_reply(config, 23, &reply);
+
+    let mode_ok = json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "result": { "configOptions": [option("model", "model", "model-a"), option("mode", "mode", "plan")] }
+    });
+    let mut after_mode = core.stdout_bytes(format!("{}\n", mode_ok.to_json()).as_bytes());
+    ack_writes(&mut core, &mut after_mode);
+    effects.extend(after_mode);
+
+    // The model's reply carries fresh options, with the mode back at its default.
+    let model_reset = json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "result": { "configOptions": [option("model", "model", "model-b"), option("mode", "mode", "default")] }
+    });
+    let mut after_model = core.stdout_bytes(format!("{}\n", model_reset.to_json()).as_bytes());
+    ack_writes(&mut core, &mut after_model);
+    effects.extend(after_model.clone());
+    assert!(settlements(&after_model, 23).is_empty());
+    let sent = sent_json_messages(&after_model);
+    assert_eq!(
+        sent[0].pointer("/params/configId").and_then(Value::as_str),
+        Some("mode")
+    );
+    assert_eq!(
+        sent[0].pointer("/params/value").and_then(Value::as_str),
+        Some("plan")
+    );
+
+    // The agent refuses the restore: the open still succeeds, with nothing refused.
+    let restore_err = json!({
+        "jsonrpc": "2.0",
+        "id": 5,
+        "error": { "code": -32603, "message": "mode locked" }
+    });
+    let settled = core.stdout_bytes(format!("{}\n", restore_err.to_json()).as_bytes());
+    let done = settlements(&settled, 23);
+    assert_eq!(done.len(), 1);
+    let Ok(open_json) = &done[0] else {
+        panic!("a refused restore never fails the start: {done:?}");
+    };
+    let parsed = ace_json::parse(open_json).unwrap_or(Value::Null);
+    assert_eq!(parsed.get("refusedOptions"), Some(&json!([])));
+}
+
+/// One `configOptions` select listing both saved values.
+fn option(id: &str, category: &str, current: &str) -> Value {
+    let values: Vec<Value> = if category == "model" {
+        vec![json!({ "value": "model-a" }), json!({ "value": "model-b" })]
+    } else {
+        vec![json!({ "value": "plan" }), json!({ "value": "default" })]
+    };
+    json!({
+        "id": id,
+        "category": category,
+        "type": "select",
+        "currentValue": current,
+        "options": values
+    })
+}
+
+/// A core whose `session/new` reply lists `plan`/`default`, two models and no effort
+/// level, already past `initialize`.
+fn open_with_saved(
+    config: AcpCoreConfig,
+    facade_id: u64,
+) -> (AcpCore, Vec<AcpEffect>, Vec<AcpEffect>) {
+    let reply = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+            "sessionId": "sess-1",
+            "modes": {
+                "currentModeId": "default",
+                "availableModes": [{ "id": "plan" }, { "id": "default" }]
+            },
+            "models": {
+                "currentModelId": "model-a",
+                "availableModels": [{ "modelId": "model-a" }, { "modelId": "model-b" }]
+            }
+        }
+    });
+    open_with_saved_reply(config, facade_id, &reply)
+}
+
+fn open_with_saved_reply(
+    config: AcpCoreConfig,
+    facade_id: u64,
+    new_reply: &Value,
+) -> (AcpCore, Vec<AcpEffect>, Vec<AcpEffect>) {
+    let (mut core, _) = AcpCore::new(config);
+    let mut effects = core.start_open(facade_id);
+    ack_writes(&mut core, &mut effects);
+    let mut init = core.stdout_bytes(
+        b"{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{}}}\n",
+    );
+    ack_writes(&mut core, &mut init);
+    effects.extend(init);
+    let mut opened = core.stdout_bytes(format!("{}\n", new_reply.to_json()).as_bytes());
+    ack_writes(&mut core, &mut opened);
+    effects.extend(opened.clone());
+    (core, opened, effects)
+}
+
 #[test]
 fn session_io_shell_publishes_process_start_and_settles_on_abandon() {
     let config = AcpCoreConfig::new("t-io", "/work", AcpSessionQuirks::generic());
