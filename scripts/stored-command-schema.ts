@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { createHash } from "node:crypto";
+import { ProjectIconUrl } from "@ace/protocol";
 import { z } from "zod";
 
 // JavaScript predicates have no schema representation. Name the Rust equivalents here.
@@ -17,7 +19,7 @@ const refinements = new Map<string, string>([
   ["path=>!path.includes('\\0')", "no_nul"],
   ["value=>value!=='.'&&value!=='..'", "repository_name"],
   ["value=>value===value.trim()&&value!=='.'&&value!=='..'&&!value.endsWith('.')", "project_name"],
-  ["value=>iconUrl.safeParse(value).success", "url"],
+  ["value=>ProjectIconUrl.safeParse(value).success", "url"],
   ["value=>value.model===undefined||value.provider!==undefined", "model_provider"],
   ["value=>value.number!==undefined!==(value.all===true)", "unlink_selection"],
   ["s=>!s.startsWith('-')&&!s.includes('\\0')", "review_ref"],
@@ -38,6 +40,32 @@ const refinements = new Map<string, string>([
   ["id=>!['__proto__','constructor','prototype'].includes(id)", "orchestration_id"],
   ["value=>Object.keys(value).length<=24", "keys_24"],
 ]);
+
+/** The URL predicate closes over a Zod schema, so its source alone cannot guard it. */
+export function assertProjectIconUrlRules(): void {
+  // oxlint-disable-next-line no-underscore-dangle -- Fingerprint the actual checker.
+  const check = ProjectIconUrl._zod.check;
+  const fingerprint = createHash("sha256")
+    .update(
+      JSON.stringify([
+        ProjectIconUrl.def,
+        check.toString(),
+        z.core.validateURL.toString(),
+        z.core.canParseURL.toString(),
+        z.core.parseURLObject.toString(),
+        z.core.stripTabAndNewline.toString(),
+        z.core.urlHostnameOk.toString(),
+        z.core.urlProtocolOk.toString(),
+      ]),
+    )
+    .digest("hex");
+  if (fingerprint !== "2860bfeaabf6991ff6f06f18e874a1e27d58e82b0f88057da512289e5d1407e8")
+    throw new Error("ProjectIconUrl or Zod URL validation changed. Review the Rust refinement.");
+}
+
+export function refinementNames(): string[] {
+  return [...new Set(refinements.values())].toSorted();
+}
 
 function refinementName(source: string): string | undefined {
   return refinements.get(

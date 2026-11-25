@@ -100,7 +100,10 @@ impl Refinement {
             Self::NoNul => !text().contains('\0'),
             Self::RepositoryName => !is_dot_segment(text()),
             Self::ProjectName => text() == trim(text()) && !text().ends_with('.'),
-            Self::Url => url::Url::parse(text()).is_ok(),
+            // ProjectIcon's regex handles the HTTP(S) prefix and whitespace within the
+            // icon contract. Its bare z.url() trims first, then validateURL takes the
+            // WHATWG URL.canParse branch. The refinement uses only the verdict.
+            Self::Url => url::Url::parse(trim(text())).is_ok(),
             Self::ModelProvider => value.get("model").is_none() || value.get("provider").is_some(),
             Self::UnlinkSelection => {
                 value.get("number").is_some() != (value.get("all") == Some(&Value::Bool(true)))

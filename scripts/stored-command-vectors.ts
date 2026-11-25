@@ -6,7 +6,13 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { Command, CommandPayload } from "@ace/protocol";
 import type { z } from "zod";
-import { commandSchema, definition } from "./stored-command-schema.ts";
+import { iconUrlCases, refinementRejections } from "./stored-command-refinement-vectors.ts";
+import {
+  assertProjectIconUrlRules,
+  commandSchema,
+  definition,
+  refinementNames,
+} from "./stored-command-schema.ts";
 
 type Fields = Record<string, unknown>;
 
@@ -87,15 +93,16 @@ function unwrap(schema: z.core.$ZodType): z.core.$ZodType {
 }
 
 const cases: { name: string; input: string; output: string | null }[] = [];
-function add(name: string, input: unknown): void {
+function add(name: string, input: unknown) {
   const text = JSON.stringify(input);
   const parsed = Command.safeParse(JSON.parse(text));
   cases.push({ name, input: text, output: parsed.success ? JSON.stringify(parsed.data) : null });
+  return parsed;
 }
 
-function addPayload(name: string, payload: Fields): void {
+function addPayload(name: string, payload: Fields) {
   // Reverse the input key order so an encoder that preserves input order fails.
-  add(name, {
+  return add(name, {
     payload: Object.fromEntries(Object.entries(payload).toReversed()),
     deviceId: "device",
     id: "command",
@@ -235,6 +242,27 @@ add("missing command id", { deviceId: "device", payload: send });
 add("missing payload", { id: "command", deviceId: "device" });
 add("wrong command id", { id: "", deviceId: "device", payload: send });
 add("wrong root type", []);
+
+// For a union, only one arm needs to reach the predicate. Within that arm the
+// refinement must be the sole reason for rejection.
+function hasOnlyCustomIssue(issues: readonly z.core.$ZodIssue[]): boolean {
+  const [issue] = issues;
+  if (issues.length !== 1 || !issue) return false;
+  if (issue.code === "custom") return true;
+  return issue.code === "invalid_union" && issue.errors.some(hasOnlyCustomIssue);
+}
+
+assertProjectIconUrlRules();
+if (Object.keys(refinementRejections).toSorted().join() !== refinementNames().join())
+  throw new Error("Every stored command refinement needs a rejection case");
+for (const [name, payload] of Object.entries(refinementRejections)) {
+  const result = addPayload(`refinement/${name}`, payload);
+  if (result.success || !hasOnlyCustomIssue(result.error.issues))
+    throw new Error(`refinement/${name} must be rejected by a custom rule alone`);
+}
+for (const [index, icon] of iconUrlCases.entries()) {
+  addPayload(`project icon URL/${index + 1}`, { type: "workspace.add", path: "/project", icon });
+}
 
 function write(name: string, contents: string): void {
   const path = new URL(`../native/daemon/crates/ace-engine/${name}`, import.meta.url);
