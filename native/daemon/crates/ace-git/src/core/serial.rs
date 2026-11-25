@@ -248,7 +248,11 @@ mod tests {
         b.await.expect("b");
         assert_eq!(
             log.events(),
-            vec!["a start".to_owned(), "a end".to_owned(), "b start".to_owned()]
+            vec![
+                "a start".to_owned(),
+                "a end".to_owned(),
+                "b start".to_owned()
+            ]
         );
     }
 
@@ -294,7 +298,8 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(20)).await;
         let signal = Cancellation::new();
         let b = {
-            let (serial, log, signal) = (Arc::clone(&serial), Arc::clone(&log), Arc::clone(&signal));
+            let (serial, log, signal) =
+                (Arc::clone(&serial), Arc::clone(&log), Arc::clone(&signal));
             tokio::spawn(async move {
                 match serial.acquire("/repos/ace", Some(&signal)).await {
                     Ok(turn) => {

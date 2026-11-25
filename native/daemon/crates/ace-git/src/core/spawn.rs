@@ -12,8 +12,8 @@ use std::time::Duration;
 
 use ace_supervisor::child::{SupervisedChild, spawn_child};
 use ace_supervisor::errors::NodeIoError;
-use ace_supervisor::signal::SignalName;
 use ace_supervisor::pump::Flow;
+use ace_supervisor::signal::SignalName;
 use ace_supervisor::spawn::{Delivered, EventSink, OutputStream, RawExit, SpawnSpec, StdioMode};
 use tokio::sync::Notify;
 
@@ -1077,8 +1077,12 @@ mod tests {
         let mut acks = 0;
         for _ in 0..3 {
             match queue.recv().await {
-                Some(ProcessEvent::Stdout(chunk)) => chunks.push(String::from_utf8_lossy(&chunk.bytes).into_owned()),
-                Some(ProcessEvent::Stderr(chunk)) => chunks.push(String::from_utf8_lossy(&chunk.bytes).into_owned()),
+                Some(ProcessEvent::Stdout(chunk)) => {
+                    chunks.push(String::from_utf8_lossy(&chunk.bytes).into_owned())
+                }
+                Some(ProcessEvent::Stderr(chunk)) => {
+                    chunks.push(String::from_utf8_lossy(&chunk.bytes).into_owned())
+                }
                 Some(ProcessEvent::StdinAck) => acks += 1,
                 other => panic!("unexpected event: {other:?}"),
             }

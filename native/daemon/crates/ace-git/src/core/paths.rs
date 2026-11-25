@@ -160,7 +160,10 @@ mod tests {
 
     #[test]
     fn containment_folds_dot_and_dot_dot_segments_like_path_relative() {
-        assert!(within("/repos/ace", "/repos/ace/./packages/../packages/git"));
+        assert!(within(
+            "/repos/ace",
+            "/repos/ace/./packages/../packages/git"
+        ));
         assert!(!within("/repos/ace", "/repos/ace/../ace-other"));
         assert!(within("/repos/ace/", "/repos/ace/packages"));
     }
