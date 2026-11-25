@@ -540,9 +540,13 @@ export class StorageService {
   /** Idempotent: closing the pinned root again could close a descriptor number reused elsewhere. */
   close(): Promise<void> {
     this.stop();
-    return (this.closing ??= Promise.all([
+    return (this.closing ??= Promise.allSettled([
       this.tail.then(() => this.inventory.close()),
       this.usageCoordinator.close(),
-    ]).then(() => {}));
+    ]).then((results) => {
+      // Both owners must finish. A rejected inventory close must not leave the usage worker
+      // running behind a daemon that already reported its shutdown.
+      for (const result of results) if (result.status === "rejected") throw result.reason;
+    }));
   }
 }

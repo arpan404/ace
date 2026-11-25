@@ -10,9 +10,13 @@ import { storageUsageWorkerEntry } from "./usage-scanner.ts";
  * stalled worker cannot hold the storage serializer.
  */
 export const TranscriptLimits = z.object({
-  recheckMs: z.number().int().positive().max(60_000).default(3_000),
+  /** A single fenced recheck may have to read a large transcript. */
+  recheckMs: z.number().int().positive().max(600_000).default(60_000),
+  /** A chunk gets this base plus a generous per-thread allowance; the work is off the loop. */
   batchMs: z.number().int().positive().max(300_000).default(5_000),
-  perThreadMs: z.number().int().positive().max(10_000).default(100),
+  perThreadMs: z.number().int().positive().max(60_000).default(10_000),
+  /** One worker request per chunk, so a stalled chunk is a watchdog rather than a total. */
+  chunkSize: z.number().int().positive().max(256).default(8),
   reapMs: z.number().int().positive().max(60_000).default(2_000),
 });
 
@@ -45,21 +49,32 @@ export class TranscriptReader {
     this.options = options;
   }
   read(threads: readonly ThreadId[]): Promise<number[]> {
-    const run = this.chain.then(() => this.measure(threads));
+    const run = this.chain.then(() => this.measureAll(threads));
     this.chain = run.catch(() => {});
     return run;
   }
-  private async measure(threads: readonly ThreadId[]): Promise<number[]> {
-    await this.reaping;
+  private async measureAll(threads: readonly ThreadId[]): Promise<number[]> {
     if (this.stopped) throw new Error("storage_usage_cancelled");
     if (!threads.length) return [];
+    const limits = TranscriptLimits.parse(this.options.limits ?? {});
+    const sizes: number[] = [];
+    // A page is measured in chunks. Each reply is progress, and one chunk that never answers
+    // retires the worker instead of letting the whole page exhaust one total deadline.
+    for (let index = 0; index < threads.length; index += limits.chunkSize) {
+      const chunk = threads.slice(index, index + limits.chunkSize);
+      const budget =
+        threads.length === 1
+          ? limits.recheckMs
+          : limits.batchMs + chunk.length * limits.perThreadMs;
+      sizes.push(...(await this.measure(chunk, budget)));
+    }
+    return sizes;
+  }
+  private async measure(threads: readonly ThreadId[], budget: number): Promise<number[]> {
+    await this.reaping;
+    if (this.stopped) throw new Error("storage_usage_cancelled");
     clearTimeout(this.idle);
     const worker = (this.worker ??= this.open());
-    const limits = TranscriptLimits.parse(this.options.limits ?? {});
-    const budget =
-      threads.length === 1
-        ? limits.recheckMs
-        : limits.batchMs + threads.length * limits.perThreadMs;
     const result = Promise.withResolvers<number[]>();
     this.pending = {
       ...result,

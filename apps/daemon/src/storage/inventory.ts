@@ -37,8 +37,18 @@ export class StorageInventory {
   }
   async close(): Promise<void> {
     this.stop();
-    await this.transcripts.closed();
-    this.files.close();
+    let failure: unknown;
+    try {
+      await this.transcripts.closed();
+    } catch (error) {
+      failure = error;
+    }
+    try {
+      await this.files.close();
+    } catch (error) {
+      failure ??= error;
+    }
+    if (failure !== undefined) throw failure;
   }
   async thread(id: ThreadId): Promise<OwnedStorageCandidate | undefined> {
     // Measure first: it yields to the loop. Ownership and protections are read after the last
