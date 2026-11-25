@@ -121,69 +121,105 @@ export class RunCheckpoints {
       if (this.flights.size >= 16) break;
     }
   }
-  /** The thread's latest run still due an "after" snapshot, by turn order. */
-  private newestPending(id: Id): string | undefined {
+  /** The thread's latest root turn the turn order knows, whether or not it is still due. */
+  private latestIndexedRoot(id: Id): string | undefined {
     return this.store.atomic((db) => {
       const row = db
         .prepare(
-          `SELECT d.run_id FROM client_checkpoint_due d
-           LEFT JOIN client_run_index r ON r.thread_id=d.thread_id AND r.run_id=d.run_id
-           WHERE d.thread_id=? ORDER BY r.ordinal IS NULL, r.ordinal DESC LIMIT 1`,
+          "SELECT run_id FROM client_run_index WHERE thread_id=? ORDER BY ordinal DESC LIMIT 1",
         )
         .get(id);
       return row ? String(row.run_id) : undefined;
     });
   }
-  /** Captures every due "after" snapshot; returns the newest run's, once it is captured. */
+  /**
+   * Captures every due "after" snapshot; returns the latest root turn's, once it is captured.
+   * Only that one can lend its tree to the next turn, so it is captured last: anything captured
+   * after it would be a later state of the same checkout.
+   */
   private async capturePending(id: Id): Promise<string | undefined> {
-    const newest = this.newestPending(id);
-    let newestAfter: string | undefined;
     const pending = this.store.atomic((db) =>
       db.prepare("SELECT run_id FROM client_checkpoint_due WHERE thread_id=? LIMIT 64").all(id),
     );
+    const shared = this.latestIndexedRoot(id);
     for (const row of pending) {
-      const run = this.run(id, String(row.run_id));
-      if (!run?.checkpoints) {
-        this.store.atomic((db) =>
-          db
-            .prepare("DELETE FROM client_checkpoint_due WHERE thread_id=? AND run_id=?")
-            .run(id, String(row.run_id)),
-        );
-        continue;
-      }
-      let checkpoints = run.checkpoints;
-      try {
-        const after = await this.git.createCheckpoint({
-          worktree: this.root(id),
-          threadId: id,
-          label: `After turn ${run.ordinal ?? run.id}`,
-        });
-        checkpoints = { ...checkpoints, after: after.id, state: "ready" };
-        if (String(row.run_id) === newest) newestAfter = after.id;
-      } catch (error) {
-        checkpoints = {
-          ...checkpoints,
-          state: "unavailable",
-          error: isMutationUnavailable(error) ? "git_quarantined" : "checkpoint_failed",
-        };
-      }
-      this.store.atomic((db) => {
-        this.store.appendEvents(
-          id,
-          [{ type: "run.client.updated", runId: run.id, checkpoints }],
-          this.now(),
-        );
-        db.prepare("DELETE FROM client_checkpoint_due WHERE thread_id=? AND run_id=?").run(
-          id,
-          run.id,
-        );
-      });
+      const runId = String(row.run_id);
+      if (runId !== shared) await this.captureAfter(id, runId);
     }
-    return newestAfter;
+    if (shared === undefined || !pending.some((row) => String(row.run_id) === shared))
+      return undefined;
+    return this.captureAfter(id, shared);
+  }
+  /** Writes one due row's "after" snapshot and clears it; its checkpoint id when it succeeded. */
+  private async captureAfter(id: Id, runId: string): Promise<string | undefined> {
+    const run = this.run(id, runId);
+    if (!run?.checkpoints) {
+      this.store.atomic((db) =>
+        db
+          .prepare("DELETE FROM client_checkpoint_due WHERE thread_id=? AND run_id=?")
+          .run(id, runId),
+      );
+      return undefined;
+    }
+    let checkpoints = run.checkpoints;
+    let after: string | undefined;
+    try {
+      const checkpoint = await this.git.createCheckpoint({
+        worktree: this.root(id),
+        threadId: id,
+        label: `After turn ${run.ordinal ?? run.id}`,
+      });
+      after = checkpoint.id;
+      checkpoints = { ...checkpoints, after, state: "ready" };
+    } catch (error) {
+      checkpoints = {
+        ...checkpoints,
+        state: "unavailable",
+        error: isMutationUnavailable(error) ? "git_quarantined" : "checkpoint_failed",
+      };
+    }
+    this.store.atomic((db) => {
+      this.store.appendEvents(
+        id,
+        [{ type: "run.client.updated", runId: run.id, checkpoints }],
+        this.now(),
+      );
+      db.prepare("DELETE FROM client_checkpoint_due WHERE thread_id=? AND run_id=?").run(
+        id,
+        run.id,
+      );
+    });
+    return after;
   }
   async beforeSend(id: Id, command: CommandId): Promise<void> {
     while (this.flights.has(id)) await this.flights.get(id);
-    // Admission reserves this thread even when the maintenance pool is full.
+    // Admission holds this thread itself, over the whole capture and before, so no maintenance
+    // pass can capture the same due rows again. It never waits for the maintenance pool.
+    let completed = false;
+    let failure: unknown;
+    let failed = false;
+    const task = this.admit(id, command)
+      .then(() => {
+        completed = true;
+      })
+      .catch((error: unknown) => {
+        failed = true;
+        failure = error;
+      })
+      .finally(() => {
+        this.flights.delete(id);
+        if (completed)
+          try {
+            this.drainPending();
+          } catch {
+            // Left for the next drain.
+          }
+      });
+    this.flights.set(id, task);
+    await task;
+    if (failed) throw failure;
+  }
+  private async admit(id: Id, command: CommandId): Promise<void> {
     const pendingAfter = await this.capturePending(id);
     if (this.closing) throw new Error("daemon_shutting_down");
     let checkpoints: import("@ace/protocol").RunCheckpoints;

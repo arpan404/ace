@@ -3,11 +3,65 @@ import { promisify } from "node:util";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "vitest";
-import { Thread, Run, CommandId, AgentId } from "@ace/protocol";
+import { expect, test, vi } from "vitest";
+import { GitError, GitService, type Checkpoint } from "@ace/git";
+import { Thread, ThreadId, Run, CommandId, AgentId } from "@ace/protocol";
 import { Store } from "./store.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
 const git = promisify(execFile);
+/** Checkpoint captures held at the git edge, so a test can keep the maintenance pool busy. */
+class GatedCheckpoints extends GitService {
+  holding = false;
+  /** Resumed captures fail instead of running, except this thread's: its refs a test reads. */
+  private realThread?: string;
+  private held: Array<{ threadId: string; resolve: () => void }> = [];
+  private waits: Array<{ count: number; resolve: () => void }> = [];
+  override async createCheckpoint(options: {
+    worktree: string;
+    threadId: string;
+    label: string;
+  }): Promise<Checkpoint> {
+    if (this.holding)
+      await new Promise<void>((resolve) => {
+        this.held.push({ threadId: options.threadId, resolve });
+        for (const wait of this.waits.filter(({ count }) => this.held.length >= count)) {
+          this.waits = this.waits.filter((candidate) => candidate !== wait);
+          wait.resolve();
+        }
+      });
+    if (this.realThread !== undefined && this.realThread !== options.threadId)
+      throw new GitError("git_failed", "fixture capture failure");
+    return super.createCheckpoint(options);
+  }
+  /**
+   * Every held capture but this thread's will fail when resumed. Failing frees a pool slot the
+   * way a failed snapshot does, without taking one real snapshot per parked turn.
+   */
+  failCapturesOtherThan(threadId: string): void {
+    this.realThread = threadId;
+  }
+  waitFor(count: number): Promise<void> {
+    if (this.held.length >= count) return Promise.resolve();
+    return new Promise((resolve) => this.waits.push({ count, resolve }));
+  }
+  releaseThread(threadId: string): void {
+    const index = this.held.findIndex((entry) => entry.threadId === threadId);
+    if (index >= 0) this.held.splice(index, 1)[0]?.resolve();
+  }
+  releaseAll(): void {
+    for (let i = 0; i < 100 && this.held.length > 0; i++) this.held.shift()?.resolve();
+  }
+}
+/** A root turn of `threadId`; the test names them so the store paginates them. */
+const rootTurn = (threadId: string, id: string) =>
+  Run.parse({
+    id,
+    threadId,
+    agentId: AgentId.parse("root"),
+    trigger: "user",
+    state: "active",
+    startedAt: 1,
+  });
 test("turn checkpoint refs bracket actual edits and paged turn numbers survive a cold store", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-run-checkpoints-"));
   await git("git", ["init", root]);
@@ -275,6 +329,144 @@ test("a message sent right after a turn ends starts its turn from the checkpoint
     expect(turnDiff.patch).toContain("-after");
     expect(turnDiff.patch).toContain("+third");
   } finally {
+    await runtime.close();
+    await store.close();
+    await rm(root, { recursive: true, force: true });
+    await rm(data, { recursive: true, force: true });
+  }
+});
+
+test("a turn boundary held at admission takes one snapshot, even when a maintenance slot opens", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-run-held-"));
+  await git("git", ["init", root]);
+  await git("git", ["-C", root, "config", "user.name", "ace test"]);
+  await git("git", ["-C", root, "config", "user.email", "test@ace.local"]);
+  await writeFile(join(root, "file.txt"), "before\n");
+  await git("git", ["-C", root, "add", "file.txt"]);
+  await git("git", ["-C", root, "commit", "-m", "Initial"]);
+  const data = await mkdtemp(join(tmpdir(), "ace-run-store-"));
+  const store = new Store(join(data, "events.sqlite"));
+  const workspaceId = store.createWorkspace(root, "Project");
+  const newThread = (id: string, title: string) =>
+    Thread.parse({
+      id,
+      workspaceId,
+      provider: "codex",
+      rootAgentId: "root",
+      title,
+      status: { state: "new" },
+      createdAt: 1,
+      updatedAt: 1,
+    });
+  const thread = newThread("thread", "Follow up");
+  // The maintenance pool holds 16 captures. These turns fill every slot while the turn under
+  // test ends, so its own maintenance capture cannot start when the thread reports done.
+  const busy = Array.from({ length: 16 }, (_, i) => newThread(`busy-${i}`, `Busy ${i}`));
+  for (const created of [thread, ...busy])
+    store.appendEvents(created.id, [{ type: "thread.created", thread: created }]);
+  // A real snapshot finishes in milliseconds, so the pool cannot stay full on its own. Holding
+  // the captures at the git edge keeps every slot busy and lets admission's capture be held too.
+  const checkpoints = new GatedCheckpoints();
+  const runtime = new WorkspaceRuntime(store, data, () => 1000, { gitService: checkpoints });
+  const latestRun = async (threadId: ThreadId) => {
+    const page = (
+      await runtime.read({
+        type: "workspace.request",
+        requestId: "runs",
+        operation: {
+          op: "runs.list",
+          threadId,
+          before: Number.MAX_SAFE_INTEGER,
+          limit: 1,
+        },
+      })
+    ).result;
+    if (page.kind !== "runs") throw new Error("Expected runs");
+    return page.runs[0];
+  };
+  const busyRuns = busy.map((holder, i) => rootTurn(holder.id, `busy-${i}`));
+  const first = rootTurn(thread.id, "turn-one");
+  const second = rootTurn(thread.id, "turn-two");
+  try {
+    for (const [i, holder] of busy.entries()) {
+      await runtime.checkpoints.beforeSend(holder.id, CommandId.parse(`boundary-${i}`));
+      store.appendEvents(holder.id, [
+        { type: "run.started", run: busyRuns[i]! },
+        { type: "thread.updated", status: { state: "working", agents: 1 } },
+      ]);
+    }
+    await runtime.checkpoints.beforeSend(thread.id, CommandId.parse("first"));
+    store.appendEvents(thread.id, [
+      { type: "run.started", run: first },
+      { type: "thread.updated", status: { state: "working", agents: 1 } },
+    ]);
+    await writeFile(join(root, "file.txt"), "after\n");
+
+    checkpoints.holding = true;
+    for (const [i, holder] of busy.entries())
+      store.appendEvents(holder.id, [
+        { type: "run.ended", runId: busyRuns[i]!.id, state: "completed", endedAt: 2 },
+        { type: "thread.updated", status: { state: "done" } },
+      ]);
+    await checkpoints.waitFor(16);
+    // The normal order: the turn ends, then the thread reports done. With every slot held the
+    // maintenance capture is refused, so the "after" is still due when the next message arrives.
+    store.appendEvents(thread.id, [
+      { type: "run.ended", runId: first.id, state: "completed", endedAt: 3 },
+      { type: "thread.updated", status: { state: "done" } },
+    ]);
+    // Admission takes the due row without waiting for the pool, and is held here too.
+    const next = runtime.checkpoints.beforeSend(thread.id, CommandId.parse("second"));
+    await checkpoints.waitFor(17);
+    // Free two slots: the maintenance pass the second one allows must not capture the same row.
+    checkpoints.releaseThread(busy[0]!.id);
+    checkpoints.releaseThread(busy[1]!.id);
+    await vi.waitFor(() =>
+      expect(
+        busy
+          .slice(0, 2)
+          .map(
+            (holder, i) => store.snapshotThread(holder.id).runs[`busy-${i}`]?.checkpoints?.state,
+          ),
+      ).toEqual(["ready", "ready"]),
+    );
+    // Admission's own capture is the one that publishes the shared boundary.
+    checkpoints.releaseThread(thread.id);
+    await next;
+    // The parked pool is not what this test asserts. Another capture of this same turn, if one
+    // was let through, runs against Git so the refs show it; every other one fails.
+    checkpoints.failCapturesOtherThan(thread.id);
+    checkpoints.releaseAll();
+    await runtime.checkpoints.settled();
+
+    const ended = await latestRun(thread.id);
+    expect(ended?.id).toBe("turn-one");
+    expect(ended?.checkpoints?.state).toBe("ready");
+    if (!ended?.checkpoints?.before || !ended.checkpoints.after)
+      throw new Error("Expected checkpoint refs");
+    const refs = await checkpoints.listCheckpoints({ repo: root, threadId: thread.id });
+    // One "after" snapshot for the turn, and the same one the next turn starts from.
+    expect(refs.filter((ref) => ref.label === "After turn 1").map((ref) => ref.id)).toEqual([
+      ended.checkpoints.after,
+    ]);
+    const boundary = await runtime.git.diff({
+      worktree: root,
+      from: { kind: "checkpoint", id: ended.checkpoints.before },
+      to: { kind: "checkpoint", id: ended.checkpoints.after },
+    });
+    expect(boundary.patch).toContain("-before");
+    expect(boundary.patch).toContain("+after");
+
+    store.appendEvents(thread.id, [{ type: "run.started", run: second }]);
+    const followUp = await latestRun(thread.id);
+    expect(followUp?.id).toBe("turn-two");
+    expect(followUp?.checkpoints).toMatchObject({
+      before: ended.checkpoints.after,
+      state: "pending",
+    });
+  } finally {
+    checkpoints.failCapturesOtherThan(thread.id);
+    checkpoints.releaseAll();
     await runtime.close();
     await store.close();
     await rm(root, { recursive: true, force: true });
