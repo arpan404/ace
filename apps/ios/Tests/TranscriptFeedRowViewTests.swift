@@ -7,8 +7,8 @@ import Testing
 /// links (new closures) for every row, and comparing those as different re-rendered every row on
 /// screen, markdown and chips included (#2051).
 @Suite @MainActor struct TranscriptFeedRowViewTests {
-    private func block(_ id: String) throws -> BlockModel {
-        let json: [String: Any] = ["index": 0, "kind": "message", "items": ["\(id)-item"], "headed": false, "interactionId": ""]
+    private func block(_ id: String, kind: String = "message") throws -> BlockModel {
+        let json: [String: Any] = ["index": 0, "kind": kind, "items": ["\(id)-item"], "headed": false, "interactionId": ""]
         return BlockModel(id: id, row: try JSONDecoder().decode(BlockRow.self, from: JSONSerialization.data(withJSONObject: json)))
     }
     /// Links as a re-evaluated feed builds them: every closure new.
@@ -22,6 +22,20 @@ import Testing
     }
     private func client() -> ClientModel {
         ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { _, _, _, _ in fatalError("never connected") })
+    }
+
+    @Test func transcriptLeavesMoreRoomAroundThePersonsMessagesThanInsideAnAgentTurn() throws {
+        let thread = ThreadModel(id: "a")
+        let blocks = [
+            try block("ask", kind: "user"), try block("notice", kind: "event"), try block("work", kind: "work"), try block("answer"),
+            try block("next", kind: "user"), try block("follow-up", kind: "user"),
+            try block("brief", kind: "event"), try block("reply")
+        ]
+        thread.screen.blocks = Dictionary(uniqueKeysWithValues: blocks.map { ($0.id, $0) })
+        thread.screen.blockOrder = blocks.map(\.id)
+
+        let gaps = TranscriptFeedRow.rows(thread).map(\.room)
+        #expect(gaps == [24, 14, 24, 24, 24, 24, 24, 14])
     }
 
     @Test func roomForLivePillsMovesTheNewestMessageAboveThemInTheSameLayout() throws {
