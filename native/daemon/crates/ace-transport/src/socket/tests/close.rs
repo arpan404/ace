@@ -491,3 +491,60 @@ async fn a_peer_close_interrupting_a_local_close_does_not_send_it_twice() {
         other => panic!("expected Close, got {other:?}"),
     }
 }
+
+/// One masked client frame with `rsv1`, for a message the client compressed itself.
+fn masked_compressed(payload: &[u8]) -> Vec<u8> {
+    let mask = [0x5au8, 0xa5, 0x3c, 0xc3];
+    let mut frame = Vec::with_capacity(payload.len() + 14);
+    // FIN and RSV1, binary; a 16-bit length covers every compressed message here.
+    frame.push(0x80 | 0x40 | 0x2);
+    if payload.len() <= 125 {
+        frame.push(0x80 | payload.len() as u8);
+    } else {
+        frame.push(0x80 | 126);
+        frame.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+    }
+    frame.extend_from_slice(&mask);
+    frame.extend(
+        payload
+            .iter()
+            .enumerate()
+            .map(|(index, byte)| byte ^ mask[index % 4]),
+    );
+    frame
+}
+
+#[tokio::test]
+async fn a_compressed_message_that_inflates_past_the_limit_counts_as_inflated() {
+    use std::sync::Arc;
+
+    use super::super::open;
+    use crate::deflate::{Deflater, negotiate};
+    use crate::stats::Stats;
+
+    let stats = Stats::new();
+    let (server, mut client) = tokio::io::duplex(1 << 16);
+    let deflate = negotiate(Some(b"permessage-deflate"))
+        .expect("a valid offer")
+        .expect("deflate");
+    let (_handle, mut events) = open(Box::new(server), Some(deflate), Some(Arc::clone(&stats)));
+
+    let mut deflater = Deflater::new(15);
+    let compressed = deflater
+        .deflate(&vec![0u8; MAX_MESSAGE_BYTES + 1])
+        .expect("the message compresses");
+    client
+        .write_all(&masked_compressed(&compressed))
+        .await
+        .expect("the client writes");
+
+    match next(&mut events).await {
+        SocketEvent::Error { code, .. } => assert_eq!(code, "too_big"),
+        other => panic!("expected a too_big error, got {other:?}"),
+    }
+    assert_eq!(
+        stats.counts().inflated_in,
+        1,
+        "the refused message was still inflated, and T1b.5's evidence counts it"
+    );
+}

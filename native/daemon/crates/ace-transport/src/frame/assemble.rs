@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //! A message's fragments, joined as they arrive. `Assembler` owns the rules that
 //! depend on what is already in flight (which opcode may start, which may
-//! continue, the 1 MiB wire total); `MessageBody` owns the bytes, so T1b.3b's
+//! continue, the wire payload limit); `MessageBody` owns the bytes, so T1b.3b's
 //! inflating body can count the output during inflation instead of after.
 
-use super::{CloseCode, Frame, MAX_MESSAGE_BYTES, Opcode};
+use super::{CloseCode, Frame, FrameLimits, MAX_MESSAGE_BYTES, Opcode};
 
 /// `ws`'s `maxFragments` default (`websocket-server.js:73`): one message may not
 /// split into more data frames than this, empty fragments included.
@@ -32,23 +32,36 @@ pub trait MessageBody: Send {
     }
 }
 
-/// The bytes themselves: appends, refusing the byte past [`MAX_MESSAGE_BYTES`]
-/// with 1009. Compression's body (T1b.3b) puts inflation here.
-#[derive(Debug, Default)]
+/// Plain message bytes, bounded by the configured payload limit.
+#[derive(Debug)]
 pub struct Plain {
     buffer: Vec<u8>,
+    max_payload: usize,
 }
 
 impl Plain {
     pub fn new() -> Self {
         Self::default()
     }
+
+    pub(crate) fn with_payload_limit(max_payload: usize) -> Self {
+        Self {
+            buffer: Vec::new(),
+            max_payload,
+        }
+    }
+}
+
+impl Default for Plain {
+    fn default() -> Self {
+        Self::with_payload_limit(MAX_MESSAGE_BYTES)
+    }
 }
 
 impl MessageBody for Plain {
     fn feed(&mut self, fragment: &[u8], _fin: bool) -> Result<usize, CloseCode> {
         let total = self.buffer.len().saturating_add(fragment.len());
-        if total > MAX_MESSAGE_BYTES {
+        if total > self.max_payload {
             return Err(CloseCode::TooBig);
         }
         self.buffer.extend_from_slice(fragment);
@@ -75,6 +88,7 @@ pub struct Message {
 /// and never disturb a fragmented message.
 pub struct Assembler<B: MessageBody = Plain> {
     body: B,
+    limits: FrameLimits,
     /// The data frame whose continuation the reader may accept next, if any.
     pending: Option<Opcode>,
     /// Wire payload bytes of the message in flight, exactly as `ws` counts them.
@@ -99,8 +113,13 @@ impl Default for Assembler<Plain> {
 
 impl<B: MessageBody> Assembler<B> {
     pub fn with_body(body: B) -> Self {
+        Self::with_limits(body, FrameLimits::default())
+    }
+
+    pub(crate) fn with_limits(body: B, limits: FrameLimits) -> Self {
         Self {
             body,
+            limits,
             pending: None,
             total: 0,
             kind: None,
@@ -115,7 +134,7 @@ impl<B: MessageBody> Assembler<B> {
         if opcode.is_control() || length == 0 {
             return true;
         }
-        self.total.saturating_add(length) <= MAX_MESSAGE_BYTES
+        self.total.saturating_add(length) <= self.limits.max_payload
     }
 
     /// The rules that depend on the message already in flight
@@ -154,18 +173,11 @@ impl<B: MessageBody> Assembler<B> {
         if opcode.is_control() {
             return Ok(());
         }
-        self.fragments += 1;
-        if self.fragments > MAX_FRAGMENTS {
-            return Err(CloseCode::TooManyFragments);
-        }
         self.total = if fin {
             0
         } else {
             self.total.saturating_add(length)
         };
-        if fin {
-            self.fragments = 0;
-        }
         self.pending = if fin {
             None
         } else {
@@ -180,7 +192,20 @@ impl<B: MessageBody> Assembler<B> {
     /// Feeds one data frame, returning the message it completed. A control frame
     /// is not assembled and returns `None`; the caller handles it. Header state
     /// ([`Assembler::accept`]) is the reader's; this joins the bytes.
+    ///
+    /// `ws` counts a fragment in `getData`, once its payload is in
+    /// (`receiver.js:504`), so a frame the connection cut short is never
+    /// counted; the count is reset by the final frame (`:589`).
     pub fn push(&mut self, frame: Frame) -> Result<Option<Message>, CloseCode> {
+        if !frame.opcode.is_control() {
+            self.fragments += 1;
+            if self.fragments > self.limits.max_fragments {
+                return Err(CloseCode::TooManyFragments);
+            }
+            if frame.fin {
+                self.fragments = 0;
+            }
+        }
         let kind = match frame.opcode {
             Opcode::Text | Opcode::Binary => {
                 if self.kind.is_some() {

@@ -166,11 +166,21 @@ export function resetProbe(): void {
  * What happened since the reset: the longest gaps, and for each the deflate time inside it
  * (deflates that ended within the gap), plus every deflate's size.
  */
+/** The 99th percentile of a series, nearest rank: the value below which 99% of it falls. */
+function percentile99(values: readonly { ms: number }[]): number {
+  if (!values.length) return 0;
+  const sorted = values.toSorted((a, b) => a.ms - b.ms);
+  const rank = Math.max(1, Math.ceil(sorted.length * 0.99));
+  return sorted[rank - 1]?.ms ?? 0;
+}
+
 export function readProbe() {
   if (timer) clearTimeout(timer);
   timer = undefined;
   const longest = gaps.toSorted((a, b) => b.ms - a.ms).slice(0, 5);
   return {
+    // Every gap the episode recorded, not only the five longest: T1b.5's bench gates a p99.
+    gapP99Ms: Math.round(percentile99(gaps) * 10) / 10,
     longestGaps: longest.map((gap) => ({
       ms: Math.round(gap.ms * 10) / 10,
       deflateMs:
