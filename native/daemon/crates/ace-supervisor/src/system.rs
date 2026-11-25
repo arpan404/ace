@@ -360,6 +360,23 @@ fn all_pids_with_headroom() -> Option<Vec<u32>> {
 
 /// One system-wide walk answering every recorded group at once.
 pub fn take_group_snapshot(except: u32) -> GroupSnapshot {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        take_group_snapshot_unix(except)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        // Windows has no POSIX groups: nothing to walk, and nothing therefore unreadable.
+        let _ = except;
+        GroupSnapshot {
+            groups: HashMap::new(),
+            complete: true,
+        }
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn take_group_snapshot_unix(except: u32) -> GroupSnapshot {
     let mut groups: HashMap<u32, BTreeSet<(u32, String)>> = HashMap::new();
     let mut complete = true;
     #[cfg(target_os = "linux")]
