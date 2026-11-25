@@ -22,7 +22,7 @@ import type { StorageOwner } from "./types.ts";
 import { RETENTION_REVIEWER, retentionKinds, retentionPolicy } from "./data-retention-policy.ts";
 import { WorktreeBackups } from "./worktree-backups.ts";
 import { WorktreeBatches } from "./worktree-batches.ts";
-import { UsageScanner } from "./usage-scanner.ts";
+import { UsageScanner, type UsageScannerOptions } from "./usage-scanner.ts";
 import { UsageCache } from "./usage-cache.ts";
 import { UsageCoordinator, type UsageRuntime, type UsageScannerPort } from "./usage-schedule.ts";
 import { storageSchedule } from "./schedule.ts";
@@ -47,13 +47,17 @@ export class StorageService {
   constructor(
     owner: StorageOwner,
     limits: Partial<CompactionLimits> = {},
-    usage: { scanner?: UsageScannerPort; runtime?: Partial<UsageRuntime> } = {},
+    usage: {
+      scanner?: UsageScannerPort;
+      runtime?: Partial<UsageRuntime>;
+      transcripts?: UsageScannerOptions;
+    } = {},
   ) {
     this.owner = owner;
     this.limits = { chunkPages: 256, maxChunks: 4096, pause: () => setImmediate(), ...limits };
     initializeThreadCleanup(owner.store);
     this.journal = new StorageJournal(owner.store);
-    this.inventory = new StorageInventory(owner);
+    this.inventory = new StorageInventory(owner, usage.transcripts?.spawn);
     this.backups = new WorktreeBackups(owner);
     this.usageCoordinator = new UsageCoordinator(
       new UsageCache(owner.store, owner.root),
@@ -529,13 +533,14 @@ export class StorageService {
   }
   stop(): void {
     this.closed = true;
+    this.inventory.stop();
     this.usageCoordinator.stop();
   }
   /** Idempotent: closing the pinned root again could close a descriptor number reused elsewhere. */
   close(): Promise<void> {
     this.stop();
     return (this.closing ??= Promise.all([
-      this.tail.then(() => this.inventory.files.close()),
+      this.tail.then(() => this.inventory.close()),
       this.usageCoordinator.close(),
     ]).then(() => {}));
   }

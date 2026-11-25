@@ -11,7 +11,7 @@ import { descriptorNames } from "@ace/workspace/descriptor";
 import { transcriptBytes, transcriptQueries } from "./transcript.ts";
 import { storageFileRoots } from "./usage-walk-roots.ts";
 import { UsageWalk, missingUsagePath, type UsageBudget } from "./usage-walk.ts";
-import type { UsageWorkerInput } from "./usage-worker-wire.ts";
+import type { TranscriptWorkerInput, UsageWorkerInput } from "./usage-worker-wire.ts";
 
 const ThreadRow = z.object({ id: ThreadId });
 const WorktreeRow = z.object({ path: z.string(), record: z.string() });
@@ -24,6 +24,60 @@ const WorktreeRecord = z.object({
   tree_dev: z.number(),
   tree_ino: z.number(),
 });
+
+function openEvents(root: PinnedDirectory, canonical: string): DatabaseSync {
+  const before = root.fileMetadata("events.sqlite");
+  if ((before.mode & 0o170000) !== 0o100000) throw new Error("storage_usage_unsafe_database");
+  for (const name of ["events.sqlite-wal", "events.sqlite-shm", "events.sqlite-journal"]) {
+    try {
+      if ((root.metadata(name).mode & 0o170000) !== 0o100000)
+        throw new Error("storage_usage_unsafe_database");
+    } catch (error) {
+      if (!missingUsagePath(error)) throw error;
+    }
+  }
+  const db = new DatabaseSync(join(canonical, "events.sqlite"), { readOnly: true, timeout: 100 });
+  try {
+    const after = root.fileMetadata("events.sqlite");
+    if (before.dev !== after.dev || before.ino !== after.ino || !root.matches(canonical))
+      throw new Error("storage_usage_database_changed");
+    return db;
+  } catch (error) {
+    db.close();
+    throw error;
+  }
+}
+
+/** Cleanup needs exact sizes, but even one thread's aggregate can read seconds of history. */
+export async function measureTranscripts(
+  input: z.infer<typeof TranscriptWorkerInput>,
+  signal: AbortSignal,
+): Promise<number[]> {
+  const root = PinnedDirectory.atBoundary(input.root);
+  let db: DatabaseSync | undefined;
+  try {
+    const canonical = realpathSync(input.root);
+    if (!root.matches(canonical)) throw new Error("storage_usage_root_changed");
+    const connection = (db = openEvents(root, canonical));
+    const queries = transcriptQueries(connection);
+    const statements = new Map(queries.map((sql) => [sql, connection.prepare(sql)]));
+    const sizes: number[] = [];
+    for (const id of input.threads) {
+      const bytes = await transcriptBytes(
+        (sql) => statements.get(sql) ?? connection.prepare(sql),
+        id,
+        queries,
+        () => !signal.aborted,
+      );
+      if (bytes === undefined) throw new Error("storage_usage_cancelled");
+      sizes.push(bytes);
+    }
+    return sizes;
+  } finally {
+    db?.close();
+    root.closeSync();
+  }
+}
 
 /** Called only in the isolate. Clock access and SQLite connection ownership live here. */
 export async function scanUsage(
@@ -82,11 +136,7 @@ export async function scanUsage(
           if (!missingUsagePath(error)) throw error;
         }
       }
-      const before = root.fileMetadata("events.sqlite");
-      db = new DatabaseSync(join(canonical, "events.sqlite"), { readOnly: true, timeout: 100 });
-      const after = root.fileMetadata("events.sqlite");
-      if (before.dev !== after.dev || before.ino !== after.ino || !root.matches(canonical))
-        throw new Error("storage_usage_database_changed");
+      db = openEvents(root, canonical);
       usage.reclaimableDatabaseBytes = readSqlitePageSpace(db).reclaimableBytes;
     } catch {
       db?.close();
