@@ -155,7 +155,8 @@ fn apply_delta_to_stored(
         }
         Item::Message { parts, .. } if field == "text" => {
             match parts.last_mut() {
-                Some(ContentPart::Text { text, source }) => {
+                // packages/projection/src/delta.ts:232 appends to the existing text part.
+                Some(ContentPart::Text { text, source, .. }) => {
                     let mut source_data =
                         source
                             .as_ref()
@@ -174,10 +175,8 @@ fn apply_delta_to_stored(
                         offset: data.offset,
                     });
                 }
-                _ => parts.push(ContentPart::Text {
-                    text: append.clone(),
-                    source: None,
-                }),
+                // packages/projection/src/delta.ts:233 creates a fresh text part.
+                _ => parts.push(ContentPart::text(append.clone())),
             }
             Some(())
         }
@@ -258,4 +257,82 @@ pub fn append_item(
         .map(|record| record.agent.status.state() == "unresponsive")
         .unwrap_or(false);
     Some(created || changed || unresponsive)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::json_io::{parse_typed, to_value};
+    use crate::state::{CoreConfig, create_thread_state};
+
+    #[test]
+    fn content_part_extras_round_trip_and_stay_with_the_original_part() {
+        let mut state = create_thread_state(
+            "t".to_owned(),
+            None,
+            CoreConfig {
+                provider: "claude".to_owned(),
+                silence_ms: 30_000.0,
+                liveness: None,
+            },
+        )
+        .unwrap();
+        let mut ids = |kind: &str| Some(kind.to_owned());
+        let mut ctx = ApplyContext {
+            now: 1,
+            ids: &mut ids,
+            resolving_interactions: None,
+        };
+        let mut events = Vec::new();
+        let agent_id = crate::tree::ensure_agent(&mut state, "a", &mut ctx, &mut events)
+            .unwrap()
+            .agent
+            .id
+            .clone();
+        let item = parse_typed(&format!(
+            r#"{{"type":"message","id":"i","agentId":"{agent_id}","createdAt":1,
+              "parts":[{{"type":"text","text":"a","future":[1,null]}}],"role":"assistant"}}"#,
+        ))
+        .unwrap();
+        state.items.insert("i".to_owned(), item);
+        append_item(
+            &mut state,
+            "a",
+            "i",
+            "text",
+            &JsString::from("b"),
+            &mut ctx,
+            &mut events,
+        )
+        .unwrap();
+        let Item::Message { parts, .. } = &state.items["i"] else {
+            panic!("expected a message");
+        };
+        let stored = ace_json::ser::to_string(&parts[0]).unwrap();
+        assert_eq!(stored, r#"{"type":"text","text":"ab","future":[1,null]}"#);
+        assert!(matches!(parts[0], ContentPart::Text { .. }));
+
+        let replacement = parse_typed(r#"{"type":"message","parts":[{"type":"image","mimeType":"image/png","url":"https://example.com/image.png"}]}"#)
+            .unwrap();
+        upsert_item(&mut state, "a", "i", &replacement, &mut ctx, &mut events).unwrap();
+        append_item(
+            &mut state,
+            "a",
+            "i",
+            "text",
+            &JsString::from("c"),
+            &mut ctx,
+            &mut events,
+        )
+        .unwrap();
+        let Item::Message { parts, .. } = &state.items["i"] else {
+            panic!("expected a message");
+        };
+        assert_eq!(
+            to_value(parts),
+            parse_typed::<Json>(
+                r#"[{"type":"image","mimeType":"image/png","url":"https://example.com/image.png"},{"type":"text","text":"c"}]"#
+            ).unwrap()
+        );
+    }
 }

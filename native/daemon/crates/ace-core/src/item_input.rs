@@ -129,6 +129,7 @@ pub fn merge_candidate(
     {
         overlay_value(&mut candidate, &to_map(previous));
     }
+    // packages/core/src/item-input.ts:83-84 reuses omitted parts or replaces the entire list.
     overlay(&mut candidate, patch);
     candidate.insert("id".to_owned(), Json::from(base.id.clone()));
     candidate.insert("agentId".to_owned(), Json::from(base.agent_id.clone()));

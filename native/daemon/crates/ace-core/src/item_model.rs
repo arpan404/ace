@@ -284,6 +284,8 @@ pub enum ContentPart {
             serialize_with = "crate::json_io::serialize_opt_raw"
         )]
         invocation: Option<ace_json::Raw>,
+        #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+        extra: serde_json::Map<String, serde_json::Value>,
     },
     /// Plain text, with its stream source when it is a preview. A JavaScript string: a
     /// provider can split a surrogate pair across frames, and the units must survive.
@@ -293,6 +295,8 @@ pub enum ContentPart {
         text: JsString,
         #[serde(skip_serializing_if = "Option::is_none")]
         source: Option<TextSource>,
+        #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+        extra: serde_json::Map<String, serde_json::Value>,
     },
     /// An image by URL.
     #[serde(rename = "image")]
@@ -300,6 +304,8 @@ pub enum ContentPart {
         #[serde(rename = "mimeType")]
         mime_type: String,
         url: String,
+        #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+        extra: serde_json::Map<String, serde_json::Value>,
     },
     /// A file by path, with bounded content when the daemon prepared it.
     #[serde(rename = "file")]
@@ -311,7 +317,19 @@ pub enum ContentPart {
         name: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         content: Option<FileContent>,
+        #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+        extra: serde_json::Map<String, serde_json::Value>,
     },
+}
+
+impl ContentPart {
+    pub(crate) fn text(text: JsString) -> Self {
+        Self::Text {
+            text,
+            source: None,
+            extra: Default::default(),
+        }
+    }
 }
 
 /// The JSON behind a vetted-but-opaque leaf: validated structurally,
