@@ -88,6 +88,10 @@ const TERMINAL_TOTAL: usize = 4096;
 const TERMINAL_PAGES: usize = 64;
 /// The idle deadline's facade key.
 pub const IDLE_TIMER: &str = "host:idle";
+/// The error every call fails with when a channel callback unwinds: a bug in
+/// the shell, not a protocol event (behaviour.md, "A channel callback that
+/// unwinds poisons its host").
+pub const HOST_FAILED: &str = "Codex host failed: a channel callback unwound";
 /// A shared host's pending-request bound (`host.ts:256`).
 const SHARED_MAX_PENDING: usize = 1024;
 /// A shared host's server-request bound (`host.ts:256`).
@@ -557,6 +561,8 @@ struct Inner {
     next_attempt: u64,
     ready: Handshake,
     idle_armed: bool,
+    /// A channel callback unwound: the host cannot be trusted with more.
+    poisoned: bool,
     out: Vec<HostEffect>,
 }
 

@@ -282,71 +282,31 @@ fn a_diagnostic_line_is_published_after_the_settlement_before_it() {
     );
 }
 
-/// A sink that unwinds once does not wedge publication: the turn it held is
-/// given back, and later inputs are published as usual.
+/// A sink that unwinds is a bug, not a protocol event: the drain catches it
+/// once and poisons the host. Every pending call fails with the host's error,
+/// the channels exit as after a crash, the shell is told the host is retired
+/// so the pool can replace it, and nothing is left queued — whether the write
+/// had reached stdin or not.
 #[test]
-fn a_sink_panic_releases_the_publication_turn() {
-    let sink = Arc::new(Holding::default());
-    let host = sink.start();
-    host.request(
-        1,
-        "thread/read",
-        Some(&ace_json::json!({"threadId": "t"})),
-        7,
-        Timeout::After(1_000.0),
-    )
-    .expect("the call is queued");
-    let deadline = sink.deadline(&host, 1_000.0);
+fn a_sink_panic_on_a_write_poisons_the_host_before_or_after_submission() {
+    for submitted in [false, true] {
+        let sink = Arc::new(Holding::default());
+        let host = sink.start();
+        // A call with no deadline: only the poison settles it. Its write is
+        // acknowledged, so the next one is handed out.
+        let _ = sink.pump(&host, || {
+            host.request(
+                1,
+                "thread/read",
+                Some(&ace_json::json!({"threadId": "t"})),
+                7,
+                Timeout::Disabled,
+            )
+            .expect("the call is queued");
+        });
+        let before = sink.published().len();
 
-    sink.lose_next_settlement();
-    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| host.timer(&deadline)));
-    assert!(unwound.is_err(), "the sink unwinds on the settlement");
-
-    // The next input still reaches the shell, so the turn was not left held.
-    let before = sink.published().len();
-    host.request(
-        1,
-        "thread/read",
-        Some(&ace_json::json!({"threadId": "t"})),
-        8,
-        Timeout::Disabled,
-    )
-    .expect("a later call is queued");
-    let published = sink.published();
-    assert!(
-        published[before..]
-            .iter()
-            .any(|thing| matches!(thing, Published::Effect(HostEffect::Write { .. }))),
-        "a later input is still published: {:?}",
-        &published[before..]
-    );
-}
-
-/// A sink that unwinds on a write never submits it: that write's ticket is
-/// failed in the peer, as TS fails a write whose submission throws
-/// (`rpc-writer.ts:107`–`:120`), so the next write goes out and is
-/// acknowledged.
-#[test]
-fn a_sink_unwind_on_a_write_frees_its_ticket_for_the_next_one() {
-    let sink = Arc::new(Holding::default());
-    let host = sink.start();
-
-    sink.lose_next_write();
-    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        host.request(
-            1,
-            "thread/read",
-            Some(&ace_json::json!({"threadId": "t"})),
-            7,
-            Timeout::Disabled,
-        )
-        .expect("the call is queued");
-    }));
-    assert!(unwound.is_err(), "the sink unwinds on the write");
-
-    // The ticket was released, so the next line is written and acknowledged,
-    // and the call whose line was lost settles instead of waiting forever.
-    let (effects, lines) = sink.pump(&host, || {
+        sink.lose_next_write(submitted);
         host.request(
             1,
             "thread/read",
@@ -354,21 +314,81 @@ fn a_sink_unwind_on_a_write_frees_its_ticket_for_the_next_one() {
             8,
             Timeout::Disabled,
         )
-        .expect("the next call is queued");
-    });
+        .expect("the call is queued");
+
+        assert!(
+            host.poisoned(),
+            "submitted={submitted}: the host is poisoned"
+        );
+        let published = sink.published();
+        let failed = published[before..].iter().any(|thing| {
+            matches!(
+                thing,
+                Published::Effect(HostEffect::Settle { id: 7, result: Err(error) })
+                    if error.message() == HOST_FAILED
+            )
+        });
+        assert!(
+            failed,
+            "submitted={submitted}: the pending call fails with the host's error: {:?}",
+            &published[before..]
+        );
+        assert!(
+            published[before..].iter().any(|thing| matches!(
+                thing,
+                Published::Effect(HostEffect::Exited { tenant: 1, .. })
+            )),
+            "submitted={submitted}: the channel exits as after a crash"
+        );
+        assert!(
+            published[before..]
+                .iter()
+                .any(|thing| matches!(thing, Published::Effect(HostEffect::Retired))),
+            "submitted={submitted}: the shell is told to replace the host"
+        );
+        assert_eq!(host.queued(), 0, "nothing stays queued");
+        assert!(!host.available());
+        // A dead host decides nothing more.
+        host.line(&renamed("after"));
+        assert_eq!(host.queued(), 0);
+    }
+}
+
+/// The pool starts a new host for the next open once a poisoned one is retired.
+#[test]
+fn a_poisoned_host_is_replaced_by_the_pool() {
+    use crate::session::pool::{Channel, HostPool};
+
+    let sink = Arc::new(Holding::default());
+    let host = sink.start();
+    let mut pool = HostPool::new(None).expect("the default idle time");
+    assert!(pool.claim("key"));
+    pool.started("key", Arc::clone(&host));
+    assert_eq!(pool.open_channel("key"), Channel::Reuse);
+
+    let _ = sink.pump(&host, || {});
+    sink.lose_next_write(false);
+    host.request(
+        1,
+        "thread/read",
+        Some(&ace_json::json!({"threadId": "t"})),
+        7,
+        Timeout::Disabled,
+    )
+    .expect("the call is queued");
+    assert!(host.poisoned());
     assert!(
-        lines.iter().any(|line| line.contains("thread/read")),
-        "the shared stdin moves on: the next write is submitted: {lines:?}"
+        sink.published()
+            .iter()
+            .any(|thing| matches!(thing, Published::Effect(HostEffect::Retired))),
+        "the pool hears the retirement"
     );
-    assert!(
-        effects.iter().any(|effect| matches!(
-            effect,
-            HostEffect::Settle {
-                id: 7,
-                result: Err(_)
-            }
-        )),
-        "the call whose write was lost settles: {effects:#?}"
+
+    pool.released("key", &host);
+    assert_eq!(
+        pool.open_channel("key"),
+        Channel::Start,
+        "the next request starts a new host"
     );
 }
 
@@ -579,8 +599,7 @@ struct Holding {
     read: Mutex<usize>,
     hold: Mutex<bool>,
     hold_frame: Mutex<bool>,
-    lose: Mutex<bool>,
-    lose_write: Mutex<bool>,
+    lose_write: Mutex<Option<bool>>,
     parked: Mutex<bool>,
     parked_wake: Condvar,
     release: Mutex<bool>,
@@ -694,14 +713,9 @@ impl Holding {
         *self.hold_frame.lock().expect("hold frame") = true;
     }
 
-    /// Unwinds on the next write, once.
-    fn lose_next_write(&self) {
-        *self.lose_write.lock().expect("lose write") = true;
-    }
-
-    /// Unwinds on the next settlement, once.
-    fn lose_next_settlement(&self) {
-        *self.lose.lock().expect("lose") = true;
+    /// Unwinds on the next write, once, after acknowledging it when `submitted`.
+    fn lose_next_write(&self, submitted: bool) {
+        *self.lose_write.lock().expect("lose write") = Some(submitted);
     }
 
     fn wait_parked(&self) -> bool {
@@ -764,25 +778,20 @@ impl HostSink for Holding {
         }
         let lose_write = {
             let mut lose = self.lose_write.lock().expect("lose write");
-            let losing = *lose && matches!(effect, HostEffect::Write { .. });
-            if losing {
-                *lose = false;
+            match (*lose, &effect) {
+                (Some(submitted), HostEffect::Write { ticket, .. }) => {
+                    *lose = None;
+                    Some((submitted, *ticket))
+                }
+                _ => None,
             }
-            losing
         };
-        if lose_write {
-            panic!("the shell lost this write");
-        }
-        let lose = {
-            let mut lose = self.lose.lock().expect("lose");
-            let losing = *lose && matches!(effect, HostEffect::Settle { .. });
-            if losing {
-                *lose = false;
+        if let Some((submitted, ticket)) = lose_write {
+            if submitted {
+                // The bytes reached the child's stdin before the shell unwound.
+                host.written(ticket);
             }
-            losing
-        };
-        if lose {
-            panic!("the shell lost this settlement");
+            panic!("the shell unwinds on a write");
         }
         let hold = {
             let mut hold = self.hold.lock().expect("hold");

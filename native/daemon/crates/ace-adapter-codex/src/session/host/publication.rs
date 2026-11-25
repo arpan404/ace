@@ -37,6 +37,13 @@ impl Publication {
         self.queue.push_back(Queued { effect, bytes });
     }
 
+    /// Forgets everything waiting: a shell that unwound gets none of it.
+    fn clear(&mut self) {
+        self.queue.clear();
+        self.frames = 0;
+        self.bytes = 0;
+    }
+
     /// The effect left the queue: its reservation goes with it.
     fn release(&mut self, queued: &Queued) {
         if matches!(queued.effect, HostEffect::Frame { .. }) {
@@ -63,9 +70,6 @@ pub const INTAKE_FRAMES: usize = 256;
 pub const INTAKE_FRAMES_RESUME: usize = 64;
 pub const INTAKE_BYTES: usize = 4 * 1024 * 1024;
 pub const INTAKE_BYTES_RESUME: usize = 1024 * 1024;
-
-/// The error a call whose write the shell could not submit settles with.
-const WRITE_LOST: &str = "JSON-RPC write failed";
 
 /// What a shell does with the effects the host decides: it applies one effect
 /// at a time, in the order `effect` is called, and it may run another input
@@ -102,34 +106,30 @@ impl Host {
         let (result, publish) = {
             let mut inner = self.lock();
             let result = run(&mut inner);
-            let mut publication = self.publication();
-            // A frame decided while the queue is empty leaves at once, so only
-            // a backlog pays for measuring it.
-            let backlogged = publication.publishing || !publication.queue.is_empty();
-            for effect in inner.out.drain(..) {
-                let bytes = match &effect {
-                    HostEffect::Frame { data, .. } if backlogged => data.to_json().len(),
-                    _ => 0,
-                };
-                publication.hold(effect, bytes);
+            // A poisoned host has no shell left to hand anything to.
+            if inner.poisoned {
+                inner.out.clear();
+                (result, false)
+            } else {
+                let mut publication = self.publication();
+                // A frame decided while the queue is empty leaves at once, so
+                // only a backlog pays for measuring it.
+                let backlogged = publication.publishing || !publication.queue.is_empty();
+                for effect in inner.out.drain(..) {
+                    let bytes = match &effect {
+                        HostEffect::Frame { data, .. } if backlogged => data.to_json().len(),
+                        _ => 0,
+                    };
+                    publication.hold(effect, bytes);
+                }
+                self.pace(&mut publication);
+                (result, self.claim(&mut publication))
             }
-            self.pace(&mut publication);
-            (result, self.claim(&mut publication))
         };
         if publish {
             self.publish();
         }
         result
-    }
-
-    /// A write the sink never submitted: the peer releases its ticket, settles
-    /// the call it carried and hands out the next line. Its effects wait for
-    /// the next input, which claims the turn this unwinding drain gives back.
-    fn write_lost(&self, ticket: u64) {
-        self.input(|inner| {
-            let peer = inner.peer.write_failed(ticket, WRITE_LOST);
-            inner.apply(peer);
-        });
     }
 
     /// Closes the gate while the backlog is at the intake budget, and reopens
@@ -162,11 +162,9 @@ impl Host {
 
     /// Hands the queued effects to the sink, one at a time, in order, until
     /// the queue is empty. A decision made from inside an effect joins this
-    /// same queue and follows the effects already decided. A sink that unwinds
-    /// gives the turn back on its way out (`Claim`), so one panic never wedges
-    /// publication; the effect it was given is the one that is lost, and a
-    /// write it never submitted has its ticket failed in the peer (`Submitted`)
-    /// so the shared stdin moves on.
+    /// same queue and follows the effects already decided. An unwind in the
+    /// sink is a bug, not a protocol event: it poisons the host once, here, and
+    /// the effects that poison decides are what the shell hears next.
     fn publish(&self) {
         let mut claim = Claim {
             host: self,
@@ -196,39 +194,78 @@ impl Host {
                 let mut publication = self.publication();
                 self.pace(&mut publication);
             }
-            let mut submitted = Submitted {
-                host: self,
-                done: false,
-                ticket: match &next.1 {
-                    HostEffect::Write { ticket, .. } => Some(*ticket),
-                    _ => None,
-                },
-            };
-            next.0.effect(self, next.1);
-            submitted.done = true;
+            let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                next.0.effect(self, next.1);
+            }));
+            if unwound.is_err() {
+                if self.poisoned() {
+                    // The shell unwound again on the poison's own effects:
+                    // drop the rest rather than hand it another.
+                    self.publication().clear();
+                    self.publication().publishing = false;
+                    claim.held = false;
+                    return;
+                }
+                self.poison();
+                continue;
+            }
         }
     }
 }
 
-/// The write `publish` is handing to the sink. Dropping it with a ticket still
-/// its own (a sink that unwound before submitting) fails that write in the
-/// peer, so its slot is released and the next line goes out: TS's writer does
-/// the same when `stream.write` throws (`rpc-writer.ts:107`–`:120`).
-struct Submitted<'a> {
-    host: &'a Host,
-    ticket: Option<u64>,
-    done: bool,
-}
-
-impl Drop for Submitted<'_> {
-    fn drop(&mut self) {
-        if self.done {
-            return;
-        }
-        let Some(ticket) = self.ticket else {
-            return;
+impl Host {
+    /// A channel callback unwound. A panic in the shell is a bug, not a
+    /// protocol event, so the host ends as a crash would: every call still
+    /// pending fails with `HOST_FAILED`, every channel exits, the child is
+    /// stopped and the pool is told to replace the host. Whatever was queued
+    /// for the sink that unwound is dropped. Called once, from `publish`.
+    ///
+    /// TS has no equivalent: a throwing callback there is an uncaught error
+    /// (`docs/engine/behaviour.md`).
+    fn poison(&self) {
+        let publish = {
+            let mut inner = self.lock();
+            if inner.poisoned {
+                return;
+            }
+            inner.poisoned = true;
+            // Every call still waiting fails with the host's error.
+            let closed = inner.peer.close(HOST_FAILED);
+            inner.apply(closed);
+            // The child stops and the channels leave as after a crash.
+            inner.retire(Retirement::RpcFailed, true);
+            let exit = HostExit {
+                reason: ExitReason::Exit,
+                code: None,
+                signal: None,
+                pid: inner.pid,
+                output_drained: false,
+            };
+            inner.exited(exit);
+            let mut publication = self.publication();
+            // The sink that unwound hears nothing more of what it was queued.
+            publication.clear();
+            for effect in inner.out.drain(..) {
+                publication.hold(effect, 0);
+            }
+            self.pace(&mut publication);
+            self.claim(&mut publication)
         };
-        self.host.write_lost(ticket);
+        if publish {
+            self.publish();
+        }
+    }
+
+    /// A channel callback unwound and the host was retired: nothing else is
+    /// decided, published or started on it.
+    pub fn poisoned(&self) -> bool {
+        self.lock().poisoned
+    }
+
+    /// Effects waiting for the shell. A poisoned host leaves none behind.
+    #[cfg(test)]
+    pub(super) fn queued(&self) -> usize {
+        self.publication().queue.len()
     }
 }
 

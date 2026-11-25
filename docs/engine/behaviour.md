@@ -527,6 +527,13 @@ ticks>` from `/proc/sys/kernel/random/boot_id` and `/proc/<pid>/stat`, read twic
   every reader (`process.ts`, `line-reader.ts:31`, `flow-control.ts:2`).
 - **JSON-RPC** over stdio is one peer per process with bounded pending requests, timers and
   method-not-found replies (`JsonRpcPeer`, `jsonrpc.ts:61`).
+- **A channel callback that unwinds poisons its host** (native only, E3-codex.2): a panic in the
+  shell's sink is a bug, not a protocol event, so the host catches it once at the drain, fails
+  every pending call with `Codex host failed: a channel callback unwound`, exits its channels as
+  after a crash, stops the child and lets the pool start a replacement. Queued effects are
+  dropped, never replayed to a sink that unwound. TypeScript has no equivalent: a throwing
+  JavaScript callback there is an uncaught error, with no defined recovery and no replacement
+  host.
 
 ## 16. The adapters
 

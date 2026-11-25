@@ -39,6 +39,7 @@ impl Host {
                 next_attempt: 0,
                 ready: Handshake::Initializing,
                 idle_armed: false,
+                poisoned: false,
                 out: Vec::new(),
             }),
             publication: Mutex::new(Publication::default()),
