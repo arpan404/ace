@@ -357,10 +357,18 @@ export type TransportCounts = NativeHandled;
 interface EvidenceListener {
   listener: TransportListenerName;
   port: number;
+  /** This listener's own id in the evidence file, unique within this process. */
+  instance: number;
   counts(): NativeHandled;
   /** The counts already written for this listener, so a line holds only the change. */
   written: NativeHandled;
 }
+
+/**
+ * The id the next native listener gets in the evidence file (T1b.5). A listener is one instance
+ * from its bind to its close, so two listeners on the same port in turn are never confused.
+ */
+let instances = 0;
 
 /** Created only when `ACE_TRANSPORT_EVIDENCE` names a file. */
 let evidence: Set<EvidenceListener> | undefined;
@@ -382,17 +390,28 @@ function appendEvidence(path: string, line: object): void {
 
 /**
  * A native listener bound on `port` (T1b.1b). The line proves a bind and nothing else; what the
- * listener handled is the close line's, or a `flushTransportEvidence()` line's.
+ * listener handled is the close line's, or a `flushTransportEvidence()` line's. Returns this
+ * listener's instance id, which its every later line carries.
  */
-export function noteTransportStart(listener: TransportListenerName, port: number): void {
+export function noteTransportStart(listener: TransportListenerName, port: number): number {
+  instances += 1;
   const path = evidencePath();
-  if (path === undefined) return;
-  appendEvidence(path, { pid: process.pid, listener, port, event: "bind", backend: "native" });
+  if (path !== undefined)
+    appendEvidence(path, {
+      pid: process.pid,
+      listener,
+      port,
+      instance: instances,
+      event: "bind",
+      backend: "native",
+    });
+  return instances;
 }
 
 /**
  * One lifecycle line for a native listener: `bind-failed` (the requested port and the OS code),
- * `close-requested` (`bound` says whether the bind had landed) or `close` (with the counts).
+ * `close-requested` (`bound` says whether the bind had landed, and `instance` is absent when it
+ * had not) or `close` (with the counts). A line of a bound listener carries its `instance`.
  */
 export function noteTransportEvent(
   listener: TransportListenerName,
@@ -412,10 +431,11 @@ export function noteTransportEvent(
 export function registerTransportListener(
   listener: TransportListenerName,
   port: number,
+  instance: number,
   counts: () => NativeHandled,
 ): () => void {
   if (evidencePath() === undefined) return () => {};
-  const entry: EvidenceListener = { listener, port, counts, written: counts() };
+  const entry: EvidenceListener = { listener, port, instance, counts, written: counts() };
   (evidence ??= new Set()).add(entry);
   return () => {
     evidence?.delete(entry);
@@ -446,6 +466,7 @@ export function flushTransportEvidence(): void {
       pid: process.pid,
       listener: entry.listener,
       port: entry.port,
+      instance: entry.instance,
       event: "handled",
       backend: "native",
       ...counted,
