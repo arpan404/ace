@@ -120,3 +120,25 @@ fn limit_integer(object: &Map, key: &str, min: f64, max: f64) -> Result<Option<f
         Some(_) => Err(SessionError::Limits(format!("{key} is not a number"))),
     }
 }
+
+impl CursorLimits {
+    /// The parsed limits as the JSON `Limits.parse` produced: every key, in the schema's order
+    /// (`contracts.ts:18`-`:29`). `session.ts:211` sends exactly this object.
+    pub fn to_value(&self) -> Value {
+        let mut limits = Map::with_capacity(13);
+        limits.insert("maxWorkers", Value::from(self.max_workers));
+        limits.insert("maxFrameBytes", Value::from(self.max_frame_bytes));
+        limits.insert("maxPendingBytes", Value::from(self.max_pending_bytes));
+        limits.insert("maxCallbacks", Value::from(self.max_callbacks));
+        limits.insert("maxIdentities", Value::from(self.max_identities));
+        limits.insert("maxInputBytes", Value::from(self.max_input_bytes));
+        limits.insert("maxCheckpointBytes", Value::from(self.max_checkpoint_bytes));
+        limits.insert("historyPageSize", Value::from(self.history_page_size));
+        limits.insert("heapMb", Value::from(self.heap_mb));
+        limits.insert("timeoutMs", Value::from(self.timeout_ms));
+        limits.insert("sendTimeoutMs", Value::from(self.send_timeout_ms));
+        limits.insert("ackTimeoutMs", Value::from(self.ack_timeout_ms));
+        limits.insert("graceMs", Value::from(self.grace_ms));
+        Value::Object(limits)
+    }
+}

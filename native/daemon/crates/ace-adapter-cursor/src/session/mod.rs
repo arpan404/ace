@@ -6,9 +6,13 @@
 
 pub mod ack;
 pub mod bounded;
+pub mod commands;
+pub mod core;
 pub mod envelope;
 pub mod error;
+pub mod frames;
 pub mod host;
+pub mod io;
 
 pub use ack::{Ack, AckBook};
 pub use bounded::{BoundedError, DEFAULT_MAX_BYTES, bounded_check, bounded_json};
