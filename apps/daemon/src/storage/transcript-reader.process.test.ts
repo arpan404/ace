@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { afterEach, expect, test } from "vitest";
 import { StorageInventory } from "./inventory.ts";
 import { storageFixture } from "./test-support.ts";
+import type { TranscriptReaderOptions } from "./transcript-reader.ts";
 
 const fixtures: Awaited<ReturnType<typeof storageFixture>>[] = [];
 const inventories: StorageInventory[] = [];
@@ -32,11 +33,11 @@ function spawnWorkers(script: string) {
 
 function inventoryFor(
   f: Awaited<ReturnType<typeof storageFixture>>,
-  spawnWorker: () => ChildProcess,
+  transcripts: TranscriptReaderOptions,
 ) {
   const inventory = new StorageInventory(
     { root: f.root, now: f.now, id: () => "inventory", store: f.store, services: f.services },
-    spawnWorker,
+    transcripts,
   );
   inventories.push(inventory);
   return inventory;
@@ -46,10 +47,37 @@ test("a concurrent read waits for the one in flight instead of failing", async (
   const f = await storageFixture();
   fixtures.push(f);
   const tracking = spawnWorkers(reply);
-  const inventory = inventoryFor(f, tracking.spawn);
+  const inventory = inventoryFor(f, { spawn: tracking.spawn });
   const first = f.thread("first").id;
   const second = f.thread("second").id;
   const measured = await Promise.all([inventory.thread(first), inventory.thread(second)]);
   expect(measured.map((candidate) => candidate?.bytes)).toEqual([11, 11]);
   expect(tracking.workers).toHaveLength(1);
+});
+
+test("a stalled single-thread recheck fails at its short deadline", async () => {
+  const f = await storageFixture();
+  fixtures.push(f);
+  const tracking = spawnWorkers("process.on('message', () => {}); setInterval(() => {}, 1000);");
+  const inventory = inventoryFor(f, {
+    spawn: tracking.spawn,
+    limits: { recheckMs: 80, batchMs: 60_000, perThreadMs: 1, reapMs: 500 },
+  });
+  const started = performance.now();
+  await expect(inventory.thread(f.thread("stalled").id)).rejects.toThrow("storage_usage_timeout");
+  expect(performance.now() - started).toBeLessThan(2000);
+});
+
+test("a batch deadline scales with its thread count and frees the serializer", async () => {
+  const f = await storageFixture();
+  fixtures.push(f);
+  for (const title of ["one", "two", "three"]) f.thread(title);
+  const tracking = spawnWorkers("process.on('message', () => {}); setInterval(() => {}, 1000);");
+  const inventory = inventoryFor(f, {
+    spawn: tracking.spawn,
+    limits: { recheckMs: 60_000, batchMs: 40, perThreadMs: 10, reapMs: 500 },
+  });
+  const started = performance.now();
+  await expect(inventory.scan(new Set(["threads"]))).rejects.toThrow("storage_usage_timeout");
+  expect(performance.now() - started).toBeLessThan(2000);
 });

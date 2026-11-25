@@ -1,7 +1,26 @@
 import { fork, type ChildProcess } from "node:child_process";
 import type { ThreadId } from "@ace/protocol";
+import { z } from "zod";
 import { UsageWorkerReply } from "./usage-worker-wire.ts";
 import { storageUsageWorkerEntry } from "./usage-scanner.ts";
+
+/**
+ * Bounds for one measurement. A batch scales with its thread count because the worker reports
+ * no progress between the request and its single reply; a fenced recheck stays short so a
+ * stalled worker cannot hold the storage serializer.
+ */
+export const TranscriptLimits = z.object({
+  recheckMs: z.number().int().positive().max(60_000).default(3_000),
+  batchMs: z.number().int().positive().max(300_000).default(5_000),
+  perThreadMs: z.number().int().positive().max(10_000).default(100),
+  reapMs: z.number().int().positive().max(60_000).default(2_000),
+});
+
+export interface TranscriptReaderOptions {
+  limits?: Partial<z.infer<typeof TranscriptLimits>>;
+  /** Process boundary injection for crash, failed-start and stalled-worker tests. */
+  spawn?(entry: URL): ChildProcess;
+}
 
 interface PendingRead {
   count: number;
@@ -18,12 +37,12 @@ export class TranscriptReader {
   private idle: ReturnType<typeof setTimeout> | undefined;
   private stopped = false;
   private readonly root: string;
-  private readonly spawn: (entry: URL) => ChildProcess;
+  private readonly options: TranscriptReaderOptions;
   /** One slot: a read that arrives while another is in flight waits instead of failing. */
   private chain: Promise<unknown> = Promise.resolve();
-  constructor(root: string, spawn = start) {
+  constructor(root: string, options: TranscriptReaderOptions = {}) {
     this.root = root;
-    this.spawn = spawn;
+    this.options = options;
   }
   read(threads: readonly ThreadId[]): Promise<number[]> {
     const run = this.chain.then(() => this.measure(threads));
@@ -36,11 +55,16 @@ export class TranscriptReader {
     if (!threads.length) return [];
     clearTimeout(this.idle);
     const worker = (this.worker ??= this.open());
+    const limits = TranscriptLimits.parse(this.options.limits ?? {});
+    const budget =
+      threads.length === 1
+        ? limits.recheckMs
+        : limits.batchMs + threads.length * limits.perThreadMs;
     const result = Promise.withResolvers<number[]>();
     this.pending = {
       ...result,
       count: threads.length,
-      deadline: setTimeout(() => this.retire("storage_usage_timeout"), 15 * 60_000),
+      deadline: setTimeout(() => this.retire("storage_usage_timeout"), budget),
     };
     try {
       worker.send({ op: "transcripts", root: this.root, threads }, (error) => {
@@ -79,7 +103,7 @@ export class TranscriptReader {
     this.takePending()?.reject(new Error(code));
   }
   private open(): ChildProcess {
-    const worker = this.spawn(storageUsageWorkerEntry());
+    const worker = (this.options.spawn ?? start)(storageUsageWorkerEntry());
     const failed = () => {
       if (this.worker === worker) this.retire("storage_usage_worker_failed");
     };

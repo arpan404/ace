@@ -10,7 +10,7 @@ import {
   type ProtectionFacts,
 } from "./ownership.ts";
 import { treeProtections } from "./delegation-trees.ts";
-import { TranscriptReader } from "./transcript-reader.ts";
+import { TranscriptReader, type TranscriptReaderOptions } from "./transcript-reader.ts";
 
 export interface StorageScan {
   candidates: OwnedStorageCandidate[];
@@ -25,11 +25,11 @@ export class StorageInventory {
   private owner: StorageOwner;
   private transcripts: TranscriptReader;
   private stopped = false;
-  constructor(owner: StorageOwner, spawn?: ConstructorParameters<typeof TranscriptReader>[1]) {
+  constructor(owner: StorageOwner, transcripts: TranscriptReaderOptions = {}) {
     this.owner = owner;
     this.files = new StorageFiles(owner);
     this.managed = new ManagedWorktrees(owner.store, owner.root);
-    this.transcripts = new TranscriptReader(owner.root, spawn);
+    this.transcripts = new TranscriptReader(owner.root, transcripts);
   }
   stop(): void {
     this.stopped = true;

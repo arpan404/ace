@@ -22,7 +22,8 @@ import type { StorageOwner } from "./types.ts";
 import { RETENTION_REVIEWER, retentionKinds, retentionPolicy } from "./data-retention-policy.ts";
 import { WorktreeBackups } from "./worktree-backups.ts";
 import { WorktreeBatches } from "./worktree-batches.ts";
-import { UsageScanner, type UsageScannerOptions } from "./usage-scanner.ts";
+import { UsageScanner } from "./usage-scanner.ts";
+import type { TranscriptReaderOptions } from "./transcript-reader.ts";
 import { UsageCache } from "./usage-cache.ts";
 import { UsageCoordinator, type UsageRuntime, type UsageScannerPort } from "./usage-schedule.ts";
 import { storageSchedule } from "./schedule.ts";
@@ -50,14 +51,14 @@ export class StorageService {
     usage: {
       scanner?: UsageScannerPort;
       runtime?: Partial<UsageRuntime>;
-      transcripts?: UsageScannerOptions;
+      transcripts?: TranscriptReaderOptions;
     } = {},
   ) {
     this.owner = owner;
     this.limits = { chunkPages: 256, maxChunks: 4096, pause: () => setImmediate(), ...limits };
     initializeThreadCleanup(owner.store);
     this.journal = new StorageJournal(owner.store);
-    this.inventory = new StorageInventory(owner, usage.transcripts?.spawn);
+    this.inventory = new StorageInventory(owner, usage.transcripts);
     this.backups = new WorktreeBackups(owner);
     this.usageCoordinator = new UsageCoordinator(
       new UsageCache(owner.store, owner.root),
