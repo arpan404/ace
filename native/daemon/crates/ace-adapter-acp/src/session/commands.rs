@@ -119,15 +119,10 @@ impl AcpCore {
         ))
     }
 
-    /// `setModel` (`session.ts:572`): a selection, then the mode it may have reset.
+    /// `setModel` (`session.ts:572`): a selection, then the mode it may have reset. Only a
+    /// closed session refuses at once (`:537`); whether the session is settled is checked
+    /// when the selection runs (`:542`-`:551`, `selectNow`).
     pub fn set_model(&mut self, operation: u64, model: &str, effects: &mut Vec<AcpEffect>) {
-        if let Err(error) = self.assert_selectable(SelectorKind::Model) {
-            effects.push(AcpEffect::Settle {
-                id: operation,
-                result: Err(error),
-            });
-            return;
-        }
         let queued = QueuedSelection {
             operation,
             kind: SelectorKind::Model,
@@ -194,6 +189,16 @@ impl AcpCore {
             self.drain(effects);
             return;
         };
+        // `selectNow`'s guard: model and effort change only between turns, and the check
+        // happens when this selection runs, not when it was asked for (`:542`-`:551`).
+        if let Err(error) = self.assert_selectable(next.kind) {
+            effects.push(AcpEffect::Settle {
+                id: next.operation,
+                result: Err(error),
+            });
+            self.pump_selections(effects);
+            return;
+        }
         if self.closed {
             effects.push(AcpEffect::Settle {
                 id: next.operation,
@@ -328,7 +333,9 @@ impl AcpCore {
         }
         match &self.wanted_mode {
             Some(wanted) if now.as_deref() != Some(wanted.as_str()) => {
-                self.selection_queue.push_front(QueuedSelection {
+                // TS chains the restore behind whatever is already queued (`:538`): the
+                // `selections` promise it extends is the tail, not the head.
+                self.selection_queue.push_back(QueuedSelection {
                     operation: next.operation,
                     kind: SelectorKind::Mode,
                     value: wanted.clone(),

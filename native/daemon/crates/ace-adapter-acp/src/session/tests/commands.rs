@@ -353,6 +353,96 @@ fn set_model_restores_the_mode_its_reply_reset() {
     );
 }
 
+/// Whether the session is settled is checked when a selection runs, not when it was
+/// asked for: a model change queued behind a running mode change is refused as it
+/// reaches the front (`session.ts:542`-`:551`).
+#[test]
+fn a_model_selected_behind_another_selection_is_refused_when_it_runs() {
+    let mut core = session_core("t-select-order");
+    send(&mut core, 1);
+    notify(&mut core, &mode_and_model_options("default", "model-a"));
+
+    let mut effects = Vec::new();
+    // A mode may change mid-turn, so this one runs.
+    core.set_mode(70, "plan", &mut effects);
+    ack_writes(&mut core, &mut effects);
+    // A model may not: it waits for the mode's reply and is then refused.
+    core.set_model(71, "model-b", &mut effects);
+    assert!(
+        settlements(&effects, 71).is_empty(),
+        "queued behind the mode"
+    );
+    let mode_id = sent_id(&effects, "session/set_config_option").unwrap_or_default();
+    let mode_reply = json!({
+        "jsonrpc": "2.0",
+        "id": mode_id,
+        "result": { "configOptions": [
+            { "id": "model", "category": "model", "type": "select", "currentValue": "model-a",
+              "options": [{ "value": "model-a" }, { "value": "model-b" }] },
+            { "id": "mode", "category": "mode", "type": "select", "currentValue": "plan",
+              "options": [{ "value": "plan" }, { "value": "default" }] }
+        ] }
+    });
+    let settled = core.stdout_bytes(format!("{}\n", mode_reply.to_json()).as_bytes());
+    let refused = settlements(&settled, 71);
+    assert_eq!(refused.len(), 1);
+    assert_eq!(
+        refused[0].as_ref().err().map(|(code, _)| code.as_str()),
+        Some("ACE_ACP_RPC_ERROR")
+    );
+    let sent = sent_json_messages(&settled);
+    assert!(
+        sent.iter().all(
+            |message| message.pointer("/params/configId").and_then(Value::as_str) != Some("model")
+        ),
+        "the refused model change never writes"
+    );
+}
+
+/// A mode restore the agent refuses is swallowed and the mode that runs is announced; it
+/// never rejects setModel (`session.ts:577`-`:585`).
+#[test]
+fn a_refused_mode_restore_never_rejects_set_model() {
+    let mut core = session_core("t-restore-fails");
+    notify(&mut core, &mode_and_model_options("plan", "model-a"));
+    core.wanted_mode = Some("plan".to_owned());
+    let mut effects = Vec::new();
+    core.set_model(72, "model-b", &mut effects);
+    ack_writes(&mut core, &mut effects);
+    let model_id = sent_id(&effects, "session/set_config_option").unwrap_or_default();
+
+    let model_reset = json!({
+        "jsonrpc": "2.0",
+        "id": model_id,
+        "result": { "configOptions": [
+            { "id": "model", "category": "model", "type": "select", "currentValue": "model-b",
+              "options": [{ "value": "model-a" }, { "value": "model-b" }] },
+            { "id": "mode", "category": "mode", "type": "select", "currentValue": "default",
+              "options": [{ "value": "plan" }, { "value": "default" }] }
+        ] }
+    });
+    let mut after_model = core.stdout_bytes(format!("{}\n", model_reset.to_json()).as_bytes());
+    ack_writes(&mut core, &mut after_model);
+    let restore_id = sent_id(&after_model, "session/set_config_option").unwrap_or_default();
+
+    let refused = json!({
+        "jsonrpc": "2.0",
+        "id": restore_id,
+        "error": { "code": -32603, "message": "mode locked" }
+    });
+    let settled = core.stdout_bytes(format!("{}\n", refused.to_json()).as_bytes());
+    let done = settlements(&settled, 72);
+    assert_eq!(done.len(), 1);
+    assert!(done[0].is_ok(), "setModel resolves: {done:?}");
+    let announced = settled.iter().find_map(|effect| match effect {
+        AcpEffect::Callback { name, json } if *name == "onPermissionMode" => {
+            ace_json::parse(json.as_str()).ok()
+        }
+        _ => None,
+    });
+    assert_eq!(announced, Some(json!(["default"])));
+}
+
 #[test]
 fn close_notes_the_stop_and_rejects_every_prompt_the_session_owes() {
     let mut core = session_core("t-close");
