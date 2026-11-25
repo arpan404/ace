@@ -82,9 +82,14 @@ export interface LifecycleCase {
   check(view: WindowView): string | undefined;
 }
 
-/** The number of lines an instance carries for one event inside the window. */
-function eventLines(view: WindowView, instance: number, event: string): EvidenceLine[] {
-  return view.lines.filter((line) => line.instance === instance && line.event === event);
+/** Whether a line belongs to this listener: instance ids repeat across processes, so both keys. */
+function ofListener(line: EvidenceLine, listener: ListenerInstance): boolean {
+  return line.pid === listener.pid && line.instance === listener.instance;
+}
+
+/** The lines one listener instance carries for one event inside the window. */
+function eventLines(view: WindowView, listener: ListenerInstance, event: string): EvidenceLine[] {
+  return view.lines.filter((line) => ofListener(line, listener) && line.event === event);
 }
 
 /** What a window owns of one instance, absent as zeros. */
@@ -122,10 +127,7 @@ export const LIFECYCLE_CASES: readonly LifecycleCase[] = [
       );
       if (late === undefined) return `no bind on port ${port} after the retire`;
       const acknowledged = view.lines.find(
-        (line) =>
-          line.instance === late.instance &&
-          line.event === "close-requested" &&
-          line.bound === true,
+        (line) => ofListener(line, late) && line.event === "close-requested" && line.bound === true,
       );
       if (acknowledged === undefined)
         return `no close-requested with bound: true for the instance that bound on port ${port}`;
@@ -135,7 +137,7 @@ export const LIFECYCLE_CASES: readonly LifecycleCase[] = [
         return `the close on port ${port} counts connections, so the late listener served`;
       const served = view.lines.some(
         (line) =>
-          line.instance === late.instance &&
+          ofListener(line, late) &&
           line.event === "handled" &&
           ((line.connections ?? 0) > 0 || (line.exchanges ?? 0) > 0 || (line.upgrades ?? 0) > 0),
       );
@@ -154,7 +156,7 @@ export const LIFECYCLE_CASES: readonly LifecycleCase[] = [
         return `${binds.length} binds; the case opens exactly one (the LAN port)`;
       const only = binds[0];
       if (only === undefined) return "no bind line";
-      if (eventLines(view, only.instance, "close").length === 0)
+      if (eventLines(view, only, "close").length === 0)
         return `no close for the instance that bound on port ${only.port}`;
       return undefined;
     },
@@ -177,7 +179,7 @@ export const LIFECYCLE_CASES: readonly LifecycleCase[] = [
         (listener) => listener.port === port && listener.bindAt > (failed.at ?? -1),
       );
       if (bound === undefined) return `no bind on port ${port} after the refused one`;
-      const handled = eventLines(view, bound.instance, "handled");
+      const handled = eventLines(view, bound, "handled");
       if (handled.length === 0)
         return `no handled line for the instance that bound on port ${port}`;
       if (!handled.some((line) => (line.exchanges ?? 0) > 0))
@@ -196,7 +198,7 @@ export const LIFECYCLE_CASES: readonly LifecycleCase[] = [
         if (first.closeAt < 0) continue;
         const second = binds.find(
           (listener) =>
-            listener.instance !== first.instance &&
+            !(listener.pid === first.pid && listener.instance === first.instance) &&
             listener.port === first.port &&
             listener.bindAt > first.closeAt,
         );
