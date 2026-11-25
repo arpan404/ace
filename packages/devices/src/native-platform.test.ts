@@ -133,6 +133,35 @@ test("an addon refusal is the DeviceError the platform raises", () => {
   });
 });
 
+test("every platform probe is given the injected scheduler", async () => {
+  const waited: number[] = [];
+  let schedule: ((run: () => void, ms: number) => void) | undefined;
+  const instance = new NativeDevicePlatform({
+    platform: "darwin",
+    home: "/home/a",
+    env: {},
+    after: (ms, run) => {
+      waited.push(ms);
+      run();
+      return () => {};
+    },
+    probe: async (_command, _args, options) => {
+      schedule = options?.schedule;
+      return { stdout: '{"devices":{}}', stderr: "", code: 0 };
+    },
+  });
+  const calls = wiring(instance);
+  calls.xcode = async () => ({ xcrun: "/xcrun", open: "/open" });
+  await calls.simulators.list();
+  expect(schedule).toBeTypeOf("function");
+  let fired = false;
+  schedule?.(() => {
+    fired = true;
+  }, 7);
+  expect(waited).toEqual([7]);
+  expect(fired).toBe(true);
+});
+
 test("list asks the addon for each Simulator and for the composition", async () => {
   addon.calls.length = 0;
   const instance = platform();
