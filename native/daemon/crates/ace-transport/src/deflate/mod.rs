@@ -6,6 +6,7 @@
 //! `ws`'s threshold (`sender.js:382`). Loopback sockets never negotiate, so they
 //! never compress.
 
+use crate::frame::MAX_MESSAGE_BYTES;
 use crate::frame::assemble::{MessageBody, Plain};
 
 pub mod codec;
@@ -29,18 +30,23 @@ pub struct Body {
 impl Body {
     /// No extension: RSV1 never arrives, and every message is its bytes.
     pub fn plain() -> Self {
-        Self {
-            plain: Plain::new(),
-            inflate: None,
-            compressed: false,
-        }
+        Self::configured(None, MAX_MESSAGE_BYTES)
     }
 
     /// `permessage-deflate` negotiated: a message with RSV1 set is inflated.
     pub fn compressed() -> Self {
+        Self::configured(Some(Inflating::new()), MAX_MESSAGE_BYTES)
+    }
+
+    pub(crate) fn with_payload_limit(deflate: Option<&Deflate>, max_payload: usize) -> Self {
+        let inflate = deflate.map(|_| Inflating::with_payload_limit(max_payload));
+        Self::configured(inflate, max_payload)
+    }
+
+    fn configured(inflate: Option<Inflating>, max_payload: usize) -> Self {
         Self {
-            plain: Plain::new(),
-            inflate: Some(Inflating::new()),
+            plain: Plain::with_payload_limit(max_payload),
+            inflate,
             compressed: false,
         }
     }

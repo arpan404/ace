@@ -14,7 +14,7 @@ use tokio::io::{AsyncRead, ReadBuf};
 
 use super::assemble::{Assembler, MessageBody, Plain};
 use super::header::{First, extended_len, parse_first, payload_length};
-use super::{Frame, FrameError};
+use super::{Frame, FrameError, FrameLimits};
 
 /// One read buffer per connection: every fill appends here and every frame is
 /// consumed from it, so a frame does not allocate its own read buffer.
@@ -54,7 +54,11 @@ impl<R: AsyncRead + Unpin, B: MessageBody> FrameReader<R, B> {
     /// A reader that collects messages in `body`. RSV1 is accepted exactly when the
     /// body decodes an extension ([`MessageBody::allows_rsv1`]).
     pub fn with_body(io: R, body: B) -> Self {
-        let assembler = Assembler::with_body(body);
+        Self::with_limits(io, body, FrameLimits::default())
+    }
+
+    pub(crate) fn with_limits(io: R, body: B, limits: FrameLimits) -> Self {
+        let assembler = Assembler::with_limits(body, limits);
         let allow_rsv1 = assembler.body().allows_rsv1();
         Self {
             io,

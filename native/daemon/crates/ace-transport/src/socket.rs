@@ -18,8 +18,6 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use zeroize::Zeroize;
 
-use crate::deflate::Deflate;
-use crate::driver::UpgradeIo;
 use crate::frame::{Opcode, Outbound as Frame};
 use crate::stats::Stats;
 
@@ -29,6 +27,7 @@ mod handle;
 #[cfg(test)]
 mod tests;
 
+pub use drive::{open, open_with_limits};
 pub use events::{SendResult, SocketEvent, SocketEvents};
 pub use handle::{CloseError, SocketHandle};
 
@@ -298,55 +297,6 @@ impl Shared {
     fn ended(&self) -> Ending {
         lock(&self.ending).take().unwrap_or_else(Ending::lost)
     }
-}
-
-/// Opens a socket over either kind of stream the handshake hands on (the raw
-/// path's `Prefixed<Box<dyn ConnIo>>`, the keep-alive path's upgraded stream),
-/// `OPEN` at once on the caller's tokio runtime (T1a.5). `deflate` is the
-/// `permessage-deflate` extension the connection negotiated (T1b.3b); `stats` the
-/// listener's counters, when it has them.
-pub fn open(
-    stream: Box<dyn UpgradeIo>,
-    deflate: Option<Deflate>,
-    stats: Option<Arc<Stats>>,
-) -> (SocketHandle, SocketEvents) {
-    let (events, incoming) = mpsc::unbounded_channel();
-    let (outbound, queued) = mpsc::unbounded_channel();
-    let (wake, woken) = mpsc::channel(1);
-    let shared = Arc::new(Shared {
-        inner: Mutex::new(Inner {
-            state: OPEN,
-            outbound: Some(outbound),
-            events: Some(events),
-            close: None,
-            close_sent: false,
-        }),
-        buffered: AtomicU64::new(0),
-        pending: AtomicU64::new(0),
-        control_bytes: AtomicU64::new(0),
-        paused: AtomicBool::new(false),
-        waiting_bytes: AtomicU64::new(0),
-        waiting_messages: AtomicU64::new(0),
-        wake,
-        over: CancellationToken::new(),
-        stop: CancellationToken::new(),
-        ending: Mutex::new(None),
-        expired: CancellationToken::new(),
-        runtime: Handle::current(),
-        stats,
-    });
-    Handle::current().spawn(drive::run(
-        stream,
-        Arc::clone(&shared),
-        queued,
-        woken,
-        deflate,
-    ));
-    let events = SocketEvents {
-        receiver: incoming,
-        shared: Arc::clone(&shared),
-    };
-    (SocketHandle::attach(shared), events)
 }
 
 /// The frame for one outbound payload: text only for UTF-8, which TypeScript sends.

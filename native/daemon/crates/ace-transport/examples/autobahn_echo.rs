@@ -23,10 +23,11 @@ use std::time::Duration;
 use ace_transport::conn_io::ConnIo;
 use ace_transport::deflate::Deflate;
 use ace_transport::driver::{Grace, UpgradeHandler, UpgradeIo};
+use ace_transport::frame::FrameLimits;
 use ace_transport::head::{self, BAD_REQUEST, Parsed};
 use ace_transport::peer::Peer;
 use ace_transport::prefixed::Prefixed;
-use ace_transport::socket::{self, SocketEvent};
+use ace_transport::socket::{self, MESSAGE_OVERHEAD, SocketEvent};
 use ace_transport::upgrade::{
     AdmissionDecision, AdmissionOutcome, SocketSink, UpgradeAdmission, UpgradeRequest,
     WebSocketUpgrades,
@@ -59,6 +60,13 @@ impl UpgradeAdmission for AcceptAll {
     fn release(&self, _reservation: u64) {}
 }
 
+// The suite sends messages up to 16 MiB and up to 65,536 fragments. Both
+// scratch servers use the same limits for the full suite.
+const LIMITS: FrameLimits = FrameLimits {
+    max_payload: 100 * 1024 * 1024,
+    max_fragments: 65_536,
+};
+
 /// Opens the socket and echoes what arrives.
 struct Echo;
 
@@ -70,14 +78,16 @@ impl SocketSink for Echo {
         _user_agent: Option<String>,
         deflate: Option<Deflate>,
     ) {
-        let (socket, mut events) = socket::open(stream, deflate, None);
+        let (socket, mut events) = socket::open_with_limits(stream, deflate, None, LIMITS);
         tokio::spawn(async move {
             let mut id = 0_u64;
             while let Some(event) = events.recv().await {
                 match event {
                     SocketEvent::Message { data, binary } => {
+                        let charge = data.len() as u64 + MESSAGE_OVERHEAD;
                         id += 1;
                         let _ = socket.send(Bytes::from(data), binary, true, id);
+                        socket.delivered(charge);
                     }
                     SocketEvent::Sent { .. } | SocketEvent::Error { .. } => {}
                     SocketEvent::Close { .. } => break,
@@ -144,3 +154,7 @@ async fn main() -> std::io::Result<()> {
         tokio::spawn(serve(handler, stream));
     }
 }
+
+#[cfg(test)]
+#[path = "autobahn_echo/tests.rs"]
+mod tests;

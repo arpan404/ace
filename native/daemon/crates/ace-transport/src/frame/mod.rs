@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The WebSocket wire (RFC 6455 §5), written here rather than borrowed so the
+//! The WebSocket wire (RFC 6455 section 5), written here rather than borrowed so the
 //! same framing can carry an extension T1b.3b adds. `read` turns bytes into one
 //! frame at a time, `assemble` joins a message's fragments as they arrive, and
 //! `write` puts one unmasked FIN frame on the wire per message. Nothing here
@@ -22,6 +22,22 @@ pub use write::FrameWriter;
 
 /// `maxPayload` (`server.ts:252`): one inbound message, after any inflation.
 pub const MAX_MESSAGE_BYTES: usize = 1 << 20;
+
+/// Inbound message bounds. The default matches the daemon's listeners.
+#[derive(Debug, Clone, Copy)]
+pub struct FrameLimits {
+    pub max_payload: usize,
+    pub max_fragments: usize,
+}
+
+impl Default for FrameLimits {
+    fn default() -> Self {
+        Self {
+            max_payload: MAX_MESSAGE_BYTES,
+            max_fragments: assemble::MAX_FRAGMENTS,
+        }
+    }
+}
 
 /// A frame's kind. Reserved opcodes are refused while the header is parsed, so
 /// every frame that reaches this type has one of these.
@@ -91,14 +107,14 @@ pub struct Outbound {
 pub enum CloseCode {
     /// 1002: a protocol violation.
     Protocol,
-    /// 1009: a message over [`MAX_MESSAGE_BYTES`].
+    /// 1009: a message over the payload limit.
     TooBig,
     /// 1007: text or a close reason that is not UTF-8.
     InvalidUtf8,
     /// 1007: a compressed message whose deflate stream does not decode
     /// (`permessage-deflate.js:528`).
     BadDeflate,
-    /// 1008: a message with more than 16,384 fragments.
+    /// 1008: a message over the fragment limit.
     TooManyFragments,
 }
 
