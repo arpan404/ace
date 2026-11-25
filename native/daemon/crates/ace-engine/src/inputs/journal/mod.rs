@@ -83,17 +83,18 @@ pub fn identify(
     thread: &str,
     identity: &Value,
 ) -> Result<(), EngineError> {
-    let command_id = identity
-        .get("commandId")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-        .ok_or_else(|| EngineError::Records("Invalid input identity".to_owned()))?;
-    let native_id = identity
-        .get("nativeId")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty() && id.encode_utf16().count() <= 256)
-        .ok_or_else(|| EngineError::Records("Invalid input identity".to_owned()))?;
-    let previous = stmt_cache::get_row(conn, IDENTITY, vec![text(thread), text(native_id)])?;
+    // `MessageIdentity.parse(identity)`: the fields in schema order, and zod's own error text.
+    let mut issues = Vec::new();
+    let command_id = identity_string(identity, "commandId", None, &mut issues);
+    let native_id = identity_string(identity, "nativeId", Some(256), &mut issues);
+    if !issues.is_empty() {
+        return Err(EngineError::Records(zod_issues(&issues)));
+    }
+    let (command_id, native_id) = (
+        command_id.unwrap_or_default(),
+        native_id.unwrap_or_default(),
+    );
+    let previous = stmt_cache::get_row(conn, IDENTITY, vec![text(thread), text(&native_id)])?;
     if let Some(previous) = previous
         .as_ref()
         .and_then(|row| row_text(row, "command_id"))
@@ -106,7 +107,7 @@ pub fn identify(
     stmt_cache::run(
         conn,
         IDENTIFY,
-        vec![text(thread), text(native_id), text(command_id)],
+        vec![text(thread), text(&native_id), text(&command_id)],
     )?;
     Ok(())
 }
@@ -293,3 +294,59 @@ pub fn sending(
 
 #[cfg(test)]
 mod tests;
+
+/// One `MessageIdentity` field as zod would read it: a string, within its bounds, or an issue.
+fn identity_string(
+    identity: &Value,
+    field: &str,
+    maximum: Option<usize>,
+    issues: &mut Vec<String>,
+) -> Option<String> {
+    let Some(value) = identity.get(field) else {
+        issues.push(invalid_type(field, "undefined"));
+        return None;
+    };
+    let Some(text) = value.as_str() else {
+        issues.push(invalid_type(field, received(value)));
+        return None;
+    };
+    let units = text.encode_utf16().count();
+    if units == 0 {
+        issues.push(format!(
+            "  {{\n    \"origin\": \"string\",\n    \"code\": \"too_small\",\n    \"minimum\": 1,\n    \"inclusive\": true,\n    \"path\": [\n      \"{field}\"\n    ],\n    \"message\": \"Too small: expected string to have >=1 characters\"\n  }}"
+        ));
+        return None;
+    }
+    if let Some(maximum) = maximum
+        && units > maximum
+    {
+        issues.push(format!(
+            "  {{\n    \"origin\": \"string\",\n    \"code\": \"too_big\",\n    \"maximum\": {maximum},\n    \"inclusive\": true,\n    \"path\": [\n      \"{field}\"\n    ],\n    \"message\": \"Too big: expected string to have <={maximum} characters\"\n  }}"
+        ));
+        return None;
+    }
+    Some(text.to_owned())
+}
+
+/// zod's `getParsedType` for a JSON value, as its message names it.
+fn received(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
+}
+
+fn invalid_type(field: &str, received: &str) -> String {
+    format!(
+        "  {{\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"{field}\"\n    ],\n    \"message\": \"Invalid input: expected string, received {received}\"\n  }}"
+    )
+}
+
+/// `ZodError.message`: the issues as `JSON.stringify(issues, null, 2)`.
+fn zod_issues(issues: &[String]) -> String {
+    format!("[\n{}\n]", issues.join(",\n"))
+}

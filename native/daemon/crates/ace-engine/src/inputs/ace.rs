@@ -48,6 +48,18 @@ fn row_text(row: &stmt_cache::Row, column: &str) -> Option<String> {
     row.get(column).and_then(cell_text).map(str::to_owned)
 }
 
+/// JavaScript truthiness: null, false, zero, NaN and the empty string are falsy; arrays and
+/// objects (empty ones included) are not.
+fn js_truthy(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(flag) => *flag,
+        Value::Number(number) => number.as_f64().is_some_and(|number| number != 0.0),
+        Value::String(text) => !text.is_empty(),
+        Value::Array(_) | Value::Object(_) => true,
+    }
+}
+
 fn decode(value: &Value) -> Option<AceInput> {
     let results = value.get("results")?;
     let results = results.as_array()?;
@@ -87,7 +99,11 @@ pub fn settled_input_echo(source: Option<&AceInput>, fact: Value) -> Value {
     settled.insert("results", source.results.clone());
     settled.insert("delivery", Value::from("ace-input"));
     settled.insert("origin", Value::from("ace"));
-    if let Some(raw) = draft.and_then(|draft| draft.get("raw")) {
+    // `...(fact.draft.raw ? { raw } : {})`: JavaScript's truthiness, not presence.
+    if let Some(raw) = draft
+        .and_then(|draft| draft.get("raw"))
+        .filter(|raw| js_truthy(raw))
+    {
         settled.insert("raw", raw.clone());
     }
     let mut fact_draft = ace_json::Map::new();
@@ -170,6 +186,33 @@ mod tests {
             ace_json::to_string(&untouched),
             ace_json::to_string(&elsewhere)
         );
+    }
+
+    #[test]
+    fn the_echo_keeps_its_raw_only_when_javascript_reads_it_as_present() {
+        let source = AceInput {
+            agent: "a1".into(),
+            item: "delegation:1".into(),
+            results: value("[]"),
+        };
+        for (raw, kept) in [
+            ("[]", true),
+            ("[{\"type\":\"x\"}]", true),
+            ("null", false),
+            ("false", false),
+            ("0", false),
+            ("\"\"", false),
+        ] {
+            let echo = value(&format!(
+                r#"{{"type":"item.upsert","agent":"a1","item":"native","draft":{{"type":"message","role":"user","raw":{raw}}}}}"#
+            ));
+            let settled = settled_input_echo(Some(&source), echo);
+            let has = settled
+                .get("draft")
+                .and_then(|draft| draft.get("raw"))
+                .is_some();
+            assert_eq!(has, kept, "raw {raw}");
+        }
     }
 
     #[test]

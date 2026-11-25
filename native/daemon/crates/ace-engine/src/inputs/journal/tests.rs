@@ -150,3 +150,26 @@ fn a_wake_with_an_unrecorded_identity_and_no_command_is_never_the_persons_input(
         "an ace-authored wake keeps its own item and origin"
     );
 }
+
+#[test]
+fn an_identity_the_schema_refuses_is_the_zod_error_text() {
+    let conn = home("j-zod", &header("j-zod"));
+    let thread = "j-zod";
+    let too_long = format!(r#"{{"commandId":"c","nativeId":"{}"}}"#, "x".repeat(257));
+    let error = identify(&conn, thread, &value(&too_long)).expect_err("too long");
+    assert_eq!(
+        error.to_string(),
+        "[\n  {\n    \"origin\": \"string\",\n    \"code\": \"too_big\",\n    \"maximum\": 256,\n    \"inclusive\": true,\n    \"path\": [\n      \"nativeId\"\n    ],\n    \"message\": \"Too big: expected string to have <=256 characters\"\n  }\n]"
+    );
+    let error = identify(&conn, thread, &value(r#"{"nativeId":"n"}"#)).expect_err("no command");
+    assert_eq!(
+        error.to_string(),
+        "[\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"commandId\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  }\n]"
+    );
+    let error = identify(&conn, thread, &value(r#"{"commandId":"","nativeId":"n"}"#))
+        .expect_err("empty command");
+    assert_eq!(
+        error.to_string(),
+        "[\n  {\n    \"origin\": \"string\",\n    \"code\": \"too_small\",\n    \"minimum\": 1,\n    \"inclusive\": true,\n    \"path\": [\n      \"commandId\"\n    ],\n    \"message\": \"Too small: expected string to have >=1 characters\"\n  }\n]"
+    );
+}

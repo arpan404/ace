@@ -19,6 +19,10 @@ pub enum PiInputError {
     FrameBudget,
     #[error("Pi images require a matching base64 data URL")]
     ImageDataUrl,
+    #[error(
+        "[\n  {{\n    \"origin\": \"array\",\n    \"code\": \"too_big\",\n    \"maximum\": 256,\n    \"inclusive\": true,\n    \"path\": [],\n    \"message\": \"Too big: expected array to have <=256 items\"\n  }}\n]"
+    )]
+    TooManyParts,
     #[error("Reserved Pi control command")]
     ReservedCommand,
 }
@@ -65,6 +69,10 @@ fn reserved_command(message: &str) -> bool {
 
 /// `piInput`: the message's text, its images, and the budget and control-command checks.
 pub fn pi_input(input: &[Value]) -> Result<PiInput, PiInputError> {
+    // `ContentPart.array().max(256).parse(input)`, before any part is read.
+    if input.len() > 256 {
+        return Err(PiInputError::TooManyParts);
+    }
     let mut text_parts: Vec<String> = Vec::new();
     let mut images: Vec<PiImage> = Vec::new();
     let mut bytes = 0usize;
@@ -175,6 +183,17 @@ mod tests {
         assert_eq!(
             pi_input(&parts(&one_more)).unwrap_err().to_string(),
             "Pi input exceeds frame budget"
+        );
+    }
+
+    #[test]
+    fn more_than_the_schemas_256_parts_is_the_zod_error_text() {
+        let input: Vec<Value> = (0..257)
+            .map(|_| ace_json::parse(r#"{"type":"text","text":"x"}"#).expect("a part"))
+            .collect();
+        assert_eq!(
+            pi_input(&input).unwrap_err().to_string(),
+            "[\n  {\n    \"origin\": \"array\",\n    \"code\": \"too_big\",\n    \"maximum\": 256,\n    \"inclusive\": true,\n    \"path\": [],\n    \"message\": \"Too big: expected array to have <=256 items\"\n  }\n]"
         );
     }
 
