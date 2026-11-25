@@ -624,6 +624,53 @@ test("a steer that lost its turn doesn't block a newer steer", async () => {
   }
 });
 
+test("a steer that lost its aim while the session opened doesn't hold up a newer steer", async () => {
+  const dir = tempDir();
+  const { h, id, sessions } = await antigravity("hold-for-steer", dir, false);
+  try {
+    // S1 is admitted before the session is live, so it aims at no turn and carries no payload
+    // target. B, the turn its first prompt starts, is held by the double's read.
+    expect(steer(h, id, "early steer")).toBe(true);
+    let first: RootRun | undefined;
+    await expect.poll(() => (first = activeRootRun(h, id)), { timeout: 10_000 }).toBeDefined();
+    if (!first) throw new Error("Expected the first prompt's turn to be active");
+    // S1's turn never existed: it goes back to the queue instead of joining B unfenced and
+    // holding the lane until B ends.
+    await expect
+      .poll(() => queuedTexts(h, id), { timeout: 10_000 })
+      .toEqual([{ text: "early steer", delivery: "queue" }]);
+    expect(sessions[0]?.cancels).toEqual([]);
+
+    // The person steers into B, which runs no command: one cancel, and S2 goes in as its turn.
+    expect(
+      h.command({
+        type: "thread.send",
+        threadId: id,
+        input: [{ type: "text", text: "stop now" }],
+        delivery: "steer",
+        runId: first.id,
+      }).ok,
+    ).toBe(true);
+    await expect.poll(() => sessions[0]?.cancels, { timeout: 5000 }).toEqual(["root"]);
+    await expect
+      .poll(() => sessions[0]?.prompts, { timeout: 10_000 })
+      .toEqual(["hold-for-steer", "stop now", "early steer"]);
+    await h.engine.flush();
+    expect(h.store.snapshotThread(id).runs[first.id]).toMatchObject({
+      state: "interrupted",
+      endedBy: "steer",
+    });
+    // One cancel only: the lost steer stopped nothing, and both reached the agent once.
+    expect(sessions[0]?.cancels).toEqual(["root"]);
+    expect(sessions[0]?.prompts.filter((prompt) => prompt === "early steer")).toHaveLength(1);
+    expect(sessions[0]?.prompts.filter((prompt) => prompt === "stop now")).toHaveLength(1);
+    expect(events(dir)).toEqual(["cancel"]);
+  } finally {
+    if (activeRootRun(h, id)) h.command({ type: "thread.interrupt", threadId: id, cascade: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a steer sent while an ACP session is still opening never cancels the turn its first prompt starts", async () => {
   const dir = tempDir();
   const { h, id, sessions } = await antigravity("hold-for-steer", dir, false);
@@ -632,23 +679,24 @@ test("a steer sent while an ACP session is still opening never cancels the turn 
     // admitted before the thread has a session to cancel.
     expect(steer(h, id, "late steer")).toBe(true);
     // B: the turn the first prompt starts, held by the double on a read it can't finish. The
-    // lane reaches the steer while B runs and hands it over without cancelling; a steer that
-    // read no aim would interrupt B here instead.
+    // lane reaches the steer while B runs and hands it back to the queue without cancelling; a
+    // steer that read no aim would interrupt B here instead.
     await expect
       .poll(
         () => {
           const run = Object.values(h.store.snapshotThread(id).runs)[0];
           if (!run) return undefined;
           if (run.state === "interrupted") return run.state;
-          return run.state === "active" && h.engine.queue(id).pendingCount === 0
-            ? "handed over"
+          return run.state === "active" && h.engine.queue(id).pendingCount === 1
+            ? "queued"
             : undefined;
         },
         { timeout: 10_000 },
       )
-      .toBe("handed over");
+      .toBe("queued");
     const first = activeRootRun(h, id);
     if (!first) throw new Error("Expected the first prompt's turn to be active");
+    expect(queuedTexts(h, id)).toEqual([{ text: "late steer", delivery: "queue" }]);
     expect(sessions[0]?.cancels).toEqual([]);
     expect(h.store.snapshotThread(id).runs[first.id]).toMatchObject({ state: "active" });
 

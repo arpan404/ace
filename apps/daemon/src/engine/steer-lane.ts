@@ -92,8 +92,13 @@ export class SteerLane {
     const session = actor.session;
     if (run === undefined || !session) return;
     const target = this.aim(intent, session);
-    if (target !== undefined && steerLostRun(repo, actor.id, target))
-      return this.deliver(actor, intent);
+    // The turn this steer was sent into is gone. Handing it over now would join the running turn
+    // with no fence and hold this lane until that turn ends, so a newer steer could not cancel it.
+    // It goes back to the queue as the next message instead: the sends lane delivers it then.
+    if (target !== undefined && steerLostRun(repo, actor.id, target)) {
+      repo.pending.requeue(intent, "Steer target lost");
+      return this.ports.wake(actor.id);
+    }
     actor.steerYield = { run, state: "pending", intentId: intent.id };
     try {
       await session.interrupt({ cascade: false });
