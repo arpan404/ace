@@ -180,6 +180,11 @@
       "message": "Text is too long to paste",
       "hint": "Type shorter text."
     },
+    "jpegTooLarge": {
+      "code": "limit",
+      "message": "Android JPEG exceeds 8 MiB",
+      "hint": "Reduce emulator resolution."
+    },
     "pasteTimedOut": {
       "code": "command_failed",
       "message": "Android paste timed out",

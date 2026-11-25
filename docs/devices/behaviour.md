@@ -487,3 +487,29 @@ Round-2 review fixes, in Rust only (today's TypeScript stays as it was):
   non-object scroll too.
 - **A display with a present field of the wrong type is not a display**, as `Display`'s schema
   drops it (`platform/posture.rs`).
+
+## 13. D3.3: captures and video (2026-11-25, U1 landed)
+
+The pure formats and parsers land first under the same switch; the capture units (U2-U5) wire
+them. `ACE_DEVICE_PLATFORM=native` will answer these decisions from `ace-devices`; with the
+switch off, `packages/devices/src` is today's TypeScript, unchanged.
+
+| TypeScript                                          | Rust                                | Wired                                          |
+| --------------------------------------------------- | ----------------------------------- | ---------------------------------------------- |
+| `@ace/browser/h264` (`avcConfig`, `annexB`)         | `platform/h264.rs`                  | not yet (the capture path is U3)               |
+| `@ace/browser/h264` (`spsDimensions`)               | `platform/h264.rs`                  | not yet                                        |
+| `simulator-avcc`                                    | `platform/simulator_avcc.rs`        | not yet                                        |
+| `jpeg`                                              | `platform/jpeg.rs`                  | not yet                                        |
+| `mjpeg`                                             | `platform/mjpeg.rs`                 | not yet                                        |
+| `simulator-rotation`                                | `platform/simulator_rotation.rs`    | not yet (the capture's orientation read is U3) |
+| `simulator-source-rate`                             | `platform/simulator_source_rate.rs` | not yet                                        |
+| `recording-limits`                                  | `platform/recording_limits.rs`      | not yet                                        |
+| `simulator-frames`, `simulator-jpeg`, `media-paths` | -                                   | not yet (their stream decisions are U2-U3)     |
+| `log-line`                                          | -                                   | not yet (U5)                                   |
+
+The Android JPEG cap's words now come from the catalog (`jpegTooLarge`), which `jpeg.ts` reads
+too, so neither side spells them; nothing else in U1 renders a device word. `h264.rs` keeps the
+TypeScript's reachable behaviour only: `(record[4] & 3) + 1` cannot be 3, so `avcConfig`'s
+length-size-3 refusal is unreachable and is not reproduced. The splitter keeps the `.avcc`
+record bound (8 MiB, the length prefix included) and an empty body refused at once, and its
+buffer never holds more than the record still arriving.
