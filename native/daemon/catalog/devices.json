@@ -364,6 +364,11 @@
       "code": "command_failed",
       "message": "Android input transport ended or refused input",
       "hint": "Reconnect the emulator and take control again."
+    },
+    "simulatorTooManyFingers": {
+      "code": "not_supported",
+      "message": "iOS Simulator input supports at most two fingers",
+      "hint": "Use pointerId 0 or 1."
     }
   },
   "adbTransports": {

@@ -199,7 +199,9 @@ impl ScrcpyClipboard {
                     .as_ref()
                     .is_some_and(|reading| reading.request.is_some());
                 if answered {
-                    let reading = self.reading.take().expect("checked above");
+                    let Some(reading) = self.reading.take() else {
+                        return;
+                    };
                     self.timers
                         .retain(|timer| timer.deadline != Deadline::Reply(reading.id));
                     out.push(ClipboardOut::ReadDone {

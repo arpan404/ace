@@ -177,6 +177,7 @@ mod tests {
             "androidHelperExited",
             "androidHelperTimedOut",
             "androidInputEnded",
+            "simulatorTooManyFingers",
         ] {
             assert!(has(key), "catalog names no usable word for {key}");
         }
