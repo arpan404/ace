@@ -75,6 +75,18 @@ impl JsonElider {
 
     /// Feeds a chunk, appending at most the chunk's share of output to `out`.
     pub fn push(&mut self, chunk: &[u8], out: &mut Vec<u8>) {
+        self.push_inner(chunk, out, &mut None);
+    }
+
+    /// Like `push`, but records where each emitted piece ends in `out`. The
+    /// TypeScript's elider calls its `out` callback once per piece, and a
+    /// downstream stage that must run per piece (the OpenCode event bound and
+    /// the SDK's reader) needs the same boundaries.
+    pub fn push_pieces(&mut self, chunk: &[u8], out: &mut Vec<u8>, ends: &mut Vec<usize>) {
+        self.push_inner(chunk, out, &mut Some(ends));
+    }
+
+    fn push_inner(&mut self, chunk: &[u8], out: &mut Vec<u8>, ends: &mut Option<&mut Vec<usize>>) {
         let mut from = 0;
         for (i, byte) in chunk.iter().enumerate() {
             let byte = *byte;
@@ -82,7 +94,7 @@ impl JsonElider {
                 if byte != b'"' {
                     continue;
                 }
-                emit(out, &chunk[from..i + 1]);
+                emit(out, ends, &chunk[from..i + 1]);
                 from = i + 1;
                 self.open();
                 continue;
@@ -94,7 +106,7 @@ impl JsonElider {
                 if self.mode != Mode::Passing {
                     from = i;
                 }
-                self.close(out);
+                self.close(out, ends);
                 continue;
             }
             if self.mode == Mode::Passing
@@ -105,7 +117,7 @@ impl JsonElider {
             {
                 // Cut only between whole characters and escapes so the kept
                 // head stays valid JSON.
-                emit(out, &chunk[from..i]);
+                emit(out, ends, &chunk[from..i]);
                 self.mode = Mode::Truncating;
             }
             self.track(byte);
@@ -124,7 +136,7 @@ impl JsonElider {
                     self.mode = Mode::Eliding;
                 }
                 None => {
-                    emit(out, &self.hold[..self.held]);
+                    emit(out, ends, &self.hold[..self.held]);
                     self.held = 0;
                     self.mode = Mode::Passing;
                     from = i + 1;
@@ -132,15 +144,24 @@ impl JsonElider {
             }
         }
         if self.mode == Mode::Outside || self.mode == Mode::Passing {
-            emit(out, &chunk[from..]);
+            emit(out, ends, &chunk[from..]);
         }
     }
 
     /// Flushes an unterminated string as-is; the caller's parser reports the
     /// malformed body.
     pub fn end(&mut self, out: &mut Vec<u8>) {
+        self.end_inner(out, &mut None);
+    }
+
+    /// Like `end`, with the pieces it emits recorded as `push_pieces` records them.
+    pub fn end_pieces(&mut self, out: &mut Vec<u8>, ends: &mut Vec<usize>) {
+        self.end_inner(out, &mut Some(ends));
+    }
+
+    fn end_inner(&mut self, out: &mut Vec<u8>, ends: &mut Option<&mut Vec<usize>>) {
         if self.mode != Mode::Outside {
-            self.close(out);
+            self.close(out, ends);
         }
     }
 
@@ -166,11 +187,11 @@ impl JsonElider {
         }
     }
 
-    fn close(&mut self, out: &mut Vec<u8>) {
+    fn close(&mut self, out: &mut Vec<u8>, ends: &mut Option<&mut Vec<usize>>) {
         // The hold buffer is reused, so emitted held bytes are a copy the
         // consumer may keep.
         match self.mode {
-            Mode::Holding => emit(out, &self.hold[..self.held]),
+            Mode::Holding => emit(out, ends, &self.hold[..self.held]),
             Mode::Eliding => {
                 let mut marker = Vec::with_capacity(self.label.len() + 32);
                 marker.extend_from_slice(b"[ace: ");
@@ -178,14 +199,14 @@ impl JsonElider {
                 marker.extend_from_slice(b" bytes of ");
                 marker.extend_from_slice(&self.label);
                 marker.extend_from_slice(b" elided]");
-                emit(out, &marker);
+                emit(out, ends, &marker);
             }
             Mode::Truncating => {
                 let marker = format!(
                     "[ace: {} more bytes truncated]",
                     self.bytes - self.limits.text_bytes as u64
                 );
-                emit(out, marker.as_bytes());
+                emit(out, ends, marker.as_bytes());
             }
             Mode::Outside | Mode::Passing => {}
         }
@@ -194,9 +215,14 @@ impl JsonElider {
     }
 }
 
-fn emit(out: &mut Vec<u8>, bytes: &[u8]) {
+/// Appends one emitted piece. `ends` records where it ends, one entry per
+/// non-empty piece, which is what the TypeScript's `#emit` enqueues.
+fn emit(out: &mut Vec<u8>, ends: &mut Option<&mut Vec<usize>>, bytes: &[u8]) {
     if !bytes.is_empty() {
         out.extend_from_slice(bytes);
+        if let Some(ends) = ends.as_deref_mut() {
+            ends.push(out.len());
+        }
     }
 }
 
@@ -360,6 +386,43 @@ mod tests {
             5,
         );
         assert_eq!(output.split("\n\n").nth(1), Some("data: {\"b\":\"ok\"}"));
+    }
+
+    #[test]
+    fn pieces_are_where_the_type_script_callback_runs() {
+        let mut out = Vec::new();
+        let mut ends = Vec::new();
+        let mut elider = JsonElider::new(LIMITS).expect("valid limits");
+        // `x "` then the string's bytes, then ` y`: three pieces.
+        elider.push_pieces(b"x \"abc\" y", &mut out, &mut ends);
+        assert_eq!(
+            String::from_utf8(out.clone()).expect("UTF-8"),
+            "x \"abc\" y"
+        );
+        assert_eq!(ends, vec![3, 6, 9]);
+
+        // A held string emits nothing until it closes or the stream ends.
+        out.clear();
+        ends.clear();
+        elider.push_pieces(b"\"abcdef", &mut out, &mut ends);
+        assert_eq!(ends, vec![1], "the opening quote's outside text");
+        elider.push_pieces(b"abcdef", &mut out, &mut ends);
+        assert_eq!(ends, vec![1], "the hold window has not decided yet");
+        elider.end_pieces(&mut out, &mut ends);
+        assert_eq!(ends, vec![1, 13], "the flush is its own piece");
+
+        // An elided string emits its marker, then the closing quote as the
+        // outside text resumes: the TypeScript enqueues both.
+        out.clear();
+        ends.clear();
+        let image = format!("\"data:image/png;base64,{}\"", "QUJD".repeat(64));
+        elider.push_pieces(image.as_bytes(), &mut out, &mut ends);
+        assert_eq!(
+            ends.len(),
+            3,
+            "the opening quote, the marker, the closing quote"
+        );
+        assert_eq!(ends[2], out.len(), "the last piece ends the output");
     }
 
     #[test]
