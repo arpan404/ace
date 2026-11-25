@@ -18,7 +18,6 @@ import {
   type RemotePlan,
   type RemotePreferences as Preferences,
 } from "./remote-policy.ts";
-
 import {
   defaultRemotePreferences,
   readRemotePreferences,
@@ -47,7 +46,7 @@ export function remoteRuntime(
   http: RequestListener,
   attach: (server: Server) => void,
   disconnect: () => void,
-  /** Makes the HTTPS listener: the native one under the switch, `sniListener` otherwise. */
+  /** Creates the native HTTPS listener when enabled. */
   listener?: (options: SniListenerOptions) => SniListener,
 ) {
   options.relay = undefined;
@@ -80,9 +79,7 @@ export function remoteRuntime(
   let reconciling = false;
   let dirty = false;
   let loaded = false;
-  // Whether the saved settings must be read again before anything is applied: until the first
-  // read, and after any read that failed. Every retry reads while it is set, never applying the
-  // last choice it knows, which a saved change (remote access turned off) may have replaced.
+  // Read saved settings before applying changes on startup or after a failed read.
   let stale = true;
   let unreadable: string | undefined;
   // What the change under way brings up: each of its networks reads `waiting` until it serves.
@@ -276,11 +273,7 @@ export function remoteRuntime(
         if (dirty && !closed) reconcile();
       });
   };
-  /**
-   * Follows settings, the account and the network's address. Installed before the first start,
-   * so a sign-in, sign-out or settings change while it waits on the network is applied, in
-   * order, once it ends.
-   */
+  // Subscribe before startup so changes that arrive during the first bind are applied in order.
   const watch = async () => {
     const unsubscribe = await Promise.resolve(
       options.settings?.subscribe({ keys: [...remoteSettingKeys], scope: {} }, (event) => {
@@ -336,11 +329,17 @@ export function remoteRuntime(
       // work waiting on it ends, instead of shutdown waiting out its deadline. The relay expires
       // a registration that never finished; the next start registers afresh.
       const relaysClosed = relays.close(false);
-      // Drop direct HTTP exchanges before they can reply during the remaining shutdown work.
-      await Promise.all([
-        direct.close(),
-        bounded("Remote access queue", tail).then(() => bounded("Remote relays", relaysClosed)),
-      ]);
+      if (listener !== undefined) {
+        // Drop native HTTP hops before Rust can forward a reply during shutdown.
+        await Promise.all([
+          direct.close(),
+          bounded("Remote access queue", tail).then(() => bounded("Remote relays", relaysClosed)),
+        ]);
+        return;
+      }
+      await bounded("Remote access queue", tail);
+      await bounded("Remote relays", relaysClosed);
+      await direct.close();
     })());
   const giveUp = () => void close();
   return {

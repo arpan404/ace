@@ -1341,7 +1341,7 @@ export async function startServer(options: ServerOptions): Promise<{
         (listener) => attach(listener, false),
         () => {
           for (const socket of remoteSockets)
-            if (nativeDraining || options.lifetime?.aborted)
+            if (closing || (nativeRemote && (nativeDraining || options.lifetime?.aborted)))
               closer.gracefulClose(socket, 1001, "Daemon shutdown");
             else socket.terminate();
         },
