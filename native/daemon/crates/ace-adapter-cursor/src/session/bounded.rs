@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! `boundedJson` (`provider-kit/src/ipc.ts:4`–`:58`) as a walk over a value that was already
+//! `boundedJson` (`provider-kit/src/ipc.ts:4`-`:58`) as a walk over a value that was already
 //! parsed: the admission check that runs before anything the host wrote can become a frame.
 //!
 //! The order is the TypeScript's, branch for branch: the node and depth budget first, then each
@@ -118,7 +118,7 @@ impl Walk {
         result
     }
 
-    /// `visit(input, depth)` (`ipc.ts:14`–`:56`).
+    /// `visit(input, depth)` (`ipc.ts:14`-`:56`).
     fn visit(&mut self, value: &Value, depth: u64) -> Result<(), BoundedError> {
         self.nodes += 1;
         if self.nodes > MAX_NODES || depth > MAX_DEPTH {

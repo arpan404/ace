@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The host's storage acknowledgements (`host.ts:146`–`:189`). One host request may carry a
+//! The host's storage acknowledgements (`host.ts:146`-`:189`). One host request may carry a
 //! whole batch, so it is answered `{ committed: true }` only once every frame it carries was
 //! stored. The first refusal, in arrival order, is the reply's error, and a frame the facade
 //! reports twice is answered once: an answered batch is gone from the book.
 //!
-//! A notification's frames carry no request id (`host.ts:181`–`:188`): a refusal there stops the
+//! A notification's frames carry no request id (`host.ts:181`-`:188`): a refusal there stops the
 //! host instead of answering, and a commit only retires its entry.
 
 use ace_supervisor::jsonrpc::RpcId;

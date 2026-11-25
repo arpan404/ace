@@ -8,7 +8,7 @@ use ace_supervisor::peer::PeerError;
 use super::bounded::BoundedError;
 
 /// The one code a peer failure crosses to the facade with: its message is the reply's error
-/// JSON, which `refusedByHost` and `discoveryFailureCode` read (`host-refusal.ts:9`–`:15`).
+/// JSON, which `refusedByHost` and `discoveryFailureCode` read (`host-refusal.ts:9`-`:15`).
 pub const ACE_CURSOR_RPC: &str = "ACE_CURSOR_RPC";
 
 /// A failure as it crosses with a settlement: the code the facade registers and the message.
@@ -30,7 +30,7 @@ pub enum SessionError {
     /// `unbatch`'s message (`frame-batch.ts:147`).
     #[error("Malformed SDK frame batch")]
     MalformedBatch,
-    /// `Limits.parse` failed (`contracts.ts:17`–`:30`).
+    /// `Limits.parse` failed (`contracts.ts:17`-`:30`).
     #[error("Invalid Cursor SDK limits: {0}")]
     Limits(String),
     /// `host.ts:150`: a frame from another generation never enters this session.
