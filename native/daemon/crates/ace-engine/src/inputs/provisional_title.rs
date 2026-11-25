@@ -67,7 +67,10 @@ fn first_line(parts: &[Value]) -> String {
 /// The shortest case-insensitive prefix among the chip markers, after a `[`.
 fn chip_prefix(rest: &str) -> Option<usize> {
     for prefix in ["file:", "image:", "attachment:"] {
-        if rest.len() >= prefix.len() && rest[..prefix.len()].eq_ignore_ascii_case(prefix) {
+        if rest
+            .get(..prefix.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+        {
             return Some(prefix.len());
         }
     }

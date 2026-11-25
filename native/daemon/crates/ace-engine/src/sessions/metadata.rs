@@ -87,9 +87,14 @@ pub fn session(store: &EngineStore, id: &str) -> Result<SessionMetadata, EngineE
         Some(cell) => {
             let text = cell_text(cell).unwrap_or_default();
             let units = text.encode_utf16().count();
-            if units == 0 || units > 256 {
+            if units == 0 {
                 return Err(EngineError::Records(
                     "Too small: expected string to have >=1 characters".to_owned(),
+                ));
+            }
+            if units > 256 {
+                return Err(EngineError::Records(
+                    "Too big: expected string to have <=256 characters".to_owned(),
                 ));
             }
             Some(text.to_owned())

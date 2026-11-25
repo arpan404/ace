@@ -7,7 +7,7 @@
 //! E5.4d's, and `delivered` and `selection` stay E5.9's.
 
 use ace_json::Value;
-use ace_store::{Value as Cell, stmt_cache};
+use ace_store::stmt_cache;
 
 use crate::EngineError;
 use crate::repository::residency::{cell_text, text};
@@ -18,16 +18,6 @@ const GUARD: &str = "INSERT INTO engine_transition_guards VALUES (?, ?)";
 const GET: &str = "SELECT value FROM engine_transitions WHERE thread_id=?";
 const SET: &str = "INSERT INTO engine_transitions VALUES (?, ?)
       ON CONFLICT(thread_id) DO UPDATE SET value=excluded.value";
-const OPTION: &str =
-    "SELECT value FROM engine_model_options WHERE thread_id=? AND provider=? AND model=?";
-const OPTION_COUNT: &str = "SELECT COUNT(*) AS n FROM engine_model_options WHERE thread_id=?";
-const FORGET_OPTION: &str =
-    "DELETE FROM engine_model_options WHERE thread_id=? AND provider=? AND model=?";
-const REMEMBER: &str = "INSERT INTO engine_model_options VALUES (?, ?, ?, ?)";
-const GRANT_FOUND: &str = "SELECT source FROM engine_handoff_grants WHERE recipient=? AND source=?";
-const GRANT_COUNT: &str = "SELECT COUNT(*) AS n FROM engine_handoff_grants WHERE recipient=?";
-const GRANT: &str = "INSERT INTO engine_handoff_grants VALUES (?, ?, ?)
-      ON CONFLICT(recipient,source) DO UPDATE SET through_seq=MAX(through_seq,excluded.through_seq)";
 
 /// `maxMessageBytes`, which sizes the merge context (`model/message-limits.ts:8`).
 const MAX_MESSAGE_BYTES: usize = 256 * 1024;
@@ -47,7 +37,7 @@ pub struct TransitionMetadata {
     pub context: Vec<String>,
 }
 
-fn invalid(what: &str) -> EngineError {
+pub(super) fn invalid(what: &str) -> EngineError {
     EngineError::Records(format!("Invalid transition metadata: {what}"))
 }
 
@@ -62,12 +52,18 @@ fn parse_metadata(input: &Value) -> Result<TransitionMetadata, EngineError> {
     };
     let fork = match object.get("fork") {
         None => None,
-        Some(value) => {
-            parse_fork(value)?;
-            Some(value.clone())
-        }
+        Some(value) => Some(parse_fork(value)?),
     };
-    let handoff = object.get("handoff").cloned();
+    let handoff = match object.get("handoff") {
+        None => None,
+        Some(value) => Some(
+            value
+                .as_object()
+                .ok_or_else(|| invalid("handoff is not an object"))?
+                .clone()
+                .into(),
+        ),
+    };
     let marker = match object.get("marker") {
         None => None,
         Some(value) => {
@@ -81,7 +77,16 @@ fn parse_metadata(input: &Value) -> Result<TransitionMetadata, EngineError> {
             Some(text.to_owned())
         }
     };
-    let fallback = object.get("fallback").cloned();
+    let fallback = match object.get("fallback") {
+        None => None,
+        Some(value) => Some(
+            value
+                .as_object()
+                .ok_or_else(|| invalid("fallback is not an object"))?
+                .clone()
+                .into(),
+        ),
+    };
     let context = match object.get("context") {
         None => Vec::new(),
         Some(value) => {
@@ -148,18 +153,16 @@ fn parse_selection(value: &Value) -> Result<Value, EngineError> {
     Ok(Value::Object(selection))
 }
 
-/// `NativeFork.parse`: the native session, its point and whether it is an inherited fork.
-fn parse_fork(value: &Value) -> Result<(), EngineError> {
+/// `NativeFork.parse`: the native session, its point and whether it is an inherited fork, in
+/// the schema's key order with unknown keys dropped.
+fn parse_fork(value: &Value) -> Result<Value, EngineError> {
     let Some(object) = value.as_object() else {
         return Err(invalid("fork is not an object"));
     };
-    if object
+    let native_session = object
         .get("nativeSessionId")
         .and_then(Value::as_str)
-        .is_none()
-    {
-        return Err(invalid("fork has no native session"));
-    }
+        .ok_or_else(|| invalid("fork has no native session"))?;
     let point = object
         .get("point")
         .and_then(Value::as_object)
@@ -179,12 +182,19 @@ fn parse_fork(value: &Value) -> Result<(), EngineError> {
     if units == 0 || units > 256 {
         return Err(invalid("fork point id is out of bounds"));
     }
-    if let Some(inherited) = object.get("inherited")
-        && inherited.as_bool() != Some(true)
-    {
-        return Err(invalid("inherited is not true"));
+    let mut fork = ace_json::Map::new();
+    fork.insert("nativeSessionId", Value::from(native_session));
+    let mut point_out = ace_json::Map::new();
+    point_out.insert("type", Value::from(kind));
+    point_out.insert("nativeId", Value::from(native_id));
+    fork.insert("point", Value::Object(point_out));
+    if let Some(inherited) = object.get("inherited") {
+        if inherited.as_bool() != Some(true) {
+            return Err(invalid("inherited is not true"));
+        }
+        fork.insert("inherited", Value::Bool(true));
     }
-    Ok(())
+    Ok(Value::Object(fork))
 }
 
 /// `admitTransitionMetadata`: the metadata, refused when its JSON passes the budget.
@@ -307,85 +317,6 @@ impl State {
             Ok(())
         })
     }
-
-    /// `TransitionState.remember` (`:190`): the selection, at most 32 per thread.
-    pub fn transition_remember(
-        &mut self,
-        store: &EngineStore,
-        id: &str,
-        selection: &Value,
-    ) -> Result<(), EngineError> {
-        let provider = selection
-            .get("provider")
-            .and_then(Value::as_str)
-            .ok_or_else(|| invalid("selection has no provider"))?;
-        let model = selection.get("model").and_then(Value::as_str).unwrap_or("");
-        let json = ace_json::to_string(selection);
-        store.atomic(|tx| {
-            let count = stmt_cache::get_row(tx.conn(), OPTION_COUNT, vec![text(id)])?
-                .and_then(|row| {
-                    row.get("n")
-                        .and_then(crate::repository::residency::cell_int)
-                })
-                .unwrap_or(0);
-            let remembered = stmt_cache::get_row(
-                tx.conn(),
-                OPTION,
-                vec![text(id), text(provider), text(model)],
-            )?;
-            if count >= 32 && remembered.is_none() {
-                return Err(EngineError::Records(
-                    "Remembered model capacity exceeded".to_owned(),
-                ));
-            }
-            // rowid tracks the last selection without time or randomness dependencies.
-            stmt_cache::run(
-                tx.conn(),
-                FORGET_OPTION,
-                vec![text(id), text(provider), text(model)],
-            )?;
-            stmt_cache::run(
-                tx.conn(),
-                REMEMBER,
-                vec![text(id), text(provider), text(model), text(&json)],
-            )?;
-            Ok(())
-        })
-    }
-
-    /// `HandoffAccess.grant` (`handoff-access.ts:41`): the source's conversation through `seq`,
-    /// granted to at most 8 recipients.
-    pub fn handoff_grant(
-        &mut self,
-        store: &EngineStore,
-        recipient: &str,
-        source: &str,
-        through_seq: i64,
-    ) -> Result<(), EngineError> {
-        store.atomic(|tx| {
-            let found =
-                stmt_cache::get_row(tx.conn(), GRANT_FOUND, vec![text(recipient), text(source)])?;
-            if found.is_none() {
-                let count = stmt_cache::get_row(tx.conn(), GRANT_COUNT, vec![text(recipient)])?
-                    .and_then(|row| {
-                        row.get("n")
-                            .and_then(crate::repository::residency::cell_int)
-                    })
-                    .unwrap_or(0);
-                if count >= 8 {
-                    return Err(EngineError::Records(
-                        "Handoff history grant capacity exceeded".to_owned(),
-                    ));
-                }
-            }
-            stmt_cache::run(
-                tx.conn(),
-                GRANT,
-                vec![text(recipient), text(source), Cell::Integer(through_seq)],
-            )?;
-            Ok(())
-        })
-    }
 }
 
 #[cfg(test)]
@@ -424,43 +355,6 @@ mod tests {
         assert_eq!(
             state.transition_get(&store, "none").expect("get").context,
             Vec::<String>::new()
-        );
-    }
-
-    #[test]
-    fn guards_are_owned_by_one_command_and_remembered_selections_cap_at_thirty_two() {
-        let conn = home("t", &header("t"));
-        let store = Shell::store(&conn);
-        let mut state = State::default();
-        assert!(!state.transition_guarded(&store, "t").expect("guarded"));
-        state.transition_guard(&store, "t", "cmd").expect("guard");
-        assert_eq!(
-            state
-                .transition_guard_owner(&store, "t")
-                .expect("owner")
-                .as_deref(),
-            Some("cmd")
-        );
-        for index in 0..32 {
-            let selection = value(&format!(
-                r#"{{"provider":"codex","model":"m{index}","options":{{}}}}"#
-            ));
-            state
-                .transition_remember(&store, "t", &selection)
-                .expect("remember");
-        }
-        // A selection already remembered is replaced, not counted again.
-        let same = value(r#"{"provider":"codex","model":"m31","options":{"x":true}}"#);
-        state
-            .transition_remember(&store, "t", &same)
-            .expect("an existing selection is replaced");
-        let extra = value(r#"{"provider":"codex","model":"m32","options":{}}"#);
-        assert_eq!(
-            state
-                .transition_remember(&store, "t", &extra)
-                .unwrap_err()
-                .to_string(),
-            "Remembered model capacity exceeded"
         );
     }
 }

@@ -59,6 +59,8 @@ fn agent_ready(record: &AgentRecord, now: i64) -> bool {
 }
 
 /// `TransitionReadiness.refreshBlocked` (`:85`): every stored blocker follows its agent record.
+/// The caller passes the state the fold holds, with its agents loaded, as the TypeScript reads
+/// them through the state's own proxy.
 pub fn refresh_blocked(
     conn: &std::sync::Arc<ace_store::Connection>,
     state: &ThreadState,

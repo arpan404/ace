@@ -123,12 +123,12 @@ fn tail(
 /// (`item-text-store.ts:220`).
 fn read_item(conn: &Arc<ace_store::Connection>, id: &str) -> Result<Option<Value>, EngineError> {
     let preview = stmt_cache::get_row(conn, PREVIEW, vec![Cell::Text(id.to_owned())])?;
-    let Some(preview) = preview else {
-        return Ok(None);
-    };
-    let Some(body) = preview.get("item").and_then(cell_text) else {
-        return Ok(None);
-    };
+    // A message is read from its preview; one without it is a home this build cannot read.
+    let body = preview
+        .as_ref()
+        .and_then(|row| row.get("item"))
+        .and_then(cell_text)
+        .ok_or_else(|| EngineError::Records("Missing item preview".to_owned()))?;
     let parsed = ace_json::parse(body).map_err(|error| EngineError::Records(error.to_string()))?;
     Ok(Some(fill_streams(conn, parsed)?))
 }

@@ -15,6 +15,7 @@ pub mod journal;
 pub mod origin;
 pub mod posts;
 pub mod provisional_title;
+pub mod removal;
 pub mod runs;
 pub mod signature;
 pub mod title;
