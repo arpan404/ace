@@ -105,11 +105,15 @@ function position(buffer: Buffer, offset: number, x: number, y: number, screen: 
 
 export function encodeControl(message: ControlMessage): Buffer {
   if (nativeInput) {
-    // The server's own refusal is a `RangeError`, as `utf8` throws it today.
     try {
       return nativeDevices().devicePlatformScrcpyEncode(nativeControl(message));
     } catch (error) {
-      throw new RangeError(error instanceof Error ? error.message : String(error));
+      // Only the server's text cap is the `RangeError` `utf8` throws, with its own words; a
+      // wiring bug or any other failure stays the error it was.
+      const detail = error instanceof Error ? error.message : String(error);
+      const limit = "scrcpy text exceeds the server's limit";
+      if (detail.endsWith(limit)) throw new RangeError(limit);
+      throw error;
     }
   }
   switch (message.type) {
