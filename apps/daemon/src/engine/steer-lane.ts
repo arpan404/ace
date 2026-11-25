@@ -92,10 +92,13 @@ export class SteerLane {
     const session = actor.session;
     if (run === undefined || !session) return;
     const target = this.aim(intent, session);
-    // The turn this steer was sent into is gone. Handing it over now would join the running turn
-    // with no fence and hold this lane until that turn ends, so a newer steer could not cancel it.
-    // It goes back to the queue as the next message instead: the sends lane delivers it then.
     if (target !== undefined && steerLostRun(repo, actor.id, target)) {
+      // A native steer naming a turn that ended goes through delivery, whose fence returns it
+      // to the queue, as before.
+      if (!session.steerViaCancel) return this.deliver(actor, intent);
+      // The turn this steer was sent into is gone. Handing it over now would join the running
+      // turn with no fence and hold this lane until that turn ends, so a newer steer could not
+      // cancel it. It goes back to the queue as the next message: the sends lane delivers it.
       repo.pending.requeue(intent, "Steer target lost");
       return this.ports.wake(actor.id);
     }
@@ -110,14 +113,14 @@ export class SteerLane {
     this.ports.wake(actor.id);
   }
   /**
-   * The turn a steer was aimed at: the one its payload names, else the one recorded as it was
-   * admitted. `undefined` when it names none. Only a session that steers by cancelling reads an
-   * aim at all; every other provider steers natively and must never consult it.
+   * The turn a steer was aimed at: the one its payload names (any provider, as a sender's explicit
+   * target always fenced it), else, only where the session steers by cancelling, the one recorded
+   * as it was admitted. `undefined` when it names none. Native providers never read the record.
    */
   private aim(intent: IntentHeader, session: ProviderSession): string | null | undefined {
-    if (!session.steerViaCancel) return undefined;
     const stamped = this.ports.repo.pending.steerTarget(intent.id);
-    return stamped !== undefined ? stamped : this.ports.repo.steerAims.aim(intent.id);
+    if (stamped !== undefined) return stamped;
+    return session.steerViaCancel ? this.ports.repo.steerAims.aim(intent.id) : undefined;
   }
   private route(intent: IntentHeader): SteerRoute {
     const { repo } = this.ports;

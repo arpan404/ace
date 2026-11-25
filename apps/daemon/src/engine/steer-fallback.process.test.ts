@@ -414,3 +414,39 @@ test("retiring a thread forgets the aim of an uncertain steer it never sent", as
     expect(repo.steerAims.aim(intent)).toBeUndefined();
   });
 });
+
+test("a native steer whose named turn already ended goes back to the queue, never interrupting the next", async () => {
+  // A provider whose steer waits for the running command interrupts the turn for a person's
+  // steer; one that names a turn which has since ended must not interrupt the turn running now.
+  const h = transitionHarness({ steerTiming: "after_tool" });
+  try {
+    const id = await runningCommand(h);
+    const run = Object.values(h.store.snapshotThread(id).runs).find(
+      (entry) => entry.state === "active",
+    )?.id;
+    if (!run) throw new Error("Expected a running turn");
+    expect(
+      h.command(
+        {
+          type: "thread.send",
+          threadId: id,
+          input: [{ type: "text", text: "Try the other path" }],
+          delivery: "steer",
+          runId: run,
+        },
+        "named-steer",
+      ).ok,
+    ).toBe(true);
+    // Its turn ended and another runs by the time the lane reads it.
+    h.store
+      .statement(
+        "UPDATE intents SET payload=json_set(payload,'$.payload.runId','ended-turn') WHERE command_id='named-steer'",
+      )
+      .run();
+    await h.engine.flush();
+    expect(h.interrupts).toEqual([]);
+    expect(h.engine.queue(id).messages).toMatchObject([{ id: "named-steer", delivery: "queue" }]);
+  } finally {
+    await h.close();
+  }
+});
