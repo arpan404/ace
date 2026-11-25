@@ -187,6 +187,8 @@ export class AccountManagement {
   }
   private async restoreManaged(instance: ProviderInstance): Promise<void> {
     this.options.signal?.throwIfAborted();
+    // Never repair a home whose identity hasn't been checked: a symlink swapped in must refuse.
+    await assertManagedHome(this.options.dataDir, instance);
     // A managed OpenCode home whose folders lost their owner's access cannot start its CLI.
     if (instance.provider === "opencode" && instance.managed)
       try {
@@ -195,7 +197,6 @@ export class AccountManagement {
         // Startup never waits on a folder ace cannot repair; discovery reports the account.
       }
     if (this.options.configuration?.(instance.provider, instance.id).enabled === false) return;
-    await assertManagedHome(this.options.dataDir, instance);
     const sdk = instance.provider === "cursor" ? this.options.cursor?.() : undefined;
     if (instance.provider === "cursor" && !sdk) return;
     const env = instanceEnv(instance, sdk?.env ?? this.options.env, sdk ? "cursor-sdk" : undefined);

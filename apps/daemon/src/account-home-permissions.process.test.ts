@@ -13,11 +13,32 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { AccountService, openRegistry, openRegistryIndex } from "@ace/accounts";
 import { createModelDiscovery, ModelCatalog, openModelStorage } from "@ace/models";
+import { createScriptedAdapter } from "@ace/adapter-testkit";
+import { AdapterRegistry, startDaemon } from "@ace/daemon";
+import { ProviderPayload } from "@ace/provider-kit/payload";
+import { Command, type ThreadId } from "@ace/protocol";
+import { prepareDaemonHome } from "@ace/service";
 import { AccountManagement } from "./account-management.ts";
 import { createManagedHome, prepareOpenCodeHome } from "./account-homes.ts";
+import { commandContext } from "./commands.ts";
+import { scriptFrames, start, end } from "./engine/test-support.ts";
+
+const sessionCapabilities = {
+  steer: false,
+  interruptCascades: false,
+  resume: true,
+  fork: false,
+  subagentTranscripts: false,
+  backgroundTaskControl: false,
+  backgroundVisibility: "none" as const,
+  planMode: false,
+  tokenUsage: false,
+  imageInput: false,
+  rewindFiles: false,
+};
 
 // The real edge here is the filesystem: folders OpenCode runs in, their owner bits, and the
 // paths that repair them before a discovery or a session. Discovery and the CLI's own failure
@@ -227,7 +248,7 @@ test("an added OpenCode account whose data folder lost its owner's access works 
 
 test("a symlinked OpenCode folder in an added account is refused, not followed", async () => {
   if (process.platform === "win32") return;
-  const root = await mkdtemp(join(tmpdir(), "ace-opencode-link-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-opencode-link-")));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   const target = join(root, "elsewhere");
   await mkdir(target, { mode: 0o600 });
@@ -236,4 +257,134 @@ test("a symlinked OpenCode folder in an added account is refused, not followed",
   await symlink(target, join(home, "data"));
   await expect(prepareOpenCodeHome(home, "linux")).rejects.toThrow("Unsafe OpenCode home");
   expect(await ownerMode(target)).toBe(0o600);
+});
+
+test("a symlinked OpenCode home is refused, not followed", async () => {
+  if (process.platform === "win32") return;
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-opencode-home-link-")));
+  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  const real = join(root, "real");
+  await mkdir(real, { mode: 0o700 });
+  const home = join(root, "home");
+  await symlink(real, home);
+  // The home itself must be the canonical path: repairing through a link touches another folder.
+  await expect(prepareOpenCodeHome(home, "linux")).rejects.toThrow("Unsafe OpenCode home");
+  await expect(lstat(join(real, "data"))).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+test("a symlink swapped in for a data folder is refused, not followed", async () => {
+  if (process.platform === "win32") return;
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-opencode-swap-")));
+  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  const outside = join(root, "outside");
+  await mkdir(outside, { mode: 0o600 });
+  for (const swap of ["nested", "ancestor"] as const) {
+    const home = join(root, swap);
+    await mkdir(home, { mode: 0o700 });
+    if (swap === "nested") {
+      await mkdir(join(home, "data"), { mode: 0o700 });
+      await symlink(outside, join(home, "data", "opencode"));
+    } else {
+      await symlink(outside, join(home, "data"));
+    }
+    await expect(prepareOpenCodeHome(home, "linux")).rejects.toThrow("Unsafe OpenCode home");
+    // The folder outside the home is never repaired through the link.
+    expect(await ownerMode(outside)).toBe(0o600);
+  }
+});
+
+test("two repairs of a home missing its folders both finish", async () => {
+  if (process.platform === "win32") return;
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-opencode-parallel-")));
+  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  const home = join(root, "home");
+  await mkdir(home, { mode: 0o700 });
+  // Started together, both may try to create each folder; the loser verifies the winner's.
+  await Promise.all([
+    prepareOpenCodeHome(home, process.platform),
+    prepareOpenCodeHome(home, process.platform),
+  ]);
+  for (const name of ["data", "config", "state"])
+    for (const dir of [join(home, name), join(home, name, "opencode")])
+      expect(await ownerMode(dir)).toBe(0o700);
+});
+
+test("a session in an added OpenCode account whose data folder lost its owner's access opens", async () => {
+  if (process.platform === "win32") return;
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-opencode-session-open-")));
+  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  const dataDir = join(root, "daemon");
+  prepareDaemonHome(dataDir);
+  const instance = await createManagedHome(
+    dataDir,
+    "account-session",
+    "opencode",
+    "Work",
+    process.platform,
+  );
+  const saved = await openRegistry(join(dataDir, "accounts.sqlite"));
+  await saved.register(instance);
+  saved.close();
+  // The damage a managed home is known to take while ace runs (#2784).
+  const data = join(instance.homeDir, "data", "opencode");
+  await chmod(data, 0o600);
+
+  const frames = scriptFrames();
+  const frame = frames.frame(start, end);
+  const payload = new ProviderPayload(JSON.stringify(frame.data));
+  const opened: { instance: string | undefined; dataHome: string | undefined }[] = [];
+  const scripted = createScriptedAdapter({
+    provider: "opencode",
+    nativeSessionId: "native",
+    capabilities: sessionCapabilities,
+    createTranslator: () => ({ translate: frames.translate, tick: () => [] }),
+    steps: [{ on: "send", frames: [{ ...frame, payload, data: payload.data }] }],
+  });
+  const adapters = new AdapterRegistry();
+  cleanups.push(() => adapters.close());
+  adapters.register(
+    {
+      ...scripted,
+      async openSession(context) {
+        opened.push({ instance: context.instanceId, dataHome: context.env?.["XDG_DATA_HOME"] });
+        return scripted.openSession(context);
+      },
+    },
+    { installed: true, auth: "logged_in", loginHint: "unused" },
+  );
+  const daemon = await startDaemon({
+    config: {
+      dataDir,
+      host: "127.0.0.1",
+      port: 0,
+      remotePort: 0,
+      listen: "local",
+      logLevel: "silent",
+    },
+    engine: { registry: adapters },
+    accounts: { env: process.env },
+  });
+  cleanups.push(() => daemon.close());
+  const workspaceId = daemon.store.createWorkspace(dataDir, "workspace");
+  const threadId = randomUUID() as ThreadId;
+  const create = Command.parse({
+    id: randomUUID(),
+    deviceId: "host",
+    createdAt: 1,
+    payload: {
+      type: "thread.create",
+      threadId,
+      workspaceId,
+      provider: "opencode",
+      instanceId: instance.id,
+      input: [{ type: "text", text: "synthetic" }],
+    },
+  });
+  expect(daemon.engine?.handler.handle(create, commandContext(daemon.store)).ok).toBe(true);
+  await vi.waitFor(() => expect(daemon.store.getThread(threadId)?.status.state).toBe("done"), {
+    timeout: 10000,
+  });
+  // The session opened in the account's own data folder, after ace repaired its access.
+  expect(await ownerMode(data)).toBe(0o700);
+  expect(opened).toEqual([{ instance: instance.id, dataHome: join(instance.homeDir, "data") }]);
 });
