@@ -49,11 +49,14 @@ export function alertFromSpadeNotice(data: string, threadId: ThreadId): Notifica
   const parsed = SpadeNotice.safeParse(raw);
   if (!parsed.success || parsed.data.reach !== "now") return undefined;
   const notice = parsed.data;
-  const items = notice.items?.slice(0, 50).map((item) => ({
-    agent: item.agent,
-    ...(item.conversation ? { conversation: item.conversation } : {}),
-    ...(item.request ? { request: item.request } : {}),
-  }));
+  const items = notice.items?.slice(0, 50).map((item) => {
+    const target: { agent: string; conversation?: string; request?: string } = {
+      agent: item.agent,
+    };
+    if (item.conversation) target.conversation = item.conversation;
+    if (item.request) target.request = item.request;
+    return target;
+  });
   // If a batch's items all belong to one conversation, deep-link directly to that owner.
   const firstItem = items?.[0];
   const singleOwner =
