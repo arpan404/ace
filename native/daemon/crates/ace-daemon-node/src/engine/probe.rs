@@ -80,13 +80,6 @@ fn field<'a>(value: &'a ace_json::Value, name: &str) -> Option<&'a ace_json::Val
 
 #[napi]
 impl NativeEngine {
-    /// The probe's one stub: the recovery-candidate scan answers with no rows so `ready()`
-    /// resolves before E5.3. E5.3 deletes this.
-    #[napi]
-    pub fn probe_empty_candidates(&self) {
-        self.engine.core().probe_empty_candidates();
-    }
-
     /// The claim's name, for the interleaving assertions.
     #[napi]
     pub fn probe_claim(&self) -> String {

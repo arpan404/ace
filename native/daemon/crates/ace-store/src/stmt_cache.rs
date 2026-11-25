@@ -234,6 +234,47 @@ pub fn all_rows(
     }
 }
 
+/// Run one write `sql` with `params`, without reading rows: the changed-row count and the
+/// last inserted rowid, as `StatementSync.run` reports (`changes`, `lastInsertRowid`). The
+/// engine's own writes use this (E5.3, `repository.ts:324`), so they share one statement cache.
+pub fn run(
+    conn: &Arc<Connection>,
+    sql: &'static str,
+    params: Vec<Value>,
+) -> Result<(i64, i64), Error> {
+    let mut retried = false;
+    loop {
+        let statement = match take(conn, sql)? {
+            Some(statement) => statement,
+            None => conn.prepare(sql)?,
+        };
+        if let Err(error) = bind(&statement, params.clone()) {
+            if !retried && is_schema(&error) {
+                clear(conn);
+                retried = true;
+                continue;
+            }
+            put(conn, sql, statement);
+            return Err(error);
+        }
+        // A write has one step; a `RETURNING` statement stops before its end, and `reset`
+        // finishes it, so the last row is read here and the reset's result is checked.
+        let stepped = statement.step();
+        let reset = statement.reset();
+        let counted = statement.changes();
+        put(conn, sql, statement);
+        match (stepped, reset) {
+            (Err(error), _) | (Ok(_), Err(error)) if !retried && is_schema(&error) => {
+                clear(conn);
+                retried = true;
+            }
+            (Err(error), _) => return Err(error),
+            (Ok(_), Err(error)) => return Err(error),
+            (Ok(_), Ok(())) => return counted,
+        }
+    }
+}
+
 /// The first row of `sql`, if any.
 pub fn get_row(
     conn: &Arc<Connection>,

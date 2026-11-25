@@ -87,6 +87,24 @@ pub enum EngineError {
     Closing,
     #[error("Engine closed")]
     Closed,
+    /// A stored record, header or append the section's decoder refused (`records.ts:16`).
+    #[error("Invalid snapshot record")]
+    InvalidRecord,
+    /// A stored thread state that is not the core's shape (`snapshot.ts:138`).
+    #[error("Invalid saved core state")]
+    InvalidState,
+    /// The engine's record paths' own errors, and the store's message text.
+    #[error("{0}")]
+    Records(String),
+    #[error("Missing engine state")]
+    MissingState,
+    /// A home this build cannot read (E5.3's version checks, `schema-version.ts:24`).
+    /// The facade throws `IncompatibleDataError(store location, message, recovery)`.
+    #[error("{message}")]
+    Incompatible {
+        message: String,
+        recovery: &'static str,
+    },
 }
 
 impl EngineError {
@@ -121,9 +139,6 @@ pub struct State {
     pub lifecycle: Lifecycle,
     /// `flushDepth` (`index.ts:1407`): how many `flush` calls are inside.
     pub flush_depth: u32,
-    /// The probe's one stub (E5.1): the recovery-candidate scan answers with no rows so
-    /// `ready()` can resolve before E5.3 lands. E5.3 deletes it.
-    pub probe_empty_candidates: bool,
     pub actors: actor::Actors,                 // E5.2
     pub repo: repository::Repo,                // E5.3
     pub commands: commands::Commands,          // E5.4
@@ -141,9 +156,8 @@ impl Default for State {
             workers: workers::WorkerSet::default(),
             lifecycle: Lifecycle::default(),
             flush_depth: 0,
-            probe_empty_candidates: false,
             actors: actor::Actors::default(),
-            repo: repository::Repo,
+            repo: repository::Repo::default(),
             commands: commands::Commands,
             sessions: sessions::Sessions,
             recovery: recovery::Recovery,
@@ -176,6 +190,12 @@ impl Tx<'_> {
             .append_events(json)
             .map_err(EngineError::Port)
     }
+
+    /// The connection this transaction runs on, for the engine's own statements (E5.3): the
+    /// same connection the store's shell opened the frame on.
+    pub fn conn(&self) -> &std::sync::Arc<ace_store::Connection> {
+        &self.store.conn
+    }
 }
 
 /// The store seam: the shell's transaction context, any transaction's one lifecycle.
@@ -183,6 +203,8 @@ pub struct EngineStore {
     ports: Rc<dyn Ports>,
     stack: Rc<dyn EngineStack>,
     outermost: Cell<bool>,
+    /// The connection every transaction frame and the engine's own statements run on (E5.3).
+    conn: std::sync::Arc<ace_store::Connection>,
 }
 
 impl EngineStore {
@@ -238,6 +260,69 @@ impl EngineStore {
 
     fn detach(&self) -> Vec<u64> {
         self.stack.detach()
+    }
+
+    /// The connection the shell's transaction frames run on (E5.3).
+    pub fn conn(&self) -> &std::sync::Arc<ace_store::Connection> {
+        &self.conn
+    }
+
+    /// `store.headSeq()`: the sequence the store has written so far.
+    pub fn head_seq(&self) -> Result<f64, EngineError> {
+        self.ports.head_seq().map_err(EngineError::Port)
+    }
+
+    /// `store.hasLiveWrite(id)`: a buffered live write is pending for the thread.
+    pub fn has_live_write(&self, id: &str) -> Result<bool, EngineError> {
+        self.ports.has_live_write(id).map_err(EngineError::Port)
+    }
+
+    /// `store.rollbackGeneration()`: a number, bumped on every rollback.
+    pub fn rollback_generation(&self) -> Result<f64, EngineError> {
+        self.ports.rollback_generation().map_err(EngineError::Port)
+    }
+
+    /// `options.ids` / the Rust id service: one ace id of `kind`.
+    pub fn next_id(&self, kind: &str) -> String {
+        self.ports.next_id(kind)
+    }
+
+    /// `store.getThread(id)`: the thread row as JSON, or none (`provider-facts.ts:59`).
+    pub fn get_thread(&self, id: &str) -> Result<Option<String>, EngineError> {
+        self.ports.get_thread(id).map_err(EngineError::Port)
+    }
+
+    /// `store.prepareLiveWrite(bytes)` (E5.2's buffer).
+    pub fn prepare_live_write(&self, bytes: f64) -> Result<(), EngineError> {
+        self.ports
+            .prepare_live_write(bytes)
+            .map_err(EngineError::Port)
+    }
+
+    /// `store.bufferLiveWrite(id, events, now, callbacks)` (E5.2's buffer).
+    pub fn buffer_live_write(
+        &self,
+        id: &str,
+        events_json: &str,
+        at: f64,
+        token: u64,
+    ) -> Result<(), EngineError> {
+        self.ports
+            .buffer_live_write(id, events_json, at, token)
+            .map_err(EngineError::Port)
+    }
+
+    /// `store.capRaw(raw, threadId)` (E5.2).
+    pub fn cap_raw(&self, thread: &str, raw: &str) -> Result<String, EngineError> {
+        self.ports.cap_raw(thread, raw).map_err(EngineError::Port)
+    }
+
+    /// `store.appendEvents(threadId, payloads, at)`: the store's one event writer, inside the
+    /// open transaction (`repository.ts:322`). Engine SQL never writes event rows (Decision 1).
+    pub fn write_events(&self, id: &str, payloads_json: &str, at: f64) -> Result<(), EngineError> {
+        self.ports
+            .write_events(id, payloads_json, at)
+            .map_err(EngineError::Port)
     }
 }
 
@@ -457,14 +542,9 @@ impl Core {
         }
     }
 
-    /// The probe's stub: the recovery-candidate scan answers with no rows (E5.3 deletes this).
-    pub fn probe_empty_candidates(&self) {
-        if let Ok(mut state) = self.state.try_borrow_mut() {
-            state.probe_empty_candidates = true;
-        }
-    }
-
-    /// The readiness sequence of `index.ts:466`–`:487`.
+    /// The readiness sequence of `index.ts:466`-`:487`. The candidate scan runs in 64-candidate
+    /// pages (E5.3 step 9): one `EngineStore::atomic` per scan step, one pump step per thread
+    /// recovered, and `done` only after an empty page.
     async fn ready_steps(&self) -> Result<(), EngineError> {
         if self.inputs.any_ready_port() {
             self.ports
@@ -473,28 +553,35 @@ impl Core {
                 .map_err(EngineError::Port)?;
             self.with_state(sessions::prepare_silence)??;
             self.with_state(recovery::prepare)??;
-            loop {
-                let slice =
-                    self.with_state(|state| repository::recovery_candidates(state, 256))??;
-                if slice.is_empty() {
-                    break;
-                }
-                for thread in slice {
-                    self.with_state(|state| recovery::recover_thread(state, &thread))??;
-                }
+        }
+        let mut scan = repository::candidates::Scan::new(String::new());
+        loop {
+            let step = self.store.atomic(|tx| scan.step(tx.conn()))?;
+            let Some(step) = step else {
+                // Nothing final yet: the event loop runs between scan steps.
+                yield_once().await;
+                continue;
+            };
+            if step.done {
+                break;
             }
-        } else {
-            // The synchronous `recover()` of the TypeScript; a fresh home has no candidates.
-            loop {
-                let slice =
-                    self.with_state(|state| repository::recovery_candidates(state, 256))??;
-                if slice.is_empty() {
-                    break;
+            for thread in step.threads {
+                let loaded = self.with_state(|state| state.repo.state(&self.store, &thread))?;
+                match loaded {
+                    Ok(Some(_)) => {
+                        self.with_state(|state| recovery::recover_thread(state, &thread))??;
+                    }
+                    Ok(None) => {}
+                    // `skippableAtStartup`: an unreadable thread is reported and skipped.
+                    Err(EngineError::Incompatible { message, .. }) => {
+                        self.ports.report(format!("{thread}: {message}"));
+                    }
+                    Err(error) => return Err(error),
                 }
-                for thread in slice {
-                    self.with_state(|state| recovery::recover_thread(state, &thread))??;
-                }
+                yield_once().await;
             }
+            let after = scan.after().to_owned();
+            scan.restart(after);
         }
         self.with_state(|state| {
             state.lifecycle = Lifecycle::Ready;
@@ -548,6 +635,7 @@ impl Engine {
         inputs: Inputs,
         registry_json: &str,
         notifier: Box<dyn executor::Notifier>,
+        connection: &std::sync::Arc<ace_store::Connection>,
     ) -> Result<Engine, EngineError> {
         let limits = limits::resolve(inputs.limits)?;
         let idle_ms = limits::validate_idle_ms(inputs.idle_ms.unwrap_or(0.0))?;
@@ -556,6 +644,7 @@ impl Engine {
             ports: Rc::clone(&ports),
             stack,
             outermost: Cell::new(true),
+            conn: std::sync::Arc::clone(connection),
         };
         let mut state = State {
             limits,

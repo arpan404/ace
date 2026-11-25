@@ -17,6 +17,7 @@ import type { ThreadId } from "@ace/protocol";
 import { personCommand } from "../engine/person-command.ts";
 import { AdapterRegistry } from "../engine/registry.ts";
 import { engineBindings, type EngineBindings, type PortHost } from "./ports.ts";
+import { openEngineData } from "./open.ts";
 
 /** The store's transaction shell, for Rust-opened transactions. */
 export interface NativeTransactionShell {
@@ -44,6 +45,15 @@ export interface NativeEngineHandle {
   onLimitPolicy?(id: number, listener: (id: string) => void): void;
   dropLimitPolicy?(id: number): void;
   pumpStats?(): { turns: number; polls: number; longestPollUs: number; slowPolls: number };
+  probeApply?(id: string, factsJson: string, now: number): void;
+  probeApplyRolledBack?(id: string, factsJson: string, now: number): void;
+  probePassThroughCollaborators?(): void;
+  probeBudget?(): string;
+  probeResident?(): number;
+  probeHolds?(id: string): boolean;
+  probeRollbackGeneration?(): number;
+  probeQuarantine?(id: string): void;
+  probeCandidatePages?(): string;
   hold?(): void;
   releaseHold?(): void;
   release?(): void;
@@ -82,6 +92,7 @@ export class NativeEngine implements EngineSurface {
   /** The addon handle, for the test seam's probe hooks. */
   readonly binding: NativeEngineHandle;
   private readonly registry: AdapterRegistry;
+  private readonly store: Store;
   readonly handler: CommandHandler;
   readonly internalHandler: CommandHandler;
   private readyPromise!: Promise<void>;
@@ -126,6 +137,7 @@ export class NativeEngine implements EngineSurface {
 
   constructor(store: Store, options: EngineOptions = {}) {
     recordEvidence();
+    this.store = store;
     this.registry = options.registry ?? new AdapterRegistry();
     const shell = store.nativeTransactionShell;
     if (!shell) throw new Error("ACE_ENGINE needs ACE_STORE_WRITER=…,transactions");
@@ -142,6 +154,8 @@ export class NativeEngine implements EngineSurface {
       timerFired: (key) => native?.timerFired?.(key),
       settlePromise: (id, ok, message) => native?.settlePromise?.(id, ok, message),
     };
+    // The opener: the TypeScript repository's schema setup, in today's order (E5.3 step 1).
+    openEngineData(store, options, () => (options.clock ?? { now: Date.now }).now());
     let entries = "[]";
     this.stopObserving = this.registry.observe((list) => {
       entries = JSON.stringify(
@@ -156,7 +170,13 @@ export class NativeEngine implements EngineSurface {
       );
       native?.registryChanged?.(entries);
     });
-    const bindings = engineBindings({ options, registryJson: entries, store: shell, host });
+    const bindings = engineBindings({
+      options,
+      registryJson: entries,
+      store: this.store,
+      shell,
+      host,
+    });
     const pump = () => {
       if (native?.pump?.() === "rearm") setImmediate(pump);
     };
@@ -532,8 +552,8 @@ export class NativeEngine implements EngineSurface {
   ): ReturnType<EngineSurface["hasSession"]> {
     throw incomplete("hasSession", "E5.6");
   }
-  hasState(..._args: Parameters<EngineSurface["hasState"]>): ReturnType<EngineSurface["hasState"]> {
-    throw incomplete("hasState", "E5.3");
+  hasState(id: ThreadId): boolean {
+    return this.member("hasState", "E5.3")(id) as boolean;
   }
   cleanupThreads(
     ..._args: Parameters<EngineSurface["cleanupThreads"]>
@@ -626,15 +646,12 @@ export class NativeEngine implements EngineSurface {
   ): ReturnType<EngineSurface["inputFate"]> {
     throw incomplete("inputFate", "E5.4");
   }
-  retainsAttachment(
-    ..._args: Parameters<EngineSurface["retainsAttachment"]>
-  ): ReturnType<EngineSurface["retainsAttachment"]> {
-    throw incomplete("retainsAttachment", "E5.3");
+  retainsAttachment(id: ThreadId, hash: string): boolean {
+    return this.member("retainsAttachment", "E5.3")(id, hash) as boolean;
   }
-  readRawBlob(
-    ..._args: Parameters<EngineSurface["readRawBlob"]>
-  ): ReturnType<EngineSurface["readRawBlob"]> {
-    throw incomplete("readRawBlob", "E5.3");
+  readRawBlob(id: string): Uint8Array | undefined {
+    const bytes = this.member("readRawBlob", "E5.3")(id) as Uint8Array | null;
+    return bytes ?? undefined;
   }
   async prepareCommand(
     ..._args: Parameters<EngineSurface["prepareCommand"]>

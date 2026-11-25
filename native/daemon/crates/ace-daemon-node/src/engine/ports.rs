@@ -111,6 +111,14 @@ pub struct JsPorts {
     close_transaction: FunctionRef<FnArgs<(f64, Option<String>)>, ()>,
     is_transaction_open: FunctionRef<(), bool>,
     append_events: FunctionRef<String, ()>,
+    write_events: FunctionRef<FnArgs<(String, String, f64)>, ()>,
+    head_seq: FunctionRef<(), f64>,
+    has_live_write: FunctionRef<String, bool>,
+    rollback_generation: FunctionRef<(), f64>,
+    get_thread: FunctionRef<String, Option<String>>,
+    cap_raw: FunctionRef<FnArgs<(String, String)>, String>,
+    prepare_live_write: FunctionRef<f64, ()>,
+    buffer_live_write: FunctionRef<FnArgs<(String, String, f64, f64)>, ()>,
     settle_call: FunctionRef<FnArgs<(f64, Option<String>)>, ()>,
     reject_pending: FunctionRef<(), ()>,
     finish_close: FunctionRef<(), ()>,
@@ -146,6 +154,14 @@ impl JsPorts {
         close_transaction: FunctionRef<FnArgs<(f64, Option<String>)>, ()>,
         is_transaction_open: FunctionRef<(), bool>,
         append_events: FunctionRef<String, ()>,
+        write_events: FunctionRef<FnArgs<(String, String, f64)>, ()>,
+        head_seq: FunctionRef<(), f64>,
+        has_live_write: FunctionRef<String, bool>,
+        rollback_generation: FunctionRef<(), f64>,
+        get_thread: FunctionRef<String, Option<String>>,
+        cap_raw: FunctionRef<FnArgs<(String, String)>, String>,
+        prepare_live_write: FunctionRef<f64, ()>,
+        buffer_live_write: FunctionRef<FnArgs<(String, String, f64, f64)>, ()>,
         settle_call: FunctionRef<FnArgs<(f64, Option<String>)>, ()>,
         reject_pending: FunctionRef<(), ()>,
         finish_close: FunctionRef<(), ()>,
@@ -167,6 +183,14 @@ impl JsPorts {
             close_transaction,
             is_transaction_open,
             append_events,
+            write_events,
+            head_seq,
+            has_live_write,
+            rollback_generation,
+            get_thread,
+            cap_raw,
+            prepare_live_write,
+            buffer_live_write,
             settle_call,
             reject_pending,
             finish_close,
@@ -434,6 +458,59 @@ impl Ports for JsPorts {
 
     fn append_events(&self, json: &str) -> Result<(), PortError> {
         self.call(&self.append_events, json.to_string())
+    }
+
+    fn write_events(&self, thread: &str, payloads_json: &str, at: f64) -> Result<(), PortError> {
+        self.call(
+            &self.write_events,
+            FnArgs {
+                data: (thread.to_owned(), payloads_json.to_owned(), at),
+            },
+        )
+    }
+
+    fn head_seq(&self) -> Result<f64, PortError> {
+        self.call(&self.head_seq, ())
+    }
+
+    fn has_live_write(&self, thread: &str) -> Result<bool, PortError> {
+        self.call(&self.has_live_write, thread.to_owned())
+    }
+
+    fn rollback_generation(&self) -> Result<f64, PortError> {
+        self.call(&self.rollback_generation, ())
+    }
+
+    fn get_thread(&self, thread: &str) -> Result<Option<String>, PortError> {
+        self.call(&self.get_thread, thread.to_owned())
+    }
+
+    fn cap_raw(&self, thread: &str, raw: &str) -> Result<String, PortError> {
+        self.call(
+            &self.cap_raw,
+            FnArgs {
+                data: (raw.to_owned(), thread.to_owned()),
+            },
+        )
+    }
+
+    fn prepare_live_write(&self, bytes: f64) -> Result<(), PortError> {
+        self.call(&self.prepare_live_write, bytes)
+    }
+
+    fn buffer_live_write(
+        &self,
+        thread: &str,
+        events_json: &str,
+        at: f64,
+        token: u64,
+    ) -> Result<(), PortError> {
+        self.call(
+            &self.buffer_live_write,
+            FnArgs {
+                data: (thread.to_owned(), events_json.to_owned(), at, token as f64),
+            },
+        )
     }
 
     fn settle_call(&self, call: u64, error: Option<String>) {

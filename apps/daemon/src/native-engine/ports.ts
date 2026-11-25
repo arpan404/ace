@@ -8,6 +8,7 @@
 import { systemClock } from "../engine/actor.ts";
 import type { EngineClock } from "../engine/actor.ts";
 import type { EngineOptions } from "../engine/engine-options.ts";
+import type { Store } from "../store.ts";
 import type { NativeTransactionShell } from "./engine.ts";
 
 /** What the binding's object holds besides the callbacks. */
@@ -51,6 +52,19 @@ export interface EngineBindings {
   closeTransaction(token: number, error: string | null): void;
   isTransactionOpen(): boolean;
   appendEvents(json: string): void;
+  /** `store.appendEvents(threadId, payloads, at)`: the store's one event writer (E5.3). */
+  writeEvents(threadId: string, payloadsJson: string, at: number): void;
+  headSeq(): number;
+  hasLiveWrite(threadId: string): boolean;
+  rollbackGeneration(): number;
+  getThread(id: string): string | null;
+  capRaw(rawJson: string, threadId: string): string;
+  prepareLiveWrite(bytes: number): void;
+  /**
+   * E5.2 owns the live buffer. E5.3 declares the port and its token callbacks; until E5.2 binds
+   * it, buffering a live write fails at the call.
+   */
+  bufferLiveWrite(threadId: string, eventsJson: string, at: number, token: number): void;
   settleCall(call: number, error: string | null): void;
   rejectPending(): void;
   finishClose(): void;
@@ -89,10 +103,11 @@ function settleNow(host: PortHost, id: number, promise: Promise<unknown> | undef
 export function engineBindings(input: {
   options: EngineOptions;
   registryJson: string;
-  store: NativeTransactionShell;
+  store: Store;
+  shell: NativeTransactionShell;
   host: PortHost;
 }): EngineBindings {
-  const { options, registryJson, store, host } = input;
+  const { options, registryJson, store, shell, host } = input;
   const clock: EngineClock = options.clock ?? systemClock;
   const batchScheduler = options.batchScheduler ?? systemClock;
   return {
@@ -111,16 +126,31 @@ export function engineBindings(input: {
     resolveReady: (error) => host.resolveReady(error),
     resolveClose: (error) => host.resolveClose(error),
     openTransaction: () => {
-      const frame = store.open();
+      const frame = shell.open();
       return { token: frame.token, outermost: frame.top };
     },
     closeTransaction: (token, error) =>
-      store.close(
+      shell.close(
         token,
         error === null ? { threw: false } : { threw: true, error: new Error(error) },
       ),
-    isTransactionOpen: () => store.transactionOpen,
-    appendEvents: (json) => store.appendEvents(json),
+    isTransactionOpen: () => shell.transactionOpen,
+    appendEvents: (json) => shell.appendEvents(json),
+    writeEvents: (threadId, payloadsJson, at) =>
+      store.appendEvents(threadId as never, JSON.parse(payloadsJson) as never, at),
+    headSeq: () => store.headSeq(),
+    hasLiveWrite: (threadId) => store.hasLiveWrite(threadId as never),
+    rollbackGeneration: () => store.rollbackGeneration(),
+    getThread: (id) => {
+      const thread = store.getThread(id as never);
+      return thread === undefined ? null : JSON.stringify(thread);
+    },
+    capRaw: (rawJson, threadId) =>
+      JSON.stringify(store.capRaw(JSON.parse(rawJson) as never, threadId as never)),
+    prepareLiveWrite: (bytes) => store.prepareLiveWrite(bytes),
+    bufferLiveWrite: () => {
+      throw new Error("NativeEngineIncomplete: buffering a live write lands in E5.2");
+    },
     settleCall: (call, error) => host.settleCall(call, error),
     rejectPending: () => host.rejectPending(),
     finishClose: () => host.finishClose(),

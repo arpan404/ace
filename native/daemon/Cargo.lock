@@ -164,8 +164,10 @@ dependencies = [
  "async-task",
  "concurrent-queue",
  "futures",
+ "indexmap 2.14.2",
  "lru",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 

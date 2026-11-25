@@ -27,6 +27,10 @@ concurrent-queue = "2.5"
 futures = "0.3"
 # lru: the engine's bounded record cache (today RecordBudget).
 lru = "0.19"
+# indexmap: the resident snapshot map keeps LRU order and the budget keeps entry order.
+indexmap = "2"
+# serde_json: the core's Run.executionSource is a serde_json value (E4's shape).
+serde_json = { version = "1", features = ["preserve_order"] }
 # serde: engine state and records serialize for tests and stored rows.
 serde = { version = "1", features = ["derive"] }
 # ace-json: JSON goes through it (rule 8), never serde_json: the registry view and later
