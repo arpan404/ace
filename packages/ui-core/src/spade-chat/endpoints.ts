@@ -7,6 +7,7 @@ import {
   type SpadeKnownGood,
   type SpadeModelChecks,
 } from "./model-checks.ts";
+import { spadeEfforts, type SpadeEffort } from "./roles.ts";
 
 /*
  * The person's model endpoints and their models (ADR 0126), as `GET /v1/models` and the endpoint
@@ -31,6 +32,8 @@ export interface SpadeModelInfo {
   context: number | undefined;
   /** What it can take or do beyond text ("images", "tools", "reasoning"), when known. */
   capabilities: string[];
+  /** Thinking efforts the model supports (ADR 0213), when declared. */
+  efforts?: SpadeEffort[] | undefined;
   /** `listed`: from the endpoint's list; `typed`: the person's; `preset`: the shipped file's. */
   source: "listed" | "typed" | "preset" | undefined;
   /** On this computer: what Spade's checks found (ADR 0205 §3). */
@@ -136,11 +139,29 @@ function capabilitiesOf(raw: unknown): string[] {
   return Object.entries(record).flatMap(([name, on]) => (on === true ? [name] : []));
 }
 
+/** Supported thinking efforts as a deduplicated list, excluding `provider`. */
+function effortsOf(raw: unknown): SpadeEffort[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: SpadeEffort[] = [];
+  for (const item of raw) {
+    if (
+      typeof item === "string" &&
+      item !== "provider" &&
+      (spadeEfforts as readonly string[]).includes(item) &&
+      !out.includes(item as SpadeEffort)
+    ) {
+      out.push(item as SpadeEffort);
+    }
+  }
+  return out.length ? out : undefined;
+}
+
 const modelShape = z.object({
   id: z.string().min(1),
   name: optionalText,
   context: z.number().int().positive().nullish().catch(undefined),
   capabilities: z.unknown().optional(),
+  efforts: z.unknown().optional(),
   source: z.enum(["listed", "typed", "preset"]).nullish().catch(undefined),
   probes: z.unknown().optional(),
   known_good: z.unknown().optional(),
@@ -150,11 +171,13 @@ function modelOf(raw: unknown): SpadeModelInfo | undefined {
   const parsed = modelShape.safeParse(raw);
   if (!parsed.success) return undefined;
   const model = parsed.data;
+  const efforts = effortsOf(model.efforts);
   return {
     id: model.id,
     name: model.name || model.id,
     context: model.context ?? undefined,
     capabilities: capabilitiesOf(model.capabilities),
+    ...(efforts ? { efforts } : {}),
     source: model.source ?? undefined,
     ...(spadeChecksOf(model.probes) ? { checks: spadeChecksOf(model.probes) } : {}),
     ...(spadeKnownGoodOf(model.known_good)
@@ -324,6 +347,7 @@ export function mergeSpadeModels(
   const listed = (live ?? []).map((model): SpadeModelInfo => {
     const mine = byId.get(model.id);
     if (!mine) return model;
+    const efforts = mine.efforts?.length ? mine.efforts : model.efforts;
     const merged: SpadeModelInfo = {
       id: model.id,
       name: mine.name !== mine.id ? mine.name : model.name,
@@ -331,6 +355,7 @@ export function mergeSpadeModels(
       capabilities: mine.capabilities.length ? mine.capabilities : model.capabilities,
       source: mine.source,
     };
+    if (efforts?.length) merged.efforts = efforts;
     // What Spade measured about it on this computer is the saved model's (ADR 0205 §3).
     if (mine.checks) merged.checks = mine.checks;
     if (mine.knownGood) merged.knownGood = mine.knownGood;

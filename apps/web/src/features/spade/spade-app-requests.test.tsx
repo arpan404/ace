@@ -2,7 +2,7 @@ import { fakeAskApp, type FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openProfile, spadeApp, withEndpoint, openSettingsPage } from "@/test/spade.ts";
 
 /*
  * A connected app's requests (ADR 0202, amendment 5): the calls one app makes together answer on
@@ -88,7 +88,7 @@ test("Always allow for Notion grants this bot the app's writes, then allows them
 
   await openProfile("Quill");
   const profile = within(await screen.findByRole("region", { name: "Quill's profile" }));
-  await userEvent.click(profile.getByRole("tab", { name: "Permissions" }));
+  await openSettingsPage("Can use");
   expect(await profile.findByText("Its changes run without asking")).toBeTruthy();
   await userEvent.click(
     profile.getByRole("button", { name: "Ask again before Quill changes things in Notion" }),

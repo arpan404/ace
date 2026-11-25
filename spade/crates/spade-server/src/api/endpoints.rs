@@ -188,6 +188,8 @@ fn endpoint_json(
             "context": shown.context,
             "capabilities": shown.capabilities.as_ref()
                 .map(|all| all.iter().map(|c| c.name()).collect::<Vec<_>>()),
+            "efforts": shown.efforts.as_ref()
+                .map(|all| all.iter().map(|e| e.name()).collect::<Vec<_>>()),
             "source": shown.source,
             "probes": checks(&shown.model.id),
             "known_good": known(&shown.model.id),
@@ -392,6 +394,12 @@ pub(super) async fn live(State(state): State<AppState>, Path(id): Path<String>) 
                     if let Some(capabilities) = &m.capabilities {
                         out["capabilities"] =
                             json!(capabilities.iter().map(|c| c.name()).collect::<Vec<_>>());
+                    }
+                    if let Some(known) = state.engine.models().catalog().facts(&m.id)
+                        && !known.efforts.is_empty()
+                    {
+                        out["efforts"] =
+                            json!(known.efforts.iter().map(|e| e.name()).collect::<Vec<_>>());
                     }
                     out
                 })

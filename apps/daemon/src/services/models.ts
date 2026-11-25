@@ -198,15 +198,20 @@ export async function startModels(context: ServiceContext): Promise<void> {
         installationsKnown,
       ),
     );
-    services.modelsReady = admission.then(() => {
+    const admitted = admission.then(() => {
       if (!context.signal.aborted) models.revalidate();
     });
+    services.modelsReady = options.modelsReady
+      ? Promise.all([admitted, options.modelsReady]).then(() => {})
+      : admitted;
     resources.own(() => services.modelsReady);
     void services.modelsReady.catch((error: unknown) =>
       context.log.log("warn", "Default model admission failed", logError(error)),
     );
   } else {
     models.revalidate();
+    // A test may still hold admission with its own promise; the app leaves this unset.
+    if (options.modelsReady) services.modelsReady = options.modelsReady;
   }
 }
 

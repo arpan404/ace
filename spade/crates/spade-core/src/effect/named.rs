@@ -728,7 +728,18 @@ fn prose(text: &str) -> String {
 pub fn named(name: &str, description: &str) -> Named {
     let read = Reading::new(name);
     let changes = read.has(CHANGES) || read.has(WRITES);
-    if read.has(PAYS) || read.inside(PAY_STEMS) {
+    let moves_payment = read.has(&["payment", "payments"])
+        && (changes
+            || read.has(&[
+                "creates",
+                "make",
+                "makes",
+                "initiate",
+                "initiates",
+                "process",
+                "processes",
+            ]));
+    if read.has(PAYS) || read.inside(PAY_STEMS) || moves_payment {
         return Named::Pay;
     }
     if read.has(ACCESS) || read.inside(ACCESS_STEMS) || (changes && read.has(ACCESS_NOUNS)) {

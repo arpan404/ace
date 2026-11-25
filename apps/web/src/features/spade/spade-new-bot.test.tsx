@@ -2,7 +2,14 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, openNew, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
+import {
+  botRow,
+  openNew,
+  openProfile,
+  openSettingsPage,
+  spadeApp,
+  withEndpoint,
+} from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -133,6 +140,7 @@ test("undo restores the previous task", async () => {
 test("the profile lists the task's earlier versions, and Restore puts one back", async () => {
   const { spade } = await spadeApp("/spade/ivy", ivyWithSlack);
   await openProfile("Ivy");
+  await openSettingsPage("Job");
   const heading = await screen.findByRole("heading", { name: "Task" });
   const section = within(heading.closest("section") ?? document.body);
   await userEvent.click(await section.findByText("Earlier versions"));
@@ -153,9 +161,8 @@ test("the profile lists the task's earlier versions, and Restore puts one back",
 test("the profile's Personality saves each change as it is made", async () => {
   const { spade } = await spadeApp("/spade/ivy", ivy);
   await openProfile("Ivy");
-  const heading = await screen.findByRole("heading", { name: "Personality" });
-  const section = within(heading.closest("section") ?? document.body);
-  await userEvent.click(section.getByRole("switch", { name: "Humour" }));
+  await openSettingsPage("Personality");
+  await userEvent.click(await screen.findByRole("switch", { name: "Humour" }));
   await waitFor(() =>
     expect(spade.sent("PATCH", "/v1/agents/ivy")).toEqual([
       { personality: { humour: true, emoji: false } },

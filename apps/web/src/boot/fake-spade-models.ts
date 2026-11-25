@@ -25,6 +25,7 @@ export function seedFakeModelAccess(here: FakeSpadeApi, minutes: (count: number)
         name: "Qwen3 8B",
         context: 128_000,
         capabilities: ["tools"],
+        efforts: ["low", "medium", "high"],
         source: "listed",
         probes: {
           state: "checked",

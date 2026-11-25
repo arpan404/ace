@@ -800,3 +800,16 @@ change in Windows that lets an LPAC open loopback sockets without a network capa
 token now carries capability SIDs (`launch::Token`, `Sid::capability`) and the test helper has the
 probes (`winsock`, `bind-why`, `resolve`, `tcp`, `udp-dns`, `run-env`), so a later attempt can
 measure the same things.
+
+## Amendment (2026-11-23) — Full access egress
+
+Full access issues the proxy's open public-host policy for commands and
+plugins. The proxy still enforces its network boundary, including private
+address restrictions. Package network ceilings still apply. A change of
+autonomy revokes live tickets whose policy no longer applies, using the
+lock that serializes network policy changes with ticket issuance.
+
+
+Sandboxed commands use `TMPDIR` inside the bot's workspace. Normal shell runs on
+Seatbelt and Linux translate a plain `cd /tmp` to that directory. Absolute paths
+into host temporary storage remain outside the filesystem policy.

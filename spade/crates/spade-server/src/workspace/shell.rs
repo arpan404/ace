@@ -209,6 +209,14 @@ pub trait Confine: Send + Sync {
         Err("this machine has no read-only sandbox".to_owned())
     }
 
+    /// Adds the credential guard when a Full access bot would otherwise launch unconfined.
+    fn outside_guard(&self, _home: &Path, required: bool) -> Result<Option<OutsideGuard>, String> {
+        if required {
+            return Err("The outside credential guard is unavailable.".to_owned());
+        }
+        Ok(None)
+    }
+
     /// Whether the bot whose workspace is `home` runs its commands outside the sandbox (its own
     /// setting, else the machine's; ADR 0171).
     fn outside(&self, _home: &Path) -> bool {
@@ -259,6 +267,12 @@ const ADMIT_TIME: Duration = Duration::from_secs(10);
 /// Wraps `program args` in a run's sandbox: the program and arguments to start instead, and
 /// whether its environment must be carried past Spade's own program (`Launch::seals_env`).
 pub type Launcher = Box<dyn Fn(&Path, &[OsString]) -> Result<spade_sandbox::Launch, String> + Send>;
+
+/// A Full access outside launch with credential isolation and its own temporary directory.
+pub struct OutsideGuard {
+    pub launch: Launcher,
+    pub temp: PathBuf,
+}
 
 /// One run's sandbox: how to start it, what to add to its environment, and what to hold while
 /// it runs (its proxy ticket).
@@ -567,9 +581,43 @@ impl Shell {
             self.environment(home)
         };
         let mut seals_env = false;
+        let mut guarded_temp = None;
         let mut shell = match &confined {
-            None => platform::command(&self.env, command),
+            None => {
+                let guard = match (&self.confine, &job.by) {
+                    (Some(confine), By::Bot(warrant)) => confine.outside_guard(
+                        home,
+                        warrant.as_ref().is_some_and(|w| w.credential_guard),
+                    )?,
+                    (None, By::Bot(Some(warrant))) if warrant.credential_guard => {
+                        return Err("The outside credential guard is unavailable.".to_owned());
+                    }
+                    _ => None,
+                };
+                if let Some(guard) = guard {
+                    let (program, args) = platform::shell_args(&self.env, command);
+                    let launched = (guard.launch)(&program, &args)?;
+                    guarded_temp = Some(guard.temp);
+                    seals_env = launched.seals_env;
+                    platform::wrapped(launched.program, launched.args)
+                } else {
+                    platform::command(&self.env, command)
+                }
+            }
             Some(confined) => {
+                #[cfg(unix)]
+                let mapped;
+                #[cfg(unix)]
+                let command = if job.read_only {
+                    command
+                } else {
+                    // Keep the host's /tmp closed. Only the shell's cd resolves this alias,
+                    // using the workspace TMPDIR set by confinement.
+                    mapped = format!(
+                        "cd() {{ if [ \"$#\" -eq 1 ] && [ \"$1\" = /tmp ]; then command cd \"$TMPDIR\"; else command cd \"$@\"; fi; }}\n{command}"
+                    );
+                    &mapped
+                };
                 let (program, args) = platform::shell_args(&self.env, command);
                 let launched = (confined.launch)(&program, &args)?;
                 seals_env = launched.seals_env;
@@ -596,6 +644,16 @@ impl Shell {
         {
             run_env.retain(|(had, _)| *had != name);
             run_env.push((name, value));
+        }
+        if let Some(temp) = guarded_temp {
+            run_env.retain(|(name, _)| {
+                !matches!(name.as_str(), "TMPDIR" | "TMP" | "TEMP")
+                    && !spade_sandbox::run_env::credential_guard_drops(name)
+            });
+            let temp = temp.to_string_lossy();
+            for name in ["TMPDIR", "TMP", "TEMP"] {
+                run_env.push((name.to_owned(), temp.to_string()));
+            }
         }
         // A bot's command nothing holds: the one way it starts (ADR 0171, amendment 5), the last
         // await before the spawn.

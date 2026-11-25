@@ -1,7 +1,9 @@
 import { formatAge } from "@ace/ui-core/time";
-import { CaretLeftIcon } from "@ace/icons";
+import { CaretLeftIcon, CaretRightIcon } from "@ace/icons";
 import type { ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
+import { cn } from "@/lib/cn.ts";
+import { profileRowClass } from "./spade-profile-parts.tsx";
 
 /* What the Library's pages and past work share: a row, a document's top, and its day words. */
 
@@ -33,7 +35,7 @@ export function plainLine(body: string): string {
     .trim();
 }
 
-/** A page or a piece of past work in a list: its title and age, then a line or two of it. */
+/** A page or a piece of past work in a list: its title, preview, right-aligned age and chevron. */
 export function LibraryRow(props: {
   title: string;
   line: string;
@@ -45,20 +47,23 @@ export function LibraryRow(props: {
 }) {
   return (
     <li className="flex">
-      <button
-        type="button"
-        onClick={props.onOpen}
-        className="-mx-2 my-1 grid min-w-0 flex-1 grid-cols-[1fr_auto] gap-x-3 rounded-md px-2 py-1.5 text-left focus-ring-inset hover:bg-hover"
-      >
-        <span className="min-w-0 truncate text-ui font-medium text-foreground">{props.title}</span>
-        <span className="text-xs leading-5 text-subtle-foreground tabular-nums">
-          {formatAge(props.at, props.now)}
-        </span>
-        {props.line && (
-          <span className="col-start-1 line-clamp-2 min-w-0 text-xs leading-[18px] text-subtle-foreground">
-            <Marked text={props.line} query={props.mark} />
-          </span>
-        )}
+      <button type="button" onClick={props.onOpen} className={cn(profileRowClass, "min-h-13 py-3")}>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div className="flex min-w-0 items-baseline justify-between gap-2">
+            <span className="min-w-0 truncate text-ui font-medium text-foreground">
+              {props.title}
+            </span>
+            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+              {formatAge(props.at, props.now)}
+            </span>
+          </div>
+          {props.line && (
+            <span className="line-clamp-2 text-xs leading-4.5 text-muted-foreground">
+              <Marked text={props.line} query={props.mark} />
+            </span>
+          )}
+        </div>
+        <Icon icon={CaretRightIcon} size={16} className="shrink-0 text-faint-foreground" />
       </button>
     </li>
   );
@@ -67,11 +72,11 @@ export function LibraryRow(props: {
 /** A document's top: ‹ Library back, then its own actions at the end. */
 export function DocTop(props: { onBack(): void; children?: ReactNode }) {
   return (
-    <div className="mb-3 flex items-center gap-1">
+    <div className="mb-4 flex items-center gap-1">
       <button
         type="button"
         onClick={props.onBack}
-        className="-ml-2 flex h-8 items-center gap-0.5 rounded-full pr-3 pl-1.5 text-ui font-medium text-muted-foreground focus-ring hover:bg-hover hover:text-foreground"
+        className="-ml-2 flex h-8 items-center gap-1 rounded-full pr-3 pl-2 text-ui font-medium text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:text-foreground"
       >
         <Icon icon={CaretLeftIcon} size={16} />
         Library

@@ -352,6 +352,10 @@ export class QueueStore {
     this.sql(
       "DELETE FROM engine_queue_attachments WHERE intent_id=? AND EXISTS(SELECT 1 FROM intents WHERE id=? AND status IN ('done','failed') AND awaiting=0 AND uncertain=0)",
     ).run(intent, intent);
+    // A steer's implicit aim lives and dies with its intent, as its attachments do.
+    this.sql(
+      "DELETE FROM engine_steer_aims WHERE intent_id=? AND EXISTS(SELECT 1 FROM intents WHERE id=? AND status IN ('done','failed') AND awaiting=0 AND uncertain=0)",
+    ).run(intent, intent);
   }
   edit(id: number, command: Command): void {
     this.sql("UPDATE intents SET payload=?,delivery=? WHERE id=?").run(
@@ -364,6 +368,7 @@ export class QueueStore {
   }
   remove(id: number): void {
     this.sql("DELETE FROM engine_queue_attachments WHERE intent_id=?").run(id);
+    this.sql("DELETE FROM engine_steer_aims WHERE intent_id=?").run(id);
     this.sql(
       "UPDATE intents SET status='failed',uncertain=0,awaiting=0,error='Removed from queue' WHERE id=?",
     ).run(id);

@@ -133,6 +133,7 @@ pub fn question(why: String, suggest: Suggest) -> Question {
         id: None,
         prompt: why,
         kind: Kind::Suggest(Box::new(suggest)),
+        default: None,
     }
 }
 

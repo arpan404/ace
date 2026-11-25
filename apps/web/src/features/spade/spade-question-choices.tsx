@@ -2,7 +2,7 @@ import { spadePickCount, type SpadeDraft, type SpadeQuestion } from "@ace/ui-cor
 import { useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { cn } from "@/lib/cn.ts";
-import { DigitKey, optionChosen, optionRow, Radio } from "./spade-question-parts.tsx";
+import { LetterKey, optionChosen, optionLetter, optionRow } from "./spade-question-parts.tsx";
 
 type Choice = Extract<SpadeQuestion, { kind: "choice" | "choices" }>;
 type Picks = Extract<SpadeDraft, { kind: "picks" }>;
@@ -56,12 +56,17 @@ export function ChoiceInputs(props: {
     setOwnOpen(false);
     props.onDraft({ ...picks, other: "" });
   };
-  const ownDigit = question.options.length < 9 ? question.options.length + 1 : undefined;
+  const ownDigit = question.options.length < 26 ? question.options.length + 1 : undefined;
   // A digit picks the option it names, while focus is on the list, and focus goes with it, so
   // Enter next goes on rather than picking whatever focus was left on. The last opens the field.
   const digit = (event: React.KeyboardEvent<HTMLElement>) => {
     if (event.target instanceof HTMLInputElement && event.target.type !== "checkbox") return;
-    const at = Number(event.key) - 1;
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    // A letter (A, B, C…) or a digit names the option, in order; the one after the options opens
+    // the field.
+    const at = /^[a-z]$/i.test(event.key)
+      ? event.key.toUpperCase().charCodeAt(0) - 65
+      : Number(event.key) - 1;
     if (!Number.isInteger(at) || at < 0) return;
     const option = question.options[at];
     if (option) {
@@ -78,7 +83,7 @@ export function ChoiceInputs(props: {
   };
   const rows = question.options.map((option, index) => {
     const on = picks.picked.includes(option.label);
-    const key = index < 9 ? `${index + 1}` : undefined;
+    const key = optionLetter(index);
     const words = (
       <span className="flex min-w-0 flex-col">
         <span className="wrap-anywhere">{option.label}</span>
@@ -99,8 +104,8 @@ export function ChoiceInputs(props: {
             className={box}
           />
         </span>
+        <LetterKey letter={key} on={on} />
         {words}
-        <DigitKey digit={key} />
       </label>
     ) : (
       <button
@@ -119,9 +124,8 @@ export function ChoiceInputs(props: {
         }}
         className={cn(optionRow, on && optionChosen)}
       >
-        <Radio on={on} />
+        <LetterKey letter={key} on={on} />
         {words}
-        <DigitKey digit={key} />
       </button>
     );
   });
@@ -146,7 +150,7 @@ export function ChoiceInputs(props: {
       className={ownField}
     />
   );
-  const ownKey = ownDigit === undefined ? undefined : `${ownDigit}`;
+  const ownKey = ownDigit === undefined ? undefined : optionLetter(ownDigit - 1);
   const own = many ? (
     <div className={cn(optionRow, "items-center", ownOpen && optionChosen)}>
       <span className="flex h-5 shrink-0 items-center">
@@ -158,6 +162,7 @@ export function ChoiceInputs(props: {
           className={box}
         />
       </span>
+      <LetterKey letter={ownKey} on={ownOpen} />
       {ownOpen ? (
         field
       ) : (
@@ -165,13 +170,11 @@ export function ChoiceInputs(props: {
           Something else…
         </button>
       )}
-      <DigitKey digit={ownKey} />
     </div>
   ) : ownOpen ? (
     <div className={cn(optionRow, "items-center", optionChosen)}>
-      <Radio on />
+      <LetterKey letter={ownKey} on />
       {field}
-      <DigitKey digit={ownKey} />
     </div>
   ) : (
     <button
@@ -183,9 +186,8 @@ export function ChoiceInputs(props: {
       onClick={openOwn}
       className={optionRow}
     >
-      <Radio on={false} />
+      <LetterKey letter={ownKey} />
       <span className="text-muted-foreground">Something else…</span>
-      <DigitKey digit={ownKey} />
     </button>
   );
   return (

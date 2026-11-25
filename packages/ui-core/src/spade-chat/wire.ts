@@ -4,6 +4,7 @@ import { spadeDocumentList, spadeImageList, spadeVoiceField } from "./media.ts";
 import { spadeCapabilityEvents } from "./wire-capabilities.ts";
 import { spadeCardEvents } from "./cards.ts";
 import { spadePanelEvents } from "./panels.ts";
+import { spadeReactionEvents } from "./reactions.ts";
 import { spadeNoticeEvents } from "./notices.ts";
 import { spadeReplyToField } from "./replies.ts";
 
@@ -118,6 +119,11 @@ const known = z.discriminatedUnion("type", [
     context: z.string().nullish().catch(undefined),
     /** The message it replies to, as Spade stored it (ADR 0212 §4). */
     reply_to: spadeReplyToField,
+    /** The skill or command the person started with it (the `/` menu): its kind and name. */
+    invoke: z
+      .looseObject({ kind: z.enum(["skill", "command"]), name: z.string().min(1) })
+      .nullish()
+      .catch(undefined),
   }),
   z.object({ type: z.literal("reply_started"), reply, model: z.string().optional() }),
   z.object({ type: z.literal("reply_progress"), reply, text }),
@@ -443,6 +449,7 @@ const known = z.discriminatedUnion("type", [
   ...spadeCapabilityEvents,
   ...spadeCardEvents,
   ...spadePanelEvents,
+  ...spadeReactionEvents,
   ...spadeNoticeEvents,
 ]);
 

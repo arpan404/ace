@@ -246,6 +246,13 @@ export class FakeSpadeLanes {
     });
   }
 
+  /** How many lanes of `main` haven't ended: the roster's `tasks` count. */
+  liveCount(main: string): number {
+    let count = 0;
+    for (const lane of this.lanes.values()) if (lane.main === main && live(lane.state)) count++;
+    return count;
+  }
+
   /** Stops every lane of `main` that hasn't ended, queued ones too; how many it stopped. */
   stopAll(main: string): number {
     let stopped = 0;
@@ -419,6 +426,7 @@ export class FakeSpadeLanes {
           moved: lane.moved,
           model: lane.model,
           report: live(lane.state) ? null : (lane.report?.split("\n")[0] ?? null),
+          brief: lane.goal ?? lane.words.split("\n")[0] ?? null,
         };
       });
     return reply({ tasks: rows });

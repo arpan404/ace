@@ -26,6 +26,7 @@ mod panels;
 mod plugins;
 mod questions;
 mod reach;
+mod reactions;
 mod recipes;
 mod routines;
 mod routing;
@@ -178,6 +179,13 @@ pub fn router(state: AppState) -> Router {
         .route("/conversations/{id}/helpers", get(helpers))
         .route("/conversations/{id}/tasks", get(tasks))
         .route("/conversations/{id}/task", get(goals::read_lane))
+        .route("/conversations/{id}/reactions", get(reactions::list))
+        .route(
+            "/conversations/{id}/messages/{message}/reactions",
+            get(reactions::for_message)
+                .post(reactions::react)
+                .delete(reactions::take_back),
+        )
         .route("/conversations/{id}/stop", post(stop))
         .route("/conversations/{id}/retry", post(try_again))
         .route("/conversations/{id}/approvals/{call_id}", post(approve))

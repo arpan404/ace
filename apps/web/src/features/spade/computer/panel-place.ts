@@ -66,11 +66,11 @@ const isTab = (value: unknown): value is ProfileTab =>
 const isView = (value: unknown): value is ComputerView =>
   typeof value === "string" && (computerViews as readonly string[]).includes(value);
 
-/** What was remembered for `bot` (`machine/id`), or the profile closed on Details. */
+/** What was remembered for `bot` (`machine/id`), or the profile closed on Activity. */
 export function readPanel(storage: Storage | undefined, bot: string): PanelMemory {
   const fallback: PanelMemory = {
     open: false,
-    tab: "details",
+    tab: "work",
     view: undefined,
     width: panelWidth.initial,
   };

@@ -4,6 +4,7 @@ import { useId, useState, type ReactNode } from "react";
 import { openExternal } from "@/boot/open-external.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
+import { CardActions } from "./spade-card.tsx";
 import { ConnectProgress } from "./spade-connect-progress.tsx";
 import { Refusal } from "./spade-settings-rows.tsx";
 import { connectProgress, useConnectApp } from "./use-connect-app.ts";
@@ -109,19 +110,21 @@ export function useAppConnect(props: {
         onChange={(event) => setKey(event.target.value)}
         className="w-64"
       />
-      <Button size="sm" type="submit" disabled={!key.trim()}>
-        Connect
-      </Button>
-      {app.keyUrl && (
-        <Button
-          size="sm"
-          variant="ghost"
-          type="button"
-          onClick={() => void openExternal(app.keyUrl ?? "").catch(() => {})}
-        >
-          {`Make a key in ${app.name}`}
-        </Button>
-      )}
+      <CardActions
+        secondary={[
+          app.keyUrl && {
+            key: "make-key",
+            label: `Make a key in ${app.name}`,
+            onClick: () => void openExternal(app.keyUrl ?? "").catch(() => {}),
+          },
+        ]}
+        primary={{
+          type: "submit",
+          label: "Connect",
+          disabled: !key.trim(),
+          hint: "enter",
+        }}
+      />
     </form>
   );
   const status: ReactNode = progress ? (

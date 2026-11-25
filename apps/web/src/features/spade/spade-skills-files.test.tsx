@@ -97,6 +97,26 @@ test("an edit of a skill shows the lines that change", async () => {
   expect(changes.textContent).not.toContain("Removed:");
 });
 
+test("a skill card with a long diff keeps a readable width and scrolls the diff inside itself", async () => {
+  await spadeApp("/spade", (api) =>
+    proposed(api, {
+      description: "Write release notes from merged pull requests",
+      body: `List merged PRs ${"and keep going ".repeat(40)}`,
+    }),
+  );
+  await userEvent.click(await botRow("Writer"));
+  const bubble = await skillBubble();
+  await userEvent.click(bubble.getByRole("button", { name: "Show changes" }));
+  // jsdom has no layout: the card's size rules are what keep it from collapsing to its
+  // padding (it is a size container) and keep a long line from widening it.
+  const card = screen.getByRole("group", { name: "Skill release-notes" });
+  expect(card.className).toMatch(/min-w-\[min\(100%,17\.5rem\)\]/);
+  expect(card.className).toMatch(/\bw-full\b/);
+  const changes = bubble.getByLabelText("Changes");
+  expect(changes.className).toMatch(/overflow-auto/);
+  expect(changes.className).toMatch(/whitespace-pre\b(?!-)/);
+});
+
 test("a command the bot wants to run shows itself, and can be allowed always as it is", async () => {
   const { spade } = await spadeApp("/spade", (api) => {
     const writer = withWriter(api);
@@ -141,7 +161,17 @@ test("Files lists the bot's folder, opens a file and deletes after confirming", 
   await userEvent.click(await inner.findByRole("button", { name: /^plan\.md/ }));
   await openSource("notes/plan.md", "# Plan\nShip it.");
 
-  const todo = files
+  // In the narrow panel an open file stands alone; back returns to its folder's list.
+  await userEvent.click(
+    within(screen.getByRole("region", { name: "plan.md" })).getByRole("button", { name: /back/i }),
+  );
+  // Back again goes up from notes/ to the folder the files started in.
+  await userEvent.click(
+    within(await screen.findByRole("region", { name: "notes" })).getByRole("button", {
+      name: /back/i,
+    }),
+  );
+  const todo = within(await screen.findByRole("list", { name: "Files" }))
     .getAllByRole("listitem")
     .find((row) => row.textContent?.startsWith("todo.txt"));
   if (!todo) throw new Error("no todo.txt row");
@@ -156,7 +186,13 @@ test("Files lists the bot's folder, opens a file and deletes after confirming", 
         .map((request) => request.path),
     ).toEqual([`/v1/agents/writer/workspace?path=todo.txt&base=${fakeFileRevision("milk")}`]),
   );
-  await waitFor(() => expect(files.queryByRole("button", { name: "todo.txt" })).toBeNull());
+  await waitFor(() =>
+    expect(
+      within(screen.getByRole("list", { name: "Files" })).queryByRole("button", {
+        name: /^todo\.txt/,
+      }),
+    ).toBeNull(),
+  );
 });
 
 test("a link to a folder opens it in the tree, and Delete names the file's path", async () => {

@@ -117,53 +117,33 @@ fn a_sandboxed_command_never_reaches_the_reviewer_under_any_fact() {
 }
 
 #[test]
-fn sends_and_payments_run_only_on_always_allow_and_never_on_a_tool_grant() {
-    for effect in [Effect::SendAsPerson, Effect::Pay] {
-        let always = Call {
-            always: true,
-            rule: Decision::Run,
-            ..call("gmail__send", Some(effect))
-        };
-        assert_eq!(route(always), Route::Run);
-        // Always allow under untrusted content: the rule gate holds it, so the person decides.
-        let tainted = Call {
-            always: true,
-            tainted: true,
-            ..call("gmail__send", Some(effect))
-        };
-        assert!(matches!(route(tainted), Route::Ask { .. }));
-        let tool_grant = Call {
-            granted: Granted::Tool,
-            ..call("gmail__send", Some(effect))
-        };
-        assert!(matches!(route(tool_grant), Route::Ask { .. }));
-        // A read-only claim doesn't run it: the effect decides.
-        let read_risk = Call {
-            risk: Risk::Read,
-            rule: Decision::Run,
-            ..call("gmail__send", Some(effect))
-        };
-        assert!(matches!(route(read_risk), Route::Ask { .. }));
-    }
-}
+fn typed_hard_stops_ask_in_both_modes_even_with_always_allow_or_a_grant() {
+    use crate::autonomy::Mode;
 
-#[test]
-fn a_push_runs_within_its_grant_and_otherwise_goes_to_the_person() {
-    let push = call(GIT_PUSH, Some(Effect::SendAsPerson));
-    let cases = [
-        (Granted::Typed, false, Route::Run),
-        (Granted::Typed, true, reviewed(Some(GRANTED_TAINTED))),
-        (Granted::No, false, asks(PUSHES)),
-        (Granted::No, true, asks(PUSHES)),
-        (Granted::Tool, false, asks(PUSHES)),
-    ];
-    for (granted, tainted, expected) in cases {
-        let call = Call {
-            granted,
-            tainted,
-            ..push
-        };
-        assert_eq!(route(call), expected, "{granted:?} tainted={tainted}");
+    for (tool, effect, line) in [
+        ("send_message", Effect::SendAsPerson, SENDS_AS_YOU),
+        (GIT_PUSH, Effect::SendAsPerson, PUSHES),
+        ("shop__pay", Effect::Pay, SPENDS),
+        ("app__share", Effect::ChangeAccess, CHANGES_ACCESS),
+    ] {
+        for mode in [Mode::AutoReview, Mode::FullAccess] {
+            for granted in [Granted::No, Granted::Tool, Granted::Typed] {
+                for always in [false, true] {
+                    for tainted in [false, true] {
+                        let call = Call {
+                            mode,
+                            granted,
+                            always,
+                            tainted,
+                            risk: Risk::Read,
+                            rule: if always { Decision::Run } else { Decision::Ask },
+                            ..call(tool, Some(effect))
+                        };
+                        assert_eq!(to_auto_review(&call, route(call)), asks(line), "{call:?}");
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -812,32 +792,41 @@ fn on_the_auto_review_a_sealed_plugin_servers_tools_keep_the_sandboxs_decision()
 }
 
 #[test]
-fn a_tool_the_person_declined_stays_declined_once_its_server_is_sealed() {
+fn a_tool_the_person_declined_stays_declined_with_or_without_network() {
     use crate::autonomy::Mode;
     for mode in [Mode::AutoReview, Mode::FullAccess] {
-        // Declined while its server could reach the network...
-        let asked = Call {
+        let networked = Call {
             mode,
             tainted: true,
             ..contained_app_tool(None)
         };
-        assert!(matches!(route(asked), Route::Ask { .. }), "{mode:?}");
-        // ...and still declined once the server runs sealed (offline, no token), where a tool
-        // that declares nothing would otherwise run as the sandbox decides.
-        let sealed = Call {
-            remote: false,
-            ..asked
-        };
-        assert_eq!(route(sealed), Route::Run, "{mode:?}: never asked about");
-        let declined = Call {
-            remembered: Some(false),
-            ..sealed
+        let expected = match mode {
+            Mode::AutoReview => reviewed(Some(UNDECLARED_TAINTED)),
+            Mode::FullAccess => Route::Run,
         };
         assert_eq!(
-            route(declined),
-            Route::Refuse(DECLINED_TOOL.to_owned()),
+            to_auto_review(&networked, route(networked)),
+            expected,
             "{mode:?}"
         );
+        let sealed = Call {
+            remote: false,
+            ..networked
+        };
+        assert_eq!(route(sealed), Route::Run, "{mode:?}: no remembered refusal");
+        // A refusal from an earlier mode or build survives a change in network access.
+        for call in [networked, sealed] {
+            let declined = Call {
+                remembered: Some(false),
+                ..call
+            };
+            assert_eq!(
+                route(declined),
+                Route::Refuse(DECLINED_TOOL.to_owned()),
+                "{mode:?} remote={}",
+                call.remote
+            );
+        }
     }
 }
 
