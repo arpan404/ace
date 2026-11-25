@@ -17,6 +17,9 @@ const CATALOG: &str = include_str!("../../../../catalog/devices.json");
 #[derive(Debug, Deserialize)]
 struct Catalog {
     platform: BTreeMap<String, Word>,
+    /// Messages that are not a whole refusal: a download's hint, its timeout's text.
+    #[serde(default)]
+    tools: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -38,6 +41,7 @@ fn catalog() -> &'static Catalog {
     CATALOG_ONCE.get_or_init(|| {
         serde_json::from_str(CATALOG).unwrap_or(Catalog {
             platform: BTreeMap::new(),
+            tools: BTreeMap::new(),
         })
     })
 }
@@ -61,6 +65,11 @@ pub fn refusal(key: &str) -> Refusal {
 /// that renders every word through both backends.
 pub fn lookup(key: &str) -> Option<Refusal> {
     has(key).then(|| refusal(key))
+}
+
+/// The tool words that are not a refusal: a download's hint, its timeout's text.
+pub fn hint(key: &str) -> Option<&'static str> {
+    catalog().tools.get(key).map(String::as_str)
 }
 
 /// Whether the catalog names `key` with a code the protocol has.
@@ -109,6 +118,13 @@ mod tests {
             "toolsNowhere",
         ] {
             assert!(has(key), "catalog names no usable word for {key}");
+        }
+    }
+
+    #[test]
+    fn every_tool_word_this_crate_renders_is_in_the_catalog() {
+        for key in ["downloadHint", "againHint", "scrcpyHint", "downloadTimeout"] {
+            assert!(hint(key).is_some(), "catalog names no tool word for {key}");
         }
     }
 

@@ -517,9 +517,9 @@ export class AndroidPlatform {
     try {
       const { adb, emulator } = await this.resolve();
       const native = devicePlatformBackend() === "native";
-      // Today's refusal comes before any probe when the switch is off, so a failing window or
+      // Today's refusal comes before any probe on both legs, so a failing window or
       // `adb devices` lookup can never replace the SDK refusal.
-      if (!emulator && !native) throw this.emulatorMissing();
+      if (!emulator) throw this.emulatorMissing();
       const window = await this.emulatorWindow();
       const devicesOutput =
         deviceInventoryBackend() === "native" && this.listGuard
@@ -545,8 +545,6 @@ export class AndroidPlatform {
             return nativeDevices().devicePlatformAndroidBoot(JSON.stringify(facts));
           })
         : undefined;
-      // The plan refuses a missing emulator when the switch is on; this narrows the off leg.
-      if (!emulator) throw this.emulatorMissing();
       let port = plan?.port ?? 5554;
       if (!plan) while (used.has(`emulator-${port}`) || this.ports.has(port)) port += 2;
       if (!plan && port > 5682) throw catalogRefusal("androidPortLimit");

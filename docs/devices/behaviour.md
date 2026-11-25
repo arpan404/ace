@@ -316,9 +316,30 @@ the shell that wires it, and the TypeScript that stays is the switch-off path un
   plan about the inventory's entry, not the caller's possibly stale record, and gives
   `boot`/`bootstatus` the base's 240 s.
 - **The switch-off leg is unchanged.** The Android boot refuses a missing emulator before the
-  window and `adb devices` probes, exactly as the base did, and no probe takes the platform's
-  injected clock; the SDK selection probe and the posture helper keep theirs for the native
-  platform, where a compressed test clock cannot stand in for a command's own deadline.
+  window and `adb devices` probes on both legs, exactly as the base did. No command probe takes
+  the platform's injected clock on either leg: the native platform's Xcode adapter runs
+  `xcode-select -p` through `run`, which keeps today's timers, so `resolveXcode`'s own scheduler
+  applies only when it is called directly, not through the platform (which it never is). The
+  posture helper keeps its injected clock on the native platform, where a compressed test clock
+  cannot stand in for a command's own deadline.
 - **The catalog check reads both backends.** `check:devices-catalog` fails when a device source
   spells a catalog message or hint itself (generic hint phrases excepted), and every device word
   `platform-base.ts`, `commands.ts` and `android-platform.ts` raise now comes from `catalog.ts`.
+
+## 9. D3.1 round-4 review fixes (2026-11-25)
+
+- **`ACE_SCRCPY_SERVER` crosses explicitly.** The install request carries the setting the shell
+  read, so a verified override is used without a request and a wrong one keeps the TypeScript's
+  refusal (`serve_sim::install`, `device-tools.ts`).
+- **Staging and deadlines match the shell.** The staging directory is named with the id the
+  shell gives, directories are created 0700 and files 0600, and a timed-out install checks a
+  cancellation flag immediately before its rename, so a late unpack never publishes; its partial
+  file and staging directory are removed.
+- **D2's scoped reads survive D3.** `Platform.scopedListing()` lets the native facade keep
+  `listSource` re-reading only the triggered source, with the peer's cached outcome.
+- **The install client trusts the operating system's store.** `rustls` + `rustls-native-certs`
+  replace reqwest's platform verifier, whose `webpki-root-certs` dependency is CDLA-Permissive-2.0
+  and outside ace's licence allowlist; `cargo deny check bans licenses sources` passes.
+- **The catalog owns the tool words.** The download hints and the timeout text live in
+  `catalog/devices.json`'s `tools` section, which both backends read; the check compares them and
+  fails on a source that spells one.

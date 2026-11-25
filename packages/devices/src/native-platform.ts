@@ -30,12 +30,36 @@ import {
   nativeDevices,
 } from "./native-devices-addon.ts";
 import { DevicePlatformBase } from "./platform-base.ts";
-import { DeviceError, deviceAnswer } from "./sdk.ts";
+import { DeviceError, deviceAnswer, deviceRefusal } from "./sdk.ts";
 
 export class NativeDevicePlatform extends DevicePlatformBase {
   /** The native platform is the only one that passes its injected clock to probes. */
   protected override nativeProbes(): boolean {
     return true;
+  }
+
+  /** The native list composes Rust-side, but a scoped trigger still re-reads only its source. */
+  override scopedListing(): boolean {
+    return true;
+  }
+
+  /** One listed Simulator as the device list shows it, with the addon deciding the record. */
+  protected override async readIosSource(): Promise<Device[]> {
+    return (await this.simulators.list()).map((entry) =>
+      DeviceSchema.parse(
+        deviceAnswer<DeviceRecord>(() =>
+          nativeDevices().devicePlatformSimulatorRecord(
+            JSON.stringify({
+              udid: entry.udid,
+              name: entry.name,
+              state: entry.state,
+              runtime: entry.runtime,
+              deviceTypeIdentifier: entry.deviceTypeIdentifier,
+            }),
+          ),
+        ),
+      ),
+    );
   }
 
   override async simulatorDevice(input: Device): Promise<Device> {
@@ -63,23 +87,7 @@ export class NativeDevicePlatform extends DevicePlatformBase {
   override async list(): Promise<Device[]> {
     const sources: ListSource[] = [];
     if (this.options.platform === "darwin") {
-      sources.push(
-        await this.#source("ios", async () =>
-          (await this.simulators.list()).map((entry) =>
-            deviceAnswer<DeviceRecord>(() =>
-              nativeDevices().devicePlatformSimulatorRecord(
-                JSON.stringify({
-                  udid: entry.udid,
-                  name: entry.name,
-                  state: entry.state,
-                  runtime: entry.runtime,
-                  deviceTypeIdentifier: entry.deviceTypeIdentifier,
-                }),
-              ),
-            ),
-          ),
-        ),
-      );
+      sources.push(await this.#source("ios", () => this.readIosSource()));
     }
     sources.push(await this.#source("android", () => this.android.list()));
     const answer = deviceAnswer<ListAnswer>(() =>
@@ -94,6 +102,19 @@ export class NativeDevicePlatform extends DevicePlatformBase {
       })),
     );
     const devices = answer.devices.map((device) => DeviceSchema.parse(device));
+    // D2's scoped triggers compose against the peer's last read, so both outcomes are kept.
+    for (const source of sources) {
+      const platform = source.platform as Device["platform"];
+      this.recordOutcome(
+        platform,
+        source.failure
+          ? { status: "rejected", reason: deviceRefusal(source.failure) }
+          : {
+              status: "fulfilled",
+              value: devices.filter((device) => device.platform === platform),
+            },
+      );
+    }
     await this.adoptInventory(devices);
     return devices;
   }

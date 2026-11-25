@@ -16,11 +16,22 @@ export interface CatalogWord {
 }
 
 const words = catalog.platform as Record<string, CatalogWord>;
+const toolWords = (catalog.tools ?? {}) as Record<string, string>;
+
+/** The tool words that are not a whole refusal, by the key the catalog gives them. */
+export type CatalogHintKey = "downloadHint" | "againHint" | "scrcpyHint" | "downloadTimeout";
 
 /** The refusal `key` names, as the catalog spells it. */
 export function catalogWord(key: string): CatalogWord {
   const word = words[key];
   if (!word) throw new Error(`ace's device catalog names no word for ${key}`);
+  return word;
+}
+
+/** A tool word the catalog holds (a download's hint, its timeout's text). */
+export function catalogHint(key: CatalogHintKey): string {
+  const word = toolWords[key];
+  if (!word) throw new Error(`ace's device catalog names no tool word for ${key}`);
   return word;
 }
 

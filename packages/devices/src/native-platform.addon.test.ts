@@ -8,7 +8,12 @@
  * Run with the switch on: `ACE_DEVICE_PLATFORM=native ACE_SUPERVISOR=native bun --bun x vitest
  * run packages/devices/src/native-platform.addon.test.ts`.
  */
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { devicePlatformBackend } from "@ace/provider-kit/native-switches";
@@ -258,6 +263,136 @@ describe.runIf(devicePlatformBackend() === "native")("the built addon's plans", 
     expect(
       addon().devicePlatformReplacesHelper("/usr/local/bin/serve-sim -l ABCD", "0.1.49-beta.139.1"),
     ).toBe(false);
+  });
+
+  test("with both switches on the facade keeps D2's scoped listing", async () => {
+    const platform = new NativeDevicePlatform({
+      platform: "darwin",
+      home: "/home/a",
+      env: {},
+      node: "/node",
+    });
+    const internals = platform as unknown as {
+      simulators: { list: () => Promise<Record<string, unknown>[]> };
+      android: { list: (scope?: string) => Promise<unknown[]> };
+    };
+    const scopes: string[] = [];
+    internals.simulators = {
+      list: async () => [
+        {
+          udid: UDID,
+          name: "iPhone 18 Pro",
+          state: "Booted",
+          runtime: "com.apple.CoreSimulator.SimRuntime.iOS-18-0",
+        },
+      ],
+    };
+    internals.android = {
+      list: async (scope = "all") => {
+        scopes.push(scope);
+        return [];
+      },
+    };
+    expect(platform.scopedListing()).toBe(true);
+    expect((await platform.list()).map((device) => device.id)).toEqual([`ios:${UDID}`]);
+    expect(scopes).toEqual(["all"]);
+    expect((await platform.listSource("ios")).map((device) => device.id)).toEqual([`ios:${UDID}`]);
+    expect(scopes).toEqual(["all"]);
+    expect((await platform.listSource("adb")).map((device) => device.id)).toEqual([`ios:${UDID}`]);
+    expect(scopes).toEqual(["all", "adb"]);
+  });
+
+  test("the addon's async install fetches, checks and unpacks a local fixture", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-addon-install-"));
+    onTestFinished(() => rm(root, { recursive: true, force: true }));
+    const packageTar = (name: string, files: [string, string][]) => {
+      const source = join(root, name);
+      for (const [path, body] of files) {
+        const full = join(source, path);
+        mkdirSync(join(full, ".."), { recursive: true });
+        writeFileSync(full, body);
+      }
+      const archive = join(root, `${name}.tgz`);
+      execFileSync("/usr/bin/tar", ["-czf", archive, "-C", source, "package"]);
+      const bytes = readFileSync(archive);
+      return {
+        bytes,
+        integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}`,
+      };
+    };
+    const serveSim = packageTar("serve-sim", [["package/dist/serve-sim.js", "script"]]);
+    const ws = packageTar("ws", [["package/index.js", "ws"]]);
+    const bodies = new Map<string, Buffer>([
+      ["/serve-sim.tgz", serveSim.bytes],
+      ["/ws.tgz", ws.bytes],
+    ]);
+    const requests: string[] = [];
+    const server = createServer((request, response) => {
+      const path = request.url ?? "";
+      requests.push(path);
+      const body = bodies.get(path);
+      if (!body) {
+        response.writeHead(404);
+        response.end();
+        return;
+      }
+      response.writeHead(200, { "content-length": body.length });
+      response.end(body);
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    onTestFinished(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    const port = (server.address() as AddressInfo).port;
+    const text = await addon().devicePlatformInstallTools(
+      JSON.stringify({
+        directory: join(root, "tools"),
+        node: "/bin/node",
+        serveSim: true,
+        scrcpy: false,
+        id: "addon-test",
+        timeoutMs: 30_000,
+        artifacts: {
+          serveSim: {
+            name: "serve-sim",
+            version: "0.1.49-beta.139.1",
+            url: `http://127.0.0.1:${port}/serve-sim.tgz`,
+            integrity: serveSim.integrity,
+          },
+          ws: {
+            name: "ws",
+            version: "8.22.0",
+            url: `http://127.0.0.1:${port}/ws.tgz`,
+            integrity: ws.integrity,
+          },
+        },
+      }),
+    );
+    const installed = answered<{ serveSim: { command: string; args: string[] } }>(() => text);
+    expect(installed.serveSim.command).toBe("/bin/node");
+    expect(installed.serveSim.args[0]?.endsWith("dist/serve-sim.js")).toBe(true);
+    expect(existsSync(installed.serveSim.args[0] ?? "")).toBe(true);
+    expect(requests.toSorted()).toEqual(["/serve-sim.tgz", "/ws.tgz"]);
+
+    const jar = join(root, "scrcpy-server");
+    writeFileSync(jar, "server");
+    const override = await addon().devicePlatformInstallTools(
+      JSON.stringify({
+        directory: join(root, "tools"),
+        node: "/bin/node",
+        serveSim: false,
+        scrcpy: true,
+        id: "override",
+        timeoutMs: 5000,
+        scrcpyServer: jar,
+        scrcpyRelease: {
+          version: "9.9.9",
+          bytes: 6,
+          sha256: createHash("sha256").update("server").digest("hex"),
+          url: "http://127.0.0.1:1/never",
+        },
+      }),
+    );
+    expect(answered<{ scrcpy: string }>(() => override).scrcpy).toBe(jar);
+    expect(requests).toHaveLength(2);
   });
 
   test("records keep a name's lone surrogate", () => {

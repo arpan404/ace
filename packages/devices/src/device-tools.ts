@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { devicePlatformBackend } from "@ace/provider-kit/native-switches";
 import { DeviceFailure } from "@ace/protocol/devices";
 import { ToolsReply, type ToolsRequest } from "./device-tools-wire.ts";
 import type { DeviceRuntime } from "./runtime.ts";
+import { catalogHint } from "./catalog.ts";
 import { DeviceError, deviceAnswer } from "./sdk.ts";
 import {
   nativeDevices,
@@ -75,11 +77,7 @@ export async function downloadDeviceTools(
     await child.stop({ graceMs: 0 }).catch(() => {});
   }
   if (timedOut)
-    throw new DeviceError(
-      "timeout",
-      "The device tools download took too long",
-      "Check the network and download the device tools again from Devices.",
-    );
+    throw new DeviceError("timeout", catalogHint("downloadTimeout"), catalogHint("downloadHint"));
   const parsed = ToolsReply.safeParse(
     (() => {
       try {
@@ -93,7 +91,7 @@ export async function downloadDeviceTools(
     throw new DeviceError(
       "command_failed",
       "The device tools download stopped without an answer",
-      "Download the device tools again from Devices.",
+      catalogHint("againHint"),
     );
   const reply = parsed.data;
   if (reply.error) {
@@ -124,6 +122,10 @@ async function downloadNatively(
     ...wants,
     ...(options.artifacts ? { artifacts: options.artifacts } : {}),
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    id: randomUUID(),
+    ...(options.env["ACE_SCRCPY_SERVER"] === undefined
+      ? {}
+      : { scrcpyServer: options.env["ACE_SCRCPY_SERVER"] }),
   };
   const text = await nativeDevices().devicePlatformInstallTools(JSON.stringify(request));
   const reply = deviceAnswer<ToolsInstallReply>(() => text);

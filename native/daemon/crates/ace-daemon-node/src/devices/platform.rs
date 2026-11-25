@@ -390,6 +390,12 @@ pub fn device_platform_simulator_list(output: String) -> napi::Result<String> {
     answered(|| ace_devices::platform::simulators::list(&output))
 }
 
+/// The tool word `key` renders, for the check that both backends read one catalog.
+#[napi]
+pub fn device_platform_catalog_hint(key: String) -> Option<String> {
+    ace_devices::platform::words::hint(&key).map(str::to_string)
+}
+
 /// The one refusal `key` renders, for the check that both backends read one catalog.
 #[napi]
 pub fn device_platform_catalog_word(key: String) -> napi::Result<String> {

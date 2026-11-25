@@ -167,5 +167,11 @@
         "hint": "Unlock the device and tap Allow on the \"Allow USB debugging?\" prompt. No prompt? Unplug and replug it, or revoke USB debugging authorizations in Developer options and reconnect."
       }
     }
+  },
+  "tools": {
+    "downloadHint": "Check the network and download the device tools again from Devices.",
+    "againHint": "Download the device tools again from Devices.",
+    "scrcpyHint": "ace downloads scrcpy-server on first use. Check the network, or set ACE_SCRCPY_SERVER to a verified copy.",
+    "downloadTimeout": "The device tools download took too long"
   }
 }

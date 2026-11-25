@@ -13,7 +13,10 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const catalog = JSON.parse(
   readFileSync(join(root, "native/daemon/catalog/devices.json"), "utf8"),
-) as { platform: Record<string, { code: string; message: string; hint: string }> };
+) as {
+  platform: Record<string, { code: string; message: string; hint: string }>;
+  tools?: Record<string, string>;
+};
 
 /**
  * Hint phrases deliberately shared by unrelated refusals: they name a next step, not a word the
@@ -61,6 +64,16 @@ for (const [key, word] of Object.entries(catalog.platform)) {
     }
   }
 }
+for (const [key, literal] of Object.entries(catalog.tools ?? {})) {
+  for (const { file, text } of texts) {
+    for (const line of find(text, literal)) {
+      failed++;
+      console.error(
+        `devices catalog: ${key} is spelled at ${relative(root, file)}:${line}; read it from catalog.ts`,
+      );
+    }
+  }
+}
 
 const library =
   process.platform === "win32"
@@ -75,7 +88,10 @@ try {
 } catch (error) {
   throw new Error(`check:devices-catalog needs the release addon at ${path}`, { cause: error });
 }
-const addon = module.exports as { devicePlatformCatalogWord(key: string): string };
+const addon = module.exports as {
+  devicePlatformCatalogWord(key: string): string;
+  devicePlatformCatalogHint(key: string): string | null;
+};
 
 for (const [key, word] of Object.entries(catalog.platform)) {
   const answer = JSON.parse(addon.devicePlatformCatalogWord(key)) as {
@@ -93,5 +109,13 @@ for (const [key, word] of Object.entries(catalog.platform)) {
     console.error(`devices catalog: ${key} differs between Rust and devices.json`);
   }
 }
+for (const [key, literal] of Object.entries(catalog.tools ?? {})) {
+  if (addon.devicePlatformCatalogHint(key) !== literal) {
+    failed++;
+    console.error(`devices catalog: ${key} differs between Rust and devices.json`);
+  }
+}
 if (failed > 0) process.exit(1);
-console.log(`devices catalog: ${Object.keys(catalog.platform).length} words match Rust`);
+console.log(
+  `devices catalog: ${Object.keys(catalog.platform).length} words and ${Object.keys(catalog.tools ?? {}).length} tool words match Rust`,
+);

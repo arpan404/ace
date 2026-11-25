@@ -42,6 +42,10 @@ vi.mock("./native-devices-addon.ts", () => {
       devicePlatformOpenApp: answer("devicePlatformOpenApp"),
       devicePlatformConfigure: answer("devicePlatformConfigure"),
       devicePlatformLaunchPid: () => addon.pid,
+      devicePlatformAndroidSdkRoots: (...args: unknown[]) => {
+        addon.calls.push({ name: "devicePlatformAndroidSdkRoots", args });
+        return [];
+      },
     }),
     answered: (invoke: () => string) => {
       const parsed = JSON.parse(invoke()) as {
@@ -85,7 +89,16 @@ type Wiring = {
 };
 
 function platform() {
-  return new NativeDevicePlatform({ platform: "darwin", home: "/home/a", env: {}, node: "/node" });
+  const instance = new NativeDevicePlatform({
+    platform: "darwin",
+    home: "/home/a",
+    env: {},
+    node: "/node",
+  });
+  // The real constructor asks for SDK roots while it builds the chrome reader; only the calls
+  // a test makes after construction belong to it.
+  addon.calls.length = 0;
+  return instance;
 }
 
 function wiring(instance: InstanceType<typeof NativeDevicePlatform>): Wiring {

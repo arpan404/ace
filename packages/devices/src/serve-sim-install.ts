@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { devicePlatformBackend } from "@ace/provider-kit/native-switches";
 import { z } from "zod";
 import type { DeviceRuntime } from "./runtime.ts";
+import { catalogHint } from "./catalog.ts";
 import { DeviceError, deviceAnswer } from "./sdk.ts";
 import { nativeDevices } from "./native-devices-addon.ts";
 import { pinnedServeSim } from "./serve-sim-version.ts";
@@ -90,11 +91,7 @@ export async function managedServeSim(
 }
 
 const unavailable = (message: string) =>
-  new DeviceError(
-    "tool_missing",
-    message,
-    "Check the network and download the device tools again from Devices.",
-  );
+  new DeviceError("tool_missing", message, catalogHint("downloadHint"));
 
 function integrityOf(bytes: Uint8Array): string {
   return `sha512-${createHash("sha512").update(bytes).digest("base64")}`;

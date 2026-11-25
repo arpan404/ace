@@ -106,6 +106,11 @@ export interface ToolsInstallRequest {
   serveSim: boolean;
   scrcpy: boolean;
   artifacts?: { serveSim: NpmArtifact; ws: NpmArtifact };
+  scrcpyRelease?: { version: string; bytes: number; sha256: string; url: string };
+  /** `ACE_SCRCPY_SERVER`: a verified local copy, passed explicitly. */
+  scrcpyServer?: string;
+  /** The staging directory's id, as the shell's clock and ids name it. */
+  id: string;
   timeoutMs?: number;
 }
 
@@ -203,6 +208,7 @@ interface DevicesAddon {
   devicePlatformAndroidDimensions(output: string): string;
   devicePlatformCatalogWord(key: string): string;
   devicePlatformInstallTools(request: string): Promise<string>;
+  devicePlatformCatalogHint(key: string): string | null;
   devicePlatformManagedServeSim(directory: string, node: string, artifacts?: string): string;
   devicePlatformServeSimVersion(code: number | null, output: string): string | null;
   devicePlatformServeSimSupported(version: string | null): boolean;

@@ -21,11 +21,23 @@ ace-supervisor = { path = "../ace-supervisor" }
 base64 = "0.22"
 # flate2: npm tarballs are gzipped.
 flate2 = "1"
-# reqwest: downloads the pinned device tools. Rustls uses the platform's own trust store, so no
-# root-bundle crate (and no extra licence) is added.
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "stream"] }
-# futures-util: reads a download body chunk by chunk, so the size limit is checked as it goes.
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# rustls + tokio-rustls: the download client's TLS, with the provider ace-transport already uses.
+rustls = { version = "0.23.46", default-features = false, features = [
+  "aws_lc_rs",
+  "std",
+  "tls12",
+  "logging",
+] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = [
+  "aws_lc_rs",
+  "tls12",
+  "logging",
+] }
+# rustls-native-certs: the operating system's trust store. No root bundle and no extra licence
+# (reqwest's platform verifier would bring webpki-root-certs, CDLA-Permissive-2.0).
+rustls-native-certs = "0.8"
+# url: the download URLs, and redirect resolution against them.
+url = "2"
 # sha2: the registry's sha512 and scrcpy's sha256 checksums.
 sha2 = "0.10"
 # tar: unpacks npm tarballs and scrcpy's release archive.

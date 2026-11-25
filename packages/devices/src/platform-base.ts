@@ -431,7 +431,8 @@ export class DevicePlatformBase {
       env: this.options.env,
     };
   }
-  private async readIosList(): Promise<Device[]> {
+  /** The iOS inventory read; the native platform replaces the record mapping, not the probe. */
+  protected async readIosSource(): Promise<Device[]> {
     return (await this.simulators.list()).map((device) =>
       DeviceSchema.parse({
         id: `ios:${device.udid}`,
@@ -442,6 +443,18 @@ export class DevicePlatformBase {
         ...(device.deviceTypeIdentifier ? { model: device.deviceTypeIdentifier } : {}),
       }),
     );
+  }
+  /** Whether `listSource(scope)` re-reads only that source (D2's scoped inventory). */
+  scopedListing(): boolean {
+    return this.list === DevicePlatformBase.prototype.list;
+  }
+  /** Remember one source's read, so a scoped trigger can compose it with the other. */
+  protected recordOutcome(
+    platform: Device["platform"],
+    result: PromiseSettledResult<Device[]>,
+  ): void {
+    if (platform === "ios") this.lastIosOutcome = result;
+    else this.lastAndroidOutcome = result;
   }
   private async settleOutcome(read: Promise<Device[]>): Promise<PromiseSettledResult<Device[]>> {
     const [result] = await Promise.allSettled([read]);
@@ -479,32 +492,34 @@ export class DevicePlatformBase {
     if (deviceInventoryBackend() === "native") this.android.invalidateIdentityCache();
   }
   async listSource(scope: "all" | "ios" | "avds" | "adb"): Promise<Device[]> {
-    if (scope === "all" || this.list !== DevicePlatformBase.prototype.list) return this.list();
+    if (scope === "all" || !this.scopedListing()) return this.list();
     if (scope === "ios") {
       if (this.options.platform !== "darwin" || this.lastAndroidOutcome === undefined)
         return this.list();
-      this.lastIosOutcome = await this.settleOutcome(this.readIosList());
+      const ios = await this.settleOutcome(this.readIosSource());
+      this.recordOutcome("ios", ios);
       return this.finalizeList([
-        { platform: "ios", result: this.lastIosOutcome },
+        { platform: "ios", result: ios },
         { platform: "android", result: this.lastAndroidOutcome },
       ]);
     }
     if (this.options.platform === "darwin" && this.lastIosOutcome === undefined) return this.list();
-    this.lastAndroidOutcome = await this.settleOutcome(this.android.list(scope));
+    const android = await this.settleOutcome(this.android.list(scope));
+    this.recordOutcome("android", android);
     return this.finalizeList(
       this.options.platform === "darwin" && this.lastIosOutcome !== undefined
         ? [
             { platform: "ios", result: this.lastIosOutcome },
-            { platform: "android", result: this.lastAndroidOutcome },
+            { platform: "android", result: android },
           ]
-        : [{ platform: "android", result: this.lastAndroidOutcome }],
+        : [{ platform: "android", result: android }],
     );
   }
   private async listNative(): Promise<Device[]> {
     const sources: { platform: Device["platform"]; read: Promise<Device[]> }[] =
       this.options.platform === "darwin"
         ? [
-            { platform: "ios", read: this.readIosList() },
+            { platform: "ios", read: this.readIosSource() },
             { platform: "android", read: this.android.list("all") },
           ]
         : [{ platform: "android", read: this.android.list("all") }];
@@ -513,10 +528,7 @@ export class DevicePlatformBase {
       platform: source.platform,
       result: outcomes[index] as PromiseSettledResult<Device[]>,
     }));
-    for (const entry of entries) {
-      if (entry.platform === "ios") this.lastIosOutcome = entry.result;
-      else this.lastAndroidOutcome = entry.result;
-    }
+    for (const entry of entries) this.recordOutcome(entry.platform, entry.result);
     return this.finalizeList(entries);
   }
   async list(): Promise<Device[]> {
@@ -524,11 +536,13 @@ export class DevicePlatformBase {
     const sources: { platform: Device["platform"]; read: Promise<Device[]> }[] =
       this.options.platform === "darwin"
         ? [
-            { platform: "ios", read: this.readIosList() },
+            { platform: "ios", read: this.readIosSource() },
             { platform: "android", read: this.android.list("all") },
           ]
         : [{ platform: "android", read: this.android.list("all") }];
     const outcomes = await Promise.allSettled(sources.map((source) => source.read));
+    for (const [index, result] of outcomes.entries())
+      this.recordOutcome(sources[index]?.platform ?? "android", result);
     const devices: Device[] = [];
     const missing: (DeviceFailure & { platform: Device["platform"] })[] = [];
     for (const [index, result] of outcomes.entries()) {

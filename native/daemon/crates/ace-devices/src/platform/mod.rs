@@ -10,6 +10,7 @@ pub mod boot;
 pub mod budget;
 pub mod commands;
 pub mod emulator;
+pub mod http;
 pub mod identity;
 pub mod lifecycle;
 pub mod list;
