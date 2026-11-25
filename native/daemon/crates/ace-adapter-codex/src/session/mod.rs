@@ -11,6 +11,7 @@ pub mod host;
 pub mod lease;
 pub mod pool;
 pub mod routing;
+pub mod tools;
 
 #[cfg(test)]
 pub(crate) mod harness;

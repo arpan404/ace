@@ -74,6 +74,25 @@ pub struct Frame {
     pub text: String,
 }
 
+/// The session's own call numbers: one per request it asks the shell to send,
+/// answered through `Session::settled(call, result)`.
+#[derive(Debug, Default)]
+pub struct Calls {
+    next: u64,
+}
+
+impl Calls {
+    pub fn new() -> Calls {
+        Calls::default()
+    }
+
+    pub fn take(&mut self) -> u64 {
+        let call = self.next;
+        self.next += 1;
+        call
+    }
+}
+
 impl From<Frame> for Effect {
     fn from(frame: Frame) -> Effect {
         Effect::Frame {
