@@ -254,6 +254,15 @@ impl NativeDatabase {
         let bell = Bell {
             pump: Arc::clone(&pump),
         };
+        // The actor's dependencies (E5.2 correction 6). Until the shell's live buffer is wired,
+        // the store seam names the item that lands it.
+        let idle_ms = ace_engine::limits::validate_idle_ms(inputs.idle_ms.unwrap_or(0.0))
+            .map_err(engine_error)?;
+        let deps = Rc::new(ace_engine::actor::ActorDeps::production(
+            Rc::new(ace_engine::frames::live::UnportedLive)
+                as Rc<dyn ace_engine::frames::LiveStore>,
+            idle_ms,
+        ));
         let engine = Engine::new(
             Rc::clone(&ports) as Rc<dyn Ports>,
             Rc::new(SharedStack {
@@ -262,6 +271,7 @@ impl NativeDatabase {
             inputs,
             &registry_json,
             Box::new(bell),
+            deps,
         )
         .map_err(engine_error)?;
         let sink = Rc::new(Sink {
