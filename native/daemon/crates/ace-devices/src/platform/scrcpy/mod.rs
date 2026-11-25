@@ -7,4 +7,5 @@ pub mod clipboard;
 pub mod input;
 pub mod jar;
 pub mod protocol;
+pub mod server;
 pub mod video;

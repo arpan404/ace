@@ -494,22 +494,23 @@ The pure formats and parsers land first under the same switch; the capture units
 them. `ACE_DEVICE_PLATFORM=native` will answer these decisions from `ace-devices`; with the
 switch off, `packages/devices/src` is today's TypeScript, unchanged.
 
-| TypeScript                                  | Rust                                | Wired                                                                                      |
-| ------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------ |
-| `@ace/browser/h264` (`avcConfig`, `annexB`) | `platform/h264.rs`                  | not yet (the capture path is U3)                                                           |
-| `@ace/browser/h264` (`spsDimensions`)       | `platform/h264.rs`                  | not yet                                                                                    |
-| `simulator-avcc`                            | `platform/simulator_avcc.rs`        | not yet                                                                                    |
-| `jpeg`                                      | `platform/jpeg.rs`                  | not yet                                                                                    |
-| `mjpeg`                                     | `platform/mjpeg.rs`                 | not yet                                                                                    |
-| `simulator-rotation`                        | `platform/simulator_rotation.rs`    | not yet (the capture's orientation read is U3)                                             |
-| `simulator-source-rate`                     | `platform/simulator_source_rate.rs` | not yet                                                                                    |
-| `recording-limits`                          | `platform/recording_limits.rs`      | not yet                                                                                    |
-| `simulator-frames`                          | `platform/simulator_frames/mod.rs`  | not yet: the state machine returns effects, the capture's clock, timer and promises are U3 |
-| `log-line`                                  | `platform/log_line.rs`              | not yet (U5)                                                                               |
-| `simulator-jpeg`                            | `platform/simulator_jpeg/mod.rs`    | not yet: the state machine returns actions; HTTP is the capture's port (U3)                |
-| `media-paths`                               | `platform/media_paths/mod.rs`       | not yet: paths, merge and egress are decisions; the media source is the capture's (U3)     |
-| `scrcpy-protocol` (video), `scrcpy-video`   | `platform/scrcpy/video/mod.rs`      | not yet: the capture's socket reader runs it in-process (U2)                               |
-| `scrcpy-jar`                                | `platform/scrcpy/jar/mod.rs`        | not yet: the pin, verification and one download; the tools install shares them             |
+| TypeScript                                  | Rust                                | Wired                                                                                          |
+| ------------------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `@ace/browser/h264` (`avcConfig`, `annexB`) | `platform/h264.rs`                  | not yet (the capture path is U3)                                                               |
+| `@ace/browser/h264` (`spsDimensions`)       | `platform/h264.rs`                  | not yet                                                                                        |
+| `simulator-avcc`                            | `platform/simulator_avcc.rs`        | not yet                                                                                        |
+| `jpeg`                                      | `platform/jpeg.rs`                  | not yet                                                                                        |
+| `mjpeg`                                     | `platform/mjpeg.rs`                 | not yet                                                                                        |
+| `simulator-rotation`                        | `platform/simulator_rotation.rs`    | not yet (the capture's orientation read is U3)                                                 |
+| `simulator-source-rate`                     | `platform/simulator_source_rate.rs` | not yet                                                                                        |
+| `recording-limits`                          | `platform/recording_limits.rs`      | not yet                                                                                        |
+| `simulator-frames`                          | `platform/simulator_frames/mod.rs`  | not yet: the state machine returns effects, the capture's clock, timer and promises are U3     |
+| `log-line`                                  | `platform/log_line.rs`              | not yet (U5)                                                                                   |
+| `simulator-jpeg`                            | `platform/simulator_jpeg/mod.rs`    | not yet: the state machine returns actions; HTTP is the capture's port (U3)                    |
+| `media-paths`                               | `platform/media_paths/mod.rs`       | not yet: paths, merge and egress are decisions; the media source is the capture's (U3)         |
+| `scrcpy-protocol` (video), `scrcpy-video`   | `platform/scrcpy/video/mod.rs`      | not yet: the capture's socket reader runs it in-process (U2)                                   |
+| `scrcpy-jar`                                | `platform/scrcpy/jar/mod.rs`        | not yet: the pin, verification and one download; the tools install shares them                 |
+| `scrcpy-server`                             | `platform/scrcpy/server/mod.rs`     | not yet: the push/forward/spawn plan, port, greeting and startup errors; sockets are the shell |
 
 The Android JPEG cap's words now come from the catalog (`jpegTooLarge`), and the incomplete
 Simulator picture's from `simulatorIncompletePicture`, which `jpeg.ts` and `simulator-frames.ts`
@@ -518,6 +519,13 @@ TypeScript's reachable behaviour only: `(record[4] & 3) + 1` cannot be 3, so `av
 length-size-3 refusal is unreachable and is not reproduced. The splitter keeps the `.avcc`
 record bound (8 MiB, the length prefix included) and an empty body refused at once, and its
 buffer never holds more than the record still arriving.
+
+`scrcpy/server/mod.rs` keeps the device side of a capture before any socket exists: the remote
+jar's name, the push and forward commands with today's byte caps and deadlines, the removed
+forward, the `adb shell` command that spawns the server (`app_process /` and the profile's
+arguments), the forward's port, the 64-byte greeting name and its trailing bytes, the single
+startup deadline, and today's startup, push and forward errors. The sockets, retry loop, timers
+and process are the shell's.
 
 `scrcpy/jar/mod.rs` owns scrcpy's pin (version, byte size, SHA-256, URL), the explicit
 `ACE_SCRCPY_SERVER` check, the verified copy in ace's tools directory, and one download whose
