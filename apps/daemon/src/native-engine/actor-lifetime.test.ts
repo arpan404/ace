@@ -430,4 +430,18 @@ describe.runIf(native)("the native actor and frames", () => {
       await seam.close();
     }
   });
+
+  test("frames of a retired generation release their handles when the fold skips them", async () => {
+    const seam = await bareSeam();
+    const session = await seam.probe.attachSession("t1", { translator: translator() });
+    try {
+      void session.context.onFrame(frame(0));
+      seam.probe.retire("t1");
+      seam.probe.seal("t1");
+      await seam.engine.flush();
+      expect(seam.probe.liveFrames()).toBe(0);
+    } finally {
+      await seam.close();
+    }
+  });
 });
