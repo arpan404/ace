@@ -3,7 +3,7 @@
 
 use ace_adapter_api::frame::FrameDirection;
 use ace_json::{JsString, Value, json};
-use ace_supervisor::peer::Timeout;
+use ace_supervisor::peer::{Direction, PeerEffect, Timeout};
 
 use super::core::{
     AcpCore, AcpCoreConfig, AcpEffect, CODE_OPEN_FAILED, CODE_RESUME_UNAVAILABLE,
@@ -800,6 +800,54 @@ fn an_uncapturable_outbound_frame_rejects_only_its_call() {
         next.iter()
             .any(|effect| matches!(effect, AcpEffect::Write { .. })),
         "the write queue moves on: {next:?}"
+    );
+}
+
+/// A reply ace sends answers an agent's request and carries no promise: an uncapturable
+/// one fails the session (`#answer` then `#report`, `jsonrpc.ts:344`-`:369`), and its id
+/// is never taken for a pending call's, since `#send`'s rejection settles requests only.
+#[test]
+fn an_uncapturable_reply_fails_the_session_even_when_its_id_matches_a_pending_call() {
+    let (mut core, _) = AcpCore::new(AcpCoreConfig::new(
+        "t-reply-collision",
+        "/work",
+        AcpSessionQuirks::generic(),
+    ));
+    let Ok(sent) = core.request("custom/ping", Some(&json!({})), 41, Timeout::Disabled) else {
+        panic!("request refused");
+    };
+    assert!(
+        sent.iter()
+            .any(|effect| matches!(effect, AcpEffect::Write { .. })),
+        "the pending call holds wire id 1"
+    );
+    let blob = "hello world! ".repeat(MAX_PROVIDER_PAYLOAD_BYTES / 10);
+    let reply = json!({ "jsonrpc": "2.0", "id": 1, "result": { "blob": blob } });
+    let mut effects = Vec::new();
+    core.apply_peer_effects(
+        vec![
+            PeerEffect::Frame {
+                dir: Direction::Send,
+                value: reply,
+            },
+            PeerEffect::Write {
+                wire: b"{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n".to_vec(),
+                ticket: 99,
+            },
+        ],
+        &mut effects,
+    );
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, AcpEffect::Fatal { .. })),
+        "a reply's capture failure fails the session"
+    );
+    assert!(core.closed);
+    assert_eq!(
+        settlements(&effects, 41).len(),
+        1,
+        "the pending call still settles once"
     );
 }
 
