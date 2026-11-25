@@ -175,7 +175,7 @@ pub struct NativeRef {
 
 /// Where a text's whole value lives when the carried text is a preview.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct TextSource {
     #[serde(rename = "streamId")]
     pub stream_id: String,
@@ -188,7 +188,7 @@ pub struct TextSource {
 
 /// A bounded native document or resource prepared by the daemon.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct Attachment {
     pub sha256: String,
     pub bytes: i64,
@@ -209,7 +209,7 @@ pub struct Attachment {
 
 /// A single file change, normalised from provider edits.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct FileChange {
     pub path: String,
     pub kind: String,
@@ -231,7 +231,7 @@ pub struct FileChange {
 
 /// One entry of a plan or todo list.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct TodoEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
@@ -241,7 +241,7 @@ pub struct TodoEntry {
 
 /// Bounded native file content carried beside a file part.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "encoding", deny_unknown_fields)]
+#[serde(tag = "encoding")]
 pub enum FileContent {
     /// Base64 bytes, at most 44 MiB of characters.
     #[serde(rename = "base64")]
@@ -253,7 +253,7 @@ pub enum FileContent {
 
 /// One content part of a message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", deny_unknown_fields)]
+#[serde(tag = "type")]
 pub enum ContentPart {
     /// A catalog mention (skill, command, plugin, agent, workflow…).
     #[serde(rename = "mention")]
@@ -314,7 +314,7 @@ pub enum ContentPart {
 
 /// The normalised view of a call, by kind.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", deny_unknown_fields)]
+#[serde(tag = "kind")]
 pub enum ToolDetail {
     /// A shell command with its bounded output summary.
     #[serde(rename = "shell")]
@@ -440,7 +440,7 @@ pub enum ToolDetail {
 
 /// A line range within a file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct LineRange {
     #[serde(deserialize_with = "de_i64")]
     pub start: i64,
@@ -450,7 +450,7 @@ pub struct LineRange {
 
 /// Full output lives in the daemon stream store; the summary stays bounded.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct OutputSummary {
     #[serde(rename = "streamId")]
     pub stream_id: String,
@@ -463,7 +463,7 @@ pub struct OutputSummary {
 
 /// One tool call in the transcript. Its JSON order is written in `item_json`.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct ToolCall {
     pub id: String,
     #[serde(rename = "agentId")]

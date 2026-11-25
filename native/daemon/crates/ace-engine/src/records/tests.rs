@@ -376,13 +376,13 @@ fn a_cleared_known_retry_field_stays_cleared() {
 }
 
 #[test]
-fn a_strict_type_refuses_an_unknown_field_and_an_array_may_change_type() {
-    // `ToolDetail` is `deny_unknown_fields`, as its strict TS schema is.
+fn a_stripped_type_drops_an_unknown_field_and_an_array_may_change_type() {
+    // TS's `ToolDetail` is a plain `z.object` (it strips), so Rust strips too.
     let tool = ace_json::parse(
         r#"{"id":"i","threadId":"t","agentId":"a","createdAt":1,"complete":false,"type":"tool_call","call":{"id":"c","agentId":"a","kind":"shell","title":"run","status":"running","detail":{"kind":"shell","command":"ls","futureField":1},"startedAt":1}}"#,
     )
     .unwrap();
-    assert!(decode::decode_record::<Item>(&tool).is_err());
+    assert!(decode::decode_record::<Item>(&tool).is_ok());
     // A part at the same index changing from text to image decodes; nothing is merged by index.
     let image = ace_json::parse(
         r#"{"id":"i2","threadId":"t","agentId":"a","createdAt":1,"complete":true,"type":"message","role":"assistant","parts":[{"type":"image","mimeType":"image/png","url":"https://x"}]}"#,
