@@ -64,7 +64,8 @@ function addon(): Addon {
   return loaded;
 }
 
-function quirksName(quirks: AcpQuirks): string {
+/** The core's quirks kind for this quirks object (`session/quirks.rs`). */
+export function quirksName(quirks: AcpQuirks): string {
   if (quirks === (antigravityQuirks as AcpQuirks)) return "antigravity";
   if (quirks === (extensionQuirks as AcpQuirks)) return "extension";
   if (quirks === (genericQuirks as AcpQuirks)) return "generic";

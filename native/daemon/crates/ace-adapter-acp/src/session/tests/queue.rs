@@ -335,8 +335,18 @@ fn an_error_reply_clears_the_root_grace_before_the_next_prompt() {
         "the send carries the agent's message, not the whole error"
     );
     assert!(
-        core.prompt_id.is_some(),
-        "the queued prompt is in flight now"
+        settlements(&after, 70).is_empty(),
+        "the queued prompt is in flight, unsettled"
+    );
+    assert_eq!(
+        sent_json_messages(&after)
+            .iter()
+            .filter(
+                |message| message.get("method").and_then(Value::as_str) == Some("session/prompt")
+            )
+            .count(),
+        1,
+        "the queued prompt went out"
     );
 
     // The cleared grace cannot fire against the new prompt.
@@ -348,7 +358,10 @@ fn an_error_reply_clears_the_root_grace_before_the_next_prompt() {
             .all(|effect| !matches!(effect, AcpEffect::Fatal { .. })),
         "{fired:?}"
     );
-    assert!(core.prompt_id.is_some(), "the new prompt still runs");
+    assert!(
+        settlements(&fired, 70).is_empty(),
+        "the new prompt is still waiting on its reply"
+    );
 }
 
 #[test]

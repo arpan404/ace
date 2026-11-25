@@ -160,6 +160,35 @@ it("an agent without embedded context receives an uninlined file as an ACP resou
     await h.session.close("user");
   }
 });
+it("an aborted session's lease ends before its open throws", async () => {
+  let ended = false;
+  const controller = new AbortController();
+  controller.abort();
+  await expect(
+    openAcpSession(
+      {
+        threadId: ThreadId.parse("session-test"),
+        cwd: process.cwd(),
+        env: {},
+        signal: controller.signal,
+        onFrame: () => {},
+        onExit: () => {},
+        mcp: {
+          httpServers: [],
+          stdioServers: [],
+          configuredServers: [],
+          secrets: [],
+          end: () => {
+            ended = true;
+          },
+        },
+      },
+      genericQuirks,
+      { command: process.execPath, args: [fake] },
+    ),
+  ).rejects.toThrow("ACP session lifetime already ended");
+  expect(ended).toBe(true);
+});
 it("passive completed child tool refreshes leave the next root prompt deliverable", async () => {
   const h = await setup();
   try {

@@ -34,6 +34,7 @@ import { appendFileSync } from "node:fs";
 import type { LaunchOptions, SessionRuntime } from "./runtime.ts";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import type { AcpQuirks } from "./quirks/types.ts";
+import { quirksName } from "./native-translator.ts";
 import type { Capabilities } from "@ace/protocol";
 import type { AcpSessionSupport } from "@ace/protocol";
 
@@ -109,19 +110,28 @@ export async function openNativeAcpSession(
   launch: LaunchOptions,
   runtime: SessionRuntime = { spawn: spawnSupervised, now: () => performance.now() },
 ): Promise<ProviderSession> {
-  ctx.signal.throwIfAborted();
-  // The addon first: a missing one must not leave a lease behind.
-  const native = addon();
+  // The lease ends before anything here can throw (`session.ts:74`-`:77`), with the same
+  // error the TypeScript session throws.
+  if (ctx.signal.aborted) {
+    ctx.mcp?.end();
+    throw new Error("ACP session lifetime already ended");
+  }
   const lease = ctx.mcp;
+  const native = (() => {
+    try {
+      return addon();
+    } catch (error) {
+      lease?.end();
+      throw error;
+    }
+  })();
   const started = runtime.now();
   const windows = (runtime.platform ?? process.platform) === "win32";
   let handle: NativeAcpHandle;
   let bridge: SessionBridge;
   let nextId = 0;
-  // The core's context callbacks arrive through the bridge by name: cache what the surface
-  // reports, then let the engine hear it as today.
   // The core's context callbacks arrive through the bridge by name: the open's running mode
-  // is not in its result, so it is read from the callback before the open settles.
+  // is not in its result, so it is cached from the callback before the open settles.
   let runningMode: string | undefined;
   // The surface's live fields: a mode or capability the agent changes mid-session is what
   // the engine reads next (`configuration.capabilities`, `permissionMode`).
@@ -148,7 +158,7 @@ export async function openNativeAcpSession(
       JSON.stringify({
         threadId: ctx.threadId,
         cwd: ctx.cwd,
-        kind: quirksKind(quirks),
+        kind: quirksName(quirks),
         command: quirks.command,
         args: quirks.args,
         experimental: quirks.experimental,
@@ -288,13 +298,13 @@ export async function openNativeAcpSession(
   // The running mode is the configuration's current one after the saved selections applied,
   // not only what the agent announced (`session.ts:522`).
   runningMode = handle.permissionMode() ?? runningMode;
-  if (process.env["ACE_SESSIONS_EVIDENCE"]) evidence(ctx, result, runtime.now());
+  if (process.env["ACE_SESSIONS_EVIDENCE"]) evidence();
   void proc.exited.then(() => {
     closed = true;
     release();
   });
 
-  /** Stops the child the way `close` does, then waits for every frame it produced. */
+  /** The one close: the core's teardown, the stop, then every frame the child produced. */
   async function stopChild(): Promise<void> {
     if (!windows) {
       await proc.stop({ graceMs: 1000 });
@@ -316,17 +326,9 @@ export async function openNativeAcpSession(
     for (const tree of trees) await tree.end();
   }
 
-  /** The open's error path: the child exists, so stopping it brings `Drained`. */
+  /** The open's error path: the same close, so an abort and a failure stop the child once. */
   async function closeAfterOpenFailure(_error: unknown): Promise<void> {
-    try {
-      handle.close("shutdown");
-      handle.drain();
-      await stopChild();
-      await bridge.drainedPromise;
-    } catch {
-      // The open's failure is what the caller hears; nothing here replaces it.
-    }
-    release();
+    await close("shutdown").catch(() => {});
   }
 
   async function close(reason: "idle" | "user" | "shutdown"): Promise<void> {
@@ -428,11 +430,6 @@ export async function openNativeAcpSession(
   return session;
 }
 
-/** `compatible`/`verified` as the core's `ProfileFit` spells them. */
-function quirksKind(quirks: AcpQuirks): string {
-  return quirks.provider === "antigravity" ? "antigravity" : "generic";
-}
-
 function defaultSchedule(ms: number, callback: () => void): () => void {
   const timer = setTimeout(callback, ms);
   return () => clearTimeout(timer);
@@ -455,7 +452,7 @@ function redactSecrets(value: unknown, secrets: readonly string[]): unknown {
 }
 
 /** The E3.0d evidence line (step 3), appended once per open the native facade made. */
-function evidence(_ctx: SessionContext, _result: OpenResult, _now: number): void {
+function evidence(): void {
   const path = process.env["ACE_SESSIONS_EVIDENCE"];
   if (!path) return;
   appendFileSync(
