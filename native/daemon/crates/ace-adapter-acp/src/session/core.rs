@@ -902,6 +902,8 @@ impl AcpCore {
             self.cancelling_children.shift_remove(&id);
             self.clear_deadline(&format!("child:{id}"), effects);
         }
+        // A child that ended releases the prompt it held (`session.ts:251`).
+        self.drain(effects);
     }
 
     /// Handle incoming agent-to-client JSON-RPC requests (`session.ts:798`–`:819`).
@@ -1044,6 +1046,8 @@ impl AcpCore {
             if self.routing.expire(&child_js) && !self.routing.has_live_children() {
                 self.clear_deadline("children", effects);
             }
+            // A child given up at its grace no longer holds the queue (`session.ts:905`).
+            self.drain(effects);
         }
     }
 
