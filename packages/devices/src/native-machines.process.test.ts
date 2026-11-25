@@ -27,6 +27,46 @@ describe.runIf(native)("the machines wired to ace-devices", () => {
     await expect(read).resolves.toBe("from-rust");
   });
 
+  it("a read after an idle stretch waits its own reply window, not the next timer's", async () => {
+    let now = 0;
+    let timers: { at: number; run(): void }[] = [];
+    const advance = async (ms: number) => {
+      const end = now + ms;
+      for (;;) {
+        const due = timers.filter((timer) => timer.at <= end).toSorted((a, b) => a.at - b.at)[0];
+        if (!due) break;
+        timers = timers.filter((timer) => timer !== due);
+        now = due.at;
+        due.run();
+        await Promise.resolve();
+      }
+      now = end;
+    };
+    const clipboard = new ScrcpyClipboard({
+      send: () => {},
+      after(ms, run) {
+        const timer = { at: now + ms, run };
+        timers.push(timer);
+        return () => {
+          timers = timers.filter((each) => each !== timer);
+        };
+      },
+    });
+    // A write whose acknowledgement never comes, then four idle seconds, then a read.
+    void clipboard.write("hi", false).catch(() => {});
+    await advance(4_000);
+    let settled = false;
+    const read = clipboard.read("agent").then((text) => {
+      settled = true;
+      return text;
+    });
+    // The write's deadline fires at five seconds; the read is one second old.
+    await advance(1_000);
+    expect(settled).toBe(false);
+    await advance(500);
+    await expect(read).resolves.toBe("");
+  });
+
   it("a held pointer is lifted by the Rust machine where it was last seen", () => {
     const held = new HeldPointers();
     held.apply({ kind: "pointer", phase: "down", pointerId: 3, x: 5, y: 6 });
