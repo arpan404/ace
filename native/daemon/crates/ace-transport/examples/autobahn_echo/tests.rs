@@ -1,13 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
+//! What the Autobahn scratch server must do for the suite, over a real TCP
+//! connection: echo the suite's large messages without stalling, and end a
+//! connection whose peer drops it without a close frame. Both were found by the
+//! T1b.5 run: the echo never released its inbound credit, so a 256 KiB message
+//! (9.1.2) hung the reader, and a dropped peer was left in CLOSE_WAIT.
 
 use super::*;
 use ace_transport::deflate::{Body, Deflater, INFLATE_WINDOW};
 use ace_transport::frame::assemble::MessageBody;
 use tokio::time::timeout;
 
-const DEADLINE: Duration = Duration::from_secs(3);
-const LARGE: usize = 256 * 1024;
 const PATTERN: &[u8] = b"BAsd7&jh23";
+/// 9.1.2's size.
+const LARGE: usize = 256 * 1024;
+/// The suite's largest case, 9.1.6.
+const LARGEST: usize = 16 * 1024 * 1024;
 
 async fn connect(compressed: bool) -> TcpStream {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -90,7 +97,8 @@ async fn expect_echo(client: &mut TcpStream, expected: &[u8], compressed: bool) 
     let mut wire = vec![0; length];
     client.read_exact(&mut wire).await.unwrap();
     if compressed {
-        let mut body = Body::compressed();
+        // The echo is inflated under the same bound the scratch server accepts.
+        let mut body = Body::compressed_with_limit(LARGEST);
         body.begin(true);
         body.feed(&wire, true).unwrap();
         assert_eq!(body.finish().as_slice(), expected);
@@ -99,9 +107,9 @@ async fn expect_echo(client: &mut TcpStream, expected: &[u8], compressed: bool) 
     }
 }
 
-async fn large_echo(compressed: bool, count: usize) {
+async fn large_echo(compressed: bool, size: usize, count: usize) {
     let mut client = connect(compressed).await;
-    let payload: Vec<_> = PATTERN.iter().copied().cycle().take(LARGE).collect();
+    let payload: Vec<_> = PATTERN.iter().copied().cycle().take(size).collect();
     let wire = if compressed {
         Deflater::new(INFLATE_WINDOW).deflate(&payload).unwrap()
     } else {
@@ -114,19 +122,36 @@ async fn large_echo(compressed: bool, count: usize) {
     }
 }
 
+// Each of these sends past the socket's 1 MiB inbound credit, so the reader
+// stops after the first message or two unless the echo releases it. Five 256 KiB
+// messages are one credit's worth; one 16 MiB message is sixteen.
+
 #[tokio::test]
-async fn echoes_one_masked_256_kib_text_frame() {
-    timeout(DEADLINE, large_echo(false, 1)).await.unwrap();
+async fn echoes_256_kib_text_messages_past_the_inbound_credit() {
+    timeout(Duration::from_secs(20), large_echo(false, LARGE, 5))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
-async fn echoes_one_masked_256_kib_text_message_with_deflate() {
-    timeout(DEADLINE, large_echo(true, 1)).await.unwrap();
+async fn echoes_256_kib_text_messages_past_the_inbound_credit_with_deflate() {
+    timeout(Duration::from_secs(20), large_echo(true, LARGE, 5))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
-async fn keeps_echoing_after_a_mebibyte_of_delivered_text() {
-    timeout(DEADLINE, large_echo(false, 5)).await.unwrap();
+async fn echoes_16_mib_text_messages_past_the_inbound_credit() {
+    timeout(Duration::from_secs(30), large_echo(false, LARGEST, 2))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn echoes_16_mib_text_messages_past_the_inbound_credit_with_deflate() {
+    timeout(Duration::from_secs(30), large_echo(true, LARGEST, 2))
+        .await
+        .unwrap();
 }
 
 async fn peer_fin(partial: bool, after_echoes: bool) {
@@ -150,20 +175,28 @@ async fn peer_fin(partial: bool, after_echoes: bool) {
 
 #[tokio::test]
 async fn drops_an_idle_socket_on_tcp_eof() {
-    timeout(DEADLINE, peer_fin(false, false)).await.unwrap();
+    timeout(Duration::from_secs(5), peer_fin(false, false))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
 async fn drops_a_socket_on_tcp_eof_inside_a_frame() {
-    timeout(DEADLINE, peer_fin(true, false)).await.unwrap();
+    timeout(Duration::from_secs(5), peer_fin(true, false))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
 async fn drops_an_idle_socket_on_tcp_eof_after_echoing() {
-    timeout(DEADLINE, peer_fin(false, true)).await.unwrap();
+    timeout(Duration::from_secs(5), peer_fin(false, true))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
 async fn drops_a_socket_on_tcp_eof_inside_a_frame_after_echoing() {
-    timeout(DEADLINE, peer_fin(true, true)).await.unwrap();
+    timeout(Duration::from_secs(5), peer_fin(true, true))
+        .await
+        .unwrap();
 }

@@ -60,10 +60,11 @@ impl UpgradeAdmission for AcceptAll {
     fn release(&self, _reservation: u64) {}
 }
 
-// The suite sends messages up to 16 MiB and up to 65,536 fragments. Both
-// scratch servers use the same limits for the full suite.
+// The suite sends messages up to 16 MiB and up to 65,536 fragments, so the
+// defaults the daemon's listeners use would refuse its largest cases. The
+// fragment bound is `ws`'s; only the payload bound moves, and only here.
 const LIMITS: FrameLimits = FrameLimits {
-    max_payload: 100 * 1024 * 1024,
+    max_payload: 16 * 1024 * 1024,
     max_fragments: 65_536,
 };
 
