@@ -23,7 +23,7 @@ import { EmulatorPostures, type EmulatorConsole } from "./android-posture.ts";
 import { deviceChromeSources } from "./device-chrome-sources.ts";
 import { unavailableImages, type ImageWork } from "@ace/media/images";
 import { modelImageRuntime, type ModelImageRuntime } from "@ace/mcp-server";
-import { DeviceError, resolveXcode, type SDKOptions } from "./sdk.ts";
+import { catalogRefusal, DeviceError, resolveXcode, type SDKOptions } from "./sdk.ts";
 import { iosNeedsMac } from "./sdk.ts";
 import {
   adbShell,
@@ -318,14 +318,7 @@ export class DevicePlatformBase {
     } catch (error) {
       return Promise.reject(error);
     }
-    if (!directory || !node)
-      return Promise.reject(
-        new DeviceError(
-          "tool_missing",
-          "ace has nowhere to keep device tools",
-          "Restart ace; its home directory should hold them.",
-        ),
-      );
+    if (!directory || !node) return Promise.reject(catalogRefusal("toolsNowhere"));
     this.toolsDownload ??= downloadDeviceTools(
       { directory, node, runtime, env: this.options.env, timeoutMs: plan.timeoutMs },
       { serveSim: plan.serveSim, scrcpy: plan.scrcpy },
@@ -374,12 +367,7 @@ export class DevicePlatformBase {
     signal?: AbortSignal,
     authorize?: () => void,
   ) {
-    if (this.controller.signal.aborted)
-      throw new DeviceError(
-        "command_failed",
-        "Device service is closed",
-        "Restart the device service.",
-      );
+    if (this.controller.signal.aborted) throw catalogRefusal("deviceServiceClosed");
     if (this.active >= 8) {
       if (this.waiters.length >= 128)
         throw new DeviceError(
@@ -659,20 +647,10 @@ export class DevicePlatformBase {
   async install(device: Device, input: string, authorize?: () => void): Promise<void> {
     const path = Text.refine(isAbsolute).parse(input);
     if (device.platform === "ios") {
-      if (extname(path) !== ".app")
-        throw new DeviceError(
-          "not_supported",
-          "iOS Simulator installs Simulator-built .app bundles",
-          "Extract a Simulator-built .app from the IPA; device-only IPA binaries cannot run in Simulator.",
-        );
+      if (extname(path) !== ".app") throw catalogRefusal("installSimulatorApp");
       await this.simctl(device, ["install", path], authorize, deviceInstallTimeoutMs);
     } else {
-      if (extname(path) !== ".apk")
-        throw new DeviceError(
-          "invalid_data",
-          "Android install requires an .apk",
-          "Select an APK built for the emulator architecture.",
-        );
+      if (extname(path) !== ".apk") throw catalogRefusal("installAndroidApk");
       await this.android.adb(
         device,
         ["install", "-r", path],
@@ -710,11 +688,7 @@ export class DevicePlatformBase {
       );
       const component = resolved.stdout.split("\n").find((line) => line.includes("/"));
       if (!component || !AppId.safeParse(component).success)
-        throw new DeviceError(
-          "not_found",
-          "Android app has no launchable activity",
-          "Supply a package/activity component or install the app first.",
-        );
+        throw catalogRefusal("appNotLaunchable");
       await this.android.adb(
         device,
         adbShell(["am", "start", "-n", component]),
@@ -736,12 +710,7 @@ export class DevicePlatformBase {
   }
   async configure(device: Device, input: DeviceSettings, authorize?: () => void): Promise<void> {
     const settings = Settings.parse(input);
-    if (settings.locale)
-      throw new DeviceError(
-        "not_supported",
-        "Runtime locale configuration is not supported by the installed public CLI contract",
-        "Change language in the device Settings app, then restart the app.",
-      );
+    if (settings.locale) throw catalogRefusal("localeUnsupported");
     if (device.platform === "ios") {
       if (settings.appearance)
         await this.simctl(device, ["ui", "appearance", settings.appearance], authorize);
@@ -760,11 +729,7 @@ export class DevicePlatformBase {
           authorize,
         );
       if (settings.location && this.android.physical(device.id))
-        throw new DeviceError(
-          "not_supported",
-          "Only an emulator's location can be set",
-          "Use a mock location app on the device, or set the location on an emulator.",
-        );
+        throw catalogRefusal("locationPhysical");
       if (settings.location)
         await this.android.adb(
           device,

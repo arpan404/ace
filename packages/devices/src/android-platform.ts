@@ -6,6 +6,7 @@ import { probeOutput, spawnSupervised, type SupervisedProcess } from "@ace/provi
 import { deviceInventoryBackend, devicePlatformBackend } from "@ace/provider-kit/native-switches";
 import {
   armEmulatorNote,
+  catalogRefusal,
   DeviceError,
   deviceAnswer,
   resolveAndroidSDK,
@@ -362,11 +363,7 @@ export class AndroidPlatform {
   private emulatorMissing(): DeviceError {
     return this.options.platform === "linux" && this.options.arch === "arm64"
       ? armEmulatorNote()
-      : new DeviceError(
-          "sdk_missing",
-          "The Android Emulator was not found",
-          "Install the Android Emulator from Android Studio's SDK Manager, then set ANDROID_HOME to the SDK directory.",
-        );
+      : catalogRefusal("androidEmulatorMissing");
   }
   private async emulatorWindow(): Promise<boolean> {
     try {
@@ -515,11 +512,7 @@ export class AndroidPlatform {
       this.emulators.has(device.id) ||
       this.emulators.size + this.pendingBoots.size >= 4
     )
-      throw new DeviceError(
-        "busy",
-        "Emulator process limit or boot already in progress",
-        "Wait for the current boot or shut down another emulator.",
-      );
+      throw catalogRefusal("androidBootBusy");
     this.pendingBoots.add(device.id);
     try {
       const { adb, emulator } = await this.resolve();
@@ -556,18 +549,8 @@ export class AndroidPlatform {
       if (!emulator) throw this.emulatorMissing();
       let port = plan?.port ?? 5554;
       if (!plan) while (used.has(`emulator-${port}`) || this.ports.has(port)) port += 2;
-      if (!plan && port > 5682)
-        throw new DeviceError(
-          "limit",
-          "No emulator console port available",
-          "Close unused emulators.",
-        );
-      if (this.closed && !plan)
-        throw new DeviceError(
-          "command_failed",
-          "Device service is closed",
-          "Restart the device service.",
-        );
+      if (!plan && port > 5682) throw catalogRefusal("androidPortLimit");
+      if (this.closed && !plan) throw catalogRefusal("deviceServiceClosed");
       const serial = plan?.serial ?? `emulator-${port}`;
       this.ports.add(port);
       let proc: SupervisedProcess;

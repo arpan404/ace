@@ -27,6 +27,11 @@ export class DeviceError extends Error {
     this.permission = permission;
   }
 }
+/** The catalog's refusal `key`, as today's `DeviceError`: the one place the TypeScript reads a word. */
+export function catalogRefusal(key: string): DeviceError {
+  const word = catalogWord(key);
+  return new DeviceError(word.code, word.message, word.hint);
+}
 /** The addon's refusal as today's `DeviceError`, so `instanceof` and its code both hold. */
 export function deviceRefusal(word: RefusalWord): DeviceError {
   return new DeviceError(word.code as DeviceErrorCode, word.message, word.hint);

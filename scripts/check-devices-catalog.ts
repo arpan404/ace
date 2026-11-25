@@ -3,17 +3,64 @@
 /**
  * ADR 0225 safeguard 3: the device words live in `native/daemon/catalog/devices.json`, which
  * both backends read. The TypeScript imports it (`packages/devices/src/catalog.ts`); this check
- * renders every key through the built Rust addon and compares it with the file byte for byte,
- * so a word that drifted on one side fails the daemon's native check.
+ * fails when a device source spells a word itself, and renders every key through the built Rust
+ * addon to compare it with the file byte for byte.
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const catalog = JSON.parse(
   readFileSync(join(root, "native/daemon/catalog/devices.json"), "utf8"),
 ) as { platform: Record<string, { code: string; message: string; hint: string }> };
+
+/**
+ * Hint phrases deliberately shared by unrelated refusals: they name a next step, not a word the
+ * catalog owns, so a source may spell them.
+ */
+const genericHints = new Set(["Refresh the device list.", "Restart ace."]);
+
+let failed = 0;
+
+/** Every `.ts` file the TypeScript devices backend runs, tests excluded. */
+function sources(directory: string): string[] {
+  return readdirSync(directory, { recursive: true, withFileTypes: true }).flatMap((entry) => {
+    const path = join(entry.parentPath, entry.name);
+    if (entry.isDirectory()) return [];
+    if (!entry.name.endsWith(".ts") || entry.name.endsWith(".test.ts")) return [];
+    if (entry.name === "catalog.ts") return [];
+    return [path];
+  });
+}
+
+const files = sources(join(root, "packages/devices/src"));
+const texts = files.map((file) => ({ file, text: readFileSync(file, "utf8") }));
+
+/** The line a literal sits on, so a failure names the place to fix. */
+function find(text: string, literal: string): number[] {
+  const lines: number[] = [];
+  const needle = JSON.stringify(literal);
+  text.split("\n").forEach((line, index) => {
+    if (line.includes(needle)) lines.push(index + 1);
+  });
+  return lines;
+}
+
+for (const [key, word] of Object.entries(catalog.platform)) {
+  for (const field of ["message", "hint"] as const) {
+    const literal = word[field];
+    if (field === "hint" && genericHints.has(literal)) continue;
+    for (const { file, text } of texts) {
+      for (const line of find(text, literal)) {
+        failed++;
+        console.error(
+          `devices catalog: ${key}'s ${field} is spelled at ${relative(root, file)}:${line}; read it from catalog.ts`,
+        );
+      }
+    }
+  }
+}
 
 const library =
   process.platform === "win32"
@@ -30,7 +77,6 @@ try {
 }
 const addon = module.exports as { devicePlatformCatalogWord(key: string): string };
 
-let failed = 0;
 for (const [key, word] of Object.entries(catalog.platform)) {
   const answer = JSON.parse(addon.devicePlatformCatalogWord(key)) as {
     ok: boolean;
