@@ -6,7 +6,7 @@
 //! The errors fire in the TypeScript's order with its bytes; only the message reaches the
 //! journal's signature.
 
-use ace_adapter_api::util::{base64_data_url, is_base64};
+use ace_adapter_api::util::{base64_data_url, is_base64, is_js_space};
 use ace_json::Value;
 use thiserror::Error;
 
@@ -47,24 +47,6 @@ fn kind(part: &Value) -> &str {
 
 fn text<'a>(part: &'a Value, key: &str) -> Option<&'a str> {
     part.get(key).and_then(Value::as_str)
-}
-
-/// JavaScript's `String.prototype.trimStart` set: `\s` in a regular expression.
-fn is_js_space(c: char) -> bool {
-    matches!(
-        c as u32,
-        0x09..=0x0d
-            | 0x20
-            | 0xa0
-            | 0x1680
-            | 0x2000..=0x200a
-            | 0x2028
-            | 0x2029
-            | 0x202f
-            | 0x205f
-            | 0x3000
-            | 0xfeff
-    )
 }
 
 /// `/^\/ace-(?:rollback|context)(?:\s|$)/` over `message.trimStart()`.

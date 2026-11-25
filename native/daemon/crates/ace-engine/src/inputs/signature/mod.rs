@@ -6,7 +6,7 @@
 //!
 //! The provider renderings are the adapters' own modules; only their text reaches the hash.
 
-use ace_adapter_api::util::native_command_inputs;
+use ace_adapter_api::util::{is_js_space, native_command_inputs};
 use ace_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -20,24 +20,6 @@ pub use manifest::valid_portable_handoff;
 pub const HANDOFF_TAG: &str = "ace_context_handoff";
 /// The longest envelope whose content is removed.
 pub const MAX_ENVELOPE: usize = 512 * 1024;
-
-/// JavaScript's `String.prototype.trimStart` set: `\s` in a regular expression.
-pub fn is_js_space(c: char) -> bool {
-    matches!(
-        c as u32,
-        0x09..=0x0d
-            | 0x20
-            | 0xa0
-            | 0x1680
-            | 0x2000..=0x200a
-            | 0x2028
-            | 0x2029
-            | 0x202f
-            | 0x205f
-            | 0x3000
-            | 0xfeff
-    )
-}
 
 /// `text.replace(/^(?:\r?\n)+/, "")`: every leading line break goes.
 fn without_leading_breaks(text: &str) -> &str {

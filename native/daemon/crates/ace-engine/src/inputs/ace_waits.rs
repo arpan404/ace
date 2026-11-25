@@ -14,15 +14,6 @@ pub const MAX_WAIT_THREADS: usize = 64;
 /// A waited-on thread id's longest text (`z.string().min(1).max(256)`).
 const MAX_THREAD_ID: usize = 256;
 
-/// `bareToolName`: the registered name, however the provider namespaced it.
-pub fn bare_tool_name(name: &str) -> &str {
-    let mut bare = name.strip_prefix("mcp__ace__").unwrap_or(name);
-    while let Some(rest) = bare.strip_prefix("ace_") {
-        bare = rest;
-    }
-    bare
-}
-
 fn valid_thread_id(value: &Value) -> bool {
     value.as_str().is_some_and(|id| {
         let units = id.encode_utf16().count();
@@ -32,7 +23,7 @@ fn valid_thread_id(value: &Value) -> bool {
 
 /// `aceWaitTargets`: the threads a live ace tool call blocks on, or `None` for another tool.
 pub fn ace_wait_targets(name: &str, input: Option<&Value>) -> Option<Vec<String>> {
-    let tool = bare_tool_name(name);
+    let tool = ace_core::ace_tools::bare_tool_name(name);
     if tool == "wait" {
         let object = input?.as_object()?;
         let ids = object.get("threadIds")?.as_array()?;
@@ -122,14 +113,6 @@ mod tests {
 
     fn value(text: &str) -> Value {
         ace_json::parse(text).expect("json")
-    }
-
-    #[test]
-    fn every_provider_spelling_reaches_one_tool_name() {
-        assert_eq!(bare_tool_name("mcp__ace__wait"), "wait");
-        assert_eq!(bare_tool_name("ace_wait"), "wait");
-        assert_eq!(bare_tool_name("ace_ace_wait"), "wait");
-        assert_eq!(bare_tool_name("wait"), "wait");
     }
 
     #[test]
