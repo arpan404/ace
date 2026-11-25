@@ -77,7 +77,8 @@ import UIKit
 
     @Test func theHyperlinkRegistryStaysBounded() {
         var text = ""
-        for index in 0..<200 {
+        // More addresses than the screen keeps, so the bound is what stops it.
+        for index in 0..<(TerminalScreen.maxLinks + 50) {
             text += "\u{1b}]8;;https://example.com/\(index)\u{1b}\\\u{07}x\u{1b}]8;;\u{1b}\\\u{07}"
         }
         let s = screen(text)
