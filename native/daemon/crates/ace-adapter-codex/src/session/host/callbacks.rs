@@ -14,7 +14,9 @@ impl Host {
     /// request, a refusal, a dropped line, a malformed line, a diagnostic or a
     /// failure. `channel` is the shell's registry: it must keep a channel alive
     /// until its exit is published, because a frame decided before a detach
-    /// still reaches it.
+    /// still reaches it, and forget the channel once it applies that `Exited`
+    /// (`HostSink::effect`), so a reply produced after the channel left is
+    /// dropped, as TS's closed tenant drops it.
     ///
     /// Answers whether the effect was one of those, so a shell knows which
     /// effects it must apply itself. A server request's answer goes back

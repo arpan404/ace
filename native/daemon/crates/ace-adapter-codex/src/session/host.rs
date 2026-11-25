@@ -453,6 +453,18 @@ struct Detaching {
     stopping: bool,
 }
 
+/// Where a poisoned host's child stop got to. Issue a stop only from `None` or
+/// `Failed`, and never once the child has exited; a caller that arrives while
+/// one is in flight joins it, as `Retiring` does on the unpoisoned path.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) enum StopState {
+    #[default]
+    None,
+    InFlight,
+    Landed,
+    Failed,
+}
+
 /// How far a leaving channel has gone: its turns are interrupted, its
 /// background terminals stopped, then its threads released and unsubscribed
 /// (`session-commands.ts`'s `interruptOne`).
@@ -563,6 +575,14 @@ struct Inner {
     idle_armed: bool,
     /// A channel callback unwound: the host cannot be trusted with more.
     poisoned: bool,
+    /// How far the poisoned host's child stop got, so no caller repeats one,
+    /// and which stop is whose: a late return never writes another's state.
+    stop_state: StopState,
+    stop_generation: u64,
+    /// The child really ended (a leader exit or the pipe barrier), not the
+    /// synthetic exit a poison publishes for its channels: a process that is
+    /// gone is never signalled again.
+    child_exited: bool,
     out: Vec<HostEffect>,
 }
 

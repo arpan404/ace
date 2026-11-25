@@ -289,231 +289,6 @@ fn a_diagnostic_line_is_published_after_the_settlement_before_it() {
 /// so the pool can replace it, and nothing is left queued — whether the write
 /// had reached stdin or not.
 #[test]
-fn a_sink_panic_on_a_write_poisons_the_host_before_or_after_submission() {
-    for submitted in [false, true] {
-        let sink = Arc::new(Holding::default());
-        let host = sink.start();
-        // A call with no deadline: only the poison settles it. Its write is
-        // acknowledged, so the next one is handed out.
-        let _ = sink.pump(&host, || {
-            host.request(
-                1,
-                "thread/read",
-                Some(&ace_json::json!({"threadId": "t"})),
-                7,
-                Timeout::Disabled,
-            )
-            .expect("the call is queued");
-        });
-        let before = sink.published().len();
-
-        sink.lose_next_write(submitted);
-        host.request(
-            1,
-            "thread/read",
-            Some(&ace_json::json!({"threadId": "t"})),
-            8,
-            Timeout::Disabled,
-        )
-        .expect("the call is queued");
-
-        assert!(
-            host.poisoned(),
-            "submitted={submitted}: the host is poisoned"
-        );
-        let published = sink.published();
-        let failed = published[before..].iter().any(|thing| {
-            matches!(
-                thing,
-                Published::Effect(HostEffect::Settle { id: 7, result: Err(error) })
-                    if error.message() == HOST_FAILED
-            )
-        });
-        assert!(
-            failed,
-            "submitted={submitted}: the pending call fails with the host's error: {:?}",
-            &published[before..]
-        );
-        assert!(
-            published[before..].iter().any(|thing| matches!(
-                thing,
-                Published::Effect(HostEffect::Exited { tenant: 1, .. })
-            )),
-            "submitted={submitted}: the channel exits as after a crash"
-        );
-        assert!(
-            published[before..]
-                .iter()
-                .any(|thing| matches!(thing, Published::Effect(HostEffect::Retired))),
-            "submitted={submitted}: the shell is told to replace the host"
-        );
-        assert_eq!(host.queued(), 0, "nothing stays queued");
-        assert!(!host.available());
-        // A dead host decides nothing more.
-        host.line(&renamed("after"));
-        assert_eq!(host.queued(), 0);
-    }
-}
-
-/// A settlement decided before the panic keeps its place: another input can
-/// settle a call and queue its settlement while a sink callback is in flight,
-/// and poisoning must not drop it.
-#[test]
-fn a_settlement_queued_before_the_panic_is_still_delivered() {
-    let sink = Arc::new(Holding::default());
-    let host = sink.start();
-    let (effects, _) = sink.pump(&host, || {
-        for (id, ms) in [(7, 1_000.0), (8, 2_000.0)] {
-            host.request(
-                1,
-                "thread/read",
-                Some(&ace_json::json!({"threadId": "t"})),
-                id,
-                Timeout::After(ms),
-            )
-            .expect("the call is queued");
-        }
-    });
-    let deadline = |ms: f64| {
-        effects
-            .iter()
-            .find_map(|effect| match effect {
-                HostEffect::ArmTimer { key, ms: armed } if *armed == ms => Some(key.clone()),
-                _ => None,
-            })
-            .expect("the call's deadline is armed")
-    };
-    let first = deadline(1_000.0);
-    let second = deadline(2_000.0);
-
-    // Park inside the first settlement, settle the other while it is in
-    // flight, then let the parked delivery unwind.
-    sink.hold_next_settlement();
-    sink.lose_next_settlement();
-    let ticking = {
-        let host = Arc::clone(&host);
-        std::thread::spawn(move || host.timer(&first))
-    };
-    assert!(sink.wait_parked(), "the publisher is inside a settlement");
-    host.timer(&second);
-    sink.let_go();
-    ticking.join().expect("the timer's input returns");
-
-    assert!(host.poisoned());
-    assert!(
-        sink.published()
-            .iter()
-            .any(|thing| matches!(thing, Published::Effect(HostEffect::Settle { id: 8, .. }))),
-        "the settlement queued before the panic is still delivered: {:?}",
-        sink.published()
-    );
-}
-
-/// A stop already queued behind the panicking effect is not lost: the child is
-/// stopped by it, exactly once.
-#[test]
-fn the_child_is_stopped_when_its_stop_was_already_queued() {
-    let sink = Arc::new(Holding::default());
-    let host = sink.start();
-    sink.hold_next_frame();
-    sink.lose_next_frame();
-    let first = {
-        let host = Arc::clone(&host);
-        std::thread::spawn(move || host.line(&completed("first")))
-    };
-    assert!(sink.wait_parked(), "the publisher is inside a frame");
-    // The stop is decided while the sink is in flight, so it waits in the queue
-    // behind the effect that is about to unwind.
-    host.retire(Retirement::User);
-    sink.let_go();
-    first.join().expect("the frame's input returns");
-
-    assert!(host.poisoned());
-    assert_eq!(
-        sink.stops(),
-        1,
-        "the queued stop still stops the child: {:?}",
-        sink.published()
-    );
-}
-
-/// A second panic during the cleanup skips that effect and nothing else: the
-/// child is still stopped and the other channels still hear their exits.
-#[test]
-fn a_second_panic_during_cleanup_still_stops_the_child_and_exits_the_others() {
-    let sink = Arc::new(Holding::default());
-    let host = sink.start_pair();
-    // The first write unwinds, poisoning the host; the first exit unwinds too.
-    sink.lose_next_write(false);
-    sink.lose_next_exit();
-    host.request(
-        1,
-        "thread/read",
-        Some(&ace_json::json!({"threadId": "t"})),
-        7,
-        Timeout::Disabled,
-    )
-    .expect("the call is queued");
-
-    assert!(host.poisoned());
-    assert_eq!(sink.stops(), 1, "the child is stopped by the poison");
-    assert!(
-        sink.published().iter().any(|thing| matches!(
-            thing,
-            Published::Effect(HostEffect::Exited { tenant: 2, .. })
-        )),
-        "the second channel still hears its exit: {:?}",
-        sink.published()
-    );
-    assert_eq!(host.queued(), 0, "every effect was handed over or skipped");
-}
-
-/// The pool starts a new host for the next open once a poisoned one is retired.
-#[test]
-fn a_poisoned_host_is_replaced_by_the_pool() {
-    use crate::session::pool::{Channel, HostPool};
-
-    let sink = Arc::new(Holding::default());
-    let host = sink.start();
-    let mut pool = HostPool::new(None).expect("the default idle time");
-    assert!(pool.claim("key"));
-    pool.started("key", Arc::clone(&host));
-    assert_eq!(pool.open_channel("key"), Channel::Reuse);
-
-    let _ = sink.pump(&host, || {});
-    sink.lose_next_write(false);
-    host.request(
-        1,
-        "thread/read",
-        Some(&ace_json::json!({"threadId": "t"})),
-        7,
-        Timeout::Disabled,
-    )
-    .expect("the call is queued");
-    assert!(host.poisoned());
-    assert!(
-        sink.published()
-            .iter()
-            .any(|thing| matches!(thing, Published::Effect(HostEffect::Retired))),
-        "the pool hears the retirement"
-    );
-
-    pool.released("key", &host);
-    assert_eq!(
-        pool.open_channel("key"),
-        Channel::Start,
-        "the next request starts a new host"
-    );
-}
-
-/// A server request still queued when its channel leaves is still served to it,
-/// but the reply it produces lands after the channel's exit: a sink that drops
-/// a channel at its exit never delivers it, and the host reports nothing. TS
-/// does the same — `#sent` (`host.ts:437`) ignores a delivery a closed tenant
-/// refuses (`deliver`, `host.ts:169`), and the router forgot the attribution at
-/// release (`host-routing.ts:81`) — so a reply to a request whose channel
-/// closed is dropped silently.
-#[test]
 fn a_reply_produced_after_its_channels_exit_is_dropped_silently() {
     let sink = Arc::new(Holding::default());
     let host = sink.start_alone();
@@ -704,7 +479,7 @@ fn a_released_hold_above_the_byte_budget_closes_the_gate() {
 
 /// One thing the shell published, in the order it published it.
 #[derive(Debug, Clone, PartialEq)]
-enum Published {
+pub(super) enum Published {
     /// One effect, as the host decided it.
     Effect(HostEffect),
     /// One frame delivered to its channel, by direction, method and id.
@@ -724,13 +499,14 @@ enum Published {
     Dropped { tenant: u64, bytes: usize },
     /// One diagnostic line.
     Diagnostic { tenant: u64, text: String },
-    /// The child was stopped, by a queued `Retire` or by the poison.
-    Stopped { awaited: bool },
+    /// The child was stopped, by a queued `Retire` or by the poison; `failed`
+    /// when the shell could not confirm it.
+    Stopped { awaited: bool, failed: bool },
 }
 
 /// A channel that records each frame it is given in the shell's own log, so a
 /// case can tell where a delivery falls in the publication order.
-struct Channel {
+pub(super) struct Channel {
     tenant: u64,
     log: Arc<Mutex<Vec<Published>>>,
     refuse: Arc<Mutex<Option<String>>>,
@@ -806,7 +582,7 @@ impl ChannelHandlers for Channel {
 }
 
 /// How a frame's data names its method.
-fn method_of(data: &Value) -> String {
+pub(super) fn method_of(data: &Value) -> String {
     data.get("method")
         .and_then(Value::as_str)
         .unwrap_or_default()
@@ -814,7 +590,7 @@ fn method_of(data: &Value) -> String {
 }
 
 /// One `thread/name/updated` notification for the channel's thread.
-fn renamed(name: &str) -> String {
+pub(super) fn renamed(name: &str) -> String {
     frame(ace_json::json!({
         "jsonrpc": "2.0",
         "method": "thread/name/updated",
@@ -823,7 +599,7 @@ fn renamed(name: &str) -> String {
 }
 
 /// One `item/completed` frame for `thread`.
-fn completed_for(thread: &str, text: &str) -> String {
+pub(super) fn completed_for(thread: &str, text: &str) -> String {
     frame(ace_json::json!({
         "jsonrpc": "2.0",
         "method": "item/completed",
@@ -836,7 +612,7 @@ fn completed_for(thread: &str, text: &str) -> String {
 }
 
 /// One `item/completed` frame for the channel's thread.
-fn completed(text: &str) -> String {
+pub(super) fn completed(text: &str) -> String {
     frame(ace_json::json!({
         "jsonrpc": "2.0",
         "method": "item/completed",
@@ -849,7 +625,7 @@ fn completed(text: &str) -> String {
 }
 
 /// The position of the first published thing `pred` takes.
-fn position(published: &[Published], pred: impl Fn(&Published) -> bool) -> usize {
+pub(super) fn position(published: &[Published], pred: impl Fn(&Published) -> bool) -> usize {
     published
         .iter()
         .position(pred)
@@ -857,7 +633,7 @@ fn position(published: &[Published], pred: impl Fn(&Published) -> bool) -> usize
 }
 
 /// The position of call 7's settlement.
-fn settle_at(published: &[Published]) -> usize {
+pub(super) fn settle_at(published: &[Published]) -> usize {
     position(published, |thing| {
         matches!(thing, Published::Effect(HostEffect::Settle { id: 7, .. }))
     })
@@ -866,7 +642,7 @@ fn settle_at(published: &[Published]) -> usize {
 /// The publication log after `decide` runs while the publisher is held inside
 /// the settlement of call 7: nothing `decide` publishes reaches the shell until
 /// the settlement is done.
-fn parked_settlement(
+pub(super) fn parked_settlement(
     sink: &Arc<Holding>,
     host: &Arc<Host>,
     decide: impl FnOnce(),
@@ -902,12 +678,15 @@ fn parked_settlement(
 /// A sink that can hold the publisher inside one settlement, records every
 /// effect in the order it publishes it, and delivers frames to their channel.
 #[derive(Default)]
-struct Holding {
+pub(super) struct Holding {
     log: Arc<Mutex<Vec<Published>>>,
     read: Mutex<usize>,
     hold: Mutex<bool>,
     hold_frame: Mutex<bool>,
+    hold_stop: Mutex<bool>,
     lose_frame: Mutex<bool>,
+    lose_retire: Mutex<bool>,
+    fail_stop: Mutex<bool>,
     lose_settlement: Mutex<bool>,
     lose_exit: Mutex<bool>,
     lose_write: Mutex<Option<bool>>,
@@ -923,7 +702,7 @@ struct Holding {
 impl Holding {
     /// A host whose shell is this sink, its handshake answered, one channel
     /// attached and a thread of its own.
-    fn start(self: &Arc<Self>) -> Arc<Host> {
+    pub(super) fn start(self: &Arc<Self>) -> Arc<Host> {
         let host = self.start_alone();
         // The channel owns a thread, so a frame for it is routed to it.
         host.request(
@@ -943,18 +722,18 @@ impl Holding {
     }
 
     /// A host with two channels attached and no threads of their own.
-    fn start_pair(self: &Arc<Self>) -> Arc<Host> {
+    pub(super) fn start_pair(self: &Arc<Self>) -> Arc<Host> {
         self.start_with(&[1, 2])
     }
 
     /// A host whose shell is this sink, its handshake answered and one channel
     /// attached, with no thread of its own.
-    fn start_alone(self: &Arc<Self>) -> Arc<Host> {
+    pub(super) fn start_alone(self: &Arc<Self>) -> Arc<Host> {
         self.start_with(&[1])
     }
 
     /// A host with the given channels attached.
-    fn start_with(self: &Arc<Self>, tenants: &[u64]) -> Arc<Host> {
+    pub(super) fn start_with(self: &Arc<Self>, tenants: &[u64]) -> Arc<Host> {
         let host = Arc::new(Host::new(HostConfig::shared(initialize(), 60_000.0)));
         host.set_sink(Arc::clone(self) as Arc<dyn HostSink>);
         let (_, lines) = self.pump(&host, || {});
@@ -980,12 +759,12 @@ impl Holding {
     }
 
     /// The channel refuses the next frame, with `message`.
-    fn refuse_next_frame(&self, message: &str) {
+    pub(super) fn refuse_next_frame(&self, message: &str) {
         *self.refuse.lock().expect("refuse") = Some(message.to_owned());
     }
 
     /// The deadline of the last call's timer that arms at `ms`.
-    fn deadline(&self, host: &Host, ms: f64) -> String {
+    pub(super) fn deadline(&self, host: &Host, ms: f64) -> String {
         self.pump(host, || {})
             .0
             .into_iter()
@@ -996,14 +775,14 @@ impl Holding {
             .expect("the call's deadline is armed")
     }
 
-    fn published(&self) -> Vec<Published> {
+    pub(super) fn published(&self) -> Vec<Published> {
         self.log.lock().expect("publication log").clone()
     }
 
     /// Runs one input, then acknowledges every write it published, as the
     /// child's stdin would, and returns the other effects and the lines
     /// written.
-    fn pump(&self, host: &Host, run: impl FnOnce()) -> (Vec<HostEffect>, Vec<String>) {
+    pub(super) fn pump(&self, host: &Host, run: impl FnOnce()) -> (Vec<HostEffect>, Vec<String>) {
         let mut rest = Vec::new();
         let mut lines = Vec::new();
         let mut read = self.read.lock().expect("publication read");
@@ -1034,44 +813,72 @@ impl Holding {
         }
     }
 
-    fn hold_next_settlement(&self) {
+    pub(super) fn hold_next_settlement(&self) {
         *self.hold.lock().expect("hold") = true;
     }
 
     /// Holds the publisher inside the next frame, once.
-    fn hold_next_frame(&self) {
+    pub(super) fn hold_next_frame(&self) {
         *self.hold_frame.lock().expect("hold frame") = true;
     }
 
     /// Unwinds on the next frame, once, after any hold.
-    fn lose_next_frame(&self) {
+    pub(super) fn lose_next_frame(&self) {
         *self.lose_frame.lock().expect("lose frame") = true;
     }
 
+    /// Holds the publisher inside the next child stop, once.
+    pub(super) fn hold_next_stop(&self) {
+        *self.hold_stop.lock().expect("hold stop") = true;
+    }
+
+    /// Unwinds inside the next child stop, once.
+    pub(super) fn lose_next_stop(&self) {
+        *self.lose_retire.lock().expect("lose retire") = true;
+    }
+
+    /// Unwinds on the next child stop, once.
+    pub(super) fn lose_next_retire(&self) {
+        *self.lose_retire.lock().expect("lose retire") = true;
+    }
+
+    /// The next stop the shell makes cannot be confirmed.
+    pub(super) fn fail_next_stop(&self) {
+        *self.fail_stop.lock().expect("fail stop") = true;
+    }
+
     /// Unwinds on the next settlement, once, after any hold.
-    fn lose_next_settlement(&self) {
+    pub(super) fn lose_next_settlement(&self) {
         *self.lose_settlement.lock().expect("lose settlement") = true;
     }
 
     /// Unwinds on the next channel exit, once.
-    fn lose_next_exit(&self) {
+    pub(super) fn lose_next_exit(&self) {
         *self.lose_exit.lock().expect("lose exit") = true;
     }
 
     /// How many times the shell stopped the child.
-    fn stops(&self) -> usize {
+    pub(super) fn stops(&self) -> usize {
         self.published()
             .iter()
             .filter(|thing| matches!(thing, Published::Stopped { .. }))
             .count()
     }
 
+    /// How many of those stops the shell could not confirm.
+    pub(super) fn failed_stops(&self) -> usize {
+        self.published()
+            .iter()
+            .filter(|thing| matches!(thing, Published::Stopped { failed: true, .. }))
+            .count()
+    }
+
     /// Unwinds on the next write, once, after acknowledging it when `submitted`.
-    fn lose_next_write(&self, submitted: bool) {
+    pub(super) fn lose_next_write(&self, submitted: bool) {
         *self.lose_write.lock().expect("lose write") = Some(submitted);
     }
 
-    fn wait_parked(&self) -> bool {
+    pub(super) fn wait_parked(&self) -> bool {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         let mut parked = self.parked.lock().expect("parked");
         loop {
@@ -1090,7 +897,7 @@ impl Holding {
     }
 
     /// Holds the publisher until `let_go`, and says it is here.
-    fn park(&self) {
+    pub(super) fn park(&self) {
         *self.parked.lock().expect("parked") = true;
         self.parked_wake.notify_all();
         let mut released = self.release.lock().expect("release");
@@ -1099,18 +906,28 @@ impl Holding {
         }
     }
 
-    fn let_go(&self) {
+    pub(super) fn let_go(&self) {
         *self.release.lock().expect("release") = true;
         self.released.notify_all();
     }
 }
 
 impl HostSink for Holding {
-    fn stop(&self, _host: &Host, _reason: Retirement, awaited: bool) {
+    fn stop(&self, host: &Host, _reason: Retirement, awaited: bool) {
+        if take(&self.hold_stop) {
+            self.park();
+        }
+        if take(&self.lose_retire) {
+            panic!("the shell unwinds on a stop");
+        }
+        let failed = take(&self.fail_stop);
         self.log
             .lock()
             .expect("publication log")
-            .push(Published::Stopped { awaited });
+            .push(Published::Stopped { awaited, failed });
+        if failed {
+            host.stop_failed();
+        }
     }
 
     fn effect(&self, host: &Host, effect: HostEffect) {
@@ -1187,7 +1004,7 @@ impl HostSink for Holding {
 }
 
 /// Takes a one-shot flag.
-fn take(flag: &Mutex<bool>) -> bool {
+pub(super) fn take(flag: &Mutex<bool>) -> bool {
     let mut flag = flag.lock().expect("one-shot flag");
     let armed = *flag;
     *flag = false;
