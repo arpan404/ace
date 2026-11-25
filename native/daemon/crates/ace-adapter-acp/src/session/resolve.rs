@@ -22,10 +22,10 @@ impl AcpCore {
         effects: &mut Vec<AcpEffect>,
     ) -> Result<(), AcpErrorWire> {
         let key = JsString::from(key);
+        // `throw new Error(...)` (`session.ts:821`, `:827`): a plain error, not an
+        // interaction that went away.
         let Some(pending) = self.pending.get(&key).cloned() else {
-            return Err(AcpErrorWire::interaction(
-                "ACP interaction is no longer pending",
-            ));
+            return Err(invalid("ACP interaction is no longer pending"));
         };
         // The request as published: lease secrets redacted, as the translator read it.
         let published = redact_lease(&pending.params, &self.secrets);
@@ -34,9 +34,7 @@ impl AcpCore {
             &published,
             self.quirks.translate_kind(),
         ) else {
-            return Err(AcpErrorWire::interaction(
-                "Interaction request is no longer valid",
-            ));
+            return Err(invalid("Interaction request is no longer valid"));
         };
         let validated = validate_resolution(&request, resolution)?;
         let Some(answer) = encode_resolution(
@@ -46,9 +44,7 @@ impl AcpCore {
             &validated,
             &request,
         ) else {
-            return Err(AcpErrorWire::interaction(
-                "Interaction request is no longer valid",
-            ));
+            return Err(invalid("Interaction request is no longer valid"));
         };
         let kind = string(object(&request).get("kind").unwrap_or(&Value::Null)).to_owned();
         let options = object(&request)

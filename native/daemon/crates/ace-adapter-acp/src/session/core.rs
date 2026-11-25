@@ -48,8 +48,6 @@ pub const CODE_OPEN_FAILED: &str = "ACE_ACP_OPEN_FAILED";
 pub const CODE_RESUME_UNAVAILABLE: &str = "ACE_ACP_RESUME_UNAVAILABLE";
 pub const CODE_RESUME_UNSUPPORTED: &str = "ACE_ACP_RESUME_UNSUPPORTED";
 pub const CODE_RPC_ERROR: &str = "ACE_ACP_RPC_ERROR";
-/// `CodexInteractionUnavailable`'s spelling, which the facade keeps (`session.ts:822`).
-pub const INTERACTION_UNAVAILABLE: &str = "interaction_unavailable";
 
 /// Structured error carried on a settled call.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,13 +85,6 @@ impl AcpErrorWire {
     pub fn steer_target_lost(message: impl Into<String>) -> Self {
         Self {
             code: ace_adapter_api::bridge::queue::STEER_TARGET_LOST,
-            message: message.into(),
-        }
-    }
-
-    pub fn interaction(message: impl Into<String>) -> Self {
-        Self {
-            code: INTERACTION_UNAVAILABLE,
             message: message.into(),
         }
     }

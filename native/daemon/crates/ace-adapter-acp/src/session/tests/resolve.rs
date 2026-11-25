@@ -109,9 +109,13 @@ fn an_answer_to_an_expired_request_is_refused() {
         &json!({ "kind": "approval", "optionId": "allow" }),
         &mut effects,
     );
+    let error = result
+        .err()
+        .unwrap_or_else(|| panic!("an expired answer is refused"));
+    assert_eq!(error.message, "ACP interaction is no longer pending");
     assert_eq!(
-        result.err().map(|error| error.message),
-        Some("ACP interaction is no longer pending".to_owned())
+        error.code, "ACE_ACP_RPC_ERROR",
+        "a plain error, as TS throws it (session.ts:821)"
     );
     assert!(sent_json_messages(&effects).is_empty());
 }
