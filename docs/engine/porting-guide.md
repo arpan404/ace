@@ -1319,13 +1319,14 @@ Later, not part of the pilot (owner decision 4).
   server selection, transport filtering and collision checks; `selectors.rs` the
   agent-registry selector port; `identity.rs` the translator identity; `quirks.rs` the provider
   quirks and CLI version gates; `resume_error.rs` resume failure classification; and the tests
-  beside them (`tests.rs` plus each file's own `mod tests`).
+  beside them (`tests/{mod,capture,handshake,selections,settlement,lifecycle}.rs`, split the way
+  the behaviours split, plus each file's own `mod tests`).
 - **Ports**: `session.ts`'s `AcpSession` (`:118`–`:940`), the frame capture (`:361`–`:381`)
   through the E1 port of `frame-redaction` (`translate/frame_redaction.rs`) and binary elision,
   settlement in frame order inside the peer's frame callback (`:200`–`:212`; a continuation after
   an await would run too late, `:203`–`:204`), `session-routing.ts`, `deadlines.ts`,
   `negotiation.ts`, `bridge-negotiation.ts`, `configuration.ts` (its (b) cases move),
-  `quirks/{types,generic,antigravity}.ts`, `provider-kit/cli-versions.ts`,
+  `quirks/{types,generic,antigravity}.ts`, `provider-kit/{cli-versions,cli-requirements}.ts`,
   `mcp-server/injection.ts` (its `appendAcpMcp`, the transport filtering and ace's injected
   servers), `agent-registry/selectors.ts`, `provider-kit/{permission,access}-modes.ts`,
   `identity.ts`, `resume-error.ts`, over the E3-codex.1 peer and a diverted child.
