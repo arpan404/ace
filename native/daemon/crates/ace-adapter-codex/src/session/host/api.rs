@@ -28,6 +28,7 @@ impl Host {
                 initialize_id: None,
                 initialize_call: 0,
                 sender: None,
+                admitted_send: None,
                 own: HashMap::new(),
                 calls: IndexMap::new(),
                 active: IndexMap::new(),
@@ -186,6 +187,7 @@ impl Host {
                 },
                 None => None,
             };
+            let vetted = handlers.is_some();
             let requested = inner
                 .peer
                 .request_vetoed(method, params, id, timeout, &veto);
@@ -193,6 +195,7 @@ impl Host {
                 // The send frame is attributed while the sender is still known.
                 Ok(peer) => {
                     inner.calls.insert(id, tenant);
+                    inner.admitted_send = vetted.then_some(tenant);
                     inner.apply(peer);
                 }
                 Err(error) => {
@@ -208,9 +211,13 @@ impl Host {
     /// A session's answer to a server request (`answer`).
     pub fn answer(&self, id: &RpcId, result: &Value) {
         self.input(|inner| {
-            let handlers = serving_handler(inner, id);
+            let handlers = serving_handler(inner, id).filter(|_| !muted_or_closed(inner, id));
+            let vetted = handlers.is_some();
             let veto = move |value: &Value| refused_send_by(handlers.as_ref(), value);
             let peer = inner.peer.answer_vetoed(id, result, &veto);
+            if vetted {
+                inner.admitted_send = inner.router.serving(id);
+            }
             inner.apply(peer);
         });
     }
@@ -218,9 +225,13 @@ impl Host {
     /// A session's refusal of a server request.
     pub fn answer_error(&self, id: &RpcId, code: f64, message: &str) {
         self.input(|inner| {
-            let handlers = serving_handler(inner, id);
+            let handlers = serving_handler(inner, id).filter(|_| !muted_or_closed(inner, id));
+            let vetted = handlers.is_some();
             let veto = move |value: &Value| refused_send_by(handlers.as_ref(), value);
             let peer = inner.peer.answer_error_vetoed(id, code, message, &veto);
+            if vetted {
+                inner.admitted_send = inner.router.serving(id);
+            }
             inner.apply(peer);
         });
     }
@@ -450,6 +461,16 @@ fn serving_handler(inner: &Inner, id: &RpcId) -> Option<Arc<dyn ChannelHandlers>
         .serving(id)
         .and_then(|tenant| inner.tenants.get(&tenant))
         .map(|entry| Arc::clone(&entry.handlers))
+}
+
+/// The channel a served request's answer belongs to is muted or closed: its
+/// answer still flows, and its handlers are not asked (`host.ts:126`, `:170`).
+fn muted_or_closed(inner: &Inner, id: &RpcId) -> bool {
+    inner
+        .router
+        .serving(id)
+        .and_then(|tenant| inner.tenants.get(&tenant))
+        .is_some_and(|entry| entry.muted || entry.closed.is_some())
 }
 
 /// A send frame's channel refuses it, by the frame bound.

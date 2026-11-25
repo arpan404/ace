@@ -43,8 +43,22 @@ impl Inner {
         let sender = self.sender;
         let tenant = self.router.sent(data, sender.as_ref());
         if let Some(tenant) = tenant {
+            // `Tenant.deliver` for a muted or closed channel: no frames reach
+            // its handlers, and it is not asked to admit one; its requests
+            // still flow so its tree can be stopped (`host.ts:126`, `:170`).
+            if self
+                .tenants
+                .get(&tenant)
+                .is_some_and(|entry| entry.muted || entry.closed.is_some())
+            {
+                return None;
+            }
+            let admitted = self.admitted_send == Some(tenant);
+            if admitted {
+                self.admitted_send = None;
+            }
             let mut failed = None;
-            if self.deliver(tenant, Direction::Send, data, Some(&mut failed)) {
+            if self.deliver_vetted(tenant, Direction::Send, data, admitted, Some(&mut failed)) {
                 return None;
             }
             if !self.tenants.contains_key(&tenant) {
@@ -292,6 +306,19 @@ impl Inner {
         data: &Value,
         failed: Option<&mut Option<String>>,
     ) -> bool {
+        self.deliver_vetted(tenant, dir, data, false, failed)
+    }
+
+    /// Delivery whose admission the caller already decided (`admitted`), so a
+    /// channel is asked once per frame (`host.rs:233`).
+    fn deliver_vetted(
+        &mut self,
+        tenant: u64,
+        dir: Direction,
+        data: &Value,
+        admitted: bool,
+        failed: Option<&mut Option<String>>,
+    ) -> bool {
         let Some(entry) = self.tenants.get_mut(&tenant) else {
             return false;
         };
@@ -299,7 +326,12 @@ impl Inner {
             return false;
         }
         let handlers = Arc::clone(&entry.handlers);
-        match handlers.admit(dir, data) {
+        let verdict = if admitted {
+            Admission::Taken
+        } else {
+            handlers.admit(dir, data)
+        };
+        match verdict {
             // The frame's delivery is published where the host decides it: a
             // settlement or exit an earlier input decided is never overtaken by
             // the frame of a later one.
