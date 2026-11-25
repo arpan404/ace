@@ -22,6 +22,14 @@
       "minimum": 0,
       "type": "integer"
     },
+    "items": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/SpadeNotificationItem.json"
+      },
+      "maxItems": 50,
+      "minItems": 1,
+      "type": "array"
+    },
     "request": {
       "maxLength": 200,
       "minLength": 1,
