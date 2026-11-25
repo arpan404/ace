@@ -25,6 +25,7 @@ pub mod lines;
 pub mod listing;
 pub mod marker;
 pub mod owner;
+pub mod peer;
 pub mod pump;
 pub mod reaper;
 pub mod recover;

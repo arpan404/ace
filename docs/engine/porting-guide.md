@@ -1150,7 +1150,8 @@ fakes, and everything the E1 translator owns. Five tasks, in order.
   `Notification{method, params}`, `Malformed{line}`, `ArmTimer`, `CancelTimer`, `Failed{message}`.
   Method-not-found replies, the pending bound and the timeout messages are `jsonrpc.ts`'s strings.
   Order: a `recv` frame precedes the effect it causes, as `onFrame` precedes dispatch today.
-- **Tests**: none new. E3-codex.5 and E3-acp.3 prove it through their session files.
+- **Tests**: Rust unit tables cover the peer's limits, ids and effect ordering; E3-codex.5 and
+  E3-acp.3 prove it through their session files.
 - **Must not**: use `jsonrpsee` (ADR 0223 §2) or `agent-client-protocol`'s connection; read a
   clock.
 - **Reviewer checks**: each `jsonrpc.ts` branch has its effect; error messages compared string by
