@@ -155,7 +155,7 @@ function runSuite(leg: string): void {
  * string `behavior` at its case key, and a report it cannot read is an error, never an empty map
  * (an empty map would make every comparison pass).
  */
-function behaviors(leg: string): Map<string, string> {
+function behaviors(leg: string, expected: ReadonlySet<string>): Map<string, string> {
   const path = join(out, `${leg}-reports`, "servers", "index.json");
   const decoded: unknown = JSON.parse(readFileSync(path, "utf8"));
   const found = new Map<string, string>();
@@ -164,34 +164,58 @@ function behaviors(leg: string): Map<string, string> {
     for (const [key, inner] of Object.entries(value)) {
       if (typeof inner !== "object" || inner === null) continue;
       const outcome = Reflect.get(inner, "behavior");
-      if (typeof outcome === "string") found.set(key, outcome);
+      // Only case ids, never a report's own metadata fields beside them.
+      if (typeof outcome === "string" && /^\d+(\.\d+)*$/.test(key)) found.set(key, outcome);
       else walk(inner, depth + 1);
     }
   };
   walk(decoded, 0);
-  requireComplete(leg, found, path);
+  requireComplete(leg, found, path, expected);
   return found;
 }
 
-/** The protocol sections every complete run covers, compression included (the suite offers it). */
-const SECTIONS = ["1", "2", "3", "4", "5", "6", "7", "9", "10", "12", "13"] as const;
-/** The suite's case count without compression; the pinned image is fixed, so this floor holds. */
-const MINIMUM_CASES = 500;
-
 /**
- * A report that is not empty is not necessarily complete: a run interrupted part-way leaves a
- * truncated index, and comparing it would hide every case it lost. Both reports must hold every
- * protocol section the suite runs, compression included.
+ * The suite's own case ids, read from the pinned image: the exact set its `cases: ["*"]` runs,
+ * compressed cases included. A floor or a section count would let both reports drop the same
+ * case; only the suite's own list closes that.
  */
-function requireComplete(leg: string, report: Map<string, string>, path: string): void {
-  if (report.size < MINIMUM_CASES)
+function expectedCases(): string[] {
+  const python = [
+    "import sys",
+    "from autobahntestsuite.case import Cases",
+    "sys.stdout.write('\\n'.join('.'.join(c.__name__[4:].split('_')) for c in Cases))",
+  ].join("; ");
+  const listed = spawnSync(
+    "docker",
+    ["run", "--rm", "--pull=never", "--entrypoint", "python", image, "-c", python],
+    { encoding: "utf8", timeout: 120_000 },
+  );
+  if (listed.status !== 0)
     throw new Error(
-      `the ${leg} leg's report holds ${String(report.size)} cases, fewer than a complete run's ${String(MINIMUM_CASES)}: ${path}`,
+      `could not list the suite's cases from ${image}: ${(listed.stderr ?? "").trim() || `exit ${String(listed.status)}`}`,
     );
-  for (const section of SECTIONS) {
-    if (![...report.keys()].some((id) => id.startsWith(`${section}.`)))
-      throw new Error(`the ${leg} leg's report has no case in section ${section}: ${path}`);
-  }
+  const ids = (listed.stdout ?? "")
+    .split("\n")
+    .map((id) => id.trim())
+    .filter((id) => id !== "");
+  if (ids.length === 0)
+    throw new Error(`the suite at ${image} listed no cases, so nothing says what a run must cover`);
+  return ids;
+}
+
+/** A report must hold exactly the suite's cases: a truncated one is not a report. */
+function requireComplete(
+  leg: string,
+  report: Map<string, string>,
+  path: string,
+  expected: ReadonlySet<string>,
+): void {
+  const missing = [...expected].filter((id) => !report.has(id));
+  const extra = [...report.keys()].filter((id) => !expected.has(id));
+  if (missing.length || extra.length)
+    throw new Error(
+      `the ${leg} leg's report is not the suite's case set (${String(missing.length)} missing, ${String(extra.length)} unexpected${missing.length ? `, first missing ${missing[0] ?? ""}` : ""}): ${path}`,
+    );
 }
 
 /** Starts the Rust example on the port and echoes what arrives. */
@@ -304,13 +328,14 @@ async function main(): Promise<number> {
   }
   requireImage();
   mkdirSync(out, { recursive: true });
+  const expected = new Set(expectedCases());
   // Ours first: the example, then the suite against it.
   const ours = startExample();
   let mine: Map<string, string>;
   try {
     await waitListening(ours, "autobahn_echo");
     runSuite("ours");
-    mine = behaviors("ours");
+    mine = behaviors("ours", expected);
   } finally {
     stop(ours);
   }
@@ -320,7 +345,7 @@ async function main(): Promise<number> {
   try {
     await waitListening(ws, "the ws echo");
     runSuite("ws");
-    theirs = behaviors("ws");
+    theirs = behaviors("ws", expected);
   } finally {
     stop(ws);
   }
