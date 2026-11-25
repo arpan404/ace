@@ -130,6 +130,7 @@ fn a_frame_waits_for_the_settlement_the_host_decided_before_it() {
                 Published::Frame {
                     tenant: 1,
                     method,
+                    ..
                 } if method == "thread/name/updated"
             )
         })
@@ -157,7 +158,7 @@ fn a_notification_is_published_after_the_frame_it_belongs_to() {
     let settle = settle_at(&published);
     let delivered = position(
         &published,
-        |thing| matches!(thing, Published::Frame { tenant: 1, method } if method == "thread/name/updated"),
+        |thing| matches!(thing, Published::Frame { tenant: 1, method, .. } if method == "thread/name/updated"),
     );
     let notified = position(
         &published,
@@ -191,7 +192,7 @@ fn a_server_request_is_published_after_the_frame_it_belongs_to() {
     let delivered = position(&published, |thing| {
         matches!(
             thing,
-            Published::Frame { tenant: 1, method } if method == "mcpServer/elicitation/request"
+            Published::Frame { tenant: 1, method, .. } if method == "mcpServer/elicitation/request"
         )
     });
     let served = position(&published, |thing| {
@@ -392,6 +393,58 @@ fn a_poisoned_host_is_replaced_by_the_pool() {
     );
 }
 
+/// A server request still queued when its channel leaves is served to that
+/// channel, and its answer is still the channel's own send frame: the host
+/// keeps the request's attribution across the detach, so a reply never reaches
+/// Codex as an unowned frame. TS answers in the same step it dispatches, so a
+/// detach can never come between the two there.
+#[test]
+fn a_reply_to_a_request_queued_when_its_channel_left_is_still_its_frame() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start_alone();
+
+    // The publisher is held inside one frame, so the request and the detach are
+    // both decided before either goes out.
+    sink.hold_next_frame();
+    let first = {
+        let host = Arc::clone(&host);
+        std::thread::spawn(move || host.line(&completed("first")))
+    };
+    assert!(sink.wait_parked(), "the publisher is inside a frame");
+
+    host.line(&frame(ace_json::json!({
+        "jsonrpc": "2.0",
+        "id": "ask-1",
+        "method": "mcpServer/elicitation/request",
+        "params": {"serverName": "docs", "mode": "form"},
+    })));
+    // The channel owns no thread, so its close completes at once: the host
+    // forgets its routes while the request still waits in the queue.
+    host.detach(1, Retirement::User, "user closed");
+    sink.let_go();
+    first.join().expect("the frame's input returns");
+
+    let published = sink.published();
+    assert!(
+        published
+            .iter()
+            .any(|thing| matches!(thing, Published::Request { tenant: 1, .. })),
+        "the channel is still asked for its request: {published:#?}"
+    );
+    assert!(
+        published.iter().any(|thing| matches!(
+            thing,
+            Published::Frame {
+                tenant: 1,
+                dir: Direction::Send,
+                id: Some(id),
+                ..
+            } if id == "ask-1"
+        )),
+        "the answer is the channel's own send frame: {published:#?}"
+    );
+}
+
 /// A blocked sink's backlog closes the gate at TS's intake budget — 256 queued
 /// frames or 4 MiB, back below 64 frames and 1 MiB
 /// (`apps/daemon/src/engine/actor.ts:84`–`:103`, `engine/limits.ts:9`–`:17`) —
@@ -431,7 +484,7 @@ fn a_blocked_sink_closes_the_gate_at_the_intake_budget_and_draining_reopens_it()
     assert!(!host.paused(), "the sink drained: the gate reopens");
     assert!(sink.published().iter().any(|thing| matches!(
         thing,
-        Published::Frame { tenant: 1, method } if method == "thread/name/updated"
+        Published::Frame { tenant: 1, method, .. } if method == "thread/name/updated"
     )));
 }
 
@@ -474,8 +527,13 @@ fn a_blocked_sink_counts_diagnostics_against_the_intake_budget() {
 enum Published {
     /// One effect, as the host decided it.
     Effect(HostEffect),
-    /// One frame delivered to its channel, by method.
-    Frame { tenant: u64, method: String },
+    /// One frame delivered to its channel, by direction, method and id.
+    Frame {
+        tenant: u64,
+        dir: Direction,
+        method: String,
+        id: Option<String>,
+    },
     /// One notification delivered to its channel, by method.
     Notification { tenant: u64, method: String },
     /// One server request served to its channel, by method.
@@ -510,10 +568,17 @@ impl ChannelHandlers for Channel {
         }
     }
 
-    fn frame(&self, _dir: Direction, data: &Value) {
+    fn frame(&self, dir: Direction, data: &Value) {
+        let id = match data.get("id") {
+            Some(Value::String(text)) => Some(text.as_str().to_owned()),
+            Some(Value::Number(number)) => number.as_f64().map(|id| id.to_string()),
+            _ => None,
+        };
         self.record(Published::Frame {
             tenant: self.tenant,
+            dir,
             method: method_of(data),
+            id,
         });
     }
 
@@ -572,6 +637,19 @@ fn renamed(name: &str) -> String {
         "jsonrpc": "2.0",
         "method": "thread/name/updated",
         "params": {"threadId": "t", "name": name},
+    }))
+}
+
+/// One `item/completed` frame for the channel's thread.
+fn completed(text: &str) -> String {
+    frame(ace_json::json!({
+        "jsonrpc": "2.0",
+        "method": "item/completed",
+        "params": {
+            "threadId": "t",
+            "turnId": "turn-1",
+            "item": {"type": "agentMessage", "id": "m", "text": text},
+        },
     }))
 }
 
@@ -645,9 +723,30 @@ struct Holding {
 }
 
 impl Holding {
-    /// A host whose shell is this sink, its handshake answered and one channel
-    /// attached.
+    /// A host whose shell is this sink, its handshake answered, one channel
+    /// attached and a thread of its own.
     fn start(self: &Arc<Self>) -> Arc<Host> {
+        let host = self.start_alone();
+        // The channel owns a thread, so a frame for it is routed to it.
+        host.request(
+            1,
+            "thread/resume",
+            Some(&ace_json::json!({"threadId": "t"})),
+            9,
+            Timeout::Default,
+        )
+        .expect("the open is queued");
+        let (_, lines) = self.pump(&host, || {});
+        let opening = line_id(&lines, "thread/resume", Some("t")).expect("the open's id");
+        let _ = self.pump(&host, || {
+            host.line(&reply(&opening, ace_json::json!({"thread": {"id": "t"}})));
+        });
+        host
+    }
+
+    /// A host whose shell is this sink, its handshake answered and one channel
+    /// attached, with no thread of its own.
+    fn start_alone(self: &Arc<Self>) -> Arc<Host> {
         let host = Arc::new(Host::new(HostConfig::shared(initialize(), 60_000.0)));
         host.set_sink(Arc::clone(self) as Arc<dyn HostSink>);
         let (_, lines) = self.pump(&host, || {});
@@ -666,21 +765,6 @@ impl Holding {
             .insert(1, Arc::clone(&channel));
         host.attach(1, channel).expect("the host accepts a channel");
         let _ = self.pump(&host, || {});
-
-        // The channel owns a thread, so a frame for it is routed to it.
-        host.request(
-            1,
-            "thread/resume",
-            Some(&ace_json::json!({"threadId": "t"})),
-            9,
-            Timeout::Default,
-        )
-        .expect("the open is queued");
-        let (_, lines) = self.pump(&host, || {});
-        let opening = line_id(&lines, "thread/resume", Some("t")).expect("the open's id");
-        let _ = self.pump(&host, || {
-            host.line(&reply(&opening, ace_json::json!({"thread": {"id": "t"}})));
-        });
         host
     }
 

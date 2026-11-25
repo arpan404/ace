@@ -238,7 +238,10 @@ impl<T: Clone + Eq> HostRouter<T> {
         for id in &forgotten {
             self.forget(id);
         }
-        self.served.retain(|_, owner| owner != tenant);
+        // `served` stays: the host queues a server request's dispatch, so a
+        // tenant can leave before its handler answers, where TS answers in the
+        // same step it dispatches. The reply is still that tenant's frame, and
+        // the entry goes when it arrives or falls out of the bound.
         self.turns.retain(|_, owner| owner != tenant);
         threads
     }
@@ -685,6 +688,25 @@ mod tests {
             "one answer belongs to one tenant"
         );
         assert_eq!(router.served.len(), 0);
+    }
+
+    /// A served request's answer stays that tenant's frame even when the
+    /// tenant left before answering: the host queues the dispatch, so a detach
+    /// can land between the request and its reply, where TS's one step cannot.
+    #[test]
+    fn a_served_requests_answer_stays_the_tenants_after_it_leaves() {
+        let mut router = HostRouter::<u64>::default();
+        router.serve(RpcId::Text(thread("ask-1")), 3);
+        router.release(&3);
+        assert_eq!(
+            router.sent(
+                &frame(r#"{"jsonrpc":"2.0","id":"ask-1","result":{}}"#),
+                None
+            ),
+            Some(3),
+            "the reply is the departed tenant's frame, never nobody's"
+        );
+        assert_eq!(router.served.len(), 0, "one answer belongs to one tenant");
     }
 
     /// A turn belongs to its thread's owner only while it runs.

@@ -80,9 +80,7 @@ impl HostEffect {
             | HostEffect::OpenFailed { message, .. }
             | HostEffect::DetachFailed { message, .. } => message.len() + 2,
             HostEffect::Write { wire, .. } => wire.len(),
-            HostEffect::Settle { result, .. } => {
-                result.as_ref().map_or(0, payload_size)
-            }
+            HostEffect::Settle { result, .. } => result.as_ref().map_or(0, payload_size),
             _ => return None,
         })
     }

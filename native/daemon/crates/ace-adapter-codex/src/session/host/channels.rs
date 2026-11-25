@@ -38,10 +38,22 @@ impl Inner {
         let tenant = self.router.sent(data, sender.as_ref());
         if let Some(tenant) = tenant {
             let mut failed = None;
-            if !self.deliver(tenant, Direction::Send, data, Some(&mut failed)) {
-                return failed.or_else(|| Some("Codex send frame was not admitted".to_owned()));
+            if self.deliver(tenant, Direction::Send, data, Some(&mut failed)) {
+                return None;
             }
-            return None;
+            if !self.tenants.contains_key(&tenant) {
+                // A reply to a request whose channel has left is still that
+                // channel's frame, never an unowned one: the shell hands it to
+                // the channel until it hears the exit, and drops it after, as
+                // TS's closed tenant swallows it.
+                self.out.push(HostEffect::Frame {
+                    tenant,
+                    dir: Direction::Send,
+                    data: data.clone(),
+                });
+                return None;
+            }
+            return failed.or_else(|| Some("Codex send frame was not admitted".to_owned()));
         }
         let method = data.get("method").and_then(Value::as_str)?;
         if method == "initialize" {
