@@ -730,16 +730,21 @@ move, and every later change to `server.ts` is net zero or negative.
   (`remote-direct.ts:35`–`:38`). `remoteRuntime` gains an optional `listener` it passes through;
   with `remote` on, `native-listeners.ts` hands it `nativeSniListeners(deps).make`, and `attach`
   for a native listener's internal server only tracks it and destroys its upgrades.
-- **`native-sni-listener.ts`**: `nativeSniListeners(deps: { secret: string; upgrades: NativeUpgrade; delay; now; tunnel }): { make(options: SniListenerOptions): SniListener }`.
+- **`native-sni-listener.ts`**: `nativeSniListeners(deps: { secret: string; upgrades(): NativeUpgrade; delay; now; tunnel }): { make(options: SniListenerOptions): SniListener }`.
+  `upgrades` is a builder, not one shared object: each listener retires on its own, and its upgrade
+  wiring's retire marker must not outlive it.
   `make`:
   - reads `options.tls.key` and `options.tls.cert` (the pinned identity; `SNICallback` is ignored)
     and calls `NativeRemote.checkIdentity` **synchronously**, so an unusable identity throws from
     `makeListener` where `createServer` throws today (`remote-direct.ts:133`);
   - builds this listener's own internal server, `createServer(proxyGuard(secret, options.requests))`,
     as `sniListener` builds one HTTP server per listener (`sni-listener.ts:96`), and returns it as
-    `http`;
-  - `listen(host, port)`: binds the internal server, then `startNativeRemote` with
-    `remote_sni(options.limits)`, resolving with the port once Rust bound; a rejection carries the
+    `http`. Its `requestTimeout` and `headersTimeout` are both **off**: the SNI listener's contract
+    leaves the exchange unbounded (T1b.1a's limits table), and Node's defaults would cut a slow
+    upload short behind Rust's back;
+  - `listen(host, port)`: rejects once `close()` has started — nothing binds after a retire; else
+    binds the internal server, then `startNativeRemote` with `remote_sni(options.limits)`,
+    resolving with the port once Rust bound; a rejection carries the
     OS `code` and closes the internal server first, so `remoteDirect`'s catch
     (`remote-direct.ts:147`–`:155`) can call `close()` on a listener that never bound;
   - `close()`: idempotent; waits for a `listen` still in flight, then closes Rust with deadline 0,
@@ -765,12 +770,15 @@ key)`, and **if that throws, log it and `clearTrusted()`**, so Rust never keeps 
     `min(expires - now(), 2_147_483_647)` ms to sync again (a timer can't hold more; a 90-day
     certificate re-arms), so the certificate leaves Rust when TypeScript stops calling it active;
   - `close()` unsubscribes and cancels the timer before closing Rust; nothing calls Rust after it.
-- **Retire and re-open** (`takeDown`, `remote-direct.ts:65`–`:77`): `disconnect()` terminates
-  `remoteSockets` (native ones included), then the listener closes with deadline 0, dropping every
-  connection but an upgrade in `Writing`; such a socket's `opened` arrives later and the wiring
-  terminates it (settings-only retire) or gives it `closer.gracefulClose(socket, 1001, "Daemon shutdown")`
-  (daemon closing), matching the `disconnect` callback (`server.ts:1332`–`:1347`; recorded
-  difference 7). A move to a new address is a close then a fresh `make` and `listen` on the same
+- **Retire and re-open** (`takeDown`, `remote-direct.ts:65`–`:77`): the listener is marked retiring
+  first (`SniListener.retire`, which the native listener passes to its upgrade wiring), **then**
+  `disconnect()` terminates `remoteSockets` (native ones included), then the listener closes with
+  deadline 0, dropping every connection but an upgrade in `Writing`. That upgrade's `opened` lands
+  after the sweep, so the wiring closes it as it registers with
+  `closer.gracefulClose(socket, 1001, "Daemon shutdown")`, the same close the `disconnect` callback
+  gives a swept socket (`server.ts:1332`–`:1347`; recorded difference 7): a late socket must not
+  outlive the retire, or Rust's own close waits on it while the internal listener and port are
+  still held. A move to a new address is a close then a fresh `make` and `listen` on the same
   port, which `SO_REUSEADDR` allows on Unix.
 - **Bind failure, retry and close during bind**, through the code that owns them, unchanged:
   a failed `listen` (`remote-direct.ts:143`–`:155`) closes the listener, stops the certificate

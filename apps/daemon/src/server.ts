@@ -258,7 +258,7 @@ export async function startServer(options: ServerOptions): Promise<{
     return account.deviceGrant(deviceId, signal);
   };
   const nativeLoopback = transportParts().has("loopback");
-  const nativeRemote = transportParts().has("remote") && options.remote !== undefined;
+  const nativeRemote = transportParts().has("remote");
   const hopSecret = nativeLoopback ? transportAddon().NativeLoopback.generateSecret() : undefined;
   const { local, remoteHttp } = httpChains(
     options,
@@ -309,9 +309,9 @@ export async function startServer(options: ServerOptions): Promise<{
   options.machineTunnel = tunnel;
   const attach = (listener: Server, isLocal: boolean) => {
     tunnel.track(listener);
-    // Native mode's internal server is a hop target, not a public listener: upgrades come only
-    // through Rust's public listener, so one sent straight here is destroyed, never admitted.
-    if (isLocal && nativeLoopback) {
+    // A native listener's internal server is only a hop target: an upgrade sent straight to it
+    // is destroyed, never admitted.
+    if (isLocal ? nativeLoopback : nativeRemote) {
       listener.on("upgrade", (_request, socket) => socket.destroy());
       return listener;
     }
@@ -1311,14 +1311,17 @@ export async function startServer(options: ServerOptions): Promise<{
       },
       tunnel,
       sockets: remoteSockets,
+      nativeRemote,
+      admission,
+      remoteWss,
       ...(remoteConfig === undefined
         ? {}
         : {
             remote: {
               ...remoteConfig,
               native: nativeRemote,
-              // Only the native remote listener builds the hop chain and the admission wiring.
-              ...(nativeRemote ? { requests: remoteHttp(), admission, wss: remoteWss } : {}),
+              // Only the native remote listener builds the hop chain.
+              ...(nativeRemote ? { requests: remoteHttp() } : {}),
               ...(remote === undefined
                 ? {}
                 : { bind: () => bind(remote, remoteConfig.host, remoteConfig.port) }),
@@ -1337,15 +1340,12 @@ export async function startServer(options: ServerOptions): Promise<{
         remoteHttp(),
         (listener) => attach(listener, false),
         () => {
-          // A full shutdown already sent 1001 with a bounded terminate above; a
-          // settings-only retire still drops remote sockets at once.
-          if (closing) {
-            for (const socket of remoteSockets)
-              closer.gracefulClose(socket, 1001, "Daemon shutdown");
-          } else {
-            for (const socket of remoteSockets) socket.terminate();
-          }
+          // A shutdown already gave each socket 1001 and a bounded terminate; a retire drops them.
+          for (const socket of remoteSockets)
+            if (closing) closer.gracefulClose(socket, 1001, "Daemon shutdown");
+            else socket.terminate();
         },
+        listeners?.remoteListener?.(runtime),
       );
       options.applyRemoteSetting = dynamicRemote.set;
       // In the background: a relay or a Tailscale read that never answers must not hold the
