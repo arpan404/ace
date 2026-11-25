@@ -4,6 +4,7 @@ import { piInput } from "@ace/adapter-pi/input";
 import { admissions as claudeAdmissions } from "@ace/adapter-claude/input";
 import { nativeCommandInputs } from "@ace/commands/invocation";
 import { createHash } from "node:crypto";
+import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import {
   CommandId,
@@ -14,6 +15,7 @@ import {
 } from "@ace/protocol";
 import type { Fact } from "@ace/core";
 import type { Store } from "../store.ts";
+import { DurableFill, fillBatch } from "./open-fills.ts";
 
 const MessageIdentity = z.object({
   commandId: CommandId,
@@ -63,6 +65,36 @@ function providerInput(
     part.type === "text" ? [{ type: "text" as const, text: part.text }] : [],
   );
 }
+/**
+ * Input and echo rows whose thread is gone. Every reader filters by the thread of a live thread,
+ * so an orphan is never read; the `engine_inputs_delete` trigger removes new ones, and this pass
+ * clears the ones written before it. Paged by rowid, one table after the other.
+ */
+export class InputOrphansFill extends DurableFill {
+  constructor(store: Store) {
+    super(store, "input-orphans");
+  }
+  protected page(db: DatabaseSync, cursor: string | undefined) {
+    const [table, after] = orphansCursor(cursor);
+    const rows = db
+      .prepare(`SELECT rowid AS seq,thread_id FROM ${table} WHERE rowid>? ORDER BY rowid LIMIT ?`)
+      .all(Number(after), fillBatch);
+    const gone = db.prepare("SELECT 1 FROM threads WHERE id=?");
+    const remove = db.prepare(`DELETE FROM ${table} WHERE rowid=?`);
+    for (const row of rows) if (!gone.get(String(row.thread_id))) remove.run(Number(row.seq));
+    if (rows.length === fillBatch)
+      return { next: `${table}:${String(rows[rows.length - 1]?.seq)}`, done: false };
+    if (table === "engine_input_echoes") return { next: cursor, done: true };
+    return { next: "engine_input_echoes:0", done: false };
+  }
+}
+/** `engine_inputs:<rowid>`, then `engine_input_echoes:<rowid>`. */
+function orphansCursor(cursor: string | undefined): [string, string] {
+  if (!cursor) return ["engine_inputs", "0"];
+  const [table, rowid] = cursor.split(":");
+  return [table === "engine_input_echoes" ? table : "engine_inputs", rowid ?? "0"];
+}
+
 /** Durable, indexed echo correlation. Transcript history is never scanned on a frame. */
 export class InputJournal {
   private store: Store;
@@ -95,8 +127,6 @@ export class InputJournal {
       requireEngineColumns(db, "engine_inputs", ["generation", "run_id"]);
       db.exec(`CREATE INDEX IF NOT EXISTS engine_inputs_run ON engine_inputs(thread_id,run_id);
         CREATE INDEX IF NOT EXISTS engine_inputs_delivery ON engine_inputs(thread_id,generation,signature,sent,matched,ordinal);
-        DELETE FROM engine_input_echoes WHERE thread_id NOT IN (SELECT id FROM threads);
-        DELETE FROM engine_inputs WHERE thread_id NOT IN (SELECT id FROM threads);
         CREATE TRIGGER IF NOT EXISTS engine_inputs_delete AFTER DELETE ON threads BEGIN
           DELETE FROM engine_input_echoes WHERE thread_id=OLD.id;
           DELETE FROM engine_inputs WHERE thread_id=OLD.id;

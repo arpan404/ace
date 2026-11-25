@@ -297,8 +297,10 @@ export class IntentStore {
     return row ? header(row) : undefined;
   }
   runnableThreads(limit: number): ThreadId[] {
-    return this.sql(`SELECT DISTINCT i.thread_id FROM intents i JOIN engine_queue q ON q.thread_id=i.thread_id
-      WHERE i.status IN ('pending','queued') AND (i.kind IN (${recoveryKinds},'thread.switch','thread.merge') OR (q.paused=0 AND q.limited=0))
+    // A thread with pending intents and no queue row still runs: a missing row is the default,
+    // and the default is not paused or limited.
+    return this.sql(`SELECT DISTINCT i.thread_id FROM intents i LEFT JOIN engine_queue q ON q.thread_id=i.thread_id
+      WHERE i.status IN ('pending','queued') AND (i.kind IN (${recoveryKinds},'thread.switch','thread.merge') OR (COALESCE(q.paused,0)=0 AND COALESCE(q.limited,0)=0))
       AND NOT EXISTS(SELECT 1 FROM engine_transition_guards g WHERE g.thread_id=i.thread_id AND g.command_id<>i.command_id)
       AND NOT EXISTS(SELECT 1 FROM engine_slots s WHERE s.thread_id=i.thread_id)
       AND NOT EXISTS(SELECT 1 FROM thread_ownership o WHERE o.thread_id=i.thread_id AND o.state IN (${fencedOwnership})) LIMIT ?`)

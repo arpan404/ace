@@ -729,9 +729,9 @@ export class Store {
       this.quarantineListeners.delete(listener);
     };
   }
-  /** Extend a receipt or event transaction on the same connection. No async I/O. */
-  atomic<T>(run: (db: DatabaseSync) => T): T {
-    return this.transaction(() => run(this.db));
+  /** Extend a receipt or event transaction; `outcome` learns the fate of its rows. */
+  atomic<T>(run: (db: DatabaseSync) => T, outcome?: TransactionOutcome): T {
+    return this.transaction(() => run(this.db), outcome);
   }
   /** Cap provider facts using the same blob owner and transaction as canonical events. */
   capRaw(raw: RawPayload[], threadId: ThreadId): RawPayload[] {

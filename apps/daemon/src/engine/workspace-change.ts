@@ -101,6 +101,7 @@ export async function changeEngineWorkspace(
   reservation: WorkspaceChangeReservation,
   commit: () => void = () => {},
 ): Promise<void> {
+  await repo.readiness.whenRebuilt(id);
   const state = repo.requireState(id);
   const thread = repo.store.getThread(id);
   if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
@@ -156,6 +157,9 @@ export async function changeEngineWorkspace(
   const reservations = repo.store.workspaceReservations;
   const roots = reservations.roots(id, reservation.roots);
   const owners = [...new Set([id, ...reservations.owners(reservation.writes ?? roots)])];
+  // Each peer's blockers are rebuilt before the tree is called live; a wait is a few bounded
+  // steps, and asking moves each thread to the front of the pass.
+  for (const owner of owners) await repo.readiness.whenRebuilt(owner);
   repo.store.atomic(() => {
     for (const owner of owners) {
       const peer = repo.state(owner);

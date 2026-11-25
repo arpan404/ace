@@ -30,6 +30,24 @@ export type RecoveryRecord = z.infer<typeof RecoveryRecord>;
 export const maxMessages = 256;
 const withState = "thread_id IN (SELECT thread_id FROM thread_state)";
 /**
+ * What a thread with no `engine_queue` row reads as: nothing held and nothing queued by the row
+ * itself. Its pending work is never defaulted; every reader still reads its live intents.
+ */
+const defaultMetadata = {
+  revision: 0,
+  paused: false,
+  reason: null,
+  resumeAt: null,
+  lastFailure: null,
+  limited: false,
+  resetAt: null,
+  timerAction: null,
+  continuation: null,
+  trigger: null,
+  holdToken: 0,
+  exited: false,
+} as const;
+/**
  * Whether a hold reads as the provider dying on its own. It only describes a restart hold: any
  * other hold, or none, clears it, and a restart hold set anew (a real restart) clears it unless
  * the thread was already held for that exit, which the restart then found and kept.
@@ -48,10 +66,21 @@ export function exitShown(exited: boolean): { exited?: true } {
 export function isSend(payload: CommandPayload): boolean {
   return payload.type === "thread.send" || payload.type === "thread.create";
 }
+/** The attachment hashes holding this command's input needs kept on disk. */
+function trackedHashes(command: Command): Set<string> {
+  const p = command.payload;
+  if (p.type !== "thread.create" && p.type !== "thread.send") return new Set();
+  return new Set(p.context?.attachments.map((attachment) => attachment.sha256) ?? []);
+}
 /** Indexed durable queue metadata, sharing the engine/receipt transaction. */
 export class QueueStore {
   private store: Store;
   private statements = new Map<string, StatementSync>();
+  /**
+   * The open fills, once the repository has them: until the attachment fill completes, a hash is
+   * also read from the live intents' payloads. Unset reads as every fill complete.
+   */
+  fills: { complete(name: string): boolean } = { complete: () => true };
   constructor(store: Store) {
     this.store = store;
     store.atomic((db) => {
@@ -71,8 +100,7 @@ export class QueueStore {
       CREATE INDEX IF NOT EXISTS intents_live_positions ON intents(thread_id,position) WHERE status IN ('pending','queued','running') OR uncertain=1;
       CREATE INDEX IF NOT EXISTS intents_uncertain ON intents(thread_id) WHERE uncertain=1;
       CREATE INDEX IF NOT EXISTS intents_queue_messages_recovery ON intents(thread_id,position,id) WHERE ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1));
-      CREATE INDEX IF NOT EXISTS intents_queue_order ON intents(thread_id,position,id) WHERE status IN ('pending','queued');
-      INSERT OR IGNORE INTO engine_queue(thread_id) SELECT thread_id FROM thread_state;`);
+      CREATE INDEX IF NOT EXISTS intents_queue_order ON intents(thread_id,position,id) WHERE status IN ('pending','queued');`);
       requireEngineColumns(db, "engine_queue", ["hold_token", "last_failure", "preferences"]);
       // Forward migration: a hold recorded before this column can't say what stopped it, so it
       // keeps reading as a restart.
@@ -83,14 +111,6 @@ export class QueueStore {
           .some((column) => column.name === "exited")
       )
         db.exec("ALTER TABLE engine_queue ADD COLUMN exited INTEGER NOT NULL DEFAULT 0");
-      for (const row of db
-        .prepare(
-          "SELECT id,thread_id,payload FROM intents WHERE kind IN ('thread.create','thread.send') AND (status IN ('pending','queued','running') OR awaiting=1 OR uncertain=1)",
-        )
-        .iterate()) {
-        const command = Command.parse(JSON.parse(String(row.payload)));
-        this.track(Number(row.id), QueueSnapshot.shape.threadId.parse(row.thread_id), command);
-      }
     });
   }
   private sql(source: string): StatementSync {
@@ -102,7 +122,10 @@ export class QueueStore {
     return statement;
   }
   ensure(id: ThreadId): void {
-    this.sql("INSERT OR IGNORE INTO engine_queue(thread_id) VALUES (?)").run(id);
+    // Only a thread that exists holds queue metadata; the row references it.
+    this.sql("INSERT OR IGNORE INTO engine_queue(thread_id) SELECT id FROM threads WHERE id=?").run(
+      id,
+    );
   }
   /** Held on input whose send or session start failed; it waits for the person's retry. */
   heldOnFailedSend(id: ThreadId): boolean {
@@ -116,7 +139,7 @@ export class QueueStore {
   }
   get(id: ThreadId): RecoveryRecord {
     const row = this.sql("SELECT * FROM engine_queue WHERE thread_id=?").get(id);
-    if (!row) throw new Error("Missing queue metadata");
+    if (!row) return RecoveryRecord.parse({ ...defaultMetadata, pendingCount: this.count(id) });
     return RecoveryRecord.parse({
       pendingCount: this.count(id) + (row.continuation && !this.uncertainRecovery(id) ? 1 : 0),
       holdToken: row.hold_token,
@@ -140,6 +163,7 @@ export class QueueStore {
   }
   set(id: ThreadId, patch: Partial<RecoveryRecord>, at: number): void {
     this.store.atomic(() => {
+      this.ensure(id);
       const before = this.get(id);
       const value = RecoveryRecord.parse({
         ...before,
@@ -240,18 +264,8 @@ export class QueueStore {
     );
   }
   snapshot(id: ThreadId): QueueSnapshot {
-    // A thread the engine never queued for (a development thread) has nothing waiting; reading
-    // it must not fail the read it is part of, such as an agent's thread_read.
-    if (!this.sql("SELECT 1 FROM engine_queue WHERE thread_id=?").get(id))
-      return QueueSnapshot.parse({
-        threadId: id,
-        pendingCount: 0,
-        revision: 0,
-        paused: false,
-        reason: null,
-        resumeAt: null,
-        messages: [],
-      });
+    // A missing row defaults the row's metadata only: a thread the engine never queued for (a
+    // development thread) reads as nothing held, and its pending work still comes from intents.
     const rows = this.sql(
       "SELECT payload,uncertain,(SELECT fell_back FROM engine_steer_notes WHERE intent_id=intents.id) AS fell_back FROM intents WHERE thread_id=? AND (trigger IS NULL OR trigger != 'subagent_result') AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1)) ORDER BY position,id LIMIT 256",
     ).all(id);
@@ -335,11 +349,20 @@ export class QueueStore {
       : undefined;
   }
   retains(id: ThreadId, hash: string): boolean {
-    return Boolean(
+    if (
       this.sql(
         "SELECT 1 FROM engine_queue_attachments a JOIN intents i ON i.id=a.intent_id WHERE a.thread_id=? AND a.hash=? AND (i.status IN ('pending','queued','running') OR i.awaiting=1 OR i.uncertain=1) LIMIT 1",
-      ).get(id, hash),
-    );
+      ).get(id, hash)
+    )
+      return true;
+    // Rows written at enqueue and edit are current; the fill repairs intents that predate them.
+    // Until it completes, a live intent's own payload is read too, so nothing it needs is lost.
+    if (this.fills.complete("queue-attachments")) return false;
+    for (const row of this.sql(
+      "SELECT payload FROM intents WHERE thread_id=? AND kind IN ('thread.create','thread.send') AND (status IN ('pending','queued','running') OR awaiting=1 OR uncertain=1)",
+    ).all(id))
+      if (trackedHashes(Command.parse(JSON.parse(String(row.payload)))).has(hash)) return true;
+    return false;
   }
   track(intent: number, thread: ThreadId, command: Command): void {
     this.sql("DELETE FROM engine_queue_attachments WHERE intent_id=?").run(intent);
@@ -451,9 +474,11 @@ export class QueueStore {
   }
   /** Moves a deadline that could not be acted on to `at`, keeping everything else it holds. */
   defer(id: ThreadId, at: number): void {
-    this.sql("UPDATE engine_queue SET resume_at=? WHERE thread_id=? AND resume_at IS NOT NULL").run(
-      at,
-      id,
-    );
+    this.store.atomic(() => {
+      this.ensure(id);
+      this.sql(
+        "UPDATE engine_queue SET resume_at=? WHERE thread_id=? AND resume_at IS NOT NULL",
+      ).run(at, id);
+    });
   }
 }

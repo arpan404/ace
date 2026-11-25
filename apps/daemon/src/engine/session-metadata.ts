@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ExecutionOptions, type ThreadId } from "@ace/protocol";
 import type { ProviderBackend } from "@ace/engine-api";
 import type { EngineRepository } from "./repository.ts";
+import { migrateEmptyCursorThread } from "./cursor-empty-migration.ts";
 /** Persisted provider/account/workspace binding, shared by preparation and recovery. */
 export class SessionMetadata {
   private repo: EngineRepository;
@@ -122,12 +123,23 @@ export class SessionMetadata {
   backend(id: ThreadId): ProviderBackend | undefined {
     // Recovery and teardown also read the binding of a tombstoned thread. They must
     // not resolve its execution workspace, which intentionally rejects deleted threads.
-    const backend = this.repo.store.atomic((_db) => {
+    const backend = this.repo.store.atomic((db) => {
       const row = this.repo.store
         .statement("SELECT backend FROM engine_sessions WHERE thread_id=?")
         .get(id);
       if (!row) throw new Error("Missing engine session metadata");
-      return row.backend == null ? undefined : z.enum(["acp", "cursor-sdk"]).parse(row.backend);
+      const stored =
+        row.backend == null ? undefined : z.enum(["acp", "cursor-sdk"]).parse(row.backend);
+      // The empty-thread migration runs as a fill after open; a thread it has not reached yet
+      // gets the same check here, so opening it uses the backend it would have had.
+      if (
+        stored !== "cursor-sdk" &&
+        this.repo.fills?.complete("cursor-empty") === false &&
+        this.repo.store.getThread(id)?.provider === "cursor" &&
+        migrateEmptyCursorThread(db, this.repo.store, id)
+      )
+        return "cursor-sdk";
+      return stored;
     });
     if (backend) return backend;
     return this.repo.requireState(id).config.provider === "cursor" ? "acp" : undefined;

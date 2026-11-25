@@ -93,11 +93,13 @@ export class Recovery {
     const value = RecoveryPreferences.parse((await this.ports.preferences?.(id)) ?? this.defaults);
     await this.repo.store.writable();
     if (id)
-      this.repo.store.atomic((db) =>
-        db
-          .prepare("UPDATE engine_queue SET preferences=? WHERE thread_id=?")
-          .run(JSON.stringify(value), id),
-      );
+      this.repo.store.atomic((db) => {
+        this.repo.queue.ensure(id);
+        db.prepare("UPDATE engine_queue SET preferences=? WHERE thread_id=?").run(
+          JSON.stringify(value),
+          id,
+        );
+      });
     else this.defaults = value;
   }
   preferences(id: ThreadId): RecoveryPreferences {

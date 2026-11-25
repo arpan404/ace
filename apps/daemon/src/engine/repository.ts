@@ -4,7 +4,7 @@ import { streamFacts } from "./stream-facts.ts";
 import { streamedFactsBytes } from "./fact-bytes.ts";
 import { RecordBudget } from "./records.ts";
 import { initializeThreadCleanup, threadCleaning } from "../thread-cleanup-journal.ts";
-import { migrateEmptyCursorThreads } from "./cursor-empty-migration.ts";
+import { CursorEmptyFill } from "./cursor-empty-migration.ts";
 import { SessionMetadata } from "./session-metadata.ts";
 import {
   syntheticInput,
@@ -19,7 +19,7 @@ import { cancelPending } from "./stop-intents.ts";
 import { foldProviderFacts } from "./provider-facts.ts";
 import { indexTitleInputs } from "./title-input.ts";
 import { InteractionLedger } from "./interaction-ledger.ts";
-import { InputJournal } from "./input-journal.ts";
+import { InputJournal, InputOrphansFill } from "./input-journal.ts";
 import { attributeAceAction } from "./ace-approvals.ts";
 import { AceInputs } from "./ace-inputs.ts";
 import { Permissions } from "./permissions.ts";
@@ -43,6 +43,8 @@ import { QueueStore } from "./queue-store.ts";
 import { SteerNotes } from "./steer-notes.ts";
 import { Snapshot } from "./persistence.ts";
 import { migrateEngine } from "./migrations.ts";
+import { ensureOpenFillsTable, OpenFills } from "./open-fills.ts";
+import { QueueAttachmentsFill, QueueRowsFill } from "./fills/queue-fills.ts";
 import { indexEngineRecords } from "../engine-record-indexes.ts";
 
 import { IntentStore, type IntentHeader } from "./intents.ts";
@@ -91,7 +93,10 @@ export class EngineRepository {
   private commandId: () => string;
   private opening = new Set<ThreadId>();
   readonly transitions: TransitionState;
-  private readiness: TransitionReadiness;
+  /** Rebuilt in bounded steps after open (ADR 0170); readers answer from it and wait on it. */
+  readonly readiness: TransitionReadiness;
+  /** The idle fills open no longer runs (ADR 0170), started by `Engine` after construction. */
+  readonly fills: OpenFills;
   private recordBudget = new RecordBudget();
   private snapshots = new Map<ThreadId, Snapshot>();
   private snapshotGeneration = 0;
@@ -108,6 +113,7 @@ export class EngineRepository {
     commandId: () => string = timeOrderedIds(),
     aceAction?: typeof import("@ace/mcp-server").aceToolAction,
     now: () => number = Date.now,
+    onError: (error: unknown) => void = (error) => console.error(error),
   ) {
     this.aceAction = aceAction;
     this.capacity = capacity;
@@ -119,7 +125,6 @@ export class EngineRepository {
     this.aceInputs = new AceInputs(store);
     store.atomic(migrateEngine);
     store.atomic(indexEngineRecords);
-    migrateEmptyCursorThreads(store);
     this.attachments = new AttachmentCorrelations(store);
     indexTitleInputs(store);
     store.atomic((db) =>
@@ -145,7 +150,22 @@ export class EngineRepository {
     this.inputs = new InputJournal(store);
     this.interactions = new InteractionLedger(store);
     this.transitions = new TransitionState(store);
-    this.readiness = store.atomic((_db) => new TransitionReadiness(_db, now));
+    this.readiness = new TransitionReadiness(store, now);
+    // Schema setup above; every data pass that used to run here is a bounded fill (ADR 0170).
+    ensureOpenFillsTable(store);
+    this.fills = new OpenFills(
+      store,
+      [
+        new QueueRowsFill(store),
+        new QueueAttachmentsFill(store, this.queue),
+        this.readiness,
+        new InputOrphansFill(store),
+        new CursorEmptyFill(store),
+      ],
+      onError,
+    );
+    this.queue.fills = this.fills;
+    this.readiness.gained = () => this.fills.resume();
     store.atomic((_db) => _db.exec("DELETE FROM engine_slots"));
     // Read by `runnableThreads`, which leaves threads moving to another machine out (ADR 0191).
     store.atomic((db) => {

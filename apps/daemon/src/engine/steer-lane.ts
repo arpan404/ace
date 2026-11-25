@@ -45,6 +45,9 @@ export class SteerLane {
   }
   async run(actor: ThreadActor): Promise<void> {
     const { repo } = this.ports;
+    // A rebuild commits before anything reads its blockers, so a steer never goes into a turn
+    // the read only thought was there.
+    await repo.readiness.whenRebuilt(actor.id);
     // The person's steer goes first: a daemon result waiting on a command never holds it.
     const person = repo.pending.personSteer(actor.id);
     const route = person && this.route(person);

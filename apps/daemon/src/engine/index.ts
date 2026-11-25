@@ -171,6 +171,7 @@ export class Engine {
       options.commandId,
       options.aceToolAction,
       () => this.clock.now(),
+      options.onError,
     );
     this.hosts = new HostThreads(this.repo, () => this.clock.now());
     this.guests = new GuestThreads(
@@ -277,6 +278,7 @@ export class Engine {
       async (id) => {
         const target = this.actor(id);
         await target.flush();
+        await this.repo.readiness.whenRebuilt(id);
         if (!this.repo.quiescent(this.repo.requireState(id)))
           throw new Error("Transition tree became live");
         await this.sessions.close(target, "idle");
@@ -478,6 +480,11 @@ export class Engine {
       this.readyPromise = Promise.resolve();
       this.reconciles.start();
     }
+    // Open runs schema setup only; these idle fills do the data work, one bounded step a tick
+    // (ADR 0170). They start after `ready()` is armed, so recovery never waits for one.
+    this.repo.readiness.onRebuilt = () => this.wakeQueued();
+    this.repo.fills.useSchedule((task) => this.batchScheduler.setTimer(task, 0));
+    this.repo.fills.start();
   }
   private stopSettled(id: ThreadId): void {
     if (this.closing) return;
@@ -1428,6 +1435,8 @@ export class Engine {
   close(): Promise<void> {
     this.closePromise ??= (async () => {
       this.closing = true;
+      // No fill step runs after this, before the modules' own close steps.
+      this.repo.fills.stop();
       this.cancelSweep?.();
       this.reconciles.close();
       this.stopReleaseWatch();

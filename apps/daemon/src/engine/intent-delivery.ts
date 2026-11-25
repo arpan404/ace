@@ -51,6 +51,8 @@ export class IntentDelivery {
   private async deliver(actor: ThreadActor, candidate: IntentHeader): Promise<void> {
     await this.dependencies.repo.store.writable();
     const send = ["thread.create", "thread.send", "thread.fork"].includes(candidate.kind);
+    // A send decides whether it steers from blockers the rebuild wrote; controls never wait.
+    if (send) await this.dependencies.repo.readiness.whenRebuilt(actor.id);
     const editableSend = ["thread.create", "thread.send"].includes(candidate.kind);
     const continuation = ["thread.resume", "queue.resume", "thread.limit"].includes(candidate.kind);
     const holdToken = this.dependencies.repo.queue.get(actor.id).holdToken;
