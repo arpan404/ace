@@ -91,6 +91,15 @@ async function openDirectory(dir: string, platform: NodeJS.Platform) {
  * OpenCode needs to create its log and database under `data/opencode`. A folder that lost its
  * owner's search bit fails every OpenCode command with EACCES, so ace restores it. Each folder is
  * opened without following links and changed through its handle, so a swap mid-repair is refused.
+ *
+ * The managed home lives under ace's private data root (`account-homes`, checked to be a real 0700
+ * directory that is never a link). Only a process already running as the person could swap folders
+ * inside it, and it could change those files directly, so the remaining window between the
+ * realpath/lstat check and open (an ancestor swapped mid-repair) grants it nothing: at most owner
+ * rwx is added to a directory the person already owns, or an empty 0700 folder is left. Node has no
+ * openat or mkdirat; a native helper would close the window if that trust boundary ever changes. A
+ * folder without its owner's read bit (0200 or 0000) can't be opened read-only and is left as is,
+ * so the failure stays visible.
  */
 export async function prepareOpenCodeHome(
   homeDir: string,
