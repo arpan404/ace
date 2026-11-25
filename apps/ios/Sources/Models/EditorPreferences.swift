@@ -34,6 +34,8 @@ struct EditorPreferences: Equatable, Sendable {
     ]
     static let tabSizeChoices = [2, 4, 8]
     static let autoSaveDelayChoices = [500, 1000, 2000, 5000]
+    /// A stored delay held to what the editor can use, whatever wrote it.
+    static func clampedDelay(_ milliseconds: Int) -> Int { min(max(milliseconds, 200), 60_000) }
 
     static let defaultAutoSaveDelay = 1000
     static let defaultFontSize = 13
@@ -61,7 +63,7 @@ struct EditorPreferences: Equatable, Sendable {
         wordWrap: Bool = false
     ) {
         self.autoSave = autoSave
-        self.autoSaveDelay = min(max(autoSaveDelay, 200), 60_000)
+        self.autoSaveDelay = Self.clampedDelay(autoSaveDelay)
         self.fontSize = min(max(fontSize, 8), 40)
         self.lineSpacing = min(max(lineSpacing, 1), 3)
         self.tabSize = min(max(tabSize, 1), 16)

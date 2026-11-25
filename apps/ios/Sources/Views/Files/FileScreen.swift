@@ -283,6 +283,8 @@ struct FileScreen: View {
         problem = nil
         // The text view reloads the file as it was opened.
         editSession += 1
+        // Auto save may have written while editing: show the file as it now is on the machine.
+        Task { await load() }
     }
 
     /// Settings › Editor as the text on screen is drawn and typed in.
@@ -299,7 +301,8 @@ struct FileScreen: View {
         // Settings may have changed since the last keystroke.
         let mode = EditorAutoSaveMode(rawValue: autoSaveMode) ?? .off
         if autoSave.mode != mode { autoSave.mode = mode }
-        if autoSave.delay != autoSaveDelay { autoSave.delay = max(0, autoSaveDelay) }
+        let delay = EditorPreferences.clampedDelay(autoSaveDelay)
+        if autoSave.delay != delay { autoSave.delay = delay }
         let now = Self.millisecondsNow
         guard let deadline = autoSave.typed(at: now) else { return }
         let wait = max(0, deadline - now)
@@ -315,7 +318,8 @@ struct FileScreen: View {
     func writeByItself() async {
         // Auto save may have been turned off since this write was armed.
         guard EditorAutoSaveMode(rawValue: autoSaveMode) == .pause else { return }
-        guard editing, dirty, !saving, conflict == nil, let expected = base ?? content?.version else { return }
+        // Never while the person is being asked whether to throw the changes away.
+        guard editing, dirty, !saving, !confirmDiscard, conflict == nil, let expected = base ?? content?.version else { return }
         saving = true
         let typed = handle.text
         do {

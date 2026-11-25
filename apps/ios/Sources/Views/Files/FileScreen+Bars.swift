@@ -101,7 +101,12 @@ extension FileScreen {
     }
 
     var cancelButton: some View {
-        Button("Cancel") { if dirty { confirmDiscard = true } else { stopEditing() } }.disabled(saving)
+        Button("Cancel") {
+            // A pending auto save must not write what the person may be about to discard.
+            autoSaveTask?.cancel()
+            autoSaveTask = nil
+            if dirty { confirmDiscard = true } else { stopEditing() }
+        }.disabled(saving)
             .accessibilityIdentifier("file.cancel")
     }
     var editingLabel: some View {
