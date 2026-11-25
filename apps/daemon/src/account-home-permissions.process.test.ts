@@ -156,7 +156,9 @@ test("an added OpenCode account whose data folder loses its owner's access while
   const data = join(f.root, "account-homes", account.id, "data", "opencode");
   await f.restart();
   const listed = () => f.models.list({ instance: account.id }).models.map((model) => model.id);
-  await expect.poll(listed, { timeout: 20_000 }).toContain("opencode-go/muse-spark-1.3-contributor");
+  await expect
+    .poll(listed, { timeout: 20_000 })
+    .toContain("opencode-go/muse-spark-1.3-contributor");
   // OpenCode 2.4.1 strips a managed home's owner access while ace runs: the folder stays the
   // same inode, and every later command in it fails with EACCES.
   await chmod(data, 0o600);
@@ -178,12 +180,18 @@ test("validateHome repairs an added OpenCode account's data folder before a sess
     process.platform,
   );
   // The daemon's own wiring (services/accounts.ts), reached through the registry's public API.
-  const registry = await openRegistryIndex(join(root, "accounts.sqlite"), undefined, root, {}, {
-    prepareHome: async (candidate) => {
-      if (candidate.provider === "opencode" && candidate.managed)
-        await prepareOpenCodeHome(candidate.homeDir, process.platform);
+  const registry = await openRegistryIndex(
+    join(root, "accounts.sqlite"),
+    undefined,
+    root,
+    {},
+    {
+      prepareHome: async (candidate) => {
+        if (candidate.provider === "opencode" && candidate.managed)
+          await prepareOpenCodeHome(candidate.homeDir, process.platform);
+      },
     },
-  });
+  );
   cleanups.push(() => registry.close());
   await registry.register(instance);
   const data = join(instance.homeDir, "data", "opencode");
