@@ -423,7 +423,8 @@ describe.runIf(native)("E5.4c input fate on a TypeScript-written home", () => {
   test("inputFate follows its precedence on a TypeScript-written home", async () => {
     const { seam, fate } = await seeded();
     try {
-      const at = (command: string) => seam.engine.inputFate(fate as never, CommandId.parse(command));
+      const at = (command: string) =>
+        seam.engine.inputFate(fate as never, CommandId.parse(command));
       // Replaced wins over the uncertain intent the person sent again.
       expect(at("resent")).toEqual({ state: "replaced", by: CommandId.parse("again") });
       // An uncertain input is uncertain before it is waiting.
