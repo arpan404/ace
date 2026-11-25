@@ -155,3 +155,36 @@ test.each(["OpenRouter", "Anthropic"])(
   },
   30_000,
 );
+
+test("adding a Claude Code account offers each sign-in method by name, with what it means", async () => {
+  const app = harness();
+  app.daemon.services.providerLogin.scenarios.claude = "choice";
+  await app.open("/settings/providers/claude");
+  const accounts = await screen.findByRole("list", { name: "Claude Code accounts" });
+  await userEvent.click(within(accounts).getByRole("button", { name: "Add account" }));
+  const form = await screen.findByRole("form", { name: "Add account" });
+  await userEvent.type(within(form).getByRole("textbox", { name: "Account name" }), "Work");
+  await userEvent.click(within(form).getByRole("button", { name: "Add and sign in" }));
+  const methods = await screen.findByRole("group", {
+    name: "Choose how to sign in to Claude Code.",
+  });
+  expect(
+    within(methods)
+      .getAllByRole("button")
+      .map((button) => [button.getAttribute("aria-label"), button.textContent]),
+  ).toEqual([
+    ["Claude subscription", "Claude subscriptionUse your Pro, Max, Team or Enterprise plan"],
+    ["Anthropic Console", "Anthropic ConsolePay for what you use with API billing"],
+    ["Single sign-on", "Single sign-onSign in through your organization"],
+  ]);
+  // Claude's own plan carries Claude's mark; no row falls back to a bare initial.
+  expect(
+    within(methods).getByRole("button", { name: "Claude subscription" }).querySelector("svg"),
+  ).toBeTruthy();
+  for (const button of within(methods).getAllByRole("button"))
+    expect(button.querySelector("svg")).toBeTruthy();
+  await userEvent.click(within(methods).getByRole("button", { name: "Anthropic Console" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("group", { name: /Choose how to sign in/ })).toBeNull(),
+  );
+});
