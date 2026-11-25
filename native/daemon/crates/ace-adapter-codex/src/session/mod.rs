@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The Codex session's shared app-server (E3-codex.2): one process per
-//! account, shared by sessions, and the routing, pool and lease pieces around
-//! it. Ported from `host.ts`, `host-routing.ts`, `host-pool.ts`,
-//! `thread-lease.ts` and `app-server.ts`.
+//! The Codex session, in three layers: the shared app-server (E3-codex.2: one
+//! process per account, shared by sessions, with the routing, pool and lease
+//! pieces around it), the session's own per-frame state and capture
+//! (E3-codex.3), and the commands and admission built on them (E3-codex.4).
 
 pub mod app_server;
+pub mod discovery;
 pub mod dropped;
 pub mod frames;
 pub mod host;
@@ -12,6 +13,7 @@ pub mod lease;
 pub mod lifetime;
 pub mod pool;
 pub mod routing;
+pub mod state;
 pub mod terminals;
 pub mod tools;
 

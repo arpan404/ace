@@ -69,6 +69,11 @@ impl TerminalRead {
         self.outcome.as_ref()
     }
 
+    /// Whether this read waits for `call`'s page.
+    pub fn awaits(&self, call: u64) -> bool {
+        self.outcome.is_none() && self.call == call
+    }
+
     fn params(&self, cursor: Option<&str>) -> Value {
         let mut params = Map::new();
         params.insert("threadId", Value::from(self.thread.clone()));
@@ -80,12 +85,12 @@ impl TerminalRead {
 
     /// One page's reply. `TerminalPage.parse` throws on anything a bounded page
     /// would not be; a finished read keeps its outcome.
-    pub fn settled(&mut self, calls: &mut Calls, result: Option<&Value>) -> Vec<Effect> {
+    pub fn settled(&mut self, calls: &mut Calls, reply: Result<&Value, &str>) -> Vec<Effect> {
         if self.outcome.is_some() {
             return Vec::new();
         }
         self.pages += 1;
-        let page = match parse_page(result) {
+        let page = match parse_page(reply) {
             Ok(page) => page,
             Err(error) => {
                 self.outcome = Some(Err(error));
@@ -127,9 +132,10 @@ struct Page {
 
 /// `TerminalPage.parse`: `data` up to 256 terminals with a bounded
 /// `processId`, and a bounded non-empty `nextCursor` when there is one.
-fn parse_page(result: Option<&Value>) -> Result<Page, String> {
+fn parse_page(result: Result<&Value, &str>) -> Result<Page, String> {
     let body = result
-        .and_then(Value::as_object)
+        .map_err(str::to_owned)?
+        .as_object()
         .ok_or_else(|| "Invalid Codex terminal page".to_owned())?;
     let data = body
         .get("data")
@@ -247,16 +253,13 @@ mod tests {
         };
         assert_eq!(params.get("threadId").and_then(Value::as_str), Some("t1"));
         assert!(params.get("cursor").is_none());
-        let second = read.settled(
-            &mut calls,
-            Some(&page(&[("p1", Some("item-1"))], Some("c2"))),
-        );
+        let second = read.settled(&mut calls, Ok(&page(&[("p1", Some("item-1"))], Some("c2"))));
         assert_eq!(second.len(), 1);
         let Effect::Request { params, .. } = &second[0] else {
             panic!("the read asks for its second page");
         };
         assert_eq!(params.get("cursor").and_then(Value::as_str), Some("c2"));
-        read.settled(&mut calls, Some(&page(&[("p2", None)], None)));
+        read.settled(&mut calls, Ok(&page(&[("p2", None)], None)));
         assert_eq!(
             read.outcome(),
             Some(&Ok(vec![
@@ -276,8 +279,8 @@ mod tests {
     fn a_repeated_terminal_cursor_fails_the_read() {
         let mut calls = Calls::new();
         let (mut read, _) = TerminalRead::start("t1", &mut calls);
-        read.settled(&mut calls, Some(&page(&[("p1", None)], Some("c2"))));
-        read.settled(&mut calls, Some(&page(&[("p2", None)], Some("c2"))));
+        read.settled(&mut calls, Ok(&page(&[("p1", None)], Some("c2"))));
+        read.settled(&mut calls, Ok(&page(&[("p2", None)], Some("c2"))));
         assert_eq!(
             read.outcome(),
             Some(&Err("Repeated Codex terminal cursor".to_owned()))
@@ -293,10 +296,10 @@ mod tests {
         // 16 full pages are exactly the bound; the next terminal is over it.
         for index in 0..TERMINAL_TOTAL / TERMINALS_PER_PAGE {
             let cursor = format!("c{}", index + 2);
-            read.settled(&mut calls, Some(&page(&entries, Some(cursor.as_str()))));
+            read.settled(&mut calls, Ok(&page(&entries, Some(cursor.as_str()))));
             assert!(read.outcome().is_none());
         }
-        read.settled(&mut calls, Some(&page(&[("p", None)], None)));
+        read.settled(&mut calls, Ok(&page(&[("p", None)], None)));
         assert_eq!(
             read.outcome(),
             Some(&Err("Codex terminal capacity reached".to_owned()))
@@ -309,10 +312,7 @@ mod tests {
         let (mut read, _) = TerminalRead::start("t1", &mut calls);
         for index in 0..TERMINAL_PAGES {
             let cursor = format!("c{}", index + 2);
-            read.settled(
-                &mut calls,
-                Some(&page(&[("p", None)], Some(cursor.as_str()))),
-            );
+            read.settled(&mut calls, Ok(&page(&[("p", None)], Some(cursor.as_str()))));
         }
         assert_eq!(
             read.outcome(),
@@ -327,7 +327,7 @@ mod tests {
         let long = "x".repeat(PROCESS_ID_MAX + 1);
         read.settled(
             &mut calls,
-            Some(
+            Ok(
                 &ace_json::parse(&format!("{{\"data\":[{{\"processId\":\"{long}\"}}]}}"))
                     .expect("fixture parses"),
             ),

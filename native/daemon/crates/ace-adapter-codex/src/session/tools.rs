@@ -133,6 +133,7 @@ pub fn codex_tool_listing(facts: &CodexToolFacts) -> ToolListing {
 }
 
 pub mod cache;
+pub mod catalog;
 pub mod read;
 
 pub use cache::{Cached, Catalog, CatalogSettled, CodexCatalogCache};
