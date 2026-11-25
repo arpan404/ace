@@ -356,10 +356,10 @@ impl State {
     }
 }
 
-/// A message the root agent sent without a steer: a steer re-creates it as a steer's bubble.
+/// A message without a steer's origin: a steer re-creates it as a steer's bubble
+/// (`transcript-inputs.ts:107`).
 fn is_unsteered_message(item: &Value) -> bool {
     item.get("type").and_then(Value::as_str) == Some("message")
-        && item.get("role").and_then(Value::as_str) == Some("user")
         && item
             .get("origin")
             .and_then(|origin| origin.get("kind"))
