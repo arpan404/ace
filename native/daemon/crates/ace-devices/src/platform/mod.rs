@@ -6,12 +6,15 @@
 //! I/O of its own, so the TypeScript shell runs the SDK command and this crate says which
 //! command, with which arguments, or which `DeviceError` refuses it. Words come from
 //! `native/daemon/catalog/devices.json` ([`words`]); every result serializes through `ace-json`.
+pub mod boot;
 pub mod budget;
 pub mod commands;
 pub mod emulator;
 pub mod identity;
 pub mod lifecycle;
+pub mod list;
 pub mod sdk;
+pub mod tools;
 pub mod words;
 
 use serde::{Deserialize, Serialize};
@@ -102,6 +105,15 @@ pub const ALL: [Code; 15] = [
     Code::PersonBusy,
 ];
 
+/// A device failure whose message is data (a device's name, a provider's text), as opposed to
+/// a catalog word: today's `DeviceError` with the same three fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Failure {
+    pub code: Code,
+    pub message: String,
+    pub hint: String,
+}
+
 /// A refused device operation: today's `DeviceError`, byte for byte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Refusal {
@@ -123,6 +135,9 @@ pub enum Error {
     /// A device operation the person can fix, said with today's code, message and hint.
     #[error("{}: {}", .0.code.as_str(), .0.message)]
     Refused(Refusal),
+    /// A failure whose words are data rather than a catalog word.
+    #[error("{}: {}", .0.code.as_str(), .0.message)]
+    Failed(Failure),
     /// A caller passed something this crate cannot read: a daemon bug, never device data.
     #[error("{0}")]
     Invalid(String),
@@ -131,6 +146,12 @@ pub enum Error {
 impl From<Refusal> for Error {
     fn from(refusal: Refusal) -> Self {
         Self::Refused(refusal)
+    }
+}
+
+impl From<Failure> for Error {
+    fn from(failure: Failure) -> Self {
+        Self::Failed(failure)
     }
 }
 

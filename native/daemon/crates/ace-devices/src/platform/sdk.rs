@@ -45,17 +45,17 @@ pub fn android_sdk_roots(
         }
     }
     if let Some(home) = home {
-        candidates.push(join(home, &["Library", "Android", "sdk"]));
-        candidates.push(join(home, &["Android", "Sdk"]));
+        candidates.push(join(platform, home, &["Library", "Android", "sdk"]));
+        candidates.push(join(platform, home, &["Android", "Sdk"]));
     }
     if platform == "win32"
         && let Some(local) = env.get("LOCALAPPDATA")
     {
-        candidates.push(join(local, &["Android", "Sdk"]));
+        candidates.push(join(platform, local, &["Android", "Sdk"]));
     }
     let mut roots: Vec<String> = Vec::new();
     for candidate in candidates {
-        if candidate.is_empty() || !Path::new(&candidate).is_absolute() {
+        if candidate.is_empty() || !is_absolute(platform, &candidate) {
             continue;
         }
         if !roots.contains(&candidate) {
@@ -65,12 +65,39 @@ pub fn android_sdk_roots(
     roots
 }
 
-fn join(base: &str, parts: &[&str]) -> String {
-    let mut path = std::path::PathBuf::from(base);
-    for part in parts {
-        path.push(part);
+/// Node's `path.isAbsolute` for the host the decision is about, not the host that compiled it:
+/// Windows accepts a drive root (`C:\sdk`, `C:/sdk`), a rooted `\sdk` or a UNC share; every
+/// other platform accepts a leading `/`.
+fn is_absolute(platform: &str, path: &str) -> bool {
+    if platform != "win32" {
+        return path.starts_with('/');
     }
-    path.to_string_lossy().into_owned()
+    let bytes = path.as_bytes();
+    match bytes {
+        [drive, b':', separator, ..] => {
+            drive.is_ascii_alphabetic() && (*separator == b'\\' || *separator == b'/')
+        }
+        [b'\\', b'\\', _, ..] => true,
+        [b'\\', _, ..] => true,
+        [b'/', _, ..] => true,
+        _ => false,
+    }
+}
+
+/// Node's `path.join` for the host the decision is about: Windows spells separators as `\`,
+/// every other platform as `/`.
+fn join(platform: &str, base: &str, parts: &[&str]) -> String {
+    let separator = if platform == "win32" { '\\' } else { '/' };
+    let mut path = if platform == "win32" {
+        base.replace('/', "\\")
+    } else {
+        base.to_string()
+    };
+    for part in parts {
+        path.push(separator);
+        path.push_str(part);
+    }
+    path
 }
 
 /// `findAndroidTools`: an SDK holding both wins, so they come from one install; otherwise the
@@ -134,16 +161,22 @@ pub fn xcode_tools_refusal() -> Refusal {
     words::refusal("xcodeMissing")
 }
 
-/// `resolveXcode`'s check of `xcode-select -p`: `code` is `None` when the probe itself failed.
-/// A CommandLineTools selection, a relative path or a non-zero exit is not a Simulator SDK.
+/// `resolveXcode`'s refusal when the selection probe itself could not run; today's `try` around
+/// `probeOutput`, which is a different refusal from a probe that answered with a failing code.
+pub fn xcode_probe_failure() -> Refusal {
+    words::refusal("xcodeUnavailable")
+}
+
+/// `resolveXcode`'s check of `xcode-select -p`. `code` is the probe's exit code as it answered,
+/// including `None` for a process killed before it could report one (today's `code !== 0`); a
+/// CommandLineTools selection, a relative path, an answer over 4,096 units or a non-zero exit is
+/// not a Simulator SDK.
 pub fn xcode_selection(code: Option<i32>, stdout: &str) -> Result<(), Refusal> {
-    let Some(code) = code else {
-        return Err(words::refusal("xcodeUnavailable"));
-    };
     // probeOutput trims; trimming again keeps the check honest for any caller.
     let selected = stdout.trim_end();
+    let units = selected.encode_utf16().count();
     let absolute = Path::new(selected).is_absolute();
-    if code != 0 || !absolute || selected.ends_with("CommandLineTools") {
+    if code != Some(0) || units > 4096 || !absolute || selected.ends_with("CommandLineTools") {
         return Err(words::refusal("xcodeNotFull"));
     }
     Ok(())
@@ -193,19 +226,45 @@ mod tests {
 
     #[test]
     fn android_studios_localappdata_folder_counts_on_windows_and_nowhere_else() {
-        if cfg!(windows) {
-            let windows = android_sdk_roots(
-                &env(&[("LOCALAPPDATA", "C:/Users/a/AppData/Local")]),
-                None,
-                "win32",
-            );
-            assert_eq!(
-                windows,
-                vec!["C:/Users/a/AppData/Local/Android/Sdk".to_string()]
-            );
-        }
+        // The host argument decides Windows' spelling, so this holds on every build host.
+        let windows = android_sdk_roots(
+            &env(&[("LOCALAPPDATA", "C:/Users/a/AppData/Local")]),
+            None,
+            "win32",
+        );
+        assert_eq!(
+            windows,
+            vec!["C:\\Users\\a\\AppData\\Local\\Android\\Sdk".to_string()]
+        );
         let mac = android_sdk_roots(&env(&[("LOCALAPPDATA", "/local")]), None, "darwin");
         assert!(mac.is_empty());
+    }
+
+    #[test]
+    fn windows_absolute_roots_keep_a_drive_rooting_even_when_the_test_host_is_not_windows() {
+        for root in ["C:\\sdk", "C:/sdk", "\\\\server\\share\\sdk", "\\sdk"] {
+            let roots = android_sdk_roots(&env(&[("ANDROID_HOME", root)]), None, "win32");
+            assert_eq!(roots, vec![root.to_string()], "{root}");
+        }
+        for root in ["sdk", "C:sdk"] {
+            assert!(
+                android_sdk_roots(&env(&[("ANDROID_HOME", root)]), None, "win32").is_empty(),
+                "{root}"
+            );
+        }
+        assert_eq!(
+            android_sdk_roots(&env(&[("ANDROID_HOME", "C:\\")]), None, "win32"),
+            vec!["C:\\".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_posix_absolute_root_is_a_leading_slash_and_nothing_else() {
+        assert_eq!(
+            android_sdk_roots(&env(&[("ANDROID_HOME", "/opt/android")]), None, "linux"),
+            vec!["/opt/android".to_string()]
+        );
+        assert!(android_sdk_roots(&env(&[("ANDROID_HOME", "\\sdk")]), None, "darwin").is_empty());
     }
 
     #[test]
@@ -297,12 +356,34 @@ mod tests {
     #[test]
     fn a_probe_that_could_not_run_and_a_full_selection_are_different_refusals() {
         assert_eq!(
-            xcode_selection(None, "").expect_err("unavailable").message,
+            xcode_probe_failure().message,
             "Xcode developer directory is unavailable"
         );
         assert_eq!(
             xcode_selection(Some(0), "/Applications/Xcode.app/Contents/Developer\n"),
             Ok(())
         );
+    }
+
+    #[test]
+    fn a_selection_probe_that_answered_without_an_exit_code_is_a_failed_selection() {
+        // `probeOutput` resolves with `code: null` when the process was killed; today's
+        // `code !== 0` treats that as a failed selection, not as a probe that never ran.
+        let failed = xcode_selection(None, "/Applications/Xcode.app/Contents/Developer\n")
+            .expect_err("null code");
+        assert_eq!(failed.message, "A full Xcode installation is required");
+    }
+
+    #[test]
+    fn an_answer_longer_than_the_4096_unit_schema_is_not_a_developer_directory() {
+        let long = format!("/{}", "a".repeat(4096));
+        assert_eq!(
+            xcode_selection(Some(0), &long)
+                .expect_err("over 4096")
+                .message,
+            "A full Xcode installation is required"
+        );
+        let longest = format!("/{}", "a".repeat(4095));
+        assert_eq!(xcode_selection(Some(0), &longest), Ok(()));
     }
 }

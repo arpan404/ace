@@ -57,6 +57,12 @@ pub fn refusal(key: &str) -> Refusal {
     }
 }
 
+/// The refusal `key` names, or `None` when the catalog has no such word. Used by the check
+/// that renders every word through both backends.
+pub fn lookup(key: &str) -> Option<Refusal> {
+    has(key).then(|| refusal(key))
+}
+
 /// Whether the catalog names `key` with a code the protocol has.
 pub fn has(key: &str) -> bool {
     catalog()
@@ -96,6 +102,11 @@ mod tests {
             "adbMissingLinux",
             "sdkMissing",
             "armEmulatorNote",
+            "deviceServiceClosed",
+            "androidEmulatorMissing",
+            "androidBootBusy",
+            "androidPortLimit",
+            "toolsNowhere",
         ] {
             assert!(has(key), "catalog names no usable word for {key}");
         }

@@ -115,6 +115,31 @@
       "message": "Android SDK platform-tools were not found",
       "hint": "Install Android Studio's Platform Tools and Android Emulator, then set ANDROID_HOME to the SDK directory."
     },
+    "deviceServiceClosed": {
+      "code": "command_failed",
+      "message": "Device service is closed",
+      "hint": "Restart the device service."
+    },
+    "androidEmulatorMissing": {
+      "code": "sdk_missing",
+      "message": "The Android Emulator was not found",
+      "hint": "Install the Android Emulator from Android Studio's SDK Manager, then set ANDROID_HOME to the SDK directory."
+    },
+    "androidBootBusy": {
+      "code": "busy",
+      "message": "Emulator process limit or boot already in progress",
+      "hint": "Wait for the current boot or shut down another emulator."
+    },
+    "androidPortLimit": {
+      "code": "limit",
+      "message": "No emulator console port available",
+      "hint": "Close unused emulators."
+    },
+    "toolsNowhere": {
+      "code": "tool_missing",
+      "message": "ace has nowhere to keep device tools",
+      "hint": "Restart ace; its home directory should hold them."
+    },
     "armEmulatorNote": {
       "code": "not_supported",
       "message": "Android emulators aren't available on Linux arm64",

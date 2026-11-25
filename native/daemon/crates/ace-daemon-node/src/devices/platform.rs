@@ -14,15 +14,6 @@ use napi_derive::napi;
 
 use super::answered;
 
-/// One Simulator from `xcrun simctl list devices --json`, as the shell holds it.
-#[napi(object)]
-pub struct NativeSimulator {
-    pub udid: String,
-    pub name: String,
-    pub state: String,
-    pub runtime: String,
-}
-
 /// One `pid_<pid>.ini` the shell read from the emulator's running directory.
 #[napi(object)]
 pub struct NativeDiscoveryFile {
@@ -30,27 +21,26 @@ pub struct NativeDiscoveryFile {
     pub text: String,
 }
 
-fn entries(inventory: Vec<NativeSimulator>) -> Vec<SimulatorEntry> {
-    inventory
-        .into_iter()
-        .map(|device| SimulatorEntry {
-            udid: device.udid,
-            name: device.name,
-            state: device.state,
-            runtime: device.runtime,
-        })
-        .collect()
+/// Reads a JSON document `JSON.stringify` wrote, through `ace-json`, so every string keeps its
+/// exact UTF-16 units (a Simulator's name may hold a lone surrogate).
+fn parse<T: serde::de::DeserializeOwned>(text: &str) -> napi::Result<T> {
+    let value = ace_json::parse(text)
+        .map_err(|error| napi::Error::from_reason(format!("ace-devices: {error}")))?;
+    ace_json::from_value(&value)
+        .map_err(|error| napi::Error::from_reason(format!("ace-devices: {error}")))
 }
 
 /// `simulatorDevice` / `simulatorIdentity`: the name, state and release the listed Simulator
-/// gives the device, or the refusal that stops a capture.
+/// gives the device, or the refusal that stops a capture. The inventory crosses as JSON text
+/// so a name with a lone surrogate stays the string the SDK printed.
 #[napi]
 pub fn device_platform_identity(
     id: String,
     capture: bool,
-    inventory: Vec<NativeSimulator>,
+    inventory: String,
 ) -> napi::Result<String> {
-    answered(|| identity::simulator_device(&id, &entries(inventory), capture))
+    let inventory: Vec<SimulatorEntry> = parse(&inventory)?;
+    answered(|| identity::simulator_device(&id, &inventory, capture))
 }
 
 /// `install`: the `simctl install` or `adb install -r` step under the ten-minute budget.
@@ -174,6 +164,12 @@ pub fn device_platform_xcode_tools_refusal() -> napi::Result<String> {
     answered(|| Ok(ace_devices::platform::sdk::xcode_tools_refusal()))
 }
 
+/// `resolveXcode`'s refusal when the `xcode-select -p` probe itself could not run.
+#[napi]
+pub fn device_platform_xcode_probe_failure() -> napi::Result<String> {
+    answered(|| Ok(ace_devices::platform::sdk::xcode_probe_failure()))
+}
+
 /// `resolveXcode`'s check of `xcode-select -p`; `code` is absent when the probe itself failed.
 #[napi]
 pub fn device_platform_xcode_selection(code: Option<i32>, stdout: String) -> napi::Result<String> {
@@ -208,6 +204,98 @@ pub fn device_platform_running_directory(
     let env: std::collections::BTreeMap<String, String> = env.into_iter().collect();
     ace_devices::platform::emulator::running_directory(&platform, &home, &env)
         .and_then(|path| path.into_os_string().into_string().ok())
+}
+
+/// `DevicePlatform.list`: each platform's devices and the missing SDKs beside them.
+#[napi]
+pub fn device_platform_list(sources: String) -> napi::Result<String> {
+    let sources: Vec<ace_devices::platform::list::Source> = parse(&sources)?;
+    answered(|| ace_devices::platform::list::list(sources))
+}
+
+/// `Simulators.boot`: whether the Simulator must boot, and the `open` arguments that show it.
+#[napi]
+pub fn device_platform_ios_boot(id: String, booted: bool) -> napi::Result<String> {
+    answered(|| ace_devices::platform::boot::ios_boot(&id, booted))
+}
+
+/// `AndroidPlatform.boot`: the console port, command line and adb waits, or the refusal.
+#[napi]
+pub fn device_platform_android_boot(facts: String) -> napi::Result<String> {
+    let facts: ace_devices::platform::boot::AndroidFacts = parse(&facts)?;
+    answered(|| ace_devices::platform::boot::android_boot(&facts))
+}
+
+/// `shutdown`: the commands that power a booted Simulator or emulator off.
+#[napi]
+pub fn device_platform_shutdown(platform: String) -> napi::Result<String> {
+    answered(|| {
+        let platform = Platform::parse(&platform)?;
+        Ok(ace_devices::platform::boot::shutdown(platform))
+    })
+}
+
+/// `emulatorBootArgs`: the command line ace spawns an emulator with.
+#[napi]
+pub fn device_platform_emulator_boot_args(facts: String) -> napi::Result<String> {
+    #[derive(serde::Deserialize)]
+    struct Boot {
+        avd: String,
+        port: u16,
+        window: bool,
+        platform: String,
+        #[serde(default)]
+        gpu: Option<String>,
+    }
+    let boot: Boot = parse(&facts)?;
+    answered(|| {
+        Ok(ace_devices::platform::emulator::boot_args(
+            &boot.avd,
+            boot.port,
+            boot.window,
+            &boot.platform,
+            boot.gpu.as_deref(),
+        ))
+    })
+}
+
+/// `downloadTools`: a Mac downloads serve-sim and every host the scrcpy server, or the refusal.
+#[napi]
+pub fn device_platform_download_plan(
+    platform: String,
+    directory: Option<String>,
+    node: Option<String>,
+) -> napi::Result<String> {
+    answered(|| {
+        ace_devices::platform::tools::download_plan(
+            &platform,
+            directory.as_deref(),
+            node.as_deref(),
+        )
+        .map_err(Error::from)
+    })
+}
+
+/// `androidDimensions`: `wm size`'s override or physical size, or today's `invalid_data`.
+#[napi]
+pub fn device_platform_android_dimensions(output: String) -> napi::Result<String> {
+    #[derive(serde::Serialize)]
+    struct Size {
+        width: u32,
+        height: u32,
+    }
+    answered(|| {
+        ace_devices::platform::commands::android_dimensions(&output).map(|(width, height)| Size {
+            width,
+            height,
+        })
+    })
+}
+
+/// The one refusal `key` renders, for the check that both backends read one catalog.
+#[napi]
+pub fn device_platform_catalog_word(key: String) -> napi::Result<String> {
+    answered(|| Ok(ace_devices::platform::words::lookup(&key)))
 }
 
 /// `emulatorGrpc`: the gRPC endpoint of the emulator on `serial`'s console port, when it has

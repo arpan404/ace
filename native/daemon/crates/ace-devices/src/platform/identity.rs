@@ -4,22 +4,24 @@
 
 use super::commands::native_id;
 use super::{Error, Platform, Refusal};
+use ace_json::JsString;
 use serde::{Deserialize, Serialize};
 
 /// One Simulator as `xcrun simctl list devices --json` described it, with its runtime's key.
+/// A Simulator's name and UDID are JavaScript strings, so they stay UTF-16 end to end.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SimulatorEntry {
-    pub udid: String,
-    pub name: String,
-    pub state: String,
-    pub runtime: String,
+    pub udid: JsString,
+    pub name: JsString,
+    pub state: JsString,
+    pub runtime: JsString,
 }
 
 /// What the device becomes once the inventory confirms it: the Simulator's own name and
 /// release, booted. The caller keeps every other field of the device it asked about.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Selected {
-    pub name: String,
+    pub name: JsString,
     pub state: &'static str,
     pub runtime: String,
 }
@@ -60,10 +62,10 @@ mod tests {
 
     fn entry(udid: &str, name: &str, state: &str) -> SimulatorEntry {
         SimulatorEntry {
-            udid: udid.to_string(),
-            name: name.to_string(),
-            state: state.to_string(),
-            runtime: "com.apple.CoreSimulator.SimRuntime.iOS-18-0".to_string(),
+            udid: udid.into(),
+            name: name.into(),
+            state: state.into(),
+            runtime: "com.apple.CoreSimulator.SimRuntime.iOS-18-0".into(),
         }
     }
 
@@ -77,7 +79,7 @@ mod tests {
         assert_eq!(
             simulator_device(&id(), &inventory, false).expect("booted"),
             Selected {
-                name: "iPhone 18 Pro".to_string(),
+                name: "iPhone 18 Pro".into(),
                 state: "booted",
                 runtime: "iOS 18.0".to_string(),
             }

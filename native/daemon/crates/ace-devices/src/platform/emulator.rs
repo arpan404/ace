@@ -87,6 +87,69 @@ pub fn console_port(serial: &str) -> Option<u16> {
     digits.parse().ok()
 }
 
+/// `emulatorBootArgs`: the command line ace boots an emulator with. macOS serves its screen over
+/// gRPC on the console port plus 3000; without a window the GPU mode is named for the host
+/// (`host` on macOS, `auto` on Linux) unless the person set one.
+pub fn boot_args(
+    avd: &str,
+    port: u16,
+    window: bool,
+    platform: &str,
+    gpu: Option<&str>,
+) -> Vec<String> {
+    let mut args = vec![
+        "-avd".to_string(),
+        avd.to_string(),
+        "-port".to_string(),
+        port.to_string(),
+    ];
+    if platform == "darwin" {
+        args.push("-grpc".to_string());
+        args.push((u32::from(port) + 3000).to_string());
+        args.push("-grpc-use-token".to_string());
+    }
+    let mode = emulator_gpu(gpu).or_else(|| {
+        if window {
+            None
+        } else {
+            default_gpu(platform).map(str::to_string)
+        }
+    });
+    if !window {
+        args.push("-no-window".to_string());
+        args.push("-no-boot-anim".to_string());
+    }
+    if let Some(mode) = mode
+        && mode != "none"
+    {
+        args.push("-gpu".to_string());
+        args.push(mode);
+    }
+    args
+}
+
+/// A `-gpu` mode as the person set it, when it is one the emulator could take.
+fn emulator_gpu(value: Option<&str>) -> Option<String> {
+    let mode = value?.trim().to_lowercase();
+    if (1..=32).contains(&mode.len())
+        && mode
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+    {
+        Some(mode)
+    } else {
+        None
+    }
+}
+
+fn default_gpu(platform: &str) -> Option<&'static str> {
+    match platform {
+        "darwin" => Some("host"),
+        "linux" => Some("auto"),
+        _ => None,
+    }
+}
+
 /// `emulatorGrpc`: the gRPC endpoint of the emulator on console port `console_port`, from the
 /// first discovery file that names that port. An emulator with JWT authentication (Android
 /// Studio's default), without gRPC, or with an unreadable endpoint has none ace can use.
@@ -233,6 +296,64 @@ mod tests {
         );
         assert_eq!(running_directory("win32", "C:/Users/a", &env(&[])), None);
         assert_eq!(running_directory("freebsd", "/home/a", &env(&[])), None);
+    }
+
+    #[test]
+    fn an_emulator_boots_without_a_window_and_a_named_gpu_mode() {
+        assert_eq!(
+            boot_args("Pixel_API_35", 5554, false, "darwin", None),
+            vec![
+                "-avd",
+                "Pixel_API_35",
+                "-port",
+                "5554",
+                "-grpc",
+                "8554",
+                "-grpc-use-token",
+                "-no-window",
+                "-no-boot-anim",
+                "-gpu",
+                "host",
+            ]
+        );
+        assert_eq!(
+            boot_args("Pixel_API_35", 5556, false, "linux", Some(" SwiftShader ")),
+            vec![
+                "-avd",
+                "Pixel_API_35",
+                "-port",
+                "5556",
+                "-no-window",
+                "-no-boot-anim",
+                "-gpu",
+                "swiftshader",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_window_keeps_the_emulators_gpu_choice_unless_the_person_names_one() {
+        assert_eq!(
+            boot_args("Pixel_API_35", 5554, true, "darwin", None),
+            vec!["-avd", "Pixel_API_35", "-port", "5554", "-grpc", "8554", "-grpc-use-token"]
+        );
+        assert_eq!(
+            boot_args("Pixel_API_35", 5554, true, "win32", Some("none")),
+            vec!["-avd", "Pixel_API_35", "-port", "5554"]
+        );
+        assert_eq!(
+            boot_args("Pixel_API_35", 5554, false, "linux", Some("not a mode")),
+            vec![
+                "-avd",
+                "Pixel_API_35",
+                "-port",
+                "5554",
+                "-no-window",
+                "-no-boot-anim",
+                "-gpu",
+                "auto",
+            ]
+        );
     }
 
     #[test]

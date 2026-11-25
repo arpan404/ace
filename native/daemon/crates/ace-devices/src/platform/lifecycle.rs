@@ -160,7 +160,7 @@ pub fn open_app(platform: Platform, app: &str, resolved: Option<&str>) -> Result
                 let Some(component) = output.split('\n').find(|line| line.contains('/')) else {
                     return Err(Refusal::word("appNotLaunchable").into());
                 };
-                if !is_app_id(component) {
+                if units(component) > APP_ID_MAX || !is_app_id(component) {
                     return Err(Refusal::word("appNotLaunchable").into());
                 }
                 Ok(OpenApp {
@@ -318,12 +318,15 @@ mod tests {
         serde_json::from_str(js).expect("settings")
     }
 
+    /// The ten-minute budget spelled here, so a changed production constant fails these tests.
+    const INSTALL_BUDGET_FOR_TEST: u64 = 600_000;
+
     #[test]
     fn a_simulator_installs_a_built_app_under_the_ten_minute_budget() {
         let steps = install(Platform::Ios, "/tmp/Example.app").expect("install");
         assert_eq!(steps[0].kind, StepKind::Simctl);
         assert_eq!(args(&steps[0]), "install /tmp/Example.app");
-        assert_eq!(steps[0].timeout_ms, Some(INSTALL_TIMEOUT_MS));
+        assert_eq!(steps[0].timeout_ms, Some(INSTALL_BUDGET_FOR_TEST));
     }
 
     #[test]
@@ -344,7 +347,7 @@ mod tests {
         let steps = install(Platform::Android, "/tmp/Example.apk").expect("install");
         assert_eq!(steps[0].kind, StepKind::Adb);
         assert_eq!(args(&steps[0]), "install -r /tmp/Example.apk");
-        assert_eq!(steps[0].timeout_ms, Some(INSTALL_TIMEOUT_MS));
+        assert_eq!(steps[0].timeout_ms, Some(INSTALL_BUDGET_FOR_TEST));
     }
 
     #[test]
@@ -390,6 +393,15 @@ mod tests {
                 matches!(refused, Error::Refused(Refusal { code, .. }) if code.as_str() == "not_found")
             );
         }
+    }
+
+    #[test]
+    fn a_resolved_activity_longer_than_the_256_unit_app_id_is_not_launched() {
+        let component = format!("{}/.{}", "a".repeat(256), "b".repeat(256));
+        let refused = open_app(Platform::Android, "dev.example", Some(&component))
+            .expect_err("over 256 units");
+        assert!(matches!(refused, Error::Refused(Refusal { message, .. })
+                if message == "Android app has no launchable activity"));
     }
 
     #[test]
