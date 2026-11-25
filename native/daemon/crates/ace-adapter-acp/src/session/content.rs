@@ -135,20 +135,18 @@ fn encode_image(map: &Map) -> Result<Value, String> {
     Ok(Value::Object(out))
 }
 
-/// The file's own name (`path.split("/").at(-1) ?? path`, `content.ts:106`): whole, as
-/// TS sends it.
+/// The file's own name (`path.split("/").at(-1) ?? path`, `content.ts:106`): split on `/`
+/// only, as TS splits, and whole.
 fn file_name(path: &str) -> JsString {
-    JsString::from(path.rsplit(['/', '\\']).next().unwrap_or(path))
+    JsString::from(path.rsplit('/').next().unwrap_or(path))
 }
 
 /// `pathToFileURL(path).href` (`node:url`): an absolute path as a `file://` URL.
 ///
-/// What Node leaves alone it leaves alone here: the URL path percent-encode set (controls,
-/// space, `"`, `#`, `<`, `>`, `?`, `` ` ``, `{`, `}`) and the bytes Node's own
-/// `encodePathChars` escapes (`%`, `\\`, tab, newline, carriage return) are encoded; `(`,
-/// `)`, `+`, `@`, `!`, `=`, `,`, `&`, `'`, `$`, `;`, `[`, `]` and the rest of a path stay as
-/// they are, and non-ASCII travels as UTF-8 percent-encoded bytes. A Windows drive stays in
-/// the path and a UNC share becomes the URL's host.
+/// What Node leaves alone it leaves alone here, checked against `url.pathToFileURL` on
+/// Node 26: `! $ & ' ( ) * + , - . / 0-9 : ; = @ A-Z _ a-z` stay, and everything else is
+/// percent-encoded, including `~`, `[`, `]`, `|`, `^`, a backslash, controls and non-ASCII
+/// (as UTF-8 bytes). A Windows drive stays in the path, and a UNC share becomes the host.
 pub fn path_to_file_url(path: &str) -> String {
     let (host, path) = windows_host_and_path(path);
     let mut url = String::with_capacity(path.len() + host.len() + 8);
@@ -188,11 +186,25 @@ fn windows_host_and_path(path: &str) -> (String, String) {
 fn encode_path(path: &str) -> String {
     let mut encoded = String::with_capacity(path.len());
     for byte in path.bytes() {
-        let keep = byte > 0x20
-            && byte < 0x7f
-            && !matches!(
+        let keep = byte.is_ascii_alphanumeric()
+            || matches!(
                 byte,
-                b'"' | b'#' | b'<' | b'>' | b'?' | b'`' | b'{' | b'}' | b'%' | b'\\' | b'^' | b'|'
+                b'!' | b'$'
+                    | b'&'
+                    | b'\''
+                    | b'('
+                    | b')'
+                    | b'*'
+                    | b'+'
+                    | b','
+                    | b'-'
+                    | b'.'
+                    | b'/'
+                    | b':'
+                    | b';'
+                    | b'='
+                    | b'@'
+                    | b'_'
             );
         if keep {
             encoded.push(byte as char);
@@ -306,10 +318,14 @@ mod tests {
             path_to_file_url("/work/a b/ü.ts"),
             "file:///work/a%20b/%C3%BC.ts"
         );
-        // Node's URL path set leaves these alone (`new URL('file:///a+(b),c')`).
+        // Node 26's `pathToFileURL` keeps these and encodes `[`, `]`, `~` and `|`.
         assert_eq!(
-            path_to_file_url("/work/a+(b),c!@d=&e'f$;g[1].ts"),
-            "file:///work/a+(b),c!@d=&e'f$;g[1].ts"
+            path_to_file_url("/work/a+(b),c!@d=&e'f$;*g.ts"),
+            "file:///work/a+(b),c!@d=&e'f$;*g.ts"
+        );
+        assert_eq!(
+            path_to_file_url("/work/a[1]|b~c.ts"),
+            "file:///work/a%5B1%5D%7Cb%7Ec.ts"
         );
         assert_eq!(
             path_to_file_url("/work/a#b?c%25.ts"),
@@ -324,6 +340,14 @@ mod tests {
             path_to_file_url("\\\\server\\share\\a.ts"),
             "file://server/share/a.ts"
         );
+    }
+
+    #[test]
+    fn a_resource_link_splits_its_path_on_the_separator_ts_splits_on() {
+        // TS: `part.path.split("/").at(-1)`, so a backslash stays in the name.
+        let link = json!({ "type": "file", "path": "/work/a\\b.ts" });
+        let encoded = encode_content(&link).ok().unwrap_or(Value::Null);
+        assert_eq!(encoded.get("name").and_then(Value::as_str), Some("a\\b.ts"));
     }
 
     #[test]
