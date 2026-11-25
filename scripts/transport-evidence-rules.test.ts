@@ -34,8 +34,11 @@ it("credits retry traffic only from the listener that bound after the refusal", 
 
   try {
     expect(verdict({ ...close, ...traffic })).toBe("proven");
-    expect(verdict({ ...close, connections: 1, upgrades: 1 })).toBe("proven");
+    expect(verdict({ ...close, connections: 1, upgrades: 1 })).toBe("NONE");
     expect(verdict({ ...bound, ...traffic, event: "handled" }, close)).toBe("proven");
+    expect(verdict({ ...bound, connections: 1, upgrades: 1, event: "handled" }, close)).toBe(
+      "NONE",
+    );
     expect(verdict({ ...close, exchanges: 1 })).toBe("NONE");
     expect(verdict({ ...close, connections: 1 })).toBe("NONE");
     expect(verdict({ ...close, ...traffic, pid: 200 }, close)).toBe("NONE");

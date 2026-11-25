@@ -167,7 +167,7 @@ export const LIFECYCLE_CASES: readonly LifecycleCase[] = [
     file: "native-remote.process",
     title:
       "a LAN port taken at start is reported, and once freed the listener serves on the next retry",
-    proof: "bind-failed EADDRINUSE, then a bind on the port and traffic on that instance",
+    proof: "bind-failed EADDRINUSE, then a bind on the port and an HTTP exchange on that instance",
     check(view) {
       const failed = view.lines.find(
         (line) => line.event === "bind-failed" && line.listener === "remote",
@@ -187,9 +187,9 @@ export const LIFECYCLE_CASES: readonly LifecycleCase[] = [
           (line.at ?? -1) > bound.bindAt &&
           (line.event === "handled" || line.event === "close") &&
           (line.connections ?? 0) > 0 &&
-          (line.exchanges ?? 0) + (line.upgrades ?? 0) > 0,
+          (line.exchanges ?? 0) > 0,
       );
-      if (!served) return `no traffic on the instance that bound on port ${port}`;
+      if (!served) return `no HTTP exchange on the instance that bound on port ${port}`;
       return undefined;
     },
   },
