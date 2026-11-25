@@ -707,6 +707,16 @@ impl RpcPeer {
         effects
     }
 
+    /// The ticket the line of facade call `facade` took, once its write was enqueued: the
+    /// shell names it as `Write { ticket }` (immediately when the writer was idle, later
+    /// when the line queued). Empty once that call settled.
+    pub fn write_ticket(&self, facade: u64) -> Option<u64> {
+        self.pending
+            .iter()
+            .find(|(_, pending)| pending.facade == facade)
+            .and_then(|(_, pending)| pending.ticket)
+    }
+
     /// The write callback ran: release its bytes and hand out the next queued
     /// write, so at most one line is in flight (`rpc-writer.ts`).
     pub fn written(&mut self, ticket: u64) -> Vec<PeerEffect> {
