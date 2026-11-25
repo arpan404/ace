@@ -187,21 +187,6 @@ pub async fn drain_process_exit(scheduler: &dyn TimeoutScheduler, child: &dyn Pr
     cancel.cancel();
 }
 
-/// The daemon's whole environment, as node hands it to a child that names no
-/// `env` (`process.env`). Git calls filter `GIT_*` out themselves, as
-/// `inheritedEnv` in `cli.ts` does; taskkill inherits all of it.
-pub fn process_environment() -> Vec<(String, String)> {
-    std::env::vars().collect()
-}
-
-/// `inheritedEnv`'s rule: no `GIT_*` variable reaches a Git call.
-pub fn git_environment(pairs: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
-    pairs
-        .into_iter()
-        .filter(|(key, _)| !key.starts_with("GIT_"))
-        .collect()
-}
-
 /// Classify a spawn error into `not_a_repo`, `git_missing`, or `git_failed` (`classifySpawn`).
 pub fn classify_spawn_error(
     code: Option<&str>,
