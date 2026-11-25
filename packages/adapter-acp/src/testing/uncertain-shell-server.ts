@@ -62,6 +62,25 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     const text = string(object(list(params["prompt"])[0])["text"]);
     if (heldPrompt !== undefined) {
       send({ id: frame["id"], error: { code: -32603, message: "Overlapping prompt" } });
+    } else if (text === "hold-shell-for-steer") {
+      // A command of a turn that never answers: the shell ends on its own, the prompt does not.
+      heldPrompt = frame["id"];
+      heldTool = "held-shell";
+      update({
+        sessionUpdate: "tool_call",
+        toolCallId: heldTool,
+        kind: "execute",
+        status: "in_progress",
+        rawInput: { command: "sleep 60" },
+      });
+      setTimeout(() => {
+        update({
+          sessionUpdate: "tool_call_update",
+          toolCallId: heldTool,
+          status: "completed",
+          rawOutput: { exitCode: 0 },
+        });
+      }, 2000);
     } else if (text === "hold-for-steer" || text.startsWith("hold-for-steer:")) {
       heldPrompt = frame["id"];
       heldTool = text === "hold-for-steer" ? "held" : `held-${++heldCount}`;

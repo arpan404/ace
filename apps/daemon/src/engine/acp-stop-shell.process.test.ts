@@ -46,18 +46,22 @@ async function antigravity(first: string) {
     }),
     acceptsIdentity: () => true,
   });
-  const sessions: { prompts: string[]; closed: boolean }[] = [];
+  const sessions: { prompts: string[]; cancels: string[]; closed: boolean }[] = [];
   h.registry.register(
     {
       ...adapter,
       async openSession(ctx) {
         const session = await adapter.openSession(ctx);
-        const seen = { prompts: [] as string[], closed: false };
+        const seen = { prompts: [] as string[], cancels: [] as string[], closed: false };
         sessions.push(seen);
-        // The session is a class instance: only its sending and closing are watched.
+        // The session is a class instance: only its sending, cancelling and closing are watched.
         const send: typeof session.send = async (input, ...rest) => {
           await session.send(input, ...rest);
           for (const part of input) if (part.type === "text") seen.prompts.push(part.text);
+        };
+        const interrupt: typeof session.interrupt = async (target) => {
+          seen.cancels.push(target.agent ?? "root");
+          await session.interrupt(target);
         };
         const close: typeof session.close = async (reason) => {
           seen.closed = true;
@@ -65,13 +69,21 @@ async function antigravity(first: string) {
         };
         return new Proxy(session, {
           get: (target, key) =>
-            key === "send" ? send : key === "close" ? close : Reflect.get(target, key, target),
+            key === "send"
+              ? send
+              : key === "interrupt"
+                ? interrupt
+                : key === "close"
+                  ? close
+                  : Reflect.get(target, key, target),
         });
       },
     },
     { installed: true, auth: "logged_in", loginHint: "", version: "1.2.1" },
   );
-  const id = first.startsWith("hold-for-steer") ? startHeldPrompt() : await h.create(first);
+  // A held prompt never answers, so the thread's creation is not awaited as a whole.
+  const held = first.startsWith("hold-");
+  const id = held ? startHeldPrompt() : await h.create(first);
   function startHeldPrompt() {
     const result = h.command({
       type: "thread.create",
@@ -89,7 +101,7 @@ async function antigravity(first: string) {
     Object.values(h.store.snapshotThread(id).backgroundTasks).filter(
       (task) => task.status === "running",
     );
-  if (first.startsWith("hold-for-steer"))
+  if (held)
     await expect
       .poll(() => Object.values(h.store.snapshotThread(id).items))
       .toContainEqual(
@@ -158,6 +170,54 @@ test("a person's ACP steer cancels its target turn and sends the follow-up once"
       statuses.lastIndexOf("working") + 1,
     );
     expect(steered).toEqual(["working", "waiting", "working"]);
+  } finally {
+    if (h.store.snapshotThread(id).runs[active.id]?.state === "active")
+      h.command({ type: "thread.interrupt", threadId: id, cascade: true });
+  }
+});
+
+test("an ACP steer waits for the running command, then cancels once and sends the follow-up once", async () => {
+  const { h, id, sessions } = await antigravity("hold-shell-for-steer");
+  const active = Object.values(h.store.snapshotThread(id).runs).find(
+    (run) => run.state === "active",
+  );
+  if (!active) throw new Error("Expected the first prompt to be active");
+  // The steer arrives after the turn began, while its command still runs.
+  h.clock.advance(h.clock.now() + 1);
+
+  try {
+    expect(
+      h.command({
+        type: "thread.send",
+        threadId: id,
+        input: [{ type: "text", text: "read another file" }],
+        delivery: "steer",
+        runId: active.id,
+      }).ok,
+    ).toBe(true);
+    // Held: the steer lane runs at once and spares the command, which is still running.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(sessions[0]?.cancels).toEqual([]);
+    expect(h.engine.queue(id).pendingCount).toBe(1);
+    expect(
+      Object.values(h.store.snapshotThread(id).items).filter(
+        (item) => item.type === "tool_call" && item.call.detail.kind === "shell",
+      ),
+    ).toMatchObject([{ type: "tool_call", complete: false }]);
+
+    // The command ends by itself: one cancel, and the steer's prompt goes in once.
+    await expect.poll(() => sessions[0]?.cancels, { timeout: 5000 }).toEqual(["root"]);
+    await expect
+      .poll(() => sessions[0]?.prompts, { timeout: 5000 })
+      .toEqual(["hold-shell-for-steer", "read another file"]);
+    await h.engine.flush();
+    expect(sessions[0]?.cancels).toEqual(["root"]);
+    expect(sessions[0]?.prompts).toEqual(["hold-shell-for-steer", "read another file"]);
+    expect(h.store.snapshotThread(id).runs[active.id]).toMatchObject({
+      state: "interrupted",
+      endedBy: "steer",
+    });
+    expect(h.engine.queue(id)).toMatchObject({ pendingCount: 0, paused: false });
   } finally {
     if (h.store.snapshotThread(id).runs[active.id]?.state === "active")
       h.command({ type: "thread.interrupt", threadId: id, cascade: true });
