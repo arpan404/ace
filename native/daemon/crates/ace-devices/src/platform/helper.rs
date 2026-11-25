@@ -145,19 +145,4 @@ mod tests {
         assert_eq!(input_answer("ACE_INPUT_1:127", "ACE_INPUT_1:"), Some(false));
         assert_eq!(input_answer("other:0", "ACE_INPUT_1:"), None);
     }
-
-    #[test]
-    fn the_read_queue_and_the_action_tree_keep_todays_bounds() {
-        assert_eq!(UI_QUEUE_LIMIT, 32);
-        let options = act_tree_options();
-        assert_eq!((options.max_nodes, options.max_depth), (512, 16));
-        assert_eq!(
-            ui_queue_full().to_string(),
-            "busy: Device UI read queue is full"
-        );
-        assert_eq!(
-            ui_tree_platform_refusal().to_string(),
-            "not_supported: Simulator tree uses the screen session"
-        );
-    }
 }

@@ -380,7 +380,7 @@ the shell that wires it, and the TypeScript that stays is the switch-off path un
 - **A `#[cfg(test)]` item is blanked, not the rest of its file.** The catalog check's Rust scan
   resumes after the item, with a unit test for brace-laden test bodies.
 
-## 12. D3.2: input and UI (2026-11-25, revised after round 3)
+## 12. D3.2: input and UI (2026-11-25, revised after round 4)
 
 `ACE_DEVICE_PLATFORM=native` answers these decisions from `ace-devices`; the switch-off leg is
 today's TypeScript unchanged, byte for byte. "Wired" means the TypeScript shell calls the addon
@@ -449,9 +449,26 @@ Round-2 review fixes, in Rust only (today's TypeScript stays as it was):
   `value ?? name` exactly as today (`platform/android_ui.rs:22`).
 - **Unusable children leave the element with none.** `null`, a non-array or more than 4,096
   children no longer drop the element or its subtree (`platform/simulator_ax.rs:102`).
-- **A clipboard deadline counts from its own request**, and an unanswered paste says
-  `pasteTimedOut` (`platform/scrcpy/clipboard.rs`). The busy refusal, the close and the write
-  acknowledgement keep their own cases, since the class now delegates them.
+- **A clipboard deadline is a delay the shell arms when it starts**, never an absolute instant
+  taken from a clock it cannot see: the machine emits a timer id and its delay, and a tick carries
+  only the id. An idle stretch between two requests therefore cannot make a later one fire early,
+  which is what the TypeScript's own `after(ms)` gives it. An unanswered paste says
+  `pasteTimedOut`, and a send that throws settles what it belonged to (`SendFailed`), so the next
+  read is not refused as busy (`platform/scrcpy/clipboard.rs`).
+- **The control-message reader's buffer stays in the addon.** The shell holds a handle and passes
+  only the new chunk, so a push costs the same whatever the buffer holds: 256 KiB in 1 KiB pushes
+  measured 3.3 ms with the whole state crossing and 1.3 ms with the handle (macOS, M4 Max,
+  `bun`), against the hot-path rule that work is proportional to the change.
+- **A scroll value is read after the target's own refusal**, on both legs, so a `"down"` value on
+  a Button is `simulatorActionUnsupported` rather than a schema error (`simulator-ax.ts`).
+- A native-only test (`packages/devices/src/native-machines.process.test.ts`) builds the three
+  wired machines through the shell and asserts they answer from Rust; with a missing addon it
+  fails, as the proof files do.
+- **Every ported bound counts what its TypeScript source counts** (engine porting guide rule 17):
+  node roles, names, values and descriptions are sliced in UTF-16 units (`.slice`), an Android
+  attribute value is capped at 8,192 code points (patched zod), the clipboard budget is 4,096
+  UTF-16 units, and scrcpy's injected text (300) and clipboard text (262,130) are UTF-8 bytes
+  (`Buffer`). Each has an emoji test on both sides of its limit.
 - **Control text is UTF-8 from its UTF-16 units**: a lone surrogate becomes U+FFFD and a literal
   U+E000 is one character, as `Buffer.from` writes them (`platform/scrcpy/protocol.rs:191`).
 - **AX labels are `JsString`**, so a lone surrogate the SDK printed survives.

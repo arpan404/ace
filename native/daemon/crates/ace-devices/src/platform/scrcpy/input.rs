@@ -443,6 +443,23 @@ mod tests {
     }
 
     #[test]
+    fn pasted_text_is_capped_in_utf8_bytes_as_buffer_byte_length_counts_them() {
+        // 65,532 emoji are 262,128 bytes and fit; one more is 262,132 and does not.
+        let emoji = "\u{1f44b}";
+        let fits = DeviceInput::Type {
+            text: emoji.repeat(65_532).into(),
+        };
+        assert!(plan(&fits, DISPLAY, VIDEO, 1).is_ok());
+        let too_long = DeviceInput::Type {
+            text: emoji.repeat(65_533).into(),
+        };
+        assert!(matches!(
+            plan(&too_long, DISPLAY, VIDEO, 1),
+            Err(Error::Refused(refusal)) if refusal.code == crate::platform::Code::Limit
+        ));
+    }
+
+    #[test]
     fn keys_map_to_navigation_and_system_actions() {
         assert!(matches!(
             first_key(Key::Home),

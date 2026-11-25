@@ -605,6 +605,24 @@ mod tests {
     }
 
     #[test]
+    fn node_field_caps_are_utf16_units_as_the_slices_are_not_code_points() {
+        let emoji = "\u{1f44b}";
+        let label = emoji.repeat(300);
+        let raw = ace_json::json!([element(
+            ace_json::json!({"type": "Button", "AXLabel": label, "AXValue": label, "frame": {"x": 0, "y": 0, "width": 402, "height": 874}}),
+            vec![],
+        )]);
+        let tree = tree(&raw, &screen(), TreeOptions::default()).expect("parses");
+        let node = &tree.nodes[0];
+        // `.slice(0, 256)` keeps 256 UTF-16 units, so 128 of the 300 emoji.
+        assert_eq!(node.name.chars().count(), 128);
+        assert_eq!(node.name.len_utf16(), 256);
+        let value = node.value.as_ref().expect("a value");
+        assert_eq!(value.chars().count(), 256);
+        assert_eq!(value.len_utf16(), 512);
+    }
+
+    #[test]
     fn a_node_without_a_value_omits_it_and_a_text_find_then_falls_back_to_its_name() {
         let raw = ace_json::json!([element(
             ace_json::json!({"type": "Button", "AXLabel": "Settings", "frame": {"x": 0, "y": 0, "width": 402, "height": 874}}),

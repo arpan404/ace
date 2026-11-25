@@ -1,5 +1,10 @@
 import { nativeDevices } from "./native-devices-addon.ts";
-import { nativeDeviceReaderStep, nativeInput } from "./native-input.ts";
+import {
+  nativeDeviceReaderDrop,
+  nativeDeviceReaderNew,
+  nativeDeviceReaderPush,
+  nativeInput,
+} from "./native-input.ts";
 
 /**
  * ace's own client side of the scrcpy wire protocol, written from scrcpy's `doc/develop.md` and
@@ -172,17 +177,18 @@ export type DeviceMessage =
 export class DeviceMessageReader {
   private buffer: Buffer = Buffer.alloc(0);
   private broken = false;
-  /** The Rust reader's carried state under the switch. */
-  private carried: string | null = null;
+  /** The Rust reader's handle under the switch; its buffer never leaves the addon. */
+  private native: number | undefined;
   private readonly emit: (message: DeviceMessage) => void;
   constructor(emit: (message: DeviceMessage) => void) {
     this.emit = emit;
+    if (nativeInput) readerDrop.register(this, 0);
   }
   push(chunk: Buffer): void {
     if (nativeInput) {
-      const answer = nativeDeviceReaderStep(this.carried, chunk);
-      this.carried = JSON.stringify(answer.state);
-      for (const message of answer.messages) this.emit(reviveDeviceMessage(message));
+      this.native ??= this.#createReader();
+      for (const message of nativeDeviceReaderPush(this.native, chunk).messages)
+        this.emit(reviveDeviceMessage(message));
       return;
     }
     if (this.broken) return;
@@ -195,6 +201,13 @@ export class DeviceMessageReader {
       this.buffer = this.buffer.subarray(consumed);
     }
   }
+  #createReader(): number {
+    const id = nativeDeviceReaderNew();
+    readerDrop.unregister(this);
+    readerDrop.register(this, id);
+    return id;
+  }
+
   private next(): number {
     const buffer = this.buffer;
     if (!buffer.length) return 0;
@@ -231,6 +244,9 @@ function reviveDeviceMessage(message: { type: string } & Record<string, unknown>
     return { type: "clipboardAck", sequence: BigInt(String(message["sequence"])) };
   return message as DeviceMessage;
 }
+
+/** Hands the addon's reader back when the socket's reader is collected. */
+const readerDrop = new FinalizationRegistry<number>((id) => nativeDeviceReaderDrop(id));
 
 export const videoCodecId = { h264: 0x68323634, h265: 0x68323635, av1: 0x00617631 } as const;
 

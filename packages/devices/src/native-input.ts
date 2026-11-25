@@ -116,11 +116,21 @@ export function nativeHeldPointersStep(state: string | null, input?: unknown) {
   ) as { state: unknown; released: unknown[] };
 }
 
-/** One socket chunk through scrcpy's device-message reader. */
-export function nativeDeviceReaderStep(state: string | null, chunk: Buffer) {
-  return deviceAnswer<{ state: unknown; messages: { type: string }[] }>(() =>
-    nativeDevices().devicePlatformScrcpyDeviceReaderStep(state, chunk.toString("hex")),
+/** A new reader in the addon, whose buffer stays there; only each chunk crosses. */
+export function nativeDeviceReaderNew(): number {
+  return nativeDevices().devicePlatformScrcpyDeviceReaderNew();
+}
+
+/** One socket chunk through that reader. */
+export function nativeDeviceReaderPush(id: number, chunk: Buffer) {
+  return deviceAnswer<{ messages: { type: string }[] }>(() =>
+    nativeDevices().devicePlatformScrcpyDeviceReaderPush(id, chunk.toString("hex")),
   );
+}
+
+/** Lets the reader's buffer go with its socket. */
+export function nativeDeviceReaderDrop(id: number): void {
+  nativeDevices().devicePlatformScrcpyDeviceReaderDrop(id);
 }
 
 /** The `/ax` read's body cap and deadline. */

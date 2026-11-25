@@ -16,6 +16,9 @@ use ace_devices::platform::{
 use ace_json::Value;
 use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use super::answered;
 
@@ -448,34 +451,50 @@ struct PointersStep {
     released: Vec<ace_devices::platform::device_input::DeviceInput>,
 }
 
-/// One socket chunk through scrcpy's device-message reader: the messages it completed.
-#[napi]
-pub fn device_platform_scrcpy_device_reader_step(
-    state: Option<String>,
-    chunk: String,
-) -> napi::Result<String> {
-    let mut reader = match state {
-        Some(text) => {
-            let state: scrcpy_protocol::ReaderState = parse(&text)?;
-            scrcpy_protocol::DeviceMessageReader::from_state(&state)
-                .map_err(|error| napi::Error::from_reason(format!("ace-devices: {error}")))?
-        }
-        None => scrcpy_protocol::DeviceMessageReader::new(),
-    };
-    let bytes = hex_chunk(&chunk)?;
-    let pushed = reader.push(&bytes);
-    answered(|| {
-        Ok(ReaderStep {
-            state: reader.state(),
-            messages: pushed?,
-        })
-    })
+/// The readers this addon holds: one per control socket, its buffer kept here so a push carries
+/// only the new chunk.
+fn readers() -> &'static Mutex<HashMap<u32, scrcpy_protocol::DeviceMessageReader>> {
+    static READERS: OnceLock<Mutex<HashMap<u32, scrcpy_protocol::DeviceMessageReader>>> =
+        OnceLock::new();
+    READERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// The reader's carried state and the messages one chunk completed.
+/// The next reader's handle.
+static NEXT_READER: AtomicU32 = AtomicU32::new(1);
+
+/// A new control-message reader; its handle names it to [`device_platform_scrcpy_device_reader_push`].
+#[napi]
+pub fn device_platform_scrcpy_device_reader_new() -> u32 {
+    let id = NEXT_READER.fetch_add(1, Ordering::Relaxed);
+    if let Ok(mut readers) = readers().lock() {
+        readers.insert(id, scrcpy_protocol::DeviceMessageReader::new());
+    }
+    id
+}
+
+/// One socket chunk through the reader: the messages it completed. Only the chunk crosses.
+#[napi]
+pub fn device_platform_scrcpy_device_reader_push(id: u32, chunk: String) -> napi::Result<String> {
+    let bytes = hex_chunk(&chunk)?;
+    let pushed = readers()
+        .lock()
+        .ok()
+        .and_then(|mut readers| readers.get_mut(&id).map(|reader| reader.push(&bytes)))
+        .ok_or_else(|| napi::Error::from_reason("ace-devices: unknown reader"))?;
+    answered(|| Ok(ReaderStep { messages: pushed? }))
+}
+
+/// Lets a reader's buffer go with its socket.
+#[napi]
+pub fn device_platform_scrcpy_device_reader_drop(id: u32) {
+    if let Ok(mut readers) = readers().lock() {
+        readers.remove(&id);
+    }
+}
+
+/// The messages one chunk completed.
 #[derive(serde::Serialize)]
 struct ReaderStep {
-    state: scrcpy_protocol::ReaderState,
     messages: Vec<scrcpy_protocol::DeviceMessage>,
 }
 

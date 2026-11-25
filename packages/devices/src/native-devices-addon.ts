@@ -255,7 +255,9 @@ interface DevicesAddon {
   devicePlatformPasteboardPlan(verb: string, udid: string): string;
   devicePlatformScrcpyClipboardStep(state: string | null, event: string): string;
   devicePlatformHeldPointersStep(state: string | null, input?: string): string;
-  devicePlatformScrcpyDeviceReaderStep(state: string | null, chunk: string): string;
+  devicePlatformScrcpyDeviceReaderNew(): number;
+  devicePlatformScrcpyDeviceReaderPush(id: number, chunk: string): string;
+  devicePlatformScrcpyDeviceReaderDrop(id: number): void;
   devicePlatformSimulatorAxLimits(): string;
 }
 

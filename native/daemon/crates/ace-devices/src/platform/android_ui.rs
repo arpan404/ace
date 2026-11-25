@@ -284,6 +284,11 @@ fn attributes(tag: &str) -> Result<Vec<(String, String)>, Error> {
         }
         let value = &trimmed[value_start..cursor];
         cursor += 1;
+        // `z.record(z.string().max(8192))` counts code points under ace's patched zod, so 8192
+        // emoji fit and 8193 do not.
+        if value.chars().count() > 8192 {
+            return Err(invalid("androidAttributesMalformed"));
+        }
         if values.iter().any(|(each, _)| each == name) {
             return Err(invalid("androidAttributesMalformed"));
         }
@@ -793,6 +798,40 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn node_field_caps_are_utf16_units_as_the_slices_are_not_code_points() {
+        let emoji = "\u{1f44b}";
+        let label = emoji.repeat(300);
+        let xml = format!(
+            "<hierarchy><node class=\"Button\" content-desc=\"{label}\" text=\"{label}\" \
+             bounds=\"[0,0][10,10]\" /></hierarchy>"
+        );
+        let tree = tree(&xml, TreeOptions::default()).expect("parses");
+        let node = &tree.nodes[0];
+        // `.slice(0, 256)` keeps 256 UTF-16 units, so 128 of the 300 emoji.
+        assert_eq!(node.name.chars().count(), 128);
+        assert_eq!(node.name.len_utf16(), 256);
+        // `.slice(0, 512)` keeps 256 emoji.
+        let value = node.value.as_ref().expect("a value");
+        assert_eq!(value.chars().count(), 256);
+        assert_eq!(value.len_utf16(), 512);
+    }
+
+    #[test]
+    fn an_attribute_value_is_capped_at_8192_code_points_as_the_schema_counts_them() {
+        let emoji = "\u{1f44b}";
+        let fits = format!(
+            "<hierarchy><node class=\"Button\" text=\"{}\" bounds=\"[0,0][10,10]\" /></hierarchy>",
+            emoji.repeat(8192)
+        );
+        assert!(tree(&fits, TreeOptions::default()).is_ok());
+        let too_long = format!(
+            "<hierarchy><node class=\"Button\" text=\"{}\" bounds=\"[0,0][10,10]\" /></hierarchy>",
+            emoji.repeat(8193)
+        );
+        assert!(tree(&too_long, TreeOptions::default()).is_err());
     }
 
     #[test]

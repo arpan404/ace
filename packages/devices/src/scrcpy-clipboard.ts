@@ -158,7 +158,7 @@ export class ScrcpyClipboard {
 /** What one step of the Rust clipboard asks the shell to do. */
 type ClipboardOut =
   | { kind: "send"; message: ControlMessage }
-  | { kind: "timer"; atMs: number }
+  | { kind: "timer"; id: number; afterMs: number }
   | { kind: "readDone"; id: number; result: { Ok: string } | { Err: RefusalWord } }
   | { kind: "writeDone"; sequence: number; result: { Ok?: null } | { Err: RefusalWord } };
 
@@ -168,8 +168,8 @@ type ClipboardOut =
  */
 class NativeClipboard {
   #state: string | null = null;
-  #now = 0;
   #nextId = 1;
+  #active: number | undefined;
   #readers = new Map<number, { resolve(text: string): void; reject(error: unknown): void }>();
   #writes: { sequence?: bigint; resolve(): void; reject(error: unknown): void }[] = [];
   readonly #options: ScrcpyClipboardOptions;
@@ -182,19 +182,20 @@ class NativeClipboard {
     const id = this.#nextId++;
     return new Promise<string>((resolve, reject) => {
       this.#readers.set(id, { resolve, reject });
-      this.#step({ kind: "read", id, owner, nowMs: this.#now });
+      this.#active = id;
+      this.#step({ kind: "read", id, owner });
     });
   }
 
   write(text: string, paste: boolean): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       this.#writes.push({ resolve, reject });
-      this.#step({ kind: "write", text, paste, nowMs: this.#now });
+      this.#step({ kind: "write", text, paste });
     });
   }
 
   received(message: DeviceMessage): void {
-    this.#step({ kind: "received", message, nowMs: this.#now });
+    this.#step({ kind: "received", message });
   }
 
   close(): void {
@@ -208,22 +209,13 @@ class NativeClipboard {
   }
 
   #apply(out: ClipboardOut): void {
-    if (out.kind === "send") {
-      const message = out.message;
-      if (message.type === "setClipboard")
-        this.#writes.find((write) => write.sequence === undefined)!.sequence = message.sequence;
-      this.#options.send(message);
-      return;
-    }
+    if (out.kind === "send") return this.#send(out.message);
     if (out.kind === "timer") {
-      // The machine's deadlines are absolute; the shell's clock only moves with its timers.
-      this.#options.after(Math.max(0, out.atMs - this.#now), () => {
-        this.#now = Math.max(this.#now, out.atMs);
-        this.#step({ kind: "tick", nowMs: out.atMs });
-      });
+      this.#options.after(out.afterMs, () => this.#step({ kind: "tick", id: out.id }));
       return;
     }
     if (out.kind === "readDone") {
+      this.#active = undefined;
       const reader = this.#readers.get(out.id);
       this.#readers.delete(out.id);
       if (!reader) return;
@@ -234,8 +226,33 @@ class NativeClipboard {
     const write = this.#writes.find((each) => each.sequence === BigInt(out.sequence));
     if (!write) return;
     this.#writes.splice(this.#writes.indexOf(write), 1);
-    if ("Err" in out.result) write.reject(deviceRefusal((out.result as { Err: RefusalWord }).Err));
+    if ("Err" in out.result) write.reject(deviceRefusal(out.result.Err));
     else write.resolve();
+  }
+
+  /** Sends one message; a send that throws settles what it belonged to, as today's code does. */
+  #send(message: ControlMessage): void {
+    if (message.type === "setClipboard") {
+      const write = this.#writes.find((each) => each.sequence === undefined);
+      if (write) write.sequence = message.sequence;
+    }
+    try {
+      this.#options.send(message);
+    } catch (error) {
+      if (message.type === "setClipboard") {
+        this.#step({ kind: "sendFailed", sequence: Number(message.sequence) });
+        const index = this.#writes.findIndex((each) => each.sequence === message.sequence);
+        const write = index >= 0 ? this.#writes.splice(index, 1)[0] : undefined;
+        write?.reject(error);
+        return;
+      }
+      const read = this.#active;
+      this.#step({ kind: "sendFailed", read });
+      this.#active = undefined;
+      const reader = read === undefined ? undefined : this.#readers.get(read);
+      if (read !== undefined) this.#readers.delete(read);
+      reader?.reject(error);
+    }
   }
 }
 

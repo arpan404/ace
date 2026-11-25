@@ -290,13 +290,6 @@ pub enum DeviceMessage {
     Unknown { code: u8 },
 }
 
-/// A reader's carried state: its buffer as hex and whether it stopped.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ReaderState {
-    pub buffer: String,
-    pub broken: bool,
-}
-
 /// Splits the server's device-to-client control stream into messages. An unknown message type
 /// has no length we can trust, so it ends parsing: the caller reports it and stops reading.
 #[derive(Debug, Default)]
@@ -337,38 +330,6 @@ impl DeviceMessageReader {
             }
         }
         Ok(messages)
-    }
-
-    /// The reader's buffer and whether it stopped, as the shell carries them between chunks.
-    pub fn state(&self) -> ReaderState {
-        ReaderState {
-            buffer: self
-                .buffer
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect(),
-            broken: self.broken,
-        }
-    }
-
-    /// A reader resuming from [`DeviceMessageReader::state`].
-    pub fn from_state(state: &ReaderState) -> Result<Self, Error> {
-        let mut buffer = Vec::with_capacity(state.buffer.len() / 2);
-        let bytes = state.buffer.as_bytes();
-        let mut index = 0;
-        while index + 1 < bytes.len() {
-            let pair = std::str::from_utf8(&bytes[index..index + 2])
-                .map_err(|_| Error::Invalid("a reader state is not hex".into()))?;
-            buffer.push(
-                u8::from_str_radix(pair, 16)
-                    .map_err(|_| Error::Invalid("a reader state is not hex".into()))?,
-            );
-            index += 2;
-        }
-        Ok(Self {
-            buffer,
-            broken: state.broken,
-        })
     }
 
     fn next(&mut self) -> Result<Option<(DeviceMessage, usize)>, Error> {

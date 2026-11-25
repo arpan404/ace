@@ -279,6 +279,10 @@ export function simulatorActionInput(
   | { kind: "tap"; x: number; y: number }
   | { kind: "swipe"; x: number; y: number; toX: number; toY: number; durationMs: number }
   | { kind: "none"; method: string } {
+  // Today's order on both legs: a target that cannot do the action is refused before its value
+  // is read, so a scroll of `"down"` on a Button is `not_supported`, not a schema error.
+  if (!node.actions.includes(action.action) || node.states.includes("disabled"))
+    throw catalogRefusal("simulatorActionUnsupported");
   // `z.object({dx, dy})` reads a scroll value on both legs, so a bad one is the same ZodError.
   const scroll = action.action === "scroll" ? scrollValue(action.value) : { dx: 0, dy: 0 };
   if (nativeInput)
@@ -290,8 +294,6 @@ export function simulatorActionInput(
       | { kind: "tap"; x: number; y: number }
       | { kind: "swipe"; x: number; y: number; toX: number; toY: number; durationMs: number }
       | { kind: "none"; method: string };
-  if (!node.actions.includes(action.action) || node.states.includes("disabled"))
-    throw catalogRefusal("simulatorActionUnsupported");
   const centre = {
     x: Math.floor(node.bounds.x + node.bounds.w / 2),
     y: Math.floor(node.bounds.y + node.bounds.h / 2),
