@@ -211,13 +211,16 @@ impl Recorder {
 }
 
 impl ChannelHandlers for Recorder {
-    fn frame(&self, dir: Direction, data: &Value) -> Admission {
+    fn admit(&self, _dir: Direction, _data: &Value) -> Admission {
+        Admission::Taken
+    }
+
+    fn frame(&self, dir: Direction, data: &Value) {
         self.events.push(Event::Frame {
             tenant: self.tenant,
             dir,
             data: data.clone(),
         });
-        Admission::Taken
     }
 
     fn notification(&self, method: &JsString, _params: Option<&Value>) {
@@ -622,6 +625,12 @@ impl HostSink for HostEffects {
             }
             HostEffect::CancelTimer { key } => {
                 self.events.push(Event::CancelTimer { key });
+            }
+            HostEffect::Frame { tenant, dir, data } => {
+                if let Some(handlers) = self.handlers.lock().expect("tenant handlers").get(&tenant)
+                {
+                    handlers.frame(dir, &data);
+                }
             }
             HostEffect::Settle { id, result } => self.events.push(Event::Settle {
                 id,

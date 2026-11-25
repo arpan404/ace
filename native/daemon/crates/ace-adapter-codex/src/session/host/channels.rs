@@ -281,8 +281,18 @@ impl Inner {
             return false;
         }
         let handlers = Arc::clone(&entry.handlers);
-        match handlers.frame(dir, data) {
-            Admission::Taken => true,
+        match handlers.admit(dir, data) {
+            // The frame's delivery is published where the host decides it: a
+            // settlement or exit an earlier input decided is never overtaken by
+            // the frame of a later one.
+            Admission::Taken => {
+                self.out.push(HostEffect::Frame {
+                    tenant,
+                    dir,
+                    data: data.clone(),
+                });
+                true
+            }
             Admission::Failed(message) => {
                 entry.muted = true;
                 handlers.failed(&message);

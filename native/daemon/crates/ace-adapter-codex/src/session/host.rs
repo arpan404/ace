@@ -215,10 +215,18 @@ pub enum RequestAnswer {
 }
 
 /// One tenant's callbacks (`ChannelHandlers`, `host.ts:29`). A handler never
-/// calls back into the host: it publishes onto its own ordered queue (E3.0c),
-/// which is what lets the host hold its lock across a delivery.
+/// calls back into the host: `admit` runs under the host's lock, and `frame`
+/// runs in its publisher, in the order the host decided the frames.
 pub trait ChannelHandlers: Send + Sync {
-    fn frame(&self, dir: Direction, data: &Value) -> Admission;
+    /// Whether this channel takes the frame. Answered under the host's lock,
+    /// because the input's control flow depends on it: a refused frame mutes
+    /// its channel, and a request whose frame was refused is not dispatched. It
+    /// delivers nothing; the frame itself follows as `HostEffect::Frame`, in
+    /// the host's publication order.
+    fn admit(&self, dir: Direction, data: &Value) -> Admission;
+    /// The frame's delivery to the channel, published in the order the host
+    /// decided it, alongside every settlement and exit.
+    fn frame(&self, dir: Direction, data: &Value);
     fn notification(&self, method: &JsString, params: Option<&Value>);
     fn request(&self, id: &RpcId, method: &JsString, params: Option<&Value>) -> RequestAnswer;
     fn dropped(&self, line: &DroppedLine);
@@ -248,6 +256,13 @@ pub enum HostEffect {
     },
     CancelTimer {
         key: String,
+    },
+    /// One frame for a channel that took it, published in the host's order
+    /// with every settlement and exit. The data is cloned once per delivery.
+    Frame {
+        tenant: u64,
+        dir: Direction,
+        data: Value,
     },
     /// Settles the facade's promise `id`, once.
     Settle {

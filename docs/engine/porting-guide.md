@@ -1172,7 +1172,11 @@ fakes, and everything the E1 translator owns. Five tasks, in order.
 - **Effects, published in order**: every input's effects join one queue under the host's lock and
   one caller at a time hands them to the shell (`HostSink`), so two inputs never swap the effects
   they decided: a settlement a timer decided is never published after the exit a pipe close decided
-  later (ADR 0223 §7 rule 3, `bridge.rs`). The shell sets its sink once, before its first input.
+  later, and no frame is published before the settlement decided before it (ADR 0223 §7 rule 3,
+  `bridge.rs`). The shell sets its sink once, before its first input. A frame's admission is
+  decided under the lock (`ChannelHandlers::admit`: a refused frame mutes its channel and is never
+  dispatched) and its delivery (`ChannelHandlers::frame`, `HostEffect::Frame`) is published with
+  the rest.
 - **The pool's identity**: a native pool is created per TypeScript `CodexHostPool` instance (a
   `WeakMap` in the facade, E3-codex.5), so the tests that share one pool share one native pool.
   `CodexHostPool.close()` also closes its native twin. That is a one-line change in

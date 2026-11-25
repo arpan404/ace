@@ -7,6 +7,7 @@
 
 mod channels;
 mod exit;
+mod publication;
 mod stop;
 
 use ace_json::Value;
@@ -34,13 +35,25 @@ pub(super) fn run(name: &str, shared: bool) -> HostRun {
 }
 
 /// A sink for a host with no child: it keeps the effects the host published,
-/// in the order it published them, so a case can read them back.
+/// in the order it published them, so a case can read them back, and delivers
+/// each frame to the channel that took it.
 struct LogSink {
     log: Arc<std::sync::Mutex<Vec<HostEffect>>>,
+    handlers: Arc<std::sync::Mutex<std::collections::HashMap<u64, Arc<dyn ChannelHandlers>>>>,
 }
 
 impl HostSink for LogSink {
     fn effect(&self, _host: &Host, effect: HostEffect) {
+        if let HostEffect::Frame { tenant, dir, data } = &effect
+            && let Some(handlers) = self
+                .handlers
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .get(tenant)
+                .cloned()
+        {
+            handlers.frame(*dir, data);
+        }
         self.log
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -53,6 +66,7 @@ impl HostSink for LogSink {
 pub(super) struct Shell {
     pub host: Arc<Host>,
     log: Arc<std::sync::Mutex<Vec<HostEffect>>>,
+    handlers: Arc<std::sync::Mutex<std::collections::HashMap<u64, Arc<dyn ChannelHandlers>>>>,
     /// How far into the log the shell has read: every effect is read once, in
     /// the order the host published it.
     read: std::sync::Mutex<usize>,
@@ -70,15 +84,31 @@ impl Shell {
     /// A host with no child, whose effects the shell keeps in order.
     pub(super) fn start(config: HostConfig) -> Shell {
         let log = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let handlers = Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
         let host = Arc::new(Host::new(config));
         host.set_sink(Arc::new(LogSink {
             log: Arc::clone(&log),
+            handlers: Arc::clone(&handlers),
         }));
         Shell {
             host,
             log,
+            handlers,
             read: std::sync::Mutex::new(0),
         }
+    }
+
+    /// A channel on this host, its frames delivered by the shell's sink.
+    pub(super) fn attach(
+        &self,
+        tenant: u64,
+        handlers: Arc<dyn ChannelHandlers>,
+    ) -> Result<(), HostError> {
+        self.handlers
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(tenant, Arc::clone(&handlers));
+        self.host.attach(tenant, handlers)
     }
 
     /// What the shell does with a host's effects: acknowledge every write,

@@ -116,9 +116,10 @@ fn a_frame_a_channel_does_not_admit_mutes_it_without_stopping_the_peer() {
         events: Arc<crate::session::harness::Events>,
     }
     impl ChannelHandlers for Muted {
-        fn frame(&self, _dir: ace_supervisor::peer::Direction, _data: &Value) -> Admission {
+        fn admit(&self, _dir: ace_supervisor::peer::Direction, _data: &Value) -> Admission {
             Admission::Failed("translation broke".to_owned())
         }
+        fn frame(&self, _dir: ace_supervisor::peer::Direction, _data: &Value) {}
         fn notification(&self, _method: &ace_json::JsString, _params: Option<&Value>) {}
         fn request(
             &self,
@@ -310,9 +311,10 @@ fn a_request_whose_frame_was_not_admitted_is_refused() {
         events: Arc<crate::session::harness::Events>,
     }
     impl ChannelHandlers for Unadmitting {
-        fn frame(&self, _dir: ace_supervisor::peer::Direction, _data: &Value) -> Admission {
+        fn admit(&self, _dir: ace_supervisor::peer::Direction, _data: &Value) -> Admission {
             Admission::Failed("translation broke".to_owned())
         }
+        fn frame(&self, _dir: ace_supervisor::peer::Direction, _data: &Value) {}
         fn notification(&self, _method: &ace_json::JsString, _params: Option<&Value>) {}
         fn request(
             &self,
