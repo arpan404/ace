@@ -72,6 +72,14 @@ E5.3 runs in parallel with E5.2 and E5.4 and lands after E5.1.
 
 ## Prerequisite fix on main (TypeScript, its own PR, before E5.3)
 
+> **Status (owner decision, 2026-11-24): no TypeScript fix.** Bugs found in the TypeScript daemon
+> are fixed in the Rust port only, never on main. This section is therefore **not** a PR to main.
+> E5.3 ports today's open-time statements as they are, in the same order. The bounded open-time
+> design (ADR 0170) becomes a later Rust-only item, starting from this text and the lessons on
+> `ace/fix-bounded-open-fills`: an unbounded per-thread rebuild, divergence from the native
+> transaction shell, and the provisional workspace fence. The queue that shows empty while live
+> intents exist is fixed in Rust in E5.4a, as a recorded difference with a native-only test.
+
 The opener (step 1) runs the TypeScript repository's constructors on every native boot, and those
 constructors do history-sized data work at open today. That breaks ADR 0170 §1–§3 on main with the
 switch off as much as on, so it is a bug on main, fixed first in its own PR. E5.3 then ports the

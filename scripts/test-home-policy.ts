@@ -139,10 +139,20 @@ export function isolatedTestEnvironment(
       : {}),
     ...(ambient.ACE_SUPERVISOR !== undefined ? { ACE_SUPERVISOR: ambient.ACE_SUPERVISOR } : {}),
     ...(ambient.ACE_ENGINE !== undefined ? { ACE_ENGINE: ambient.ACE_ENGINE } : {}),
+    // The native engine's first-build evidence file, beside the store writer's (E5.1).
+    ...(ambient.ACE_ENGINE_EVIDENCE !== undefined
+      ? { ACE_ENGINE_EVIDENCE: ambient.ACE_ENGINE_EVIDENCE }
+      : {}),
     ...(ambient.ACE_CORE !== undefined ? { ACE_CORE: ambient.ACE_CORE } : {}),
     // The devices switches (ADR 0225): a run with one on proves the native phase.
     ...(ambient.ACE_SCRCPY_VIDEO !== undefined
       ? { ACE_SCRCPY_VIDEO: ambient.ACE_SCRCPY_VIDEO }
+      : {}),
+    ...(ambient.ACE_DEVICE_INVENTORY !== undefined
+      ? { ACE_DEVICE_INVENTORY: ambient.ACE_DEVICE_INVENTORY }
+      : {}),
+    ...(ambient.ACE_DEVICE_INVENTORY_ADDON !== undefined
+      ? { ACE_DEVICE_INVENTORY_ADDON: ambient.ACE_DEVICE_INVENTORY_ADDON }
       : {}),
     // The git implementation switch (ADR 0224, G0) and the gate's logs and
     // verify mode: the git shells read them in workers, where every other
