@@ -147,6 +147,15 @@ impl ExecuteRawRequest {
     }
 }
 
+/// A millisecond count as the core's unsigned budget, as Node's timer reads it.
+fn milliseconds(value: f64) -> u64 {
+    if value.is_finite() && value > 0.0 {
+        value.round() as u64
+    } else {
+        0
+    }
+}
+
 fn empty_array_json() -> String {
     "[]".to_owned()
 }
@@ -243,20 +252,10 @@ impl NativeGitCore {
                 "invalid executeRaw request",
             )))
         })?;
-        let timeout_ms = match req.timeout_ms {
-            Some(ms) => Some(
-                validate_timeout_ms(Some(ms))
-                    .map_err(|e| failed(ace_git::error::Error::from(e)))?,
-            ),
-            None => None,
-        };
-        let stop_after_ms = match req.stop_after_ms {
-            Some(ms) => Some(
-                validate_timeout_ms(Some(ms))
-                    .map_err(|e| failed(ace_git::error::Error::from(e)))?,
-            ),
-            None => None,
-        };
+        // A per-call timeout and work budget are the caller's numbers; TS only
+        // bounds the constructor's default, so a 0 ms budget stays valid here.
+        let timeout_ms = req.timeout_ms.map(milliseconds);
+        let stop_after_ms = req.stop_after_ms.map(milliseconds);
 
         let (call_id, cancel) = self.core.register_cancel();
         let stdin_rx = if req.stream_stdin {
