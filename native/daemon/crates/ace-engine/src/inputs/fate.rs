@@ -4,7 +4,7 @@
 //! facade's `inputFate` takes in one transaction.
 
 use ace_json::Value;
-use ace_store::{stmt_cache, Value as SqlValue};
+use ace_store::{Value as SqlValue, stmt_cache};
 
 use crate::EngineError;
 
@@ -39,15 +39,14 @@ pub fn read(
     })
 }
 
-fn written_at(
-    tx: &crate::store::Tx<'_>,
-    thread: &str,
-    key: &str,
-) -> Result<bool, EngineError> {
+fn written_at(tx: &crate::store::Tx<'_>, thread: &str, key: &str) -> Result<bool, EngineError> {
     Ok(stmt_cache::get_row(
         tx.conn(),
         CREATED_SEQ,
-        vec![SqlValue::Text(thread.to_owned()), SqlValue::Text(key.to_owned())],
+        vec![
+            SqlValue::Text(thread.to_owned()),
+            SqlValue::Text(key.to_owned()),
+        ],
     )?
     .is_some())
 }
