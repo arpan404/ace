@@ -389,7 +389,11 @@ impl Host {
     /// cannot undo that.
     pub fn stop_failed(&self) {
         let mut inner = self.lock();
-        inner.stop_state = StopState::Failed;
+        // Only the stop in flight can fail: a late report from one that already
+        // finished must not mark a newer stop, or the state before it, failed.
+        if inner.stop_state == StopState::InFlight {
+            inner.stop_state = StopState::Failed;
+        }
         if inner.exiting {
             return;
         }

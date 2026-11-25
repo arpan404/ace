@@ -433,6 +433,39 @@ fn a_stop_that_unwinds_may_be_asked_for_again() {
     );
 }
 
+/// A stop that failed stays failed: a delivery that the shell could not confirm
+/// must not be counted as landed, or the tree leaks.
+#[test]
+fn a_stop_that_failed_in_the_queue_is_not_counted_as_landed() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start();
+    sink.fail_next_stop();
+    host.retire(Retirement::User);
+    assert_eq!(sink.stops(), 1);
+    assert_eq!(sink.failed_stops(), 1, "the retire's stop failed");
+
+    // A poison owes no stop of its own: one was decided, and it failed.
+    sink.lose_next_write(false);
+    host.request(
+        1,
+        "thread/read",
+        Some(&ace_json::json!({"threadId": "t"})),
+        7,
+        Timeout::Disabled,
+    )
+    .expect("the call is queued");
+    assert!(host.poisoned());
+    assert_eq!(sink.stops(), 1, "the poison repeats no stop");
+
+    host.retire(Retirement::Shutdown);
+    assert_eq!(
+        sink.stops(),
+        2,
+        "the failure is not forgotten: the owner stops the child: {:?}",
+        sink.published()
+    );
+}
+
 /// A leader can die while a background-terminal child still holds the pipes,
 /// so a poison before the pipe barrier must still stop the tree.
 #[test]
