@@ -102,16 +102,23 @@ pub fn fold_batch(core: &Rc<Core>, thread: &ThreadId, op: &mut BatchOp) -> Resul
             memory.status_before = Some(deps.repo.status(core, thread)?);
         }
         let now = core.ports.now();
-        let mut translated = match memory.translated.take() {
-            Some(translated) => translated,
-            None => translate_batch(core, &deps, thread, &live, cursor_sdk, generation)?,
-        };
-        let facts = std::mem::take(&mut translated.facts);
-        if !translated.journal.is_empty() {
+        // Translation runs once per batch, before any write: a retry reuses the facts and the
+        // journal, because translators keep state (actor.ts:358–:366).
+        if memory.translated.is_none() {
+            memory.translated = Some(translate_batch(
+                core, &deps, thread, &live, cursor_sdk, generation,
+            )?);
+        }
+        if let Some(translated) = memory.translated.as_ref()
+            && !translated.journal.is_empty()
+        {
             // The record rolls back with the rest, so every attempt writes it again.
             deps.repo.cursor_record(core, thread, &translated.journal)?;
         }
-        let boundary = facts.iter().any(tool_boundary);
+        let boundary = memory
+            .translated
+            .as_ref()
+            .is_some_and(|translated| translated.facts.iter().any(tool_boundary));
         let command_running = if boundary {
             deps.repo.running_foreground_command(core, thread)?
         } else {
@@ -121,16 +128,26 @@ pub fn fold_batch(core: &Rc<Core>, thread: &ThreadId, op: &mut BatchOp) -> Resul
         let streamed = match memory.streamed {
             Some(streamed) => streamed,
             None => {
-                let answer = !cursor_sdk && deps.repo.stream(core, thread, &facts, now)?;
+                let answer = match memory.translated.as_ref() {
+                    Some(translated) if !cursor_sdk => {
+                        deps.repo.stream(core, thread, &translated.facts, now)?
+                    }
+                    _ => false,
+                };
                 memory.streamed = Some(answer);
                 answer
             }
         };
         let settle = |core: &Rc<Core>, streamed: bool| -> Result<(), EngineError> {
+            let facts: &[Value] = memory
+                .translated
+                .as_ref()
+                .map(|translated| translated.facts.as_slice())
+                .unwrap_or(&[]);
             if streamed {
                 timer::schedule(core, thread);
             } else {
-                apply(core, thread, &facts)?;
+                apply(core, thread, facts)?;
             }
             if sdk
                 && facts.iter().any(|fact| {
@@ -161,8 +178,6 @@ pub fn fold_batch(core: &Rc<Core>, thread: &ThreadId, op: &mut BatchOp) -> Resul
         } else {
             settle(core, streamed)?;
         }
-        translated.facts = facts;
-        memory.translated = Some(translated);
         Ok(())
     })();
     op.memory = memory;
