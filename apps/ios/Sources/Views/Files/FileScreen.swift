@@ -21,7 +21,13 @@ struct FileScreen: View {
     /// The editor group this file shows in (`EditorGroups`); nil for a file opened on its own.
     var slot: EditorSlot?
     @Environment(\.dismiss) var dismiss
-    @AppStorage("files.wrap") var wrap = false
+    @AppStorage(EditorPreferences.wordWrapKey) var wrap = false
+    @AppStorage(EditorPreferences.fontSizeKey) var fontSize = EditorPreferences.defaultFontSize
+    @AppStorage(EditorPreferences.lineSpacingKey) var lineSpacing = EditorPreferences.defaultLineSpacing
+    @AppStorage(EditorPreferences.tabSizeKey) var tabSize = EditorPreferences.defaultTabSize
+    @AppStorage(EditorPreferences.insertSpacesKey) var insertSpaces = true
+    @AppStorage(EditorPreferences.autoSaveKey) var autoSaveMode = EditorAutoSaveMode.off.rawValue
+    @AppStorage(EditorPreferences.autoSaveDelayKey) var autoSaveDelay = EditorPreferences.defaultAutoSaveDelay
     @State var path: String
     @State var content: FileContent?
     @State var image: UIImage?
@@ -33,6 +39,10 @@ struct FileScreen: View {
     @State var editSession = 0
     @State var dirty = false
     @State var saving = false
+    /// Auto save's timer for the text being edited, and whether a write that met another change
+    /// has stopped it until the person saves by hand.
+    @State var autoSaveTask: Task<Void, Never>?
+    @State var autoSave = EditorAutoSave()
     @State var conflict: String?
     @State var problem: String?
     @State var confirmDiscard = false
@@ -113,6 +123,7 @@ struct FileScreen: View {
                 FilesScreen(model: model, scope: scope, subtitle: threadTitle, mention: mention, folder: folder)
             }
             .onAppear { actions.changed = { prompt, change in moved(prompt, change) } }
+            .onDisappear { autoSaveTask?.cancel(); autoSaveTask = nil }
             .onChange(of: path, initial: true) { _, now in model.fileOpened(scope, now) }
             .onChange(of: editing) { _, now in
                 if now {
@@ -196,7 +207,8 @@ struct FileScreen: View {
             SourceTextView(document: SourceDocument(key: "\(path)|\(content.version ?? "")|\(editSession)|\(carried == nil ? "" : "draft")",
                                                     text: carried ?? text, language: content.language,
                                                     marks: content.markedLines, original: carried == nil ? nil : text, file: path),
-                           wrap: wrap, editable: editing, line: target.line, handle: handle, dirty: { dirty = $0 },
+                           wrap: wrap, editable: editing, preferences: editorPreferences,
+                           line: target.line, handle: handle, dirty: { dirty = $0 }, typed: typedInEditor,
                            selected: mention == nil ? nil : { selectedLines = $0 },
                            mention: mention == nil ? nil : { mentionSelection($0) },
                            left: slot?.left, touched: slot?.focus,
@@ -263,17 +275,79 @@ struct FileScreen: View {
     }
 
     func stopEditing() {
+        autoSaveTask?.cancel()
+        autoSaveTask = nil
         editing = false
         dirty = false
         conflict = nil
         problem = nil
         // The text view reloads the file as it was opened.
         editSession += 1
+        // Auto save may have written while editing: show the file as it now is on the machine.
+        Task { await load() }
     }
+
+    /// Settings › Editor as the text on screen is drawn and typed in.
+    var editorPreferences: EditorPreferences {
+        EditorPreferences(fontSize: fontSize, lineSpacing: lineSpacing, tabSize: tabSize,
+                          insertSpaces: insertSpaces, wordWrap: wrap)
+    }
+
+    /// The person typed: with After a pause, the file writes itself once typing has rested.
+    func typedInEditor() {
+        autoSaveTask?.cancel()
+        autoSaveTask = nil
+        guard editing, !saving else { return }
+        // Settings may have changed since the last keystroke.
+        let mode = EditorAutoSaveMode(rawValue: autoSaveMode) ?? .off
+        if autoSave.mode != mode { autoSave.mode = mode }
+        let delay = EditorPreferences.clampedDelay(autoSaveDelay)
+        if autoSave.delay != delay { autoSave.delay = delay }
+        let now = Self.millisecondsNow
+        guard let deadline = autoSave.typed(at: now) else { return }
+        let wait = max(0, deadline - now)
+        autoSaveTask = Task {
+            try? await Task.sleep(for: .milliseconds(wait))
+            guard !Task.isCancelled else { return }
+            await writeByItself()
+        }
+    }
+
+    /// Auto save's write: the versioned save Save makes, but the editor stays open on the text.
+    /// A file someone else changed stops auto save and asks, as Save does.
+    func writeByItself() async {
+        // Auto save may have been turned off since this write was armed.
+        guard EditorAutoSaveMode(rawValue: autoSaveMode) == .pause else { return }
+        // Never while the person is being asked whether to throw the changes away.
+        guard editing, dirty, !saving, !confirmDiscard, conflict == nil, let expected = base ?? content?.version else { return }
+        saving = true
+        let typed = handle.text
+        do {
+            let result = try await model.files(scope, ["op": "write", "path": path, "text": typed, "expected": expected], as: FileChange.self)
+            if let newer = result.conflict {
+                autoSave.failed()
+                saving = false
+                conflict = newer
+                return
+            }
+            if let version = result.version { base = version }
+            dirty = handle.markSaved(typed)
+        } catch {
+            autoSave.failed()
+            problem = error.localizedDescription
+        }
+        saving = false
+        // Typed while the write was out: the rest of the pause starts again.
+        if dirty { typedInEditor() }
+    }
+
+    private static var millisecondsNow: Int { Int(Date().timeIntervalSince1970 * 1000) }
 
     /// Save over the version that was opened, or over `newer` once the person chose Replace.
     func save(over newer: String? = nil) {
         guard let expected = newer ?? base ?? content?.version, !saving else { return }
+        autoSaveTask?.cancel()
+        autoSaveTask = nil
         saving = true
         conflict = nil
         problem = nil
@@ -283,6 +357,8 @@ struct FileScreen: View {
             do {
                 let result = try await model.files(scope, ["op": "write", "path": path, "text": typed, "expected": expected], as: FileChange.self)
                 if let newer = result.conflict { conflict = newer; return }
+                // The person saved the file themselves: auto save may write it again.
+                autoSave.savedByHand()
                 editing = false
                 dirty = false
                 await load()
