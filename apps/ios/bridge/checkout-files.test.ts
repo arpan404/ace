@@ -1,5 +1,6 @@
-import { until } from "./test-host.ts";
-import { afterEach, expect, test } from "vitest";
+import { native, until } from "./test-host.ts";
+import { readFile } from "node:fs/promises";
+import { afterEach, beforeEach, expect, test } from "vitest";
 import { ClientCore } from "@ace/client";
 import { FakeDaemon, facts, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId, HostId } from "@ace/protocol";
@@ -29,7 +30,17 @@ const patch = [
 ].join("\n");
 let client: ClientCore | undefined;
 
+beforeEach(() => {
+  native.calls.set("editor.wasm", () =>
+    readFile(
+      new URL("../../../packages/editor/pkg/editor_wasm_bg.wasm", import.meta.url),
+      "base64",
+    ),
+  );
+});
+
 afterEach(async () => {
+  native.calls.delete("editor.wasm");
   await client?.close();
   client = undefined;
 });
@@ -161,6 +172,88 @@ test("a save over a file that changed meanwhile names the newer version, and rep
   expect(stale.conflict).toBe(first.version);
   await ask({ op: "write", path: "README.md", text: "# second edit\n", expected: stale.conflict });
   expect((await ask({ op: "read", path: "README.md" })).text).toBe("# second edit\n");
+});
+
+test("compare shows the current disk lines removed and draft lines added", async () => {
+  const { fake, ask } = await connect();
+  const path = "notes.txt";
+  fake.checkouts.seedBytes(thread, path, new TextEncoder().encode("header\non disk\n"));
+  expect(await ask({ op: "compare", path, text: "header\nin my draft\n" })).toMatchObject({
+    ok: true,
+    rows: [
+      { kind: "context", text: "header", old: 1, new: 1 },
+      { kind: "del", text: "on disk", old: 2 },
+      { kind: "add", text: "in my draft", new: 2 },
+    ],
+  });
+  expect(await ask({ op: "compare", path, text: "header\non disk" })).toMatchObject({
+    ok: true,
+    rows: [],
+    finalNewlineChanged: true,
+  });
+});
+
+test("merge joins non-overlapping edits and leaves them on the phone for review", async () => {
+  const { fake, ask } = await connect();
+  const path = "notes.txt";
+  const disk = "start\nkeep\non disk\n";
+  fake.checkouts.seedBytes(thread, path, new TextEncoder().encode(disk));
+  const current = await ask({ op: "read", path });
+  expect(
+    await ask({ op: "merge", path, base: "start\nkeep\nend\n", text: "my draft\nkeep\nend\n" }),
+  ).toMatchObject({
+    ok: true,
+    disk: { text: disk, version: current.version },
+    chunks: [{ kind: "clean", text: "my draft\nkeep\non disk\n" }],
+  });
+  expect((await ask({ op: "read", path })).text).toBe(disk);
+  const newer = await ask({
+    op: "write",
+    path,
+    expected: current.version,
+    text: "a later machine edit",
+  });
+  expect(
+    await ask({
+      op: "write",
+      path,
+      expected: current.version,
+      text: "my draft\nkeep\non disk\n",
+    }),
+  ).toMatchObject({ conflict: newer.version });
+  expect((await ask({ op: "read", path })).text).toBe("a later machine edit");
+});
+
+test("a deleted machine file cannot be merged into the draft", async () => {
+  const { ask } = await connect();
+  expect(await ask({ op: "merge", path: "gone.txt", base: "old", text: "my draft" })).toMatchObject(
+    {
+      ok: false,
+      code: "unreadable",
+    },
+  );
+  expect((await ask({ op: "read", path: "gone.txt" })).kind).toBe("missing");
+});
+
+test("merge returns both versions of overlapping lines for an explicit choice", async () => {
+  const { fake, ask } = await connect();
+  const path = "notes.txt";
+  fake.checkouts.seedBytes(thread, path, new TextEncoder().encode("head\r\ndisk\r\ntail\r\n"));
+  expect(
+    await ask({
+      op: "merge",
+      path,
+      base: "head\r\nbase\r\ntail\r\n",
+      text: "head\r\ndraft\r\ntail\r\n",
+    }),
+  ).toMatchObject({
+    ok: true,
+    chunks: [
+      { kind: "clean", text: "head\r\n" },
+      { kind: "conflict", base: "base\r\n", mine: "draft\r\n", theirs: "disk\r\n" },
+      { kind: "clean", text: "tail\r\n" },
+    ],
+  });
 });
 
 test("a deleted file goes to Recently deleted and restores from there", async () => {

@@ -117,6 +117,8 @@ export interface HostOperations {
   /** The non-secret machine directory. */
   "directory.load": { input: null; body: never };
   "directory.save": { input: null; body: string };
+  /** The app bundle's editor WebAssembly, as base64, loaded only when merging. */
+  "editor.wasm": { input: null; body: never };
   /** HTTPS to this runtime's own pinned daemon; answers `{status, body}` JSON. */
   http: {
     input: { method: string; path: string; body?: string | undefined; token?: string | undefined };

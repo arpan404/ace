@@ -1,9 +1,9 @@
 # Files on the phone: bridge contract
 
-What the SwiftUI Files screens send the bridge and what comes back, for five things: saving a
+What the SwiftUI Files screens send the bridge and what comes back: comparing and merging edits, saving a
 file or a folder to the phone, sending picked files into a checkout, quick open, the recent and
 open files that stand in for tabs, and the live tree that lists a folder at a time. The other
-Files requests (read, write, rename, …) are unchanged and live in `checkout-request.ts`.
+Files requests (read, write, rename, …) live in `checkout-request.ts`.
 
 Code: `checkout-request.ts` (request schemas), `checkout-files.ts` (requests),
 `checkout-tree-live.ts` (the live tree), `checkout-downloads.ts`, `checkout-uploads.ts`,
@@ -23,6 +23,16 @@ Two ways in:
 `Scope` is `{"threadId":"…"}` (a thread's checkout) or `{"workspaceId":"…"}` (a project's own
 folder before a thread exists, read-only). Paths are relative to the checkout, at most 4096
 characters, and folders end in `/` only where noted.
+
+### Save conflicts
+
+`compare` takes the checkout `path` and the draft `text`. It reads the current file and
+returns Changes rows from disk to draft, plus `finalNewlineChanged` for a changed final line break.
+
+`merge` takes the same fields plus the original `base` text. It returns the current `disk`
+file and the shared editor's `chunks`. The phone asks for a choice on each overlapping block.
+The next Save uses the returned disk version as its expected version, so a later change on disk
+raises another conflict. Both requests leave the checkout untouched.
 
 ## 1. Saving to the phone (folder download, file share)
 
