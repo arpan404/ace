@@ -51,11 +51,13 @@ export function reaimSteerAtRun(repo: EngineRepository, command: Command, id: Th
 }
 
 /**
- * Aims a steer at the turn an active run names, or at `null` when none runs.
+ * Aims a steer at the turn an active run names, or at `null` when none runs. Only a session that
+ * steers by cancelling the running turn (ACP) is aimed: every other provider steers natively and
+ * reads no run, and a run it named would fence a steer it never asked for.
  */
 function aimAtActiveRun(repo: EngineRepository, command: Command, id: ThreadId): Command {
   const p = command.payload;
-  if (p.type !== "thread.send") return command;
+  if (p.type !== "thread.send" || !repo.steersByCancel?.(id)) return command;
   const state = repo.state(id);
   if (!state) return command;
   const runId = state.agents[state.rootKey ?? ""]?.activeRun ?? null;

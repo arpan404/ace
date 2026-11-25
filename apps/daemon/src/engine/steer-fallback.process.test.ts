@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import type { ThreadId } from "@ace/protocol";
+import { Command, type ThreadId } from "@ace/protocol";
 import { transitionHarness } from "./transition-test-support.ts";
 
 type Harness = ReturnType<typeof transitionHarness>;
@@ -72,6 +72,28 @@ test("an agent's steer reaches a Claude-like turn at once and leaves the running
     expect(h.backgroundRequests).toEqual([]);
     expect(h.interrupts).toEqual([]);
     expect(h.engine.queue(id).messages).toEqual([]);
+  } finally {
+    await h.close();
+  }
+});
+
+test("a steer on a provider that steers natively is admitted with no run of its own", async () => {
+  // Claude reads a steer itself when the running command returns. Aiming one at a run would fence
+  // what the provider handles alone: a lost target requeues it, an idle one is refused once
+  // another turn begins. ace aims only sessions that steer by cancelling, as ACP does.
+  const h = transitionHarness({ steerTiming: "after_tool" });
+  try {
+    const id = await runningCommand(h);
+    expect(agentMessage(h, id, "Use the cached build", "steer", "native-steer").ok).toBe(true);
+    await h.engine.flush();
+    const row = h.store
+      .statement("SELECT payload FROM intents WHERE command_id=?")
+      .get("native-steer");
+    if (!row) throw new Error("Expected the steer to be admitted");
+    expect(Command.parse(JSON.parse(String(row.payload))).payload).not.toHaveProperty("runId");
+    expect(h.inputs.filter((input) => input.text === "Use the cached build")).toMatchObject([
+      { delivery: "steer" },
+    ]);
   } finally {
     await h.close();
   }

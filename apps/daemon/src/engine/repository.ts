@@ -76,6 +76,11 @@ export class EngineRepository {
   readonly pending: IntentStore;
   readonly attachments: AttachmentCorrelations;
   observe?: (state: ThreadState, facts: Fact[], events: EventPayload[], at: number) => void;
+  /**
+   * Whether the thread's live provider session steers by cancelling its running turn (ACP), the
+   * only steer ace aims at one run. Engine-owned; no live session means no aiming.
+   */
+  steersByCancel?: (id: ThreadId) => boolean;
   /** The person's message that gave the thread its provisional title (title generation). */
   onNamingPrompt?: (id: ThreadId, input: readonly import("@ace/protocol").ContentPart[]) => void;
   private ids: IdSource;
