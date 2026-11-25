@@ -315,24 +315,11 @@ test("a session in an added OpenCode account whose data folder lost its owner's 
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   const dataDir = join(root, "daemon");
   prepareDaemonHome(dataDir);
-  const instance = await createManagedHome(
-    dataDir,
-    "account-session",
-    "opencode",
-    "Work",
-    process.platform,
-  );
-  const saved = await openRegistry(join(dataDir, "accounts.sqlite"));
-  await saved.register(instance);
-  saved.close();
-  // The damage a managed home is known to take while ace runs (#2784). Startup repairs it, which
-  // proves the repair has finished for this account before the session path is measured.
-  const data = join(instance.homeDir, "data", "opencode");
-  await chmod(data, 0o600);
 
   const frames = scriptFrames();
   const frame = frames.frame(start, end);
   const payload = new ProviderPayload(JSON.stringify(frame.data));
+  let dataFolder: string;
   const opened: { instance: string | undefined; dataHome: string | undefined; mode: number }[] = [];
   const scripted = createScriptedAdapter({
     provider: "opencode",
@@ -350,7 +337,7 @@ test("a session in an added OpenCode account whose data folder lost its owner's 
         opened.push({
           instance: context.instanceId,
           dataHome: context.env?.["XDG_DATA_HOME"],
-          mode: await ownerMode(data),
+          mode: await ownerMode(dataFolder),
         });
         return scripted.openSession(context);
       },
@@ -370,9 +357,20 @@ test("a session in an added OpenCode account whose data folder lost its owner's 
     accounts: { env: process.env },
   });
   cleanups.push(() => daemon.close());
-  // Startup's restore of this account's home settles (the folder is 0700 again) before the
-  // session is measured, so a later repair can only come from the session's own validateHome.
-  await expect.poll(() => ownerMode(data), { timeout: 20000 }).toBe(0o700);
+  // Added while ace runs, so no startup restore touches it: only a session's own check repairs
+  // the folder this damage leaves behind (#2784).
+  const management = daemon.accountManagement;
+  if (!management) throw new Error("Accounts unavailable");
+  const reply = await management.handle("owner", {
+    type: "accounts.add",
+    requestId: "add",
+    provider: "opencode",
+    label: "Work",
+  });
+  if (reply.type !== "accounts.changed" || !reply.account) throw new Error("Missing added account");
+  const account = reply.account;
+  const data = join(dataDir, "account-homes", account.id, "data", "opencode");
+  dataFolder = data;
   await chmod(data, 0o600);
   const workspaceId = daemon.store.createWorkspace(dataDir, "workspace");
   const threadId = randomUUID() as ThreadId;
@@ -385,7 +383,7 @@ test("a session in an added OpenCode account whose data folder lost its owner's 
       threadId,
       workspaceId,
       provider: "opencode",
-      instanceId: instance.id,
+      instanceId: account.id,
       input: [{ type: "text", text: "synthetic" }],
     },
   });
@@ -396,6 +394,10 @@ test("a session in an added OpenCode account whose data folder lost its owner's 
   // The session opened in the account's own data folder, after ace repaired its access.
   expect(await ownerMode(data)).toBe(0o700);
   expect(opened).toEqual([
-    { instance: instance.id, dataHome: join(instance.homeDir, "data"), mode: 0o700 },
+    {
+      instance: account.id,
+      dataHome: join(dataDir, "account-homes", account.id, "data"),
+      mode: 0o700,
+    },
   ]);
 });
