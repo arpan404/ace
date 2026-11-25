@@ -22,8 +22,9 @@ export async function startAccounts(context: ServiceContext) {
     config.dataDir,
     options.accounts?.homeChecks ?? {},
     {
-      // OpenCode 2.4.1 can leave a managed home's data folder without its owner's search bit
-      // while ace runs, so every session in one starts from a repaired folder (issue #2784).
+      // A managed OpenCode home's data folder has been seen to lose its owner's search bit while
+      // ace runs (cause not yet found), so every session in one starts from a repaired folder
+      // (issue #2784).
       prepareHome: async (instance) => {
         if (instance.provider === "opencode" && instance.managed)
           await prepareOpenCodeHome(instance.homeDir, process.platform);
