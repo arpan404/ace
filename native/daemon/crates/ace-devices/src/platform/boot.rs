@@ -2,7 +2,7 @@
 //! `boot` and `shutdown`: which command boots or powers off a device, or the refusal that stops
 //! it. The shell still owns the emulator process, its console port and the waits for adb.
 
-use super::commands::{adb_shell, native_id};
+use super::commands::native_id;
 use super::emulator::boot_args;
 use super::{Error, Platform, Refusal, Step, StepKind};
 
@@ -109,10 +109,14 @@ pub fn android_boot(facts: &AndroidFacts) -> Result<AndroidBoot, Error> {
                 .with_timeout(120_000),
             Step::new(
                 StepKind::Adb,
-                adb_shell(&[
+                vec![
+                    "shell".to_string(),
+                    // The program is one raw argument, as TS passes it: adb hands it to the
+                    // device's shell, which runs the loop. Quoting it would make the loop a
+                    // command name.
                     "while [ \"$(getprop sys.boot_completed)\" != 1 ]; do sleep 1; done"
                         .to_string(),
-                ]),
+                ],
             )
             .with_max_bytes(4096)
             .with_timeout(120_000),
@@ -202,6 +206,21 @@ mod tests {
         assert_eq!(boot.steps[0].kind, StepKind::Adb);
         assert_eq!(boot.steps[0].args[0], "wait-for-device");
         assert!(boot.steps[1].args[1].contains("sys.boot_completed"));
+    }
+
+    #[test]
+    fn the_boot_wait_passes_the_program_to_the_device_shell_unquoted() {
+        // TS (`android-platform.ts`) passes `shell` followed by the raw program; adb hands that
+        // one argument to the device's shell, which runs the loop. Quoting it makes the whole
+        // loop a command name the device cannot find.
+        let boot = android_boot(&facts()).expect("boot");
+        assert_eq!(
+            boot.steps[1].args,
+            vec![
+                "shell".to_string(),
+                "while [ \"$(getprop sys.boot_completed)\" != 1 ]; do sleep 1; done".to_string(),
+            ]
+        );
     }
 
     #[test]
