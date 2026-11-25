@@ -1,24 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
-//! E5.3's `InputFacts`, implemented for 4b's methods: the input journal's correlation, ace-input
-//! attribution, an ace wait's fact, and the run binding of consumed and started runs. The trait
-//! is declared in E5.3's `collaborators.rs`; this block states 4b's methods, and the ones 4a and
-//! E5.5 own keep the trait's `NotPorted` defaults until they land.
+//! 4b's half of E5.3's `InputFacts` (`collaborators.rs`), as helpers the trait block in
+//! `queue::fold_hooks` calls: the input journal's correlation, ace-input attribution, an ace
+//! wait's fact, and the run binding of consumed and started runs.
 //!
 //! The fold calls these on the `State` it is folding, so the resident snapshot is reached through
 //! `State.repo` without a second borrow of the engine: the TypeScript hands `ThreadState` in.
+//! The trait methods live in 4a's block, one implementation of the trait for the crate.
 
 use ace_json::Value;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::repository::collaborators::InputFacts;
 use crate::snapshot::Snapshot;
 use crate::{Core, EngineError, State};
 
 impl State {
     /// The engine this state belongs to. `Ok(None)` is E5.3's probe on a bare `State`; a plain
     /// `State` with no probe fails at the call.
-    fn engine(&self) -> Result<Option<Rc<Core>>, EngineError> {
+    fn input_engine(&self) -> Result<Option<Rc<Core>>, EngineError> {
         if let Some(core) = self.engine.upgrade() {
             return Ok(Some(core));
         }
@@ -30,7 +29,7 @@ impl State {
 
     /// The thread's resident snapshot, or a fresh load when none is held. A fold already holds
     /// one, so this never syncs a snapshot out from under the fold.
-    fn snapshot(
+    fn input_snapshot(
         &mut self,
         core: &Core,
         thread: &str,
@@ -41,14 +40,9 @@ impl State {
         self.repo.state(&core.store, thread)
     }
 
-    /// The root the fold compares a fact's agent with, and the session generation its echo may
-    /// match: `ports.opening ? undefined : generation` (`provider-facts.ts:97`-`:101`).
-    fn fold_view(
-        &mut self,
-        core: &Core,
-        thread: &str,
-    ) -> Result<(String, Option<f64>), EngineError> {
-        let root = match self.snapshot(core, thread)? {
+    /// The root the fold compares a fact's agent with (`state.rootKey ?? "root"`).
+    fn input_root(&mut self, core: &Core, thread: &str) -> Result<String, EngineError> {
+        Ok(match self.input_snapshot(core, thread)? {
             Some(snapshot) => snapshot
                 .borrow()
                 .state
@@ -56,16 +50,7 @@ impl State {
                 .clone()
                 .unwrap_or_else(|| "root".to_owned()),
             None => "root".to_owned(),
-        };
-        let generation = if self.repo.opening.contains(thread) {
-            None
-        } else {
-            self.actors
-                .by_thread
-                .get(thread)
-                .map(|actor| actor.generation as f64)
-        };
-        Ok((root, generation))
+        })
     }
 
     /// `correlate` with the root and generation the caller decides: the fold derives both from
@@ -77,12 +62,12 @@ impl State {
         root: Option<&str>,
         generation: Option<f64>,
     ) -> Result<Option<Value>, EngineError> {
-        let Some(core) = self.engine()? else {
+        let Some(core) = self.input_engine()? else {
             return Ok(Some(fact));
         };
         let root = match root {
             Some(root) => root.to_owned(),
-            None => self.fold_view(&core, thread)?.0,
+            None => self.input_root(&core, thread)?,
         };
         crate::inputs::journal::correlate(core.store.conn(), thread, fact, &root, generation)
     }
@@ -94,10 +79,10 @@ impl State {
         run: &str,
         generation: Option<f64>,
     ) -> Result<Vec<Value>, EngineError> {
-        let Some(core) = self.engine()? else {
+        let Some(core) = self.input_engine()? else {
             return Ok(Vec::new());
         };
-        let Some(snapshot) = self.snapshot(&core, thread)? else {
+        let Some(snapshot) = self.input_snapshot(&core, thread)? else {
             return Err(EngineError::MissingState);
         };
         let mut borrowed = snapshot
@@ -114,10 +99,10 @@ impl State {
         generation: Option<f64>,
         at: f64,
     ) -> Result<Vec<Value>, EngineError> {
-        let Some(core) = self.engine()? else {
+        let Some(core) = self.input_engine()? else {
             return Ok(Vec::new());
         };
-        let Some(snapshot) = self.snapshot(&core, thread)? else {
+        let Some(snapshot) = self.input_snapshot(&core, thread)? else {
             return Err(EngineError::MissingState);
         };
         let mut borrowed = snapshot
@@ -131,44 +116,41 @@ impl State {
             at as i64,
         )
     }
-}
 
-impl InputFacts for State {
-    /// `inputs.correlate` (`input-journal.ts:224`). `None` drops the fact.
-    fn correlate(&mut self, thread: &str, fact: Value) -> Result<Option<Value>, EngineError> {
-        let Some(core) = self.engine()? else {
-            return Ok(Some(fact));
-        };
-        let (_, generation) = self.fold_view(&core, thread)?;
-        self.correlate_with(thread, fact, None, generation)
-    }
-
-    /// `inputs.keyFor` (`:157`).
-    fn input_key_for(
+    /// `inputs.keyFor`: the transcript key of the input whose send carried `native_input_id`.
+    pub fn input_key_for_with(
         &mut self,
         thread: &str,
         native_input_id: &str,
     ) -> Result<Option<String>, EngineError> {
-        let Some(core) = self.engine()? else {
+        let Some(core) = self.input_engine()? else {
             return Ok(None);
         };
         crate::inputs::journal::key_for(core.store.conn(), thread, native_input_id)
     }
 
-    /// `aceInputs.attribute` (`ace-inputs.ts:31`).
-    fn attribute_input(&mut self, thread: &str, fact: Value) -> Result<Value, EngineError> {
-        let Some(core) = self.engine()? else {
+    /// `aceInputs.attribute`: an echo of a settled delegation becomes its item, on the same agent.
+    pub fn attribute_input_with(
+        &mut self,
+        thread: &str,
+        fact: Value,
+    ) -> Result<Value, EngineError> {
+        let Some(core) = self.input_engine()? else {
             return Ok(fact);
         };
         crate::inputs::ace::attribute(core.store.conn(), thread, fact)
     }
 
-    /// `aceWaitFact` (`ace-waits.ts:10`).
-    fn ace_wait_fact(&mut self, thread: &str, fact: &Value) -> Result<Option<Value>, EngineError> {
-        let Some(core) = self.engine()? else {
+    /// `aceWaitFact`: the `subagents.waiting` fact for a live ace wait, once per item.
+    pub fn ace_wait_fact_with(
+        &mut self,
+        thread: &str,
+        fact: &Value,
+    ) -> Result<Option<Value>, EngineError> {
+        let Some(core) = self.input_engine()? else {
             return Ok(None);
         };
-        let Some(snapshot) = self.snapshot(&core, thread)? else {
+        let Some(snapshot) = self.input_snapshot(&core, thread)? else {
             return Err(EngineError::MissingState);
         };
         let mut borrowed = snapshot
@@ -188,24 +170,19 @@ impl InputFacts for State {
         ))
     }
 
-    /// `bindConsumedInput` (`transcript-inputs.ts:176`): the generation is the session's own.
-    fn bind_consumed_input(
+    /// `InputJournal.sending`: re-sign an accepted input with the provider's own rendering, as
+    /// the delivery does (E5.5). The seam's probe writes this row directly.
+    pub fn input_sending(
         &mut self,
         thread: &str,
         key: &str,
+        parts: &[Value],
+        provider: Option<&str>,
         generation: Option<f64>,
-        now: f64,
-    ) -> Result<Vec<Value>, EngineError> {
-        self.bind_consumed_input_with(thread, key, generation, now)
-    }
-
-    /// `bindStartedRun` (`transcript-inputs.ts:157`).
-    fn bind_started_run(
-        &mut self,
-        thread: &str,
-        run: &str,
-        generation: Option<f64>,
-    ) -> Result<Vec<Value>, EngineError> {
-        self.bind_started_run_with(thread, run, generation)
+    ) -> Result<(), EngineError> {
+        let Some(core) = self.input_engine()? else {
+            return Ok(());
+        };
+        crate::inputs::journal::sending(core.store.conn(), thread, key, parts, provider, generation)
     }
 }

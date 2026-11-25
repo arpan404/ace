@@ -146,7 +146,8 @@ impl State {
             {
                 set(&mut input, "type", Value::from("item.reconciled"));
             }
-            let Some(correlated) = self.correlate(id, input)? else {
+            let echo_generation = if opening { None } else { generation };
+            let Some(correlated) = self.correlate(id, input, echo_generation)? else {
                 continue;
             };
             let attributed = self.attribute_input(id, correlated)?;

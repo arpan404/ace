@@ -231,6 +231,11 @@ impl Ports for Shell {
     fn append_events(&self, _json: &str) -> Result<(), PortError> {
         Ok(())
     }
+    fn get_thread(&self, _thread: &str) -> Result<Option<String>, PortError> {
+        // The shell's thread row is not what a repository case reads; no row is the answer a
+        // store with no such thread gives.
+        Ok(None)
+    }
     fn settle_call(&self, _call: u64, _error: Option<String>) {}
     fn reject_pending(&self) {}
     fn finish_close(&self) {}

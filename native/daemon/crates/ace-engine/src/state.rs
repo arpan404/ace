@@ -36,8 +36,11 @@ pub struct State {
     pub transitions: transitions::Transitions, // E5.9
     pub liveness: liveness::Liveness,          // E5.10
     /// The engine this state belongs to, so the fold's collaborators reach the store without a
-    /// trait signature change (E5.4b). A bare `State` in a unit test has none.
+    /// trait signature change (E5.4a). A bare `State` in a unit test has none.
     pub(crate) engine: std::rc::Weak<Core>,
+    /// Queue changes the fold staged: their rows are written, their events wait for the borrow
+    /// to be released (E5.4a round 2).
+    pub(crate) deferred_queue: Vec<crate::queue::write::StagedEvent>,
 }
 
 impl Default for State {
@@ -57,6 +60,7 @@ impl Default for State {
             transitions: transitions::Transitions,
             liveness: liveness::Liveness,
             engine: std::rc::Weak::new(),
+            deferred_queue: Vec::new(),
         }
     }
 }

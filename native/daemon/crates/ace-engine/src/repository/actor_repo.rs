@@ -119,25 +119,56 @@ impl ActorRepo for EngineRepo {
         correlations.get(thread, hash)
     }
 
-    // The rest stay E5.2's `Unported` answers until their owners land.
+    /// `engineQueueFact` (`repository.ts:586`): the retained work core does not know yet, or
+    /// none when core already agrees. The count is the queue's own; the flags are the hold
+    /// reasons that ask for a person rather than the agent.
     fn engine_queue_fact(
         &self,
         core: &Core,
         thread: &ThreadId,
     ) -> Result<Option<Value>, EngineError> {
-        Unported.engine_queue_fact(core, thread)
+        let count = self.queued_count(core, thread)? as i64;
+        let conn = core.store.conn();
+        let held = count > 0 && crate::queue::store::held_on_failed_send(conn, thread)?;
+        let stopped = count > 0 && !held && crate::queue::store::stopped_by_person(conn, thread)?;
+        let snapshot = core.with_state(|state| state.repo.state(&core.store, thread))??;
+        if let Some(snapshot) = snapshot {
+            let state = snapshot.borrow();
+            if state.state.queue_sources.engine == count
+                && state.state.queue_held.unwrap_or(false) == held
+                && state.state.queue_stopped.unwrap_or(false) == stopped
+            {
+                return Ok(None);
+            }
+        }
+        let mut fact = ace_json::Map::new();
+        fact.insert("type", Value::from("queue.changed"));
+        fact.insert("source", Value::from("engine"));
+        fact.insert("count", Value::from(count));
+        if held {
+            fact.insert("held", Value::Bool(true));
+        }
+        if stopped {
+            fact.insert("stopped", Value::Bool(true));
+        }
+        Ok(Some(Value::Object(fact)))
     }
 
+    /// `repo.queue.get(id).paused` (`actor.ts:470`), with the missing-row defaults.
     fn queue_paused(&self, core: &Core, thread: &ThreadId) -> Result<bool, EngineError> {
-        Unported.queue_paused(core, thread)
+        Ok(crate::queue::store::get(&core.store, thread)?.paused)
     }
 
+    /// `repo.queuedCount` (`repository.ts:627`).
     fn queued_count(&self, core: &Core, thread: &ThreadId) -> Result<u64, EngineError> {
-        Unported.queued_count(core, thread)
+        let count = core.with_state(|state| state.queued_count(&core.store, thread))??;
+        Ok(count.max(0) as u64)
     }
 
+    /// `max(pending.latestGeneration, interactions.latestGeneration)` for the intents' half.
     fn latest_generation(&self, core: &Core, thread: &ThreadId) -> Result<u64, EngineError> {
-        Unported.latest_generation(core, thread)
+        let generation = crate::intents::store::latest_generation(core.store.conn(), thread)?;
+        Ok(generation.max(0) as u64)
     }
 
     fn mark_yielded_end(
