@@ -257,6 +257,18 @@ export async function until<T>(read: () => T | undefined | false, label: string)
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
+/** Command ids of a type the client sent, in order. */
+export function commandIds(type: string): string[] {
+  return sent.flatMap((text) => {
+    const message = JSON.parse(text) as {
+      type?: string;
+      command?: { id?: string; payload?: { type?: string } };
+    };
+    return message.type === "command" && message.command?.payload?.type === type
+      ? [message.command.id ?? ""]
+      : [];
+  });
+}
 /** Command payloads of a type the client sent, in order. */
 export function commands(type: string): Record<string, unknown>[] {
   return sent.flatMap((text) => {

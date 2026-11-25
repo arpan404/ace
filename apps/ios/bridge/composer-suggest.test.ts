@@ -8,6 +8,7 @@ import { ComposeSearch } from "./compose-search.ts";
 import { readMentionDevices } from "./composer-devices.ts";
 import { ComposerSuggest, sidebarAgents, sidebarThreads } from "./composer-suggest.ts";
 import {
+  commandIds,
   commands,
   connect,
   fixture,
@@ -277,7 +278,8 @@ test("a picked agent, device and app go where the web puts them", async () => {
     share: "thread",
     files: [],
   });
-  expect(address?.about).toEqual(expect.any(String));
+  // `about` names the send itself, so the asked line and chips attach to that message.
+  expect(address?.about).toBe(commandIds("thread.send")[0]);
   expect(address?.input).toContainEqual(
     expect.objectContaining({ type: "mention", name: "Google Drive" }),
   );

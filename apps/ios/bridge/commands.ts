@@ -70,6 +70,8 @@ export async function dispatchCommand(
     admitted?(): Record<string, unknown> | undefined;
     /** More fields for the receipt (the code notes a new thread or fork took). */
     received?(result: Receipt): Record<string, unknown> | undefined;
+    /** The command id to send under, when the caller must name the command afterwards. */
+    commandId?: string;
   } = {},
 ): Promise<void> {
   try {
@@ -100,6 +102,7 @@ export async function dispatchCommand(
             : preview(hooks.refusal?.(result.error) ?? result.error ?? "Request refused", 2048),
         }));
       },
+      hooks.commandId,
     );
   } catch {
     hooks.unsaved?.();

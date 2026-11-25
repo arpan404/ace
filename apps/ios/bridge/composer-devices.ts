@@ -11,7 +11,8 @@ import { z } from "zod";
  */
 
 const DeviceList = z.object({ devices: z.array(z.unknown()).max(1024).catch([]) });
-const quiet = { timeoutMs: 15_000 };
+// Short: the files `@` lists wait on this read, and a slow device list mustn't hold them.
+const quiet = { timeoutMs: 3_000 };
 const osWords: Record<string, string> = { darwin: "macOS", linux: "Linux", win32: "Windows" };
 
 /** A simulator, emulator or phone a machine's devices list, as a picker row. */

@@ -776,7 +776,10 @@ export class ThreadSession {
       ...(joined.context ? { context: joined.context } : {}),
     };
     const tray = this.#tray;
+    // Named up front: the agents and devices it names are addressed `about` this send.
+    const commandId = this.#client.commandId();
     void dispatchCommand(this.#client, message, id, this.#pump, {
+      commandId,
       saved: () => {
         tray.sent(files.ids);
         if (marked) this.annotations.sent();
@@ -790,7 +793,7 @@ export class ThreadSession {
         if (spends) this.#tune.spent(spends);
         // Beside the send, as the web does: the agents it names get the words, and ace records
         // the devices for their chips.
-        this.#address(content, id);
+        this.#address(content, commandId);
       },
     });
   }
