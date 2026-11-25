@@ -1869,6 +1869,17 @@ modules. Paths are in `packages/adapter-cursor/src/` unless named.
    (E3-opencode.1). Should ACP's `validate_payload`, which parses again, move onto it as a
    follow-up? That is the likeliest part of ACP's 1.44×.
 
+**Answers (2026-11-25).**
+
+1. Yes: E3 keeps OpenCode's requests on the injected fetch, because every adapter test injects
+   it. `reqwest` waits for E3-opencode.6.
+2. Yes (the owner): E3-opencode.5 adds `engine/opencode-restart-resume.process.test.ts`, the one
+   new test, on the same terms as E3-pi.2b.
+3. Move the cases: export the entry-text function from the test-support file, so the six files'
+   cases move to Rust tests (tests move, they don't multiply).
+4. Yes: once E3-opencode.1 lands `payload.rs`, ACP's `validate_payload` moves onto it as a
+   follow-up and its session bench is rerun.
+
 - **Claude** has no E3 item (ADR 0223, decided by the orchestrator; the owner moved it to the
   providers work).
 
