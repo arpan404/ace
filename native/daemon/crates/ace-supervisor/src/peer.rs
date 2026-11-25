@@ -29,6 +29,8 @@ use crate::jsonrpc::{self, FrameKind, RpcId, RpcIds, WriterQueue};
 const MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 /// `maxIncomingRequests`' default (`jsonrpc.ts:149`); shared Codex hosts use 512.
 const DEFAULT_MAX_INCOMING: usize = 128;
+/// `maxQueuedBytes`' default (`jsonrpc.ts:159`).
+const DEFAULT_MAX_QUEUED_BYTES: usize = 32 * 1024 * 1024;
 /// `maxExplicitIds`' default (`jsonrpc.ts:158`).
 const MAX_EXPLICIT_IDS: usize = 4096;
 /// The default deadline when a request and its config both leave one unset.
@@ -197,18 +199,22 @@ pub enum Timeout {
     After(f64),
 }
 
-/// The id reservations one stdin owns (`rpc-owner.ts:14`). A replacement peer
-/// on the same pipe shares this table, so a retired id is never reused and an
-/// old reply cannot claim a new call.
+/// What one stdin owns (`rpc-owner.ts:14`): the id reservations and the bounded
+/// write queue. A replacement peer shares both, so a retired id is never reused,
+/// an old reply cannot claim a new call, and its first write waits for the old
+/// in-flight write's `written`.
 #[derive(Clone)]
 pub struct PeerOwner {
     ids: Arc<Mutex<RpcIds>>,
+    writer: Arc<Mutex<WriterQueue>>,
 }
 
 impl PeerOwner {
-    pub fn new() -> PeerOwner {
+    /// The first peer on a pipe fixes the queue's byte cap; later peers reuse it.
+    pub fn new(max_queued_bytes: usize) -> PeerOwner {
         PeerOwner {
             ids: Arc::new(Mutex::new(RpcIds::new(MAX_EXPLICIT_IDS))),
+            writer: Arc::new(Mutex::new(WriterQueue::new(max_queued_bytes))),
         }
     }
 
@@ -219,11 +225,39 @@ impl PeerOwner {
         };
         ids.reserve(id)
     }
+
+    fn enqueue(&self, bytes: usize) -> Result<u64, StreamError> {
+        match self.writer.lock() {
+            Ok(mut writer) => writer.enqueue(bytes),
+            Err(poisoned) => poisoned.into_inner().enqueue(bytes),
+        }
+    }
+
+    fn claim(&self) -> Option<u64> {
+        match self.writer.lock() {
+            Ok(mut writer) => writer.claim(),
+            Err(poisoned) => poisoned.into_inner().claim(),
+        }
+    }
+
+    fn written(&self, ticket: u64) {
+        match self.writer.lock() {
+            Ok(mut writer) => writer.written(ticket),
+            Err(poisoned) => poisoned.into_inner().written(ticket),
+        }
+    }
+
+    fn cancel(&self, ticket: u64) -> bool {
+        match self.writer.lock() {
+            Ok(mut writer) => writer.cancel(ticket),
+            Err(poisoned) => poisoned.into_inner().cancel(ticket),
+        }
+    }
 }
 
 impl Default for PeerOwner {
     fn default() -> PeerOwner {
-        PeerOwner::new()
+        PeerOwner::new(DEFAULT_MAX_QUEUED_BYTES)
     }
 }
 
@@ -239,7 +273,6 @@ struct Pending {
 pub struct RpcPeer {
     config: PeerConfig,
     owner: PeerOwner,
-    writer: WriterQueue,
     pending: Vec<(RpcId, Pending)>,
     incoming: usize,
     /// Reply writes still holding an incoming slot until `written`.
@@ -254,14 +287,15 @@ pub struct RpcPeer {
 
 impl RpcPeer {
     pub fn new(config: PeerConfig) -> RpcPeer {
-        RpcPeer::with_owner(config, PeerOwner::new())
+        let owner = PeerOwner::new(config.max_queued_bytes);
+        RpcPeer::with_owner(config, owner)
     }
 
-    /// A peer over an existing pipe's id table: a replacement keeps the ids the
-    /// retired peer reserved (`rpc-owner.ts`).
+    /// A peer over an existing pipe's owner: a replacement keeps the ids and the
+    /// write queue (in-flight bytes and the one active write) the retired peer
+    /// left. The first peer's `max_queued_bytes` fixed the queue's cap.
     pub fn with_owner(config: PeerConfig, owner: PeerOwner) -> RpcPeer {
         RpcPeer {
-            writer: WriterQueue::new(config.max_queued_bytes),
             config,
             owner,
             pending: Vec::new(),
@@ -352,7 +386,7 @@ impl RpcPeer {
             dir: Direction::Send,
             value,
         });
-        match self.writer.enqueue(wire.len()) {
+        match self.owner.enqueue(wire.len()) {
             Ok(ticket) => {
                 pending.ticket = Some(ticket);
                 self.pending.push((request_id, pending));
@@ -392,7 +426,7 @@ impl RpcPeer {
             dir: Direction::Send,
             value,
         });
-        match self.writer.enqueue(wire.len()) {
+        match self.owner.enqueue(wire.len()) {
             Ok(ticket) => {
                 self.writes.insert(ticket, wire);
                 self.pump(&mut effects);
@@ -485,7 +519,7 @@ impl RpcPeer {
     /// The write callback ran: release its bytes and hand out the next queued
     /// write, so at most one line is in flight (`rpc-writer.ts`).
     pub fn written(&mut self, ticket: u64) -> Vec<PeerEffect> {
-        self.writer.written(ticket);
+        self.owner.written(ticket);
         if self.replies.remove(&ticket) {
             self.finish_incoming();
         }
@@ -496,15 +530,15 @@ impl RpcPeer {
 
     /// An armed deadline fired (`rpc-timers.ts`): settle its call as timed out.
     pub fn timer(&mut self, key: &str) -> Vec<PeerEffect> {
-        let Some(text) = key.strip_prefix("request:") else {
+        // Only an armed key settles a call: a disabled deadline has no timer.
+        let at = self
+            .pending
+            .iter()
+            .position(|(_, pending)| pending.timer.as_deref() == Some(key));
+        let Some(at) = at else {
             return Vec::new();
         };
-        let Ok(id) = jsonrpc::id_from_json(text) else {
-            return Vec::new();
-        };
-        let Some(pending) = self.take_pending(&id) else {
-            return Vec::new();
-        };
+        let pending = self.pending.remove(at).1;
         let message = format!("JSON-RPC request timed out: {}", pending.method);
         let mut effects = Vec::new();
         self.settle_pending(pending, Err(PeerError::new(message)), &mut effects);
@@ -582,9 +616,13 @@ impl RpcPeer {
         for (_, pending) in pending {
             self.settle_pending(pending, Err(error.clone()), &mut effects);
         }
-        for ticket in self.writer.close() {
-            self.writes.remove(&ticket);
+        // Cancel this peer's queued writes; the shared queue stays open for a
+        // replacement peer on the same stdin.
+        let queued: Vec<u64> = self.writes.keys().copied().collect();
+        for ticket in queued {
+            self.owner.cancel(ticket);
         }
+        self.writes.clear();
         effects
     }
 
@@ -600,7 +638,7 @@ impl RpcPeer {
         effects: &mut Vec<PeerEffect>,
     ) {
         if let Some(ticket) = pending.ticket
-            && self.writer.cancel(ticket)
+            && self.owner.cancel(ticket)
         {
             self.writes.remove(&ticket);
         }
@@ -631,7 +669,7 @@ impl RpcPeer {
             dir: Direction::Send,
             value,
         });
-        match self.writer.enqueue(wire.len()) {
+        match self.owner.enqueue(wire.len()) {
             Ok(ticket) => {
                 self.writes.insert(ticket, wire);
                 self.replies.insert(ticket);
@@ -648,10 +686,10 @@ impl RpcPeer {
     }
 
     fn pump(&mut self, effects: &mut Vec<PeerEffect>) {
-        while let Some(ticket) = self.writer.claim() {
+        while let Some(ticket) = self.owner.claim() {
             let Some(wire) = self.writes.remove(&ticket) else {
                 // Nothing left to write for it: release the slot and go on.
-                self.writer.written(ticket);
+                self.owner.written(ticket);
                 continue;
             };
             effects.push(PeerEffect::Write { wire, ticket });
@@ -1048,14 +1086,27 @@ mod tests {
     fn a_settled_call_withdraws_its_queued_write() {
         let mut peer = new_peer();
         call(&mut peer, "one", None, 1, Timeout::Disabled);
-        call(&mut peer, "two", None, 2, Timeout::Disabled);
-        let timed = peer.timer("request:2");
-        assert_eq!(order(&timed), vec!["settle:2"]);
+        let armed = call(&mut peer, "two", None, 2, Timeout::After(5.0));
+        let key = match &armed[0] {
+            PeerEffect::ArmTimer { key, .. } => key.clone(),
+            other => panic!("expected a timer, got {other:?}"),
+        };
+        let timed = peer.timer(&key);
+        assert_eq!(order(&timed), vec!["cancel:request:2", "settle:2"]);
         assert_eq!(
             settles(&timed),
             vec![(2, Err("JSON-RPC request timed out: two".to_owned()))]
         );
         assert!(writes(&peer.written(0)).is_empty());
+    }
+
+    #[test]
+    fn a_disabled_call_ignores_a_timer_key() {
+        let mut peer = new_peer();
+        call(&mut peer, "free", None, 1, Timeout::Disabled);
+        assert!(peer.timer("request:1").is_empty());
+        let reply = peer.line(r#"{"id":1,"result":null}"#);
+        assert_eq!(order(&reply), vec!["frame:recv", "settle:1"]);
     }
 
     #[test]
@@ -1292,8 +1343,25 @@ mod tests {
     }
 
     #[test]
+    fn a_replacement_shares_the_byte_cap() {
+        let owner = PeerOwner::new(60);
+        let mut retired = RpcPeer::with_owner(PeerConfig::default(), owner.clone());
+        let old = call(&mut retired, "old", None, 1, Timeout::Disabled);
+        assert_eq!(writes(&old).len(), 1);
+        retired.close("retired");
+
+        let mut replacement = RpcPeer::with_owner(PeerConfig::default(), owner);
+        let new = call(&mut replacement, "new", None, 2, Timeout::Disabled);
+        assert_eq!(order(&new), vec!["frame:send", "settle:2"]);
+        assert_eq!(
+            settles(&new),
+            vec![(2, Err("JSON-RPC write queue exceeded limit".to_owned()))]
+        );
+    }
+
+    #[test]
     fn a_replacement_peer_keeps_the_pipes_id_reservations() {
-        let owner = PeerOwner::new();
+        let owner = PeerOwner::new(32 * 1024 * 1024);
         let mut retired = RpcPeer::with_owner(PeerConfig::default(), owner.clone());
         let old = call(&mut retired, "old", None, 1, Timeout::Disabled);
         assert_eq!(writes(&old)[0].0, 0);
@@ -1302,7 +1370,9 @@ mod tests {
 
         let mut replacement = RpcPeer::with_owner(PeerConfig::default(), owner.clone());
         let new = call(&mut replacement, "new", None, 2, Timeout::Disabled);
-        assert!(writes(&new)[0].1.contains(r#""id":2,"#));
+        assert!(writes(&new).is_empty());
+        let released = replacement.written(0);
+        assert!(writes(&released)[0].1.contains(r#""id":2,"#));
         let late = replacement.line(r#"{"id":1,"result":"old"}"#);
         assert_eq!(order(&late), vec!["frame:recv"]);
         let fresh = replacement.line(r#"{"id":2,"result":"new"}"#);
