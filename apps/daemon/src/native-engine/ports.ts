@@ -79,6 +79,7 @@ export interface EngineBindings {
   providerEnabled(provider: string, instanceId?: string): boolean;
   hasMoveTarget: boolean;
   hasResetAt: boolean;
+  admits(): boolean;
   /** The account's reset reading, or undefined when no port was given. */
   resetAt?(threadId: string): number | null | undefined;
 }
@@ -179,6 +180,7 @@ export function engineBindings(input: {
       options.providerEnabled ? options.providerEnabled(provider as never, instanceId) : true,
     hasMoveTarget: options.recovery?.moveTarget !== undefined,
     hasResetAt: options.recovery?.resetAt !== undefined,
+    admits: () => options.recovery?.admits?.() ?? true,
     ...(options.recovery?.resetAt
       ? { resetAt: (threadId: string) => options.recovery?.resetAt?.(threadId as never) }
       : {}),

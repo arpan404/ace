@@ -128,6 +128,7 @@ pub struct JsPorts {
     provider_enabled: FunctionRef<FnArgs<(String, Option<String>)>, bool>,
     has_move_target: bool,
     has_reset_at: bool,
+    admits: FunctionRef<(), bool>,
     reset_at: Option<FunctionRef<String, Option<f64>>>,
     timers: RefCell<HashMap<u64, ArmedTimer>>,
     /// The Rust port of `timeOrderedIds` (`time-ordered-id.ts:11`), used when no `ids` port
@@ -178,6 +179,7 @@ impl JsPorts {
         provider_enabled: FunctionRef<FnArgs<(String, Option<String>)>, bool>,
         has_move_target: bool,
         has_reset_at: bool,
+        admits: FunctionRef<(), bool>,
         reset_at: Option<FunctionRef<String, Option<f64>>>,
     ) -> napi::Result<JsPorts> {
         Ok(JsPorts {
@@ -214,6 +216,7 @@ impl JsPorts {
             provider_enabled,
             has_move_target,
             has_reset_at,
+            admits,
             reset_at,
             timers: RefCell::new(HashMap::new()),
             ids: RefCell::new(UuidV7::default()),
@@ -584,6 +587,10 @@ impl Ports for JsPorts {
 
     fn has_move_target(&self) -> bool {
         self.has_move_target
+    }
+
+    fn admits(&self) -> bool {
+        self.call(&self.admits, ()).unwrap_or(true)
     }
 
     fn has_reset_at(&self) -> bool {

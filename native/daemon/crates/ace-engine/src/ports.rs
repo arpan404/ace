@@ -227,6 +227,11 @@ pub trait Ports {
         false
     }
 
+    /// `ports.admits()`: whether new work may start (the maintenance gate).
+    fn admits(&self) -> bool {
+        true
+    }
+
     /// `ports.resetAt(thread)`: `None` when the port gave no reading, `Some(None)` for null.
     fn reset_at(&self, _thread: &str) -> Option<Option<i64>> {
         None

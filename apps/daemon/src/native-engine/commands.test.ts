@@ -359,4 +359,27 @@ describe.runIf(native)("E5.4d's refusals and rollback", () => {
       await present.seam.close();
     }
   });
+
+  test("a closed maintenance gate leaves no deadline armed", async () => {
+    let timers = 0;
+    const seam = await engineSeam({
+      options: {
+        recovery: { admits: () => false },
+        clock: {
+          now: () => Date.now(),
+          setTimer: () => {
+            timers += 1;
+            return () => {};
+          },
+        },
+      } as never,
+    });
+    try {
+      // A queue command that would arm a deadline must not, while maintenance holds work.
+      seam.engine.admissionReopened();
+      expect(timers).toBe(0);
+    } finally {
+      await seam.close();
+    }
+  });
 });
