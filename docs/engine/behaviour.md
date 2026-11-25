@@ -533,12 +533,20 @@ ticks>` from `/proc/sys/kernel/random/boot_id` and `/proc/<pid>/stat`, read twic
   method-not-found replies (`JsonRpcPeer`, `jsonrpc.ts:61`).
 - **A channel callback that unwinds poisons its host** (native only, E3-codex.2): a panic in the
   shell's sink is a bug, not a protocol event, so the host catches it once at the drain. The child
-  is stopped directly, never through the queue (a stop already decided counts); every call still
-  pending fails with `Codex host failed: a channel callback unwound`, and every channel gets an
-  exit — one each, since effects already decided keep their place in the queue. After the poison
-  each delivery has its own catch: a second panic skips that effect, logs it, and the rest still
-  arrives. The pool starts a replacement host. TypeScript has no equivalent: a throwing JavaScript
-  callback there is an uncaught error, with no defined recovery and no replacement host.
+  is stopped directly, never through the queue, and a stop decided before the poison counts even
+  when its own delivery is what unwound — and never on a child whose pipes have closed: a leader's
+  exit alone leaves a tree that still holds them. A stop that unwinds never counts as landed, so
+  its owner can ask again.
+  A stop in flight is joined by a later retire, a landed one is not repeated, and only a stop the
+  shell could not confirm may be asked for again. Every call still pending fails with the host error, and
+  every channel gets an exit — one each, since effects already decided keep their place in the
+  queue. A write still queued is dropped, never sent to a child that is being stopped: the call its
+  line carried has already failed. After the poison each delivery has its own catch: a second panic
+  skips that effect, logs it, and the rest still arrives. A stop that did not land leaves the host
+  stoppable: its owner's next retire hands the child another stop, since the poison's exits are the
+  channels', not the process's. The pool starts a replacement host. TypeScript has no equivalent: a
+  throwing JavaScript callback there is an uncaught error, with no defined recovery and no
+  replacement host.
 
 ## 16. The adapters
 
