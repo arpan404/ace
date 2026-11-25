@@ -503,6 +503,7 @@ export class NativeCoreCli {
                 reject(gitErr);
                 return;
               }
+              params.output?.end();
               try {
                 throwGitError(error);
               } catch (mapped) {
@@ -521,9 +522,9 @@ export class NativeCoreCli {
             if (meta.cleanupId !== undefined) {
               void this.quarantineSync(ownership, meta.cleanupId, meta.cleanupGroupPid);
             }
-            if (params.output && !meta.stopped) {
-              params.output.end();
-            }
+            // TS pipes stdout into `output`: the pipe ends it at EOF whether Git
+            // succeeded, failed or was stopped.
+            params.output?.end();
             const stdoutBuf = out
               ? Buffer.from(out.buffer, out.byteOffset, out.byteLength)
               : Buffer.alloc(0);
@@ -539,6 +540,7 @@ export class NativeCoreCli {
       } catch (error) {
         settled = true;
         cleanupListeners();
+        params.output?.end();
         recordGitOp({ seq, op: "executeRaw", part, selected, completed: "native" });
         try {
           throwGitError(error);
