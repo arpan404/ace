@@ -224,8 +224,9 @@ kill-on-drop), `rustix`, `windows-sys`, `sysinfo`, `procfs`, `libproc`, `tokio-u
 A native session runs a provider's process protocol in Rust behind the same `ProviderSession`
 (ADR 0223 §7) while the TypeScript engine still runs. The tasks below are the briefs: E3.0 (four
 foundations every provider needs), then E3-pi, then E3-codex, then E3-acp, each task one builder
-round. OpenCode and Cursor are briefed after them. Claude has no E3 item: its session
-moves in the providers work (ADR 0223, "Decided by the orchestrator").
+round. OpenCode and Cursor are briefed after them. Claude's session (E3-claude) was started by
+the owner on 2026-11-25; [claude-session.md](claude-session.md) holds its inventory, API and
+answers.
 
 ### Should E3 build now?
 
@@ -233,7 +234,7 @@ The bench (`tools/daemon-bench/results/2026-11-23-rust-switches.md`, branch
 `ace/bench-rust-switches`) measured the merged switches 10–23% slower per turn in CPU
 (`sameThread` +19.9%, `longText` +22.6% on medians), because values cross between JavaScript and
 Rust while both sides run. E3 does not change that figure. The bench's only fake provider is the
-`claude` CLI, and Claude has no E3 item, so no native session runs there. The slowdown comes from
+`claude` CLI, and Claude had no E3 item then (E3-claude came later), so no native session ran there. The slowdown comes from
 the store's per-statement crossings (phase 1a), long reads and the Claude translator, and E3
 touches none of them.
 
@@ -1886,9 +1887,373 @@ modules. Paths are in `packages/adapter-cursor/src/` unless named.
 4. Yes: once E3-opencode.1 lands `payload.rs`, ACP's `validate_payload` moves onto it as a
    follow-up and its session bench is rerun.
 
-- **Claude** has no E3 item (ADR 0223, decided by the orchestrator; the owner moved it to the
-  providers work).
+- **Claude**: briefed in full below (E3-claude, started by the owner on 2026-11-25).
 
+### E3-claude: Claude (stream-json over stdio, one CLI process per session)
+
+Started by the owner on 2026-11-25 (ADR 0223, "Decided by the orchestrator, pending the owner").
+The Rust session speaks the `claude` CLI's stream-json protocol directly and replaces
+`@anthropic-ai/claude-agent-sdk` in the daemon. [claude-session.md](claude-session.md) is part of
+every brief below: its inventory says where each wire message comes from, its frame contract says
+what the engine must keep seeing, and its API section names the types. Read it whole first.
+
+**Clean room, on top of the E3 rules.** Never open the SDK's implementation (any `.js`, `.mjs`
+or `cli.js` under `node_modules/@anthropic-ai`). Its `.d.ts` may be read for names only. Write
+from the published docs, `fixtures/claude/`, ace's fake CLIs and ace's tests, as
+claude-session.md tags them. Never run the SDK, the real `claude`, or `tools/recorder` to see what
+something does. If a brief needs a fact those sources don't give, stop and report it; it joins
+claude-session.md's open questions.
+
+The split, like Pi's: Rust takes everything that runs per line or per write (`sdk-process.ts`'s
+session side, the pump of `session.ts:281`–`:321`, `session-tasks.ts`, the state of
+`pending-interactions.ts`, the control envelopes and their correlation, the hooks). The facade
+keeps the open-time and control composition in TypeScript: discovery, the version check, the
+tool listing and `AceListing`, MCP injection, `configure`, `interrupt`'s sequencing, the zod
+validation at the boundary and the close. That composition reads no per-line state between a
+check and its write, so rule 1 holds with the TypeScript check followed by one synchronous
+binding call.
+
+Claude has no class (b) files (behaviour.md §19: 42 (a), 8 "—"), so no case moves. The "—" files
+stay as they are: `sdk-process.ts` keeps serving the metadata host, so `sdk-process.test.ts` and
+`sdk-stderr.process.test.ts` keep testing it unchanged.
+
+The three legs, for every item that lists proof files (rule commands at the top of E3):
+
+- **A**, everything off;
+- **B**, `ACE_STORE=native ACE_SUPERVISOR=native ACE_SESSIONS=claude` with the three addons;
+- **C**, B plus `ACE_TRANSLATORS=claude`.
+
+#### E3-claude.1 The stream-json protocol crate (`agent-stream-json`, sans-IO)
+
+- **Files**: create `native/daemon/crates/agent-stream-json/` with `Cargo.toml` and
+  `src/{lib.rs,launch.rs,message.rs,control.rs,host.rs,user.rs,error.rs}`, and its tests in
+  `src/tests/{mod.rs,launch.rs,message.rs,control.rs,host.rs}`; `Cargo.lock`. The workspace
+  already takes `crates/*`. Nothing else.
+- **Replaces**: what the SDK did for ace, per claude-session.md: `argv` (section 1b), the
+  `initialize` request (1b's initialize rows), the control envelopes and their correlation (1c),
+  the classification of a received line (`sdk-process.ts:63`–`:99`, whose list of eleven types is
+  at `:77`–`:92`), the host shapes of `can_use_tool`, `elicitation` and `request_user_dialog`
+  (section 2's mapping), the user message line (`session.ts:388`–`:401`). The API is section 3's,
+  exactly.
+- **Crate**: `publish = false`; `[lints] workspace = true`; dependencies `ace-json` and
+  `thiserror` only, each with a comment saying why. The description and the `lib.rs` docs carry
+  section 3's terms paragraph word for word.
+
+Steps, in order:
+
+1. `error.rs`, then `user.rs` and `host.rs`: the builders and the three mappings, field by field
+   from section 2. Absent wire fields stay absent; nothing else is added.
+2. `message.rs`: `classify`. It takes the `Value` by move and never fails: a non-object, a
+   missing or non-string `type`, or an unknown one is `Line::Unknown`.
+3. `control.rs`: `Request`, `Initialize`, `Controls`. Request ids are `ace-<n>` from a counter in
+   `Controls`. `settle` of an unknown id returns `None`. `drain` returns every pending tag in
+   insertion order and marks the controls closed, so `request` then returns `ControlError::Closed`.
+4. `launch.rs`: `args` in the recorded order (claude-session.md Q2,
+   `fixtures/claude/handshake-2.1.331/argv.*.json`): `--output-format stream-json --verbose
+--input-format stream-json --permission-prompt-tool stdio` (no `-p`), then the session flags
+   (`--session-id <id>`; or `--resume=<id>`; or `--resume=<source>`, `--fork-session`,
+   `--resume-session-at=<at>` when given, `--session-id <id>`), then `--model`, `--effort`,
+   `--permission-mode`, `--allow-dangerously-skip-permissions`, `--setting-sources=<a,b>`,
+   `--strict-mcp-config`, `--mcp-config <value>`, each `--plugin-dir <path>`,
+   `--include-hook-events`, `--include-partial-messages`, then `extra` as `--<name>` or
+   `--<name>=<value>`. The `=` forms are the ones `[test]` pins; the others take the value as the
+   next argument, as the fake's `option()` reads both (`testing/cli.ts:11`–`:15`).
+5. Tests (new behaviour, the crate's own API; the commit says so): one table per module, rows
+   named after the behaviour. Only what the session files of E3-claude.4 can't reach: each
+   mapping's unpinned fields (`blockedPath`, `decisionReason`, `agentID`, `matchedAskRule`,
+   `displayName`), `classify` on `null`, `[]`, a number `type` and an unknown `type`, an error
+   response, a response for an unknown id, `request` after `drain`, and `args` for each
+   `SessionStart`.
+
+- **Exact**: the eleven types and the `control_` prefix rule; envelope key order (section 3); the
+  renames of section 2; `args`' order and forms.
+- **Proof**: Rust only (`cargo test -p agent-stream-json`). No TypeScript changes, so legs A, B and
+  C have nothing new to run; E3-claude.4's files prove the crate through the session.
+- **Cross-mode**: none (nothing boots a root).
+- **Bench**: none.
+- **Must not**: depend on any ace crate but `ace-json`, on `serde_json`, `tokio` or a process
+  crate; clone a `Value`; return `Result` on data the CLI sent; read a clock; name anything
+  `claude-code-*` or `anthropic-*`; read the SDK's implementation.
+- **Reviewer checks**: every mapped field is in claude-session.md's tables, with its source; no
+  field or behaviour comes from anywhere else; `classify` is total.
+
+#### E3-claude.2 The session's capture and per-line state (`ClaudeWire`, part 1)
+
+- **Files**: in `native/daemon/crates/ace-adapter-claude/`: `src/session/{mod.rs,wire.rs,capture.rs,tasks.rs,error.rs}`
+  and `src/session/wire/tests.rs`; `src/lib.rs` (`pub mod session;` and the doc line that says
+  Claude has no E3 item); `Cargo.toml` (`agent-stream-json`, and the description's "(E3, except
+  Claude)"). Nothing else.
+- **Ports**:
+  - `sdk-process.ts` on the session's side: the stdout classification into channels (`:63`–`:99`,
+    with `session.ts:247`–`:253` for `control_cancel_request`), `malformed_stdout`, the stderr line
+    path (`:104`) with its drop notes (`:36`–`:40`, at most one a second through a `notes` timer,
+    as `PiWire` does), and 16 MiB line framing (`:50`);
+  - from `session.ts`: `encode` and `record` (`:86`–`:100`), the pump (`:281`–`:321`): session
+    confirmation (`:286`–`:295`), the frame, `taskIndex.observe`, the rate-limit callback
+    (`:298`–`:306`), and the failure path that records `failureMessage` and ends the session
+    (`:308`–`:320`), and the exit message (`:262`–`:266`);
+  - `session-tasks.ts` whole, into `tasks.rs`, with its two capacity errors (`:36`, `:50`).
+- **Shape**: claude-session.md section 3's `ClaudeWire` and `Effect`, the methods
+  `stdout_bytes`, `stderr_bytes`, `note`, `timer`, `task_target`, `task_cascade`, `finish`. The
+  rest are E3-claude.3's; declare them only when that item writes them.
+
+Steps, in order:
+
+1. `capture.rs`: `capture(value: &Value, bearer: Option<&str>) -> Result<String, CaptureError>`:
+   count the nodes of `value` in one linear pass (32,768, `payload.ts:25`–`:28`, its message
+   "Provider payload exceeds structural limit"), then `elided_json(value)`, then replace every
+   occurrence of the bearer with `<ACE_MCP_CREDENTIAL>` (`injection.ts:212`–`:214`), then the byte
+   bound (`maxProviderPayloadBytes`, 1 MiB, `payload.ts:4`, "Provider payload exceeds byte
+   limit"). This is the order today's `new ProviderPayload(redactMcpCredential(elidedJson(data)))`
+   observes; the node count may come first because neither elision nor redaction changes the
+   tree's shape.
+2. `wire.rs`: `stdout_line` is the hot path of claude-session.md section 4: one
+   `ace_json::parse`, `classify`, then the frame (section 2's table), then what the line tells the
+   session, in `session.ts`'s order: confirmation callback before the frame (`:286`–`:296`),
+   then tasks, then the rate-limit callback. A capture failure on an `sdk` frame is the pump's
+   failure (`:308`–`:320`): `Fatal` with the error's text. For a `wire` frame, read what
+   `sdk-process.ts`'s line listener does when `onWire` throws, and port that; if you can't tell,
+   stop and report.
+3. `tasks.rs`: `SessionTasks` statement for statement. A capacity error is `Fatal` with its
+   message, as the pump's catch makes it today.
+4. `finish`: finalize the framers, flush the drop notes, settle every pending control (none yet),
+   then `Drained`.
+5. Tests in `wire/tests.rs` (new; the commit says so), only what no session file reaches: the
+   node bound and the byte bound at their limits, an elided string under redaction, and frame
+   order for a line that is both a confirmation and a frame.
+
+- **Exact**: the channel table and frame order of claude-session.md section 2 (with its intended
+  differences 1 and 2); every message string above; the confirmation rule (`system/init`, or a
+  `user` line without `parent_tool_use_id`, whose `session_id` is the session's, once); 16 MiB
+  lines; what an over-long stdout line does today (`provider-kit/src/process.ts:256`–`:268` with no
+  `onStdoutLineDropped`: read it, don't assume).
+- **Proof**: Rust only (`cargo test -p ace-adapter-claude`); E3-claude.4 proves it in the three
+  legs. The E1 translator files must still pass, since the crate is shared: `fixtures.test.ts`
+  and `translator.test.ts` in legs A and C.
+- **Cross-mode**: none.
+- **Bench**: none yet; E3-claude.5 measures this path.
+- **Must not**: anything on section 4's list of must-nots; change `translate/`; decode a line
+  into a typed struct; set a timer other than through `ArmTimer`.
+- **Reviewer checks**: `stdout_line` parses once and clones nothing (read it); each port diffs
+  statement by statement against its TypeScript lines; redaction comes before every `Frame` and
+  `Write` carries the original bytes.
+
+#### E3-claude.3 Controls, interactions, hooks and input (`ClaudeWire`, part 2)
+
+- **Files**: `ace-adapter-claude/src/session/{controls.rs,interactions.rs,hooks.rs,input.rs}` and
+  their cases in `session/wire/tests.rs`. Nothing else.
+- **Ports**:
+  - control requests and responses, through `agent_stream_json::Controls`: `control(request_json,
+id)` writes the envelope and its `send`/`wire` frame; the response's `recv`/`wire` frame comes
+    first, then `Settle` (`Ok` with the `response` JSON, or `"null"` when absent;
+    `ClaudeError::Provider` with the CLI's `error` text). Pending controls settle with
+    `Error("Claude session is closed")` at `finish`, the text of `ensureOpen` (`session.ts:357`–`:359`);
+  - `PendingInteractions` state (`pending-interactions.ts:25`–`:164`): the 256 cap ("Claude
+    interaction capacity reached"), "Duplicate Claude request id", the cancelled set of 256 that
+    drops its oldest, `cancel`, `expire`, and the default answer each kind gives when cancelled or
+    expired (`{behavior: "deny", message: "Claude request ended."}`, `{action: "cancel"}`), written
+    to stdin while it is open. Frames as section 2: the `recv` frame when asked, `send` when
+    answered, `interaction_lifecycle` when cancelled or expired;
+  - `request_user_dialog`: the `user_dialog` frame and the `{behavior: "cancelled"}` answer
+    (`session.ts:275`–`:278`);
+  - hooks (`session.ts:197`–`:240`): `Initialize.hooks` carries `UserPromptSubmit` only when the
+    config says the session has a changes port (`ctx.aceMcp.changes`), then `SubagentStart` and
+    `SubagentStop`, one id each, in that order. A `hook_callback` for `SubagentStart` or
+    `SubagentStop` frames its `input` as `observational_hook` and answers `{}`. One for
+    `UserPromptSubmit` publishes `Callback { name: "hook:UserPromptSubmit", json: [request_id] }`
+    and waits for `answer_hook`;
+  - input (`session.ts:377`–`:421`, `input.ts:13`–`:37`): `send(messages_json, command_id)` in one
+    lock: closed → `Refused("Claude session is closed")`; more than 256 user lines written and not
+    yet acknowledged → `Refused("Claude input capacity reached")` (the `InputStream` cap,
+    `input.ts:20`); any encoded line over 16 MiB → `Refused("Claude outbound frame capacity
+reached")` (claude-session.md intended difference 5). Only when every message passes: for each,
+    the `onInputMessage` callback (when `command_id` is given), then its `Write`. Its `send`/`sdk`
+    frame follows `stdin_written`. A refused port write after the first is `Uncertain`, as
+    `pushed > 0` makes it today (`:413`–`:419`);
+  - `stdin_written`, `stdin_error`, `write_refused` as `PiWire`'s (E3-pi.1 step 4), with
+    `Uncertain` for a write that may have reached the CLI.
+
+- **Exact**: every message above; the answer envelopes (`agent_stream_json::host`); the frames and
+  their order; `send` writes nothing unless every message passes.
+- **Proof**: Rust only; E3-claude.4's files prove it.
+- **Cross-mode**: none.
+- **Bench**: none.
+- **Must not**: validate an interaction resolution in Rust (the facade does, with zod, rule 17);
+  answer an unknown `control_request` subtype until claude-session.md Q10 is decided; move any
+  check after a write it guards.
+- **Reviewer checks**: one lock per input; `send` refuses whole or writes whole; every pending
+  interaction and control ends in exactly one answer or settlement.
+
+#### E3-claude.4 The I/O shell, binding, facade and switch
+
+- **Files**: `ace-adapter-claude/src/session/io.rs`; `ace-daemon-node/src/session_claude.rs` and
+  its `mod session_claude;` in `lib.rs`; `packages/adapter-claude/src/native-session.ts` (new);
+  `packages/adapter-claude/src/session.ts` (one line, step 5); `packages/adapter-claude/src/pending-interactions.ts`
+  (one word: `export` on `ElicitationAnswer`). Nothing else.
+
+Steps, in order:
+
+1. `io.rs`: `ClaudeSessionCore { wire: Mutex<ClaudeWire>, queue: EventQueue, gate: ReadGate,
+ports: Arc<OnceLock<ChildPorts>> }` with E3-pi.2's rules 2–4 word for word: one input, one
+   lock; `OutputConsumer` feeding `stdout_bytes`/`stderr_bytes` and answering `gate.answer`; the
+   terminal barrier at the supervisor's `close`, with the 1,000 ms `cutoff` after the leader's exit.
+2. Binding, `ClaudeSessionNative`: `new(config_json, events)`, `output_target`, `launch_args`
+   (`agent_stream_json::args` over a JSON `Launch`), `control`, `send`, `peek_interaction`,
+   `answer_interaction`, `answer_hook`, `task_target`, `task_cascade`, `note`, `timer`,
+   `end_input` (`StdinPort::end`), `expire`, `set_paused`, `fail`, `drain`, `undrain`, `abandon`.
+   Every export uses `catch_unwind`; JSON crosses as text only. Refusals throw an `Error` whose
+   `code` is `ACE_INPUT_REJECTED`; nothing else throws.
+3. Facade, `export async function openNativeClaudeSession(ctx, options, versions)`. Copy
+   `openSession` (`session.ts:48`–`:481`) and make only these replacements:
+   1. Keep everything up to the injection and listing (`:52`–`:145`) as it is.
+   2. Build `Launch` from `configurationOptions(...)` and `ctx` as claude-session.md 1b maps each
+      option, get `argv` from `handle.launchArgs`, and swap an inline `--mcp-config` value for
+      `privateMcpConfig(encoded, ctx.cwd)` as `sdk-process.ts:31`–`:34` does (and remove the file
+      on exit, `:147`).
+   3. Spawn with `spawnSupervised` as `sdk-process.ts:41`–`:58` does (same `name`, `lease`,
+      `outputFlow`, `maxLineBytes`), with `env: { ...env, ...injection?.env,
+CLAUDE_AGENT_SDK_CLIENT_APP: "ace/0.0.0" }` (`session.ts:241`) and `nativeOutput:
+handle.outputTarget()`. If the spawn throws, `handle.abandon()` and rethrow (E3-pi.2 step 6.2).
+   4. Startup, in today's order (`:323`–`:357`): `initialize` (`control` then `bridge.expect`) →
+      the `commands.runtime` note from its `commands` → `apply_flag_settings` when `ctx.options`
+      is set → the `catalog.runtime` note from its `agents` → `readClaudeUsage` with a `query`
+      whose `usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET(o)` sends `get_usage
+{skip_behaviors: o?.skipBehaviors}`. A failure before the agents note closes and rethrows
+      (`:336`–`:339`).
+   5. `mcp`: `mcpControls(q, ensureOpen)` unchanged, given an object with the five methods it
+      calls, each one control request (`mcp_status` resolves to `response.mcpServers`).
+      `AceListing` unchanged.
+   6. `configure`, `backgroundTools` (`background_tasks` → `response.backgrounded`), `stopTask`,
+      `interrupt`: today's code with each `q.*` call one control request, and `taskIndex.resolve`
+      and `cascade` as `JSON.parse(handle.taskTarget(...))` and `handle.taskCascade(...)`. The
+      `interrupt_receipt` note goes through `handle.note`.
+   7. `send`: today's code down to the messages (`:377`–`:401`); delete `encode`/`frames`; then
+      `assertSteerTarget(delivery, fence)`; then one synchronous `handle.send(JSON.stringify(messages),
+commandId ?? null)`. A thrown `ACE_INPUT_REJECTED` becomes `new InputRejected(message)`. The
+      `catch` keeps today's rule (`:413`–`:419`).
+   8. `resolve`: `handle.peekInteraction(id)`, or throw "Claude interaction is no longer pending";
+      then `PendingInteractions.resolve`'s checks in order (`pending-interactions.ts:47`–`:60`:
+      `InteractionResolution.parse`, kind match, approval option); then the answer
+      (`permissionResult(...)` from `input.ts`, or `ElicitationAnswer.parse(...)`); then
+      `handle.answerInteraction(id, JSON.stringify(result), JSON.stringify(resolution))`, which
+      returning `false` throws the same "no longer pending".
+   9. The `UserPromptSubmit` callback: answer with `handle.answerHook(id, JSON.stringify(changes ?
+{hookSpecificOutput: {hookEventName: "UserPromptSubmit", additionalContext: changes}} : {}))`,
+      `changes` from `ctx.aceMcp?.changes?.()` (`session.ts:201`–`:217`).
+   10. The bridge gets `{ ...ctx, onRateLimit }`, where `onRateLimit` runs
+       `ClaudeRateLimitObservation.safeParse` and `options.onRateLimit` as `session.ts:298`–`:306`
+       does, noting `rate_limit_observation_failed` through `handle.note` when it throws.
+   11. Close, E3-pi.2 step 7's shape: a second call returns the first promise; `closed = true`,
+       `handle.drain()`, `handle.expire()` (interactions expire with their frames), `handle.endInput()`
+       (today `q.close()` ends input first, claude-session.md 1c); then `proc.stop()` with today's
+       default grace (`session.ts:120`). If the stop rejects: `handle.undrain()`, keep the session
+       stop-only and reject. If it resolves: `await bridge.drainedPromise`, then resolve.
+   12. Exit (`hooks.drained`): await `proc.exited`, then call `ctx.onExit` once, with
+       `deliberate` set to `closed` and today's message: `failureMessage`, or else "Claude process
+       exited: " and the exit's code, signal or reason (`session.ts:101`–`:109`, `:257`–`:268`).
+       `hooks.fatal` records `failureMessage`, stops the process and lets the exit path report
+       it (`:308`–`:320`).
+   13. When `ACE_SESSIONS_EVIDENCE` is set, append the evidence line once the open succeeds
+       (E3.0d step 3), with `provider` set to `"claude"`.
+4. Register `{ ACE_INPUT_REJECTED: InputRejected, ACE_CLAUDE_UNCERTAIN: Error, ACE_CLAUDE_CONTROL:
+Error }` with the bridge.
+5. The switch, the first statement of `openSession` (`session.ts:48`):
+   `if (sessionBackend("claude") === "native") return (await import("./native-session.ts")).openNativeClaudeSession(ctx, options, versions);`
+
+- **Exact**: section 2's frames, byte for byte, in all three legs; the startup order; the close
+  order; every message string.
+- **Proof**, each alone, in legs A, B and C: in `packages/adapter-claude/src/`, `session.process`,
+  `attachment-frames.process`, `catalog-input.process`, `child-control.process`,
+  `fork-selection.process`, `fork.process`, `input-rejected.process`, `minimum-version.process`,
+  `native-tools.process`, `permissions.process`, `sdk-controls.process`, `steer-backgrounding.process`,
+  `tool-search-listing.process`, and `cmd-shim-session.process` on the Windows VM; in
+  `apps/daemon/src/engine/`, `claude-steering.process`, `claude-steer-boundary.process`,
+  `attachment-echo.process`, `provider-permissions.process`, `provider-errors.process`,
+  `recorded-ask.process`; in `apps/daemon/src/`, `claude-shared-skills.process`,
+  `claude-registration.process`, `claude-limits.process`, `provider-mcp.process`,
+  `provider-availability.process`, `provider-usage.process`; and the `agent-control/` files whose
+  `cliDaemon` starts a Claude thread (`agent-control/cli-test-support.ts:71`; find them by the
+  provider they start, and list them in the PR). The translator (a) files run in A and C
+  unchanged. `metadata-host.process`, `cmd-shim-metadata.process`, `sdk-process`,
+  `sdk-stderr.process` run in A and B and must not change (they don't go through the session).
+- **(b) cases**: none (Claude has none).
+- **Cross-mode**: none exist. Checked: the only files that reopen a store with a Claude-named
+  thread (`engine/permissions.process.test.ts:139`, `provider-availability.process.test.ts:23`) use a
+  scripted adapter or one `Store`, and an engine restart over one `Store` can't show alternation.
+  E3-claude.6 adds the one test.
+- **Bench**: E3-claude.5.
+- **Must not**: change `session.ts` beyond the one line, or any test or `testing/` file; import
+  the SDK (values or types) in `native-session.ts`; build a frame in the facade; release anything
+  before a stop is confirmed.
+- **Reviewer checks**: a hunk-by-hunk diff of `native-session.ts` against `session.ts` shows only
+  step 3's replacements; the frames of one `session.process` run in leg A and leg B are the same
+  list apart from `t` and the intended differences; the daemon bundle built with the switch on
+  still loads the SDK only through `session.ts`'s off path.
+
+#### E3-claude.5 The benches
+
+- **Files**: `apps/daemon/bench/session-stream.ts` (a `--provider pi|claude` argument, if the
+  merged bench doesn't take one yet; Pi's run stays byte for byte the same) and
+  `apps/daemon/bench/session-stream/claude.ts` (new); `tools/daemon-bench/src/daemon.ts` (the
+  `ACE_SESSIONS` row, `:60`–`:64`). Nothing else.
+- **The fake**, `session-stream/claude.ts`: answers `initialize` and every other control request
+  as `packages/adapter-claude/src/testing/cli.ts:78`–`:245` does, and on each user message prints a
+  turn of 2,000 `stream_event` text deltas, one `assistant` message and one `result`, in the shapes
+  of `fixtures/claude/2.1.286/tool-read.jsonl`. The bench opens through
+  `createClaudeAdapter({ executable }).openSession(ctx)` and runs E3.0d's ten prompts and its
+  four modes (D = C + `ACE_SESSIONS=claude`, void without the evidence line).
+- **`tools/daemon-bench`**: the `ACE_SESSIONS` row takes `ACE_SESSIONS_ADDON` when the list names
+  `claude`, and keeps refusing any other provider with today's text. Run, before and after, the
+  daemon bench's own A/B pair: everything off; then `ACE_STORE=native ACE_SUPERVISOR=native
+ACE_TRANSLATORS=claude`; then that plus `ACE_SESSIONS=claude`. Report `cpuMsPerTurn` and heap for
+  each.
+- **Rule**: E3.0d step 6 for `session-stream` (median D/A ratio ≤ 1.00, D's frames per second ≥
+  A's), and ADR 0223's gate for the daemon bench: Claude defaults on only if `cpuMsPerTurn` and
+  heap improve with `ACE_SESSIONS=claude` against the same switches without it.
+- **Proof**: `tools/daemon-bench/src/compare.test.ts` and `fake-cli/fake-cli.process.test.ts` in leg
+  A (the bench's own files).
+- **Cross-mode**: none.
+- **Must not**: spend quota or start the real CLI; run beside another bench; change Pi's numbers.
+
+#### E3-claude.6 The Claude restart test and its cross-mode run (needs the owner, claude-session.md Q12)
+
+No test reboots a home with a real Claude session, so the E3 cross-mode gate has nothing to run
+for Claude. Build this only once the owner allows one new test, as for Pi (E3-pi.2b).
+
+1. Create `apps/daemon/src/engine/claude-restart-resume.process.test.ts`. Its header says why: no
+   test covered a Claude thread resumed across boots of one home.
+2. Build it as `pi-restart-resume.process.test.ts` does: `harness` from `./test-support.ts`, the
+   real `createClaudeAdapter` with the fake CLI launched as `session.test-helper.ts:12`–`:17`
+   launches it, and for each reboot `await engine.close()`, close the store, then `store = new
+Store(h.path)` and `engine = new Engine(store, { registry: h.registry, clock: h.clock })`. Opening
+   the store is the boot. **Never `restart()`** from `recovery-test-support.ts:48`: it reuses the
+   store, so no boot is recorded and the backend never switches.
+3. Boot 0 starts a Claude thread and completes one turn, then records the thread's stored native
+   session id. Then two restarts, boots 1 and 2. After each: the stored id is unchanged; the
+   reopened session resumed it, shown by committed frames only (record a frame after the commit
+   `ctx.onFrame` returns has resolved): a `system/fake_control` frame whose `argv` holds
+   `--resume=<id>`, and a `fake_input` whose `session_id` is the id; and a new message gets a reply
+   and the thread settles, read back through the Store's public thread reads.
+4. Run it alone, off and in legs B and C, then
+   `ACE_STORE=native ACE_SUPERVISOR=native <addons> bun scripts/native-cross.ts ACE_SESSIONS apps/daemon/src/engine/claude-restart-resume.process.test.ts`
+   with `ACE_SESSIONS=claude`. The gate asserts one root booted three times with alternating
+   backends, so both swaps are checked in one run. Over the 30 s budget, add it to
+   `scripts/test-budgets.json` with this reason.
+
+- **Claude cross-mode list**: this file only (recorded in ADR 0223's 2026-11-25 line).
+- **Must not**: add a second test; edit any existing test.
+- **Reviewer checks**: the test fails if the resumed id differs, if the fake starts a fresh
+  session (no `--resume`), or if the continuation never replies; the log shows both swaps.
+
+**Order and dependencies.** .1 → .2 → .3 → .4, then .5 and .6 in either order. All need E3.0
+(merged). Builders follow the E3 rules ("Who writes the code", branches `ace/rust-engine-e3-claude-<n>`
+from `ace/daemon-rust-rewrite`). Default-on needs .5's two benches, .6's gate both ways, the
+Windows VM run of .4's files, and one opt-in release (ADR 0223 §8). ADR 0226 §5 gate 3 ("Claude
+out of process") also needs the metadata host's in-process branch gone (claude-session.md
+section 5), which is a later item.
+
+</content>
+</invoke>
 ### Reviewing an E3 task
 
 The reviewer (Codex, then Opus for the merge) checks:
@@ -1915,6 +2280,7 @@ The reviewer (Codex, then Opus for the merge) checks:
 3. **`agent-client-protocol`.** Kept only if E1's ACP translator already depends on it. It
    doesn't, so E3-acp.1 removes it and defines the two constants locally.
 4. **Scope.** Pilot only: E3.0, E3-pi.1, E3-pi.2 and E3-pi.2b now; Codex and ACP later.
+5. **Claude (2026-11-25).** Start the Claude session now: E3-claude.1 to .6 above.
 
 ## E4: the core
 
