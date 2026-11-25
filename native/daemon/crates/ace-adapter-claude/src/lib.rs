@@ -3,4 +3,5 @@
 //! translator closure into translate. The session stays TypeScript behind the
 //! bridge (ADR 0223, decided by the orchestrator): there is no E3 item for Claude.
 
+pub mod input;
 pub mod translate;
