@@ -58,6 +58,12 @@ export interface BridgeHooks {
   fatal(message: string): void;
   /** The facade's exit path, after `Drained` settled everything before it. */
   drained(): void;
+  /**
+   * A port the session cannot run itself: the child's stop (the facade owns the process) and a
+   * permission mode only the context can answer. Handled synchronously; the answer goes back
+   * through the handle.
+   */
+  port?(name: string, json: string): void;
 }
 
 /** The bridge's surface: the port's callback, the facade's promises and the drain signal. */
@@ -256,6 +262,12 @@ export function sessionBridge(
         return armTimer(fields);
       case "cancelTimer":
         return cancelTimer(fields);
+      case "port": {
+        const [name, json] = fields;
+        if (typeof name !== "string" || typeof json !== "string")
+          throw new TypeError("native session port is malformed");
+        return hooks.port?.(name, json);
+      }
       case "fatal": {
         const [message] = fields;
         if (typeof message !== "string") throw new TypeError("native session fatal is malformed");
