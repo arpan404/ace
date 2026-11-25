@@ -3,11 +3,13 @@
  * The transport's proof run (ADR 0226, T1a.8): every test file that starts a server, run twice,
  * once with the Rust loopback listener on and once with `ACE_TRANSPORT` off, one file at a time.
  *
- * The list comes from `list-server-tests.ts`. Each leg writes a Vitest JSON report and the on leg
- * a fresh `ACE_TRANSPORT_EVIDENCE` file; a report is read with `JSON.parse(readFileSync(...))`,
- * never `require`. Every test of both legs is recorded per test. The on leg is `native` only when
- * it executed a test and the evidence file is non-empty. A skipped test in a file with no
- * identified platform guard is a failure, so one guard can't hide an unrelated skip.
+ * The list comes from `list-server-tests.ts`, plus the rule-named files its seed closure misses
+ * (`CASE_RULE_FILES`). Each leg writes a Vitest JSON report and the on leg a fresh
+ * `ACE_TRANSPORT_EVIDENCE` file; a report is read with `JSON.parse(readFileSync(...))`, never
+ * `require`. Every test of both legs is recorded per test. The on leg is `native` only when it
+ * executed a test and the evidence file holds a listener line: case markers alone are not proof.
+ * A Node-only suite (`scripts/test-tiers.ts`) runs in its own leg on Node. A skipped test in a
+ * file with no identified platform guard is a failure, so one guard can't hide an unrelated skip.
  *
  * The on leg runs first. When it passes with no evidence, the switch never took effect and the
  * off leg would be identical, so the off leg is skipped and recorded as such; a failing on leg or
@@ -26,31 +28,39 @@
  * For a long list: `--from N` starts at the Nth file (1-based), `--shard i/n` keeps the files
  * whose sorted index is `i` mod `n`, `--only <text>` keeps the files whose path contains it, and
  * `--results <path>` writes this run's results as JSON.
- * `--merge <path...>` reads any mix of those JSON files and proof-run logs, prints the same final
- * report, and exits by the same rules; a JSON result wins over a log's line for the same file.
+ * `--merge <path...>` reads those JSON files and proof-run logs and exits by the same rules. Every
+ * result file records the switch it ran, and a merge refuses two switches or a log from a switch
+ * run (a log holds no per-case findings). A duplicate keeps the worse result: failed legs, then
+ * cases the evidence could not prove, then unexplained skips, then failed tests.
  *
  * `--switch=<value>` is the on leg's `ACE_TRANSPORT` (default `native`; T1b.5 runs
  * `--switch=native,remote`). When the value names `remote`, the on leg's evidence is checked per
- * case as well (`transport-evidence.ts`): every traffic case must show what the remote listener
- * handled inside its own markers, the lifecycle cases their own proof, and every bind its close.
- * The per-case table is printed and a case the evidence cannot prove is `NONE`, which fails the
- * run. T1a's run, the default, is unchanged.
+ * case as well (`transport-evidence.ts`): every traffic case must own what the remote listener
+ * handled inside its own markers, the lifecycle cases their own proof, and every bind its close of
+ * the same listener instance. The per-case table is printed and a case the evidence cannot prove is
+ * `NONE`, which fails the run. T1a's run, the default, is unchanged.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { loadavg, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { listServerTests } from "./list-server-tests.ts";
+import { realNode } from "./runtimes.ts";
+import { nodeOnlySuites } from "./test-tiers.ts";
 import {
   caseEvidence,
   caseTable,
+  hasListenerLine,
   requiresCaseEvidence,
   type CaseEvidence,
 } from "./transport-evidence.ts";
 import { CASE_RULE_FILES } from "./transport-evidence-rules.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
+const require = createRequire(import.meta.url);
+const vitestBin = join(dirname(require.resolve("vitest/package.json")), "vitest.mjs");
 
 /** The on leg's `ACE_TRANSPORT` when none is named: T1a's run. */
 const DEFAULT_SWITCH = "native";
@@ -168,13 +178,12 @@ function hasPlatformGuard(text: string): boolean {
   return false;
 }
 
-/** What the evidence file says: `native` needs a line; an absent or empty file says nothing. */
+/**
+ * What the evidence file says: `native` needs a listener line. Case markers alone are not proof:
+ * with `--switch` a run may write markers for every test, including files that never start one.
+ */
 function evidenceOf(path: string): boolean {
-  try {
-    return statSync(path).size > 0;
-  } catch {
-    return false;
-  }
+  return hasListenerLine(path);
 }
 
 /** Whether a leg failed only because a test timed out, so one rerun alone is the fair reading. */
@@ -185,6 +194,31 @@ function timedOutOnly(run: LegRun): boolean {
     failed.length > 0 &&
     failed.every((result) => /timed out in \d+ ?ms/i.test(result.message ?? ""))
   );
+}
+
+/** Whether a file matches one of the tier table's Node-only globs (`*` spans anything). */
+function isNodeOnly(file: string): boolean {
+  return nodeOnlySuites.some((pattern) => {
+    const escaped = pattern
+      .split("*")
+      .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
+      .join(".*");
+    return new RegExp(`^${escaped}$`).test(file);
+  });
+}
+
+/** The command one leg runs: Vitest on Bun, and on Node for a Node-only suite. */
+function vitestCommand(file: string, reportPath: string): { command: string; args: string[] } {
+  const common = [`--maxWorkers=${MAX_WORKERS}`, "--reporter=json", `--outputFile=${reportPath}`];
+  if (!isNodeOnly(file))
+    return { command: "bun", args: ["--bun", "x", "vitest", "run", file, ...common] };
+  const node = realNode();
+  if (node === undefined)
+    throw new Error(`${file} is a Node-only suite, and no node is on PATH to run it`);
+  return {
+    command: node,
+    args: [vitestBin, "run", file, "--project=node-process", ...common],
+  };
 }
 
 /** One leg's outcome, from its report only. */
@@ -204,20 +238,14 @@ function runLeg(
     env.ACE_TRANSPORT = transport;
     env.ACE_TRANSPORT_EVIDENCE = evidencePath;
   }
-  const run = spawnSync(
-    "bun",
-    [
-      "--bun",
-      "x",
-      "vitest",
-      "run",
-      file,
-      `--maxWorkers=${MAX_WORKERS}`,
-      "--reporter=json",
-      `--outputFile=${reportPath}`,
-    ],
-    { cwd: root, env, encoding: "utf8", timeout: REPORT_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 },
-  );
+  const { command, args } = vitestCommand(file, reportPath);
+  const run = spawnSync(command, args, {
+    cwd: root,
+    env,
+    encoding: "utf8",
+    timeout: REPORT_TIMEOUT_MS,
+    maxBuffer: 64 * 1024 * 1024,
+  });
   const output = `${run.stdout ?? ""}${run.stderr ?? ""}`;
   if (!existsSync(reportPath))
     return { noReport: "missing", results: [], status: run.status, output };
@@ -414,7 +442,18 @@ function main(): number {
     return args.slice(at + 1).filter((value) => !value.startsWith("--"));
   })();
   if (merge !== undefined) {
-    const { runs, duplicates, refused } = mergeRuns(merge);
+    const { runs, duplicates, refused, switches, logsWithoutCases, unrecordedSwitches } =
+      mergeRuns(merge);
+    console.log(`=== switch: ${switches.length ? switches.join(", ") : "not recorded"} ===`);
+    // A merge is one run's proof: two switches' results never add up, and a native shard must
+    // never fill a remote one.
+    if (switches.length > 1) {
+      console.log(
+        `\n=== merge refused: ${switches.length} switches (${switches.join(", ")}) ===\n` +
+          "  merge only the result files of one --switch run",
+      );
+      return 1;
+    }
     report(runs);
     const failed = failures(runs);
     const uncovered = uncoveredFiles(runs);
@@ -427,16 +466,29 @@ function main(): number {
       for (const path of refused)
         console.log(`  ${path}: no per-test statuses (an older runner's log)`);
     }
+    if (logsWithoutCases.length) {
+      console.log(`\n=== refused logs, no per-case findings (${logsWithoutCases.length}) ===`);
+      for (const path of logsWithoutCases)
+        console.log(`  ${path}: a switch run's proof is in its --results JSON, not a log`);
+    }
+    if (unrecordedSwitches.length) {
+      console.log(`\n=== refused results, no switch recorded (${unrecordedSwitches.length}) ===`);
+      for (const path of unrecordedSwitches)
+        console.log(`  ${path}: rerun that shard with this script so the file names its switch`);
+    }
     if (uncovered.length) {
       console.log(`\n=== merge is incomplete (${uncovered.length}) ===`);
       for (const file of uncovered) console.log(`  missing: ${file}`);
     }
     const withCases = runs.filter((run) => run.cases !== undefined).length;
-    if (withCases)
-      console.log(
-        `\ncase evidence: ${withCases} files (from JSON results; a log carries none, so merge a --switch run's JSON)`,
-      );
-    return failed || uncovered.length || refused.length ? 1 : 0;
+    if (withCases) console.log(`\ncase evidence: ${withCases} files, from their JSON results`);
+    return failed ||
+      uncovered.length ||
+      refused.length ||
+      logsWithoutCases.length ||
+      unrecordedSwitches.length
+      ? 1
+      : 0;
   }
   const files = discoveredFiles();
   const from = Math.max(1, Number(flag("--from") ?? "1"));
@@ -582,13 +634,25 @@ function uncoveredFiles(runs: readonly FileRun[]): string[] {
   return discoveredFiles().filter((file) => !present.has(file));
 }
 
-/** How bad a result is: failed legs first, then failed tests. Higher is worse. */
+/** Skips no guard explains, which are failures; a log names no guard, so every skip counts. */
+function unexplainedSkips(run: FileRun): number {
+  if (run.platformGuard) return 0;
+  return skips(run).filter((result) => !(run.switchGuard && result.leg === "off")).length;
+}
+
+/**
+ * How bad a result is. Higher is worse, so a duplicate can never be a clean run hiding a later
+ * failed proof: failed legs first, then the cases the evidence could not prove, then skips no
+ * guard explains, then failed tests.
+ */
 function severity(run: FileRun): number {
   const legs = (legFailed(run.off) ? 1 : 0) + (legFailed(run.on) ? 1 : 0);
+  const findings = run.cases?.findings.length ?? 0;
+  const skipsUnseen = unexplainedSkips(run);
   const tests = [...run.off.results, ...run.on.results].filter(
     (result) => result.status === "failed",
   ).length;
-  return legs * 1_000 + tests;
+  return legs * 1_000_000 + findings * 10_000 + skipsUnseen * 100 + tests;
 }
 
 /**
@@ -600,10 +664,19 @@ function mergeRuns(paths: readonly string[]): {
   runs: FileRun[];
   duplicates: string[];
   refused: string[];
+  /** The switches the result files recorded; a merge needs exactly one. */
+  switches: string[];
+  /** A log merged into a switch run, where the per-case findings can't be recovered. */
+  logsWithoutCases: string[];
+  /** Result files that recorded no switch: their legs' switch is unknown, so they prove nothing. */
+  unrecordedSwitches: string[];
 } {
   const merged = new Map<string, FileRun>();
   const duplicates = new Set<string>();
   const refused: string[] = [];
+  const switches = new Set<string>();
+  const logsWithoutCases: string[] = [];
+  const unrecordedSwitches: string[] = [];
   const add = (run: FileRun) => {
     // A report written by an older runner may spell "no failure" as null.
     for (const leg of [run.off, run.on])
@@ -619,10 +692,23 @@ function mergeRuns(paths: readonly string[]): {
   const json = paths.filter((path) => path.endsWith(".json"));
   const logs = paths.filter((path) => !path.endsWith(".json"));
   for (const path of json) {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as { files?: FileRun[] };
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as {
+      switch?: unknown;
+      files?: FileRun[];
+    };
+    if (typeof parsed.switch === "string") switches.add(parsed.switch);
+    else unrecordedSwitches.push(path);
     for (const run of parsed.files ?? []) add(run);
   }
+  const switchNames = [...switches];
+  const remoteSwitch = switchNames.some((name) => name.split(",").includes("remote"));
   for (const path of logs) {
+    // A log carries per-file counts, never the per-case findings a remote proof turns on: mixing
+    // one in would let a file's cases pass silently, so a switch run refuses logs outright.
+    if (remoteSwitch) {
+      logsWithoutCases.push(path);
+      continue;
+    }
     if (!isModernLog(path)) {
       refused.push(path);
       continue;
@@ -633,6 +719,9 @@ function mergeRuns(paths: readonly string[]): {
     runs: [...merged.values()].toSorted((left, right) => left.file.localeCompare(right.file)),
     duplicates: [...duplicates].toSorted(),
     refused,
+    switches: switchNames.toSorted(),
+    logsWithoutCases,
+    unrecordedSwitches,
   };
 }
 
