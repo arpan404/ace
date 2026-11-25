@@ -53,9 +53,14 @@ function nativeSniListener(deps: NativeSniListenerDeps, options: SniListenerOpti
   // An identity Rust can't use throws here, where `createServer` throws on Node's listener today.
   nativeRemoteClass().checkIdentity(cert, key);
   const limits = sniLimits(options.limits);
+  let closed = false;
+  const forward = proxyGuard(deps.secret, options.requests);
   // The hop target, as `sniListener` builds one HTTP server per listener: it never listens
   // publicly, and every request arrives from Rust on loopback with this boot's secret.
-  const internal = createServer(proxyGuard(deps.secret, options.requests));
+  const internal = createServer((request, response) => {
+    if (closed) request.socket.destroy();
+    else forward(request, response);
+  });
   // The SNI listener's contract leaves the exchange unbounded (`ConnectionLimits::remote_sni`),
   // so the hop holds neither a request nor a header beside Rust's own `first_head` limit.
   internal.requestTimeout = 0;
@@ -68,7 +73,6 @@ function nativeSniListener(deps: NativeSniListenerDeps, options: SniListenerOpti
   /** Whether `listen` returned the bind to its caller: before that, nothing could have reached it. */
   let published = false;
   let closing: Promise<void> | undefined;
-  let closed = false;
   let certificate: TrustedCertificate | undefined;
   let unsubscribe: (() => void) | undefined;
   let cancelTimer: (() => void) | undefined;
@@ -173,6 +177,8 @@ function nativeSniListener(deps: NativeSniListenerDeps, options: SniListenerOpti
       closed = true;
       stopWatching();
       closing ??= (async () => {
+        // Drop active HTTP exchanges now and keep the hop port bound until Rust stops forwarding.
+        internal.closeAllConnections();
         // A bind still in flight lands first, so what it opened is closed here and not later.
         await binding?.catch(() => {});
         try {
