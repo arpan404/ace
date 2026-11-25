@@ -66,23 +66,14 @@ export async function resolveAndroidSDK(
     );
   // Google's SDK repository has the emulator and platform-tools for x86-64 Linux only; on arm64
   // a distribution's adb still reaches phones and network devices.
-  if (options.platform === "linux" && options.arch === "arm64")
-    throw new DeviceError(
-      "sdk_missing",
-      "adb was not found",
-      "Install your distribution's adb (Debian/Ubuntu: sudo apt install adb) to use Android phones and network devices. Android emulators aren't available on Linux arm64.",
-    );
-  if (options.platform === "linux")
-    throw new DeviceError(
-      "sdk_missing",
-      "adb was not found",
-      "Install your distribution's adb (Debian/Ubuntu: sudo apt install adb) for Android phones, or Android Studio's Platform Tools and Android Emulator with ANDROID_HOME set to the SDK directory for emulators too.",
-    );
-  throw new DeviceError(
-    "sdk_missing",
-    "Android SDK platform-tools were not found",
-    "Install Android Studio's Platform Tools and Android Emulator, then set ANDROID_HOME to the SDK directory.",
-  );
+  const key =
+    options.platform === "linux"
+      ? options.arch === "arm64"
+        ? "adbMissingArm"
+        : "adbMissingLinux"
+      : "sdkMissing";
+  const word = catalogWord(key);
+  throw new DeviceError(word.code, word.message, word.hint);
 }
 
 /**
@@ -124,12 +115,10 @@ export async function resolveXcode(options: SDKOptions): Promise<{ xcrun: string
   const [select, xcrun, open] = await Promise.all(
     ["xcode-select", "xcrun", "open"].map((name) => findExecutable(name, options.env)),
   );
-  if (!select || !xcrun || !open)
-    throw new DeviceError(
-      "sdk_missing",
-      "Xcode tools were not found",
-      "Install Xcode and select it with xcode-select -s /Applications/Xcode.app/Contents/Developer.",
-    );
+  if (!select || !xcrun || !open) {
+    const word = catalogWord("xcodeMissing");
+    throw new DeviceError(word.code, word.message, word.hint);
+  }
   let output;
   try {
     const schedule = probeSchedule(options);
@@ -139,22 +128,17 @@ export async function resolveXcode(options: SDKOptions): Promise<{ xcrun: string
       ...(schedule ? { schedule } : {}),
     });
   } catch {
-    throw new DeviceError(
-      "sdk_missing",
-      "Xcode developer directory is unavailable",
-      "Run xcode-select -s /Applications/Xcode.app/Contents/Developer.",
-    );
+    const word = catalogWord("xcodeUnavailable");
+    throw new DeviceError(word.code, word.message, word.hint);
   }
   if (
     output.code !== 0 ||
     !z.string().max(4096).refine(isAbsolute).safeParse(output.stdout).success ||
     output.stdout.endsWith("CommandLineTools")
-  )
-    throw new DeviceError(
-      "sdk_missing",
-      "A full Xcode installation is required",
-      "Run xcode-select -s /Applications/Xcode.app/Contents/Developer, then accept the Xcode license.",
-    );
+  ) {
+    const word = catalogWord("xcodeNotFull");
+    throw new DeviceError(word.code, word.message, word.hint);
+  }
   return { xcrun, open };
 }
 
