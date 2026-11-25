@@ -142,6 +142,24 @@ function events(dir: string) {
 function activeRootRun(h: Awaited<ReturnType<typeof antigravity>>["h"], id: ThreadId) {
   return Object.values(h.store.snapshotThread(id).runs).find((run) => run.state === "active");
 }
+type RootRun = NonNullable<ReturnType<typeof activeRootRun>>;
+/** The next turn once it is active, read inside the poll so no gap can hide it. */
+async function nextActiveRun(
+  h: Awaited<ReturnType<typeof antigravity>>["h"],
+  id: ThreadId,
+  previous: string,
+): Promise<RootRun> {
+  let found: RootRun | undefined;
+  await expect
+    .poll(() => {
+      const run = activeRootRun(h, id);
+      if (run && run.id !== previous) found = run;
+      return found?.id;
+    })
+    .toBeDefined();
+  if (!found) throw new Error("Expected the queued prompt to be active");
+  return found;
+}
 function toolCalls(h: Awaited<ReturnType<typeof antigravity>>["h"], id: ThreadId) {
   return Object.values(h.store.snapshotThread(id).items).filter(
     (item) => item.type === "tool_call",
@@ -429,9 +447,7 @@ test("an ACP steer sent during one turn never cancels the next", async () => {
 
     // A ends by itself; the queued message starts the next turn and holds it.
     release(dir, 1);
-    await expect.poll(() => activeRootRun(h, id)?.id).not.toBe(first.id);
-    const second = activeRootRun(h, id);
-    if (!second) throw new Error("Expected the queued prompt to be active, not cancelled");
+    await nextActiveRun(h, id, first.id);
     expect(h.store.snapshotThread(id).runs[first.id]).toMatchObject({ state: "completed" });
     // The steer aimed at A is handed back as the next message, not sent into B.
     await expect
@@ -466,9 +482,7 @@ test("choosing Steer on a queued message cancels the turn running now", async ()
     release(dir, 1);
     const first = Object.values(h.store.snapshotThread(id).runs)[0];
     if (!first) throw new Error("Expected the first prompt to be recorded");
-    await expect.poll(() => activeRootRun(h, id)?.id).not.toBe(first.id);
-    const running = activeRootRun(h, id);
-    if (!running) throw new Error("Expected the queued prompt to be active");
+    const running = await nextActiveRun(h, id, first.id);
 
     const queue = h.engine.queue(id);
     const message = queue.messages.find(
@@ -515,9 +529,7 @@ test("a steer that lost its turn doesn't block a newer steer", async () => {
 
     // A ends by itself; the queued turn starts and runs a command of its own.
     release(dir, 1);
-    await expect.poll(() => activeRootRun(h, id)?.id).not.toBe(first.id);
-    const second = activeRootRun(h, id);
-    if (!second) throw new Error("Expected the queued prompt to be active");
+    const second = await nextActiveRun(h, id, first.id);
     // The steer aimed at the finished turn leaves the lane even while the new turn's command
     // runs, so a newer steer is not stuck behind it.
     await expect
