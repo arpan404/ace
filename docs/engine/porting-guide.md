@@ -1335,7 +1335,7 @@ Later, not part of the pilot (owner decision 4).
   `AGENT_METHODS` names the TypeScript uses in `session/protocol.rs`, copied from
   `@agentclientprotocol/sdk` 1.7.0 (`adapter-acp/package.json:20`), with a comment naming that
   version.
-- **Must not**: add any ACP crate; change `translate/`.
+- **Must not**: add any ACP crate; change `translate/`. One allowed exception (planner, 2026-11-25): `translate/shell_settlement.rs`'s `set_root` setter, which mirrors TypeScript's own `root` field so the session can name the root after `session/new` replies. It changes nothing the translator decides.
 
 #### E3-acp.2 Prompts, steering and close
 
