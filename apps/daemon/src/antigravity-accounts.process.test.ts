@@ -142,13 +142,20 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     },
     /** Add an Antigravity account the way Settings does: its own home, then registered. */
     async add(label: string) {
-      const instance = await createManagedHome(home, `account-${++id}`, "antigravity", label);
+      const instance = await createManagedHome(
+        home,
+        `account-${++id}`,
+        "antigravity",
+        label,
+        process.platform,
+      );
       await registry.register(instance);
       return instance;
     },
     /** Remove an account the way Settings asks the daemon to. */
     async remove(instanceId: string) {
       const management = new AccountManagement({
+        platform: process.platform,
         registry,
         accounts,
         dataDir: home,

@@ -35,7 +35,12 @@ import {
 } from "@ace/accounts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { defaultProviderExecutable, type DiscoveryOptions } from "@ace/provider-kit/discovery";
-import { createManagedHome, deleteManagedHome, registerImplicitAccounts } from "./account-homes.ts";
+import {
+  createManagedHome,
+  deleteManagedHome,
+  prepareOpenCodeHome,
+  registerImplicitAccounts,
+} from "./account-homes.ts";
 import { refreshCliLimits, type CliUsageProvider, type ReadCliUsage } from "./account-limits.ts";
 import { consumeAccountReset, type ConsumeReset } from "./account-reset.ts";
 import type { AccountResetOutcome } from "@ace/protocol/accounts";
@@ -70,6 +75,8 @@ export interface AccountManagementOptions {
   accounts: AccountService;
   dataDir: string;
   env: NodeJS.ProcessEnv;
+  /** The host platform arm's folder checks follow; the daemon passes `process.platform`. */
+  platform: NodeJS.Platform;
   now(): number;
   id(): string;
   models(): ModelCatalog | undefined;
@@ -180,6 +187,13 @@ export class AccountManagement {
   }
   private async restoreManaged(instance: ProviderInstance): Promise<void> {
     this.options.signal?.throwIfAborted();
+    // A managed OpenCode home whose folders lost their owner's access cannot start its CLI.
+    if (instance.provider === "opencode" && instance.managed)
+      try {
+        await prepareOpenCodeHome(instance.homeDir, this.options.platform);
+      } catch {
+        // Startup never waits on a folder ace cannot repair; discovery reports the account.
+      }
     if (this.options.configuration?.(instance.provider, instance.id).enabled === false) return;
     await assertManagedHome(this.options.dataDir, instance);
     const sdk = instance.provider === "cursor" ? this.options.cursor?.() : undefined;
@@ -283,7 +297,13 @@ export class AccountManagement {
     shortLabel?: string,
   ): Promise<string> {
     const id = `account-${this.options.id()}`;
-    const instance = await createManagedHome(this.options.dataDir, id, provider, label);
+    const instance = await createManagedHome(
+      this.options.dataDir,
+      id,
+      provider,
+      label,
+      this.options.platform,
+    );
     try {
       await this.options.registry.registerPending({
         ...instance,
@@ -353,6 +373,7 @@ export class AccountManagement {
         id,
         request.provider,
         request.label,
+        this.options.platform,
       );
       try {
         await registry.register({

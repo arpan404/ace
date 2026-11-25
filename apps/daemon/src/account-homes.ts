@@ -1,4 +1,4 @@
-import { mkdir, lstat, realpath, rm } from "node:fs/promises";
+import { chmod, lstat, mkdir, realpath, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
   antigravityIdentity,
@@ -53,11 +53,38 @@ export async function registerImplicitAccounts(
   }
 }
 
+/**
+ * OpenCode needs to create its log and database under `data/opencode`. A folder that lost its
+ * owner's search bit fails every OpenCode command with EACCES, so ace restores it.
+ */
+export async function prepareOpenCodeHome(
+  homeDir: string,
+  platform: NodeJS.Platform,
+): Promise<void> {
+  for (const name of ["data", "config", "state"]) {
+    for (const dir of [join(homeDir, name), join(homeDir, name, "opencode")]) {
+      const existing = await lstat(dir).catch((error: unknown) => {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+        throw error;
+      });
+      if (!existing) {
+        await mkdir(dir, { mode: 0o700 });
+        continue;
+      }
+      if (!existing.isDirectory() || existing.isSymbolicLink())
+        throw new Error("Unsafe OpenCode home");
+      if (platform !== "win32" && (existing.mode & 0o700) !== 0o700)
+        await chmod(dir, (existing.mode | 0o700) & 0o7777);
+    }
+  }
+}
+
 export async function createManagedHome(
   dataDir: string,
   id: string,
   provider: ManagedAccountProvider,
   label: string,
+  platform: NodeJS.Platform,
 ): Promise<ProviderInstance> {
   AccountId.parse(id);
   const root = await realpath(dataDir);
@@ -70,6 +97,7 @@ export async function createManagedHome(
     throw new Error("Unsafe account home root");
   const homeDir = join(parent, id);
   await mkdir(homeDir, { mode: 0o700 });
+  if (provider === "opencode") await prepareOpenCodeHome(homeDir, platform);
   // Cursor's SDK is the one CLI that still runs with a private HOME (its login follows
   // os.homedir()); every other account uses the person's own home.
   if (provider === "cursor") await mkdir(join(homeDir, "user"), { mode: 0o700 });

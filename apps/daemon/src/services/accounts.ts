@@ -84,6 +84,7 @@ export function startAccountManagement(context: ServiceContext): void {
   const { services, resources, config, now, id, options } = context;
   if (!services.accounts || !services.accountRegistry) return;
   const management = new AccountManagement({
+    platform: process.platform,
     registry: services.accountRegistry,
     accounts: services.accounts,
     dataDir: config.dataDir,
