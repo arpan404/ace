@@ -60,7 +60,7 @@ export class IntentStore {
   private queue: QueueStore;
   private now: () => number;
   private statements = new Map<string, StatementSync>();
-  constructor(store: Store, queue: QueueStore, now: () => number) {
+  constructor(store: Store, queue: QueueStore, now: () => number = Date.now) {
     this.store = store;
     this.queue = queue;
     this.now = now;
