@@ -450,8 +450,19 @@ fn a_late_retirement_callback_never_evicts_a_replacement_host() {
     assert_eq!(pool.open_channel("key"), Channel::Start);
 }
 
+/// Whether a `turn/interrupt` for `thread` went out on the wire.
+fn interrupted_sent(run: &HostRun, thread: &str) -> bool {
+    run.events.snapshot().iter().any(|event| match event {
+        Event::Line { text } => {
+            text.contains("\"method\":\"turn/interrupt\"")
+                && text.contains(&format!("\"threadId\":\"{thread}\""))
+        }
+        _ => false,
+    })
+}
+
 /// `shared-host.process.test.ts`: "stopping a busy thread interrupts its own
-/// turn and not its neighbour's".
+/// turn and not its neighbour's". The close itself sends the interrupt.
 #[test]
 fn stopping_a_busy_thread_interrupts_its_turn_and_not_its_neighbours() {
     let run = started("busy-stop");
@@ -485,31 +496,31 @@ fn stopping_a_busy_thread_interrupts_its_turn_and_not_its_neighbours() {
             if data.get("method").and_then(Value::as_str) == Some("item/completed")
     )));
 
-    // A's stop interrupts A's turn; its completion is A's alone.
-    let _ = request(
-        &run,
-        1,
-        "turn/interrupt",
-        ace_json::json!({"threadId": thread_a}),
+    // A's close interrupts A's turn, and its completion is A's alone.
+    run.apply(run.host.detach(1, Retirement::User, "user closed"));
+    assert!(
+        interrupted_sent(&run, &thread_a),
+        "the close itself sends the interrupt"
     );
     assert!(interrupted(&run, 1, &thread_a));
     assert!(
         !interrupted(&run, 2, &thread_b),
         "b's turn is untouched by a's stop"
     );
+    assert!(run.events.until(WAIT_MS, |event| matches!(
+        event,
+        Event::Exited { tenant: 1, .. }
+    )));
 
     // B's own stop interrupts its own turn.
-    let _ = request(
-        &run,
-        2,
-        "turn/interrupt",
-        ace_json::json!({"threadId": thread_b}),
-    );
+    run.apply(run.host.detach(2, Retirement::User, "user closed"));
+    assert!(interrupted_sent(&run, &thread_b));
     assert!(interrupted(&run, 2, &thread_b));
 }
 
 /// `shared-host.process.test.ts`: "cancelling a busy thread's session
-/// interrupts its tree and keeps its neighbour's process".
+/// interrupts its tree and keeps its neighbour's process". The cancellation's
+/// close sends the interrupt too.
 #[test]
 fn cancelling_a_busy_threads_session_keeps_its_neighbours_process() {
     let run = started("busy-cancel");
@@ -537,15 +548,13 @@ fn cancelling_a_busy_threads_session_keeps_its_neighbours_process() {
             if data.get("method").and_then(Value::as_str) == Some("item/completed")
     )));
 
-    // The session's cancellation interrupts its tree, then closes its channel.
-    let _ = request(
-        &run,
-        1,
-        "turn/interrupt",
-        ace_json::json!({"threadId": thread_a}),
+    // The cancellation closes the session, which interrupts its turn first.
+    run.apply(run.host.detach(1, Retirement::Aborted, "Thread deleted"));
+    assert!(
+        interrupted_sent(&run, &thread_a),
+        "the cancellation interrupts the turn"
     );
     assert!(interrupted(&run, 1, &thread_a));
-    run.apply(run.host.detach(1, Retirement::Aborted, "Thread deleted"));
     assert!(run.events.until(WAIT_MS, |event| matches!(
         event,
         Event::Exited { tenant: 1, .. }

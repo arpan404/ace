@@ -57,6 +57,8 @@ const INITIALIZE_MS: f64 = 30_000.0;
 /// The host's own request ids start here; a facade's ids are small counters, so
 /// a `Settle` in this range never leaves the host.
 const OWN_ID_BASE: u64 = 1 << 63;
+/// A close's `turn/interrupt` deadline, the session's own (`session-commands.ts`).
+const INTERRUPT_MS: f64 = 10_000.0;
 /// The idle deadline's facade key.
 pub const IDLE_TIMER: &str = "host:idle";
 /// A shared host's pending-request bound (`host.ts:256`).
@@ -251,6 +253,11 @@ pub enum HostEffect {
         tenant: u64,
         exit: HostExit,
     },
+    /// A retire asked while one is already in flight: the caller joins that
+    /// stop, whose outcome the shell already holds.
+    Retiring {
+        reason: Retirement,
+    },
 }
 
 /// A refusal at the host's own door.
@@ -320,7 +327,6 @@ impl HostConfig {
 
 /// A tenant: one session's channel (`Tenant`, `:121`).
 struct Tenant {
-    tenant: u64,
     handlers: Arc<dyn ChannelHandlers>,
     /// Set once the channel stopped serving this process.
     closed: Option<String>,
@@ -330,11 +336,20 @@ struct Tenant {
     exited: bool,
 }
 
-/// A detached channel waiting for its unsubscribes; it exits when the last lands.
+/// A channel that is leaving: it issues nothing new, keeps delivering the
+/// frames its threads still produce, and exits when its last unsubscribe lands.
 struct Detaching {
     remaining: usize,
     retirement: Retirement,
-    tenant: Tenant,
+    phase: Leaving,
+}
+
+/// How far a leaving channel has gone: its turns are interrupted, then its
+/// threads released and unsubscribed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Leaving {
+    Interrupts,
+    Unsubscribes,
 }
 
 /// Why the host itself made a request.
@@ -344,6 +359,8 @@ enum OwnPurpose {
     Read { thread: JsString, hold: u64 },
     /// A detached channel's unsubscribes.
     Unsubscribe { tenant: u64 },
+    /// A close's `turn/interrupt`; its answer starts the release.
+    Interrupt { tenant: u64 },
 }
 
 /// The message just received, for the dispatch effect that follows it
@@ -373,6 +390,9 @@ struct Inner {
     init_frames: Vec<(Direction, Value)>,
     peer: RpcPeer,
     pid: Option<u32>,
+    /// The leader's end, recorded while the pipes still drain (`#exit`).
+    leader: Option<HostExit>,
+    /// The final exit, published once the pipes are done (`#exited`).
     exit: Option<HostExit>,
     retiring: bool,
     retired: bool,
@@ -386,10 +406,12 @@ struct Inner {
     own: HashMap<u64, OwnPurpose>,
     /// Facade ids a channel is waiting on, by tenant (`Tenant.abort`).
     calls: IndexMap<u64, u64>,
+    /// Each thread's running turn, so a close can interrupt it.
+    active: IndexMap<JsString, JsString>,
     /// The leader is gone or the pipes are closing: held frames are answered,
     /// never delivered, as `#exited` does.
     exiting: bool,
-    detaching: HashMap<u64, Detaching>,
+    detaching: IndexMap<u64, Detaching>,
     next_own: u64,
     next_hold: u64,
     ready: Handshake,
@@ -419,6 +441,7 @@ impl Host {
                 init_frames: Vec::new(),
                 peer,
                 pid: None,
+                leader: None,
                 exit: None,
                 retiring: false,
                 retired: false,
@@ -428,8 +451,9 @@ impl Host {
                 sender: None,
                 own: HashMap::new(),
                 calls: IndexMap::new(),
+                active: IndexMap::new(),
                 exiting: false,
-                detaching: HashMap::new(),
+                detaching: IndexMap::new(),
                 next_own: 0,
                 next_hold: 0,
                 ready: Handshake::Initializing,
@@ -473,12 +497,13 @@ impl Host {
     /// Accepts new channels: running, and not winding down.
     pub fn available(&self) -> bool {
         let inner = self.lock();
-        inner.exit.is_none() && !inner.retiring
+        inner.leader.is_none() && inner.exit.is_none() && !inner.retiring
     }
 
     /// The process leader already exited; final output may still be draining.
     pub fn gone(&self) -> bool {
-        self.lock().exit.is_some()
+        let inner = self.lock();
+        inner.leader.is_some() || inner.exit.is_some()
     }
 
     pub fn dedicated(&self) -> bool {
@@ -523,7 +548,6 @@ impl Host {
         inner.tenants.insert(
             tenant,
             Tenant {
-                tenant,
                 handlers,
                 closed: None,
                 muted: false,
@@ -554,8 +578,9 @@ impl Host {
         timeout: Timeout,
     ) -> Result<Vec<HostEffect>, HostError> {
         let mut inner = self.lock();
-        // A channel that left issues nothing (`host.ts:153`).
+        // A channel that left, or is leaving, issues nothing (`host.ts:153`).
         let closed = match inner.tenants.get(&tenant) {
+            _ if inner.detaching.contains_key(&tenant) => Some("Codex channel closed".to_owned()),
             Some(entry) => entry.closed.clone(),
             None => Some("Codex channel closed".to_owned()),
         };
@@ -641,30 +666,41 @@ impl Host {
         inner.take()
     }
 
-    /// The leader exited (`exit`): every channel hears it once, and every
-    /// routed call still pending settles exactly once.
+    /// The leader exited (`exit`, `:268`): the status is recorded and every
+    /// routed call still pending settles exactly once, but the channels stay
+    /// until the pipes are done, so the frames after the leader reach them.
     pub fn exit(&self, exit: RawExit) -> Vec<HostEffect> {
         let mut inner = self.lock();
-        // A leader's end settles every call and ends every channel; the pipes
-        // may still drain, so held frames are answered rather than delivered.
+        if inner.leader.is_some() {
+            return inner.take();
+        }
         inner.exiting = true;
         inner.gate.drain();
         let stopped = inner.peer.stop_requests("process exited");
         inner.apply(stopped);
         let exit = HostExit::from_raw(exit, inner.pid, inner.output_drained);
-        inner.exited(exit);
+        inner.leader = Some(exit);
+        inner.lead_retired();
         inner.take()
     }
 
-    /// The pipes are done (`close`): no byte follows.
+    /// The pipes are done (`close`, `:239`): settlements, then the held
+    /// requests, then the exit to every channel.
     pub fn closed(&self, exit: RawExit) -> Vec<HostEffect> {
         let mut inner = self.lock();
         inner.exiting = true;
         inner.gate.drain();
         let closed = inner.peer.close("process exited");
         inner.apply(closed);
+        let leader = inner
+            .leader
+            .clone()
+            .unwrap_or_else(|| HostExit::from_raw(exit, inner.pid, true));
+        let exit = HostExit {
+            output_drained: inner.output_drained,
+            ..leader
+        };
         if inner.exit.is_none() {
-            let exit = HostExit::from_raw(exit, inner.pid, inner.output_drained);
             inner.exited(exit);
         }
         inner.take()
@@ -675,70 +711,64 @@ impl Host {
         self.lock().output_drained = false;
     }
 
-    /// Stop routing to this channel (`detach`, `:346`). A shared process
-    /// unsubscribes its threads and keeps serving.
+    /// Stop routing to this channel (`detach`, `:346`). It issues nothing new,
+    /// interrupts the turns it still runs, and keeps receiving its threads'
+    /// frames until its unsubscribes land.
     pub fn detach(&self, tenant: u64, retirement: Retirement, reason: &str) -> Vec<HostEffect> {
         let mut inner = self.lock();
-        if inner
-            .tenants
-            .get(&tenant)
-            .is_none_or(|entry| entry.closed.is_some())
+        if inner.detaching.contains_key(&tenant)
+            || inner
+                .tenants
+                .get(&tenant)
+                .is_none_or(|entry| entry.closed.is_some())
         {
             return inner.take();
-        }
-        if let Some(entry) = inner.tenants.get_mut(&tenant) {
-            entry.closed = Some(reason.to_owned());
         }
         // Every call this channel waits on settles now (`tenant.abort`,
         // `host.ts:349`): a call with no deadline never outlives its channel.
         inner.abort_calls(tenant, reason);
-        if inner.config.dedicated || inner.exit.is_some() {
+        if inner.config.dedicated || inner.exiting {
             // A dedicated process belongs to this channel; its exit is the
-            // channel's exit.
+            // channel's exit, published when the pipes are done.
             inner.retire(retirement, true);
             return inner.take();
         }
-        let Some(entry) = inner.tenants.shift_remove(&tenant) else {
-            return inner.take();
-        };
-        inner.gate.release(tenant);
-        let threads = inner.router.release(&tenant);
-        if threads.is_empty() {
-            inner.channel_detached(entry, retirement);
-            return inner.take();
-        }
-        let mut issued = 0;
-        for thread in &threads {
-            if let Some(id) = inner.own_request(
-                "thread/unsubscribe",
-                &[("threadId", thread)],
-                UNSUBSCRIBE_MS,
-            ) {
-                inner.own.insert(id, OwnPurpose::Unsubscribe { tenant });
-                issued += 1;
-            }
-        }
-        if issued == 0 {
-            // Nothing could be asked: the channel still leaves.
-            inner.channel_detached(entry, retirement);
-            return inner.take();
-        }
+        // A running turn cannot outlive its channel: the interrupt goes out
+        // while the channel still owns its threads, so its completion lands in
+        // the channel's queue before the exit. The threads are released once
+        // every interrupt is answered, as the session's close awaits them.
+        let interrupts = inner.interrupt_turns(tenant);
         inner.detaching.insert(
             tenant,
             Detaching {
-                remaining: issued,
+                remaining: interrupts,
                 retirement,
-                tenant: entry,
+                phase: Leaving::Interrupts,
             },
         );
+        if interrupts == 0 {
+            inner.unsubscribe_threads(tenant);
+        }
         inner.take()
     }
 
     /// Stop the whole process (`retire`, `:379`); every channel on it exits.
     pub fn retire(&self, reason: Retirement) -> Vec<HostEffect> {
         let mut inner = self.lock();
+        if inner.retiring && inner.exit.is_none() {
+            // The stop in flight is the shell's: its failure reaches this
+            // caller too.
+            inner.out.push(HostEffect::Retiring { reason });
+            return inner.take();
+        }
         inner.retire(reason, true);
         inner.take()
+    }
+
+    /// The shell's stop did not confirm: a host that outlived it takes
+    /// backpressure again.
+    pub fn stop_failed(&self) {
+        self.lock().gate.undrain();
     }
 
     /// A tenant's `outputFlow` pause (`setPaused`).
@@ -796,6 +826,114 @@ impl Inner {
             .ok()?;
         self.apply(peer);
         Some(id)
+    }
+
+    /// `onRetired` when the leader ends (`#exited`'s first line): the pool
+    /// forgets the host while its pipes finish.
+    fn lead_retired(&mut self) {
+        if self.retired {
+            return;
+        }
+        self.retired = true;
+        self.out.push(HostEffect::Retired);
+    }
+
+    /// The turns this channel is still running, by thread.
+    fn live_turns(&self, tenant: u64) -> Vec<(JsString, JsString)> {
+        self.active
+            .iter()
+            .filter(|(thread, _)| self.router.owner(thread) == Some(&tenant))
+            .map(|(thread, turn)| (thread.clone(), turn.clone()))
+            .collect()
+    }
+
+    /// A close's `turn/interrupt` for every turn the channel still runs
+    /// (`session.ts`'s close, `session-commands.ts`). Answers how many were
+    /// sent, so the release waits for them.
+    fn interrupt_turns(&mut self, tenant: u64) -> usize {
+        let mut sent = 0;
+        for (thread, _turn) in self.live_turns(tenant) {
+            if let Some(id) =
+                self.own_request("turn/interrupt", &[("threadId", &thread)], INTERRUPT_MS)
+            {
+                self.own.insert(id, OwnPurpose::Interrupt { tenant });
+                sent += 1;
+            }
+        }
+        sent
+    }
+
+    /// One interrupt answered: the last one releases the channel's threads and
+    /// unsubscribes them (`detach`, `:356`).
+    fn interrupt_answered(&mut self, tenant: u64) {
+        let Some(state) = self.detaching.get_mut(&tenant) else {
+            return;
+        };
+        if state.phase != Leaving::Interrupts {
+            return;
+        }
+        state.remaining = state.remaining.saturating_sub(1);
+        if state.remaining == 0 {
+            self.unsubscribe_threads(tenant);
+        }
+    }
+
+    /// Each of the channel's threads is unsubscribed (`:356`); they stay its
+    /// own until the last one lands, so the frames their interrupts produce
+    /// still reach the channel.
+    fn unsubscribe_threads(&mut self, tenant: u64) {
+        let Some(state) = self.detaching.get_mut(&tenant) else {
+            return;
+        };
+        state.phase = Leaving::Unsubscribes;
+        let retirement = state.retirement;
+        let threads = self.router.owned(&tenant);
+        let mut issued = 0;
+        for thread in &threads {
+            if let Some(id) = self.own_request(
+                "thread/unsubscribe",
+                &[("threadId", thread)],
+                UNSUBSCRIBE_MS,
+            ) {
+                self.own.insert(id, OwnPurpose::Unsubscribe { tenant });
+                issued += 1;
+            }
+        }
+        if issued == 0 {
+            // Nothing could be asked: the channel still leaves.
+            self.channel_detached(tenant, retirement);
+            return;
+        }
+        if let Some(state) = self.detaching.get_mut(&tenant) {
+            state.remaining = issued;
+        }
+    }
+
+    /// Keep each thread's running turn, so a close can interrupt it.
+    fn track_active(&mut self, message: &Value) {
+        let Some(method) = message.get("method").and_then(Value::as_str) else {
+            return;
+        };
+        if method != "turn/started" && method != "turn/completed" {
+            return;
+        }
+        let Some(thread) = super::routing::subject_thread(message) else {
+            return;
+        };
+        let Some(turn) = message
+            .get("params")
+            .and_then(|params| params.get("turn"))
+            .and_then(|turn| turn.get("id"))
+            .and_then(Value::as_str)
+        else {
+            return;
+        };
+        let turn = JsString::from(turn);
+        if method == "turn/started" {
+            self.active.insert(thread, turn);
+        } else if self.active.get(&thread) == Some(&turn) {
+            self.active.shift_remove(&thread);
+        }
     }
 
     /// Settle every call one channel is waiting on (`tenant.abort`,
@@ -950,6 +1088,7 @@ impl Inner {
                 if !self.deliver(tenant, Direction::Recv, &data, None) {
                     pending.failed.insert(tenant);
                 }
+                self.track_active(&data);
                 if self.router.opening() == 0 {
                     self.settle_waiting();
                 }
@@ -1179,6 +1318,7 @@ impl Inner {
         match purpose {
             OwnPurpose::Read { thread, hold } => self.read_settled(&thread, hold, result),
             OwnPurpose::Unsubscribe { tenant } => self.unsubscribed(tenant),
+            OwnPurpose::Interrupt { tenant } => self.interrupt_answered(tenant),
         }
     }
 
@@ -1191,10 +1331,10 @@ impl Inner {
         if state.remaining > 0 {
             return;
         }
-        let Some(state) = self.detaching.remove(&tenant) else {
+        let Some(state) = self.detaching.shift_remove(&tenant) else {
             return;
         };
-        self.channel_detached(state.tenant, state.retirement);
+        self.channel_detached(tenant, state.retirement);
     }
 
     /// The `initialize` handshake's answer.
@@ -1289,7 +1429,15 @@ impl Inner {
 
     /// A detached channel's exit, once its unsubscribes landed (`detach`,
     /// `:360`).
-    fn channel_detached(&mut self, mut entry: Tenant, retirement: Retirement) {
+    fn channel_detached(&mut self, tenant: u64, retirement: Retirement) {
+        self.detaching.shift_remove(&tenant);
+        let Some(mut entry) = self.tenants.shift_remove(&tenant) else {
+            return;
+        };
+        self.gate.release(tenant);
+        self.router.release(&tenant);
+        self.active
+            .retain(|thread, _| self.router.owner(thread).is_some());
         if entry.exited {
             return;
         }
@@ -1301,25 +1449,23 @@ impl Inner {
             pid: self.pid,
             output_drained: true,
         };
-        self.out.push(HostEffect::Exited {
-            tenant: entry.tenant,
-            exit,
-        });
+        self.out.push(HostEffect::Exited { tenant, exit });
         self.vacated(retirement == Retirement::Shutdown);
     }
 
-    /// The leader's end (`#exited`, `:416`): every channel hears it once and
-    /// every held frame is released.
+    /// The pipes are done (`#exited`, `:416`): settlements were published
+    /// first (`closed`), then the held requests are answered and every channel
+    /// hears its exit once.
     fn exited(&mut self, exit: HostExit) {
         if self.exit.is_some() {
             return;
         }
         self.exit = Some(exit.clone());
         self.cancel_idle();
-        if !self.retired {
-            self.retired = true;
-            self.out.push(HostEffect::Retired);
-        }
+        self.lead_retired();
+        self.detaching.clear();
+        self.calls.clear();
+        self.active.clear();
         let holds: Vec<Hold> = self.holds.drain(..).map(|(_, hold)| hold).collect();
         for hold in holds {
             for item in &hold.items {

@@ -187,6 +187,24 @@ fn a_stop_the_shell_cannot_confirm_leaves_the_channel_running_and_is_reported() 
     );
     assert!(!run.host.gone(), "the process is still running");
     assert!(!run.host.available(), "and the host is still winding down");
+
+    // A later awaited retire is the same stop: it surfaces the same failure.
+    run.apply(run.host.retire(Retirement::Shutdown));
+    assert!(
+        run.events.until(500, |event| matches!(
+            event,
+            Event::StopFailed {
+                reason: Retirement::Shutdown,
+                awaited: true,
+                message,
+            } if message == "the process tree outlived its stop"
+        )),
+        "a caller that joins the stop sees the failure it already has"
+    );
+
+    // A surviving host takes backpressure again after the failed stop.
+    run.host.set_paused(1, true);
+    assert!(run.host.paused(), "the drain did not stay latched");
     run.stop();
 }
 
@@ -681,16 +699,7 @@ fn a_thread_is_foreign_to_every_channel_but_its_owner() {
             _ => None,
         })
         .expect("the open's wire id");
-    let reply = ace_json::json!({
-        "jsonrpc": "2.0",
-        "result": {"thread": {"id": "open"}},
-    });
-    let mut reply = match reply {
-        Value::Object(map) => map,
-        _ => ace_json::Map::new(),
-    };
-    reply.insert("id", id_to_value(&wire));
-    host.line(&ace_json::to_string(&Value::Object(reply)))
+    host.line(&reply(&wire, ace_json::json!({"thread": {"id": "open"}})))
         .into_iter()
         .for_each(drop);
 
@@ -699,9 +708,14 @@ fn a_thread_is_foreign_to_every_channel_but_its_owner() {
     assert!(host.foreign(2, &open), "another channel's thread");
     assert!(!host.foreign(2, &ace_json::JsString::from("unknown")));
 
-    host.detach(1, Retirement::User, "user closed")
-        .into_iter()
-        .for_each(drop);
+    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    // A leaving channel still owns its thread until its unsubscribe lands.
+    assert!(!host.foreign(1, &open));
+    let unsub = line_id(&lines, "thread/unsubscribe", Some("open")).expect("the unsubscribe");
+    let (_, _) = pump(
+        &host,
+        host.line(&reply(&unsub, ace_json::json!({"status": "unsubscribed"}))),
+    );
     assert!(
         host.foreign(1, &open),
         "a released thread is never evidence of a new owner"
@@ -755,10 +769,11 @@ fn a_detach_settles_the_channels_calls_before_its_exit_and_refuses_new_ones() {
     );
 }
 
-/// A leader's end settles every routed call before it reports any channel
-/// gone, so no shell sees an exit ahead of the settlements it caused.
+/// A leader's end records the status and settles what was waiting, without
+/// ending the channels: the frames after the leader still reach them, and only
+/// the pipe barrier publishes the exit (`host.ts:239`, `:268`).
 #[test]
-fn an_exit_settles_every_call_before_it_reports_the_channel_gone() {
+fn a_leader_death_settles_calls_and_keeps_the_channels_until_the_pipes_end() {
     let host = bare(true);
     let events = Arc::new(crate::session::harness::Events::default());
     let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
@@ -778,6 +793,80 @@ fn an_exit_settles_every_call_before_it_reports_the_channel_gone() {
             signal: None,
         }),
     );
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            HostEffect::Settle {
+                id: 9,
+                result: Err(_)
+            }
+        )),
+        "the waiting call settles at the leader's end"
+    );
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, HostEffect::Exited { .. })),
+        "the channels are not gone while their pipes still drain"
+    );
+    assert!(host.gone(), "the leader is gone");
+    assert!(!host.available());
+
+    // A frame written after the leader still reaches its channel.
+    let _ = pump(
+        &host,
+        host.line(&frame(ace_json::json!({
+            "jsonrpc": "2.0",
+            "method": "item/completed",
+            "params": {"threadId": "final", "item": {"type": "agentMessage", "id": "m"}},
+        }))),
+    );
+    assert_eq!(
+        seen_for(&events, 1, "final"),
+        1,
+        "the final frames lose no channel"
+    );
+
+    host.output_cut();
+    let (effects, _) = pump(
+        &host,
+        host.closed(RawExit {
+            code: Some(1),
+            signal: None,
+        }),
+    );
+    let exit = effects
+        .iter()
+        .find_map(|effect| match effect {
+            HostEffect::Exited { tenant: 1, exit } => Some(exit.clone()),
+            _ => None,
+        })
+        .expect("the pipe barrier publishes the exit");
+    assert!(!exit.output_drained, "a drain the cutoff ended reports it");
+}
+
+/// The pipe barrier publishes settlements before the exit they belong to.
+#[test]
+fn closed_publishes_settlements_before_the_exit() {
+    let host = bare(true);
+    let events = Arc::new(crate::session::harness::Events::default());
+    let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+    host.request(
+        1,
+        "thread/read",
+        Some(&ace_json::json!({"threadId": "t"})),
+        9,
+        Timeout::Disabled,
+    )
+    .expect("a call with no deadline is queued");
+
+    let (effects, _) = pump(
+        &host,
+        host.closed(RawExit {
+            code: Some(1),
+            signal: None,
+        }),
+    );
     let settle = effects
         .iter()
         .position(|effect| matches!(effect, HostEffect::Settle { id: 9, .. }))
@@ -787,10 +876,6 @@ fn an_exit_settles_every_call_before_it_reports_the_channel_gone() {
         .position(|effect| matches!(effect, HostEffect::Exited { tenant: 1, .. }))
         .expect("the channel exits");
     assert!(settle < exit, "settlements precede the exit they belong to");
-    assert!(matches!(
-        effects[settle],
-        HostEffect::Settle { result: Err(_), .. }
-    ));
 }
 
 /// A teardown never broadcasts a frame whose ancestry it could not prove: the
@@ -813,9 +898,16 @@ fn a_teardown_drops_unresolved_holds_instead_of_broadcasting_them() {
         }))),
     );
 
-    let (effects, _) = pump(
+    let _ = pump(
         &host,
         host.exit(RawExit {
+            code: Some(1),
+            signal: None,
+        }),
+    );
+    let (effects, _) = pump(
+        &host,
+        host.closed(RawExit {
             code: Some(1),
             signal: None,
         }),
@@ -1021,5 +1113,42 @@ fn a_drain_lets_a_paused_hosts_pipes_finish() {
     // A pause that arrives during the drain changes nothing.
     run.gate.set_paused(1, true);
     assert!(!run.gate.paused());
+    run.stop();
+}
+
+/// A close whose stop failed leaves a live host: backpressure works again
+/// afterwards, on both pipes (porting guide E3.0c step 2, `undrain`).
+#[test]
+fn a_failed_stop_restores_backpressure_on_both_pipes() {
+    let run = crate::session::harness::GateRun::start(Scratch::new("gate-undrain"));
+    assert!(run.wait_for(512 * 1024), "both pipes deliver");
+
+    run.gate.drain();
+    assert!(run.gate.draining());
+    // The stop failed: the host survives, so the drain is cleared.
+    run.gate.undrain();
+    assert!(!run.gate.draining(), "a surviving host is not draining");
+
+    run.gate.set_paused(1, true);
+    assert!(run.gate.paused(), "backpressure applies again");
+    let (out0, err0) = run.bytes();
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    let (out1, err1) = run.bytes();
+    assert!(
+        out1 - out0 <= PAUSED_SLACK && err1 - err0 <= PAUSED_SLACK,
+        "both pumps pause again: stdout +{}, stderr +{}",
+        out1 - out0,
+        err1 - err0
+    );
+
+    run.gate.set_paused(1, false);
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    let (out2, err2) = run.bytes();
+    assert!(
+        out2 - out1 >= FLOWING_BYTES && err2 - err1 >= FLOWING_BYTES,
+        "and both resume: stdout +{}, stderr +{}",
+        out2 - out1,
+        err2 - err1
+    );
     run.stop();
 }

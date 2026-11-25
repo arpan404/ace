@@ -582,6 +582,8 @@ struct HostConsumer {
     handlers: Arc<Mutex<HashMap<u64, Arc<Recorder>>>>,
     /// What the shell does when the host asks for the child to stop.
     stop: Arc<dyn Fn(Retirement, bool) -> Result<(), String> + Send + Sync>,
+    /// The stop in flight's failure, which a later caller joins.
+    stop_failure: Arc<Mutex<Option<String>>>,
     stdout: Mutex<Framing>,
     stderr: Mutex<LineFramer>,
 }
@@ -593,6 +595,11 @@ impl HostConsumer {
                 HostEffect::Write { wire, ticket } => {
                     *self.active.lock().expect("active write") = Some(ticket);
                     self.events.push(Event::Wrote { bytes: wire.len() });
+                    if let Ok(text) = std::str::from_utf8(&wire) {
+                        self.events.push(Event::Line {
+                            text: text.trim_end().to_owned(),
+                        });
+                    }
                     if let Some(ports) = self.ports.get() {
                         let _ = ports.stdin.write(wire);
                     }
@@ -610,9 +617,24 @@ impl HostConsumer {
                 HostEffect::Retire { reason, awaited } => {
                     self.events.push(Event::Retire { reason, awaited });
                     if let Err(message) = (self.stop)(reason, awaited) {
+                        // The shell holds the stop: its failure reaches every
+                        // caller that joins it, and a host that survives takes
+                        // backpressure again.
+                        *self.stop_failure.lock().expect("stop failure") = Some(message.clone());
+                        self.host.stop_failed();
                         self.events.push(Event::StopFailed {
                             reason,
                             awaited,
+                            message,
+                        });
+                    }
+                }
+                HostEffect::Retiring { reason } => {
+                    let failure = self.stop_failure.lock().expect("stop failure").clone();
+                    if let Some(message) = failure {
+                        self.events.push(Event::StopFailed {
+                            reason,
+                            awaited: true,
                             message,
                         });
                     }
@@ -755,6 +777,7 @@ impl HostRun {
             active,
             handlers: Arc::clone(&handlers),
             stop: policy,
+            stop_failure: Arc::new(Mutex::new(None)),
             stdout: Mutex::new(Framing::new(elision)),
             stderr: Mutex::new(LineFramer::new(LINE_LIMIT)),
         });

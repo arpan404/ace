@@ -99,6 +99,13 @@ impl HostGate {
         self.lock().draining
     }
 
+    /// A close whose stop failed: a host that survives takes backpressure
+    /// again, as before the close (E3.0c's `undrain`).
+    pub fn undrain(&self) {
+        let mut inner = self.lock();
+        inner.draining = false;
+    }
+
     /// Answer one delivered chunk: `taken(true)` while every channel has room.
     /// The lock is held across the answer, so the pause and the check are one
     /// step.

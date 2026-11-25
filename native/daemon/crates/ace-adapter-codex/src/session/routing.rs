@@ -205,6 +205,15 @@ impl<T: Clone + Eq> HostRouter<T> {
         true
     }
 
+    /// The threads one tenant owns, for a detach's unsubscribes.
+    pub fn owned(&self, tenant: &T) -> Vec<JsString> {
+        self.owners
+            .iter()
+            .filter(|(_, owner)| *owner == tenant)
+            .map(|(thread, _)| thread.clone())
+            .collect()
+    }
+
     /// Forget a tenant. Returns the threads it owned so the host can
     /// unsubscribe them.
     pub fn release(&mut self, tenant: &T) -> Vec<JsString> {
