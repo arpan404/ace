@@ -41,6 +41,35 @@ pub fn bounded(raw: &str, cut: bool) -> ClipboardRead {
     }
 }
 
+/// How long one `simctl pbcopy|pbpaste` may run before it is stopped.
+pub const PASTEBOARD_TIMEOUT_MS: u64 = 10_000;
+/// UTF-8 bytes that always hold `CLIPBOARD_LIMIT` UTF-16 units; anything past it is cut.
+pub const PASTEBOARD_READ_BYTES: usize = CLIPBOARD_LIMIT * 4 + 4;
+
+/// `simctl pbcopy|pbpaste <udid>`: the Simulator's pasteboard, read or written whole.
+pub fn pasteboard_args(verb: &str, udid: &str) -> Vec<String> {
+    vec!["simctl".to_string(), verb.to_string(), udid.to_string()]
+}
+
+/// One pasteboard command's whole plan: what it runs, its byte cap and its deadline.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct PasteboardPlan {
+    pub args: Vec<String>,
+    #[serde(rename = "readBytes")]
+    pub read_bytes: usize,
+    #[serde(rename = "timeoutMs")]
+    pub timeout_ms: u64,
+}
+
+/// The plan for `simctl <verb> <udid>`; `verb` is `pbcopy` or `pbpaste`.
+pub fn pasteboard_plan(verb: &str, udid: &str) -> PasteboardPlan {
+    PasteboardPlan {
+        args: pasteboard_args(verb, udid),
+        read_bytes: PASTEBOARD_READ_BYTES,
+        timeout_ms: PASTEBOARD_TIMEOUT_MS,
+    }
+}
+
 /// Android's clipboard is reachable only over the scrcpy control socket of the live view.
 pub fn android_unavailable() -> Error {
     Refusal::word("androidClipboardLiveView").into()

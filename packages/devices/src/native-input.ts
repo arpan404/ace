@@ -31,6 +31,69 @@ export type NativeTree = { nodes: unknown[]; truncated: boolean };
 export type NativeNode = Record<string, unknown>;
 
 /** uiautomator's XML as ADR 0011 nodes. */
+/** One operation on the Simulator's held fingers, with the messages it sends serve-sim. */
+export function nativeFingerStep(op: unknown, held: unknown) {
+  return deviceAnswer<{ held: unknown; messages: { tag: number; payload: unknown }[] }>(() =>
+    nativeDevices().devicePlatformFingerStep(JSON.stringify(op), JSON.stringify(held)),
+  );
+}
+
+/** One finger message as the digitizer step Xcode's helper takes. */
+export function nativeDigitizerStep(message: unknown, target: number) {
+  return deviceAnswer(() =>
+    nativeDevices().devicePlatformDigitizerStep(JSON.stringify(message), target),
+  );
+}
+
+/** What a Simulator key does: press a message, type a line, or refuse. */
+export function nativeKeyAction(
+  key: string,
+  orientation: string,
+): { kind: "press"; message: { tag: number; payload: unknown } } | { kind: "type"; text: string } {
+  return deviceAnswer(() => nativeDevices().devicePlatformKeyAction(key, orientation));
+}
+
+/** A device point as serve-sim's normalized one, refused outside the frame. */
+export function nativeNormalizedPoint(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): { x: number; y: number } {
+  return deviceAnswer(() => nativeDevices().devicePlatformNormalizedPoint(x, y, width, height));
+}
+
+/** serve-sim's system-edge flag for a normalized point. */
+export function nativeScreenEdge(x: number, y: number): number {
+  return nativeDevices().devicePlatformScreenEdge(x, y);
+}
+
+/** What one line of the Android UI helper's stdout says. */
+export function nativeHelperReply(
+  line: string,
+): { kind: "ready" } | { kind: "answer"; line: string } | { kind: "ignored" } {
+  return JSON.parse(nativeDevices().devicePlatformHelperReply(line));
+}
+
+/** The XML an `OK ` answer carries, or the failure an `ERR ` answer names. */
+export function nativeHelperTree(reply: string): string {
+  return deviceAnswer(() => nativeDevices().devicePlatformUiHelperTree(reply));
+}
+
+/** Whether a line answers the input marker, and whether the command succeeded. */
+export function nativeInputAnswer(line: string, marker: string): boolean | null {
+  return nativeDevices().devicePlatformInputAnswer(line, marker);
+}
+
+/** One pasteboard command's plan: its arguments, byte cap and deadline. */
+export function nativePasteboardPlan(verb: string, udid: string) {
+  return JSON.parse(nativeDevices().devicePlatformPasteboardPlan(verb, udid)) as {
+    args: string[];
+    readBytes: number;
+    timeoutMs: number;
+  };
+}
+
 export function nativeAndroidTree(xml: string, options: unknown): NativeTree {
   return deviceAnswer(() =>
     nativeDevices().devicePlatformAndroidTree(xml, JSON.stringify(options)),
@@ -47,8 +110,13 @@ export function nativeAndroidTarget(tree: NativeTree, ref: string): NativeNode {
   return deviceAnswer(() => nativeDevices().devicePlatformAndroidTarget(JSON.stringify(tree), ref));
 }
 
-export function nativeAndroidAct(node: NativeNode, action: unknown) {
-  return deviceAnswer<{ kind: "tap" | "swipe" | "none" }>(() =>
+export type NativeActInput =
+  | { kind: "tap"; x: number; y: number }
+  | { kind: "swipe"; x: number; y: number; toX: number; toY: number; durationMs: number }
+  | { kind: "none"; method: string };
+
+export function nativeAndroidAct(node: NativeNode, action: unknown): NativeActInput {
+  return deviceAnswer<NativeActInput>(() =>
     nativeDevices().devicePlatformAndroidAct(JSON.stringify(node), JSON.stringify(action)),
   );
 }

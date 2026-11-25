@@ -1,5 +1,7 @@
 import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
 import { catalogRefusal } from "./sdk.ts";
+import { nativeInput, nativeInputAnswer } from "./native-input.ts";
+import { nativeDevices } from "./native-devices-addon.ts";
 
 /** One pinned adb shell per transport. A failed/disconnected action is never replayed. */
 export class AndroidInputShell {
@@ -23,17 +25,27 @@ export class AndroidInputShell {
     this.after = options.after;
     this.process = options.spawn({
       command: options.adb,
-      args: ["-s", options.serial, "shell", "-T"],
+      // The pinned shell's arguments are ace-devices' decision under the switch.
+      args: nativeInput
+        ? (nativeDevices().devicePlatformInputShell(options.serial, "", 0)[0]?.split("\u0001") ??
+          [])
+        : ["-s", options.serial, "shell", "-T"],
       env: options.env,
       name: "device-input",
       maxLineBytes: 4096,
     });
     this.process.stdout.on("line", (line: string) => {
       const pending = this.pending;
-      if (!pending || !line.startsWith(pending.marker)) return;
+      if (!pending) return;
+      const succeeded = nativeInput
+        ? nativeInputAnswer(line, pending.marker)
+        : line.startsWith(pending.marker)
+          ? line === pending.marker + "0"
+          : null;
+      if (succeeded === null) return;
       this.pending = undefined;
       pending.cancel();
-      if (line === pending.marker + "0") pending.resolve();
+      if (succeeded) pending.resolve();
       else pending.reject(this.failure());
     });
     // `exited` reports the shell's exit and does not reject.
@@ -61,7 +73,10 @@ export class AndroidInputShell {
       .then(async () => {
         if (this.closed) throw this.failure();
         authorize();
-        const marker = `ACE_INPUT_${++this.sequence}:`;
+        const marker = nativeInput
+          ? (nativeDevices().devicePlatformInputShell("", "", ++this.sequence)[2] ??
+            `ACE_INPUT_${this.sequence}:`)
+          : `ACE_INPUT_${++this.sequence}:`;
         await new Promise<void>((resolve, reject) => {
           const cancel = this.after(timeoutMs, () => {
             this.reject();
@@ -69,7 +84,11 @@ export class AndroidInputShell {
             void this.close().catch(() => {});
           });
           this.pending = { marker, resolve, reject, cancel };
-          this.process.stdin.write(`${command}\nprintf '\\n${marker}%s\\n' "$?"\n`, (error) => {
+          const line = nativeInput
+            ? (nativeDevices().devicePlatformInputShell("", command, this.sequence)[1] ??
+              `${command}\n`)
+            : `${command}\nprintf '\\n${marker}%s\\n' "$?"\n`;
+          this.process.stdin.write(line, (error) => {
             if (error) {
               this.reject();
               // The pending input has already failed; a close that cannot finish adds nothing.

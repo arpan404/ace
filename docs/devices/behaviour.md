@@ -380,35 +380,51 @@ the shell that wires it, and the TypeScript that stays is the switch-off path un
 - **A `#[cfg(test)]` item is blanked, not the rest of its file.** The catalog check's Rust scan
   resumes after the item, with a unit test for brace-laden test bodies.
 
-## 12. D3.2: input and UI (2026-11-25)
+## 12. D3.2: input and UI (2026-11-25, revised after round 2)
 
-`ACE_DEVICE_PLATFORM=native` answers every input and UI decision from `ace-devices`; the switch-off
-leg is today's TypeScript unchanged, byte for byte.
+`ACE_DEVICE_PLATFORM=native` answers these decisions from `ace-devices`; the switch-off leg is
+today's TypeScript unchanged, byte for byte. "Wired" means the TypeScript shell calls the addon
+on every path a proof file or the platform takes; "shell" is what still runs in TypeScript around
+the decision (a process, a promise, a cache).
 
-| TypeScript                     | Rust                                                         |
-| ------------------------------ | ------------------------------------------------------------ |
-| `scrcpy-protocol` (control)    | `platform/scrcpy/protocol.rs` (frames, reader, server args)  |
-| `scrcpy-input`                 | `platform/scrcpy/input.rs` (plan, held pointers)             |
-| `scrcpy-clipboard`             | `platform/scrcpy/clipboard.rs` (request ordering, deadlines) |
-| `key-support`, `touch-support` | `platform/keys.rs`                                           |
-| `clipboard`                    | `platform/clipboard.rs`                                      |
-| `simulator-fingers`            | `platform/fingers.rs` (held fingers, digitizer step, HID)    |
-| `simulator-digitizer`          | `platform/fingers.rs` (`digitizer_step`)                     |
-| `simulator-input`              | `platform/fingers.rs` (`key_message`, `typing_args`, points) |
-| `simulator-screens`            | `platform/screens.rs`                                        |
-| `simulator-posture`, `posture` | `platform/posture.rs`                                        |
-| `android-posture`              | `platform/posture.rs`                                        |
-| `simulator-ax`                 | `platform/simulator_ax.rs`                                   |
-| `android-ui`                   | `platform/android_ui.rs`                                     |
-| `android-operations`           | `platform/android_ui.rs` (`act`), `platform/helper.rs`       |
-| `android-ui-helper`            | `platform/helper.rs` (args, line protocol, budgets)          |
-| `android-input-shell`          | `platform/helper.rs` (pinned args, marker line, queue bound) |
+| TypeScript                                        | Rust                                                         | Wired                                                                        |
+| ------------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| `scrcpy-protocol` (control)                       | `platform/scrcpy/protocol.rs` (frames, reader, server args)  | control frames through `encodeControl`                                       |
+| `scrcpy-input`                                    | `platform/scrcpy/input.rs` (plan, held pointers)             | the plan; `HeldPointers` is the capture's (D3.3)                             |
+| `scrcpy-clipboard`                                | `platform/scrcpy/clipboard.rs` (request ordering, deadlines) | shell is `scrcpy-capture` (D3.3)                                             |
+| `key-support`, `touch-support`                    | `platform/keys.rs`                                           | yes                                                                          |
+| `clipboard`                                       | `platform/clipboard.rs`                                      | bounds and the Android refusal                                               |
+| `simulator-fingers`                               | `platform/fingers.rs` (held fingers, edges)                  | yes, every step                                                              |
+| `simulator-digitizer`                             | `platform/fingers.rs` (`digitizer_step`)                     | yes, every touch line                                                        |
+| `simulator-input`                                 | `platform/fingers.rs` (`key_action`, points, typing args)    | keys, points, edges, typing arguments; the process is the shell              |
+| `simulator-screens`                               | `platform/screens.rs`                                        | yes                                                                          |
+| `posture`, `simulator-posture`, `android-posture` | `platform/posture.rs`                                        | the report reads and the fold decisions; the per-device caches are the shell |
+| `simulator-ax`                                    | `platform/simulator_ax.rs`                                   | tree, layout, target, action input                                           |
+| `android-ui`                                      | `platform/android_ui.rs`                                     | tree, find, target, action                                                   |
+| `android-operations`                              | `platform/android_ui.rs` (`act`), `platform/helper.rs`       | the action decision; the read queue is the shell                             |
+| `android-ui-helper`                               | `platform/helper.rs` (args, line protocol, budgets)          | arguments, READY/answer lines, the answer's body                             |
+| `android-input-shell`                             | `platform/helper.rs` (pinned args, marker line, queue bound) | arguments, marker, line and answer                                           |
+| `simulator-clipboard`                             | `platform/clipboard.rs` (`pasteboard_plan`)                  | the command, byte cap and deadline                                           |
+| `simulator-ui`                                    | words only (catalog)                                         | the `/ax` read is D3.3's capture                                             |
 
-The (b) cases moved beside those functions: `scrcpy-input` (13), `scrcpy-clipboard` (9,
-including its deadlines), `simulator-fingers` (4), `simulator-screens` (3), `simulator-ax` (8),
-`simulator-posture` (6), `android-posture` (3), `posture` (5), and `android-input-shell.process`'s
-one-pinned-shell and queue cases. The TypeScript files stay until their modules are deleted after
-default-on (guide rule 5).
+Deferred to D3.3, with its reason: `scrcpy-capture` owns the control socket, so `HeldPointers`,
+the `ScrcpyClipboard` instance and `SimulatorInput`'s epochs are instantiated there;
+`simulator-capture` owns the `/ax` fetch (`simulator-ui`'s budget and timeout). Their decisions
+are in Rust with their tests, and D3.3 wires them when it moves the capture.
+
+The (b) cases moved beside those functions: `scrcpy-input` (13), `scrcpy-clipboard` (6, one for
+one), `simulator-fingers` (4), `simulator-screens` (3), `simulator-ax` (8), `simulator-posture`
+(6), `android-posture` (3), `posture` (5), and `android-input-shell.process`'s pinned-shell case.
+Seven Rust tests beyond those guard behaviour no moved case covers, and only that: a clipboard
+read asked for after an idle stretch still waits its full reply window, and a paste's timeout
+names the paste (the two round-2 regressions); the digitizer step, the HID key messages (rotate,
+keyboard, Return) and the third-finger refusal (`simulator-fingers` has no case for them);
+`posture_from_hinge`'s line rule and `screen_count`'s raw count (no TS case). The round-2
+divergences have their own cases: a node's value and find fallback (Android and Simulator),
+unusable children, a lone-surrogate label, `js_round`, control text and a non-object scroll.
+`platform/keys.rs`, `platform/clipboard.rs`, `platform/android_ui.rs` and `platform/helper.rs`
+have no TypeScript test file of their own (behaviour.md §5 lists none), so their Rust tests are
+the only guard: keys (5), clipboard (3), Android UI (7), the Android helper and input shell (4).
 
 Intended differences, each proven in Rust:
 
@@ -418,9 +434,22 @@ Intended differences, each proven in Rust:
 - **A ref is hashed from `ace-json`'s identity text.** `simulator-ax` and `android-ui` hash
   `JSON.stringify(identity)`; the Rust hashes the same JSON written by `ace-json`, which is
   identical for every string a device can produce (a lone surrogate included).
-- **`scrcpy-capture` adopts the Rust control decisions in D3.3.** That file is D3.3's; D3.2
-  supplies the encoders, plans and clipboard machine with their tests, and the capture keeps its
-  own TypeScript instance until then.
 
-No other divergence was found: the encodings, key maps, clipboard budgets and the `adb shell`
-line are byte-identical, including `printf '\n<marker>%s\n' "$?"` written exactly as today.
+Round-2 review fixes, in Rust only (today's TypeScript stays as it was):
+
+- **A node's value is optional.** Android always has one (`""` when the node has no text) and a
+  Simulator node has one only when serve-sim reported an `AXValue`, so a text find reads
+  `value ?? name` exactly as today (`platform/android_ui.rs:22`).
+- **Unusable children leave the element with none.** `null`, a non-array or more than 4,096
+  children no longer drop the element or its subtree (`platform/simulator_ax.rs:102`).
+- **A clipboard deadline counts from its own request**, and an unanswered paste says
+  `pasteTimedOut` (`platform/scrcpy/clipboard.rs:128`).
+- **Control text is UTF-8 from its UTF-16 units**: a lone surrogate becomes U+FFFD and a literal
+  U+E000 is one character, as `Buffer.from` writes them (`platform/scrcpy/protocol.rs:191`).
+- **AX labels are `JsString`**, so a lone surrogate the SDK printed survives.
+- **A Simulator key refuses with its own words** (`androidActionKey`, `watchSideKey`) and Return
+  types a newline (`platform/scrcpy/input.rs`, `platform/fingers.rs`).
+- **Hinge and screen reads follow today's regex and list**: any `hinge-angle0` that carries an
+  angle, and the report's own display count (`platform/posture.rs`).
+- **The schema still validates options and scroll values**: the TypeScript parses them with Zod
+  before the native call, and Rust refuses a non-object scroll value too.

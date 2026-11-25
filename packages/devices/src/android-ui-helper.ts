@@ -1,6 +1,8 @@
 import { fileURLToPath } from "node:url";
 import type { spawnSupervised, SupervisedProcess } from "@ace/provider-kit/process";
 import { catalogFailure, catalogRefusal } from "./sdk.ts";
+import { nativeHelperReply, nativeHelperTree, nativeInput } from "./native-input.ts";
+import { nativeDevices } from "./native-devices-addon.ts";
 
 /**
  * ace's own dex (source and build script beside it), pushed to the emulator on first use.
@@ -14,6 +16,15 @@ const remoteJar = "/data/local/tmp/ace-ui-helper.jar";
 const maxReplyBytes = 2 * 1024 * 1024;
 
 const failed = (key: string) => catalogRefusal(key);
+
+/** The helper's line protocol, for the switch-off leg: READY, an answer, or noise. */
+function helperReply(
+  line: string,
+): { kind: "ready" } | { kind: "answer"; line: string } | { kind: "ignored" } {
+  if (line === "READY") return { kind: "ready" };
+  if (line.startsWith("OK ") || line.startsWith("ERR ")) return { kind: "answer", line };
+  return { kind: "ignored" };
+}
 
 /**
  * One long-running UiAutomation reader on one emulator. Requests are answered in order over the
@@ -44,13 +55,16 @@ export class AndroidUiHelper {
     this.idleMs = options.idleMs ?? 30_000;
     this.process = options.spawn({
       command: options.adb,
-      args: [
-        "-s",
-        options.serial,
-        "shell",
-        "-T",
-        `CLASSPATH=${remoteJar} app_process / dev.ace.uihelper.Main`,
-      ],
+      // The pinned arguments are ace-devices' decision under the switch.
+      args: nativeInput
+        ? nativeDevices().devicePlatformUiHelperArgs(options.serial)
+        : [
+            "-s",
+            options.serial,
+            "shell",
+            "-T",
+            `CLASSPATH=${remoteJar} app_process / dev.ace.uihelper.Main`,
+          ],
       env: options.env,
       name: "device-ui-helper",
       maxLineBytes: maxReplyBytes,
@@ -64,12 +78,14 @@ export class AndroidUiHelper {
     this.ready = started.promise.finally(cancelStartup);
     void this.ready.catch(() => {});
     this.process.stdout.on("line", (line: string) => {
-      if (line === "READY") {
+      // READY, one answer, or noise: the helper's own words, read by ace-devices.
+      const reply = nativeInput ? nativeHelperReply(line) : helperReply(line);
+      if (reply.kind === "ready") {
         started.resolve();
         return;
       }
-      if (!line.startsWith("OK ") && !line.startsWith("ERR ")) return;
-      this.waiting.shift()?.resolve(line);
+      if (reply.kind !== "answer") return;
+      this.waiting.shift()?.resolve(reply.line);
     });
     this.process.stderr.on("line", () => {});
     // `exited` reports the helper's exit and does not reject.
@@ -113,6 +129,8 @@ export class AndroidUiHelper {
         });
       });
       this.touch();
+      // The answer's XML, or the refusal an `ERR ` line names: ace-devices decides.
+      if (nativeInput) return nativeHelperTree(reply);
       if (reply.startsWith("ERR "))
         throw catalogFailure("androidHelperExited", `Android UI helper: ${reply.slice(4)}`);
       return reply.slice(3);

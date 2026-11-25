@@ -144,8 +144,9 @@ export function simulatorTree(
   screen: { width: number; height: number; orientation?: string },
   options: unknown,
 ): ScreenUITreeResult {
-  if (nativeInput) return nativeSimulatorTree(raw, screen, options) as ScreenUITreeResult;
+  // The schema decides what options are accepted on both legs; the switch only moves the walk.
   const limits = ScreenUITreeOptions.parse(options);
+  if (nativeInput) return nativeSimulatorTree(raw, screen, limits) as ScreenUITreeResult;
   const roots = Roots.safeParse(raw);
   if (!roots.success) throw catalogRefusal("simulatorTreeMalformed");
   const layout = simulatorLayout(raw, screen);
@@ -253,6 +254,16 @@ export function simulatorTarget(tree: ScreenUITreeResult, ref: string): ScreenUI
   throw catalogRefusal("simulatorTargetStale");
 }
 
+/** A scroll's value, as the schema reads it: a whole `dx`/`dy` in ±1000, nothing else. */
+function scrollValue(value: unknown): { dx: number; dy: number } {
+  return z
+    .object({
+      dx: z.number().int().min(-1000).max(1000).default(0),
+      dy: z.number().int().min(-1000).max(1000).default(0),
+    })
+    .parse(value ?? {});
+}
+
 const clamp = (value: number, start: number, size: number) =>
   Math.max(start, Math.min(start + size - 1, value));
 
@@ -283,12 +294,7 @@ export function simulatorActionInput(
     if (node.states.includes("checked") === action.value)
       return { kind: "none", method: "already_selected" };
   if (action.action !== "scroll") return { kind: "tap", ...centre };
-  const scroll = z
-    .object({
-      dx: z.number().int().min(-1000).max(1000).default(0),
-      dy: z.number().int().min(-1000).max(1000).default(0),
-    })
-    .parse(action.value ?? {});
+  const scroll = scrollValue(action.value);
   if (!scroll.dx && !scroll.dy) return { kind: "none", method: "no_scroll" };
   const [dx, dy] =
     turn === 90

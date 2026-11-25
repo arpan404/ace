@@ -18,7 +18,7 @@ pub struct Point {
 }
 
 /// serve-sim's touch phases.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SimPhase {
     Begin,
@@ -168,10 +168,6 @@ pub fn simulator_finger(pointer_id: Option<u32>) -> Result<u8, Error> {
         1 => Ok(1),
         _ => Err(Refusal::word("simulatorTooManyFingers").into()),
     }
-}
-
-fn phase(message: &Message) -> Option<SimPhase> {
-    message.payload.phase
 }
 
 fn single(phase: SimPhase, point: Point, edge: f64) -> Message {
@@ -342,14 +338,43 @@ pub fn end_fingers(held: &HeldFingers) -> Vec<Message> {
     }
 }
 
+/// A finger message as it arrives from the shell: the same JSON a [`Message`] serializes to,
+/// read without the borrowed button and orientation names.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WireMessage {
+    pub tag: u8,
+    pub payload: WirePayload,
+}
+
+/// The finger fields of a [`WireMessage`]; a button payload carries none.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WirePayload {
+    #[serde(rename = "type")]
+    pub phase: Option<String>,
+    #[serde(default)]
+    pub x: Option<f64>,
+    #[serde(default)]
+    pub y: Option<f64>,
+    #[serde(default)]
+    pub edge: Option<f64>,
+    #[serde(default)]
+    pub x1: Option<f64>,
+    #[serde(default)]
+    pub y1: Option<f64>,
+    #[serde(default)]
+    pub x2: Option<f64>,
+    #[serde(default)]
+    pub y2: Option<f64>,
+}
+
 /// A finger message as the digitizer step it becomes; a message that carries no finger is a
 /// caller error, never a touch.
-pub fn digitizer_step(message: &Message, target: u32) -> Result<DigitizerStep, Error> {
-    let phase = match phase(message) {
-        Some(SimPhase::Begin) => DigitizerPhase::Down,
-        Some(SimPhase::Move) => DigitizerPhase::Move,
-        Some(SimPhase::End) => DigitizerPhase::Up,
-        None => {
+pub fn digitizer_step(message: &WireMessage, target: u32) -> Result<DigitizerStep, Error> {
+    let phase = match message.payload.phase.as_deref() {
+        Some("begin") => DigitizerPhase::Down,
+        Some("move") => DigitizerPhase::Move,
+        Some("end") => DigitizerPhase::Up,
+        _ => {
             return Err(Error::Invalid(
                 "the digitizer takes a finger message".into(),
             ));
@@ -533,6 +558,12 @@ mod tests {
         }
     }
 
+    /// The same message as the shell sends it, read back from its JSON.
+    fn wire(message: &Message) -> WireMessage {
+        let text = ace_json::ser::to_string(message).expect("serializes");
+        ace_json::from_value(&ace_json::parse(&text).expect("parses")).expect("a wire message")
+    }
+
     #[test]
     fn a_finger_that_starts_on_a_screen_edge_keeps_its_edge_gesture_until_it_lifts() {
         let down = finger_down(&NO_FINGERS, 0, point(0.5, 0.99), 3.0);
@@ -599,7 +630,7 @@ mod tests {
     fn the_digitizer_takes_the_phase_point_and_target_of_each_finger_message() {
         let single = single_message(SimPhase::Begin, 0.5, 0.99, Some(3.0));
         assert_eq!(
-            digitizer_step(&single, 3).expect("a finger"),
+            digitizer_step(&wire(&single), 3).expect("a finger"),
             DigitizerStep {
                 phase: DigitizerPhase::Down,
                 x: 0.5,
@@ -612,7 +643,7 @@ mod tests {
         );
         let pair = pair_phase(SimPhase::Move, (0.1, 0.2), (0.3, 0.4));
         assert_eq!(
-            digitizer_step(&pair, 0).expect("a finger"),
+            digitizer_step(&wire(&pair), 0).expect("a finger"),
             DigitizerStep {
                 phase: DigitizerPhase::Move,
                 x: 0.1,

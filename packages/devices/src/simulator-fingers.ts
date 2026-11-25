@@ -1,4 +1,5 @@
 import { catalogRefusal } from "./sdk.ts";
+import { nativeFingerStep, nativeInput } from "./native-input.ts";
 
 /** A point normalized to the simulator framebuffer, 0..1 on each axis. */
 export type FingerPoint = { x: number; y: number };
@@ -42,6 +43,11 @@ export function fingerDown(
   point: FingerPoint,
   edge: number,
 ): FingerStep {
+  if (nativeInput)
+    return nativeFingerStep(
+      { kind: "down", finger, x: point.x, y: point.y, edge },
+      held,
+    ) as FingerStep;
   if (held.kind === "one" && held.finger !== finger) {
     const pair = [
       { finger: held.finger, point: held.point },
@@ -64,6 +70,8 @@ export function fingerDown(
 
 /** A held finger moves; moving a finger that is not down is a caller error. */
 export function fingerMove(held: HeldFingers, finger: 0 | 1, point: FingerPoint): FingerStep {
+  if (nativeInput)
+    return nativeFingerStep({ kind: "move", finger, x: point.x, y: point.y }, held) as FingerStep;
   if (held.kind === "two") {
     const pair = moved(held.pair, finger, point);
     return { held: { kind: "two", pair }, messages: [pairMessage("move", pair)] };
@@ -85,6 +93,7 @@ export function fingerMove(held: HeldFingers, finger: 0 | 1, point: FingerPoint)
  * Lifting a finger that is not down does nothing.
  */
 export function fingerUp(held: HeldFingers, finger: 0 | 1): FingerStep {
+  if (nativeInput) return nativeFingerStep({ kind: "up", finger }, held) as FingerStep;
   if (held.kind === "two") {
     const [first, second] = held.pair;
     const other = first.finger === finger ? second : first;

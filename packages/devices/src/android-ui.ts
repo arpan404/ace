@@ -107,8 +107,9 @@ function mapped(values: Record<string, string>, path: string): Node {
 }
 /** A bounded parser for uiautomator's node-only XML. DTDs/entities are rejected. */
 export function androidTree(xml: string, options: unknown): ScreenUITreeResult {
-  if (nativeInput) return nativeAndroidTree(xml, options) as ScreenUITreeResult;
+  // The schema decides what options are accepted on both legs; the switch only moves the walk.
   const limits = ScreenUITreeOptions.parse(options);
+  if (nativeInput) return nativeAndroidTree(xml, limits) as ScreenUITreeResult;
   if (Buffer.byteLength(xml) > 1024 * 1024 || /<!/.test(xml))
     throw catalogRefusal("androidTreeBudget");
   const nodes: Node[] = [];
@@ -161,8 +162,8 @@ export function androidTree(xml: string, options: unknown): ScreenUITreeResult {
   return ScreenUITreeResult.parse({ nodes, truncated });
 }
 export function androidFind(tree: ScreenUITreeResult, options: unknown): ScreenUIFindResult {
-  if (nativeInput) return nativeAndroidFind(tree, options) as ScreenUIFindResult;
   const { query, limit } = ScreenUIFindOptions.parse(options);
+  if (nativeInput) return nativeAndroidFind(tree, { query, limit }) as ScreenUIFindResult;
   const nodes: Node[] = [];
   const pending = tree.nodes.toReversed();
   let truncated = tree.truncated;

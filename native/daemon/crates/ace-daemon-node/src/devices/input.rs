@@ -313,6 +313,75 @@ pub fn device_platform_simulator_action_input(
     answered(|| simulator_ax::action_input(&node, &action.action, action.value.as_ref(), turn))
 }
 
+/// One finger message as the step Xcode's `--sim-touch` helper takes.
+#[napi]
+pub fn device_platform_digitizer_step(message: String, target: u32) -> napi::Result<String> {
+    let message: fingers::WireMessage = parse(&message)?;
+    answered(|| fingers::digitizer_step(&message, target))
+}
+
+/// What a Simulator key does: press a serve-sim message, type a line, or refuse.
+#[napi]
+pub fn device_platform_key_action(key_name: String, orientation: String) -> napi::Result<String> {
+    let key = key(&key_name)?;
+    answered(|| {
+        fingers::key_action(key, &orientation).map(|action| match action {
+            fingers::KeyAction::Press(message) => Digits::Press { message },
+            fingers::KeyAction::Type(text) => Digits::Type { text },
+        })
+    })
+}
+
+/// The action as the shell reads it: `{"kind":"press","message":…}` or `{"kind":"type","text":…}`.
+#[derive(serde::Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum Digits {
+    Press { message: fingers::Message },
+    Type { text: String },
+}
+
+/// A device point as serve-sim's normalized one, refused outside the current frame.
+#[napi]
+pub fn device_platform_normalized_point(
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> napi::Result<String> {
+    answered(|| fingers::normalized_point(x, y, width, height))
+}
+
+/// The line the UI helper answered, as `{"kind":"ready"}`, `{"kind":"answer","line":…}` or
+/// `{"kind":"ignored"}`.
+#[napi]
+pub fn device_platform_helper_reply(line: String) -> String {
+    let value = match helper::helper_reply(&line) {
+        helper::HelperReply::Ready => ace_json::json!({"kind": "ready"}),
+        helper::HelperReply::Answer(line) => ace_json::json!({"kind": "answer", "line": line}),
+        helper::HelperReply::Ignored => ace_json::json!({"kind": "ignored"}),
+    };
+    value.to_json()
+}
+
+/// serve-sim's system-edge flag for a normalized point: 1 left, 2 top, 3 bottom, 4 right, 0 none.
+#[napi]
+pub fn device_platform_screen_edge(x: f64, y: f64) -> u32 {
+    u32::from(fingers::screen_edge(x, y))
+}
+
+/// Whether a line answers the input marker, and whether the command succeeded.
+#[napi]
+pub fn device_platform_input_answer(line: String, marker: String) -> Option<bool> {
+    helper::input_answer(&line, &marker)
+}
+
+/// One pasteboard command's plan: its arguments, byte cap and deadline.
+#[napi]
+pub fn device_platform_pasteboard_plan(verb: String, udid: String) -> napi::Result<String> {
+    ace_json::ser::to_string(&clipboard::pasteboard_plan(&verb, &udid))
+        .map_err(|error| napi::Error::from_reason(format!("ace-devices: {error}")))
+}
+
 /// The Simulator's typing arguments, as `type --stdin -d <device>`.
 #[napi]
 pub fn device_platform_typing_args(device: String) -> Vec<String> {

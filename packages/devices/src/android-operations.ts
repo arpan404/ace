@@ -4,6 +4,7 @@ import { ScreenUIActOptions, ScreenUIFindOptions } from "@ace/protocol";
 import { androidTree, androidFind, androidTarget } from "./android-ui.ts";
 import type { AndroidPlatform } from "./android-platform.ts";
 import { catalogRefusal } from "./sdk.ts";
+import { nativeAndroidAct, nativeInput } from "./native-input.ts";
 
 /** Bounded per-device ownership of the guest dump/read/remove transaction. */
 export class AndroidOperations {
@@ -57,6 +58,30 @@ export class AndroidOperations {
       !node.bounds.h
     )
       throw catalogRefusal("androidActionUnsupported");
+    if (nativeInput) {
+      // The whole decision is ace-devices': tap, a bounded swipe, or nothing to do.
+      const input = nativeAndroidAct(node, action);
+      if (input.kind === "none") return { fallback: false, method: input.method };
+      if (input.kind === "swipe")
+        await this.input(
+          device,
+          {
+            kind: "swipe",
+            x: input.x,
+            y: input.y,
+            toX: input.toX,
+            toY: input.toY,
+            durationMs: input.durationMs,
+          },
+          authorize,
+        );
+      else await this.input(device, { kind: "tap", x: input.x, y: input.y }, authorize);
+      return {
+        fallback: true,
+        method: "adb.shell.input",
+        boundsCentre: { x: input.x, y: input.y },
+      };
+    }
     if (
       action.action === "select" &&
       typeof action.value === "boolean" &&

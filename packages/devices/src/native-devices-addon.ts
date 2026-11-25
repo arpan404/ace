@@ -246,6 +246,13 @@ interface DevicesAddon {
   devicePlatformInputShell(serial: string, command: string, sequence: number): string[];
   devicePlatformUiHelperArgs(serial: string): string[];
   devicePlatformUiHelperTree(reply: string): string;
+  devicePlatformDigitizerStep(message: string, target: number): string;
+  devicePlatformKeyAction(key: string, orientation: string): string;
+  devicePlatformNormalizedPoint(x: number, y: number, width: number, height: number): string;
+  devicePlatformScreenEdge(x: number, y: number): number;
+  devicePlatformHelperReply(line: string): string;
+  devicePlatformInputAnswer(line: string, marker: string): boolean | null;
+  devicePlatformPasteboardPlan(verb: string, udid: string): string;
 }
 
 const library =
