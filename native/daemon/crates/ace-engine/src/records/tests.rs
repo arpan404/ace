@@ -10,9 +10,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use crate::EngineError;
 use crate::records::{self, RecordBudget, Records, SectionSpec};
 use crate::snapshot::{decode, metadata};
-use crate::EngineError;
 
 fn database() -> Arc<Connection> {
     let path = std::env::temp_dir().join(format!(
@@ -73,12 +73,7 @@ fn rows(conn: &Arc<Connection>, sql: &'static str) -> Vec<Vec<Value>> {
 fn an_adopted_record_is_upserted_and_an_append_is_stored_as_its_patch() {
     let conn = database();
     let budget = Rc::new(RefCell::new(RecordBudget::default()));
-    let mut items: Records<Item> = records(
-        &conn,
-        &budget,
-        "items",
-        decode::decode_record::<Item>,
-    );
+    let mut items: Records<Item> = records(&conn, &budget, "items", decode::decode_record::<Item>);
     let item: Item = ace_json::from_value(
         &ace_json::parse(
             r#"{"id":"i","threadId":"t","agentId":"a","createdAt":1,"complete":true,"type":"message","role":"assistant","parts":[{"type":"text","text":"hi"}]}"#,
@@ -102,7 +97,9 @@ fn an_adopted_record_is_upserted_and_an_append_is_stored_as_its_patch() {
     let decoded: ace_json::Value = ace_json::parse(value).unwrap();
     // The record keeps the full item; the append overlay is the streaming text's own path.
     let stored_item: Item = ace_json::from_value(&decoded).unwrap();
-    assert!(matches!(stored_item, Item::Message { ref parts, .. } if matches!(parts.first(), Some(ace_core::item_model::ContentPart::Text { text, .. }) if text.as_str() == "hi")));
+    assert!(
+        matches!(stored_item, Item::Message { ref parts, .. } if matches!(parts.first(), Some(ace_core::item_model::ContentPart::Text { text, .. }) if text.as_str() == "hi"))
+    );
     let mut metadata_item = metadata::item_metadata(&stored_item);
     if let Item::Message { parts, .. } = &mut metadata_item
         && let Some(ace_core::item_model::ContentPart::Text { text, .. }) = parts.first()
@@ -142,10 +139,7 @@ fn one_text_append_over_the_limit_stays_two_patches_and_a_second_fold_continues_
     items.append("i", patch("a"), true).unwrap();
     items.append("i", patch("b"), true).unwrap();
     items.persist().unwrap();
-    let appends = rows(
-        &conn,
-        "SELECT patch FROM engine_state_appends ORDER BY id",
-    );
+    let appends = rows(&conn, "SELECT patch FROM engine_state_appends ORDER BY id");
     assert_eq!(appends.len(), 1, "two short patches on one path coalesce");
     assert_eq!(
         appends[0][0],

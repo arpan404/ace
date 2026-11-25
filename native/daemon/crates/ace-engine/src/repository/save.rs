@@ -82,7 +82,14 @@ impl State {
         if !snapshot.borrow_mut().set_silence_ms(silence_ms) {
             return Ok(false);
         }
-        self.save(store, id, &snapshot, "[]", at, &crate::snapshot::touched::Touched::default())?;
+        self.save(
+            store,
+            id,
+            &snapshot,
+            "[]",
+            at,
+            &crate::snapshot::touched::Touched::default(),
+        )?;
         Ok(true)
     }
 

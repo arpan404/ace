@@ -13,10 +13,10 @@
 //! resident map beside the budget. The budget and SQLite are behind its `RecordSource`.
 
 pub mod append;
-#[cfg(test)]
-mod tests;
 pub mod budget;
 mod persist;
+#[cfg(test)]
+mod tests;
 
 pub use append::{Append, PathStep, restore_append};
 pub use budget::{BudgetSection, Cached, MAX_BYTES, MAX_ENTRIES, RecordBudget, section};
@@ -263,6 +263,11 @@ impl<T: Clone + serde::Serialize + 'static> Records<T> {
             .load_keys()
             .map_err(|error| EngineError::Records(error.to_string()))?;
         Ok(self.section.keys())
+    }
+
+    /// Whether this batch appended to the key (its full record predates the chunk).
+    pub fn is_appended(&self, key: &str) -> bool {
+        self.appended.contains(key)
     }
 
     /// `hasReplacement` (`records.ts:186`).

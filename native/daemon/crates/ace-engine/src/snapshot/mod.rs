@@ -28,6 +28,7 @@ use std::sync::Arc;
 use crate::EngineError;
 use crate::records::{self, RecordBudget, Records, SectionSpec};
 use crate::snapshot::header::header_json;
+use crate::snapshot::sections::load_all;
 
 /// One resident snapshot: the state plus one dictionary per record section.
 pub struct Snapshot {
@@ -397,13 +398,6 @@ impl Snapshot {
 
     /// Persist every touched section (`:285`). Agent serialization may register another section.
     pub fn persist(&mut self) -> Result<(), EngineError> {
-        eprintln!(
-            "PERSIST agents={} items={} runs={} metadata={}",
-            self.agents.has_changes(),
-            self.items.has_changes(),
-            self.runs.has_changes(),
-            self.metadata.has_changes()
-        );
         self.sync_native_runs()?;
         self.agents.persist()?;
         self.items.persist()?;
@@ -495,97 +489,6 @@ impl Snapshot {
         self.released
     }
 
-    /// Copy the state's current values for the keys a batch touched into their sections, which
-    /// is what the TypeScript's record proxies see as the fold mutates them in place. A value
-    /// fetched for writing but left unchanged writes nothing (persist compares the base JSON).
-    ///
-    /// The facts and events name ids (`agent.id`, `item.id`); the sections are keyed by the
-    /// native key the fold chose. Each map is looked up by both, so a root agent whose id was
-    /// generated still adopts under its key.
-    pub fn adopt(&mut self, touched: &touched::Touched) -> Result<(), EngineError> {
-        eprintln!(
-            "ADOPT agents={:?} items={:?} runs={:?}",
-            touched.agents, touched.items, touched.runs
-        );
-        let agent_by_id: std::collections::HashMap<String, String> = self
-            .state
-            .agents
-            .iter()
-            .map(|(key, record)| (record.agent.id.clone(), key.clone()))
-            .collect();
-        for agent in &touched.agents {
-            let key = if self.state.agents.contains_key(agent) {
-                Some(agent.clone())
-            } else {
-                self.state
-                    .indexes
-                    .agent_keys_by_id
-                    .get(agent)
-                    .cloned()
-                    .or_else(|| agent_by_id.get(agent).cloned())
-            };
-            if let Some(key) = key {
-                let value = self.state.agents.get(&key).cloned();
-                eprintln!("ADOPT agent {agent} -> {key} present={}", value.is_some());
-                self.agents.adopt(&key, value);
-            }
-        }
-        let item_by_id: std::collections::HashMap<String, String> = self
-            .state
-            .items
-            .iter()
-            .map(|(key, item)| (item.id().to_owned(), key.clone()))
-            .collect();
-        for item in &touched.items {
-            let key = if self.state.items.contains_key(item) {
-                Some(item.clone())
-            } else {
-                item_by_id.get(item).cloned()
-            };
-            if let Some(key) = key {
-                let value = self.state.items.get(&key).cloned();
-                eprintln!("ADOPT item {item} -> {key} present={}", value.is_some());
-                self.items.adopt(&key, value);
-            }
-        }
-        for run in &touched.runs {
-            let value = self.state.runs.get(run).cloned();
-            self.runs.adopt(run, value);
-        }
-        for interaction in &touched.interactions {
-            let value = self.state.interactions.get(interaction).cloned();
-            self.interactions.adopt(interaction, value);
-        }
-        for task in &touched.tasks {
-            let value = self.state.tasks.get(task).cloned();
-            self.tasks.adopt(task, value);
-        }
-        adopt_index(&mut self.live_tools, &self.state.indexes.live_tools)?;
-        adopt_index(&mut self.open_text, &self.state.indexes.open_text)?;
-        adopt_index(
-            &mut self.pending_interactions,
-            &self.state.indexes.pending_interactions,
-        )?;
-        adopt_index(&mut self.running_tasks, &self.state.indexes.running_tasks)?;
-        adopt_index(
-            &mut self.agent_keys_by_id,
-            &self.state.indexes.agent_keys_by_id,
-        )?;
-        adopt_index(
-            &mut self.children_by_parent,
-            &self.state.indexes.children_by_parent,
-        )?;
-        adopt_index(
-            &mut self.pending_spawn_links,
-            &self.state.indexes.pending_spawn_links,
-        )?;
-        adopt_index(
-            &mut self.pending_item_links,
-            &self.state.indexes.pending_item_links,
-        )?;
-        Ok(())
-    }
-
     /// The item the metadata section or the transcript holds (`streamItem`, `:282`).
     pub fn stream_item(&mut self, key: &str) -> Result<Option<Item>, EngineError> {
         if let Some(metadata) = self.metadata.read(key)? {
@@ -635,35 +538,4 @@ impl Snapshot {
         }
         Ok(())
     }
-}
-
-/// Reconcile one enumerated index section with the state's map: every stored key the state no
-/// longer holds is deleted, and every state key is adopted.
-fn adopt_index<T: Clone + PartialEq + serde::Serialize + 'static>(
-    dictionary: &mut Records<T>,
-    target: &IndexMap<String, T>,
-) -> Result<(), EngineError> {
-    let keys = dictionary.keys()?;
-    for key in keys {
-        if !target.contains_key(&key) {
-            dictionary.delete(&key);
-        }
-    }
-    for (key, value) in target {
-        dictionary.adopt(key, Some(value.clone()));
-    }
-    Ok(())
-}
-
-fn load_all<T: Clone + serde::Serialize + 'static>(
-    dictionary: &mut Records<T>,
-) -> Result<Vec<(String, T)>, EngineError> {
-    let keys = dictionary.keys()?;
-    let mut values = Vec::with_capacity(keys.len());
-    for key in keys {
-        if let Some(value) = dictionary.read(&key)? {
-            values.push((key, value));
-        }
-    }
-    Ok(values)
 }

@@ -23,12 +23,8 @@ impl Touched {
     /// can have made. Unlike the typed form this also runs in the frame, where facts are JSON.
     pub fn values(facts: &[Value], events: &[Value]) -> Touched {
         let mut touched = Touched::default();
-        let text = |value: &Value, key: &str| {
-            value
-                .get(key)
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-        };
+        let text =
+            |value: &Value, key: &str| value.get(key).and_then(Value::as_str).map(str::to_owned);
         for fact in facts {
             let kind = fact.get("type").and_then(Value::as_str).unwrap_or_default();
             match kind {
@@ -42,7 +38,9 @@ impl Touched {
                         touched.interactions.insert(interaction);
                     }
                 }
-                "background.started" | "background.listening" | "background.waiting"
+                "background.started"
+                | "background.listening"
+                | "background.waiting"
                 | "background.ended" => {
                     if let Some(task) = text(fact, "task") {
                         touched.tasks.insert(task);
@@ -52,7 +50,10 @@ impl Touched {
             }
         }
         for event in events {
-            let kind = event.get("type").and_then(Value::as_str).unwrap_or_default();
+            let kind = event
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             match kind {
                 "agent.created" => {
                     if let Some(agent) = event
