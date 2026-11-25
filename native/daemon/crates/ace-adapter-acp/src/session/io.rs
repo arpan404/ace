@@ -202,6 +202,14 @@ impl AcpSessionCore {
         self.commit(&mut core, vec![settled(operation, result)]);
     }
 
+    /// The native mode the session reports running (`session.ts:522`): the configuration's
+    /// current mode, which a getter over the core gives the facade.
+    pub fn permission_mode(&self) -> Option<String> {
+        self.lock()
+            .configuration
+            .current(super::selectors::SelectorKind::Mode)
+    }
+
     /// `close` (`session.ts:901`): the session's own teardown; the stop plan is the facade's.
     pub fn close_session(&self, reason: ace_adapter_api::session::CloseReason) {
         self.input(|core| {

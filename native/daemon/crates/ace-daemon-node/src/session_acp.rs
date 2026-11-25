@@ -205,6 +205,12 @@ impl AcpSessionNative {
         });
     }
 
+    /// The mode the session reports running (`session.ts:522`).
+    #[napi(catch_unwind)]
+    pub fn permission_mode(&self) -> Option<String> {
+        self.core.permission_mode()
+    }
+
     #[napi(catch_unwind)]
     pub fn timer(&self, key: String) {
         self.core.timer(&key);

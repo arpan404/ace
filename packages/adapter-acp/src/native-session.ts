@@ -65,6 +65,7 @@ export interface NativeAcpHandle extends NativeSessionPort {
   setMode(id: number, mode: string): void;
   stopTask(task: string, id: number): void;
   close(reason: string): void;
+  permissionMode(): string | null | undefined;
   timer(key: string): void;
   undrain(): void;
   abandon(): void;
@@ -121,12 +122,24 @@ export async function openNativeAcpSession(
   // The core's context callbacks arrive through the bridge by name: the open's running mode
   // is not in its result, so it is read from the callback before the open settles.
   let runningMode: string | undefined;
+  // The surface's live fields: a mode or capability the agent changes mid-session is what
+  // the engine reads next (`configuration.capabilities`, `permissionMode`).
+  let live: ProviderSession | undefined;
   const hooksCtx = {
     ...ctx,
     ...(lease === undefined ? {} : { endMcp: () => lease.end() }),
     onPermissionMode: (mode: string) => {
       runningMode = mode;
+      if (live) Object.assign(live, { permissionMode: mode });
       ctx.onPermissionMode?.(mode);
+    },
+    onCapabilities: (caps: Capabilities, nextSupport?: AcpSessionSupport) => {
+      if (live)
+        Object.assign(live, {
+          effectiveCapabilities: caps,
+          ...(nextSupport === undefined ? {} : { acpSupport: nextSupport }),
+        });
+      ctx.onCapabilities?.(caps, nextSupport);
     },
   };
   try {
@@ -145,9 +158,7 @@ export async function openNativeAcpSession(
         ...(ctx.resume ? { resume: ctx.resume.nativeSessionId } : {}),
         ...(ctx.permissionMode ? { permissionMode: ctx.permissionMode } : {}),
         ...(ctx.model ? { model: ctx.model } : {}),
-        ...(typeof ctx.options?.["effort"] === "string"
-          ? { effort: ctx.options["effort"] }
-          : {}),
+        ...(typeof ctx.options?.["effort"] === "string" ? { effort: ctx.options["effort"] } : {}),
         ...(ctx.mcp
           ? {
               mcp: JSON.stringify({
@@ -214,7 +225,6 @@ export async function openNativeAcpSession(
   }
   spawned = true;
   let closed = false;
-  let deliberate = false;
   let closePromise: Promise<void> | undefined;
   let firstTree: RecordedTree | undefined;
   const trees: RecordedTree[] = [];
@@ -260,6 +270,9 @@ export async function openNativeAcpSession(
     throw openingError(failure, ctx, launch);
   }
   const result = opened as OpenResult;
+  // The running mode is the configuration's current one after the saved selections applied,
+  // not only what the agent announced (`session.ts:522`).
+  runningMode = handle.permissionMode() ?? runningMode;
   if (process.env["ACE_SESSIONS_EVIDENCE"]) evidence(ctx, result, runtime.now());
   void proc.exited.then(() => {
     closed = true;
@@ -304,7 +317,6 @@ export async function openNativeAcpSession(
   async function close(reason: "idle" | "user" | "shutdown"): Promise<void> {
     if (closePromise) return closePromise;
     closePromise = (async () => {
-      deliberate = !ctx.signal.aborted;
       // The core's teardown: the stop note, its questions cancelled, its queue rejected, the
       // lease ended. Then the gate is drained and the child stopped.
       handle.close(reason);
@@ -384,15 +396,20 @@ export async function openNativeAcpSession(
       nextId = id;
       handle.setModel(id, model);
       await bridge.expect(id);
+      runningMode = handle.permissionMode() ?? runningMode;
+      Object.assign(session, runningMode ? { permissionMode: runningMode } : {});
     },
     async setMode(mode: string): Promise<void> {
       const id = nextId + 1;
       nextId = id;
       handle.setMode(id, mode);
       await bridge.expect(id);
+      runningMode = handle.permissionMode() ?? runningMode;
+      Object.assign(session, runningMode ? { permissionMode: runningMode } : {});
     },
     close,
   };
+  live = session;
   return session;
 }
 
