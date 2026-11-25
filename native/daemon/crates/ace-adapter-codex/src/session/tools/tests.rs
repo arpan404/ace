@@ -262,6 +262,67 @@ fn a_catalog_slug_is_bounded_in_utf16_code_units_as_zod_counts_them() {
     assert_eq!(pager.done, Some(None));
 }
 
+#[test]
+fn a_tenant_waiting_on_another_tenants_catalog_load_is_woken_with_its_value() {
+    let mut cache = CodexCatalogCache::new();
+    let mut calls = Calls::new();
+    let config = ace_json::parse("{\"config\":{\"model\":\"gpt-5.5\"}}").expect("fixture");
+    let catalog = ace_json::parse("{\"data\":[{\"id\":\"gpt-5.5\",\"model\":\"gpt-5.5\"}]}")
+        .expect("fixture");
+    // Two threads on one app-server read the same key at the same time.
+    let (mut first, one) =
+        ToolFactsRead::start("/work", Some("gpt-5.5"), &mut cache, &mut calls, 1);
+    let (mut second, two) =
+        ToolFactsRead::start("/work", Some("gpt-5.5"), &mut cache, &mut calls, 2);
+    let call = |effects: &[Effect], method: &str| -> u64 {
+        effects
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Request {
+                    call,
+                    method: asked,
+                    ..
+                } if asked == method => Some(*call),
+                _ => None,
+            })
+            .expect("a request")
+    };
+    let early = call(&one, "model/list");
+    let config_call = call(&one, "config/read");
+    // The first config arrives first and owns the load; the second joins it.
+    assert!(
+        first
+            .settled(&mut calls, &mut cache, config_call, Some(&config))
+            .is_empty()
+    );
+    let config_call = call(&two, "config/read");
+    assert!(
+        second
+            .settled(&mut calls, &mut cache, config_call, Some(&config))
+            .is_empty()
+    );
+    // The load lands: the waiter is told, so it never has to reach its deadline.
+    let effects = first.settled(&mut calls, &mut cache, early, Some(&catalog));
+    assert!(effects.contains(&Effect::WakeCatalog {
+        wake: 2,
+        catalog: Some(vec!["gpt-5.5".to_owned(), "gpt-5.5".to_owned()]),
+    }));
+    let effects = second.catalog_ready(Some(vec!["gpt-5.5".to_owned(), "gpt-5.5".to_owned()]));
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::CancelTimer { .. }))
+    );
+    let Some(ToolFactsOutcome::Facts(facts)) = second.outcome() else {
+        panic!("the join settled with facts");
+    };
+    assert_eq!(
+        facts.catalog,
+        Some(vec!["gpt-5.5".to_owned(), "gpt-5.5".to_owned()])
+    );
+    assert_eq!(codex_tool_listing(facts), ToolListing::All);
+}
+
 /// An app-server that answers from `config` and a one-page catalog, or never
 /// when stalled (`tool-facts.test.ts`'s fake).
 #[derive(Default)]

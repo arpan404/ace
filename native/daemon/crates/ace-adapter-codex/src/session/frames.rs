@@ -59,6 +59,13 @@ pub enum Effect {
     CancelTimer {
         key: String,
     },
+    /// Another read waited for a catalog this one loaded: hand it the value
+    /// (`tool-facts.ts:103`-`:105`, one shared promise). The shell routes it to
+    /// the read with this wake token.
+    WakeCatalog {
+        wake: u64,
+        catalog: Option<Vec<String>>,
+    },
     /// `lifetime.failTransport()`: the transport is gone and the session stops.
     FailTransport,
     /// `run.cleanup()`: the session releases its state and its timers.
