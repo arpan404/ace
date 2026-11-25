@@ -125,28 +125,31 @@ fn an_untrusted_servers_read_only_hint_reads_nothing_and_a_trusted_ones_reads_wi
     // Its hint alone makes nothing a read: the reviewer judges it (ADR 0202, amendment 5).
     let untrusted = app_call(hints(true, false, false, None));
     assert_eq!(route(untrusted), undeclared_reviewed());
-    // In Full access too: an unresolved app tool is reviewed, whether or not the classifier is
-    // on, never run on its say alone.
+    // Full access runs unresolved calls. The hint still cannot declare a read.
     for classifier in [true, false] {
         let full = Call {
             mode: Mode::FullAccess,
             classifier,
             ..untrusted
         };
-        assert_eq!(
-            route(full),
-            undeclared_reviewed(),
-            "classifier={classifier}"
-        );
+        assert_eq!(full.effect, None);
+        assert_eq!(route(full), Route::Run, "classifier={classifier}");
     }
-    // With untrusted content in view, in either mode, the person decides.
+    // Taint triggers model review in Auto-review.
     for mode in [Mode::AutoReview, Mode::FullAccess] {
         let tainted = Call {
             mode,
             tainted: true,
             ..untrusted
         };
-        assert_eq!(route(tainted), asks(UNDECLARED_TAINTED), "{mode:?}");
+        assert_eq!(
+            to_auto_review(&tainted, route(tainted)),
+            match mode {
+                Mode::AutoReview => Route::Review(Some(UNDECLARED_TAINTED.to_owned())),
+                Mode::FullAccess => Route::Run,
+            },
+            "{mode:?}"
+        );
     }
 
     let trusted = app_call(hints(true, false, true, None));
@@ -184,7 +187,7 @@ fn under_a_package_an_untrusted_servers_tool_needs_network_and_then_is_reviewed_
 }
 
 #[test]
-fn a_destructive_hint_asks_every_call_and_nothing_the_person_allowed_before_skips_it() {
+fn auto_review_checks_destructive_hints_each_time_even_with_prior_allows() {
     for trusted in [false, true] {
         let destructive = app_call(hints(false, true, trusted, None));
         assert_eq!(route(destructive), asks(DESTRUCTIVE), "trusted={trusted}");
@@ -202,14 +205,19 @@ fn a_destructive_hint_asks_every_call_and_nothing_the_person_allowed_before_skip
                 granted: Granted::Tool,
                 ..destructive
             },
-            Call {
-                mode: Mode::FullAccess,
-                ..destructive
-            },
         ];
         for call in allowed_before {
-            assert_eq!(route(call), asks(DESTRUCTIVE), "{call:?}");
+            assert_eq!(
+                to_auto_review(&call, route(call)),
+                Route::Review(Some(DESTRUCTIVE.to_owned())),
+                "{call:?}"
+            );
         }
+        let full = Call {
+            mode: Mode::FullAccess,
+            ..destructive
+        };
+        assert_eq!(route(full), Route::Run);
     }
     // The person's "no" for an undeclared tool still refuses it.
     let declined = Call {

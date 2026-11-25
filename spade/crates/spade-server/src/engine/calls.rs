@@ -93,7 +93,14 @@ pub(super) async fn handle_calls(
         call: None,
     };
     // How the bot decides (ADR 0163, amendment 2), read once for the step's calls.
-    let mode = engine.autonomy(id);
+    let mode = if engine
+        .org_gate(id)
+        .is_some_and(|(_, policy)| !policy.full_access_allowed())
+    {
+        Mode::AutoReview
+    } else {
+        engine.autonomy(id)
+    };
     let mut runnable: Vec<(Call, String, Value)> = Vec::new();
     // Calls let run outside the sandbox, by call id, with what the verdict that let each run was
     // given on (ADR 0144): checked again right before it starts.
@@ -126,6 +133,17 @@ pub(super) async fn handle_calls(
             Status::New if helper.is_some() && registry.get(&name).is_none() => {
                 let refused = ToolOutput::error(helper_refusal(engine, id, &name));
                 finish_tool(engine, id, reply, &pending.call, &name, refused).await;
+            }
+            Status::New
+                if mode == Mode::FullAccess
+                    && matches!(
+                        name.as_str(),
+                        context::ASK_USER | connect::APP_CONNECT_REQUEST | suggest::PACKAGE_SUGGEST
+                    ) =>
+            {
+                let output =
+                    ToolOutput::error("Full access handles this without prompting the person.");
+                finish_tool(engine, id, reply, &pending.call, &name, output).await;
             }
             // `ask_user` (ADR 0128, ADR 0154) waits like an approval until the person answers,
             // leaves it for later or dismisses it; asked non-blocking (`blocking: false`,
@@ -330,11 +348,15 @@ pub(super) async fn handle_calls(
                     let incomplete = matches!(&classified, Classified::Done(classed)
                         if classed.incomplete
                             && matches!(classed.runs, Runs::AsksOutside | Runs::Outside));
-                    let classed = classified.classed();
+                    let mut classed = classified.classed();
+                    let explicit_outside = classed.runs == Runs::AsksOutside;
                     if work.early()
                         && (matches!(classed.runs, Runs::Sandbox | Runs::AsksOutside) || incomplete)
                     {
                         return Handled::Continue;
+                    }
+                    if explicit_outside {
+                        classed.runs = Runs::Outside;
                     }
                     // How far this call would launch: every verdict reused for it (an Always allow,
                     // a stored review, a grant) must have been given for that or wider.
@@ -474,7 +496,7 @@ pub(super) async fn handle_calls(
                     // A driving step: where it acts, asked of ace now, and whether it may act
                     // there under the bot's switch (ADR 0171, amendments 3 and 7).
                     let driven = match declared {
-                        Some(effect::Effect::Drive) => {
+                        Some(effect::Effect::Drive) if mode == Mode::AutoReview => {
                             Some(engine.drive_step(id, &key, &name, &arguments).await)
                         }
                         _ => None,
@@ -574,43 +596,91 @@ pub(super) async fn handle_calls(
                         overwrites: app_call.as_ref().is_some_and(|app| app.reading.overwrites),
                         app_plain: app_call.as_ref().is_some_and(|app| app.reading.plain),
                     };
+                    let review_identity = || {
+                        snapshot.as_ref().and_then(|tool| {
+                            serde_json::to_string(&(
+                                tool.identity(),
+                                declared,
+                                remote,
+                                &scope,
+                                app_call.as_ref().map(|app| (&app.app, app.generation)),
+                            ))
+                            .ok()
+                        })
+                    };
+                    let reuse_review = effect::may_memo_review(&gate);
+                    let reuse_person = !effect::person_only(&gate) && org.is_none();
                     // The ceiling first, before any route of Spade's own: nothing a packaged bot
                     // does, a bot it makes for the person included, gets past what its package
                     // declared.
                     let own = effect::ceiling_refusal(&gate).map(Route::Refuse);
+                    if own.is_none()
+                        && name == spade_core::self_edit::TASK_UPDATE
+                        && (untrusted || !in_view.is_empty())
+                        && engine.task_update_is_unchanged(id, &arguments)
+                    {
+                        let unchanged = ToolOutput::ok(spade_core::self_edit::TASK_UNCHANGED);
+                        finish_tool(engine, id, reply, &pending.call, &name, unchanged).await;
+                        continue;
+                    }
                     // A bot's own task, name and face are decided next, in every access level:
                     // with anything untrusted in view, a change goes to the person.
                     let own = own.or_else(|| {
-                        spade_core::self_edit::route(
-                            &name,
-                            untrusted || !in_view.is_empty(),
-                            spade_core::self_edit::naming_open(events),
-                        )
+                        if mode == Mode::FullAccess {
+                            None
+                        } else {
+                            spade_core::self_edit::route(
+                                &name,
+                                untrusted || !in_view.is_empty(),
+                                spade_core::self_edit::naming_open(events),
+                            )
+                        }
                     });
                     // A bot made for the person, or added to a club: its setting, and the person
                     // whenever untrusted content is in view (ADR 0161, amendment 1).
                     let own = own.or_else(|| {
-                        spade_core::made::route(
-                            &name,
-                            &arguments,
-                            untrusted || !in_view.is_empty(),
-                            engine.may_create(id),
-                        )
+                        if mode == Mode::FullAccess {
+                            None
+                        } else {
+                            spade_core::made::route(
+                                &name,
+                                &arguments,
+                                untrusted || !in_view.is_empty(),
+                                engine.may_create(id),
+                            )
+                        }
                     });
-                    let route = match own {
-                        Some(route) => route,
-                        None => effect::route(gate),
+                    let route = if gate.credentials
+                        || gate.effect == Some(effect::Effect::Credential)
+                        || effect::person_only(&gate)
+                        || org.is_some()
+                    {
+                        effect::route(gate)
+                    } else {
+                        own.unwrap_or_else(|| effect::route(gate))
                     };
-                    // An app's write in Full access runs counting on the screening.
-                    let required = remote && declared != Some(effect::Effect::Read);
+                    let route = if mode == Mode::AutoReview {
+                        let route = if explicit_outside
+                            && matches!(route, Route::Run | Route::Review(_))
+                            && !effect::person_only(&gate)
+                            && org.is_none()
+                        {
+                            Route::Review(Some("It asks to run outside the sandbox.".to_owned()))
+                        } else {
+                            route
+                        };
+                        effect::to_auto_review(&gate, route)
+                    } else {
+                        route
+                    };
                     let screening = |concern: bool| super::classify::Screening {
                         launch: limit,
                         ready: classifier,
-                        required,
                         call: &pending.call,
                         name: &name,
                         arguments: &arguments,
                         classed: &classed,
+                        registry: &registry,
                         hints: snapshot.as_ref().and_then(|t| t.hints()),
                         unresolved: remote && declared.is_none(),
                         reviewing: spade_classify::Reviewing {
@@ -645,13 +715,14 @@ pub(super) async fn handle_calls(
                     }
                     let route = match route {
                         route if switched => route,
-                        route if incomplete => {
-                            let route = escalate::incomplete(route);
-                            if matches!(route, Route::Ask { .. }) {
+                        route if incomplete => match route {
+                            route @ Route::Refuse(_) => route,
+                            route @ Route::Ask { .. } => {
                                 stopped = Some(Stopped::Incomplete);
+                                escalate::incomplete(route)
                             }
-                            route
-                        }
+                            _ => Route::Refuse(UNREAD_OUTSIDE.to_owned()),
+                        },
                         // A connected app's clean read stays card-free here too (ADR 0202,
                         // amendment 5): the classifier never screens it.
                         Route::Run if effect::full_access_screens(&gate) => {
@@ -673,9 +744,7 @@ pub(super) async fn handle_calls(
                                     continue;
                                 }
                                 // It couldn't be screened after all: the reviewer decides.
-                                Ok(Screened::Review) => {
-                                    Route::Review(Some(effect::NO_CLASSIFIER.to_owned()))
-                                }
+                                Ok(Screened::Review) => Route::Run,
                                 Err(error) => return Handled::Failed(error.to_string()),
                             }
                         }
@@ -784,6 +853,9 @@ pub(super) async fn handle_calls(
                                         shown: &classed.shown,
                                         bound: read_bound.stored().or_else(|| app_bound.clone()),
                                         concern: concern.as_deref(),
+                                        identity: review_identity(),
+                                        reuse_review: reuse_review && !effect::person_only(&gate),
+                                        reuse_person,
                                         app: app_name.as_deref(),
                                         acts_in: acts_in.as_ref(),
                                         launch: limit,
@@ -809,6 +881,19 @@ pub(super) async fn handle_calls(
                                             reviewer_reason = Some(reason);
                                             stopped = Some(Stopped::Reviewer);
                                             Decision::Ask
+                                        }
+                                        Reviewed::Refuse(reason) => {
+                                            let output = ToolOutput::error(reason);
+                                            finish_tool(
+                                                engine,
+                                                id,
+                                                reply,
+                                                &pending.call,
+                                                &name,
+                                                output,
+                                            )
+                                            .await;
+                                            continue;
                                         }
                                         Reviewed::Stopped => return Handled::Stopped,
                                     }
@@ -846,6 +931,9 @@ pub(super) async fn handle_calls(
                             &def,
                             limit,
                             app_bound.clone(),
+                            review_identity(),
+                            reuse_review && !effect::person_only(&gate),
+                            reuse_person,
                             stop,
                             &mut work,
                         )
@@ -856,6 +944,11 @@ pub(super) async fn handle_calls(
                                 reviewer_reason = Some(reason);
                                 stopped = Some(Stopped::SecondReview);
                                 decision = Decision::Ask;
+                            }
+                            super::review::Reviewed::Refuse(reason) => {
+                                let output = ToolOutput::error(reason);
+                                finish_tool(engine, id, reply, &pending.call, &name, output).await;
+                                continue;
                             }
                             super::review::Reviewed::Stopped => return Handled::Stopped,
                         }
@@ -910,16 +1003,14 @@ pub(super) async fn handle_calls(
                             if launch == Launch::Outside {
                                 let held = Held {
                                     bound: verdict_bound.stored(),
-                                    limit,
                                     incomplete: false,
                                     recheck: true,
-                                    scope: scope.clone(),
-                                    ask: None,
                                 };
                                 bound.insert(pending.call.id.clone(), held);
                             }
                             let warrant = Warrant {
                                 limit,
+                                credential_guard: mode == Mode::FullAccess,
                                 bound: verdict_bound,
                                 incomplete: false,
                             };
@@ -955,6 +1046,8 @@ pub(super) async fn handle_calls(
                             // no app is offered to allow, since its switch decides the rest.
                             if driven.is_some() {
                                 ask = Some(effect::Ask::Drive);
+                            } else if explicit_outside {
+                                ask = Some(effect::Ask::OutsideSandbox);
                             }
                             // What the request says it does: the gate's reading, raised by
                             // what the classifier read. A connected app's ordinary write offers
@@ -1071,19 +1164,17 @@ pub(super) async fn handle_calls(
                 let stopped = asked_stopped(events, &pending.call.id);
                 let warrant = Warrant {
                     limit: allowed_to,
+                    credential_guard: mode == Mode::FullAccess,
                     bound: Bound::from_stored(review::bound(events, &pending.call.id)),
-                    incomplete: stopped == Some(Stopped::Incomplete),
+                    incomplete: mode != Mode::FullAccess && stopped == Some(Stopped::Incomplete),
                 };
                 if launch == Launch::Outside {
                     let held = Held {
                         bound: warrant.bound.stored(),
-                        limit: allowed_to,
                         incomplete: warrant.incomplete,
                         // Asked again because it couldn't be read before it started: the check
                         // at the spawn reads it, and holds it to what it was allowed on.
                         recheck: stopped != Some(Stopped::Unread),
-                        scope: asked_scope(events, &pending.call.id),
-                        ask: outside.then_some(effect::Ask::OutsideSandbox),
                     };
                     bound.insert(pending.call.id.clone(), held);
                 }
@@ -1129,6 +1220,10 @@ pub(super) async fn handle_calls(
         }
     }
     if waiting {
+        // The mode may have changed while a review recorded its request.
+        if engine.release_full_access_in(id) {
+            return Handled::Continue;
+        }
         let live = engine.live(id);
         live.waiting_on_you
             .store(true, std::sync::atomic::Ordering::SeqCst);

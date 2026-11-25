@@ -21,7 +21,7 @@ use super::super::{
     stream_calls::{Prepared, StreamCalls},
     trim, turn,
 };
-use super::again::{self, Again, Held, ask_again};
+use super::again::{self, Held};
 use super::{Handled, ceiling, classify};
 use crate::tools::{ToolOutput, TurnFacts};
 
@@ -68,25 +68,17 @@ pub(super) async fn run_tools(
                 break;
             };
             // What it runs is read again: if it can't be, or a file changed since its verdict,
-            // it doesn't start, and the person decides on it as it is now (ADR 0163, amendment 3).
+            // it doesn't start. The bot can submit a fresh call for the current files.
             if let Some(held) = holding.bound.get(&call.id).filter(|held| held.recheck) {
                 let key = format!("{id}.{}", call.id);
                 let Some(now) = classify(engine, id, &name, &key, &arguments, stop).await else {
                     return Handled::Stopped;
                 };
-                if let Some((stop, read)) = again::stop_at_launch(now, held) {
-                    let again = Again {
-                        call: &call,
-                        name: &name,
-                        arguments: &arguments,
-                        held,
-                        read,
-                    };
-                    match ask_again(engine, id, reply, again, stop) {
-                        Ok(true) => continue,
-                        Ok(false) => return Handled::Stopped,
-                        Err(error) => return Handled::Failed(error.to_string()),
-                    }
+                if let Some(reason) = again::stop_at_launch(now, held) {
+                    let output =
+                        ToolOutput::error(format!("{reason} Retry with the current files."));
+                    finished.push_back((call, name, output));
+                    continue;
                 }
             }
             // A driving step whose page or app changed since it was decided on doesn't run: the
@@ -144,10 +136,12 @@ pub(super) async fn run_tools(
             };
             // What it does, as declared to the gate, so the app can say a send or a payment
             // stays when its files are undone.
-            let effect = engine
-                .tools
-                .get_for(id, &name)
-                .and_then(|tool| tool.effect(&arguments));
+            let effect = engine.tools.get_for(id, &name).and_then(|tool| {
+                match engine.app_call_with(id, &tool, &arguments) {
+                    Some(app) => app.reading.effect,
+                    None => tool.effect(&arguments),
+                }
+            });
             // A prepared read predates this step's writes. Let the normal queue read afresh
             // when an earlier call can change what it sees.
             let reuse_read = !earlier_effect && effect == Some(effect::Effect::Read);

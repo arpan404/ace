@@ -158,8 +158,9 @@ than the day.
 Off by default. `review` is set for every bot (`PUT /v1/oversight {review_default}`) or per bot
 (`PUT /v1/agents/{id}/oversight {review}`, `null` to follow the default). The review model is
 the bot's `review` role ([ADR 0162](../../docs/adr/0162-spade-model-routing.md)): its own
-override, else `review_model`, else the strongest model the person already uses that lists at
-least the bot's price, else the bot's own model: never one weaker than the bot. It thinks at the
+override, else `review_model`, else the configured fast model if it meets the bot's price floor,
+else the strongest eligible model in use or the bot's own. An unpriced bot falls back to the
+configured fast model or its own. It thinks at the
 `review` role's effort, `medium` unless the bot or the person set another
 ([ADR 0213](../../docs/adr/0213-spade-roles-think-at-an-effort.md), agents.md "Models per role").
 
@@ -175,7 +176,9 @@ the engine asks the review model, as typed output `{verdict: "allow" | "escalate
 `allow` runs the call. `escalate`, a failed or unreadable answer, or no review
 model stores `approval_requested` as the gate would have: the person decides. The verdict is
 stored first as `call_reviewed`; a stored verdict for the call is reused after a restart, so a
-call is reviewed once. A call the gate asks about, a read, a note (`memory`) and a destructive call
+call is reviewed once. An eligible repeat within that reply can also reuse a matching
+model allow ([ADR 0171, amendment 8](../../docs/adr/0171-spade-decides-on-effects.md)).
+A call the gate asks about, a read, a note (`memory`) and a destructive call
 are never reviewed. The review's cost goes to the ledger under the bot's conversation as
 the `review` role. The status line says `Checking a step` while it runs.
 

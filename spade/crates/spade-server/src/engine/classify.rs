@@ -45,6 +45,7 @@ pub(super) struct Screening<'a> {
     pub name: &'a str,
     pub arguments: &'a Value,
     pub classed: &'a Classed,
+    pub registry: &'a spade_core::tools::Registry,
     /// For a connector's or plugin's tool, what its server says of it.
     pub hints: Option<Mcp>,
     pub reviewing: Reviewing,
@@ -54,9 +55,6 @@ pub(super) struct Screening<'a> {
     /// Whether the classifier was on and loaded when the call was routed: the one reading used
     /// for routing it and for screening it, so a switch in between never lets it skip both.
     pub ready: bool,
-    /// The routing let it run counting on the screening (an app's write in Full access): if the
-    /// classifier can't screen it after all, the reviewer decides instead.
-    pub required: bool,
     /// An app's tool that declares nothing (ADR 0202, amendment 5): one the classifier reads as
     /// plausibly a payment, a send or an access change goes to the person, though it isn't sure.
     pub unresolved: bool,
@@ -85,6 +83,32 @@ fn settled(hardening: &Hardening) -> String {
         "Spade's classifier read it as clearly low-risk; it runs with Spade's configuration overrides ({}).",
         hardening.digest()
     )
+}
+
+fn classifier_allow_fresh(
+    events: &[Event],
+    call: &str,
+    launch: spade_core::event::Authorized,
+    registry: &spade_core::tools::Registry,
+) -> bool {
+    matches!(
+        review::stored(review::unchanged_events(events, registry), call, launch),
+        Some((Verdict::Allow, _))
+    )
+}
+
+fn full_access_without_screening(stored: Option<Verdict>, raised: Option<Effect>) -> Screened {
+    if stored == Some(Verdict::Escalate)
+        && matches!(
+            raised,
+            Some(Effect::Pay | Effect::SendAsPerson | Effect::ChangeAccess)
+        )
+    {
+        return Screened::Refuse(
+            "The earlier hard stop could not be revalidated. Retry the call.".to_owned(),
+        );
+    }
+    Screened::Run
 }
 
 /// What the person is told when a call the classifier settled can't run in its hard form now.
@@ -253,6 +277,9 @@ impl Engine {
             // A call this classifier settled before a restart runs only in the form it was
             // settled for, derived again from the command and checked against the record.
             if verdict == Verdict::Allow && settled_by_classifier(events, &s.call.id) {
+                if !classifier_allow_fresh(events, &s.call.id, s.launch, s.registry) {
+                    return Ok(Screened::Review);
+                }
                 let form = s
                     .arguments
                     .get("command")
@@ -263,7 +290,7 @@ impl Engine {
                         self.decisions.mark(&key, form);
                         Screened::Run
                     }
-                    _ => Screened::Ask(NO_FORM.to_owned(), None),
+                    _ => Screened::Refuse(NO_FORM.to_owned()),
                 });
             }
             return Ok(Screened::Review);
@@ -292,7 +319,13 @@ impl Engine {
                 self.decisions.mark(&key, form);
                 (Verdict::Allow, reason, Screened::Run)
             }
-            Screen::Person(effect) => {
+            Screen::Person(Effect::Credential) => {
+                let reason = spade_core::autonomy::CREDENTIALS_REFUSED.to_owned();
+                (Verdict::Refuse, reason.clone(), Screened::Refuse(reason))
+            }
+            Screen::Person(
+                effect @ (Effect::Pay | Effect::SendAsPerson | Effect::ChangeAccess),
+            ) => {
                 let line = line(effect).to_owned();
                 (
                     Verdict::Escalate,
@@ -300,6 +333,7 @@ impl Engine {
                     Screened::Ask(line, Some(effect)),
                 )
             }
+            Screen::Person(_) => return Ok(Screened::Review),
         };
         self.store_screened(id, reply, s, model, verdict, reason, screened)
     }
@@ -315,39 +349,37 @@ impl Engine {
         events: &[Event],
         s: &Screening<'_>,
     ) -> Result<Screened, spade_store::StoreError> {
-        // A verdict stored before (a restart, a mode switch since): what it decided stands. A
-        // refusal is never turned into a run, nor a question into one.
-        if let Some((verdict, reason)) = review::stored(events, &s.call.id, s.launch) {
-            return Ok(match verdict {
-                Verdict::Escalate => Screened::Ask(reason, review::raised(events, &s.call.id)),
-                Verdict::Refuse => Screened::Refuse(reason),
-                Verdict::Allow => Screened::Run,
-            });
+        // A reviewer retry is never a Full access prompt. Classify again using this call's
+        // current context for a direct hard stop, including after a restart.
+        let stored = review::stored(events, &s.call.id, s.launch);
+        if let Some((Verdict::Refuse, reason)) = &stored {
+            return Ok(Screened::Refuse(reason.clone()));
         }
-        // Can't screen it: the reviewer decides one the routing counted on screening.
-        let unscreened = if s.required {
-            Screened::Review
-        } else {
-            Screened::Run
+        let unavailable = || {
+            full_access_without_screening(
+                stored.as_ref().map(|(verdict, _)| *verdict),
+                review::raised(events, &s.call.id),
+            )
         };
         if !s.ready {
-            return Ok(unscreened);
+            return Ok(unavailable());
         }
         let (Some(model), Some(subject)) = (Model::embedded(), subject(s)) else {
-            return Ok(unscreened);
+            return Ok(unavailable());
         };
         let decided = self.decided(id, s, model, &subject);
-        match plausible(
-            decided.screen,
-            decided.prediction.person_only(),
-            s.unresolved,
-        ) {
-            Screen::Person(effect) => {
+        match decided.screen {
+            Screen::Person(Effect::Credential) => Ok(Screened::Refuse(
+                spade_core::autonomy::CREDENTIALS_REFUSED.to_owned(),
+            )),
+            Screen::Person(
+                effect @ (Effect::Pay | Effect::SendAsPerson | Effect::ChangeAccess),
+            ) => {
                 let line = line(effect).to_owned();
                 let screened = Screened::Ask(line.clone(), Some(effect));
                 self.store_screened(id, reply, s, model, Verdict::Escalate, line, screened)
             }
-            Screen::LowRisk | Screen::Abstain => Ok(Screened::Run),
+            _ => Ok(Screened::Run),
         }
     }
 
@@ -401,6 +433,7 @@ impl Engine {
         screened: Screened,
     ) -> Result<Screened, spade_store::StoreError> {
         let event = Event::Known(spade_core::event::Known::CallReviewed {
+            memo: None,
             reply: reply.to_owned(),
             call_id: s.call.id.clone(),
             name: s.name.to_owned(),
@@ -512,5 +545,47 @@ mod plausible_tests {
             assert_eq!(plausible(screen, send, false), screen);
             assert_eq!(plausible(screen, (Effect::Pay, 0.1), true), screen);
         }
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn a_stored_classifier_allow_expires_after_a_write_or_untrusted_result() {
+    use serde_json::json;
+    use spade_core::event::Authorized;
+    let registry = spade_core::tools::Registry::new([]);
+    let stored = Event::from_json(json!({"type":"call_reviewed","reply":"r","call_id":"c",
+        "name":"shell","model":"classifier","reason":"settled","verdict":"allow","launch":"outside"}));
+    assert!(classifier_allow_fresh(
+        std::slice::from_ref(&stored),
+        "c",
+        Authorized::Outside,
+        &registry
+    ));
+    for event in [
+        json!({"type":"tool_started","reply":"r","call_id":"w","name":"write","effect":"write_local"}),
+        json!({"type":"tool_finished","reply":"r","call_id":"r1","name":"web","content":"new source","untrusted":true}),
+    ] {
+        assert!(!classifier_allow_fresh(
+            &[stored.clone(), Event::from_json(event)],
+            "c",
+            Authorized::Outside,
+            &registry
+        ));
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn full_access_does_not_replay_a_stale_raise_as_a_request() {
+    assert_eq!(
+        full_access_without_screening(Some(Verdict::Escalate), None),
+        Screened::Run
+    );
+    for effect in [Effect::Pay, Effect::SendAsPerson, Effect::ChangeAccess] {
+        assert!(matches!(
+            full_access_without_screening(Some(Verdict::Escalate), Some(effect)),
+            Screened::Refuse(_)
+        ));
     }
 }
