@@ -40,8 +40,6 @@ export function adoptImportedThread(
     repo.permissions.ensure(id);
     repo.queue.ensure(id);
     repo.save(state, [], now);
-    // Its stored records are new, so its rebuild is one bounded step; ask for it now.
-    repo.readiness.request(id);
   });
 }
 

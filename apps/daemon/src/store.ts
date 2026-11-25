@@ -566,10 +566,8 @@ export class Store {
   rollbackGeneration(): number {
     return this.rolledBack;
   }
-  /**
-   * `outcome` learns the fate of its rows: nested in an open transaction, only with the
-   * outermost. Its commit runs beside the transaction's own events; a rollback runs `rolledBack`.
-   */
+  /** `outcome` learns the fate of its rows: its commit runs beside the transaction's own events,
+   * and a rollback runs `rolledBack` (nested, only with the outermost). */
   private transaction<T>(run: () => T, outcome?: TransactionOutcome): T {
     if (!this.streaming.flushing) this.flushLiveWrites();
     if (this.installingHistory) {
@@ -633,6 +631,7 @@ export class Store {
       this.rolledBack++;
       this.sidebarReads.invalidate();
       settleOutcomes(this.settlements.splice(0), "rolledBack", this.onError);
+      if (outcome) settleOutcomes([{ outcome }], "rolledBack", this.onError);
       throw error;
     } finally {
       this.threads.end();

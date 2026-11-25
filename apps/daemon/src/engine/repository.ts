@@ -156,7 +156,8 @@ export class EngineRepository {
     this.inputs = new InputJournal(store);
     this.interactions = new InteractionLedger(store);
     this.transitions = new TransitionState(store);
-    this.readiness = new TransitionReadiness(store, now);
+    // The boot id marks this process's rebuilds: a mark from an earlier boot is not a rebuild.
+    this.readiness = new TransitionReadiness(store, now, timeOrderedIds()());
     // Schema setup above; every data pass that used to run here is a bounded fill (ADR 0170).
     // The `CREATE INDEX IF NOT EXISTS` the openers run (here, queue-store, intents, input-journal,
     // interaction-ledger, attachment-correlations, title-input, thread-cleanup-journal,
@@ -178,7 +179,6 @@ export class EngineRepository {
       onError,
     );
     this.queue.fills = this.fills;
-    this.readiness.gained = () => this.fills.resume();
     store.atomic((_db) => _db.exec("DELETE FROM engine_slots"));
     // Read by `runnableThreads`, which leaves threads moving to another machine out (ADR 0191).
     store.atomic((db) => {

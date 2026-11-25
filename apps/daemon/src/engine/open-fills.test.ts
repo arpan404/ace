@@ -5,20 +5,18 @@ import { afterEach, expect, test } from "vitest";
 import { Store } from "@ace/daemon";
 import { OpenFills, type OpenFill } from "./open-fills.ts";
 
-/** A fill that fails a few steps, then works; its name is not a real pass. */
-function flaky(failures: number) {
+/** A fill that fails a few steps, then works. */
+function flaky(failures: number, name = "probe") {
   let remaining = failures;
   let done = false;
-  const fill: OpenFill & { failedCalls: number } = {
-    name: "probe",
-    failedCalls: 0,
+  const fill: OpenFill = {
+    name,
     step() {
       if (remaining-- > 0) throw new Error("step failed");
       done = true;
       return true;
     },
     complete: () => done,
-    failed: () => void fill.failedCalls++,
   };
   return fill;
 }
@@ -75,23 +73,9 @@ test("a fill whose step keeps failing is retried with backoff, never abandoned",
   expect(driver.delays).toEqual([0, 250, 500]);
 });
 
-test("a fill failing three steps in a row tells its readers to fall back, and keeps retrying", () => {
-  const store = open();
-  const fill = flaky(3);
-  const driver = drive(store, fill);
-  driver.fills.start();
-  driver.tick();
-  driver.tick();
-  driver.tick();
-  expect(fill.failedCalls).toBe(1);
-  driver.tick(); // the fourth step works
-  expect(fill.complete()).toBe(true);
-  expect(driver.delays).toEqual([0, 250, 500, 1000]);
-});
-
 test("one failed step does not stop the other fills", () => {
   const store = open();
-  const broken = flaky(1000);
+  const broken = flaky(1000, "broken");
   let worked = false;
   const good: OpenFill = {
     name: "good",
@@ -104,5 +88,22 @@ test("one failed step does not stop the other fills", () => {
   const fills = new OpenFills(store, [broken, good], () => {});
   expect(fills.pump()).toBe(true);
   expect(worked).toBe(true);
-  expect(broken.failedCalls).toBe(0);
+});
+
+test("a caller waiting on a fill hears when it completes, and when it cannot", async () => {
+  const store = open();
+  const fill = flaky(0, "early");
+  const driver = drive(store, fill);
+  // Nothing started it: no fill will complete here.
+  expect(await driver.fills.whenComplete("early")).toBe(false);
+  driver.fills.start();
+  driver.tick();
+  expect(await driver.fills.whenComplete("early")).toBe(true);
+
+  const failing = flaky(1, "late");
+  const second = drive(store, failing);
+  const waiting = second.fills.whenComplete("late");
+  second.fills.start();
+  second.tick();
+  expect(await waiting).toBe(false);
 });

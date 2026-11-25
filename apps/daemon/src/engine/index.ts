@@ -278,7 +278,6 @@ export class Engine {
       async (id) => {
         const target = this.actor(id);
         await target.flush();
-        await this.repo.readiness.whenRebuilt(id);
         if (!this.repo.quiescent(this.repo.requireState(id)))
           throw new Error("Transition tree became live");
         await this.sessions.close(target, "idle");
@@ -482,12 +481,6 @@ export class Engine {
     }
     // Open runs schema setup only; these idle fills do the data work, one bounded step a tick
     // (ADR 0170). They start after `ready()` is armed, so recovery never waits for one.
-    // A reserved thread (a switch waiting on its rebuild) has a slot, so only `wake` reaches its
-    // workers; a thread without one is dispatched by `wakeQueued`.
-    this.repo.readiness.onRebuilt = (id) => {
-      this.wake(id);
-      this.wakeQueued();
-    };
     this.repo.fills.useSchedule((task, delay) => this.batchScheduler.setTimer(task, delay));
     this.repo.fills.start();
   }

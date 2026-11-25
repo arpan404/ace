@@ -43,51 +43,45 @@ function changedAgent(event: EventPayload, state: ThreadState): string | undefin
           ? state.runs[event.runId]?.agentId
           : undefined;
 }
-/** Where one thread's bounded rebuild stands: clearing its old blockers, then its agent records. */
-type Rebuild = { phase: "clear" } | { phase: "agents"; key: string };
 
 /**
  * Stores only blockers. Delta handling never enumerates historical agents.
  *
- * Blockers decide `agentsReady`, so a thread's blockers are trusted only once its rebuild from
- * the stored records has committed this boot (ADR 0170): open no longer rebuilds every thread's
- * blockers, a bounded fill does, and until then the thread reads as not ready, never as done.
+ * A thread's blockers are rebuilt from its own stored agent rows the first time this boot needs
+ * them (a read, an admission, delivery), inside that caller's transaction, and a mark written
+ * with them says so. That work is proportional to one thread's agents, not to history (ADR
+ * 0170), so it is safe where it happens. The background fill only pre-warms: it walks every
+ * thread in keyset pages and rebuilds the unmarked ones one step at a time, and correctness
+ * never depends on it finishing.
  */
 export class TransitionReadiness implements OpenFill {
   readonly name = "readiness";
-  /** Set by the repository so a requested rebuild restarts the fill driver. */
-  gained?: () => void;
-  /** Told when a thread's rebuild commits, so what waited on it runs now. */
-  onRebuilt?: (id: ThreadId) => void;
   private store: Store;
+  private now: () => number;
+  /** This process's boot; a mark from an earlier boot is not a rebuild. */
+  private boot: string;
   private put: StatementSync;
   private remove: StatementSync;
   private find: StatementSync;
   private keys: StatementSync;
-  private now: () => number;
-  /** Threads whose blockers were rebuilt from stored records and committed this boot. */
-  private rebuiltThreads = new Set<ThreadId>();
-  private rebuilding = new Map<ThreadId, Rebuild>();
-  /** Threads the pass will rebuild; asking moves one to the front. */
+  /** Threads the pre-warm has still to rebuild; a page's unmarked ids. */
   private queued: ThreadId[] = [];
-  private waiters = new Map<ThreadId, (() => void)[]>();
-  /** The last thread each discovery source read, for its keyset page. */
   private agentCursor = "";
   private blockerCursor = "";
   private discovered = false;
-  /** The pass has started: until it reaches a thread, that thread's blockers are not trusted. */
-  private warming = false;
-  /** A step kept failing: readers stop waiting on it, for the threads it is not mid-rebuild on. */
-  private fallback = false;
-  constructor(store: Store, now: () => number) {
+  constructor(store: Store, now: () => number, boot: string) {
     this.store = store;
     this.now = now;
-    store.atomic((db) =>
+    this.boot = boot;
+    store.atomic((db) => {
       db.exec(`CREATE TABLE IF NOT EXISTS engine_transition_blockers (
         thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
         agent_key TEXT NOT NULL, PRIMARY KEY(thread_id, agent_key)
-      )`),
-    );
+      );
+      CREATE TABLE IF NOT EXISTS engine_readiness_rebuilt (
+        thread_id TEXT PRIMARY KEY, boot TEXT NOT NULL
+      )`);
+    });
     const statement = (sql: string) => store.statement(sql);
     this.put = statement("INSERT OR IGNORE INTO engine_transition_blockers VALUES (?, ?)");
     this.remove = statement(
@@ -104,7 +98,7 @@ export class TransitionReadiness implements OpenFill {
     else this.put.run(state.threadId, key);
   }
   capture(state: ThreadState, events: readonly EventPayload[]): void {
-    if (events.some((event) => event.type === "thread.created")) this.created(state.threadId);
+    if (events.some((event) => event.type === "thread.created")) this.markCreated(state.threadId);
     const changed = new Set<string>();
     for (const event of events) {
       const id = changedAgent(event, state);
@@ -117,148 +111,86 @@ export class TransitionReadiness implements OpenFill {
     for (const row of this.keys.iterate(state.threadId)) this.update(state, String(row.agent_key));
   }
   agentsReady(state: ThreadState): boolean {
-    return this.rebuilt(state.threadId) && !this.find.get(state.threadId);
+    this.ensureRebuilt(state.threadId);
+    return !this.find.get(state.threadId);
   }
   /** Whether the root is between turns and free to take a person's next message. */
   acceptsPersonInput(state: ThreadState): boolean {
-    // Not rebuilt reads as not free: the message queues, as it does for a busy thread.
-    return this.rebuilt(state.threadId) && acceptsPersonInput(state, this.now());
+    this.ensureRebuilt(state.threadId);
+    return acceptsPersonInput(state, this.now());
   }
-  /** A thread whose state was just created: it has no older records, so its blockers are current. */
-  private created(id: ThreadId): void {
-    this.rebuilding.delete(id);
-    this.rebuiltThreads.add(id);
-    this.resolve(id);
+  /**
+   * Rebuild this thread's blockers from its stored agent rows unless this boot already did. Every
+   * reader and every admission calls this before it answers, so nothing ever trusts a half-
+   * rebuilt or last-boot set.
+   */
+  ensureRebuilt(id: ThreadId): void {
+    if (this.rebuilt(id)) return;
+    this.rebuildNow(id);
   }
-  /** Whether the thread's blockers were rebuilt this boot, or it has none to rebuild. */
+  /** Whether this boot rebuilt the thread's blockers (the mark is durable and per boot). */
   rebuilt(id: ThreadId): boolean {
-    // No pass runs in this process (a repository opened outside an engine): the stored blockers
-    // are what there is, and nothing waits on a rebuild that will never come.
-    if (!this.warming) return true;
-    if (this.rebuiltThreads.has(id)) return true;
-    // A failing pass still leaves an untouched thread's blockers as the last boot wrote them,
-    // which is exactly what main's read trusted. One it was part-way through is not trusted.
-    if (this.fallback && !this.rebuilding.has(id)) return true;
-    return (
-      !this.store
-        .statement(
-          "SELECT 1 FROM engine_state_records WHERE thread_id=? AND section='agents' LIMIT 1",
-        )
-        .get(id) && !this.find.get(id)
+    return Boolean(
+      this.store
+        .statement("SELECT 1 FROM engine_readiness_rebuilt WHERE thread_id=? AND boot=?")
+        .get(id, this.boot),
     );
   }
   /**
-   * Rebuild this thread next, before anything the pass had queued, and say when that commits.
-   * A thread already rebuilt resolves at once.
+   * Clear the thread's blockers and write the ones its own agent rows decide, with the mark, in
+   * one transaction. They commit or roll back together, so a crash can never leave a half-
+   * cleared set marked rebuilt.
    */
-  whenRebuilt(id: ThreadId): Promise<void> {
-    if (this.rebuilt(id)) return Promise.resolve();
-    const pending = new Promise<void>((resolve) => {
-      const waiting = this.waiters.get(id) ?? [];
-      waiting.push(resolve);
-      this.waiters.set(id, waiting);
+  private rebuildNow(id: ThreadId): void {
+    this.store.atomic((db) => {
+      db.prepare("DELETE FROM engine_transition_blockers WHERE thread_id=?").run(id);
+      const rows = this.store
+        .statement(
+          "SELECT key,value FROM engine_state_records WHERE thread_id=? AND section='agents' ORDER BY key",
+        )
+        .all(id);
+      const now = this.now();
+      for (const row of rows) {
+        const record = recordSchemas.agents.parse(JSON.parse(String(row.value)));
+        if (!agentReady(record, now)) this.put.run(id, String(row.key));
+      }
+      db.prepare(
+        "INSERT INTO engine_readiness_rebuilt(thread_id,boot) VALUES (?,?) ON CONFLICT(thread_id) DO UPDATE SET boot=excluded.boot",
+      ).run(id, this.boot);
     });
-    this.request(id);
-    return pending;
   }
-  /** Move the thread's rebuild to the front of the pass's queue. */
-  request(id: ThreadId): void {
-    if (this.rebuilt(id)) return;
-    this.queued = [id, ...this.queued.filter((queued) => queued !== id)];
-    this.gained?.();
+  /**
+   * A thread created this boot has no older records, so its (empty) blocker set is right. The
+   * mark is written in the creating transaction: a rolled-back creation leaves no mark either.
+   */
+  private markCreated(id: ThreadId): void {
+    this.store.atomic((db) =>
+      db
+        .prepare(
+          "INSERT INTO engine_readiness_rebuilt(thread_id,boot) VALUES (?,?) ON CONFLICT(thread_id) DO UPDATE SET boot=excluded.boot",
+        )
+        .run(id, this.boot),
+    );
   }
-  start(): void {
-    this.warming = true;
-  }
+  /**
+   * One pre-warm step: rebuild one unmarked thread, or take the next keyset page of candidate
+   * threads. A page advances the cursor even when everything on it was already rebuilt, and says
+   * so, so the driver always moves on to the next page.
+   */
   step(): boolean {
-    this.warming = true;
-    // Peek: a thread stays at the front until its rebuild commits, so a rolled-back step repeats.
-    const id = this.queued[0];
-    if (id !== undefined) return this.rebuildStep(id);
-    if (!this.discovered) {
-      const page = this.discover();
-      this.queued = page.threads;
-      this.discovered = page.done;
-      return page.threads.length > 0;
-    }
-    return false;
-  }
-  /** A step kept failing: nothing waits on it any more, and no partial blocker set is trusted. */
-  failed(): void {
-    this.fallback = true;
-    for (const waiting of this.waiters.values()) for (const resolve of waiting) resolve();
-    this.waiters.clear();
-  }
-  complete(): boolean {
-    return this.discovered && !this.queued.length && !this.rebuilding.size;
-  }
-
-  /** One bounded step of one thread's rebuild, committed or not. */
-  private rebuildStep(id: ThreadId): boolean {
-    // A thread rebuilt this boot (created or settled since it was queued) is never cleared again:
-    // clearing it would drop its current blockers while its rebuilt flag still said trusted.
-    if (this.rebuiltThreads.has(id)) {
-      this.queued = this.queued.filter((queued) => queued !== id);
+    const next = this.queued.shift();
+    if (next !== undefined) {
+      if (!this.rebuilt(next)) this.rebuildNow(next);
       return true;
     }
-    const before = this.rebuilding.get(id) ?? ({ phase: "clear" } as Rebuild);
-    let next = before;
-    let finished = false;
-    this.store.atomic(
-      () => {
-        if (before.phase === "clear") {
-          const cleared = Number(
-            this.store
-              .statement(
-                `DELETE FROM engine_transition_blockers
-                WHERE rowid IN (SELECT rowid FROM engine_transition_blockers WHERE thread_id=? LIMIT ?)`,
-              )
-              .run(id, fillBatch).changes,
-          );
-          next = cleared >= fillBatch ? { phase: "clear" } : { phase: "agents", key: "" };
-          return;
-        }
-        const rows = this.store
-          .statement(
-            `SELECT key,value FROM engine_state_records
-            WHERE thread_id=? AND section='agents' AND key>? ORDER BY key LIMIT ?`,
-          )
-          .all(id, before.phase === "agents" ? before.key : "", fillBatch);
-        for (const row of rows) {
-          const record = recordSchemas.agents.parse(JSON.parse(String(row.value)));
-          if (!agentReady(record, this.now())) this.put.run(id, String(row.key));
-        }
-        finished = rows.length < fillBatch;
-        next = { phase: "agents", key: String(rows[rows.length - 1]?.key ?? "") };
-      },
-      {
-        committed: () => {
-          this.fallback = false;
-          if (finished) this.settle(id);
-          else this.rebuilding.set(id, next);
-        },
-        rolledBack: () => {},
-      },
-    );
+    if (this.discovered) return false;
+    const page = this.discover();
+    this.queued = page.threads.filter((id) => !this.rebuilt(id));
+    this.discovered = page.done;
     return true;
   }
-  private settle(id: ThreadId): void {
-    this.rebuilding.delete(id);
-    this.rebuiltThreads.add(id);
-    this.queued = this.queued.filter((queued) => queued !== id);
-    this.resolve(id);
-    this.onRebuilt?.(id);
-  }
-  /** The engine is closing: nothing waits for a rebuild that will not finish. */
-  stop(): void {
-    for (const waiting of this.waiters.values()) for (const resolve of waiting) resolve();
-    this.waiters.clear();
-  }
-  private resolve(id: ThreadId): void {
-    const waiting = this.waiters.get(id);
-    if (!waiting) return;
-    this.waiters.delete(id);
-    for (const resolve of waiting) resolve();
+  complete(): boolean {
+    return this.discovered && !this.queued.length;
   }
   /**
    * Up to a page of threads, merged from the agent records and the existing blockers so a thread
@@ -283,9 +215,7 @@ export class TransitionReadiness implements OpenFill {
       this.agentCursor = agents.rows[agents.rows.length - 1] ?? this.agentCursor;
     if (blockers.rows.length)
       this.blockerCursor = blockers.rows[blockers.rows.length - 1] ?? this.blockerCursor;
-    const threads = [...new Set([...agents.rows, ...blockers.rows])]
-      .filter((id) => !this.rebuiltThreads.has(id))
-      .toSorted();
+    const threads = [...new Set([...agents.rows, ...blockers.rows])].toSorted();
     return { threads, done: agents.short && blockers.short };
   }
   private discoverSource(sql: string, cursor: "agentCursor" | "blockerCursor", limit: number) {

@@ -101,12 +101,9 @@ export async function changeEngineWorkspace(
   reservation: WorkspaceChangeReservation,
   commit: () => void = () => {},
 ): Promise<void> {
-  // Its state must exist before a change is considered; `verdict` reads it again below.
   repo.requireState(id);
   const thread = repo.store.getThread(id);
   if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
-  // The live-tree verdict is part of the fence below: it needs this boot's blockers, and while
-  // they are warming the fence is taken first and the verdict follows the thread's rebuild.
   if (livePending(repo, id)) throw new Error("thread_tree_is_live");
   if (
     thread.details?.workspaceChange?.state === "preparing" &&
@@ -157,52 +154,45 @@ export async function changeEngineWorkspace(
   };
   const reservations = repo.store.workspaceReservations;
   const roots = reservations.roots(id, reservation.roots);
-  const owners = [...new Set([id, ...reservations.owners(reservation.writes ?? roots)])];
-  // The verdict main reaches synchronously before it fences. It is only trustworthy once a
-  // thread's blockers were rebuilt this boot, so a warming thread defers it to after its rebuild.
-  const verdict = () => {
-    for (const owner of owners) {
-      const peer = repo.state(owner);
-      if (reservation.hasOwnedWork(owner)) throw new Error("terminal_owned");
-      const guard = repo.transitions.guardOwner(owner);
-      if (
-        (guard !== undefined && guard !== commandId) ||
-        (peer && !repo.quiescent(peer)) ||
-        livePending(repo, owner)
-      )
-        throw new Error("thread_tree_is_live");
-    }
-  };
   // The fence is durable before this call returns, as it always was: a send, prepare or another
-  // change racing the same tick is refused, whatever the readiness pass has reached.
-  const fence = () => {
-    repo.store.workspaceReservations.reserve(id, commandId, roots);
-    for (const owner of owners) repo.transitions.guard(owner, commandId);
-  };
-  const announce = () => {
-    status("preparing", thread.details ?? {});
-    publishQueue();
-  };
-  if (owners.every((owner) => repo.readiness.rebuilt(owner))) {
+  // change racing the same tick is refused at once. It is the roots' reservation, so it holds
+  // against every thread bound to them even before this thread's owners are known.
+  reservations.reserve(id, commandId, roots);
+  let owners: ThreadId[] = [id];
+  try {
+    // Owners are found through stored session paths. Opening canonicalized them; that pass is
+    // now a fill, so wait for it before deciding, and if it could not run, scan this home once
+    // for this decision (bounded by its sessions, and rare).
+    const canonical = await repo.fills.whenComplete("session-roots");
+    const owned = reservation.writes ?? roots;
+    owners = [
+      ...new Set([
+        id,
+        ...(canonical ? reservations.owners(owned) : reservations.ownersByScan(owned)),
+      ]),
+    ];
+    // Main's verdict, reached in one transaction after every thread's blockers are its own:
+    // `quiescent` rebuilds a thread's blockers from its agent rows the first time it is asked.
     repo.store.atomic(() => {
-      verdict();
-      fence();
-      announce();
+      for (const owner of owners) {
+        const peer = repo.state(owner);
+        if (reservation.hasOwnedWork(owner)) throw new Error("terminal_owned");
+        const guard = repo.transitions.guardOwner(owner);
+        if (
+          (guard !== undefined && guard !== commandId) ||
+          (peer && !repo.quiescent(peer)) ||
+          livePending(repo, owner)
+        )
+          throw new Error("thread_tree_is_live");
+      }
+      for (const owner of owners) repo.transitions.guard(owner, commandId);
+      status("preparing", thread.details ?? {});
+      publishQueue();
     });
-  } else {
-    // Admission cannot wait, so the fence is taken first and the verdict follows the rebuild.
-    repo.store.atomic(fence);
-    try {
-      for (const owner of owners) await repo.readiness.whenRebuilt(owner);
-      repo.store.atomic(() => {
-        verdict();
-        announce();
-      });
-    } catch (error) {
-      repo.store.workspaceReservations.release(commandId);
-      repo.transitions.releaseGuards(commandId);
-      throw error;
-    }
+  } catch (error) {
+    repo.store.workspaceReservations.release(commandId);
+    repo.transitions.releaseGuards(commandId);
+    throw error;
   }
   let safeToRelease = false;
   try {
@@ -245,7 +235,7 @@ export async function changeEngineWorkspace(
     publishQueue();
     // Threads in a fenced root were refused while it was held; wake them now it is released.
     // A thread the engine has never run (imported, or never started) has nothing to wake.
-    for (const owner of new Set([id, ...reservations.owners(roots)]))
+    for (const owner of new Set([...owners, ...reservations.owners(roots)]))
       if (repo.state(owner)) wake(owner);
   }
 }

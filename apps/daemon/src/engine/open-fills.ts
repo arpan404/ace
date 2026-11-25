@@ -13,21 +13,10 @@ export const fillBatch = 256;
 /** One bounded, resumable data pass. */
 export interface OpenFill {
   readonly name: string;
-  /** One step of at most {@link fillBatch} rows; true when it did work. */
+  /** One step; true when it made progress (including one that only advanced its cursor). */
   step(): boolean;
   /** Whether the pass has nothing left to do. */
   complete(): boolean;
-  /** Told to the driver when a step may have more waiting (a thread asked for its rebuild). */
-  gained?: () => void;
-  /** The driver is starting: a fill whose readers fall back until it commits starts here. */
-  start?(): void;
-  /**
-   * A step kept failing. The fill must not be abandoned; this tells it its partial data may be
-   * unusable, so its readers can fall back to the full read until a later step succeeds.
-   */
-  failed?(error: unknown): void;
-  /** The driver stopped: a fill waiting on a later request gives up its waiters. */
-  stop?(): void;
 }
 
 /**
@@ -131,6 +120,8 @@ export class OpenFills {
   private next = 0;
   /** Consecutive failed steps per fill; cleared by a step that works. */
   private readonly failures = new Map<OpenFill, number>();
+  /** Callers waiting on one fill: true when it completes, false when it fails or stops. */
+  private readonly waiters = new Map<string, ((done: boolean) => void)[]>();
   private settle: (() => void) | undefined;
   readonly completed: Promise<void>;
   private readonly report: (error: unknown) => void;
@@ -140,7 +131,6 @@ export class OpenFills {
     this.byName = new Map(fills.map((fill) => [fill.name, fill]));
     this.report = report;
     this.completed = new Promise((resolve) => (this.settle = resolve));
-    for (const fill of fills) fill.gained = () => this.resume();
   }
   /** How a test drives the tick with its own clock instead of a timer. */
   useSchedule(schedule: FillSchedule): void {
@@ -154,10 +144,25 @@ export class OpenFills {
   fill(name: string): OpenFill | undefined {
     return this.byName.get(name);
   }
+  /**
+   * Says when fill `name` is done: true once it completes, false if a step fails or the driver
+   * stops first. A caller that needs the data now uses the false answer to take the slower path.
+   */
+  whenComplete(name: string): Promise<boolean> {
+    if (this.complete(name)) return Promise.resolve(true);
+    const fill = this.byName.get(name);
+    // Nothing will complete it: the driver never started here, or it has stopped.
+    if (!fill || !this.started || this.stopped) return Promise.resolve(false);
+    if ((this.failures.get(fill) ?? 0) > 0) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      const waiting = this.waiters.get(name) ?? [];
+      waiting.push(resolve);
+      this.waiters.set(name, waiting);
+    });
+  }
   start(): void {
     if (this.started || this.stopped) return;
     this.started = true;
-    for (const fill of this.fills) fill.start?.();
     this.cancel = this.schedule(() => this.tick(), 0);
   }
   /** One bounded step. Tests drive the same step the idle tick does. */
@@ -175,6 +180,7 @@ export class OpenFills {
       try {
         const worked = fill.step();
         this.failures.delete(fill);
+        if (fill.complete()) this.settled(fill.name, true);
         // One successful step per tick keeps each blocking window bounded; the next tick
         // starts at the fill after it.
         if (worked) {
@@ -183,27 +189,27 @@ export class OpenFills {
         }
       } catch (error) {
         attempted = true;
-        const failures = (this.failures.get(fill) ?? 0) + 1;
-        this.failures.set(fill, failures);
-        // Reported every time; at three in a row its readers are told to fall back. The other
-        // fills still take their turn: a failed step wrote nothing, so it costs no rows.
+        this.failures.set(fill, (this.failures.get(fill) ?? 0) + 1);
+        // Reported, and a caller waiting on this fill takes its slower path. The other fills
+        // still take their turn: a failed step wrote nothing, so it costs no rows.
         this.report(error);
-        if (failures === 3 || failures % 10 === 0) fill.failed?.(error);
+        this.settled(fill.name, false);
       }
     }
     return attempted;
-  }
-  /** A fill gained work after the startup pass finished (a thread asked for its rebuild). */
-  resume(): void {
-    if (this.stopped || !this.started) return;
-    this.cancel ??= this.schedule(() => this.tick(), 0);
   }
   stop(): void {
     this.stopped = true;
     this.cancel?.();
     this.cancel = undefined;
-    for (const fill of this.fills) fill.stop?.();
+    for (const [name] of this.waiters) this.settled(name, false);
     this.settle?.();
+  }
+  private settled(name: string, done: boolean): void {
+    const waiting = this.waiters.get(name);
+    if (!waiting) return;
+    this.waiters.delete(name);
+    for (const resolve of waiting) resolve(done);
   }
   /** The wait before the next tick: none after progress, doubling while steps keep failing. */
   private retryDelay(): number {
@@ -227,6 +233,7 @@ export class OpenFills {
     this.cancel?.();
     this.cancel = undefined;
     if (this.fills.some((fill) => !fill.complete())) return;
+    for (const [name] of this.waiters) this.settled(name, true);
     this.settle?.();
   }
 }

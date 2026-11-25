@@ -153,10 +153,7 @@ export function acceptTransition(
           return fail("fork_tree_is_live");
         const lineage = thread.lineage;
         if (!lineage) return fail("thread_is_not_a_fork");
-        // Main can decide this synchronously because its open rebuilt every thread first. While
-        // this boot's rebuild warms, the command is admitted and `execute` decides it after.
-        if (repo.readiness.rebuilt(state.threadId) && !repo.quiescent(state))
-          return fail("fork_tree_is_live");
+        if (!repo.quiescent(state)) return fail("fork_tree_is_live");
         if (!p.citations.every((citation) => citation.threadId === p.threadId))
           return fail("invalid_citation_thread");
         validateCitations(
@@ -171,8 +168,7 @@ export function acceptTransition(
           if (intent.kind === "thread.merge" && ++merges >= 8)
             return fail("merge_queue_capacity_exceeded");
         if (repo.transitions.guarded(id)) return fail("thread_transition_in_progress");
-        if (p.patch && repo.readiness.rebuilt(id) && !repo.quiescent(repo.requireState(id)))
-          return fail("source_tree_is_live");
+        if (p.patch && !repo.quiescent(repo.requireState(id))) return fail("source_tree_is_live");
       } else {
         const agent = switchAgent(thread, p.selection);
         if (agent === "required") return fail("acp_identity_required");

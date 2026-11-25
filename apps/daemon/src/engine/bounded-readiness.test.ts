@@ -1,21 +1,23 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createThreadState } from "@ace/core";
-import { AgentId, Command, RunId, ThreadId } from "@ace/protocol";
+import { AgentId, Command, RunId, Thread, ThreadId, type ThreadDetails } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
 import { Store, createDevThread } from "@ace/daemon";
 import { EngineRepository } from "./repository.ts";
 import { TransitionReadiness } from "./transition-readiness.ts";
 import { changeEngineWorkspace } from "./workspace-change.ts";
-import { createEngineThread } from "./create-thread.ts";
 import { acceptTransition } from "./transition-handler.ts";
 import { AdapterRegistry } from "./registry.ts";
+import { SessionRootsFill } from "./fills/session-roots.ts";
+import { canonicalRoot } from "../workspace-reservations.ts";
 
 /**
- * Readiness is trusted only once a thread's bounded rebuild has committed this boot (ADR 0170):
- * until then the thread reads as not ready, never as done, and a rollback redoes the step.
+ * A thread's blockers are rebuilt from its own agent rows the first time this boot needs them,
+ * inside the caller's transaction (ADR 0170). Nothing trusts a half-rebuilt set: the mark that
+ * says "rebuilt" commits with the blockers, and a mark from an earlier boot is not a rebuild.
  */
 
 const opened: { close(): void }[] = [];
@@ -56,21 +58,7 @@ function agentRecord(threadId: ThreadId, key: string, state: "idle" | "working")
   };
 }
 
-/** Steps the rebuild until it commits, and says how many steps that took. */
-function drain(readiness: TransitionReadiness, id: ThreadId): number {
-  let steps = 0;
-  while (!readiness.rebuilt(id) && steps < 64) {
-    readiness.step();
-    steps++;
-  }
-  return steps;
-}
-
-function seedRecords(
-  store: ReturnType<typeof open>["store"],
-  threadId: ThreadId,
-  records: { key: string; value: unknown }[],
-) {
+function seedRecords(store: Store, threadId: ThreadId, records: { key: string; value: unknown }[]) {
   store.atomic((db) => {
     const insert = db.prepare(
       "INSERT INTO engine_state_records(thread_id,section,key,value) VALUES (?, 'agents', ?, ?)",
@@ -79,63 +67,106 @@ function seedRecords(
   });
 }
 
-test("a thread is not reported ready until its rebuild commits, then it is", () => {
-  const { store, repo, workspace } = open();
-  const thread = createDevThread(store, workspace);
-  const state = createThreadState({
-    threadId: thread.id,
-    config: { provider: "codex", silenceMs: 100 },
-  });
+function lineageTo(parent: ThreadId): import("@ace/protocol").ThreadLineage {
+  return {
+    parentThreadId: parent,
+    parentAgentId: AgentId.parse("parent-agent"),
+    point: { type: "turn", runId: RunId.parse("parent-run") },
+    mode: "portable",
+    lossy: true,
+  };
+}
+
+function seedItem(store: Store, threadId: ThreadId, id: string) {
+  store.atomic((db) =>
+    db
+      .prepare("INSERT INTO items VALUES (?,?,?,?)")
+      .run(id, threadId, 1, JSON.stringify({ id, type: "message" })),
+  );
+}
+
+/** A thread with engine state but no `thread.created` capture: its records are another boot's. */
+function seedThread(
+  store: Store,
+  repo: EngineRepository,
+  workspace: import("@ace/protocol").WorkspaceId,
+  id: ThreadId = createDevThread(store, workspace).id,
+  lineage?: import("@ace/protocol").ThreadLineage,
+) {
+  if (!store.getThread(id)) {
+    const thread = Thread.parse({
+      id,
+      workspaceId: workspace,
+      title: id,
+      provider: "codex",
+      hasSentMessage: false,
+      status: { state: "new" },
+      createdAt: 1,
+      updatedAt: 1,
+      ...(lineage ? { lineage } : {}),
+    });
+    store.appendEvents(id, [{ type: "thread.created", thread }], 1);
+  }
+  const state = createThreadState({ threadId: id, config: { provider: "codex", silenceMs: 100 } });
   repo.save(state, [], 1_000);
-  seedRecords(store, thread.id, [{ key: "root", value: agentRecord(thread.id, "root", "idle") }]);
+  return { thread: store.getThread(id), state };
+}
 
-  // The engine starts the pass after construction; until the rebuild commits, not ready.
-  repo.readiness.start();
-  expect(repo.readiness.rebuilt(thread.id)).toBe(false);
-  expect(repo.quiescent(state)).toBe(false);
-  expect(repo.acceptsPersonInput(state)).toBe(false);
+function blockers(store: Store): number {
+  return Number(
+    store.atomic(
+      (db) => db.prepare("SELECT COUNT(*) AS n FROM engine_transition_blockers").get()?.n,
+    ),
+  );
+}
 
-  // Discovery, the clear step, then the agent records: the idle root leaves no blocker.
-  drain(repo.readiness, thread.id);
-  expect(repo.readiness.rebuilt(thread.id)).toBe(true);
-  expect(repo.quiescent(state)).toBe(true);
-  expect(repo.acceptsPersonInput(state)).toBe(true);
-});
-
-test("a thread blocked at the last stop is not reported ready before its rebuild commits", () => {
+test("a thread's blockers are rebuilt from its own agent rows the first time a reader asks", () => {
   const { store, repo, workspace } = open();
-  const thread = createDevThread(store, workspace);
-  const state = createThreadState({
-    threadId: thread.id,
-    config: { provider: "codex", silenceMs: 100 },
-  });
-  repo.save(state, [], 1_000);
-  seedRecords(store, thread.id, [
-    { key: "root", value: agentRecord(thread.id, "root", "working") },
+  const { state } = seedThread(store, repo, workspace);
+  seedRecords(store, state.threadId, [
+    { key: "root", value: agentRecord(state.threadId, "root", "working") },
   ]);
+  expect(blockers(store)).toBe(0);
 
-  repo.readiness.start();
+  // No fill ran: the answer is still main's, because the rebuild happens inside this read.
   expect(repo.quiescent(state)).toBe(false);
-  drain(repo.readiness, thread.id);
-  expect(repo.readiness.rebuilt(thread.id)).toBe(true);
-  // Its stored record still says working: the rebuild wrote that blocker, not a stale one.
-  expect(repo.quiescent(state)).toBe(false);
+  expect(blockers(store)).toBe(1);
+  const marks = store.atomic((db) =>
+    db.prepare("SELECT boot FROM engine_readiness_rebuilt WHERE thread_id=?").all(state.threadId),
+  );
+  expect(marks).toHaveLength(1);
 });
 
-test("a readiness rebuild rolled back with its transaction leaves the thread not ready, and the redone step marks it rebuilt", () => {
+test("a thread with 1,000 agents is rebuilt in one on-demand step of its own rows, and reads not ready", () => {
   const { store, repo, workspace } = open();
-  const thread = createDevThread(store, workspace);
-  const state = createThreadState({
-    threadId: thread.id,
-    config: { provider: "codex", silenceMs: 100 },
-  });
-  repo.save(state, [], 1_000);
-  seedRecords(store, thread.id, [{ key: "root", value: agentRecord(thread.id, "root", "idle") }]);
+  const { state } = seedThread(store, repo, workspace);
+  seedRecords(
+    store,
+    state.threadId,
+    Array.from({ length: 1_000 }, (_, index) => ({
+      key: `agent-${String(index).padStart(4, "0")}`,
+      value: agentRecord(state.threadId, String(index), "working"),
+    })),
+  );
+  expect(repo.quiescent(state)).toBe(false);
+  expect(blockers(store)).toBe(1_000);
+});
 
-  // The step's rows are written, then the transaction fails: the rollback must undo them and
-  // leave no progress behind.
+test("a rebuild rolled back with its transaction leaves no mark and its cleared blockers, and the redone rebuild marks it", () => {
+  const { store, repo, workspace } = open();
+  const { state } = seedThread(store, repo, workspace);
+  seedRecords(store, state.threadId, [
+    { key: "root", value: agentRecord(state.threadId, "root", "working") },
+  ]);
+  store.atomic((db) =>
+    db
+      .prepare("INSERT INTO engine_transition_blockers(thread_id,agent_key) VALUES (?,?)")
+      .run(state.threadId, "stale"),
+  );
+
+  // The step's rows are written, then the transaction fails: the mark must not survive it.
   let fail = false;
-  const store2 = {
+  const failing = {
     atomic: (run: (db: DatabaseSync) => unknown, outcome?: object) =>
       store.atomic(
         (db) => {
@@ -147,266 +178,69 @@ test("a readiness rebuild rolled back with its transaction leaves the thread not
       ),
     statement: (sql: string) => store.statement(sql),
   } as unknown as Store;
-  const readiness = new TransitionReadiness(store2, () => 1_000);
-  readiness.start();
-  readiness.request(thread.id);
-
+  const readiness = new TransitionReadiness(failing, () => 1_000, "boot-two");
   fail = true;
-  expect(() => readiness.step()).toThrow("step failed");
-  expect(readiness.rebuilt(thread.id)).toBe(false);
-  // The clear step's write was rolled back with it, so nothing of it remains.
+  expect(() => readiness.ensureRebuilt(state.threadId)).toThrow("step failed");
+  expect(readiness.rebuilt(state.threadId)).toBe(false);
   expect(
-    store.atomic(
-      (db) => db.prepare("SELECT COUNT(*) AS n FROM engine_transition_blockers").get()?.n,
+    store.atomic((db) =>
+      db
+        .prepare("SELECT 1 FROM engine_transition_blockers WHERE thread_id=? AND agent_key='stale'")
+        .get(state.threadId),
     ),
-  ).toBe(0);
+  ).toBeDefined();
 
   fail = false;
-  drain(readiness, thread.id);
-  expect(readiness.rebuilt(thread.id)).toBe(true);
+  readiness.ensureRebuilt(state.threadId);
+  expect(readiness.rebuilt(state.threadId)).toBe(true);
+  expect(blockers(store)).toBe(1);
 });
 
-test("a thread with 1,000 agents is rebuilt in at least four bounded steps and reads not ready until the last one commits", () => {
+test("stale blockers of a thread with no agent records are removed when it is rebuilt", () => {
   const { store, repo, workspace } = open();
-  const thread = createDevThread(store, workspace);
-  const state = createThreadState({
-    threadId: thread.id,
-    config: { provider: "codex", silenceMs: 100 },
-  });
-  repo.save(state, [], 1_000);
-  seedRecords(
-    store,
-    thread.id,
-    Array.from({ length: 1_000 }, (_, index) => ({
-      key: `agent-${String(index).padStart(4, "0")}`,
-      value: agentRecord(thread.id, String(index), "idle"),
-    })),
-  );
-
-  repo.readiness.start();
-  let steps = 0;
-  while (!repo.readiness.rebuilt(thread.id) && steps < 12) {
-    repo.readiness.step();
-    steps++;
-    if (!repo.readiness.rebuilt(thread.id)) expect(repo.quiescent(state)).toBe(false);
-  }
-  // One step discovers the thread, one clears its blockers, and 256 agents a step are four more.
-  expect(steps).toBeGreaterThanOrEqual(4);
-  expect(repo.readiness.rebuilt(thread.id)).toBe(true);
-  expect(repo.quiescent(state)).toBe(true);
-});
-
-test("stale blockers of a thread with no agent records are removed", () => {
-  const { store, repo, workspace } = open();
-  const thread = createDevThread(store, workspace);
-  const state = createThreadState({
-    threadId: thread.id,
-    config: { provider: "codex", silenceMs: 100 },
-  });
-  repo.save(state, [], 1_000);
+  const { state } = seedThread(store, repo, workspace);
   store.atomic((db) =>
     db
       .prepare("INSERT INTO engine_transition_blockers(thread_id,agent_key) VALUES (?,?)")
-      .run(thread.id, "stale"),
+      .run(state.threadId, "stale"),
   );
-
-  repo.readiness.start();
-  expect(repo.readiness.rebuilt(thread.id)).toBe(false);
-  expect(repo.quiescent(state)).toBe(false);
-  drain(repo.readiness, thread.id);
-  expect(
-    store.atomic((db) => db.prepare("SELECT 1 FROM engine_transition_blockers").get()),
-  ).toBeUndefined();
   expect(repo.quiescent(state)).toBe(true);
+  expect(blockers(store)).toBe(0);
 });
 
-test("the wait a transition makes for a thread not yet rebuilt resolves only once its rebuild commits", async () => {
+test("a crash after a partial rebuild leaves no current-boot mark, so the next boot rebuilds and never reads ready while an agent works", () => {
   const { store, repo, workspace } = open();
-  const thread = createDevThread(store, workspace);
-  const state = createThreadState({
-    threadId: thread.id,
-    config: { provider: "codex", silenceMs: 100 },
-  });
-  repo.save(state, [], 1_000);
-  seedRecords(store, thread.id, [{ key: "root", value: agentRecord(thread.id, "root", "idle") }]);
-
-  repo.readiness.start();
-  let settled = false;
-  const waited = repo.readiness.whenRebuilt(thread.id).then(() => (settled = true));
-  await Promise.resolve();
-  expect(settled).toBe(false);
-  expect(repo.readiness.rebuilt(thread.id)).toBe(false);
-
-  drain(repo.readiness, thread.id);
-  await waited;
-  expect(settled).toBe(true);
-  expect(repo.readiness.rebuilt(thread.id)).toBe(true);
-});
-
-test("a thread rebuilt this boot is never cleared again by a later discovery page", () => {
-  const { store, repo, workspace } = open();
-  const thread = createDevThread(store, workspace);
-  const state = createThreadState({
-    threadId: thread.id,
-    config: { provider: "codex", silenceMs: 100 },
-  });
-  repo.save(state, [], 1_000);
-  seedRecords(
-    store,
-    thread.id,
-    Array.from({ length: 200 }, (_, index) => ({
-      key: `agent-${String(index).padStart(4, "0")}`,
-      value: agentRecord(thread.id, String(index), "working"),
-    })),
-  );
-  const readiness = repo.readiness;
-  readiness.start();
-  readiness.request(thread.id);
-  drain(readiness, thread.id);
-  expect(readiness.agentsReady(state)).toBe(false);
-
-  // Discovery still has this thread's agent rows to page through. Clearing it again would drop
-  // its blockers while its rebuilt flag still said its blockers were trusted.
-  for (let step = 0; step < 8; step++) {
-    readiness.step();
-    expect(readiness.agentsReady(state)).toBe(false);
-  }
-  expect(
-    store.atomic(
-      (db) =>
-        db
-          .prepare("SELECT COUNT(*) AS n FROM engine_transition_blockers WHERE thread_id=?")
-          .get(thread.id)?.n,
-    ),
-  ).toBe(200);
-});
-
-test("a rebuild that cannot proceed releases its waiters, and a thread it was part-way through still reads not ready", async () => {
-  const { store, repo, workspace } = open();
-  const half = (name: string, state: "idle" | "working") => {
-    const thread = createDevThread(store, workspace, name, "codex");
-    const value = createThreadState({
-      threadId: thread.id,
-      config: { provider: "codex", silenceMs: 100 },
-    });
-    repo.save(value, [], 1_000);
-    seedRecords(store, thread.id, [{ key: "root", value: agentRecord(thread.id, "root", state) }]);
-    return { thread, state: value };
-  };
-  const part = half("Part-way", "working");
-  const untouched = half("Untouched", "idle");
-
-  let armed = false;
-  const failing = {
-    atomic: (run: (db: DatabaseSync) => unknown, outcome?: object) =>
-      store.atomic(
-        (db) => {
-          const result = run(db);
-          if (armed) throw new Error("step failed");
-          return result;
-        },
-        outcome as Parameters<typeof store.atomic>[1],
-      ),
-    statement: (sql: string) => store.statement(sql),
-  } as unknown as Store;
-  const readiness = new TransitionReadiness(failing, () => 1_000);
-  readiness.start();
-  readiness.request(part.thread.id);
-  readiness.step(); // clears its blockers, which commits
-  armed = true;
-  expect(() => readiness.step()).toThrow("step failed");
-
-  let waited = false;
-  const waiting = readiness.whenRebuilt(untouched.thread.id).then(() => (waited = true));
-  readiness.failed();
-  await waiting;
-  expect(waited).toBe(true);
-  // Untouched, its stored blockers are main's read; the one it was part-way through is not.
-  expect(readiness.agentsReady(untouched.state)).toBe(true);
-  expect(readiness.agentsReady(part.state)).toBe(false);
-});
-
-test("a workspace change fences its roots before it returns, even while readiness warms", async () => {
-  const { store, repo, workspace } = open();
-  const thread = createDevThread(store, workspace);
-  const state = createThreadState({
-    threadId: thread.id,
-    config: { provider: "codex", silenceMs: 100 },
-  });
-  repo.save(state, [], 1_000);
-  repo.createSession(thread.id, workspace);
-  // A stored agent record keeps this thread's readiness warming until its rebuild commits.
-  seedRecords(store, thread.id, [{ key: "root", value: agentRecord(thread.id, "root", "idle") }]);
-  repo.readiness.start();
-  expect(repo.readiness.rebuilt(thread.id)).toBe(false);
-
-  const gate = Promise.withResolvers<import("@ace/protocol").ThreadDetails>();
-  const change = changeEngineWorkspace(
-    repo,
-    thread.id,
-    "move",
-    () => 1_000,
-    async () => {},
-    () => gate.promise,
-    () => {},
-    { roots: [workspace], hasOwnedWork: () => false },
-  );
-  // The fence is committed before the call yields, as main's synchronous admission did.
-  expect(
-    store.atomic(
-      (db) =>
-        db
-          .prepare("SELECT command_id FROM workspace_root_reservations WHERE thread_id=?")
-          .get(thread.id)?.command_id,
-    ),
-  ).toBe("move");
-  expect(repo.transitions.guarded(thread.id)).toBe(true);
-  expect(() => store.executionWorkspace(thread.id)).toThrow("workspace_change_in_progress");
-
-  repo.readiness.step(); // discovery, then the clear and the agent records
-  repo.readiness.step();
-  repo.readiness.step();
-  gate.resolve({ mode: "local", worktree: workspace });
-  await change;
-  expect(store.executionWorkspace(thread.id)).toMatchObject({ path: workspace, ready: true });
-  expect(repo.transitions.guarded(thread.id)).toBe(false);
-});
-
-test("a merge on an idle thread whose blockers are warming is admitted, as main's open-time rebuild would have let it", () => {
-  const { store, workspace, home } = open();
-  const parent = ThreadId.parse("merge-parent");
-  const fork = ThreadId.parse("merge-fork");
-  const first = new EngineRepository(store, undefined, 64, undefined, undefined, () => 1_000);
-  const create = (id: ThreadId, lineage?: import("@ace/protocol").ThreadLineage) =>
-    createEngineThread(first, {
-      id,
-      workspaceId: workspace,
-      title: id,
-      selection: { provider: "codex", options: {} },
-      cwd: home,
-      at: 1,
-      silenceMs: 100,
-      ...(lineage ? { lineage } : {}),
-    });
-  create(parent);
-  create(fork, {
-    parentThreadId: parent,
-    parentAgentId: AgentId.parse("parent-agent"),
-    point: { type: "turn", runId: RunId.parse("parent-run") },
-    mode: "portable",
-    lossy: true,
-  });
-  // Its stored records are the ones a previous boot left; this boot has not rebuilt them.
-  seedRecords(store, fork, [{ key: "root", value: agentRecord(fork, "root", "idle") }]);
+  const { state } = seedThread(store, repo, workspace);
+  seedRecords(store, state.threadId, [
+    { key: "root", value: agentRecord(state.threadId, "root", "working") },
+  ]);
+  // The crash left the blockers cleared and a mark from another boot behind.
   store.atomic((db) =>
     db
-      .prepare("INSERT INTO items VALUES (?,?,?,?)")
-      .run("cite-1", fork, 1, JSON.stringify({ id: "cite-1", type: "message" })),
+      .prepare("INSERT INTO engine_readiness_rebuilt(thread_id,boot) VALUES (?,?)")
+      .run(state.threadId, "old-boot"),
   );
-  const restarted = new EngineRepository(store, undefined, 64, undefined, undefined, () => 1_000);
-  restarted.readiness.start();
-  expect(restarted.readiness.rebuilt(fork)).toBe(false);
-  expect(restarted.quiescent(restarted.requireState(fork))).toBe(false);
+  expect(blockers(store)).toBe(0);
+
+  const next = new EngineRepository(store, undefined, 64, undefined, undefined, () => 2_000);
+  expect(next.quiescent(next.requireState(state.threadId))).toBe(false);
+  expect(blockers(store)).toBe(1);
+  const boot = store.atomic(
+    (db) =>
+      db.prepare("SELECT boot FROM engine_readiness_rebuilt WHERE thread_id=?").get(state.threadId)
+        ?.boot,
+  );
+  expect(boot).not.toBe("old-boot");
+});
+
+test("a merge from a live fork is refused before the rebuild has run, as on main", () => {
+  const { store, repo, workspace } = open();
+  const parent = ThreadId.parse("merge-parent");
+  const fork = ThreadId.parse("merge-fork");
+  seedThread(store, repo, workspace, parent);
+  seedThread(store, repo, workspace, fork, lineageTo(parent));
+  seedItem(store, fork, "cite-1");
+  seedRecords(store, fork, [{ key: "root", value: agentRecord(fork, "root", "working") }]);
 
   const command = Command.parse({
     id: "merge-command",
@@ -418,10 +252,40 @@ test("a merge on an idle thread whose blockers are warming is admitted, as main'
       citations: [{ threadId: fork, itemId: "cite-1" }],
     },
   });
-  // Main would admit this idle tree; the warming read must not turn it into a wrong refusal.
   expect(
     acceptTransition(
-      restarted,
+      repo,
+      new AdapterRegistry(),
+      command,
+      1_000,
+      () => "next-id",
+      () => {},
+    ),
+  ).toMatchObject({ ok: false, error: "fork_tree_is_live" });
+});
+
+test("a merge from an idle fork is admitted, as on main", () => {
+  const { store, repo, workspace } = open();
+  const parent = ThreadId.parse("idle-parent");
+  const fork = ThreadId.parse("idle-fork");
+  seedThread(store, repo, workspace, parent);
+  seedThread(store, repo, workspace, fork, lineageTo(parent));
+  seedItem(store, fork, "cite-1");
+  seedRecords(store, fork, [{ key: "root", value: agentRecord(fork, "root", "idle") }]);
+
+  const command = Command.parse({
+    id: "merge-command",
+    deviceId: "device",
+    payload: {
+      type: "thread.merge",
+      threadId: fork,
+      summary: "Merged",
+      citations: [{ threadId: fork, itemId: "cite-1" }],
+    },
+  });
+  expect(
+    acceptTransition(
+      repo,
       new AdapterRegistry(),
       command,
       1_000,
@@ -429,8 +293,114 @@ test("a merge on an idle thread whose blockers are warming is admitted, as main'
       () => {},
     ),
   ).toMatchObject({ ok: true });
+});
 
-  drain(restarted.readiness, fork);
-  expect(restarted.readiness.rebuilt(fork)).toBe(true);
-  expect(restarted.quiescent(restarted.requireState(fork))).toBe(true);
+test("a page of only rebuilt ids continues to the next page", () => {
+  const { store, repo, workspace } = open();
+  const first = ThreadId.parse("aaa-first");
+  const second = ThreadId.parse("zzz-second");
+  const one = seedThread(store, repo, workspace, first);
+  seedThread(store, repo, workspace, second);
+  seedRecords(
+    store,
+    first,
+    Array.from({ length: 128 }, (_, index) => ({
+      key: `agent-${String(index).padStart(4, "0")}`,
+      value: agentRecord(first, String(index), "idle"),
+    })),
+  );
+  seedRecords(store, second, [{ key: "root", value: agentRecord(second, "root", "idle") }]);
+  const readiness = repo.readiness;
+  // The first page holds only this thread, already rebuilt: the step must still ask for a tick.
+  readiness.ensureRebuilt(first);
+  expect(readiness.step()).toBe(true);
+  expect(readiness.complete()).toBe(false);
+  expect(readiness.rebuilt(second)).toBe(false);
+  expect(readiness.step()).toBe(true);
+  expect(readiness.rebuilt(second)).toBe(false);
+  expect(readiness.step()).toBe(true);
+  expect(readiness.rebuilt(second)).toBe(true);
+  expect(repo.quiescent(one.state)).toBe(true);
+});
+
+test("a workspace change fences at once, then finds a peer stored under another symlink and refuses", async () => {
+  const { store, repo, workspace, home } = open();
+  const root = join(home, "checkout");
+  const alias = join(home, "checkout-alias");
+  mkdirSync(root);
+  symlinkSync(home, alias, "dir");
+  store.createWorkspace(root, "Checkout");
+  const mover = seedThread(store, repo, workspace);
+  repo.createSession(mover.state.threadId, canonicalRoot(root));
+  const peerId = ThreadId.parse("alias-peer");
+  seedThread(store, repo, workspace, peerId);
+  repo.createSession(peerId, join(alias, "checkout"));
+  seedRecords(store, peerId, [{ key: "root", value: agentRecord(peerId, "root", "working") }]);
+
+  // Opening's alias reconciliation is a fill now. The change waits for it before its verdict,
+  // and only then can the owner lookup see the canonical path the fill wrote.
+  let pending: (() => void) | undefined;
+  repo.fills.useSchedule((task) => {
+    pending = task;
+    return () => {};
+  });
+  repo.fills.start();
+  const change = changeEngineWorkspace(
+    repo,
+    mover.state.threadId,
+    "move",
+    () => 1_000,
+    async () => {},
+    async () => ({ mode: "local", worktree: root }) as ThreadDetails,
+    () => {},
+    { roots: [root], hasOwnedWork: () => false },
+  );
+  // The roots are fenced before the call yields.
+  expect(store.workspaceReservations.threadReserved(peerId)).toBe(true);
+  let settled = false;
+  void change.then(
+    () => (settled = true),
+    () => (settled = true),
+  );
+  await Promise.resolve();
+  // It cannot decide yet: the peer's stored path is still the alias until the fill reaches it.
+  expect(settled).toBe(false);
+  while (!repo.fills.complete("session-roots") && pending) {
+    const tick = pending;
+    pending = undefined;
+    tick();
+    await Promise.resolve();
+  }
+  expect(repo.session(peerId).cwd).toBe(canonicalRoot(root));
+  await expect(change).rejects.toThrow("thread_tree_is_live");
+  expect(store.workspaceReservations.threadReserved(peerId)).toBe(false);
+});
+
+test("a workspace change refuses an alias peer through the canonicalizing scan when the fill could not run", async () => {
+  const { store, repo, workspace, home } = open();
+  const root = join(home, "checkout");
+  const alias = join(home, "alias-two");
+  mkdirSync(root);
+  symlinkSync(home, alias, "dir");
+  store.createWorkspace(root, "Checkout");
+  const mover = seedThread(store, repo, workspace);
+  repo.createSession(mover.state.threadId, canonicalRoot(root));
+  const peerId = ThreadId.parse("scan-peer");
+  seedThread(store, repo, workspace, peerId);
+  repo.createSession(peerId, join(alias, "checkout"));
+  seedRecords(store, peerId, [{ key: "root", value: agentRecord(peerId, "root", "working") }]);
+  // The driver never started here, so `whenComplete` answers false and the scan decides.
+  expect(new SessionRootsFill(store).complete()).toBe(false);
+
+  const change = changeEngineWorkspace(
+    repo,
+    mover.state.threadId,
+    "move",
+    () => 1_000,
+    async () => {},
+    async () => ({ mode: "local", worktree: root }) as ThreadDetails,
+    () => {},
+    { roots: [root], hasOwnedWork: () => false },
+  );
+  await expect(change).rejects.toThrow("thread_tree_is_live");
 });

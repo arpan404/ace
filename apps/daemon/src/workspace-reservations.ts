@@ -105,6 +105,29 @@ export class WorkspaceReservations {
     }
     return [...owners];
   }
+  /**
+   * Every owner of `roots`, canonicalizing each stored session path. The scan for a home whose
+   * `session-roots` fill could not run: bounded by its session count, and taken only for a
+   * decision that must not miss a peer stored under another alias of the same checkout.
+   */
+  ownersByScan(roots: readonly string[]): ThreadId[] {
+    const wanted = new Set(roots.map(canonicalRoot));
+    const owners = new Set<ThreadId>();
+    if (this.statement("SELECT 1 FROM sqlite_master WHERE name='engine_sessions'").get()) {
+      for (const row of this.statement("SELECT thread_id,cwd FROM engine_sessions").all()) {
+        const cwd = z.string().parse(row.cwd);
+        if (wanted.has(canonicalRoot(cwd))) owners.add(ThreadId.parse(row.thread_id));
+      }
+    }
+    for (const root of wanted) {
+      const local = this.statement(
+        `SELECT t.id AS thread_id FROM workspace_canonical_roots w JOIN threads t ON t.workspace_id=w.workspace_id
+        WHERE w.root=? AND NOT EXISTS (SELECT 1 FROM engine_sessions s WHERE s.thread_id=t.id)`,
+      ).all(root);
+      for (const row of local) owners.add(ThreadId.parse(row.thread_id));
+    }
+    return [...owners];
+  }
   reserve(owner: ThreadId, commandId: string, roots: readonly string[]): void {
     for (const root of roots) {
       const row = this.statement(
