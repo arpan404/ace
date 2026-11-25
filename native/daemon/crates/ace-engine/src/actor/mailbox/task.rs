@@ -115,6 +115,24 @@ pub fn release_js_handles(core: &Core, handles: &[u32]) {
     }
 }
 
+/// Settles a drained op after its actor left the map: committed work resolves, a failure rejects.
+pub fn settle_drained(core: &Core, ack: BatchAck, ok: bool) {
+    let mut ack = ack;
+    let js = ack.js;
+    if ok {
+        ack.resolve();
+    } else {
+        ack.reject("Provider frame failed to commit");
+    }
+    if let Some(call) = js {
+        let deps = core.actor_deps.borrow().clone();
+        deps.acks.settle(
+            call,
+            (!ok).then(|| "Provider frame failed to commit".to_string()),
+        );
+    }
+}
+
 /// An op whose actor was replaced under it: its acknowledgement rejects, and nothing is charged
 /// to the actor that now owns the thread.
 pub fn settle_orphaned(core: &Core, ack: BatchAck) -> bool {

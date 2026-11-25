@@ -63,7 +63,6 @@ fn tool_boundary(fact: &Value) -> bool {
 
 /// `fold_batch` (`actor.ts:367`–`:426`).
 pub fn fold_batch(core: &Rc<Core>, thread: &ThreadId, op: &mut BatchOp) -> Result<(), EngineError> {
-    let deps = core.actor_deps.borrow().clone();
     let generation = core
         .with_state(|state| {
             state
@@ -73,6 +72,31 @@ pub fn fold_batch(core: &Rc<Core>, thread: &ThreadId, op: &mut BatchOp) -> Resul
                 .map(|actor| actor.generation)
         })?
         .unwrap_or(0);
+    fold_batch_for(core, thread, generation, op)
+}
+
+/// The fold for an actor that already left the map (a drained eviction): its generation was
+/// captured before it went, so its frames still fold.
+pub fn fold_batch_for(
+    core: &Rc<Core>,
+    thread: &ThreadId,
+    generation: u64,
+    op: &mut BatchOp,
+) -> Result<(), EngineError> {
+    let deps = core.actor_deps.borrow().clone();
+    // Frames an older generation carried never translate: their handles go at once.
+    let stale: Vec<u32> = op
+        .frames
+        .iter()
+        .filter(|pending| pending.generation != generation)
+        .filter_map(|pending| match &pending.frame {
+            FrameRef::Js { handle, .. } => Some(*handle),
+            FrameRef::Native(_) => None,
+        })
+        .collect();
+    if !stale.is_empty() {
+        deps.acks.release(&stale);
+    }
     let live: Vec<&FrameRef> = op
         .frames
         .iter()
