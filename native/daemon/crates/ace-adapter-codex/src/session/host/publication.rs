@@ -16,11 +16,53 @@ use super::*;
 /// effects already decided.
 #[derive(Default)]
 pub(super) struct Publication {
-    queue: VecDeque<HostEffect>,
+    queue: VecDeque<Queued>,
     /// Set once the shell has given the host its sink.
     sink: Option<Arc<dyn HostSink>>,
     publishing: bool,
+    /// Frames waiting, and the bytes they hold: what the gate watches.
+    frames: usize,
+    bytes: usize,
+    /// The gate is closed because of this backlog.
+    paced: bool,
 }
+
+impl Publication {
+    /// Queues one effect, counting the frame it holds.
+    fn hold(&mut self, effect: HostEffect, bytes: usize) {
+        if matches!(effect, HostEffect::Frame { .. }) {
+            self.frames += 1;
+            self.bytes += bytes;
+        }
+        self.queue.push_back(Queued { effect, bytes });
+    }
+
+    /// The effect left the queue: its reservation goes with it.
+    fn release(&mut self, queued: &Queued) {
+        if matches!(queued.effect, HostEffect::Frame { .. }) {
+            self.frames = self.frames.saturating_sub(1);
+            self.bytes = self.bytes.saturating_sub(queued.bytes);
+        }
+    }
+}
+
+/// One effect waiting for the shell, with what its frame reserved.
+struct Queued {
+    effect: HostEffect,
+    /// The frame's size, or 0 for an effect that is not a frame.
+    bytes: usize,
+}
+
+/// The intake budget the host's gate closes at, as TS's `outputFlow` does: a
+/// quarter of the engine's queue limits closes it and a sixteenth reopens it
+/// (`apps/daemon/src/engine/actor.ts:84`–`:103` with
+/// `apps/daemon/src/engine/limits.ts:9`–`:17`: 256 frames and 4 MiB held, back
+/// below 64 frames and 1 MiB). Past it, a stalled shell's backlog stops the
+/// child's pumps instead of growing.
+pub const INTAKE_FRAMES: usize = 256;
+pub const INTAKE_FRAMES_RESUME: usize = 64;
+pub const INTAKE_BYTES: usize = 4 * 1024 * 1024;
+pub const INTAKE_BYTES_RESUME: usize = 1024 * 1024;
 
 /// What a shell does with the effects the host decides: it applies one effect
 /// at a time, in the order `effect` is called, and it may run another input
@@ -58,13 +100,41 @@ impl Host {
             let mut inner = self.lock();
             let result = run(&mut inner);
             let mut publication = self.publication();
-            publication.queue.extend(inner.out.drain(..));
+            // A frame decided while the queue is empty leaves at once, so only
+            // a backlog pays for measuring it.
+            let backlogged = publication.publishing || !publication.queue.is_empty();
+            for effect in inner.out.drain(..) {
+                let bytes = match &effect {
+                    HostEffect::Frame { data, .. } if backlogged => data.to_json().len(),
+                    _ => 0,
+                };
+                publication.hold(effect, bytes);
+            }
+            self.pace(&mut publication);
             (result, self.claim(&mut publication))
         };
         if publish {
             self.publish();
         }
         result
+    }
+
+    /// Closes the gate while the backlog is at the intake budget, and reopens
+    /// it once the sink has drained it.
+    fn pace(&self, publication: &mut Publication) {
+        let over = publication.frames >= INTAKE_FRAMES || publication.bytes >= INTAKE_BYTES;
+        if over && !publication.paced {
+            publication.paced = true;
+            self.gate.set_backlog(true);
+            return;
+        }
+        if publication.paced
+            && publication.frames <= INTAKE_FRAMES_RESUME
+            && publication.bytes <= INTAKE_BYTES_RESUME
+        {
+            publication.paced = false;
+            self.gate.set_backlog(false);
+        }
     }
 
     /// Takes the publication turn when nobody holds it and there is something
@@ -96,7 +166,10 @@ impl Host {
                     return;
                 };
                 match publication.queue.pop_front() {
-                    Some(effect) => (sink, effect),
+                    Some(queued) => {
+                        publication.release(&queued);
+                        (sink, queued.effect)
+                    }
                     None => {
                         publication.publishing = false;
                         claim.held = false;
@@ -104,6 +177,10 @@ impl Host {
                     }
                 }
             };
+            {
+                let mut publication = self.publication();
+                self.pace(&mut publication);
+            }
             next.0.effect(self, next.1);
         }
     }

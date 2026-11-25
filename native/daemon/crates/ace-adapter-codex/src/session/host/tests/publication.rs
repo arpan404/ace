@@ -322,6 +322,48 @@ fn a_sink_panic_releases_the_publication_turn() {
     );
 }
 
+/// A blocked sink's backlog closes the gate at TS's intake budget — 256 queued
+/// frames or 4 MiB, back below 64 frames and 1 MiB
+/// (`apps/daemon/src/engine/actor.ts:84`–`:103`, `engine/limits.ts:9`–`:17`) —
+/// so the child's pumps stop reading, and it reopens when the sink drains.
+#[test]
+fn a_blocked_sink_closes_the_gate_at_the_intake_budget_and_draining_reopens_it() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start();
+
+    // The publisher is held inside one frame: what the drain decides from now
+    // on waits in the queue.
+    sink.hold_next_frame();
+    let first = {
+        let host = Arc::clone(&host);
+        std::thread::spawn(move || host.line(&renamed("first")))
+    };
+    assert!(sink.wait_parked(), "the publisher is inside a frame");
+    assert!(!host.paused(), "one frame in flight is not a backlog");
+
+    let mut queued = 0;
+    while !host.paused() && queued < 1_000 {
+        host.line(&renamed(&format!("later-{queued}")));
+        queued += 1;
+    }
+    assert!(
+        host.paused(),
+        "the gate closes once the queue holds the intake budget"
+    );
+    assert!(
+        queued >= 255,
+        "the frame budget closed it after {queued} queued frames"
+    );
+
+    sink.let_go();
+    first.join().expect("the frame's input returns");
+    assert!(!host.paused(), "the sink drained: the gate reopens");
+    assert!(sink.published().iter().any(|thing| matches!(
+        thing,
+        Published::Frame { tenant: 1, method } if method == "thread/name/updated"
+    )));
+}
+
 /// One thing the shell published, in the order it published it.
 #[derive(Debug, Clone, PartialEq)]
 enum Published {
@@ -419,6 +461,15 @@ fn method_of(data: &Value) -> String {
         .to_owned()
 }
 
+/// One `thread/name/updated` notification for the channel's thread.
+fn renamed(name: &str) -> String {
+    frame(ace_json::json!({
+        "jsonrpc": "2.0",
+        "method": "thread/name/updated",
+        "params": {"threadId": "t", "name": name},
+    }))
+}
+
 /// The position of the first published thing `pred` takes.
 fn position(published: &[Published], pred: impl Fn(&Published) -> bool) -> usize {
     published
@@ -477,6 +528,7 @@ struct Holding {
     log: Arc<Mutex<Vec<Published>>>,
     read: Mutex<usize>,
     hold: Mutex<bool>,
+    hold_frame: Mutex<bool>,
     lose: Mutex<bool>,
     parked: Mutex<bool>,
     parked_wake: Condvar,
@@ -586,6 +638,11 @@ impl Holding {
         *self.hold.lock().expect("hold") = true;
     }
 
+    /// Holds the publisher inside the next frame, once.
+    fn hold_next_frame(&self) {
+        *self.hold_frame.lock().expect("hold frame") = true;
+    }
+
     /// Unwinds on the next settlement, once.
     fn lose_next_settlement(&self) {
         *self.lose.lock().expect("lose") = true;
@@ -609,6 +666,16 @@ impl Holding {
         }
     }
 
+    /// Holds the publisher until `let_go`, and says it is here.
+    fn park(&self) {
+        *self.parked.lock().expect("parked") = true;
+        self.parked_wake.notify_all();
+        let mut released = self.release.lock().expect("release");
+        while !*released {
+            released = self.released.wait(released).expect("release wait");
+        }
+    }
+
     fn let_go(&self) {
         *self.release.lock().expect("release") = true;
         self.released.notify_all();
@@ -617,6 +684,17 @@ impl Holding {
 
 impl HostSink for Holding {
     fn effect(&self, host: &Host, effect: HostEffect) {
+        let hold = {
+            let mut hold = self.hold_frame.lock().expect("hold frame");
+            let holding = *hold && matches!(effect, HostEffect::Frame { .. });
+            if holding {
+                *hold = false;
+            }
+            holding
+        };
+        if hold {
+            self.park();
+        }
         // Frames and callbacks reach their channel here, in the order the host
         // published them: the channel records each delivery in the same log.
         if host.hand_over(&effect, |tenant| {
@@ -648,12 +726,7 @@ impl HostSink for Holding {
             holding
         };
         if hold {
-            *self.parked.lock().expect("parked") = true;
-            self.parked_wake.notify_all();
-            let mut released = self.release.lock().expect("release");
-            while !*released {
-                released = self.released.wait(released).expect("release wait");
-            }
+            self.park();
         }
         self.log
             .lock()

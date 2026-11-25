@@ -1179,6 +1179,11 @@ fakes, and everything the E1 translator owns. Five tasks, in order.
   its notification or server request, the refusal, a dropped line, a malformed line, a diagnostic
   and the host's failures (`Host::hand_over`), and a server request's answer goes back through
   `answer`/`answer_error` so the reply keeps the order too.
+- **A backlog closes the gate**: a frame that waits behind another input stays in that queue, and
+  once it holds TS's intake budget — 256 frames or 4 MiB, reopened below 64 frames and 1 MiB
+  (`apps/daemon/src/engine/actor.ts:84`–`:103`, `apps/daemon/src/engine/limits.ts:9`–`:17`) — the
+  host closes its read gate, so a stalled shell never lets the child's pumps read into an unbounded
+  queue.
 - **The pool's identity**: a native pool is created per TypeScript `CodexHostPool` instance (a
   `WeakMap` in the facade, E3-codex.5), so the tests that share one pool share one native pool.
   `CodexHostPool.close()` also closes its native twin. That is a one-line change in

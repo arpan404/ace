@@ -27,6 +27,10 @@ pub struct HostGate {
 #[derive(Default)]
 struct GateInner {
     paused: HashSet<u64>,
+    /// The host's publication backlog is past its intake budget: the shell is
+    /// not taking frames, so the child's pumps stop, as TS's `outputFlow`
+    /// pressure stops them (`apps/daemon/src/engine/actor.ts:84`–`:103`).
+    backlog: bool,
     /// A close started: every chunk is taken and no channel pauses the drain.
     draining: bool,
     control: Option<OutputControl>,
@@ -62,12 +66,17 @@ impl HostGate {
             return;
         }
         inner.paused.remove(&tenant);
-        if inner.paused.is_empty()
-            && !inner.draining
-            && let Some(control) = &inner.control
-        {
-            control.resume(OutputStream::Stdout);
-            control.resume(OutputStream::Stderr);
+        resume_unless_held(&inner);
+    }
+
+    /// The publication backlog crossed its intake budget, or drained back under
+    /// it: while it is over, the next chunk is answered `taken(false)` and the
+    /// pump stops reading.
+    pub fn set_backlog(&self, over: bool) {
+        let mut inner = self.lock();
+        inner.backlog = over;
+        if !over {
+            resume_unless_held(&inner);
         }
     }
 
@@ -78,7 +87,7 @@ impl HostGate {
 
     pub fn paused(&self) -> bool {
         let inner = self.lock();
-        !inner.draining && !inner.paused.is_empty()
+        held(&inner)
     }
 
     /// A close started: no channel pauses the drain any more, and both pumps
@@ -111,11 +120,27 @@ impl HostGate {
     /// step.
     pub fn answer(&self, delivered: Delivered) {
         let inner = self.lock();
-        let paused = !inner.draining && !inner.paused.is_empty();
-        delivered.taken(!paused);
+        delivered.taken(!held(&inner));
     }
 
     fn lock(&self) -> MutexGuard<'_, GateInner> {
         self.inner.lock().unwrap_or_else(|error| error.into_inner())
+    }
+}
+
+/// Whether any pause holds the pumps: a channel out of room, or the host's own
+/// backlog. A close never holds them.
+fn held(inner: &GateInner) -> bool {
+    !inner.draining && (!inner.paused.is_empty() || inner.backlog)
+}
+
+/// Resumes both pumps when nothing holds them any more.
+fn resume_unless_held(inner: &GateInner) {
+    if held(inner) {
+        return;
+    }
+    if let Some(control) = &inner.control {
+        control.resume(OutputStream::Stdout);
+        control.resume(OutputStream::Stderr);
     }
 }

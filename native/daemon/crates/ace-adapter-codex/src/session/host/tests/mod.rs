@@ -366,6 +366,42 @@ fn a_paused_channel_stops_both_pipes_and_a_resume_restarts_them() {
     run.stop();
 }
 
+/// A publication backlog stops both pumps the way a full channel does, and
+/// the pumps read on when it drains: a stalled sink never reads the child's
+/// output into an unbounded queue (`actor.ts:84`–`:103`).
+#[test]
+fn a_publication_backlog_stops_both_pipes_until_it_drains() {
+    let run = crate::session::harness::GateRun::start(Scratch::new("gate-backlog"));
+    assert!(run.wait_for(512 * 1024), "both pipes deliver");
+
+    run.gate.set_backlog(true);
+    assert!(
+        run.gate.paused(),
+        "a backlog past its budget holds the pumps"
+    );
+    let (out0, err0) = run.bytes();
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    let (out1, err1) = run.bytes();
+    assert!(
+        out1 - out0 <= PAUSED_SLACK && err1 - err0 <= PAUSED_SLACK,
+        "a backlog stops both pumps: stdout +{}, stderr +{}",
+        out1 - out0,
+        err1 - err0
+    );
+
+    run.gate.set_backlog(false);
+    assert!(!run.gate.paused());
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    let (out2, err2) = run.bytes();
+    assert!(
+        out2 - out1 >= FLOWING_BYTES && err2 - err1 >= FLOWING_BYTES,
+        "the drain restarts both pumps: stdout +{}, stderr +{}",
+        out2 - out1,
+        err2 - err1
+    );
+    run.stop();
+}
+
 /// A close that starts while a channel is paused must not stall the drain:
 /// the gate stops honouring pauses and both pipes read on (`retire`, `:379`).
 #[test]
