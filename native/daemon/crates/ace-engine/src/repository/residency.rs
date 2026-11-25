@@ -209,3 +209,79 @@ pub(crate) fn text(value: &str) -> Value {
 pub(crate) fn integer(value: i64) -> Value {
     Value::Integer(value)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::records::RecordBudget;
+    use crate::repository::testsupport::{header, home};
+    use crate::snapshot::decode::decode_header;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    fn resident(
+        conn: &std::sync::Arc<ace_store::Connection>,
+        budget: &Rc<RefCell<RecordBudget>>,
+        thread: &str,
+    ) -> Rc<RefCell<Snapshot>> {
+        let (state, original) = decode_header(&header(thread)).unwrap();
+        Rc::new(RefCell::new(
+            Snapshot::new(std::sync::Arc::clone(conn), budget, state, Some(original)).unwrap(),
+        ))
+    }
+
+    #[test]
+    fn a_dropped_snapshot_is_freed_not_kept_in_the_cache() {
+        // `snapshot-retention.process`: 1,500 reloads leave no released snapshot's entry in the
+        // budget. The byte figure stood for "the dropped snapshot keeps nothing"; Rust asserts
+        // the budget itself, on the same inputs.
+        let conn = home("retention", &header("retention"));
+        let mut repo = Repo::new(64);
+        for _ in 0..1_500 {
+            let snapshot = resident(&conn, repo.budget(), "retention");
+            snapshot
+                .borrow_mut()
+                .agent_keys_by_id
+                .write("root", "root".to_owned());
+            assert_eq!(repo.budget().borrow().size(), 1, "one cached record");
+            repo.snapshots
+                .insert("retention".to_owned(), Rc::clone(&snapshot));
+            repo.drop("retention".to_owned());
+            assert_eq!(
+                repo.budget().borrow().size(),
+                0,
+                "a dropped snapshot leaves the budget"
+            );
+        }
+    }
+
+    #[test]
+    fn a_state_kept_past_its_snapshot_reads_native_runs_it_opens_later_as_currently_stored() {
+        // `snapshot-release.process`: the task still holds the released snapshot; its reads go
+        // to SQLite, so a run stored after the release is the one it sees.
+        let conn = home("release", &header("release"));
+        let mut repo = Repo::new(64);
+        let snapshot = resident(&conn, repo.budget(), "release");
+        repo.snapshots
+            .insert("release".to_owned(), Rc::clone(&snapshot));
+        repo.drop("release".to_owned());
+        assert!(snapshot.borrow().is_released());
+        stmt_cache::run(
+            &conn,
+            "INSERT INTO engine_state_records VALUES (?,?,?,?)",
+            vec![
+                text("release"),
+                text("nativeRuns:root"),
+                text("run-1"),
+                Value::Text("\"stored-run\"".to_owned()),
+            ],
+        )
+        .unwrap();
+        let runs = snapshot.borrow_mut().native_runs("root").unwrap();
+        assert_eq!(
+            runs.get("run-1").map(String::as_str),
+            Some("stored-run"),
+            "the released snapshot's read falls through to SQLite"
+        );
+    }
+}

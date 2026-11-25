@@ -20,6 +20,8 @@ pub mod residency;
 pub mod save;
 pub mod slots;
 pub mod stream;
+#[cfg(test)]
+pub(crate) mod testsupport;
 
 use crate::ThreadId;
 use crate::records::RecordBudget;

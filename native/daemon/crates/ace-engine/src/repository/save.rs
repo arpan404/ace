@@ -132,3 +132,164 @@ fn parse_payloads(json: &str) -> Result<Vec<Value>, EngineError> {
 pub fn stored_seq(row: &Row) -> i64 {
     row.get("seq").and_then(cell_int).unwrap_or(0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::repository::residency::cell_text;
+    use crate::repository::testsupport::{Shell, header, home, message};
+    use crate::snapshot::touched::Touched;
+
+    fn setup(thread: &str) -> (std::sync::Arc<ace_store::Connection>, EngineStore, State) {
+        let conn = home(thread, &header(thread));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        // The pass-through scaffold: this thread has no inputs, interactions or transitions, so
+        // the unported collaborators' answers are the TypeScript's ("nothing to do") here.
+        state.repo.probe_passthrough = true;
+        (conn, store, state)
+    }
+
+    fn stored_text(conn: &std::sync::Arc<ace_store::Connection>, sql: &'static str) -> String {
+        let row = stmt_cache::get_row(conn, sql, vec![])
+            .unwrap()
+            .unwrap_or_default();
+        row.get("state")
+            .and_then(cell_text)
+            .unwrap_or_default()
+            .to_owned()
+    }
+
+    fn record(
+        conn: &std::sync::Arc<ace_store::Connection>,
+        thread: &str,
+        key: &str,
+    ) -> Option<String> {
+        let row = stmt_cache::get_row(
+            conn,
+            "SELECT value FROM engine_state_records WHERE thread_id=? AND section='items' AND key=?",
+            vec![text(thread), text(key)],
+        )
+        .unwrap()?;
+        row.get("value").and_then(cell_text).map(str::to_owned)
+    }
+
+    #[test]
+    fn a_rejected_save_restores_the_header_and_the_message() {
+        // `snapshot-rollback.process:72`: the save inside the refused transaction leaves no row.
+        let (conn, store, mut state) = setup("rollback");
+        let snapshot = state.repo.require_state(&store, "rollback").unwrap();
+        {
+            let mut borrowed = snapshot.borrow_mut();
+            borrowed
+                .items
+                .write("item-1", message("item-1", "rollback", "kept"));
+        }
+        state
+            .save(
+                &store,
+                "rollback",
+                &snapshot,
+                "[]",
+                1.0,
+                &Touched::default(),
+            )
+            .unwrap();
+        let header_before = stored_text(
+            &conn,
+            "SELECT state FROM thread_state WHERE thread_id='rollback'",
+        );
+        let refused = store.atomic(|_tx| {
+            let snapshot = state.repo.require_state(&store, "rollback")?;
+            {
+                let mut borrowed = snapshot.borrow_mut();
+                borrowed
+                    .items
+                    .write("item-2", message("item-2", "rollback", "refused"));
+            }
+            state.save(
+                &store,
+                "rollback",
+                &snapshot,
+                "[]",
+                2.0,
+                &Touched::default(),
+            )?;
+            Err::<(), EngineError>(EngineError::Records("rejected".to_owned()))
+        });
+        assert!(refused.is_err());
+        let header_after = stored_text(
+            &conn,
+            "SELECT state FROM thread_state WHERE thread_id='rollback'",
+        );
+        assert_eq!(header_after, header_before, "the header is unchanged");
+        assert!(record(&conn, "rollback", "item-1").is_some());
+        assert_eq!(
+            record(&conn, "rollback", "item-2"),
+            None,
+            "the refused message was never stored"
+        );
+    }
+
+    #[test]
+    fn an_outer_rollback_discards_a_nested_save_with_an_unchanged_seq() {
+        // `snapshot-rollback.process:98`: the nested save committed, its event sequence did not
+        // change, and the outer rollback still discards it.
+        let (conn, store, mut state) = setup("nested");
+        store
+            .atomic(|_tx| {
+                let snapshot = state.repo.require_state(&store, "nested")?;
+                {
+                    let mut borrowed = snapshot.borrow_mut();
+                    borrowed
+                        .items
+                        .write("item-1", message("item-1", "nested", "nested"));
+                }
+                state.save(&store, "nested", &snapshot, "[]", 1.0, &Touched::default())?;
+                Err::<(), EngineError>(EngineError::Records("outer".to_owned()))
+            })
+            .unwrap_err();
+        assert_eq!(record(&conn, "nested", "item-1"), None);
+        assert_eq!(
+            store.head_seq().unwrap(),
+            0.0,
+            "the sequence did not change"
+        );
+        // The next read sees the stored state, not the discarded snapshot.
+        let snapshot = state.repo.require_state(&store, "nested").unwrap();
+        assert!(snapshot.borrow().state.items.is_empty());
+        assert!(store.rollback_generation().unwrap() > 0.0);
+    }
+
+    #[test]
+    fn a_caught_savepoint_rollback_reloads_before_the_next_save() {
+        // `snapshot-rollback.process:123`: a savepoint rollback caught inside a still-open outer
+        // transaction bumps the generation, so the next save reloads first.
+        let (conn, store, mut state) = setup("savepoint");
+        store
+            .atomic(|_tx| {
+                let discarded = store.atomic(|_inner| {
+                    Err::<(), EngineError>(EngineError::Records("savepoint".to_owned()))
+                });
+                assert!(discarded.is_err());
+                let snapshot = state.repo.require_state(&store, "savepoint")?;
+                {
+                    let mut borrowed = snapshot.borrow_mut();
+                    borrowed
+                        .items
+                        .write("item-1", message("item-1", "savepoint", "kept"));
+                }
+                state.save(
+                    &store,
+                    "savepoint",
+                    &snapshot,
+                    "[]",
+                    2.0,
+                    &Touched::default(),
+                )
+            })
+            .unwrap();
+        assert!(record(&conn, "savepoint", "item-1").is_some());
+        assert!(store.rollback_generation().unwrap() > 0.0);
+    }
+}
