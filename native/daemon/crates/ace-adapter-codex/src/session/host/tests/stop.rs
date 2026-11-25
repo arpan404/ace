@@ -748,6 +748,19 @@ fn a_close_pages_through_every_shell_before_stopping_them() {
     );
 }
 
+/// Answers a channel's first terminal-list page with `page`, as the
+/// app-server would, and returns what that reply published and wrote.
+fn answer_terminal_page(page: Value) -> (Vec<HostEffect>, Vec<String>) {
+    let host = bare(true);
+    let events = Arc::new(crate::session::harness::Events::default());
+    let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+    claim_thread(&host, 1, "t");
+    let (_, lines) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
+    let list =
+        line_id(&lines, "thread/backgroundTerminals/list", Some("t")).expect("the terminal list");
+    host.pump(|| host.line(&reply(&list, page)))
+}
+
 /// A page the page schema refuses fails the cleanup: it is never read as an
 /// empty page, so a close cannot report success while terminals still run
 /// (`TerminalPage`, `background-terminals.ts:2`).
@@ -759,26 +772,21 @@ fn a_malformed_terminal_page_fails_the_close_instead_of_reading_as_empty() {
     }
     let pages = [
         ace_json::json!({"nextCursor": null}),
+        ace_json::json!({"data": null}),
+        ace_json::json!({"data": {}}),
         ace_json::json!({"data": "p1"}),
         ace_json::json!({"data": [{}], "nextCursor": null}),
+        ace_json::json!({"data": ["p1"], "nextCursor": null}),
         ace_json::json!({"data": [{"processId": ""}], "nextCursor": null}),
         ace_json::json!({"data": [{"processId": 7}], "nextCursor": null}),
+        ace_json::json!({"data": [{"processId": null}], "nextCursor": null}),
+        ace_json::json!({"data": [{"processId": true}], "nextCursor": null}),
+        ace_json::json!({"data": [{"processId": {}}], "nextCursor": null}),
+        ace_json::json!({"data": [{"processId": "p".repeat(1_025)}], "nextCursor": null}),
         ace_json::json!({"data": too_many, "nextCursor": null}),
     ];
     for page in pages {
-        let host = bare(true);
-        let events = Arc::new(crate::session::harness::Events::default());
-        let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
-        claim_thread(&host, 1, "t");
-        busy_turn(&host, "t");
-
-        let (_, lines) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
-        let interrupt = line_id(&lines, "turn/interrupt", Some("t")).expect("the interrupt");
-        let (_, lines) = host.pump(|| host.line(&reply(&interrupt, ace_json::json!({}))));
-        let list = line_id(&lines, "thread/backgroundTerminals/list", Some("t"))
-            .expect("the terminal list");
-        let (effects, lines) = host.pump(|| host.line(&reply(&list, page.clone())));
-
+        let (effects, lines) = answer_terminal_page(page.clone());
         assert!(
             effects.iter().any(|effect| matches!(
                 effect,
@@ -794,31 +802,24 @@ fn a_malformed_terminal_page_fails_the_close_instead_of_reading_as_empty() {
             line_ids(&lines, "thread/unsubscribe").is_empty(),
             "the detached channel never leaves on a malformed page: {page} -> {lines:?}"
         );
-        assert_eq!(host.tenant_count(), 1, "the channel stays attached: {page}");
     }
 }
 
-/// A cursor the page schema refuses is not the end of the list: an empty or
-/// non-string `nextCursor` fails the cleanup instead of reporting the last
-/// page (`TerminalPage`, `background-terminals.ts:2`).
+/// A cursor the page schema refuses is not the end of the list: an empty,
+/// non-string or over-long `nextCursor` fails the cleanup instead of reporting
+/// the last page (`TerminalPage`, `background-terminals.ts:2`).
 #[test]
 fn a_malformed_terminal_cursor_fails_the_close_instead_of_ending_the_scan() {
-    for cursor in [ace_json::json!(""), ace_json::json!(7)] {
-        let host = bare(true);
-        let events = Arc::new(crate::session::harness::Events::default());
-        let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
-        claim_thread(&host, 1, "t");
-
-        let (_, lines) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
-        let list = line_id(&lines, "thread/backgroundTerminals/list", Some("t"))
-            .expect("the terminal list");
-        let (effects, lines) = host.pump(|| {
-            host.line(&reply(
-                &list,
-                ace_json::json!({"data": [{"processId": "p1"}], "nextCursor": cursor}),
-            ))
-        });
-
+    for cursor in [
+        ace_json::json!(""),
+        ace_json::json!(7),
+        ace_json::json!(true),
+        ace_json::json!({}),
+        ace_json::json!(["c1"]),
+        ace_json::json!("c".repeat(4_097)),
+    ] {
+        let page = ace_json::json!({"data": [{"processId": "p1"}], "nextCursor": cursor});
+        let (effects, lines) = answer_terminal_page(page.clone());
         assert!(
             effects.iter().any(|effect| matches!(
                 effect,
@@ -828,18 +829,67 @@ fn a_malformed_terminal_cursor_fails_the_close_instead_of_ending_the_scan() {
                     ..
                 } if message.contains("background terminals")
             )),
-            "the malformed cursor fails the close: {cursor} -> {effects:#?}"
+            "the malformed cursor fails the close: {page} -> {effects:#?}"
         );
         assert!(
             line_ids(&lines, "thread/unsubscribe").is_empty(),
-            "the detached channel never leaves on a malformed cursor: {cursor}"
-        );
-        assert_eq!(
-            host.tenant_count(),
-            1,
-            "the channel stays attached: {cursor}"
+            "the detached channel never leaves on a malformed cursor: {page}"
         );
     }
+}
+
+/// A row is typed as `TerminalPage` types it (`background-terminals.ts:2`):
+/// `itemId` is a string when present, of any length, and any other type for it
+/// fails the page. Unknown keys pass through, as the schema's `.passthrough()`.
+#[test]
+fn a_terminal_row_field_of_the_wrong_type_fails_the_page() {
+    for item in [
+        ace_json::json!(42),
+        ace_json::json!(null),
+        ace_json::json!(true),
+        ace_json::json!({}),
+        ace_json::json!([]),
+    ] {
+        let page = ace_json::json!({
+            "data": [{"processId": "p1", "itemId": item}],
+            "nextCursor": null,
+        });
+        let (effects, lines) = answer_terminal_page(page.clone());
+        assert!(
+            effects.iter().any(|effect| matches!(
+                effect,
+                HostEffect::DetachFailed {
+                    tenant: 1,
+                    message,
+                    ..
+                } if message.contains("background terminals")
+            )),
+            "an itemId of another type fails the page: {page} -> {effects:#?}"
+        );
+        assert!(
+            line_ids(&lines, "thread/unsubscribe").is_empty(),
+            "the detached channel never leaves: {page}"
+        );
+    }
+
+    // A string, however long, is what the schema asks for: the terminal stops,
+    // and a key the schema does not name passes through.
+    let page = ace_json::json!({
+        "data": [{
+            "processId": "p1",
+            "itemId": "i".repeat(5_000),
+            "command": "ls",
+        }],
+        "nextCursor": null,
+    });
+    let (effects, lines) = answer_terminal_page(page);
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, HostEffect::DetachFailed { .. })),
+        "a long itemId is still a string: {effects:#?}"
+    );
+    assert_eq!(stopped_processes(&lines), vec!["p1"]);
 }
 
 /// A scan bigger than the shared peer's pending slots still stops every

@@ -402,10 +402,12 @@ impl Inner {
 }
 
 /// One terminal-list page as `TerminalPage` reads it
-/// (`background-terminals.ts:2`): `data` is required, at most 256 terminals
-/// with a 1–1,024 character `processId`, and `nextCursor` is absent, null, or
-/// a 1–4,096 character string. A page that fails this is refused whole, never
-/// read as an empty page or as the end of the list.
+/// (`background-terminals.ts:2`): `data` is required, at most 256 rows with a
+/// 1–1,024 character `processId` and, when present, a string `itemId`, and
+/// `nextCursor` is absent, null, or a 1–4,096 character string. A page that
+/// fails this is refused whole, never read as an empty page or as the end of
+/// the list; keys the schema does not declare pass through, as `.passthrough()`
+/// does.
 fn read_terminal_page(page: &Value) -> Result<(Vec<JsString>, Option<JsString>), &'static str> {
     let data = match page.get("data") {
         Some(Value::Array(items)) => items,
@@ -423,6 +425,11 @@ fn read_terminal_page(page: &Value) -> Result<(Vec<JsString>, Option<JsString>),
                 terminals.push(process.clone());
             }
             _ => return Err("the terminal page names an invalid process"),
+        }
+        // `itemId: z.string().optional()`: absent, or any string, of any length.
+        match terminal.get("itemId") {
+            None | Some(Value::String(_)) => {}
+            Some(_) => return Err("the terminal page names an invalid item"),
         }
     }
     let next = match page.get("nextCursor") {
