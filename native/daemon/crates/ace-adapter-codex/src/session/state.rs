@@ -17,7 +17,7 @@ use ace_supervisor::peer::Direction;
 use indexmap::{IndexMap, IndexSet};
 
 use super::discovery::Discovery;
-use super::frames::{Calls, Effect, Frames};
+use super::frames::{Calls, Effect, FrameDir, Frames};
 use super::host::Admission;
 use super::lifetime::{Lifetime, Redactor};
 use crate::translate::helpers::is_async_question;
@@ -230,10 +230,18 @@ impl Session {
         !self.active.is_empty() || !self.shells.is_empty() || self.discovery.output_uncertain()
     }
 
-    /// The handler's `admit`: a received frame is always taken; the frame's
-    /// bound is decided by `emit`, as today.
-    pub fn admit(&self, _dir: Direction, _data: &Value) -> Admission {
-        Admission::Taken
+    /// The handler's `admit`: a server request the frame bound refuses is
+    /// refused here, before the host dispatches it, so no interaction waits
+    /// unseen. Every other frame is admitted and `emit` decides it.
+    pub fn admit(&self, dir: Direction, data: &Value) -> Admission {
+        let dir = match dir {
+            Direction::Send => FrameDir::Send,
+            Direction::Recv => FrameDir::Recv,
+        };
+        match self.frames.undispatchable(dir, data) {
+            Some(message) => Admission::Failed(message),
+            None => Admission::Taken,
+        }
     }
 }
 

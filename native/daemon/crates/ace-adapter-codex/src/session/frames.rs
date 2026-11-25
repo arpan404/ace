@@ -203,6 +203,28 @@ impl Frames {
         !is_request
     }
 
+    /// A frame the host must not dispatch: a server request over the frame
+    /// bound. Its interaction would otherwise wait with no visible prompt, and
+    /// the host would hold the attribution for a frame it never published.
+    pub fn undispatchable(&self, dir: FrameDir, data: &Value) -> Option<String> {
+        if dir != FrameDir::Recv {
+            return None;
+        }
+        let message = data.as_object()?;
+        let is_request = message
+            .get("method")
+            .is_some_and(|method| method.is_string())
+            && message.contains_key("id");
+        if !is_request {
+            return None;
+        }
+        let encoded = self.redact(&ace_json::to_string(data));
+        match admit_payload(&encoded) {
+            Ok(()) => None,
+            Err(admission) => Some(admission.message(&encoded)),
+        }
+    }
+
     /// `emit(dir, data, channel, optionalMethod)`, statement for statement.
     pub fn emit(
         &self,
@@ -260,9 +282,10 @@ impl Frames {
                 recover_output: true,
             });
         }
+        let failure = admission.err().unwrap_or(Admission::Bound);
         let Some(method) = optional else {
             return Err(Rejected {
-                message: bound_message(&encoded),
+                message: failure.message(&encoded),
                 fail_transport: dir == FrameDir::Recv,
             });
         };
@@ -270,7 +293,7 @@ impl Frames {
         note.insert("event", Value::from("optional-catalog-frame-omitted"));
         note.insert("method", Value::from(method));
         note.insert("bytes", Value::from(encoded.len() as f64));
-        note.insert("reason", Value::from(bound_message(&encoded)));
+        note.insert("reason", Value::from(failure.message(&encoded)));
         let emitted = self.emit(FrameDir::Note, &Value::Object(note), "stdio", None)?;
         Ok(Emitted {
             frames: emitted.frames,
@@ -329,12 +352,18 @@ fn within_structural_limit(root: &Value) -> bool {
     true
 }
 
-/// `ProviderPayload`'s message, as the TypeScript's `RangeError`.
-fn bound_message(encoded: &str) -> String {
-    if encoded.len() > MAX_PAYLOAD_BYTES {
-        return "Provider payload exceeds byte limit".to_owned();
+impl Admission {
+    /// `ProviderPayload`'s message, as the TypeScript's `RangeError` or a
+    /// syntax error.
+    fn message(self, encoded: &str) -> String {
+        match self {
+            Admission::Bound if encoded.len() > MAX_PAYLOAD_BYTES => {
+                "Provider payload exceeds byte limit".to_owned()
+            }
+            Admission::Bound => "Provider payload exceeds structural limit".to_owned(),
+            Admission::Invalid => "Invalid provider frame".to_owned(),
+        }
     }
-    "Provider payload exceeds structural limit".to_owned()
 }
 
 /// The recorded form of a history reply (`compactHistoryReply`, `history.ts:161`):

@@ -403,6 +403,45 @@ fn an_unsupported_server_request_is_method_not_found() {
 }
 
 #[test]
+fn an_oversized_server_request_is_refused_before_the_host_dispatches_it() {
+    let session = session();
+    let padding = "x".repeat(super::super::frames::MAX_PAYLOAD_BYTES);
+    let request = json(&format!(
+        "{{\"id\":7,\"method\":\"item/tool/requestUserInput\",\"params\":{{\"padding\":\"{padding}\"}}}}"
+    ));
+    assert_eq!(
+        session.admit(Direction::Recv, &request),
+        super::super::host::Admission::Failed("Provider payload exceeds byte limit".to_owned())
+    );
+    // A notification the bound refuses is admitted: the handler decides, as the
+    // TypeScript's `emit` does.
+    let notification = json(&format!(
+        "{{\"method\":\"item/agentMessage/delta\",\"params\":{{\"padding\":\"{padding}\"}}}}"
+    ));
+    assert_eq!(
+        session.admit(Direction::Recv, &notification),
+        super::super::host::Admission::Taken
+    );
+    // An outgoing frame is the writer's; admission never refuses it.
+    assert_eq!(
+        session.admit(Direction::Send, &request),
+        super::super::host::Admission::Taken
+    );
+}
+
+#[test]
+fn an_outgoing_frame_over_the_bound_is_left_out_without_retiring_the_session() {
+    let mut session = session();
+    let padding = "x".repeat(super::super::frames::MAX_PAYLOAD_BYTES);
+    let data = json(&format!(
+        "{{\"id\":8,\"method\":\"turn/steer\",\"params\":{{\"padding\":\"{padding}\"}}}}"
+    ));
+    let effects = session.frame(Direction::Send, &data, None, 0.0);
+    assert!(effects.is_empty());
+    assert!(!session.is_closed());
+}
+
+#[test]
 fn a_frame_over_the_bound_retires_the_channel_instead_of_publishing_it() {
     let mut session = session();
     let padding = "x".repeat(super::super::frames::MAX_PAYLOAD_BYTES);
