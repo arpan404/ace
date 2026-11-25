@@ -20,6 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
+import { CardActions } from "./spade-card.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { fault } from "./spade-profile-actions.ts";
 import { segment, spadeHttp, type SpadeTarget } from "./spade-requests.ts";
@@ -222,16 +223,15 @@ export function TemplateUpdateDialog(props: {
           )}
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" onClick={props.onClose}>
-            Not now
-          </Button>
-          <Button
-            variant="secondary"
-            disabled={!offer.data || saving}
-            onClick={() => offer.data && void update(offer.data)}
-          >
-            Update to {props.version}
-          </Button>
+          <CardActions
+            className="w-full"
+            secondary={[{ key: "not-now", label: "Not now", onClick: props.onClose }]}
+            primary={{
+              label: `Update to ${props.version}`,
+              disabled: !offer.data || saving,
+              onClick: () => offer.data && void update(offer.data),
+            }}
+          />
         </DialogFooter>
       </DialogContent>
     </Dialog>

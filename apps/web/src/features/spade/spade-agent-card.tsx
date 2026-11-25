@@ -7,11 +7,12 @@ import {
   type SpadeCardRow,
 } from "@ace/ui-core/spade-chat";
 import { useState } from "react";
-import { Button, buttonLook } from "@/components/ui/button.tsx";
+import { buttonLook } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
 import { accentFill, useCardAccent } from "./spade-accent.ts";
-import { Pictures } from "./spade-media.tsx";
+import { CardActions, CardWord } from "./spade-card.tsx";
+import { Attachments } from "./spade-attachment.tsx";
 
 /*
  * A card a bot showed (ADR 0200 §5.1, docs/design/spade.md): its data drawn with ace's own parts
@@ -44,7 +45,7 @@ export function SpadeAgentCard(props: {
       {...part("card", undefined, "spade-agent")}
       aria-label={`${props.botName}: ${item.card.title}`}
       style={accent}
-      className="@container/card flex w-full max-w-150 min-w-0 flex-col gap-3 rounded-(--chat-bubble-radius) bg-chat-bubble px-(--chat-bubble-x) py-4 wrap-anywhere"
+      className="@container/card flex w-full max-w-150 min-w-[min(100%,17.5rem)] flex-col gap-3 rounded-(--chat-bubble-radius) bg-chat-bubble px-(--chat-bubble-x) py-4 wrap-anywhere"
     >
       <header className="flex flex-col gap-2">
         <h3 className="text-base leading-6 font-medium text-foreground">{item.card.title}</h3>
@@ -169,7 +170,7 @@ function Block(props: {
     case "image":
       return (
         <figure aria-label={block.alt} className="flex flex-col gap-1">
-          <Pictures images={[block.image]} side="bot" />
+          <Attachments images={[block.image]} documents={[]} side="bot" />
         </figure>
       );
     case "link":
@@ -217,61 +218,67 @@ function Actions(props: {
       if (words) setRefused({ version: item.version, words });
     });
   };
+  const choices = props.actions.filter(
+    (a): a is Extract<SpadeCardAction, { kind: "choose" }> => a.kind === "choose",
+  );
   const opens = props.actions.filter(
     (a) => a.kind === "open" || (a.kind === "open_panel" && onOpenPanel),
+  );
+  const [mainChoice, ...otherChoices] = choices;
+  const openLinks = opens.length > 0 && (
+    <div className="flex flex-wrap items-center gap-1">
+      {opens.map((action) =>
+        action.kind === "open" ? (
+          <a
+            key={action.url}
+            href={action.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            {...buttonLook(
+              { variant: "ghost" },
+              "h-(--spade-pill-button) gap-1.5 rounded-full px-3.5 text-ui hover:bg-hover",
+            )}
+          >
+            {action.label}
+            <span className="text-subtle-foreground">{action.host}</span>
+          </a>
+        ) : action.kind === "open_panel" && onOpenPanel ? (
+          <CardWord key={`panel:${action.panel}`} onClick={() => onOpenPanel(action.panel)}>
+            {action.label}
+          </CardWord>
+        ) : null,
+      )}
+    </div>
   );
   return (
     <div className="flex flex-col gap-2">
       {chosen ? (
-        <p className="text-ui text-muted-foreground">
-          You chose <span className="text-foreground">{chosen.label}</span>.
-        </p>
-      ) : (
-        props.actions.some((a) => a.kind === "choose") && (
-          <div className="flex flex-wrap gap-2">
-            {props.actions.map((action) =>
-              action.kind === "choose" ? (
-                <Button
-                  key={action.id}
-                  size="sm"
-                  variant="secondary"
-                  disabled={pressing !== undefined}
-                  aria-busy={pressing === action.id}
-                  onClick={() => choose(action.id)}
-                >
-                  {action.label}
-                </Button>
-              ) : null,
-            )}
-          </div>
-        )
-      )}
-      {opens.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {opens.map((action) =>
-            action.kind === "open" ? (
-              <a
-                key={action.url}
-                href={action.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                {...buttonLook({ size: "sm", variant: "ghost" }, "gap-1.5")}
-              >
-                {action.label}
-                <span className="text-subtle-foreground">{action.host}</span>
-              </a>
-            ) : action.kind === "open_panel" && onOpenPanel ? (
-              <Button
-                key={`panel:${action.panel}`}
-                size="sm"
-                variant="ghost"
-                onClick={() => onOpenPanel(action.panel)}
-              >
-                {action.label}
-              </Button>
-            ) : null,
-          )}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-ui text-muted-foreground">
+            You chose <span className="text-foreground">{chosen.label}</span>.
+          </p>
+          {openLinks}
         </div>
+      ) : mainChoice ? (
+        <CardActions
+          aside={openLinks}
+          secondary={otherChoices.map((action) => ({
+            key: action.id,
+            label: action.label,
+            disabled: pressing !== undefined,
+            busy: pressing === action.id,
+            onClick: () => choose(action.id),
+          }))}
+          primary={{
+            key: mainChoice.id,
+            label: mainChoice.label,
+            disabled: pressing !== undefined,
+            busy: pressing === mainChoice.id,
+            onClick: () => choose(mainChoice.id),
+          }}
+        />
+      ) : (
+        openLinks
       )}
       {refused?.version === item.version && (
         <p role="status" className="text-ui text-muted-foreground">

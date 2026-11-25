@@ -3,7 +3,7 @@
 //! only add a question for the person, never take one away.
 
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use spade_models::Prompt;
 
@@ -58,6 +58,161 @@ pub struct Case<'a> {
     pub tool: &'a str,
     pub description: &'a str,
     pub arguments: &'a Value,
+}
+
+/// Hash structured inputs without changing string contents or array order.
+pub fn memo_key(arguments: &Value, context: impl Serialize) -> Option<String> {
+    let mut arguments = arguments.clone();
+    arguments.sort_all_objects();
+    let bytes = serde_json::to_vec(&(context, arguments)).ok()?;
+    Some(crate::org::audit::digest(&bytes))
+}
+
+/// The optional reviewer sees a shorter argument excerpt than auto-review.
+pub fn second_review_memo_key(arguments: &Value, context: impl Serialize) -> Option<String> {
+    if arguments.to_string().chars().count() > ARGUMENT_CHARS {
+        return None;
+    }
+    memo_key(arguments, context)
+}
+
+/// Reuse only a fresh model allow within a bounded part of this reply.
+pub fn memo_allowed(events: &[Event], reply: &str, key: &str) -> bool {
+    // Sibling calls are judged independently. On restart, verdicts for siblings may already
+    // be stored after the step that proposed them.
+    let mut prior_step = false;
+    for event in events.iter().rev().take(256) {
+        match event {
+            Event::Known(Known::StepFinished { .. }) => prior_step = true,
+            Event::Known(Known::CallReviewed {
+                reply: reviewed,
+                memo: Some(memo),
+                verdict,
+                model,
+                ..
+            }) if prior_step && reviewed == reply && memo == key => {
+                return *verdict == Verdict::Allow && !model.is_empty();
+            }
+            Event::Known(
+                Known::ReplyStarted { .. }
+                | Known::Arrived { .. }
+                | Known::UserMessage { .. }
+                | Known::QuestionAnswered { .. }
+                | Known::ApprovalAnswered { .. }
+                | Known::AgentConfigured { .. },
+            ) => break,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// The part of the review window after the latest change that could invalidate an allow.
+pub fn unchanged_events<'a>(events: &'a [Event], registry: &crate::tools::Registry) -> &'a [Event] {
+    let floor = events.len().saturating_sub(256);
+    let start = events[floor..].iter().rposition(|event| {
+        crate::context::untrusted_event(event, registry)
+            || matches!(event, Event::Known(
+                Known::ToolStarted { effect: Some(effect), .. }
+            ) if *effect != crate::effect::Effect::Read)
+            || matches!(
+                event,
+                Event::Known(
+                    Known::ToolStarted { effect: None, .. }
+                        | Known::JobStarted { .. }
+                        | Known::JobFinished { .. }
+                        | Known::ContextCompacted { .. }
+                )
+            )
+    });
+    &events[start.map_or(floor, |at| floor + at + 1)..]
+}
+
+/// A stored escalation may be replayed only under the retry policy that could issue it today.
+pub fn retry_escalation(events: &[Event], call_id: &str, memo: Option<&str>, prior: Prior) -> bool {
+    prior == Prior::Refused
+        && memo.is_some_and(|memo| {
+            events.iter().rev().find_map(|event| match event {
+                Event::Known(Known::CallReviewed {
+                    call_id: id,
+                    memo: saved,
+                    verdict,
+                    model,
+                    ..
+                }) if id == call_id => Some(
+                    *verdict == Verdict::Escalate
+                        && !model.is_empty()
+                        && saved.as_deref() == Some(memo),
+                ),
+                _ => None,
+            }) == Some(true)
+        })
+}
+
+/// What the same call shape has already received during this reply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Prior {
+    Fresh,
+    Refused,
+    AllowedByPerson,
+    DeniedByPerson,
+}
+
+pub fn prior_attempt(events: &[Event], reply: &str, key: &str) -> Prior {
+    let mut answers = std::collections::HashMap::new();
+    let mut prior_step = false;
+    let mut continued = false;
+    let mut at_start = false;
+    for event in events.iter().rev().take(256) {
+        if at_start {
+            if !matches!(event, Event::Known(Known::TaskContinued { .. })) {
+                break;
+            }
+            at_start = false;
+            continued = true;
+        }
+        match event {
+            Event::Known(Known::ReplyStarted { .. }) => at_start = true,
+            Event::Known(Known::StepFinished { .. }) => prior_step = true,
+            Event::Known(Known::ApprovalAnswered {
+                reply: answered,
+                call_id,
+                allowed,
+                ..
+            }) => {
+                answers
+                    .entry((answered.as_str(), call_id.as_str()))
+                    .or_insert(*allowed);
+            }
+            Event::Known(Known::CallReviewed {
+                reply: reviewed,
+                call_id,
+                memo: Some(memo),
+                verdict,
+                model,
+                ..
+            }) if prior_step
+                && (reviewed == reply || continued)
+                && memo == key
+                && !model.is_empty() =>
+            {
+                return match (verdict, answers.get(&(reviewed.as_str(), call_id.as_str()))) {
+                    (Verdict::Escalate, Some(true)) => Prior::AllowedByPerson,
+                    (Verdict::Escalate, Some(false)) => Prior::DeniedByPerson,
+                    (Verdict::Refuse | Verdict::Escalate, _) => Prior::Refused,
+                    _ => Prior::Fresh,
+                };
+            }
+            Event::Known(
+                Known::Arrived { .. }
+                | Known::UserMessage { .. }
+                | Known::QuestionAnswered { .. }
+                | Known::AgentConfigured { .. },
+            ) => break,
+            _ => {}
+        }
+    }
+    Prior::Fresh
 }
 
 /// The person's latest messages to the bot (not other bots' or routines'), oldest first.
@@ -259,6 +414,207 @@ mod tests {
     use crate::event::{Authorized, FromAgent, Known};
 
     #[test]
+    fn review_memo_requires_a_matching_model_allow_after_replay()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use serde_json::json;
+        let args: Value = serde_json::from_str(r#"{"z":{"b":2,"a":1},"a":[1,2]}"#)?;
+        let key = memo_key(&args, ("tool", false)).ok_or("memo key")?;
+        assert_eq!(
+            memo_key(&json!({"a":[1,2], "z":{"a":1,"b":2}}), ("tool", false)),
+            Some(key.clone())
+        );
+        for different in [
+            memo_key(&args, ("tool", true)),
+            memo_key(&args, ("other", false)),
+            memo_key(&json!({"a":[2,1], "z":{"a":1,"b":2}}), ("tool", false)),
+        ] {
+            assert_ne!(different, Some(key.clone()));
+        }
+        let reviewed = |verdict, model: &str| {
+            Event::from_json(json!({
+                "type": "call_reviewed", "reply": "r", "call_id": "c", "name": "tool",
+                "verdict": verdict, "reason": "", "model": model, "memo": key,
+            }))
+        };
+        let allow = reviewed(Verdict::Allow, "endpoint/model");
+        let next = Event::Known(Known::StepFinished {
+            reply: "r".into(),
+            text: String::new(),
+            calls: Vec::new(),
+            thoughts: Vec::new(),
+            usage: Default::default(),
+            cost_micros: 0,
+            seen: None,
+        });
+        assert!(memo_allowed(&[allow.clone(), next.clone()], "r", &key));
+        assert!(!memo_allowed(&[next.clone(), allow.clone()], "r", &key));
+        assert!(!memo_allowed(&[allow.clone(), next.clone()], "other", &key));
+        for verdict in [Verdict::Refuse, Verdict::Escalate] {
+            let denied = reviewed(verdict, "endpoint/model");
+            assert!(!memo_allowed(&[denied.clone(), next.clone()], "r", &key));
+            assert!(!memo_allowed(
+                &[allow.clone(), denied, next.clone()],
+                "r",
+                &key
+            ));
+        }
+        assert!(!memo_allowed(
+            &[reviewed(Verdict::Allow, ""), next.clone()],
+            "r",
+            &key
+        ));
+        let mut events = vec![allow];
+        events.extend((0..256).map(|_| Event::from_json(json!({"type": "future_event"}))));
+        events.push(next.clone());
+        assert!(!memo_allowed(&events, "r", &key));
+        events.truncate(1);
+        events.push(Event::user_message("Stop doing that"));
+        events.push(next);
+        assert!(!memo_allowed(&events, "r", &key));
+        Ok(())
+    }
+
+    #[test]
+    fn a_refusal_can_trigger_retry_review_but_never_reuse_as_an_allow() {
+        use serde_json::json;
+        let reviewed = |verdict| {
+            Event::from_json(json!({
+                "type":"call_reviewed","reply":"r","call_id":"c","name":"tool",
+                "verdict":verdict,"reason":"Check the scope","model":"fake/model","memo":"key"
+            }))
+        };
+        let next = Event::from_json(json!({"type":"step_finished","reply":"r","text":""}));
+        let refused = [reviewed(Verdict::Refuse), next.clone()];
+        assert_eq!(prior_attempt(&refused, "r", "key"), Prior::Refused);
+        assert!(!memo_allowed(&refused, "r", "key"));
+        let denied = [
+            reviewed(Verdict::Escalate),
+            Event::from_json(json!({
+                "type":"approval_answered","reply":"r","call_id":"c","allowed":false,"always":false
+            })),
+            next,
+        ];
+        assert_eq!(prior_attempt(&denied, "r", "key"), Prior::DeniedByPerson);
+        assert!(!memo_allowed(&denied, "r", "key"));
+    }
+
+    #[test]
+    fn an_approval_carries_to_the_next_reply_only_when_spade_continues_the_task() {
+        use serde_json::json;
+        let past = vec![
+            Event::from_json(
+                json!({"type":"call_reviewed","reply":"r","call_id":"c","name":"tool",
+                "verdict":"escalate","reason":"Check the scope","model":"fake/model","memo":"key"}),
+            ),
+            Event::from_json(json!({"type":"approval_answered","reply":"r","call_id":"c",
+                "allowed":true,"always":false})),
+        ];
+        let next =
+            Event::from_json(json!({"type":"reply_started","reply":"next","model":"fake/model"}));
+        let step = Event::from_json(json!({"type":"step_finished","reply":"next","text":""}));
+        for (boundary, expected) in [
+            (
+                Event::from_json(json!({"type":"task_continued","step":1,"nudge":"Continue"})),
+                Prior::AllowedByPerson,
+            ),
+            (Event::user_message("A new task"), Prior::Fresh),
+        ] {
+            let mut events = past.clone();
+            events.extend([boundary, next.clone(), step.clone()]);
+            assert_eq!(
+                prior_attempt(&events, "next", "key"),
+                expected,
+                "{events:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn intervening_writes_and_untrusted_results_invalidate_approval_reuse() {
+        use serde_json::json;
+        let event = Event::from_json;
+        let allow = event(
+            json!({"type":"call_reviewed","reply":"r","call_id":"approved","name":"tool",
+            "verdict":"escalate","memo":"key","model":"fake/model","reason":"Check"}),
+        );
+        let answer = event(
+            json!({"type":"approval_answered","reply":"r","call_id":"approved",
+            "allowed":true,"always":false}),
+        );
+        let next = event(json!({"type":"step_finished","reply":"r","text":""}));
+        let registry = crate::tools::Registry::new([]);
+        for (intervening, expected) in [
+            (
+                event(
+                    json!({"type":"tool_started","reply":"r","call_id":"read","name":"query","effect":"read"}),
+                ),
+                Prior::AllowedByPerson,
+            ),
+            (
+                event(
+                    json!({"type":"tool_started","reply":"r","call_id":"change","name":"edit","effect":"write_local"}),
+                ),
+                Prior::Fresh,
+            ),
+            (
+                event(
+                    json!({"type":"tool_finished","reply":"r","call_id":"read","name":"query",
+                "content":"A second result from the same source", "untrusted":true}),
+                ),
+                Prior::Fresh,
+            ),
+        ] {
+            let events = [allow.clone(), answer.clone(), intervening, next.clone()];
+            assert_eq!(
+                prior_attempt(unchanged_events(&events, &registry), "r", "key"),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn only_a_model_escalation_bound_to_a_refused_retry_can_replay() {
+        use serde_json::json;
+        let reviewed = |model, memo| {
+            Event::from_json(json!({"type":"call_reviewed","reply":"r","call_id":"c",
+            "name":"tool","verdict":"escalate","reason":"Check","model":model,"memo":memo}))
+        };
+        let legacy_rule = reviewed("", Some("key"));
+        let legacy_model = reviewed("fake/model", None);
+        let current = reviewed("fake/model", Some("key"));
+        assert!(!retry_escalation(
+            &[legacy_rule],
+            "c",
+            Some("key"),
+            Prior::Refused
+        ));
+        assert!(!retry_escalation(
+            &[legacy_model],
+            "c",
+            Some("key"),
+            Prior::Refused
+        ));
+        assert!(!retry_escalation(
+            std::slice::from_ref(&current),
+            "c",
+            Some("changed"),
+            Prior::Refused
+        ));
+        assert!(!retry_escalation(
+            std::slice::from_ref(&current),
+            "c",
+            Some("key"),
+            Prior::Fresh
+        ));
+        assert!(retry_escalation(
+            &[current],
+            "c",
+            Some("key"),
+            Prior::Refused
+        ));
+    }
+
+    #[test]
     fn only_writes_the_gate_would_run_are_reviewed() {
         assert!(reviewed(Risk::Write, Decision::Run));
         assert!(!reviewed(Risk::Write, Decision::Ask));
@@ -395,6 +751,7 @@ mod tests {
             from_group: None,
             from_thread: None,
             reply_to: None,
+            invoke: None,
         });
         let events = vec![
             Event::user_message("one"),
@@ -453,6 +810,7 @@ mod tests {
         );
         let reviewed = |acts_in: Option<Place>| {
             vec![Event::Known(Known::CallReviewed {
+                memo: None,
                 reply: "r".into(),
                 call_id: "c1".into(),
                 name: "browser_act".into(),
@@ -493,6 +851,7 @@ mod tests {
     fn a_stored_verdict_holds_only_for_its_launch_or_a_narrower_one() {
         let reviewed = |launch: Option<Authorized>| {
             vec![Event::Known(Known::CallReviewed {
+                memo: None,
                 reply: "r".into(),
                 call_id: "c1".into(),
                 name: "shell".into(),

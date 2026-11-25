@@ -3,7 +3,7 @@
 //! the interruption budget), this records what was sent and what waits, and the timer sends one
 //! summary when quiet ends. What waited goes into the bot's next digest and the morning brief.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
@@ -13,6 +13,7 @@ use spade_core::reach::{
     self, AgentReach, Category, Decision, Moment, Notice, Reach, Settings, Why, settings,
 };
 use spade_store::StoreError;
+use tokio::sync::Notify;
 
 use super::Engine;
 
@@ -34,10 +35,13 @@ fn notify_key(agent: &str) -> String {
     format!("reach:notify:{agent}")
 }
 
+mod batcher;
+
 #[derive(Default)]
 pub(super) struct Shared {
     /// Held and sent are read, changed and written under it.
     lock: Mutex<()>,
+    batch_kick: Arc<Notify>,
 }
 
 /// A notice that waited.
@@ -89,11 +93,15 @@ impl Engine {
         &self,
         key: &str,
     ) -> Result<T, StoreError> {
-        Ok(self
-            .store
-            .setting(key)?
-            .and_then(|raw| serde_json::from_str(&raw).ok())
-            .unwrap_or_default())
+        self.store.setting(key)?.map_or_else(
+            || Ok(T::default()),
+            |raw| {
+                serde_json::from_str(&raw).map_err(|source| StoreError::SettingJson {
+                    key: key.to_owned(),
+                    source,
+                })
+            },
+        )
     }
 
     fn write_json(&self, key: &str, value: &impl Serialize) -> Result<(), StoreError> {
@@ -180,9 +188,13 @@ impl Engine {
 
     /// Minutes after midnight now, in the person's zone.
     pub(super) fn minute_now(&self) -> u16 {
-        let zoned = Timestamp::from_millisecond(self.now_ms())
+        self.reach_minute_in(self.now_ms(), &self.zone())
+    }
+
+    fn reach_minute_in(&self, now: i64, zone: &jiff::tz::TimeZone) -> u16 {
+        let zoned = Timestamp::from_millisecond(now)
             .unwrap_or(Timestamp::UNIX_EPOCH)
-            .to_zoned(self.zone());
+            .to_zoned(zone.clone());
         u16::try_from(i32::from(zoned.hour()) * 60 + i32::from(zoned.minute())).unwrap_or(0)
     }
 

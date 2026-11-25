@@ -46,6 +46,8 @@ export interface SpadeMessage {
   devices?: DeviceContextItem[] | undefined;
   /** The message it replies to (ADR 0212 §4): Spade stores what it quoted. */
   replyTo?: SpadeQuote | undefined;
+  /** The skill or command it starts (the `/` menu); `args` are the words after its chip. */
+  invoke?: { kind: "skill" | "command"; id: string; name: string; args?: string } | undefined;
 }
 
 export class SpadeAttachmentError extends Error {}

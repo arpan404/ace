@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { SettingList, SettingListItem } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import {
   notesKey,
@@ -17,7 +16,13 @@ import {
   type SpadeNotesScope,
 } from "./spade-notes-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
-import { ProfileNone, ProfileProblem, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
+import {
+  ProfileCardSkeleton,
+  ProfileNone,
+  ProfileProblem,
+  ProfileSection,
+  rowPill,
+} from "./spade-profile-parts.tsx";
 import { SpadeProvenanceDialog } from "./spade-provenance.tsx";
 
 export { notesKey };
@@ -34,7 +39,7 @@ type Saved =
 /**
  * What a bot remembers, or what every bot knows about the person (ADR 0128), as a section of its
  * profile's Library, edited in place: a note's text opens it (↵ saves, Esc puts it back), Delete
- * removes it, Add a note (on the heading) adds one. None: one quiet line. Notes suggested from untrusted content wait first, with
+ * removes it, Add a note adds one. Notes suggested from untrusted content wait first, with
  * Dismiss and Keep.
  */
 export function SpadeNotes(props: {
@@ -44,6 +49,8 @@ export function SpadeNotes(props: {
   /** The list's name for assistive tech ("Travel's memory"). */
   label: string;
   placeholder: string;
+  /** What the section says while it holds nothing; "No notes yet." by default. */
+  empty?: string;
   /** The bot whose Library this is, for forgetting everything from a note's source. */
   bot?: string | undefined;
 }) {
@@ -102,35 +109,45 @@ export function SpadeNotes(props: {
       return { kind: "changed", note: current };
     }
   };
-  const section = (children: React.ReactNode, bare = false) => (
+  const addAction = (
+    <Button size="sm" variant="ghost" className={rowPill} onClick={() => setAdding(true)}>
+      Add a note
+    </Button>
+  );
+  const section = (
+    children: React.ReactNode,
+    opts?: { bare?: boolean; hideHeaderAdd?: boolean },
+  ) => (
     <ProfileSection
       label={props.heading}
-      bare={bare}
-      actions={
-        !adding && (
-          <Button size="sm" variant="ghost" className={rowPill} onClick={() => setAdding(true)}>
-            Add a note
-          </Button>
-        )
-      }
+      bare={opts?.bare === true}
+      flush={opts?.bare !== true}
+      actions={!adding && !opts?.hideHeaderAdd && addAction}
     >
       {children}
     </ProfileSection>
   );
-  if (notes.isPending) return section(<ListSkeleton label="notes" shape="row" rows={2} />);
+  if (notes.isPending) return section(<ProfileCardSkeleton label="notes" rows={2} />);
   // A failed read says so inline; with notes already read, the list and any open editor (and
   // its draft) stay.
   const failed = notes.isError && (
-    <ProfileProblem text="Couldn't read the notes" onRetry={() => void notes.refetch()} />
+    <ProfileProblem
+      card={notes.data === undefined}
+      text="Couldn't read the notes"
+      onRetry={() => void notes.refetch()}
+    />
   );
-  if (notes.data === undefined) return section(failed);
+  if (notes.data === undefined) return section(failed, { bare: true });
   const suggested = notes.data.filter((note) => note.suggested);
   const kept = notes.data.filter((note) => !note.suggested);
   if (!failed && !adding && notes.data.length === 0)
-    return section(<ProfileNone>No notes yet.</ProfileNone>, true);
+    return section(<ProfileNone action={addAction}>{props.empty ?? "No notes yet."}</ProfileNone>, {
+      bare: true,
+      hideHeaderAdd: true,
+    });
   return section(
     <>
-      {failed}
+      {failed && <div className="px-4">{failed}</div>}
       {suggested.length > 0 && (
         <Suggested
           notes={suggested}
@@ -193,8 +210,8 @@ function Suggested(props: {
   return (
     <SettingList aria-label="Suggested">
       {props.notes.map((note) => (
-        <SettingListItem key={note.id} className="gap-1.5">
-          <span className="min-w-0 flex-1 text-ui wrap-anywhere text-muted-foreground">
+        <SettingListItem key={note.id} className="min-h-11 gap-2 px-4 py-3">
+          <span className="min-w-0 flex-1 text-ui leading-5 wrap-anywhere text-muted-foreground">
             {note.text}
           </span>
           <Button
@@ -224,33 +241,35 @@ function Suggested(props: {
 function NoteRow(props: { note: SpadeNote; onWhy(): void; onEdit(): void; onDelete(): void }) {
   const { note } = props;
   return (
-    <SettingListItem className="group/note">
+    <SettingListItem className="group/note relative min-h-11 gap-0 p-0 transition-colors duration-(--motion-fast) hover:bg-hover focus-within:bg-hover">
       <button
         type="button"
         aria-label={`Edit: ${note.text}`}
         onClick={props.onEdit}
-        className="min-w-0 flex-1 rounded-sm text-left text-ui wrap-anywhere text-foreground focus-ring"
+        className="min-h-11 min-w-0 flex-1 px-4 py-3 text-left text-ui leading-5 wrap-anywhere text-foreground focus-ring-inset"
       >
         {note.text}
       </button>
-      <Button
-        size="sm"
-        variant="ghost"
-        aria-label={`Where it's from: ${note.text}`}
-        className={`${rowPill} opacity-0 group-hover/note:opacity-100 group-focus-within/note:opacity-100 pointer-coarse:opacity-100`}
-        onClick={props.onWhy}
-      >
-        Where it's from
-      </Button>
-      <Button
-        size="sm"
-        variant="ghost"
-        aria-label={`Delete: ${note.text}`}
-        className={`${rowPill} -mr-3 opacity-0 group-hover/note:opacity-100 group-focus-within/note:opacity-100 pointer-coarse:opacity-100`}
-        onClick={props.onDelete}
-      >
-        Delete
-      </Button>
+      <div className="pointer-events-none absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-0.5 rounded-full bg-surface-2/95 p-0.5 opacity-0 shadow-xs backdrop-blur-xs transition-opacity duration-(--motion-fast) group-hover/note:pointer-events-auto group-hover/note:opacity-100 group-focus-within/note:pointer-events-auto group-focus-within/note:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:static pointer-coarse:mr-2 pointer-coarse:translate-y-0 pointer-coarse:bg-transparent pointer-coarse:p-0 pointer-coarse:opacity-100 pointer-coarse:shadow-none">
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-label={`Where it's from: ${note.text}`}
+          className={rowPill}
+          onClick={props.onWhy}
+        >
+          Where it's from
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-label={`Delete: ${note.text}`}
+          className={rowPill}
+          onClick={props.onDelete}
+        >
+          Delete
+        </Button>
+      </div>
     </SettingListItem>
   );
 }
@@ -274,7 +293,7 @@ function NoteEditor(props: {
     setText(note.text);
   }
   return (
-    <SettingListItem className="flex-col items-stretch gap-1">
+    <SettingListItem className="flex-col items-stretch gap-1 px-4 py-3">
       <NoteField
         value={text}
         onChange={setText}
@@ -305,7 +324,7 @@ function AddNote(props: {
 }) {
   const [text, setText] = useState("");
   return (
-    <div data-setting-slot="" className="flex min-h-(--setting-row-height) items-center gap-2">
+    <div data-setting-slot="" className="flex min-h-12 items-center gap-2 px-4 py-2.5">
       <NoteField
         value={text}
         onChange={setText}
@@ -370,7 +389,7 @@ function NoteField(props: {
         {saving ? (props.action === "Save" ? "Saving…" : "Adding…") : props.action}
       </Button>
       {props.onDone && (
-        <Button size="sm" variant="ghost" className={`${rowPill} -mr-3`} onClick={props.onDone}>
+        <Button size="sm" variant="ghost" className={`${rowPill} -mr-2`} onClick={props.onDone}>
           Cancel
         </Button>
       )}

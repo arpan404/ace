@@ -30,6 +30,7 @@ async function cursorWorkerEnvironments(count: number) {
       `account-${randomUUID()}`,
       "cursor",
       `Cursor ${index}`,
+      process.platform,
     );
     await registry.register(instance);
     homes.push(instance.homeDir);
@@ -50,6 +51,7 @@ async function cursorWorkerEnvironments(count: number) {
   });
   cleanups.push(() => catalog.close());
   const management = new AccountManagement({
+    platform: process.platform,
     registry,
     accounts: new AccountService({ registry, env: launchEnv, now: () => 100, timeZone: "UTC" }),
     dataDir,

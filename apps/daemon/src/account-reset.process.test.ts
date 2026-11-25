@@ -62,6 +62,7 @@ for await (const line of createInterface({ input: process.stdin })) {
   }
   const env = { PATH: process.env.PATH, OPENAI_API_KEY: "ambient-key-must-not-be-used" };
   const management = new AccountManagement({
+    platform: process.platform,
     registry,
     accounts: new AccountService({ registry, env, now, timeZone: "UTC" }),
     env,

@@ -9,6 +9,11 @@ import type { Notification, ThreadId } from "@ace/protocol";
  */
 
 const words = (most: number) => z.string().transform((text) => text.slice(0, most));
+const SpadeNoticeItem = z.looseObject({
+  agent: z.string().min(1).max(200),
+  conversation: z.string().min(1).max(200).optional().catch(undefined),
+  request: z.string().min(1).max(200).optional().catch(undefined),
+});
 const SpadeNotice = z.looseObject({
   id: z.string().min(1).max(160),
   kind: z.string().max(40),
@@ -20,6 +25,7 @@ const SpadeNotice = z.looseObject({
   request: z.string().min(1).max(200).optional().catch(undefined),
   digest: z.number().int().nonnegative().optional().catch(undefined),
   text: words(300).catch(""),
+  items: z.array(SpadeNoticeItem).optional().catch(undefined),
 });
 
 /** The alert's title by what the notice is about; the bot's name for the rest. */
@@ -43,6 +49,23 @@ export function alertFromSpadeNotice(data: string, threadId: ThreadId): Notifica
   const parsed = SpadeNotice.safeParse(raw);
   if (!parsed.success || parsed.data.reach !== "now") return undefined;
   const notice = parsed.data;
+  const items = notice.items?.slice(0, 50).map((item) => {
+    const target: { agent: string; conversation?: string; request?: string } = {
+      agent: item.agent,
+    };
+    if (item.conversation) target.conversation = item.conversation;
+    if (item.request) target.request = item.request;
+    return target;
+  });
+  // If a batch's items all belong to one conversation, deep-link directly to that owner.
+  const firstItem = items?.[0];
+  const singleOwner =
+    firstItem?.conversation &&
+    notice.items?.every((item) => item.conversation === firstItem.conversation)
+      ? firstItem
+      : undefined;
+  const targetAgent = singleOwner?.agent ?? notice.agent;
+  const targetConversation = singleOwner?.conversation ?? notice.conversation;
   const title = titles[notice.category] ?? (notice.name || "Spade");
   const message = notice.category === "digest" ? `Digest: ${notice.text}` : notice.text;
   return {
@@ -54,11 +77,12 @@ export function alertFromSpadeNotice(data: string, threadId: ThreadId): Notifica
     backgroundCount: 0,
     actions: [],
     spade: {
-      agent: notice.agent,
-      ...(notice.conversation ? { conversation: notice.conversation } : {}),
+      agent: targetAgent,
+      ...(targetConversation ? { conversation: targetConversation } : {}),
       ...(notice.request ? { request: notice.request } : {}),
       ...(notice.digest === undefined ? {} : { digest: notice.digest }),
       category: notice.category,
+      ...(items && items.length > 0 ? { items } : {}),
     },
   };
 }

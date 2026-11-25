@@ -145,6 +145,7 @@ fn a_routine_run_names_its_routine_as_its_trigger() {
             from_group: None,
             from_thread: None,
             reply_to: None,
+            invoke: None,
         }),
         Event::reply_started("r_1", "e/m"),
         finished("r_1", "Nothing new."),

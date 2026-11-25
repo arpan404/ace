@@ -237,6 +237,7 @@ pub(super) fn agent_json(view: &AgentView) -> Value {
         // A paused bot isn't working: a client from before `paused` reads it at rest.
         "working": !matches!(view.state, AgentState::Idle | AgentState::Paused),
         "waiting_for": view.waiting_for,
+        "pending": view.pending,
         "questions_for_later": view.questions_for_later,
         "status": view.status,
         "last_message": last_message,

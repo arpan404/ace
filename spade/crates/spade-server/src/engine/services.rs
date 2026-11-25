@@ -399,6 +399,7 @@ impl Engine {
             },
             found.launch.map(|limit| Warrant {
                 limit,
+                credential_guard: false,
                 bound: Bound::from_stored(found.bound.clone()),
                 incomplete: false,
             }),

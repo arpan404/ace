@@ -1,4 +1,5 @@
 import { EditorStatusLine } from "@/features/editor";
+import { cn } from "@/lib/cn.ts";
 import type { StatusNotice, StatusReport } from "./editor-host.ts";
 
 /**
@@ -9,6 +10,7 @@ import type { StatusNotice, StatusReport } from "./editor-host.ts";
 export function StatusLine(props: {
   report: StatusReport | undefined;
   notice: StatusNotice | undefined;
+  className?: string | undefined;
 }) {
   const { report } = props;
   // Spec 65: a read-only file says so here and nowhere else.
@@ -16,7 +18,10 @@ export function StatusLine(props: {
   return (
     <div
       data-part="editor-status"
-      className="flex h-6 shrink-0 items-center gap-3 border-t border-border pl-3 text-xs whitespace-nowrap text-subtle-foreground"
+      className={cn(
+        "flex h-6 shrink-0 items-center gap-3 border-t border-border pl-3 text-xs whitespace-nowrap text-subtle-foreground",
+        props.className,
+      )}
     >
       {notice && (
         <span role="status" className="flex min-w-0 items-center gap-1.5">

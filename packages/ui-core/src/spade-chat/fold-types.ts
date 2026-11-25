@@ -17,6 +17,7 @@ import type { SpadeNoticeRow } from "./notices.ts";
 import type { SpadeStepWeight } from "./step-facts.ts";
 import type { SpadeRefusedHost } from "./wire.ts";
 import type { SpadeReplyTo } from "./replies.ts";
+import type { SpadeMessageReactions } from "./reactions.ts";
 
 /** A background job: the tool it runs and, for a delegation, how many tasks it handed out. */
 export interface SpadeJob {
@@ -165,6 +166,8 @@ export type SpadeEntry =
       id?: string;
       /** The message it replies to (ADR 0212 §4). */
       replyTo?: SpadeReplyTo;
+      /** The skill or command it started. */
+      invoke?: SpadeInvoked;
     }
   | SpadeReplyEntry
   /**
@@ -387,6 +390,8 @@ export interface SpadeConversationState {
   capabilities: SpadeCapabilityState;
   /** The latest state the bot set on each of its panels (ADR 0200 §5.2), by panel id. */
   panels: Map<string, unknown>;
+  /** What each side reacted with, by message id (`reaction` events). */
+  reactions: Map<string, SpadeMessageReactions>;
 }
 
 /** What a `status` frame said, and the last `seq` folded when it came. */
@@ -404,6 +409,13 @@ export interface SpadePendingMessage {
   documents?: readonly SpadeDocumentRef[];
   voice?: SpadeVoiceRef;
   replyTo?: SpadeReplyTo;
+  invoke?: SpadeInvoked;
+}
+
+/** A skill or command a message started, as its bubble shows it: a chip before the words. */
+export interface SpadeInvoked {
+  kind: "skill" | "command";
+  name: string;
 }
 
 export type SpadeFoldInput =
@@ -417,5 +429,6 @@ export type SpadeFoldInput =
       documents?: readonly SpadeDocumentRef[];
       voice?: SpadeVoiceRef;
       replyTo?: SpadeReplyTo;
+      invoke?: SpadeInvoked;
     }
   | { kind: "refused"; key: string };

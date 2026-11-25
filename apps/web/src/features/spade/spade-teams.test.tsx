@@ -96,21 +96,59 @@ test("a group's row stacks its members' faces and reads its last message with wh
   await waitFor(() => expect(faces()).toEqual(["round lagoon", "fox ember"]));
 });
 
-test("a group's chat shows the person, each member's face and name at the start of its turn, and handoffs as lines, never tool calls", async () => {
+test("a group's chat coalesces each member's turn into one block under a single header with inline relay, never tool calls", async () => {
   await spadeApp("/spade", withGroup, { machines: [studio] });
   const chat = await openTrips();
   expect(chat.getByRole("article", { name: "You" }).textContent).toBe("Find flights");
-  expect(chat.getAllByRole("note").map((line) => line.textContent)).toEqual([
-    "Spade asked Research",
-  ]);
-  // Each member's turn starts with its face and name.
-  expect(
-    chat.getAllByRole("article", { name: "Research" }).map((row) => row.textContent?.trim()),
-  ).toEqual(["ResearchThree options", "Tuesday is cheapest"]);
-  const [firstRun, lastRun] = chat.getAllByRole("article", { name: "Research" });
-  expect(firstRun?.querySelector("svg.bot-face")?.getAttribute("data-face")).toBe("round lagoon");
-  expect(lastRun?.querySelector("svg.bot-face")).toBeNull();
+  // Bot-to-bot relays become a quiet inline header on the relayed reply, never a centered note.
+  expect(chat.queryByRole("note")).toBeNull();
+  const runs = chat.getAllByRole("article", { name: "Research" });
+  expect(runs).toHaveLength(1);
+  const research = runs[0];
+  if (!research) throw new Error("expected Research's run");
+  expect(research.querySelectorAll("svg.bot-face")).toHaveLength(1);
+  expect(research.querySelector("svg.bot-face")?.getAttribute("data-face")).toBe("round lagoon");
+  expect(research.textContent).toContain("answering Spade");
+  const bubbles = [...research.querySelectorAll("[data-part=spade-message]")];
+  expect(bubbles).toHaveLength(1);
+  expect(bubbles[0]?.textContent).toContain("Three options");
+  expect(bubbles[0]?.textContent).toContain("Tuesday is cheapest");
   expect(chat.queryByText(/web_search/)).toBeNull();
+});
+
+test("in a club, a quote sits as a ghost just above the bubble and clicking it jumps to a coalesced reply block", async () => {
+  const scrolled = vi.fn();
+  Element.prototype.scrollIntoView = scrolled;
+  await spadeApp(
+    "/spade",
+    (spade) => {
+      const trips = withGroup(spade);
+      const c = trips.conversation;
+      // Seq 7 is "Tuesday is cheapest", merged into Research's single block (seq 6 + seq 7).
+      spade.store(c, {
+        type: "group_message",
+        run: "u2",
+        text: "Book Tuesday then.",
+        from: null,
+        reply_to: { id: "m7", text: "Tuesday is cheapest", mine: false, name: "Research" },
+      });
+    },
+    { machines: [studio] },
+  );
+  const chat = await openTrips();
+  const quote = await chat.findByRole("button", {
+    name: "You replied to Research: Tuesday is cheapest. Show the message",
+  });
+  const pill = chat.getByText("Book Tuesday then.").closest("[data-part=spade-message]");
+  const ghost = quote.closest("[data-part=spade-reply-ghost]");
+  expect(ghost?.parentElement?.contains(pill)).toBe(true);
+  expect(pill?.contains(quote)).toBe(false);
+  await userEvent.click(quote);
+  const original = document.querySelector('[data-spade-message-ids~="m7"]');
+  expect(original?.textContent).toContain("Tuesday is cheapest");
+  expect(scrolled).toHaveBeenCalled();
+  expect(scrolled.mock.contexts[0]).toBe(original);
+  expect(original?.hasAttribute("data-lit")).toBe(true);
 });
 
 test("the group's status shows under the last bubble, with the waiting member's chat a click away, and the composer's Stop ends the run", async () => {
@@ -445,8 +483,9 @@ test("Duplicate copies the bot and opens the copy; Export saves its file under i
   const { spade } = await spadeApp("/spade", team);
   await userEvent.click(await botRow("Research"));
   await userEvent.click(
-    await screen.findByRole("button", { name: /^Research( on .*)?: open its profile$/ }),
+    await screen.findByRole("button", { name: /^Open Research's profile( on .*)?$/ }),
   );
+  await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
   await userEvent.click(await screen.findByRole("button", { name: "Export" }));
   await waitFor(() => expect(saved).toEqual(["Research.spade-bot.json"]));
   expect(spade.sent("GET", "/v1/agents/research/export")).toHaveLength(1);
