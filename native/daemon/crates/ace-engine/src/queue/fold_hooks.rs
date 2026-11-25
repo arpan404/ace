@@ -99,7 +99,7 @@ impl InputFacts for State {
     }
 
     /// `queue.prune` (`:351`).
-    fn queue_prune(&mut self, id: u32) -> Result<(), EngineError> {
+    fn queue_prune(&mut self, id: i64) -> Result<(), EngineError> {
         let Some(core) = self.engine()? else {
             return Ok(());
         };
@@ -188,13 +188,13 @@ impl InputFacts for State {
     /// `goalChange` (`goal-change.ts:14`).
     fn goal_change(
         &mut self,
-        current: Option<&str>,
-        goal: Option<&str>,
+        current: Option<&Value>,
+        goal: Option<&Value>,
     ) -> Result<Option<Value>, EngineError> {
         Ok(match crate::rules::goal_change(current, goal) {
             crate::rules::GoalChange::Unchanged => None,
             crate::rules::GoalChange::Clear => Some(Value::Null),
-            crate::rules::GoalChange::Set(goal) => Some(Value::from(goal)),
+            crate::rules::GoalChange::Set(goal) => Some(goal),
         })
     }
 }

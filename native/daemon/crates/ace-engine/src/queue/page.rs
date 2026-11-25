@@ -211,11 +211,9 @@ pub fn page(store: &EngineStore, request: &Value) -> Result<Value, EngineError> 
 }
 
 /// `head` (`:307`): the first message the person sees queued.
-pub fn head(store: &EngineStore, thread: &str) -> Result<Option<u32>, EngineError> {
+pub fn head(store: &EngineStore, thread: &str) -> Result<Option<i64>, EngineError> {
     let row = stmt_cache::get_row(store.conn(), HEAD, vec![SqlValue::Text(thread.to_owned())])?;
-    Ok(row
-        .and_then(|row| row.get("id").and_then(cell_int))
-        .map(|id| id as u32))
+    Ok(row.and_then(|row| row.get("id").and_then(cell_int)))
 }
 
 /// `editable` (`:320`): the command a queue edit replaces, with whether it is uncertain.
@@ -223,7 +221,7 @@ pub fn editable(
     store: &EngineStore,
     thread: &str,
     message: &str,
-) -> Result<Option<(u32, Value, bool)>, EngineError> {
+) -> Result<Option<(i64, Value, bool)>, EngineError> {
     let Some(row) = stmt_cache::get_row(
         store.conn(),
         EDITABLE,
@@ -235,7 +233,7 @@ pub fn editable(
     else {
         return Ok(None);
     };
-    let id = row.get("id").and_then(cell_int).unwrap_or(0) as u32;
+    let id = row.get("id").and_then(cell_int).unwrap_or(0);
     let payload = row.get("payload").and_then(cell_text).unwrap_or_default();
     let command =
         ace_json::parse(payload).map_err(|_| EngineError::Records("Invalid queue entry".into()))?;

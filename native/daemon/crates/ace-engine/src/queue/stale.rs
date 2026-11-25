@@ -8,12 +8,10 @@ use std::sync::Arc;
 
 use crate::{EngineError, EngineStore};
 
-const SENDS: &str = "kind IN ('thread.send','thread.create')";
-
-fn ids(rows: &[ace_store::stmt_cache::Row]) -> Result<Vec<u32>, EngineError> {
+fn ids(rows: &[ace_store::stmt_cache::Row]) -> Result<Vec<i64>, EngineError> {
     rows.iter()
         .map(|row| match row.get("id") {
-            Some(Value::Integer(id)) => Ok(*id as u32),
+            Some(Value::Integer(id)) => Ok(*id),
             _ => Err(EngineError::Records("Invalid intent identity".into())),
         })
         .collect()
@@ -27,12 +25,10 @@ pub fn retire_ended_turn_inputs(
     generation: i64,
     at: f64,
 ) -> Result<(), EngineError> {
-    let sql = format!(
-        "SELECT id FROM intents WHERE thread_id=? AND uncertain=1 AND {SENDS} AND submitted_generation=?"
-    );
+    const ENDED: &str = "SELECT id FROM intents WHERE thread_id=? AND uncertain=1 AND kind IN ('thread.send','thread.create') AND submitted_generation=?";
     let rows = stmt_cache::all_rows(
         store.conn(),
-        Box::leak(sql.into_boxed_str()),
+        ENDED,
         vec![Value::Text(thread.to_owned()), Value::Integer(generation)],
     )?;
     let rows = ids(&rows)?;
@@ -56,14 +52,15 @@ pub fn retire_uncertain_inputs(
     } else {
         crate::intents::store::uncertain_continuation(store.conn(), thread)?
     };
-    let sql = if keep_continuation {
-        format!("SELECT id FROM intents WHERE thread_id=? AND uncertain=1 AND {SENDS}")
-    } else {
-        "SELECT id FROM intents WHERE thread_id=? AND uncertain=1".to_owned()
-    };
+    const SENDS_ONLY: &str = "SELECT id FROM intents WHERE thread_id=? AND uncertain=1 AND kind IN ('thread.send','thread.create')";
+    const ALL_UNCERTAIN: &str = "SELECT id FROM intents WHERE thread_id=? AND uncertain=1";
     let rows = stmt_cache::all_rows(
         store.conn(),
-        Box::leak(sql.into_boxed_str()),
+        if keep_continuation {
+            SENDS_ONLY
+        } else {
+            ALL_UNCERTAIN
+        },
         vec![Value::Text(thread.to_owned())],
     )?;
     if !retire(store.conn(), &ids(&rows)?)? {
@@ -81,7 +78,7 @@ pub fn retire_uncertain_inputs(
     release_uncertain_hold(store, thread, at)
 }
 
-fn retire(conn: &Arc<ace_store::Connection>, rows: &[u32]) -> Result<bool, EngineError> {
+fn retire(conn: &Arc<ace_store::Connection>, rows: &[i64]) -> Result<bool, EngineError> {
     for id in rows {
         super::messages::clear_uncertain(conn, *id)?;
         super::messages::prune(conn, *id)?;
@@ -102,5 +99,44 @@ fn release_uncertain_hold(store: &EngineStore, thread: &str, at: f64) -> Result<
         super::store::reconcile_uncertainty(store, thread, at)
     } else {
         super::store::set(store, thread, "{\"paused\":false,\"reason\":null}", at)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::repository::testsupport::{Shell, header, home};
+
+    fn uncertain(conn: &Arc<ace_store::Connection>, id: i64, generation: i64) {
+        conn.exec(&format!(
+            "INSERT INTO intents (id,command_id,thread_id,kind,payload,status,attempts,awaiting,acknowledged,delivery,position,uncertain,submitted_generation)              VALUES ({id},'command-{id}','stale-big','thread.send','{{}}','running',0,0,0,'queue',{id},1,{generation})"
+        ))
+        .unwrap();
+    }
+
+    fn flagged(conn: &Arc<ace_store::Connection>, id: i64) -> i64 {
+        let row = stmt_cache::get_row(
+            conn,
+            "SELECT uncertain FROM intents WHERE id=?",
+            vec![Value::Integer(id)],
+        )
+        .unwrap()
+        .unwrap();
+        match row.get("uncertain") {
+            Some(Value::Integer(value)) => *value,
+            _ => -1,
+        }
+    }
+
+    #[test]
+    fn a_generation_above_2_32_retires_only_its_own_intent() {
+        let conn = home("stale-big", &header("stale-big"));
+        // Intent 1 is generation 1; the generation-2 intent is far above u32's range.
+        uncertain(&conn, 1, 1);
+        uncertain(&conn, 4_294_967_297, 2);
+        let store = Shell::store(&conn);
+        retire_ended_turn_inputs(&store, "stale-big", 2, 10.0).unwrap();
+        assert_eq!(flagged(&conn, 1), 1);
+        assert_eq!(flagged(&conn, 4_294_967_297), 0);
     }
 }

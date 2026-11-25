@@ -15,29 +15,29 @@ const FELL_BACK: &str = "INSERT INTO engine_steer_notes(intent_id,fell_back) VAL
 const STEERED_AGAIN: &str = "UPDATE engine_steer_notes SET fell_back=0 WHERE intent_id=?";
 const PERSON_CHOSE: &str = "SELECT 1 FROM engine_steer_notes WHERE intent_id=? AND person=1";
 
-fn intent(value: u32) -> Value {
-    Value::Integer(i64::from(value))
+fn intent(value: i64) -> Value {
+    Value::Integer(value)
 }
 
 /// The person steered the waiting message in: it no longer reads as fallen back.
-pub fn person_steered(conn: &Arc<ace_store::Connection>, note: u32) -> Result<(), EngineError> {
+pub fn person_steered(conn: &Arc<ace_store::Connection>, note: i64) -> Result<(), EngineError> {
     stmt_cache::run(conn, PERSON_STEERED, vec![intent(note)])?;
     Ok(())
 }
 
 /// The steer couldn't go in and waits in the queue as the next message.
-pub fn fell_back(conn: &Arc<ace_store::Connection>, note: u32) -> Result<(), EngineError> {
+pub fn fell_back(conn: &Arc<ace_store::Connection>, note: i64) -> Result<(), EngineError> {
     stmt_cache::run(conn, FELL_BACK, vec![intent(note)])?;
     Ok(())
 }
 
 /// Steered in again by an agent: a waiting steer once more, not a fallen-back one.
-pub fn steered_again(conn: &Arc<ace_store::Connection>, note: u32) -> Result<(), EngineError> {
+pub fn steered_again(conn: &Arc<ace_store::Connection>, note: i64) -> Result<(), EngineError> {
     stmt_cache::run(conn, STEERED_AGAIN, vec![intent(note)])?;
     Ok(())
 }
 
 /// Whether the person chose to steer this message in.
-pub fn person_chose(conn: &Arc<ace_store::Connection>, note: u32) -> Result<bool, EngineError> {
+pub fn person_chose(conn: &Arc<ace_store::Connection>, note: i64) -> Result<bool, EngineError> {
     Ok(stmt_cache::get_row(conn, PERSON_CHOSE, vec![intent(note)])?.is_some())
 }

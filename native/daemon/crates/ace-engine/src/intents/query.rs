@@ -20,14 +20,14 @@ pub fn running(conn: &Arc<ace_store::Connection>, thread: &str) -> Result<bool, 
 pub fn running_besides(
     conn: &Arc<ace_store::Connection>,
     thread: &str,
-    except: u32,
+    except: i64,
 ) -> Result<bool, EngineError> {
     const SQL: &str =
         "SELECT 1 FROM intents WHERE thread_id=? AND status='running' AND id<>? LIMIT 1";
     Ok(stmt_cache::get_row(
         conn,
         SQL,
-        vec![thread_value(thread), Value::Integer(i64::from(except))],
+        vec![thread_value(thread), Value::Integer(except)],
     )?
     .is_some())
 }
@@ -52,10 +52,10 @@ pub fn resolving_interactions(
 /// `steerTarget` (`:353`): `Some(None)` is JSON null, `Some(Some(run))` a run, `None` unknown.
 pub fn steer_target(
     conn: &Arc<ace_store::Connection>,
-    intent: u32,
+    intent: i64,
 ) -> Result<Option<Option<String>>, EngineError> {
     const SQL: &str = "SELECT json_type(payload,'$.payload.runId') AS kind, json_extract(payload,'$.payload.runId') AS run FROM intents WHERE id=?";
-    let Some(row) = stmt_cache::get_row(conn, SQL, vec![Value::Integer(i64::from(intent))])? else {
+    let Some(row) = stmt_cache::get_row(conn, SQL, vec![Value::Integer(intent)])? else {
         return Ok(None);
     };
     match text(row.get("kind")) {
@@ -65,9 +65,9 @@ pub fn steer_target(
 }
 
 /// `hasSelection` (`:359`).
-pub fn has_selection(conn: &Arc<ace_store::Connection>, intent: u32) -> Result<bool, EngineError> {
+pub fn has_selection(conn: &Arc<ace_store::Connection>, intent: i64) -> Result<bool, EngineError> {
     const SQL: &str = "SELECT json_type(payload,'$.payload.model') AS model,json_type(payload,'$.payload.options') AS options FROM intents WHERE id=?";
-    let Some(row) = stmt_cache::get_row(conn, SQL, vec![Value::Integer(i64::from(intent))])? else {
+    let Some(row) = stmt_cache::get_row(conn, SQL, vec![Value::Integer(intent)])? else {
         return Ok(false);
     };
     Ok(row.get("model").and_then(cell_text).is_some()
@@ -75,8 +75,8 @@ pub fn has_selection(conn: &Arc<ace_store::Connection>, intent: u32) -> Result<b
 }
 
 /// `acknowledged` (`:372`): handed over, then confirmed.
-pub fn acknowledged(conn: &Arc<ace_store::Connection>, intent: u32) -> Result<bool, EngineError> {
+pub fn acknowledged(conn: &Arc<ace_store::Connection>, intent: i64) -> Result<bool, EngineError> {
     const SQL: &str =
         "SELECT 1 FROM intents WHERE id=? AND acknowledged=1 AND submitted_generation IS NOT NULL";
-    Ok(stmt_cache::get_row(conn, SQL, vec![Value::Integer(i64::from(intent))])?.is_some())
+    Ok(stmt_cache::get_row(conn, SQL, vec![Value::Integer(intent)])?.is_some())
 }

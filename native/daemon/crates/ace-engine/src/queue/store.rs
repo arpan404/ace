@@ -15,6 +15,7 @@ use crate::repository::residency::{cell_int, cell_text};
 use crate::{EngineError, EngineStore};
 
 const SELECT_ROW: &str = "SELECT * FROM engine_queue WHERE thread_id=?";
+const HOLD: &str = "SELECT paused, reason FROM engine_queue WHERE thread_id=?";
 const ENSURE: &str = "INSERT OR IGNORE INTO engine_queue(thread_id) VALUES (?)";
 const UPDATE: &str = "UPDATE engine_queue SET revision=?,paused=?,reason=?,limited=?,reset_at=?,resume_at=?,timer_action=?,continuation=?,trigger=?,hold_token=?,last_failure=?,exited=? WHERE thread_id=?";
 const COUNT: &str = "SELECT COUNT(*) AS n FROM intents WHERE thread_id=? AND (trigger IS NULL OR trigger != 'subagent_result') AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1))";
@@ -34,7 +35,7 @@ pub fn held_on_failed_send(
     conn: &Arc<ace_store::Connection>,
     thread: &str,
 ) -> Result<bool, EngineError> {
-    let row = stmt_cache::get_row(conn, SELECT_ROW, vec![Value::Text(thread.to_owned())])?;
+    let row = stmt_cache::get_row(conn, HOLD, vec![Value::Text(thread.to_owned())])?;
     Ok(row.is_some_and(|row| {
         row.get("paused").and_then(cell_int) == Some(1)
             && matches!(
@@ -49,7 +50,7 @@ pub fn stopped_by_person(
     conn: &Arc<ace_store::Connection>,
     thread: &str,
 ) -> Result<bool, EngineError> {
-    let row = stmt_cache::get_row(conn, SELECT_ROW, vec![Value::Text(thread.to_owned())])?;
+    let row = stmt_cache::get_row(conn, HOLD, vec![Value::Text(thread.to_owned())])?;
     Ok(row.is_some_and(|row| {
         row.get("paused").and_then(cell_int) == Some(1)
             && row.get("reason").and_then(cell_text) == Some("stopped")
@@ -105,13 +106,19 @@ pub fn get(store: &EngineStore, thread: &str) -> Result<RecoveryRecord, EngineEr
         .map(str::to_owned);
     let uncertain_recovery = uncertain_recovery(conn, thread)?;
     let record = RecoveryRecord {
-        pending_count: pending + i64::from(continuation.is_some() && !uncertain_recovery),
+        pending_count: pending
+            + i64::from(
+                continuation.as_deref().is_some_and(|text| !text.is_empty()) && !uncertain_recovery,
+            ),
         revision: row.get("revision").and_then(cell_int).unwrap_or(0),
         paused: row.get("paused").and_then(cell_int) == Some(1),
-        last_failure: row
-            .get("last_failure")
-            .and_then(cell_text)
-            .and_then(|text| ace_json::parse(text).ok()),
+        last_failure: match row.get("last_failure").and_then(cell_text) {
+            None => None,
+            Some(text) => Some(
+                ace_json::parse(text)
+                    .map_err(|_| EngineError::Records("Invalid queue metadata".into()))?,
+            ),
+        },
         reason: row.get("reason").and_then(cell_text).map(str::to_owned),
         resume_at: row.get("resume_at").and_then(cell_int),
         exited: row.get("exited").and_then(cell_int) == Some(1),
@@ -139,10 +146,17 @@ pub fn set(store: &EngineStore, thread: &str, patch: &str, at: f64) -> Result<()
     store.atomic(|tx| {
         let before = get(store, thread)?;
         let mut value = RecoveryPatch::parse(patch)?.apply(&before)?;
-        value.revision = before.revision + 1;
+        value.revision += 1;
+        value.validate()?;
         ensure(tx.conn(), thread)?;
         let pending = count(tx.conn(), thread)?
-            + i64::from(value.continuation.is_some() && !uncertain_recovery(tx.conn(), thread)?);
+            + i64::from(
+                value
+                    .continuation
+                    .as_deref()
+                    .is_some_and(|text| !text.is_empty())
+                    && !uncertain_recovery(tx.conn(), thread)?,
+            );
         value.pending_count = pending;
         stmt_cache::run(
             tx.conn(),
@@ -325,5 +339,78 @@ mod reconcile_tests {
             ..held(false, None, None)
         };
         assert_eq!(reconciled_reason(&manual, false), None);
+    }
+}
+
+#[cfg(test)]
+mod read_tests {
+    use super::*;
+    use crate::repository::testsupport::{Shell, header, home};
+
+    fn row(
+        conn: &Arc<ace_store::Connection>,
+        thread: &str,
+        continuation: &str,
+        failure: Option<&str>,
+    ) {
+        conn.exec(&format!(
+            "INSERT INTO engine_queue (thread_id,continuation,last_failure) VALUES ('{thread}', '{}', {})",
+            continuation.replace('\'', "''"),
+            failure.map_or("NULL".to_owned(), |value| format!("'{}'", value.replace('\'', "''")))
+        ))
+        .unwrap();
+    }
+
+    #[test]
+    fn an_empty_continuation_adds_no_phantom_message() {
+        let conn = home("queue-empty", &header("queue-empty"));
+        row(&conn, "queue-empty", "", None);
+        let record = get(&Shell::store(&conn), "queue-empty").unwrap();
+        // The count is the intents' (none), and an empty string is falsy in TS.
+        assert_eq!(record.pending_count, 0);
+    }
+
+    #[test]
+    fn a_malformed_or_invalid_last_failure_is_refused() {
+        for (thread, failure) in [
+            ("queue-bad-json", "{not json"),
+            ("queue-bad-object", "{\"title\":\"\",\"code\":\"x\"}"),
+            ("queue-bad-code", "{\"title\":\"Failed\",\"code\":\"\"}"),
+        ] {
+            let conn = home(thread, &header(thread));
+            row(&conn, thread, "", Some(failure));
+            assert!(
+                get(&Shell::store(&conn), thread).is_err(),
+                "{failure} must be refused"
+            );
+        }
+        // A valid one is kept whole.
+        let conn = home("queue-good", &header("queue-good"));
+        row(
+            &conn,
+            "queue-good",
+            "",
+            Some("{\"title\":\"Failed\",\"code\":\"delivery_failed\"}"),
+        );
+        let record = get(&Shell::store(&conn), "queue-good").unwrap();
+        assert_eq!(
+            record
+                .last_failure
+                .as_ref()
+                .and_then(|value| value.get("code"))
+                .and_then(ace_json::Value::as_str),
+            Some("delivery_failed")
+        );
+    }
+
+    #[test]
+    fn a_patch_revision_is_merged_then_incremented_once() {
+        let conn = home("queue-revision", &header("queue-revision"));
+        let store = Shell::store(&conn);
+        set(&store, "queue-revision", "{\"revision\":5}", 1.0).unwrap();
+        // The patch's 5 is the revision the bump counts from.
+        assert_eq!(get(&store, "queue-revision").unwrap().revision, 6);
+        set(&store, "queue-revision", "{}", 2.0).unwrap();
+        assert_eq!(get(&store, "queue-revision").unwrap().revision, 7);
     }
 }

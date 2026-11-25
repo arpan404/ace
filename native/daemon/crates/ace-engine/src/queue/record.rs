@@ -131,6 +131,11 @@ impl RecoveryRecord {
         {
             return Err(invalid());
         }
+        if let Some(failure) = &self.last_failure
+            && !valid_failure(failure)
+        {
+            return Err(invalid());
+        }
         Ok(())
     }
 
@@ -144,6 +149,19 @@ impl RecoveryRecord {
             reason: self.reason.clone(),
         }
     }
+}
+
+/// `QueueState.lastFailure`: `{title: 1..256, code: 1..128}`, nothing else kept by the parse.
+fn valid_failure(value: &Value) -> bool {
+    let Some(map) = value.as_object() else {
+        return false;
+    };
+    let length = |key: &str| {
+        map.get(key)
+            .and_then(Value::as_str)
+            .map(|text| text.chars().count())
+    };
+    matches!(length("title"), Some(1..=256)) && matches!(length("code"), Some(1..=128))
 }
 
 #[cfg(test)]

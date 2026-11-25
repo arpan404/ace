@@ -85,17 +85,14 @@ pub fn add(
             generation.map_or(ace_store::Value::Null, ace_store::Value::Integer),
         ],
     )?;
-    queue::messages::track(conn, id as u32, thread, command)
+    queue::messages::track(conn, id, thread, command)
 }
 
 /// `claim` (`:379`): the intent becomes `running`, or none when it already moved.
 pub fn claim(store: &EngineStore, entry: &IntentHeader) -> Result<Option<Intent>, EngineError> {
     store.atomic(|tx| {
-        let Some(row) = stmt_cache::get_row(
-            tx.conn(),
-            CLAIM,
-            vec![ace_store::Value::Integer(i64::from(entry.id))],
-        )?
+        let Some(row) =
+            stmt_cache::get_row(tx.conn(), CLAIM, vec![ace_store::Value::Integer(entry.id)])?
         else {
             return Ok(None);
         };
@@ -110,7 +107,7 @@ pub fn claim(store: &EngineStore, entry: &IntentHeader) -> Result<Option<Intent>
 pub fn begin_send(
     conn: &std::sync::Arc<ace_store::Connection>,
     intent: &IntentHeader,
-    target: Option<u32>,
+    target: Option<i64>,
 ) -> Result<(), EngineError> {
     if target.is_some()
         && matches!(
@@ -133,9 +130,9 @@ pub fn begin_send(
         vec![
             ace_store::Value::Integer(i64::from(target.is_some())),
             target.map_or(ace_store::Value::Null, |value| {
-                ace_store::Value::Integer(i64::from(value))
+                ace_store::Value::Integer(value)
             }),
-            ace_store::Value::Integer(i64::from(intent.id)),
+            ace_store::Value::Integer(intent.id),
         ],
     )?;
     Ok(())
@@ -152,7 +149,7 @@ pub fn submit(
         SUBMIT,
         vec![
             ace_store::Value::Integer(generation),
-            ace_store::Value::Integer(i64::from(intent.id)),
+            ace_store::Value::Integer(intent.id),
         ],
     )?;
     Ok(())
@@ -163,24 +160,16 @@ pub fn join_running_turn(
     conn: &std::sync::Arc<ace_store::Connection>,
     intent: &IntentHeader,
 ) -> Result<(), EngineError> {
-    stmt_cache::run(
-        conn,
-        JOIN_TURN,
-        vec![ace_store::Value::Integer(i64::from(intent.id))],
-    )?;
+    stmt_cache::run(conn, JOIN_TURN, vec![ace_store::Value::Integer(intent.id)])?;
     Ok(())
 }
 
 /// `submitted` (`:420`).
 pub fn submitted(
     conn: &std::sync::Arc<ace_store::Connection>,
-    intent: u32,
+    intent: i64,
 ) -> Result<Option<i64>, EngineError> {
-    let row = stmt_cache::get_row(
-        conn,
-        SUBMITTED,
-        vec![ace_store::Value::Integer(i64::from(intent))],
-    )?;
+    let row = stmt_cache::get_row(conn, SUBMITTED, vec![ace_store::Value::Integer(intent)])?;
     Ok(row.and_then(|row| {
         row.get("submitted_generation")
             .and_then(|value| match value {
@@ -195,11 +184,7 @@ pub fn defer(
     conn: &std::sync::Arc<ace_store::Connection>,
     intent: &IntentHeader,
 ) -> Result<(), EngineError> {
-    stmt_cache::run(
-        conn,
-        DEFER,
-        vec![ace_store::Value::Integer(i64::from(intent.id))],
-    )?;
+    stmt_cache::run(conn, DEFER, vec![ace_store::Value::Integer(intent.id)])?;
     Ok(())
 }
 
@@ -214,7 +199,7 @@ pub fn requeue(
         REQUEUE,
         vec![
             ace_store::Value::Text(error.to_owned()),
-            ace_store::Value::Integer(i64::from(intent.id)),
+            ace_store::Value::Integer(intent.id),
         ],
     )?;
     Ok(())
@@ -252,7 +237,7 @@ fn mark_in(
             }),
             ace_store::Value::Text(status.to_owned()),
             ace_store::Value::Integer(i64::from(status == "running")),
-            ace_store::Value::Integer(i64::from(intent.id)),
+            ace_store::Value::Integer(intent.id),
         ],
     )?;
     Ok(())
@@ -261,28 +246,19 @@ fn mark_in(
 /// `cancelled` (`repository.ts:487`): a Stop's own words for an intent it failed.
 pub fn cancelled(
     conn: &std::sync::Arc<ace_store::Connection>,
-    intent: u32,
+    intent: i64,
 ) -> Result<bool, EngineError> {
     const SQL: &str = "SELECT 1 FROM intents WHERE id=? AND status='failed' AND error='Cancelled before delivery'";
-    Ok(stmt_cache::get_row(
-        conn,
-        SQL,
-        vec![ace_store::Value::Integer(i64::from(intent))],
-    )?
-    .is_some())
+    Ok(stmt_cache::get_row(conn, SQL, vec![ace_store::Value::Integer(intent)])?.is_some())
 }
 
 /// The thread an intent belongs to (`queue-store.ts:362`).
 pub fn thread_of(
     conn: &std::sync::Arc<ace_store::Connection>,
-    intent: u32,
+    intent: i64,
 ) -> Result<Option<String>, EngineError> {
     const SQL: &str = "SELECT thread_id FROM intents WHERE id=?";
-    let row = stmt_cache::get_row(
-        conn,
-        SQL,
-        vec![ace_store::Value::Integer(i64::from(intent))],
-    )?;
+    let row = stmt_cache::get_row(conn, SQL, vec![ace_store::Value::Integer(intent)])?;
     Ok(row
         .as_ref()
         .and_then(|row| row.get("thread_id"))

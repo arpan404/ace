@@ -6,17 +6,19 @@
 use ace_json::Value;
 
 /// `goal-change.ts:14`: the thread's goal after a provider report.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum GoalChange {
     Unchanged,
     Clear,
-    Set(String),
+    Set(Value),
 }
 
-/// `goalChange(current, next)`: `next` is `None` for the provider's null.
-pub fn goal_change(current: Option<&str>, next: Option<&str>) -> GoalChange {
+/// `goalChange(current, next)`: a null clears, an absent goal changes nothing, and the goal is
+/// a `ProviderGoal` object compared structurally (`isDeepStrictEqual`).
+pub fn goal_change(current: Option<&Value>, next: Option<&Value>) -> GoalChange {
     match next {
-        None => {
+        None => GoalChange::Unchanged,
+        Some(Value::Null) => {
             if current.is_some() {
                 GoalChange::Clear
             } else {
@@ -24,8 +26,8 @@ pub fn goal_change(current: Option<&str>, next: Option<&str>) -> GoalChange {
             }
         }
         Some(next) => match current {
-            Some(current) if current == next => GoalChange::Unchanged,
-            _ => GoalChange::Set(next.to_owned()),
+            Some(current) if deep_strict_equal(current, next) => GoalChange::Unchanged,
+            _ => GoalChange::Set(next.clone()),
         },
     }
 }
@@ -242,21 +244,36 @@ mod tests {
         );
     }
 
+    fn goal(objective: &str) -> Value {
+        let mut map = ace_json::Map::new();
+        map.insert("objective", Value::from(objective));
+        map.insert("status", Value::from("active"));
+        Value::Object(map)
+    }
+
     #[test]
     fn a_goal_clears_changes_or_stays_as_the_provider_reports_it() {
-        assert_eq!(goal_change(Some("ship"), None), GoalChange::Clear);
-        assert_eq!(goal_change(None, None), GoalChange::Unchanged);
+        // An object goal is kept whole; equality is structural; a null clears either shape.
         assert_eq!(
-            goal_change(None, Some("ship")),
-            GoalChange::Set("ship".into())
+            goal_change(None, Some(&goal("Ship it"))),
+            GoalChange::Set(goal("Ship it"))
         );
         assert_eq!(
-            goal_change(Some("ship"), Some("ship")),
+            goal_change(Some(&goal("Ship it")), Some(&goal("Ship it"))),
             GoalChange::Unchanged
         );
         assert_eq!(
-            goal_change(Some("ship"), Some("test")),
-            GoalChange::Set("test".into())
+            goal_change(Some(&goal("Ship it")), Some(&goal("Test it"))),
+            GoalChange::Set(goal("Test it"))
+        );
+        assert_eq!(
+            goal_change(Some(&goal("Ship it")), Some(&Value::Null)),
+            GoalChange::Clear
+        );
+        assert_eq!(goal_change(None, Some(&Value::Null)), GoalChange::Unchanged);
+        assert_eq!(
+            goal_change(Some(&goal("Ship it")), None),
+            GoalChange::Unchanged
         );
     }
 
