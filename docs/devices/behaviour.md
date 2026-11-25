@@ -262,3 +262,24 @@ The Rust platform is held to §3, with these deliberate differences, each proven
   malformed override line fails the read (as a `ZodError`) rather than reporting the physical
   size; `ace-devices`' `commands::android_dimensions` keeps that outcome and returns it as
   `invalid_data` with today's message and hint.
+
+## 7. D3.1 review fixes (2026-11-25)
+
+The platform's review found TypeScript behaviours the Rust side had drifted from. They are fixed
+in `ace-devices` only, and today's TypeScript is left as it was (owner rule):
+
+- **Windows SDK roots follow `path.win32`.** A drive-rooted `C:\sdk`, `C:/sdk`, `\sdk` or a UNC
+  share is absolute on a Windows host even when the checking build host is macOS
+  (`platform/sdk.rs`, `is_absolute`).
+- **`xcode-select -p` keeps the 4,096-unit schema cap and a null exit code.** A probe that
+  answered with `code: null` is a failed selection, not a probe that never ran; only a probe that
+  threw is "Xcode developer directory is unavailable" (`sdk::xcode_selection`,
+  `sdk::xcode_probe_failure`).
+- **A resolved Android activity is still an app id.** The component `resolve-activity` prints
+  must fit 256 UTF-16 units, as `AppId` requires (`lifecycle::open_app`).
+- **Emulator discovery stops at the first match.** The shell reads discovery files in order and
+  asks `emulator::grpc_file` about each, so it never opens a FIFO or an unreadable sibling after
+  the emulator's own file matched.
+- **Every D3.1 path reaches Rust.** `DevicePlatform.list`, `boot`, `shutdown` and the tools
+  download plan are `ace-devices` decisions; Android capture takes `wm size` from
+  `commands::android_dimensions`, so the documented `sizeUndecoded` refusal is reachable.

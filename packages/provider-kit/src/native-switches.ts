@@ -235,6 +235,25 @@ const engineRefusal = engineSwitchRefusal({
 if (engineRefusal !== undefined) throw new Error(engineRefusal);
 
 /**
+ * Why `ACE_DEVICE_PLATFORM` cannot run, or `undefined` when it can (D3.1). The platform's SDK
+ * commands, serve-sim and tool downloads all spawn through the native supervisor, so a boot on
+ * the TypeScript supervisor has nowhere to run them and refuses instead of half-starting.
+ */
+export function devicePlatformSwitchRefusal(input: {
+  platform: boolean;
+  supervisor: boolean;
+}): string | undefined {
+  if (input.platform && !input.supervisor) return "ACE_DEVICE_PLATFORM needs ACE_SUPERVISOR=native";
+  return undefined;
+}
+
+const devicePlatformRefusal = devicePlatformSwitchRefusal({
+  platform: process.env.ACE_DEVICE_PLATFORM === "native",
+  supervisor,
+});
+if (devicePlatformRefusal !== undefined) throw new Error(devicePlatformRefusal);
+
+/**
  * `ACE_GIT=<parts>` (ADR 0224 §1, G0): a comma list of the git parts served
  * natively: `refs`, `core`, `reads`, `writes`, `checkpoints`, `snapshot-hash`,
  * `status-gix`. Unknown words refuse to start, as does a part without its

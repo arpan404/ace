@@ -140,11 +140,13 @@ export class DevicePlatformBase {
             run: async (command, args, authorize) => {
               this.controller.signal.throwIfAborted();
               authorize?.();
+              const schedule = this.probeSchedule();
               const output = await this.probe(command, args, {
                 env: this.options.env,
                 maxBytes: 256 * 1024,
                 timeoutMs: 20_000,
                 signal: this.controller.signal,
+                ...(schedule ? { schedule } : {}),
               });
               return { code: output.code, stdout: output.stdout };
             },
@@ -296,6 +298,10 @@ export class DevicePlatformBase {
     if (this.options.platform !== "darwin" || !directory || !node) return undefined;
     return managedServeSim({ directory, node });
   }
+  /** What a tools download asks for; the native platform asks `ace-devices` instead. */
+  protected toolsPlan(): { serveSim: boolean; scrcpy: boolean; timeoutMs: number } {
+    return { serveSim: this.options.platform === "darwin", scrcpy: true, timeoutMs: 5 * 60_000 };
+  }
   /**
    * Downloads the device tools ace runs (serve-sim on a Mac, the scrcpy server), in a process
    * of their own. Concurrent asks share one download; a finished one is reused.
@@ -310,9 +316,10 @@ export class DevicePlatformBase {
           "Restart ace; its home directory should hold them.",
         ),
       );
+    const plan = this.toolsPlan();
     this.toolsDownload ??= downloadDeviceTools(
-      { directory, node, runtime, env: this.options.env },
-      { serveSim: this.options.platform === "darwin", scrcpy: true },
+      { directory, node, runtime, env: this.options.env, timeoutMs: plan.timeoutMs },
+      { serveSim: plan.serveSim, scrcpy: plan.scrcpy },
     ).finally(() => {
       this.toolsDownload = undefined;
       // The next inventory read looks for serve-sim again.
@@ -338,6 +345,11 @@ export class DevicePlatformBase {
         "Start the Simulator view.",
       );
     return this.android.captureDimensions(device);
+  }
+  /** The platform's injected clock, in the order `probeOutput` takes it. */
+  private probeSchedule(): ((run: () => void, ms: number) => () => void) | undefined {
+    const after = this.options.after;
+    return after ? (run, ms) => after(ms, run) : undefined;
   }
   protected async run(
     command: string,
@@ -366,11 +378,13 @@ export class DevicePlatformBase {
       this.controller.signal.throwIfAborted();
       signal?.throwIfAborted();
       authorize?.();
+      const schedule = this.probeSchedule();
       const output = await this.probe(command, args, {
         env: this.options.env,
         maxBytes,
         timeoutMs,
         signal: signal ? AbortSignal.any([signal, this.controller.signal]) : this.controller.signal,
+        ...(schedule ? { schedule } : {}),
       });
       if (output.code !== 0)
         throw new DeviceError(
@@ -423,7 +437,21 @@ export class DevicePlatformBase {
         missing.push({ code, message, hint, platform: sources[index]?.platform ?? "android" });
       } else throw result.reason;
     }
+    this.setMissingSDKs(missing);
+    await this.adoptInventory(devices);
+    // Every platform's SDK is missing: the inventory itself fails (no other error got here).
+    const [first] = outcomes;
+    if (first?.status === "rejected" && outcomes.every((result) => result.status === "rejected"))
+      throw first.reason;
+    return devices;
+  }
+  /** The missing SDKs the last read found, as `diagnostics` shows them. */
+  protected setMissingSDKs(missing: (DeviceFailure & { platform: Device["platform"] })[]): void {
     this.missingSDKs = missing;
+  }
+  /** What every platform's list does after the reads: forget gone processes, notice a missing
+   * serve-sim the first time an iOS device appears. */
+  protected async adoptInventory(devices: readonly Device[]): Promise<void> {
     const present = new Set(
       devices.filter((device) => device.state === "booted").map((device) => device.id),
     );
@@ -442,12 +470,8 @@ export class DevicePlatformBase {
           "Download device tools in Devices: ace's serve-sim streams the Simulator and takes its gestures, typing and keys.",
         );
     }
-    // Every platform's SDK is missing: the inventory itself fails (no other error got here).
-    const [first] = outcomes;
-    if (first?.status === "rejected" && outcomes.every((result) => result.status === "rejected"))
-      throw first.reason;
-    return devices;
   }
+
   protected async simctl(
     device: Device,
     args: readonly string[],

@@ -92,6 +92,10 @@ for (const args of [
 ])
   cargo(args);
 
+// The device words are one catalog both backends read (ADR 0225 safeguard 3): render every
+// key through the built Rust addon and compare it with the file.
+execFileSync("bun", ["scripts/check-devices-catalog.ts"], { cwd: root, stdio: "inherit" });
+
 // The core's wasm binding ships beside the addon: the `@ace/core` facade
 // reads it under `ACE_CORE=wasm`, so this check builds it on the pinned
 // toolchain (with its wasm32 target) rather than leaving a manual step.

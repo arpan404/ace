@@ -206,6 +206,63 @@ pub fn device_platform_running_directory(
         .and_then(|path| path.into_os_string().into_string().ok())
 }
 
+/// `emulatorGrpc` for one discovery file: whether it names this emulator, and its endpoint.
+#[napi]
+pub fn device_platform_emulator_grpc_file(
+    serial: String,
+    name: String,
+    text: String,
+) -> napi::Result<String> {
+    #[derive(serde::Serialize)]
+    struct Match {
+        matched: bool,
+        grpc: Option<ace_devices::platform::emulator::Grpc>,
+    }
+    answered(|| {
+        let Some(port) = ace_devices::platform::emulator::console_port(&serial) else {
+            return Ok(Match {
+                matched: false,
+                grpc: None,
+            });
+        };
+        let file = ace_devices::platform::emulator::DiscoveryFile { name, text };
+        Ok(match ace_devices::platform::emulator::grpc_file(port, &file) {
+            ace_devices::platform::emulator::GrpcMatch::NotThisDevice => Match {
+                matched: false,
+                grpc: None,
+            },
+            ace_devices::platform::emulator::GrpcMatch::Unusable => Match {
+                matched: true,
+                grpc: None,
+            },
+            ace_devices::platform::emulator::GrpcMatch::Endpoint(grpc) => Match {
+                matched: true,
+                grpc: Some(grpc),
+            },
+        })
+    })
+}
+
+/// `Simulators.list`'s device: one available Simulator as the device list shows it.
+#[napi]
+pub fn device_platform_simulator_record(
+    udid: String,
+    name: String,
+    state: String,
+    runtime: String,
+    device_type: Option<String>,
+) -> napi::Result<String> {
+    answered(|| {
+        Ok(ace_devices::platform::list::simulator_record(
+            &udid,
+            &name,
+            &state,
+            &runtime,
+            device_type.as_deref(),
+        ))
+    })
+}
+
 /// `DevicePlatform.list`: each platform's devices and the missing SDKs beside them.
 #[napi]
 pub fn device_platform_list(sources: String) -> napi::Result<String> {

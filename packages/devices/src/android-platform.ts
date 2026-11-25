@@ -3,7 +3,20 @@ import { AndroidInputShell } from "./android-input-shell.ts";
 import { AndroidUiHelpers } from "./android-ui-helper.ts";
 import { AppDevice as DeviceSchema, type AppDevice as Device } from "@ace/protocol/devices";
 import { probeOutput, spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
-import { armEmulatorNote, DeviceError, resolveAndroidSDK, type SDKOptions } from "./sdk.ts";
+import {
+  armEmulatorNote,
+  DeviceError,
+  deviceAnswer,
+  resolveAndroidSDK,
+  type SDKOptions,
+} from "./sdk.ts";
+import { devicePlatformBackend } from "@ace/provider-kit/native-switches";
+import {
+  type AndroidBoot,
+  type AndroidBootFacts,
+  type Step,
+  nativeDevices,
+} from "./native-devices-addon.ts";
 import { emulatorBootArgs } from "./emulator-args.ts";
 import {
   adbTransports,
@@ -383,7 +396,12 @@ export class AndroidPlatform {
             )
         : Number(rawRotation);
     await this.verifyTransport(adb, device, serial);
-    const size = androidDimensions(result.stdout);
+    const size =
+      devicePlatformBackend() === "native"
+        ? deviceAnswer<{ width: number; height: number }>(() =>
+            nativeDevices().devicePlatformAndroidDimensions(result.stdout),
+          )
+        : androidDimensions(result.stdout);
     return { adb, serial, ...(rotation % 2 ? { width: size.height, height: size.width } : size) };
   }
   /** One adb command on a capture's transport, refused once that serial names another AVD. */
@@ -470,6 +488,32 @@ export class AndroidPlatform {
     this.pendingBoots.add(device.id);
     try {
       const { adb, emulator } = await this.resolve();
+      const native = devicePlatformBackend() === "native";
+      const window = await this.emulatorWindow();
+      const used = new Set(
+        adbTransports((await this.run(adb, ["devices", "-l"], 128 * 1024)).stdout).map(
+          ({ serial }) => serial,
+        ),
+      );
+      // With the switch on, the port, the command line and the waits are the platform's.
+      const plan = native
+        ? deviceAnswer<AndroidBoot>(() => {
+            const facts: AndroidBootFacts = {
+              avd: nativeId(device),
+              used_serials: [...used],
+              taken_ports: [...this.ports],
+              running: this.emulators.size,
+              pending: false,
+              closed: this.closed,
+              emulator_found: Boolean(emulator),
+              platform: this.options.platform,
+              arch: this.options.arch,
+              window,
+              gpu: this.options.env["ACE_ANDROID_EMULATOR_GPU"],
+            };
+            return nativeDevices().devicePlatformAndroidBoot(JSON.stringify(facts));
+          })
+        : undefined;
       if (!emulator)
         throw this.options.platform === "linux" && this.options.arch === "arm64"
           ? armEmulatorNote()
@@ -478,39 +522,36 @@ export class AndroidPlatform {
               "The Android Emulator was not found",
               "Install the Android Emulator from Android Studio's SDK Manager, then set ANDROID_HOME to the SDK directory.",
             );
-      const window = await this.emulatorWindow();
-      const used = new Set(
-        adbTransports((await this.run(adb, ["devices", "-l"], 128 * 1024)).stdout).map(
-          ({ serial }) => serial,
-        ),
-      );
-      let port = 5554;
-      while (used.has(`emulator-${port}`) || this.ports.has(port)) port += 2;
-      if (port > 5682)
+      let port = plan?.port ?? 5554;
+      if (!plan) while (used.has(`emulator-${port}`) || this.ports.has(port)) port += 2;
+      if (!plan && port > 5682)
         throw new DeviceError(
           "limit",
           "No emulator console port available",
           "Close unused emulators.",
         );
-      if (this.closed)
+      if (this.closed && !plan)
         throw new DeviceError(
           "command_failed",
           "Device service is closed",
           "Restart the device service.",
         );
+      const serial = plan?.serial ?? `emulator-${port}`;
       this.ports.add(port);
       let proc: SupervisedProcess;
       try {
         authorize?.();
         proc = this.spawn({
           command: emulator,
-          args: emulatorBootArgs({
-            avd: nativeId(device),
-            port,
-            window,
-            platform: this.options.platform,
-            gpu: this.options.env["ACE_ANDROID_EMULATOR_GPU"],
-          }),
+          args:
+            plan?.args ??
+            emulatorBootArgs({
+              avd: nativeId(device),
+              port,
+              window,
+              platform: this.options.platform,
+              gpu: this.options.env["ACE_ANDROID_EMULATOR_GPU"],
+            }),
           env: this.options.env,
           name: "device-emulator",
           maxLineBytes: 16 * 1024,
@@ -520,7 +561,7 @@ export class AndroidPlatform {
         throw error;
       }
       this.emulators.set(device.id, proc);
-      this.ownedSerials.set(device.id, `emulator-${port}`);
+      this.ownedSerials.set(device.id, serial);
       const controller = new AbortController();
       // `exited` reports the emulator's exit and does not reject.
       void proc.exited
@@ -536,9 +577,20 @@ export class AndroidPlatform {
       try {
         await Promise.race([
           (async () => {
+            if (plan) {
+              for (const step of plan.steps)
+                await this.run(
+                  adb,
+                  ["-s", serial, ...step.args],
+                  step.maxBytes,
+                  step.timeoutMs,
+                  controller.signal,
+                );
+              return;
+            }
             await this.run(
               adb,
-              ["-s", `emulator-${port}`, "wait-for-device"],
+              ["-s", serial, "wait-for-device"],
               4096,
               120_000,
               controller.signal,
@@ -547,7 +599,7 @@ export class AndroidPlatform {
               adb,
               [
                 "-s",
-                `emulator-${port}`,
+                serial,
                 "shell",
                 'while [ "$(getprop sys.boot_completed)" != 1 ]; do sleep 1; done',
               ],
@@ -584,16 +636,15 @@ export class AndroidPlatform {
     const serial = await this.serial(device);
     const { adb } = await this.resolve();
     await this.verifyTransport(adb, device, serial);
+    const plan =
+      devicePlatformBackend() === "native"
+        ? deviceAnswer<Step[]>(() => nativeDevices().devicePlatformShutdown("android"))
+        : undefined;
+    const kill = plan?.[0]?.args ?? ["emu", "kill"];
+    const powerOff = plan?.[1];
     authorize?.();
     try {
-      await this.run(
-        adb,
-        ["-s", serial, "emu", "kill"],
-        undefined,
-        undefined,
-        undefined,
-        authorize,
-      );
+      await this.run(adb, ["-s", serial, ...kill], undefined, undefined, undefined, authorize);
     } catch {
       // Emulator console unreachable or already dead; fall through to the wait below.
     }
@@ -610,9 +661,9 @@ export class AndroidPlatform {
     try {
       await this.run(
         adb,
-        ["-s", serial, "shell", "reboot", "-p"],
-        4096,
-        10_000,
+        ["-s", serial, ...(powerOff?.args ?? ["shell", "reboot", "-p"])],
+        powerOff?.maxBytes ?? 4096,
+        powerOff?.timeoutMs ?? 10_000,
         undefined,
         authorize,
       );

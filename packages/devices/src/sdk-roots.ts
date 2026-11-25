@@ -13,11 +13,7 @@ export function androidSdkRoots(
   home: string | undefined,
 ): string[] {
   if (devicePlatformBackend() === "native")
-    return nativeDevices().devicePlatformAndroidSdkRoots(
-      process.platform,
-      home,
-      envStrings(env),
-    );
+    return nativeDevices().devicePlatformAndroidSdkRoots(process.platform, home, envStrings(env));
   const candidates = [
     env.ANDROID_HOME,
     env.ANDROID_SDK_ROOT,

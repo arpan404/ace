@@ -40,6 +40,65 @@ export interface DiscoveryFile {
   text: string;
 }
 
+/** One device as a source read it, in `AppDevice`'s shape. */
+export interface DeviceRecord {
+  id: string;
+  platform: string;
+  name: string;
+  state: string;
+  runtime?: string | undefined;
+  serial?: string | undefined;
+  model?: string | undefined;
+}
+
+/** One platform's read: its devices, or the failure that stopped it. */
+export interface ListSource {
+  platform: string;
+  devices: DeviceRecord[];
+  failure?: RefusalWord | undefined;
+}
+
+/** The inventory and the missing SDKs a list found. */
+export interface ListAnswer {
+  devices: DeviceRecord[];
+  missing: (RefusalWord & { platform: string })[];
+}
+
+/** A Simulator boot: boot it unless booted, then the `open` arguments that show its window. */
+export interface IosBoot {
+  boot: boolean;
+  show: string[];
+}
+
+/** What booting an emulator needs decided: a port, its command line and adb's waits. */
+export interface AndroidBootFacts {
+  avd: string;
+  used_serials: string[];
+  taken_ports: number[];
+  running: number;
+  pending: boolean;
+  closed: boolean;
+  emulator_found: boolean;
+  platform: string;
+  arch?: string | undefined;
+  window: boolean;
+  gpu?: string | undefined;
+}
+
+export interface AndroidBoot {
+  port: number;
+  serial: string;
+  args: string[];
+  steps: Step[];
+}
+
+/** What one tools download fetches. */
+export interface ToolsPlan {
+  serveSim: boolean;
+  scrcpy: boolean;
+  timeoutMs: number;
+}
+
 /** An emulator's gRPC endpoint, when it serves one ace may use. */
 export interface GrpcEndpoint {
   port: number;
@@ -73,7 +132,7 @@ interface Answer<T> {
 
 /** The addon's exports, as `ace-daemon-node/src/devices` declares them. */
 interface DevicesAddon {
-  devicePlatformIdentity(id: string, capture: boolean, inventory: SimulatorEntry[]): string;
+  devicePlatformIdentity(id: string, capture: boolean, inventory: string): string;
   devicePlatformInstall(platform: string, path: string): string;
   devicePlatformOpenApp(platform: string, app: string, resolved?: string): string;
   devicePlatformOpenUrl(platform: string, url: string): string;
@@ -86,8 +145,17 @@ interface DevicesAddon {
     env: Record<string, string>,
   ): string | null;
   devicePlatformEmulatorGrpc(serial: string, files: DiscoveryFile[]): string;
+  devicePlatformEmulatorGrpcFile(serial: string, name: string, text: string): string;
+  devicePlatformSimulatorRecord(
+    udid: string,
+    name: string,
+    state: string,
+    runtime: string,
+    deviceType?: string | undefined,
+  ): string;
   devicePlatformXcodeHostRefusal(platform: string): string;
   devicePlatformXcodeToolsRefusal(): string;
+  devicePlatformXcodeProbeFailure(): string;
   devicePlatformXcodeSelection(code: number | null, stdout: string): string;
   devicePlatformIosNeedsMac(): string;
   devicePlatformArmEmulatorNote(): string;
@@ -103,11 +171,18 @@ interface DevicesAddon {
     platform: string,
     arch?: string,
   ): string;
-  devicePlatformXcodeHostRefusal(platform: string): string;
-  devicePlatformXcodeToolsRefusal(): string;
-  devicePlatformXcodeSelection(code: number | null, stdout: string): string;
-  devicePlatformIosNeedsMac(): string;
-  devicePlatformArmEmulatorNote(): string;
+  devicePlatformList(sources: string): string;
+  devicePlatformIosBoot(id: string, booted: boolean): string;
+  devicePlatformAndroidBoot(facts: string): string;
+  devicePlatformShutdown(platform: string): string;
+  devicePlatformEmulatorBootArgs(facts: string): string;
+  devicePlatformDownloadPlan(
+    platform: string,
+    directory: string | undefined,
+    node: string | undefined,
+  ): string;
+  devicePlatformAndroidDimensions(output: string): string;
+  devicePlatformCatalogWord(key: string): string;
 }
 
 const library =

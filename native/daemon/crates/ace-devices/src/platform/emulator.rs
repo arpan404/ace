@@ -150,40 +150,62 @@ fn default_gpu(platform: &str) -> Option<&'static str> {
     }
 }
 
+/// What one discovery file says about the emulator ace is asking about.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GrpcMatch {
+    /// Another emulator wrote it, or it is not a `pid_<pid>.ini` at all.
+    NotThisDevice,
+    /// It names this emulator, and the endpoint it describes is not one ace may use.
+    Unusable,
+    Endpoint(Grpc),
+}
+
+/// `emulatorGrpc` for one file: the shell reads discovery files in order and stops at the first
+/// match, so a later unrelated file (a FIFO, an unreadable one) is never opened.
+pub fn grpc_file(console_port: u16, file: &DiscoveryFile) -> GrpcMatch {
+    let Some(pid) = file
+        .name
+        .strip_prefix("pid_")
+        .and_then(|rest| rest.strip_suffix(".ini"))
+    else {
+        return GrpcMatch::NotThisDevice;
+    };
+    if pid.is_empty() || !pid.bytes().all(|byte| byte.is_ascii_digit()) {
+        return GrpcMatch::NotThisDevice;
+    }
+    let entries = discovery_entries(&file.text);
+    let Some(serial) = value(&entries, "port.serial") else {
+        return GrpcMatch::NotThisDevice;
+    };
+    if serial.parse::<u16>().ok() != Some(console_port) {
+        return GrpcMatch::NotThisDevice;
+    }
+    let Some(port) = value(&entries, "grpc.port").and_then(|text| text.parse::<u16>().ok()) else {
+        return GrpcMatch::Unusable;
+    };
+    if port == 0 {
+        return GrpcMatch::Unusable;
+    }
+    let token = value(&entries, "grpc.token").unwrap_or_default();
+    if token.is_empty() {
+        return GrpcMatch::Unusable;
+    }
+    GrpcMatch::Endpoint(Grpc {
+        port,
+        token: token.to_string(),
+    })
+}
+
 /// `emulatorGrpc`: the gRPC endpoint of the emulator on console port `console_port`, from the
 /// first discovery file that names that port. An emulator with JWT authentication (Android
 /// Studio's default), without gRPC, or with an unreadable endpoint has none ace can use.
 pub fn grpc_endpoint(console_port: u16, files: &[DiscoveryFile]) -> Option<Grpc> {
     for file in files {
-        let Some(pid) = file
-            .name
-            .strip_prefix("pid_")
-            .and_then(|rest| rest.strip_suffix(".ini"))
-        else {
-            continue;
-        };
-        if pid.is_empty() || !pid.bytes().all(|byte| byte.is_ascii_digit()) {
-            continue;
+        match grpc_file(console_port, file) {
+            GrpcMatch::NotThisDevice => continue,
+            GrpcMatch::Unusable => return None,
+            GrpcMatch::Endpoint(grpc) => return Some(grpc),
         }
-        let entries = discovery_entries(&file.text);
-        let Some(serial) = value(&entries, "port.serial") else {
-            continue;
-        };
-        if serial.parse::<u16>().ok() != Some(console_port) {
-            continue;
-        }
-        let port = value(&entries, "grpc.port").and_then(|text| text.parse::<u16>().ok())?;
-        if port == 0 {
-            return None;
-        }
-        let token = value(&entries, "grpc.token").unwrap_or_default();
-        if token.is_empty() {
-            return None;
-        }
-        return Some(Grpc {
-            port,
-            token: token.to_string(),
-        });
     }
     None
 }
@@ -353,6 +375,30 @@ mod tests {
                 "-gpu",
                 "auto",
             ]
+        );
+    }
+
+    #[test]
+    fn one_discovery_file_says_whether_it_names_this_emulator_at_all() {
+        let ours = file(
+            "pid_100.ini",
+            "port.serial=5554\ngrpc.port=8554\ngrpc.token=one\n",
+        );
+        assert_eq!(
+            grpc_file(5554, &ours),
+            GrpcMatch::Endpoint(Grpc {
+                port: 8554,
+                token: "one".to_string(),
+            })
+        );
+        assert_eq!(grpc_file(5556, &ours), GrpcMatch::NotThisDevice);
+        assert_eq!(
+            grpc_file(5554, &file("pid_100.ini", "port.serial=5554\n")),
+            GrpcMatch::Unusable
+        );
+        assert_eq!(
+            grpc_file(5554, &file("notes.txt", "port.serial=5554\ngrpc.token=t\n")),
+            GrpcMatch::NotThisDevice
         );
     }
 

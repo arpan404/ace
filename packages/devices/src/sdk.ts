@@ -5,12 +5,8 @@ import { probeOutput } from "@ace/provider-kit/process";
 import { z } from "zod";
 import type { DeviceFailure } from "@ace/protocol/devices";
 import { devicePlatformBackend } from "@ace/provider-kit/native-switches";
-import {
-  type RefusalWord,
-  answered,
-  nativeDevices,
-  Refused,
-} from "./native-devices-addon.ts";
+import { catalogWord } from "./catalog.ts";
+import { type RefusalWord, answered, nativeDevices, Refused } from "./native-devices-addon.ts";
 
 export type DeviceErrorCode = DeviceFailure["code"];
 export class DeviceError extends Error {
@@ -98,11 +94,8 @@ export function iosNeedsMac(): DeviceError {
     return deviceRefusal(
       deviceAnswer<RefusalWord>(() => nativeDevices().devicePlatformIosNeedsMac()),
     );
-  return new DeviceError(
-    "not_supported",
-    "iOS Simulators need a paired Mac",
-    "Pair a Mac running ace in Settings › Fleet and use its Simulators there; agents can delegate that work to the Mac. Android emulators and phones work on this Windows machine.",
-  );
+  const word = catalogWord("iosNeedsMac");
+  return new DeviceError(word.code, word.message, word.hint);
 }
 /** Said once in the device list on Linux arm64, where Google publishes no Android Emulator. */
 export function armEmulatorNote(): DeviceError {
@@ -110,21 +103,16 @@ export function armEmulatorNote(): DeviceError {
     return deviceRefusal(
       deviceAnswer<RefusalWord>(() => nativeDevices().devicePlatformArmEmulatorNote()),
     );
-  return new DeviceError(
-    "not_supported",
-    "Android emulators aren't available on Linux arm64",
-    "Google publishes the Android Emulator for x86-64 Linux only. Android phones on USB and devices on the network work here through adb.",
-  );
+  const word = catalogWord("armEmulatorNote");
+  return new DeviceError(word.code, word.message, word.hint);
 }
 export async function resolveXcode(options: SDKOptions): Promise<{ xcrun: string; open: string }> {
   if (devicePlatformBackend() === "native") return resolveXcodeNatively(options);
   if (options.platform === "win32") throw iosNeedsMac();
-  if (options.platform !== "darwin")
-    throw new DeviceError(
-      "not_supported",
-      "iOS Simulator requires macOS",
-      "Use a macOS daemon with Xcode installed.",
-    );
+  if (options.platform !== "darwin") {
+    const word = catalogWord("iosNeedsMacOs");
+    throw new DeviceError(word.code, word.message, word.hint);
+  }
   const [select, xcrun, open] = await Promise.all(
     ["xcode-select", "xcrun", "open"].map((name) => findExecutable(name, options.env)),
   );
@@ -164,9 +152,7 @@ export async function resolveXcode(options: SDKOptions): Promise<{ xcrun: string
  * `resolveXcode` with `ace-devices` deciding the refusals. The executables and the selection
  * probe stay here, in today's order: the host refusal first, then the tools, then the probe.
  */
-async function resolveXcodeNatively(
-  options: SDKOptions,
-): Promise<{ xcrun: string; open: string }> {
+async function resolveXcodeNatively(options: SDKOptions): Promise<{ xcrun: string; open: string }> {
   const addon = nativeDevices();
   const host = deviceAnswer<RefusalWord | null>(() =>
     addon.devicePlatformXcodeHostRefusal(options.platform),
@@ -176,15 +162,19 @@ async function resolveXcodeNatively(
     ["xcode-select", "xcrun", "open"].map((name) => findExecutable(name, options.env)),
   );
   if (!select || !xcrun || !open)
-    throw deviceRefusal(
-      deviceAnswer<RefusalWord>(() => addon.devicePlatformXcodeToolsRefusal()),
-    );
-  const output = await (options.probe ?? probeOutput)(select, ["-p"], {
-    env: options.env,
-    maxBytes: 4096,
-  }).catch(() => undefined);
+    throw deviceRefusal(deviceAnswer<RefusalWord>(() => addon.devicePlatformXcodeToolsRefusal()));
+  let output;
+  try {
+    output = await (options.probe ?? probeOutput)(select, ["-p"], {
+      env: options.env,
+      maxBytes: 4096,
+    });
+  } catch {
+    // The probe could not run at all: today's own refusal, distinct from a failing selection.
+    throw deviceRefusal(deviceAnswer<RefusalWord>(() => addon.devicePlatformXcodeProbeFailure()));
+  }
   const refused = deviceAnswer<RefusalWord | null>(() =>
-    addon.devicePlatformXcodeSelection(output?.code ?? null, output?.stdout ?? ""),
+    addon.devicePlatformXcodeSelection(output.code, output.stdout),
   );
   if (refused) throw deviceRefusal(refused);
   return { xcrun, open };

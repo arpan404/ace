@@ -17,16 +17,20 @@ import {
 } from "@ace/protocol/devices";
 import type { EmulatorGrpc } from "./emulator-discovery.ts";
 import {
-  type DiscoveryFile,
+  type DeviceRecord,
   type GrpcEndpoint,
+  type IosBoot,
+  type ListAnswer,
+  type ListSource,
   type OpenAppPlan,
   type Selected,
   type Step,
+  type ToolsPlan,
   envStrings,
   nativeDevices,
 } from "./native-devices-addon.ts";
 import { DevicePlatformBase } from "./platform-base.ts";
-import { deviceAnswer } from "./sdk.ts";
+import { DeviceError, deviceAnswer } from "./sdk.ts";
 
 export class NativeDevicePlatform extends DevicePlatformBase {
   override async simulatorDevice(input: Device): Promise<Device> {
@@ -45,9 +49,94 @@ export class NativeDevicePlatform extends DevicePlatformBase {
       runtime: entry.runtime,
     }));
     const selected = deviceAnswer<Selected>(() =>
-      nativeDevices().devicePlatformIdentity(device.id, capture, inventory),
+      nativeDevices().devicePlatformIdentity(device.id, capture, JSON.stringify(inventory)),
     );
     return DeviceSchema.parse({ ...device, ...selected });
+  }
+
+  /** Every platform's devices, with the composition and the missing-SDK rules in Rust. */
+  override async list(): Promise<Device[]> {
+    const sources: ListSource[] = [];
+    if (this.options.platform === "darwin") {
+      sources.push(
+        await this.#source("ios", async () =>
+          (await this.simulators.list()).map((entry) =>
+            deviceAnswer<DeviceRecord>(() =>
+              nativeDevices().devicePlatformSimulatorRecord(
+                entry.udid,
+                entry.name,
+                entry.state,
+                entry.runtime,
+                entry.deviceTypeIdentifier,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    sources.push(await this.#source("android", () => this.android.list()));
+    const answer = deviceAnswer<ListAnswer>(() =>
+      nativeDevices().devicePlatformList(JSON.stringify(sources)),
+    );
+    this.setMissingSDKs(
+      answer.missing.map((missing) => ({
+        code: missing.code as DeviceError["code"],
+        message: missing.message,
+        hint: missing.hint,
+        platform: missing.platform as Device["platform"],
+      })),
+    );
+    const devices = answer.devices.map((device) => DeviceSchema.parse(device));
+    await this.adoptInventory(devices);
+    return devices;
+  }
+
+  /** One platform's read as a source, its `sdk_missing` refusal kept rather than thrown. */
+  async #source(
+    platform: Device["platform"],
+    read: () => Promise<DeviceRecord[]>,
+  ): Promise<ListSource> {
+    try {
+      return { platform, devices: await read() };
+    } catch (error) {
+      if (error instanceof DeviceError)
+        return {
+          platform,
+          devices: [],
+          failure: { code: error.code, message: error.message, hint: error.hint },
+        };
+      throw error;
+    }
+  }
+
+  override async boot(device: Device, authorize?: () => void): Promise<void> {
+    if (device.platform !== "ios") {
+      await this.android.boot(device, authorize);
+      return;
+    }
+    // A Simulator ace does not know must not be launched by a stale id.
+    const listed = await this.simulators.list();
+    if (!listed.some((entry) => `ios:${entry.udid}` === device.id))
+      throw new Error("Unknown available simulator");
+    const plan = deviceAnswer<IosBoot>(() =>
+      nativeDevices().devicePlatformIosBoot(device.id, device.state === "booted"),
+    );
+    if (plan.boot) await this.simctl(device, ["boot"], authorize, 240_000);
+    const { open } = await this.xcode();
+    authorize?.();
+    await this.run(open, plan.show, 256 * 1024, undefined, undefined, authorize);
+  }
+
+  override async shutdown(device: Device, authorize?: () => void): Promise<void> {
+    if (device.platform !== "ios") {
+      await this.android.shutdown(device, authorize);
+      return;
+    }
+    const steps = deviceAnswer<Step[]>(() =>
+      nativeDevices().devicePlatformShutdown(device.platform),
+    );
+    await this.#run(device, steps, authorize);
+    this.appProcesses.delete(device.id);
   }
 
   override async install(device: Device, input: string, authorize?: () => void): Promise<void> {
@@ -59,9 +148,7 @@ export class NativeDevicePlatform extends DevicePlatformBase {
 
   override async openApp(device: Device, input: string, authorize?: () => void): Promise<void> {
     const addon = nativeDevices();
-    let plan = deviceAnswer<OpenAppPlan>(() =>
-      addon.devicePlatformOpenApp(device.platform, input),
-    );
+    let plan = deviceAnswer<OpenAppPlan>(() => addon.devicePlatformOpenApp(device.platform, input));
     if (plan.resolve) {
       // Today's resolve-activity lookup runs without the guard (it changes nothing) and the
       // launch that follows re-checks the caller's lifetime.
@@ -100,10 +187,22 @@ export class NativeDevicePlatform extends DevicePlatformBase {
     await this.#run(device, steps, authorize);
   }
 
+  /** What a tools download fetches: the catalogue's decision, not the shell's. */
+  protected override toolsPlan(): ToolsPlan {
+    return deviceAnswer<ToolsPlan>(() =>
+      nativeDevices().devicePlatformDownloadPlan(
+        this.options.platform,
+        this.options.toolsDirectory,
+        this.options.node,
+      ),
+    );
+  }
+
   /**
    * How to encode an emulator's picture on the host: a helper, a place for the shared picture
    * file, and the emulator's gRPC endpoint (one ace booted). The running directory and the
-   * discovery parse are the platform's; the files are read here.
+   * discovery parse are the platform's; files are read in order and reading stops at the first
+   * one that names this emulator, so a FIFO or an unreadable sibling is never opened.
    */
   override async hostEncoding(
     serial: string,
@@ -118,24 +217,28 @@ export class NativeDevicePlatform extends DevicePlatformBase {
       envStrings(this.options.env),
     );
     if (!running) return undefined;
-    let names: string[];
+    let entries;
     try {
-      names = await readdir(running);
+      entries = await readdir(running, { withFileTypes: true });
     } catch {
       return undefined;
     }
-    const files: DiscoveryFile[] = [];
-    for (const name of names) {
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      let text: string;
       try {
-        files.push({ name, text: await readFile(join(running, name), "utf8") });
+        text = await readFile(join(running, entry.name), "utf8");
       } catch {
         // A file that vanished or cannot be read names no endpoint; the next one still can.
+        continue;
       }
+      const match = deviceAnswer<{ matched: boolean; grpc: GrpcEndpoint | null }>(() =>
+        addon.devicePlatformEmulatorGrpcFile(serial, entry.name, text),
+      );
+      if (!match.matched) continue;
+      return match.grpc ? { grpc: match.grpc, encoder, directory } : undefined;
     }
-    const { grpc } = deviceAnswer<{ grpc: GrpcEndpoint | null }>(() =>
-      addon.devicePlatformEmulatorGrpc(serial, files),
-    );
-    return grpc ? { grpc, encoder, directory } : undefined;
+    return undefined;
   }
 
   /** Runs the decided steps in order, returning the last one's stdout. */

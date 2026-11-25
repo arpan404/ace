@@ -18,6 +18,8 @@ export interface DeviceToolsOptions {
   env: NodeJS.ProcessEnv;
   /** Other pinned serve-sim packages; tests serve their own. */
   artifacts?: ToolsRequest["artifacts"];
+  /** The download's budget; the platform decides it (`toolsPlan`). */
+  timeoutMs?: number;
 }
 
 /** What a tools download left in place. */
@@ -55,7 +57,7 @@ export async function downloadDeviceTools(
   });
   child.stderr.resume();
   let timedOut = false;
-  const cancel = options.runtime.after(installTimeoutMs, () => {
+  const cancel = options.runtime.after(options.timeoutMs ?? installTimeoutMs, () => {
     timedOut = true;
     void child.stop({ graceMs: 0 }).catch(() => {});
   });
