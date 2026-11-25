@@ -111,6 +111,8 @@ pub struct JsPorts {
     close_transaction: FunctionRef<FnArgs<(f64, Option<String>)>, ()>,
     is_transaction_open: FunctionRef<(), bool>,
     append_events: FunctionRef<String, ()>,
+    frame_call: FunctionRef<(), f64>,
+    release_frames: FunctionRef<String, ()>,
     settle_call: FunctionRef<FnArgs<(f64, Option<String>)>, ()>,
     reject_pending: FunctionRef<(), ()>,
     finish_close: FunctionRef<(), ()>,
@@ -146,6 +148,8 @@ impl JsPorts {
         close_transaction: FunctionRef<FnArgs<(f64, Option<String>)>, ()>,
         is_transaction_open: FunctionRef<(), bool>,
         append_events: FunctionRef<String, ()>,
+        frame_call: FunctionRef<(), f64>,
+        release_frames: FunctionRef<String, ()>,
         settle_call: FunctionRef<FnArgs<(f64, Option<String>)>, ()>,
         reject_pending: FunctionRef<(), ()>,
         finish_close: FunctionRef<(), ()>,
@@ -167,6 +171,8 @@ impl JsPorts {
             close_transaction,
             is_transaction_open,
             append_events,
+            frame_call,
+            release_frames,
             settle_call,
             reject_pending,
             finish_close,
@@ -185,6 +191,15 @@ impl JsPorts {
             ports: self,
             previous,
         }
+    }
+
+    /// Any function-reference port call, for the modules that hold their own function refs.
+    pub fn call_port<A, R>(&self, function: &FunctionRef<A, R>, args: A) -> Result<R, PortError>
+    where
+        A: napi::bindgen_prelude::JsValuesTupleIntoVec,
+        R: FromNapiValue,
+    {
+        self.call(function, args)
     }
 
     fn env(&self) -> Result<Env, PortError> {
@@ -434,6 +449,14 @@ impl Ports for JsPorts {
 
     fn append_events(&self, json: &str) -> Result<(), PortError> {
         self.call(&self.append_events, json.to_string())
+    }
+
+    fn frame_call(&self) -> Option<u64> {
+        self.call(&self.frame_call, ()).ok().map(|call| call as u64)
+    }
+
+    fn release_frames(&self, handles: &str) {
+        let _ = self.call(&self.release_frames, handles.to_string());
     }
 
     fn settle_call(&self, call: u64, error: Option<String>) {

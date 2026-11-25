@@ -75,7 +75,7 @@ serde_json = { version = "1", features = ["raw_value", "preserve_order"] }
 
 [features]
 # The test seam's probe hooks (E5.1 step 12); release packaging never sets it.
-engine-probe = []
+engine-probe = ["ace-engine/engine-probe"]
 
 [build-dependencies]
 napi-build = "2"

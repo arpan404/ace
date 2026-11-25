@@ -24,6 +24,8 @@ export interface EngineInputsJson {
 
 /** What the facade tells the ports when a promise or close settles. */
 export interface PortHost {
+  frameCall(): number;
+  releaseFrames(handles: readonly number[]): void;
   settleCall(call: number, error: string | null): void;
   rejectPending(): void;
   finishClose(): void;
@@ -51,6 +53,8 @@ export interface EngineBindings {
   closeTransaction(token: number, error: string | null): void;
   isTransactionOpen(): boolean;
   appendEvents(json: string): void;
+  frameCall(): number;
+  releaseFrames(json: string): void;
   settleCall(call: number, error: string | null): void;
   rejectPending(): void;
   finishClose(): void;
@@ -121,6 +125,8 @@ export function engineBindings(input: {
       ),
     isTransactionOpen: () => store.transactionOpen,
     appendEvents: (json) => store.appendEvents(json),
+    frameCall: () => host.frameCall(),
+    releaseFrames: (json) => host.releaseFrames(JSON.parse(json) as number[]),
     settleCall: (call, error) => host.settleCall(call, error),
     rejectPending: () => host.rejectPending(),
     finishClose: () => host.finishClose(),

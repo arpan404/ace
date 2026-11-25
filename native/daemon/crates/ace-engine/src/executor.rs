@@ -221,6 +221,9 @@ pub struct Executor {
     /// Set by `close_admission`; the pump signals `drained` at the end of the first turn that
     /// finds the inbox and both run queues empty.
     draining: Cell<Option<oneshot::Sender<()>>>,
+    /// Set by `end_turn`: no further runnable starts this turn, and the claim moves to
+    /// `Scheduled` (E5.2 correction 9).
+    end_turn: Cell<bool>,
     stats: Cell<ExecutorStats>,
     turn_polls: RefCell<Vec<u32>>,
 }
@@ -243,6 +246,7 @@ impl Executor {
             current: Cell::new(None),
             control_streak: Cell::new(0),
             draining: Cell::new(None),
+            end_turn: Cell::new(false),
             stats: Cell::new(ExecutorStats::default()),
             turn_polls: RefCell::new(Vec::new()),
         }
@@ -383,6 +387,7 @@ impl Executor {
             return Pump::Busy;
         }
         self.running.set(true);
+        self.end_turn.set(false);
         budget.start();
         let (outcome, polls) = self.turn(budget);
         self.running.set(false);
@@ -410,6 +415,11 @@ impl Executor {
                 self.poll(runnable);
                 polls += 1;
                 first = false;
+                // A task that ended the turn stops it after its poll; the rest runs in the next.
+                if self.end_turn.replace(false) {
+                    self.shared.claim.store(claim::SCHEDULED, SeqCst);
+                    return (Pump::Rearm, polls as u32);
+                }
             }
             if capped {
                 // The rest of the inbox waits for the re-armed turn, which the shell schedules.
@@ -565,6 +575,11 @@ impl Executor {
         while self.take(Lane::Control).is_some() {}
         while self.take(Lane::Work).is_some() {}
         self.draining.take();
+    }
+
+    /// Asks the turn to end after the task being polled (E5.2 decision 5).
+    pub fn end_turn(&self) {
+        self.end_turn.set(true);
     }
 
     /// The claim's current value, for the probe and the tests.

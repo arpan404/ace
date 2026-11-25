@@ -669,3 +669,30 @@ fn a_spent_budget_still_polls_the_first_runnable() {
     assert_eq!(exec.pump(&mut budget, &open), Pump::Rearm);
     assert_eq!(order.borrow().len(), 1, "the first poll is never skipped");
 }
+
+#[test]
+fn a_task_that_ends_the_turn_stops_the_turn_after_its_poll_and_the_rest_runs_in_the_next() {
+    let (exec, _posts) = executor();
+    let exec = Rc::new(exec);
+    let ran = Rc::new(RefCell::new(Vec::<&'static str>::new()));
+    // The first task asks the turn to end; the second must wait for the next turn.
+    let first = Rc::clone(&ran);
+    let asking = Rc::clone(&exec);
+    let task = exec.spawn(Lane::Work, async move {
+        first.borrow_mut().push("first");
+        asking.end_turn();
+    });
+    task.detach();
+    let second = Rc::clone(&ran);
+    let task = exec.spawn(Lane::Work, async move {
+        second.borrow_mut().push("second");
+    });
+    task.detach();
+    let mut budget = Standard;
+    let outcome = exec.pump(&mut budget, &open);
+    assert_eq!(outcome, Pump::Rearm, "the turn ends after the asking poll");
+    assert_eq!(*ran.borrow(), vec!["first"]);
+    let outcome = exec.pump(&mut budget, &open);
+    assert_eq!(outcome, Pump::Done);
+    assert_eq!(*ran.borrow(), vec!["first", "second"]);
+}

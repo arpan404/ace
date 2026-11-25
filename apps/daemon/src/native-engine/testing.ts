@@ -11,7 +11,10 @@ import { engineBackend } from "@ace/provider-kit/native-switches";
 import { Engine, type EngineOptions } from "../engine/index.ts";
 import { ManualClock } from "../engine/test-support.ts";
 import { Store } from "../store.ts";
-import { NativeEngine, type NativeEngineHandle } from "./engine.ts";
+import { NativeEngine } from "./engine.ts";
+import { FrameTable, type ActorContext } from "./actor.ts";
+import { probeFor } from "./probe.ts";
+import type { Translator } from "@ace/engine-api";
 
 export interface ProbeTurns {
   turns: number[];
@@ -40,7 +43,65 @@ export interface EngineProbe {
     port: string,
     portPromise?: () => Promise<unknown>,
   ): void;
-  attachSession(): Promise<never>;
+  /** E5.2's scripted session: its context, its abort count, its retirement and its log. */
+  attachSession(threadId: string, spec: AttachSpec): Promise<ProbeSession>;
+  /** The next `apply` calls throw a busy error before writing. */
+  failApply(threadId: string, times: number): void;
+  /** The next live `persist` calls throw a busy error. */
+  failPersist(threadId: string, times: number): void;
+  /** The next live `persist` calls throw a fatal error, so the batch is quarantined. */
+  failPersistFatal(threadId: string, times: number): void;
+  /** The Rust tokens still held for live snapshots. */
+  liveTokens(): number;
+  /** The repository reports a Cursor SDK thread, so the journal path runs. */
+  useCursorRoute(threadId: string): void;
+  /** The next attachment lookups throw a busy error. */
+  failAttachment(threadId: string, times: number): void;
+  /** The next applies fail with a non-retryable error. */
+  failApplyFatal(threadId: string, times: number): void;
+  /** Invalidates a provisional actor's reservation before its first poll. */
+  loseReservation(threadId: string): void;
+  /** Seals the pending frame batch now, as a flush would. */
+  seal(threadId: string): void;
+  /** Queues one labelled operation behind the frames sealed before it. */
+  enqueue(threadId: string, label: string): void;
+  /** Queues what `onExit` runs: a retire op behind the batch. */
+  enqueueRetire(threadId: string): void;
+  /** Runs the front op inside an open transaction: the outermost rule must fail it. */
+  runInTransaction(threadId: string): void;
+  /** The actor's generation now. */
+  generation(threadId: string): number;
+  /** Wakers the engine has registered. */
+  registeredWakers(): number;
+  /** One native frame through the native intake, with its acknowledgement. */
+  nativeFrame(
+    threadId: string,
+    generation: number,
+    seq: number,
+    channel: string,
+    data: string,
+  ): Promise<void>;
+  /** One frame through the bridge's own path (payload limits and their warning). */
+  bridgeFrame(
+    threadId: string,
+    generation: number,
+    seq: number,
+    channel: string,
+    data: string,
+    started?: number,
+  ): void;
+  /** Mirrors the actor's flow into a native gate once, recording `set_paused`. */
+  nativeFlow(threadId: string): void;
+  /** Installs the probe repository and links without creating an actor. */
+  useDeps(threadId: string): void;
+  /** Makes the probe's native translator the thread's translator. */
+  attachNativeTranslator(threadId: string): void;
+  /** What an `onExit` does: retires the generation (the probe's). */
+  retire(threadId: string): void;
+  /** The thread's apply entries, as JSON. */
+  applied(threadId: string): string;
+  /** JavaScript frame objects the shell still holds: a refused batch must release its own. */
+  liveFrames(): number;
   /** The labels scripted tasks marked, in order. */
   marks(): string[];
   /** The flush depth and how many actor seals flushes have asked for. */
@@ -57,6 +118,64 @@ export interface EngineProbe {
   timerCount(): number;
   /** The transaction shell's bookkeeping: open frames, top aliases and released lists. */
   stackEntries(): { frames: number; released: number };
+}
+
+/** What `attachSession` scripts. */
+export interface AttachSpec {
+  translator: Translator;
+  /** The probe repository's answer to `stream()`. */
+  stream?: "deltas" | "never";
+  generation?: number;
+}
+
+/** What one `apply` did. */
+export interface ProbeApplied {
+  facts: number;
+  frames: number;
+  outermost: boolean;
+  committed: boolean;
+  streamed: boolean;
+  generation: number;
+}
+
+/** The probe's transcript. */
+export interface ProbeActorLog {
+  aborted: number;
+  wakes: number;
+  released: number;
+  diagnostics: unknown[];
+  applied: ProbeApplied[];
+  expired: number[];
+  retired: number[];
+  snapshots: string[];
+  live: unknown[];
+  enqueued: string[];
+  flowed: boolean[];
+  /** Each real native-path acknowledgement: `ok` or `rejected:<message>`. */
+  nativeAcks: string[];
+  /** Every attachment lookup: a retried busy lookup shows two. */
+  attachmentLookups: number;
+  /** The facts each apply received, in order. */
+  facts: Record<string, unknown>[];
+  /** What the fold did, in order. */
+  order: string[];
+  /** Each enqueued op's own transaction: whether it ran outermost. */
+  opsOutermost: boolean[];
+  /** Each Cursor record call's entries. */
+  journal: {
+    beginsTurn?: boolean;
+    frame?: { channel?: string; seq?: number; dir?: string; t?: number };
+  }[];
+  /** Each Cursor record call: whether a transaction was open. */
+  journalInTransaction: boolean[];
+}
+
+/** One scripted session. */
+export interface ProbeSession {
+  context: ActorContext;
+  aborted(): number;
+  retire(): void;
+  log(): ProbeActorLog;
 }
 
 export type ProbeStep =
@@ -125,6 +244,8 @@ function logged(options: Partial<EngineOptions>, clock: ManualClock, log: PortLo
   return {
     ...options,
     clock: clockPort,
+    // The 1 ms batch timer is the same manual clock, so a seam test advances it explicitly.
+    batchScheduler: options.batchScheduler ?? clock,
     onError: (error: unknown) => {
       log.calls.push({ port: "onError", args: [String(error)] });
       (onError ?? (() => {}))(error);
@@ -145,7 +266,11 @@ export async function engineSeam(input: EngineSeamInput = {}): Promise<EngineSea
     throw new Error("the engine seam needs ACE_ENGINE=native and ACE_STORE=native");
   const home = input.options?.home ?? mkdtempSync(join(tmpdir(), "ace-engine-seam-"));
   const path = join(home, "events.sqlite");
-  const store = new Store(path);
+  const clock = new ManualClock();
+  // The store's live buffer shares the manual clock, so a deadline fires when the test says.
+  const store = new Store(path, console.error, {
+    bufferScheduler: { delay: (callback: () => void, ms: number) => clock.setTimer(callback, ms) },
+  });
   if (input.seed) await input.seed(store);
   if (input.seedWithTypeScript) {
     const { spawnSync } = await import("node:child_process");
@@ -160,13 +285,18 @@ export async function engineSeam(input: EngineSeamInput = {}): Promise<EngineSea
     if (child.status !== 0)
       throw new Error(`the TypeScript seed script exited ${String(child.status)}`);
   }
-  const clock = new ManualClock();
   const ports = portLog();
   const options = logged(input.options ?? {}, clock, ports);
   const engine = new Engine(store, options);
   const native = (engine as unknown as NativeEngine).binding;
   if (native === undefined) throw new Error("the engine seam built the TypeScript engine");
-  const probe = probeFor(native);
+  const probe = probeFor(
+    native,
+    new FrameTable(() => clock.now()),
+    engine as unknown as NativeEngine,
+    options,
+    clock,
+  );
   probe.emptyCandidates();
   return {
     store,
@@ -179,103 +309,6 @@ export async function engineSeam(input: EngineSeamInput = {}): Promise<EngineSea
       await engine.close().catch(() => {});
       await store.close();
       rmSync(home, { recursive: true, force: true });
-    },
-  };
-}
-
-function parseTurns(text: string): ProbeTurns {
-  const turns = JSON.parse(text) as number[];
-  return {
-    turns,
-    polls: turns.reduce((sum, polls) => sum + polls, 0),
-    longestPollUs: 0,
-    slowPolls: 0,
-  };
-}
-
-function probeFor(native: NativeEngineHandle): EngineProbe {
-  const required = (name: string) => {
-    const member = native[name];
-    if (typeof member !== "function")
-      throw new Error(
-        "the engine probe is not built: cargo build --release -p ace-daemon-node --features engine-probe",
-      );
-    return member.bind(native) as (...args: unknown[]) => unknown;
-  };
-  const call = required("probeSpawn");
-  const writeNow = required("probeWriteNow") as (step: string) => void;
-  const flushState = required("probeFlushState") as () => string;
-  const defer = required("probeDefer") as (thread: string) => void;
-  const claim = required("probeClaim") as () => string;
-  const turnLog = required("probeTurns") as () => string;
-  const woken = required("probeWoken") as () => string[];
-  const emptyCandidates = required("probeEmptyCandidates") as () => void;
-  const stats = required("probeStats") as () => string;
-  const settle = native.settlePromise?.bind(native);
-  if (settle === undefined) throw new Error("the engine binding has no settlePromise");
-  return {
-    spawn: (lane, script) => {
-      call(lane, JSON.stringify(script));
-    },
-    writeNow: (events, deferred, row) => {
-      writeNow(
-        JSON.stringify({
-          op: "write",
-          events,
-          ...(deferred ? { defer: deferred } : {}),
-          ...(row ? { row } : {}),
-        }),
-      );
-    },
-    flushState: () => JSON.parse(flushState()) as { depth: number; seals: number },
-    registerWaker: (thread) => required("probeRegisterWaker")(thread),
-    unregisterWaker: (thread) => required("probeUnregisterWaker")(thread),
-    wakeCount: (thread) => required("probeWakeCount")(thread) as number,
-    defer,
-    claim,
-    async turns() {
-      return parseTurns(turnLog());
-    },
-    woken,
-    emptyCandidates,
-    async stats() {
-      const parsed = JSON.parse(stats()) as {
-        polls: number;
-        longestPollUs: number;
-        slowPolls: number;
-      };
-      const list = parseTurns(turnLog());
-      return { ...list, ...parsed };
-    },
-    stallCloseStep(port) {
-      const id = required("probeStallCloseStep")() as number;
-      Promise.resolve(port()).then(
-        () => settle(id, true),
-        (error: unknown) => settle(id, false, String(error)),
-      );
-    },
-    stallWorker(threadId, worker, port, portPromise) {
-      const id = required("probeStallWorker")(threadId, worker, port) as number;
-      if (portPromise !== undefined)
-        Promise.resolve(portPromise()).then(
-          () => settle(id, true),
-          (error: unknown) => settle(id, false, String(error)),
-        );
-    },
-    marks: () => required("probeMarks")() as string[],
-    timerCount: () => required("probeTimerCount")() as number,
-    stackEntries: () =>
-      JSON.parse(required("probeStackEntries")() as string) as {
-        frames: number;
-        released: number;
-      },
-    setCallback: (callback) => {
-      required("probeSetCallback")(callback);
-    },
-    async attachSession() {
-      return Promise.resolve().then(() => {
-        required("probeAttachSession")();
-      }) as Promise<never>;
     },
   };
 }

@@ -999,7 +999,7 @@ and the storage row, by E5.3, E5.4 and E5.6.
 
 | Suite (each alone)                                                                   | Switch on, after E5.2        | First green                        |
 | ------------------------------------------------------------------------------------ | ---------------------------- | ---------------------------------- |
-| `native-engine/actor.test.ts` (seam tests)                                           | green                        | E5.2                               |
+| `native-engine/actor*.test.ts` (seam tests)                                          | green                        | E5.2                               |
 | `cargo test -p ace-engine` (`frames::*`, `actor::*`)                                 | green                        | E5.2                               |
 | `engine/actor-timer.test.ts`, `frame-envelope.test.ts`, `fact-bytes.test.ts`         | unchanged, switch off and on | (cases moved)                      |
 | `engine/signal-batching.process`, `sdk-burst.process`, `streaming-behaviour.process` | fails naming E5.3/E5.6       | E5.6                               |
@@ -1024,7 +1024,7 @@ thread that is not Cursor's never reaches E5.8.
   CARGO_BUILD_JOBS=4 cargo test -p ace-engine && \
   PATH=$HOME/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin:$PATH \
   CARGO_BUILD_JOBS=4 cargo build --release -p ace-daemon-node --features engine-probe)
-for f in apps/daemon/src/native-engine/actor.test.ts apps/daemon/src/native-engine/skeleton.test.ts; do
+for f in apps/daemon/src/native-engine/actor.test.ts apps/daemon/src/native-engine/actor-flow.test.ts apps/daemon/src/native-engine/actor-native.test.ts apps/daemon/src/native-engine/actor-lifetime.test.ts apps/daemon/src/native-engine/actor-live.test.ts apps/daemon/src/native-engine/skeleton.test.ts; do
   e=$(mktemp)
   test -f "$f" && ACE_STORE=native ACE_STORE_WRITER=fold,sequences,events,columns,live,transactions \
     ACE_ENGINE=native ACE_ENGINE_EVIDENCE="$e" bun --bun x vitest run "$f" --maxWorkers=4 && test -s "$e"
@@ -1066,7 +1066,7 @@ New Rust tests (behaviour nothing covers directly today; the commit says so):
 - `actor/flow.rs`, a table: "intake pauses at 256 frames or a quarter of the bytes and resumes only
   at 64 frames and a sixteenth", over `(queued, pending, bytes, limits)` with the hysteresis rows.
 
-Seam tests, `apps/daemon/src/native-engine/actor.test.ts`, `describe.runIf(engineBackend() === "native")`.
+Seam tests, `apps/daemon/src/native-engine/actor*.test.ts`, `describe.runIf(engineBackend() === "native")`.
 Each names in a comment the (a) test that will show it, and is deleted when that file passes with
 the switch on:
 

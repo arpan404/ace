@@ -9,16 +9,22 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 
-/// Work a synchronous entry starts: a wake of a parked task, or a future to spawn.
+/// Work a synchronous entry starts: a wake of a parked task, a future to spawn, or a decision
+/// whose effects must be visible the instant the commit lands.
 pub enum Deferred {
     Wake(String, Lane),
     Spawn(Lane, LocalBoxFuture<'static, ()>),
+    /// Run at the commit itself, in place: a promoted actor must be visible to the very next
+    /// synchronous lookup, as the TypeScript's eviction at the call was.
+    Run(Box<dyn FnOnce()>),
 }
 
 /// Where a released deferred goes: the engine wakes a parked task or spawns the future.
 pub trait DeferredHost {
     fn wake(&self, thread: &str, lane: Lane);
     fn spawn(&self, lane: Lane, future: LocalBoxFuture<'static, ()>);
+    /// Run a deferred decision now, inside the commit's own turn.
+    fn run(&self, run: Box<dyn FnOnce()>);
 }
 
 /// The after-commit sink the store's shared stack hands released tokens to.
@@ -61,22 +67,64 @@ impl AfterCommit {
     }
 
     /// Releases each token's deferreds in token order: wakes and spawns are producer moves only.
+    /// The map is emptied of the token before anything it held runs: a decision that re-enters
+    /// (an `onError` that creates an actor inside `Store.atomic`) defers into the same map.
     pub fn release(&self, tokens: &[u64]) {
         let host = self.host.borrow().as_ref().and_then(Weak::upgrade);
-        let mut entries = self.entries.borrow_mut();
+        let taken = self.take(tokens);
+        for item in taken {
+            match (host.as_deref(), item) {
+                (Some(host), Deferred::Wake(thread, lane)) => host.wake(&thread, lane),
+                (Some(host), Deferred::Spawn(lane, future)) => host.spawn(lane, future),
+                (Some(host), Deferred::Run(run)) => host.run(run),
+                // Detached: the engine is closing, and the work is dropped.
+                (None, _) => {}
+            }
+        }
+    }
+
+    /// Runs only the tokens' committed decisions, returning the tokens that still hold wakes or
+    /// spawns. The store's committed path asks for this before it publishes, as the TypeScript's
+    /// eviction at the call was visible to every commit listener.
+    pub fn release_runs(&self, tokens: &[u64]) -> Vec<u64> {
+        let host = self.host.borrow().as_ref().and_then(Weak::upgrade);
+        let mut remaining = Vec::new();
         for token in tokens {
-            let Some(deferred) = entries.remove(token) else {
+            let deferred = self.entries.borrow_mut().remove(token);
+            let Some(deferred) = deferred else {
                 continue;
             };
+            let mut keep = Vec::new();
+            let mut runs = Vec::new();
             for item in deferred {
-                match (host.as_deref(), item) {
-                    (Some(host), Deferred::Wake(thread, lane)) => host.wake(&thread, lane),
-                    (Some(host), Deferred::Spawn(lane, future)) => host.spawn(lane, future),
-                    // Detached: the engine is closing, and the work is dropped.
-                    (None, _) => {}
+                match item {
+                    Deferred::Run(run) => runs.push(run),
+                    other => keep.push(other),
+                }
+            }
+            if !keep.is_empty() {
+                self.entries.borrow_mut().insert(*token, keep);
+                remaining.push(*token);
+            }
+            for run in runs {
+                if let Some(host) = host.as_deref() {
+                    host.run(run);
                 }
             }
         }
+        remaining
+    }
+
+    /// Everything the tokens held, out of the map, so the caller runs it borrow-free.
+    fn take(&self, tokens: &[u64]) -> Vec<Deferred> {
+        let mut taken = Vec::new();
+        let mut entries = self.entries.borrow_mut();
+        for token in tokens {
+            if let Some(deferred) = entries.remove(token) {
+                taken.extend(deferred);
+            }
+        }
+        taken
     }
 
     /// Discards what the tokens stood for: a rolled-back receipt starts nothing.
@@ -137,6 +185,9 @@ mod tests {
             futures::executor::block_on(future);
             self.spawned.borrow_mut().push(ran.get());
         }
+        fn run(&self, run: Box<dyn FnOnce()>) {
+            run();
+        }
     }
 
     fn attached() -> (Rc<AfterCommit>, Rc<Host>) {
@@ -185,5 +236,35 @@ mod tests {
         after.release(&[token]);
         assert!(ran.get());
         assert_eq!(*host.spawned.borrow(), vec![true]);
+    }
+
+    #[test]
+    fn a_decision_that_defers_again_does_not_panic_and_keeps_its_token() {
+        let (after, host) = attached();
+        let again = Rc::clone(&after);
+        let token = after.defer(Deferred::Run(Box::new(move || {
+            // An onError that creates an actor inside `Store.atomic` defers into this same sink.
+            again.defer(Deferred::Wake("reentrant".to_string(), Lane::Work));
+        })));
+        after.release(&[token]);
+        assert_eq!(host.woken.borrow().len(), 0);
+        // The re-entrant token is queued, and releases normally.
+        assert_eq!(after.pending(), 1);
+        after.release(&[token + 1]);
+        assert_eq!(host.woken.borrow().len(), 1);
+    }
+
+    #[test]
+    fn release_runs_is_borrow_free_for_a_decision_that_defers_again() {
+        let (after, host) = attached();
+        let again = Rc::clone(&after);
+        let token = after.defer(Deferred::Run(Box::new(move || {
+            again.defer(Deferred::Wake("reentrant".to_string(), Lane::Work));
+        })));
+        let remaining = after.release_runs(&[token]);
+        assert!(remaining.is_empty());
+        assert_eq!(after.pending(), 1);
+        after.release(&[token + 1]);
+        assert_eq!(host.woken.borrow().len(), 1);
     }
 }
