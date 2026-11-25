@@ -1,8 +1,8 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
-import { dirname, isAbsolute, join } from "node:path";
+import { delimiter, dirname, isAbsolute, join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import { promisify } from "node:util";
 import { bunBinary } from "../../../scripts/runtimes.ts";
@@ -93,6 +93,25 @@ const switchVariables: readonly string[] = [
   ]),
 ];
 
+/**
+ * The directory OpenSSL lives in on the host's PATH. The LAN leg makes the daemon's TLS identity
+ * with it (`tls-identity.ts`), and the child's PATH holds only the fake CLIs otherwise.
+ */
+function opensslDirectory(): string | undefined {
+  const named = process.platform === "win32" ? "openssl.exe" : "openssl";
+  for (const directory of (process.env.PATH ?? "").split(delimiter)) {
+    if (directory === "") continue;
+    if (existsSync(join(directory, named))) return directory;
+  }
+  return undefined;
+}
+
+/** The child's PATH: the fake CLIs first, and the host's OpenSSL for a LAN leg's TLS identity. */
+function benchPath(bin: string): string {
+  const openssl = benchListen() === "lan" ? opensslDirectory() : undefined;
+  return [bin, ...(openssl === undefined ? [] : [openssl])].join(delimiter);
+}
+
 /** Refuses `variable` unless it is an absolute path to a regular file. */
 function requireAddon(variable: string, because: string): void {
   const value = process.env[variable];
@@ -161,7 +180,7 @@ export function daemonEnv(settings: DaemonSettings): NodeJS.ProcessEnv {
     ...switches(),
     HOME: home,
     USERPROFILE: home,
-    PATH: bin,
+    PATH: benchPath(bin),
     SHELL: "/bin/sh",
     TMPDIR: tmp,
     LANG: "C.UTF-8",
@@ -174,6 +193,8 @@ export function daemonEnv(settings: DaemonSettings): NodeJS.ProcessEnv {
     ACE_ACCOUNTS_DB: join(home, "accounts.sqlite"),
     ACE_PORT: "0",
     ACE_LISTEN: benchListen(),
+    // A local bench's LAN listener advertises loopback, so its pairing link is reachable here.
+    ...(benchListen() === "lan" ? { ACE_ADVERTISE_HOST: "127.0.0.1" } : {}),
     ACE_LOG_LEVEL: "warn",
     ACE_MAINTENANCE: "0",
     ACE_DEV: "0",

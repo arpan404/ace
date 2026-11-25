@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import { promisify } from "node:util";
+import { accessRequest, redeemPairing } from "@ace/daemon/client-access";
+import { PairingResponse, WorkspaceId } from "@ace/protocol";
 import { footprint, startDaemon, type BenchRoot, type RunningDaemon } from "./daemon.ts";
 import { Driver } from "./driver.ts";
 import { installFakeCli, recordings } from "./fake-cli/install.ts";
@@ -106,6 +108,53 @@ async function phase(
   };
 }
 
+/** The LAN listener's endpoint and a paired device's credential for it. */
+interface LanAccess {
+  /** The listener's WSS URL, as its pairing link names it. */
+  url: string;
+  fingerprint: string;
+  token: string;
+  deviceId: string;
+}
+
+/**
+ * A pairing link from the local endpoint. Remote access starts after the endpoint is ready: its
+ * launch override applies a moment later, and a pairing asked for in between is refused with 409.
+ */
+async function pairingLink(daemon: RunningDaemon) {
+  const deadline = Date.now() + 20_000;
+  for (;;) {
+    try {
+      return PairingResponse.parse(
+        await accessRequest(daemon.origin, "/v1/pairings", {
+          token: daemon.token,
+          method: "POST",
+          body: { scopes: ["read", "operate"] },
+        }),
+      );
+    } catch (error) {
+      if (Date.now() >= deadline || !String(error).includes("HTTP 409")) throw error;
+      await pause(100);
+    }
+  }
+}
+
+async function lanAccess(daemon: RunningDaemon): Promise<LanAccess> {
+  const pairing = await pairingLink(daemon);
+  const paired = await redeemPairing(pairing.url, "Daemon bench");
+  const link = new URL(pairing.url);
+  return {
+    url: `wss://${link.host}/`,
+    fingerprint:
+      new URLSearchParams(link.hash.slice(1)).get("fingerprint") ??
+      (() => {
+        throw new Error("The pairing link carries no fingerprint");
+      })(),
+    token: paired.token,
+    deviceId: paired.device.id,
+  };
+}
+
 // The daemon refuses projects in system folders, and macOS temp lives under /var.
 const base = process.platform === "darwin" ? "/tmp" : tmpdir();
 const directory = await mkdtemp(join(base, "ace-daemon-bench-"));
@@ -138,8 +187,27 @@ try {
   }
   daemon = await startDaemon(settings);
   inspector = await Inspector.connect(daemon.inspectorUrl);
-  driver = await Driver.connect(daemon.origin, daemon.token);
-  const workspace = await driver.addProject(root.project);
+  // On the LAN leg the workload must cross the remote listener, not the local endpoint: pair a
+  // device and drive it there (T1b.5's remote traffic gate reads that listener's evidence).
+  const lan = process.env.ACE_LISTEN === "lan" ? await lanAccess(daemon) : undefined;
+  let workspace: WorkspaceId;
+  if (lan === undefined) {
+    driver = await Driver.connect(daemon.origin, daemon.token);
+    workspace = await driver.addProject(root.project);
+  } else {
+    // Adding a project is the host's own decision (`projects` scope): register it over the local
+    // endpoint, then drive every turn of the workload over the LAN listener.
+    const local = await Driver.connect(daemon.origin, daemon.token);
+    try {
+      workspace = await local.addProject(root.project);
+    } finally {
+      await local.close();
+    }
+    driver = await Driver.connect(lan.url, lan.token, {
+      deviceId: lan.deviceId,
+      pin: { url: lan.url, fingerprint: lan.fingerprint },
+    });
+  }
   log(`settling for ${options.settleMs} ms`);
   await pause(options.settleMs);
   const calibrations = [await inspector.calibrate()];
