@@ -165,6 +165,8 @@ describe.runIf(native)("engine persistence", () => {
         (row) => row["section"] === "items" && row["key"] === "item-1",
       );
       expect(item).toBeDefined();
+      console.log("DEBUG records", JSON.stringify(rows.records));
+      console.log("DEBUG appends", JSON.stringify(rows.appends));
       // The text is stored as an append, not in the item record.
       const stored = JSON.parse(String(item?.value)) as Row;
       expect(JSON.stringify(stored["parts"])).toBe('[{"type":"text","text":""}]');

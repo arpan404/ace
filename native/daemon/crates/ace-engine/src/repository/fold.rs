@@ -64,6 +64,12 @@ impl State {
         let root = self.root_key(snapshot);
         let facts = Self::facts(facts_json)?;
         let facts = self.coalesce_facts(facts)?;
+        {
+            // The lazy sections are the one record cache: load what this batch names so the
+            // core folds onto the stored records, then hand the changes back in `save`.
+            let named = crate::snapshot::touched::Touched::values(&facts, &[]);
+            snapshot.borrow_mut().hydrate(&named)?;
+        }
         let replayed = if opening {
             self.fork_replay_source(id)?
         } else {

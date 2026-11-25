@@ -27,6 +27,10 @@ impl Touched {
             |value: &Value, key: &str| value.get(key).and_then(Value::as_str).map(str::to_owned);
         for fact in facts {
             let kind = fact.get("type").and_then(Value::as_str).unwrap_or_default();
+            // Every fact that names an agent names it by key, which is the section's key.
+            if let Some(agent) = text(fact, "agent") {
+                touched.agents.insert(agent);
+            }
             match kind {
                 "item.upsert" | "item.reconciled" | "item.delta" => {
                     if let Some(item) = text(fact, "item") {

@@ -25,6 +25,9 @@ const INTENTS: &str = "SELECT thread_id, status, awaiting, uncertain, id FROM in
 const QUEUES: &str = "SELECT thread_id FROM engine_queue WHERE thread_id > ? AND (continuation IS NOT NULL OR trigger IS NOT NULL OR limited=1 OR paused=1) ORDER BY thread_id LIMIT 256";
 const HAS_STATE: &str = "SELECT 1 FROM thread_state WHERE thread_id=?";
 
+/// Sorts after every status a row can carry (U+10FFFF is the highest code point).
+const MAX_STATUS: &str = "\u{10ffff}";
+
 /// One scan step: a page closed with candidates, still building, or the scan's end.
 pub struct Step {
     pub threads: Vec<ThreadId>,
@@ -60,23 +63,30 @@ impl Default for Scan {
 }
 
 impl Scan {
-    /// A scan whose next page starts above `after`.
+    /// A scan whose next page starts above `after`: every source cursor begins at `after`, as
+    /// the TypeScript's next query does (`WHERE thread_id > after`).
     pub fn new(after: impl Into<String>) -> Scan {
+        let after = after.into();
         Scan {
-            after: after.into(),
+            after: after.clone(),
             page: Vec::new(),
             held: BTreeSet::new(),
-            emitted: String::new(),
+            emitted: after.clone(),
             threads: Source {
-                last: String::new(),
+                last: after.clone(),
                 ..Source::default()
             },
+            // The intent cursor is a `(thread_id, status, id)` row value: the sentinel pair
+            // sorts after every row whose thread id is `after`, so the page starts strictly
+            // above it.
             intents: Source {
-                last: String::new(),
+                last: after.clone(),
+                status: MAX_STATUS.to_owned(),
+                id: i64::MAX,
                 ..Source::default()
             },
             queues: Source {
-                last: String::new(),
+                last: after,
                 ..Source::default()
             },
         }
@@ -97,7 +107,7 @@ impl Scan {
     /// Returns the page when it closes (64 candidates, or exhaustion), else `None`.
     pub fn step(&mut self, conn: &Arc<Connection>) -> Result<Option<Step>, EngineError> {
         if self.page.len() >= 64 {
-            return Ok(Some(self.close(false)));
+            return Ok(Some(self.close()));
         }
         if self.exhausted() && self.held.is_empty() {
             return Ok(Some(Step {
@@ -117,15 +127,15 @@ impl Scan {
         }
         self.emit(conn)?;
         if self.page.len() >= 64 {
-            return Ok(Some(self.close(false)));
+            return Ok(Some(self.close()));
         }
         if self.exhausted() && self.held.is_empty() {
-            return Ok(Some(self.close(true)));
+            return Ok(Some(self.close()));
         }
         Ok(None)
     }
 
-    fn close(&mut self, _exhausted: bool) -> Step {
+    fn close(&mut self) -> Step {
         let threads = std::mem::take(&mut self.page);
         let last = threads
             .last()
@@ -279,4 +289,225 @@ pub fn pages(conn: &Arc<Connection>) -> Result<Vec<Vec<ThreadId>>, EngineError> 
         }
     }
     Ok(pages)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A temp store with only the tables the scan reads: the scan's own SQL is what is under
+    /// test, and the opener's full schema is proven by the seam tests.
+    fn database() -> Arc<Connection> {
+        // A counter, not the clock: two parallel tests can read the same nanosecond.
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "ace-engine-scan-{}-{}.sqlite",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let conn = Connection::open(
+            path.to_str().unwrap_or_default(),
+            ace_store::OpenOptions {
+                read_only: false,
+                timeout_ms: 5_000,
+            },
+        )
+        .unwrap();
+        conn.exec("CREATE TABLE threads (id TEXT PRIMARY KEY, status TEXT)")
+            .unwrap();
+        conn.exec("CREATE TABLE thread_state (thread_id TEXT PRIMARY KEY, state TEXT NOT NULL, seq INTEGER NOT NULL DEFAULT 0)").unwrap();
+        conn.exec("CREATE TABLE intents (id INTEGER PRIMARY KEY AUTOINCREMENT, thread_id TEXT NOT NULL, status TEXT NOT NULL, awaiting INTEGER NOT NULL DEFAULT 0, uncertain INTEGER NOT NULL DEFAULT 0, kind TEXT NOT NULL DEFAULT 'thread.send')").unwrap();
+        conn.exec("CREATE TABLE engine_queue (thread_id TEXT PRIMARY KEY, continuation TEXT, trigger TEXT, limited INTEGER NOT NULL DEFAULT 0, paused INTEGER NOT NULL DEFAULT 0)").unwrap();
+        conn
+    }
+
+    fn text(value: &str) -> Value {
+        Value::Text(value.to_owned())
+    }
+
+    /// One thread row, its engine state, and the status the scan reads.
+    fn thread(conn: &Arc<Connection>, id: &str, status: &str) {
+        stmt_cache::run(
+            conn,
+            "INSERT INTO threads VALUES (?, ?)",
+            vec![text(id), text(&format!("{{\"state\":\"{status}\"}}"))],
+        )
+        .unwrap();
+        stmt_cache::run(
+            conn,
+            "INSERT INTO thread_state VALUES (?, '{}', 0)",
+            vec![text(id)],
+        )
+        .unwrap();
+    }
+
+    fn intent(conn: &Arc<Connection>, id: &str, status: &str) {
+        stmt_cache::run(
+            conn,
+            "INSERT INTO intents (thread_id, status) VALUES (?, ?)",
+            vec![text(id), text(status)],
+        )
+        .unwrap();
+    }
+
+    fn queue(conn: &Arc<Connection>, id: &str) {
+        stmt_cache::run(
+            conn,
+            "INSERT INTO engine_queue (thread_id, continuation) VALUES (?, 'go')",
+            vec![text(id)],
+        )
+        .unwrap();
+    }
+
+    /// Runs one page's steps until it closes.
+    fn page(scan: &mut Scan, conn: &Arc<Connection>) -> Step {
+        loop {
+            if let Some(step) = scan.step(conn).unwrap() {
+                return step;
+            }
+        }
+    }
+
+    #[test]
+    fn a_page_that_matches_nothing_does_not_end_the_scan() {
+        let conn = database();
+        // Rows the intent source reads and the predicate refuses: a page can scan 256 of them,
+        // match none, and have candidates after it.
+        for index in 0..300 {
+            intent(&conn, &format!("t{index:04}"), "done");
+        }
+        thread(&conn, "t0300", "working");
+        intent(&conn, "t0300", "pending");
+        let mut scan = Scan::new(String::new());
+        // The first 256 rows match nothing, and their page is still open: a step that matched
+        // nothing does not end the scan.
+        assert!(
+            scan.step(&conn).unwrap().is_none(),
+            "a step that matches nothing neither closes a page nor ends the scan"
+        );
+        let first = page(&mut scan, &conn);
+        assert_eq!(first.threads, vec!["t0300".to_owned()]);
+        assert!(!first.done, "a page with candidates is not the end");
+        scan.restart("t0300");
+        assert!(page(&mut scan, &conn).done, "the empty page ends the scan");
+    }
+
+    #[test]
+    fn candidates_found_by_different_sources_come_out_once_in_thread_id_order() {
+        let conn = database();
+        thread(&conn, "b", "working");
+        thread(&conn, "c", "done");
+        // One thread in all three sources, and one only in the queue.
+        intent(&conn, "b", "pending");
+        queue(&conn, "b");
+        queue(&conn, "c");
+        thread(&conn, "a", "done");
+        intent(&conn, "a", "running");
+        let pages = pages(&conn).unwrap();
+        assert_eq!(
+            pages,
+            vec![vec!["a".to_owned(), "b".to_owned(), "c".to_owned()]]
+        );
+    }
+
+    #[test]
+    fn a_thread_an_earlier_recovery_made_a_candidate_is_recovered_in_the_same_pass() {
+        let conn = database();
+        thread(&conn, "a", "working");
+        for index in 0..80 {
+            thread(&conn, &format!("i{index:03}"), "done");
+        }
+        thread(&conn, "z", "done");
+        let mut scan = Scan::new(String::new());
+        let first = page(&mut scan, &conn);
+        assert_eq!(first.threads, vec!["a".to_owned()]);
+        // The recovery of `a` inserted a pending intent for a later thread.
+        intent(&conn, "z", "pending");
+        scan.restart("a");
+        let second = page(&mut scan, &conn);
+        assert_eq!(second.threads, vec!["z".to_owned()]);
+        assert!(!second.done);
+        scan.restart("z");
+        assert!(page(&mut scan, &conn).done);
+    }
+
+    #[test]
+    fn a_thread_a_recovery_makes_eligible_behind_an_advanced_cursor_is_recovered_in_the_next_page()
+    {
+        let conn = database();
+        for index in 0..64 {
+            thread(&conn, &format!("t{index:02}"), "working");
+        }
+        // Idle, and scanned past by every source while the first page is built.
+        thread(&conn, "u", "done");
+        let mut scan = Scan::new(String::new());
+        let first = page(&mut scan, &conn);
+        assert_eq!(first.threads.len(), 64);
+        assert!(!first.threads.contains(&"u".to_owned()));
+        // The probe's recovery of t00 inserts a pending intent for `u`, behind the cursors.
+        intent(&conn, "u", "pending");
+        scan.restart("t63");
+        let second = page(&mut scan, &conn);
+        assert_eq!(
+            second.threads,
+            vec!["u".to_owned()],
+            "the re-query starts at t63, not at the cursors"
+        );
+    }
+
+    #[test]
+    fn pages_close_at_64_candidates_as_the_typescripts_do() {
+        let conn = database();
+        for index in 0..2000 {
+            let status = if index < 130 { "working" } else { "done" };
+            thread(&conn, &format!("t{index:04}"), status);
+        }
+        let mut scan = Scan::new(String::new());
+        let mut sizes = Vec::new();
+        loop {
+            let step = page(&mut scan, &conn);
+            if step.done {
+                break;
+            }
+            let last = step.threads.last().cloned().unwrap_or_default();
+            sizes.push(step.threads.len());
+            scan.restart(last);
+        }
+        assert_eq!(sizes, vec![64, 64, 2]);
+    }
+
+    #[test]
+    fn a_partial_last_page_whose_recovery_makes_a_later_thread_eligible_is_followed_by_another_page()
+     {
+        let conn = database();
+        thread(&conn, "a", "working");
+        thread(&conn, "b", "working");
+        thread(&conn, "c", "working");
+        thread(&conn, "z", "done");
+        let mut scan = Scan::new(String::new());
+        let first = page(&mut scan, &conn);
+        assert_eq!(
+            first.threads,
+            vec!["a".to_owned(), "b".to_owned(), "c".to_owned()],
+            "the page closes at exhaustion, not at an empty step"
+        );
+        assert!(!first.done);
+        intent(&conn, "z", "pending");
+        scan.restart("c");
+        let second = page(&mut scan, &conn);
+        assert_eq!(second.threads, vec!["z".to_owned()]);
+        scan.restart("z");
+        let third = page(&mut scan, &conn);
+        assert!(third.done, "only the empty page ends the scan");
+        assert!(third.threads.is_empty());
+    }
+
+    #[test]
+    fn an_empty_thread_id_is_never_a_candidate() {
+        let conn = database();
+        thread(&conn, "", "working");
+        queue(&conn, "");
+        intent(&conn, "", "pending");
+        assert!(pages(&conn).unwrap().is_empty());
+    }
 }

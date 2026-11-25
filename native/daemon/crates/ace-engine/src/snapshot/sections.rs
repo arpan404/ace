@@ -41,6 +41,59 @@ pub fn native_runs(key: &str) -> String {
 pub const NATIVE_RUNS_PREFIX: &str = "nativeRuns:";
 
 impl Snapshot {
+    /// Load the records a batch names into the state before the core folds it, so a reopened
+    /// thread folds onto its stored agent, item, run, interaction and task rather than creating
+    /// a placeholder. The lazy sections stay the one record cache: this only reads the keys the
+    /// batch names, and [`Snapshot::adopt`] hands them back after the fold.
+    pub fn hydrate(&mut self, touched: &super::touched::Touched) -> Result<(), EngineError> {
+        for key in touched.agents.iter() {
+            // A fact names the agent key; an event names its id. Either resolves to the key.
+            let key = match self.state.indexes.agent_keys_by_id.get(key) {
+                Some(key) => key.clone(),
+                None => key.clone(),
+            };
+            if self.state.agents.contains_key(&key) {
+                continue;
+            }
+            if let Some(record) = self.agents.read(&key)? {
+                self.state.agents.insert(key, record);
+            }
+        }
+        for key in touched.items.iter() {
+            if self.state.items.contains_key(key) {
+                continue;
+            }
+            if let Some(item) = self.items.read(key)? {
+                self.state.items.insert(key.clone(), item);
+            }
+        }
+        for key in touched.runs.iter() {
+            if self.state.runs.contains_key(key) {
+                continue;
+            }
+            if let Some(run) = self.runs.read(key)? {
+                self.state.runs.insert(key.clone(), run);
+            }
+        }
+        for key in touched.interactions.iter() {
+            if self.state.interactions.contains_key(key) {
+                continue;
+            }
+            if let Some(interaction) = self.interactions.read(key)? {
+                self.state.interactions.insert(key.clone(), interaction);
+            }
+        }
+        for key in touched.tasks.iter() {
+            if self.state.tasks.contains_key(key) {
+                continue;
+            }
+            if let Some(task) = self.tasks.read(key)? {
+                self.state.tasks.insert(key.clone(), task);
+            }
+        }
+        Ok(())
+    }
+
     /// Copy the state's current values for the keys a batch touched into their sections, which
     /// is what the TypeScript's record proxies see as the fold mutates them in place. A value
     /// fetched for writing but left unchanged writes nothing (persist compares the base JSON).
