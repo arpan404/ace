@@ -1,4 +1,9 @@
-import { hasRunningForegroundCommand, hasRunningForegroundCommandInTree, type Fact, type ThreadState } from "@ace/core";
+import {
+  hasRunningForegroundCommand,
+  hasRunningForegroundCommandInTree,
+  type Fact,
+  type ThreadState,
+} from "@ace/core";
 import type { InputSource, ProviderSession } from "@ace/engine-api";
 import type { Capabilities } from "@ace/protocol";
 import type { IntentHeader } from "./repository.ts";

@@ -1,6 +1,11 @@
 import { attachmentEcho } from "./attachment-echo.ts";
 import { markYieldedEnd, type SteerYield } from "./steer-yield.ts";
-import { hasRunningForegroundCommand, hasRunningForegroundCommandInTree, type Fact, type ThreadState } from "@ace/core";
+import {
+  hasRunningForegroundCommand,
+  hasRunningForegroundCommandInTree,
+  type Fact,
+  type ThreadState,
+} from "@ace/core";
 import type { Frame, ProviderSession, Translator } from "@ace/engine-api";
 import type { ThreadId, EventPayload, Capabilities } from "@ace/protocol";
 import { z } from "zod";
@@ -388,7 +393,8 @@ export class ThreadActor {
           // native child's command too.
           const beforeCommand = this.repo.requireState(this.id);
           const commandRunning = toolBoundary && hasRunningForegroundCommand(beforeCommand);
-          const treeCommandRunning = toolBoundary && hasRunningForegroundCommandInTree(beforeCommand);
+          const treeCommandRunning =
+            toolBoundary && hasRunningForegroundCommandInTree(beforeCommand);
           // A streamable stretch goes to the live buffer without a transaction of its own.
           const streamed = (streamedFacts ??=
             !cursorSdk && this.repo.stream(this.id, facts, this.clock.now()));
