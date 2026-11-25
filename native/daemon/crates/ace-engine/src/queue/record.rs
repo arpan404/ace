@@ -5,6 +5,8 @@
 
 use ace_json::Value;
 
+use crate::EngineError;
+
 pub const REASONS: [&str; 8] = [
     "manual",
     "restart",
@@ -87,6 +89,49 @@ impl RecoveryRecord {
         }
         map.insert("resumeAt", self.resume_at.map_or(Value::Null, Value::from));
         Value::Object(map)
+    }
+
+    /// `RecoveryRecord.parse`'s strictness over a stored row: the enums, the non-negative
+    /// numbers, and the continuation's UTF-16 cap.
+    pub fn validate(&self) -> Result<(), EngineError> {
+        let invalid = || EngineError::Records("Invalid queue metadata".into());
+        if self.pending_count < 0 || self.revision < 0 || self.hold_token < 0 {
+            return Err(invalid());
+        }
+        if self.reset_at.is_some_and(|value| value < 0)
+            || self.resume_at.is_some_and(|value| value < 0)
+        {
+            return Err(invalid());
+        }
+        if self
+            .reason
+            .as_deref()
+            .is_some_and(|reason| !REASONS.contains(&reason))
+        {
+            return Err(invalid());
+        }
+        if self
+            .timer_action
+            .as_deref()
+            .is_some_and(|action| !TIMER_ACTIONS.contains(&action))
+        {
+            return Err(invalid());
+        }
+        if self
+            .trigger
+            .as_deref()
+            .is_some_and(|trigger| !TRIGGERS.contains(&trigger))
+        {
+            return Err(invalid());
+        }
+        if self
+            .continuation
+            .as_deref()
+            .is_some_and(|text| text.encode_utf16().count() > CONTINUATION_UNITS)
+        {
+            return Err(invalid());
+        }
+        Ok(())
     }
 
     /// The `QueueInfo` subset E5.3's fold reads.

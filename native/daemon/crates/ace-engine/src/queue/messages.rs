@@ -205,3 +205,66 @@ pub fn uncertain(conn: &Arc<ace_store::Connection>, intent: u32) -> Result<(), E
     )?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::repository::testsupport::{Shell, header, home, sql_text};
+
+    fn send(id: &str) -> String {
+        format!(
+            r#"{{"id":"{id}","deviceId":"device","payload":{{"type":"thread.send","threadId":"move","input":[{{"type":"text","text":"{id}"}}]}}}}"#
+        )
+    }
+
+    fn store() -> crate::EngineStore {
+        let conn = home("move", &header("move"));
+        for (position, id) in ["one", "two", "three"].into_iter().enumerate() {
+            conn.exec(&format!(
+                "INSERT INTO intents (command_id,thread_id,kind,payload,status,delivery,position) \
+                 VALUES ({}, 'move', 'thread.send', {}, 'pending', 'queue', {})",
+                sql_text(id),
+                sql_text(&send(id)),
+                position + 1
+            ))
+            .unwrap();
+        }
+        Shell::store(&conn)
+    }
+
+    fn order(store: &crate::EngineStore) -> Vec<String> {
+        let rows = stmt_cache::all_rows(
+            store.conn(),
+            "SELECT command_id FROM intents WHERE thread_id='move' ORDER BY position,id",
+            Vec::new(),
+        )
+        .unwrap();
+        rows.iter()
+            .filter_map(|row| row.get("command_id").and_then(cell_text).map(str::to_owned))
+            .collect()
+    }
+
+    fn id(command: &str) -> u32 {
+        match command {
+            "one" => 1,
+            "two" => 2,
+            _ => 3,
+        }
+    }
+
+    #[test]
+    fn a_move_reorders_only_the_people_messages_it_names() {
+        let store = store();
+        // To the front.
+        assert!(move_message(store.conn(), "move", id("three"), None).unwrap());
+        assert_eq!(order(&store), vec!["three", "one", "two"]);
+        // Directly after a message.
+        assert!(move_message(store.conn(), "move", id("one"), Some(id("two"))).unwrap());
+        assert_eq!(order(&store), vec!["three", "two", "one"]);
+        // Itself, an unknown message and an unknown anchor are refused without changes.
+        assert!(!move_message(store.conn(), "move", id("two"), Some(id("two"))).unwrap());
+        assert!(!move_message(store.conn(), "move", 99, None).unwrap());
+        assert!(!move_message(store.conn(), "move", id("two"), Some(99)).unwrap());
+        assert_eq!(order(&store), vec!["three", "two", "one"]);
+    }
+}

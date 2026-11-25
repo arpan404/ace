@@ -104,7 +104,7 @@ pub fn get(store: &EngineStore, thread: &str) -> Result<RecoveryRecord, EngineEr
         .and_then(cell_text)
         .map(str::to_owned);
     let uncertain_recovery = uncertain_recovery(conn, thread)?;
-    Ok(RecoveryRecord {
+    let record = RecoveryRecord {
         pending_count: pending + i64::from(continuation.is_some() && !uncertain_recovery),
         revision: row.get("revision").and_then(cell_int).unwrap_or(0),
         paused: row.get("paused").and_then(cell_int) == Some(1),
@@ -124,7 +124,9 @@ pub fn get(store: &EngineStore, thread: &str) -> Result<RecoveryRecord, EngineEr
             .map(str::to_owned),
         continuation,
         trigger: row.get("trigger").and_then(cell_text).map(str::to_owned),
-    })
+    };
+    record.validate()?;
+    Ok(record)
 }
 
 /// `shown` (`:137`).
@@ -199,24 +201,29 @@ pub fn reconcile_uncertainty(
     at: f64,
 ) -> Result<(), EngineError> {
     let value = get(store, thread)?;
-    let patch =
-        if value.reason.as_deref() == Some("uncertain") && !has_uncertain(store.conn(), thread)? {
-            let reason = if value.limited {
-                "limit"
-            } else if value.continuation.is_some() {
-                if value.trigger.as_deref() == Some("limit_resume") {
-                    "limit"
-                } else {
-                    "restart"
-                }
-            } else {
-                "manual"
-            };
-            format!("{{\"reason\":\"{reason}\",\"paused\":true}}")
-        } else {
-            "{}".to_owned()
-        };
+    let patch = match reconciled_reason(&value, has_uncertain(store.conn(), thread)?) {
+        Some(reason) => format!("{{\"reason\":\"{reason}\",\"paused\":true}}"),
+        None => "{}".to_owned(),
+    };
     set(store, thread, &patch, at)
+}
+
+/// The reason only an ambiguity hold moves to, or none when it is not the one held.
+fn reconciled_reason(value: &RecoveryRecord, has_uncertain: bool) -> Option<&'static str> {
+    if value.reason.as_deref() != Some("uncertain") || has_uncertain {
+        return None;
+    }
+    Some(if value.limited {
+        "limit"
+    } else if value.continuation.is_some() {
+        if value.trigger.as_deref() == Some("limit_resume") {
+            "limit"
+        } else {
+            "restart"
+        }
+    } else {
+        "manual"
+    })
 }
 
 #[cfg(test)]
@@ -273,5 +280,50 @@ mod tests {
             crate::intents::store::runnable_threads(store.conn(), 8).unwrap(),
             vec!["noqueue".to_owned()]
         );
+    }
+}
+
+#[cfg(test)]
+mod reconcile_tests {
+    use super::*;
+
+    fn held(limited: bool, continuation: Option<&str>, trigger: Option<&str>) -> RecoveryRecord {
+        RecoveryRecord {
+            paused: true,
+            reason: Some("uncertain".into()),
+            limited,
+            continuation: continuation.map(str::to_owned),
+            trigger: trigger.map(str::to_owned),
+            ..RecoveryRecord::defaults(0)
+        }
+    }
+
+    #[test]
+    fn only_the_uncertainty_hold_moves_and_keeps_its_own_reason() {
+        // A limit wins over a continuation; a continuation says why it is held; with neither
+        // the hold becomes the person's. A hold another reason keeps, or one still ambiguous,
+        // does not move.
+        assert_eq!(
+            reconciled_reason(&held(true, Some("go on"), Some("restart")), false),
+            Some("limit")
+        );
+        assert_eq!(
+            reconciled_reason(&held(false, Some("go on"), Some("limit_resume")), false),
+            Some("limit")
+        );
+        assert_eq!(
+            reconciled_reason(&held(false, Some("go on"), Some("restart")), false),
+            Some("restart")
+        );
+        assert_eq!(
+            reconciled_reason(&held(false, None, None), false),
+            Some("manual")
+        );
+        assert_eq!(reconciled_reason(&held(true, None, None), true), None);
+        let manual = RecoveryRecord {
+            reason: Some("manual".into()),
+            ..held(false, None, None)
+        };
+        assert_eq!(reconciled_reason(&manual, false), None);
     }
 }

@@ -280,6 +280,82 @@ mod tests {
         assert!(message.get("context").is_none());
     }
 
+    fn send_with(id: &str, text: &str) -> String {
+        let mut payload = Map::new();
+        payload.insert("type", Value::from("thread.send"));
+        payload.insert("threadId", Value::from("page"));
+        payload.insert("input", Value::Array(vec![Value::from(text)].into()));
+        let mut command = Map::new();
+        command.insert("id", Value::from(id));
+        command.insert("payload", Value::Object(payload));
+        ace_json::to_string(&Value::Object(command))
+    }
+
+    fn insert(
+        conn: &std::sync::Arc<ace_store::Connection>,
+        command: &str,
+        text: &str,
+        position: i64,
+    ) {
+        let sql = format!(
+            "INSERT INTO intents (command_id,thread_id,kind,payload,status,delivery,position) VALUES ({}, 'page', 'thread.send', {}, 'pending', 'queue', {position})",
+            crate::repository::testsupport::sql_text(command),
+            crate::repository::testsupport::sql_text(&send_with(command, text))
+        );
+        conn.exec(&sql).unwrap();
+    }
+
+    fn open_home() -> crate::EngineStore {
+        let conn = crate::repository::testsupport::home(
+            "page",
+            &crate::repository::testsupport::header("page"),
+        );
+        crate::repository::testsupport::Shell::store(&conn)
+    }
+
+    fn request(limit: i64) -> Value {
+        let mut map = Map::new();
+        map.insert("threadId", Value::from("page"));
+        map.insert("limit", Value::from(limit));
+        Value::Object(map)
+    }
+
+    #[test]
+    fn the_page_budget_always_keeps_the_first_message() {
+        let store = open_home();
+        // One message bigger than 512 KiB, then a small one: the first is kept anyway.
+        insert(store.conn(), "big", &"x".repeat(PAGE_BYTES + 10), 1);
+        insert(store.conn(), "small", "after", 2);
+        let page = page(&store, &request(32)).unwrap();
+        let messages = page.get("messages").and_then(Value::as_array).unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].get("id").and_then(Value::as_str), Some("big"));
+        assert_eq!(page.get("next").and_then(Value::as_str), Some("big"));
+    }
+
+    #[test]
+    fn next_is_set_only_when_a_row_was_left_over() {
+        let store = open_home();
+        insert(store.conn(), "one", "first", 1);
+        insert(store.conn(), "two", "second", 2);
+        let one = page(&store, &request(1)).unwrap();
+        assert_eq!(
+            one.get("messages")
+                .and_then(Value::as_array)
+                .map(|messages| messages.len()),
+            Some(1)
+        );
+        assert_eq!(one.get("next").and_then(Value::as_str), Some("one"));
+        let both = page(&store, &request(2)).unwrap();
+        assert_eq!(
+            both.get("messages")
+                .and_then(Value::as_array)
+                .map(|messages| messages.len()),
+            Some(2)
+        );
+        assert_eq!(both.get("next"), Some(&Value::Null));
+    }
+
     #[test]
     fn a_recovery_message_shows_the_continue_text() {
         let mut payload = Map::new();
