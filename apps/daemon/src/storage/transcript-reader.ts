@@ -19,14 +19,20 @@ export class TranscriptReader {
   private stopped = false;
   private readonly root: string;
   private readonly spawn: (entry: URL) => ChildProcess;
+  /** One slot: a read that arrives while another is in flight waits instead of failing. */
+  private chain: Promise<unknown> = Promise.resolve();
   constructor(root: string, spawn = start) {
     this.root = root;
     this.spawn = spawn;
   }
-  async read(threads: readonly ThreadId[]): Promise<number[]> {
+  read(threads: readonly ThreadId[]): Promise<number[]> {
+    const run = this.chain.then(() => this.measure(threads));
+    this.chain = run.catch(() => {});
+    return run;
+  }
+  private async measure(threads: readonly ThreadId[]): Promise<number[]> {
     await this.reaping;
     if (this.stopped) throw new Error("storage_usage_cancelled");
-    if (this.pending) throw new Error("storage_busy");
     if (!threads.length) return [];
     clearTimeout(this.idle);
     const worker = (this.worker ??= this.open());
