@@ -358,3 +358,24 @@ the shell that wires it, and the TypeScript that stays is the switch-off path un
   install still cannot publish its staging copy.
 - **The catalog check reads Rust too**, and the tool words are resolved once per install: a
   missing key is an error, never an empty hint.
+
+## 11. D3.1 round-6 review fixes (2026-11-25)
+
+- **Chunk framing cannot overflow or size an allocation from the wire.** A chunk larger than the
+  remaining byte budget is refused with `size > limit - len`, and its body is read through a fixed
+  buffer; a chunk that does not end in CRLF is refused.
+- **Framing follows HTTP/1.1.** Differing duplicate `Content-Length` values are refused, and the
+  only accepted transfer coding is `chunked` alone (no decoder exists for another).
+- **Proxies follow Bun's documented rule** (bun.com/docs/runtime/networking/fetch.md, "Proxying
+  requests"): `HTTP_PROXY` for http, `HTTPS_PROXY` for https, either case, `ALL_PROXY` when the
+  scheme's variable is unset, `no_proxy` before `NO_PROXY`, comma or whitespace entries including
+  `host:443` and IPv6 forms. Credentials in the proxy URL are percent-decoded into a Basic
+  `Proxy-Authorization` on CONNECT and on absolute-form requests, and never logged. A variable
+  that cannot be parsed is an install error, an https proxy is refused with a clear error, and a
+  socks value is ignored as Bun ignores one.
+- **Redirects stay on HTTP(S).** Only http and https are followed on every hop, and an HTTPS
+  response never downgrades to HTTP.
+- **IPv6 literal hosts work.** SNI and the TLS name use the bare address, while `Host` and
+  `CONNECT` use the bracketed form, and a `no_proxy` entry of `::1` is a host, not a port.
+- **A `#[cfg(test)]` item is blanked, not the rest of its file.** The catalog check's Rust scan
+  resumes after the item, with a unit test for brace-laden test bodies.

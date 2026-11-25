@@ -21,15 +21,46 @@ trait Stream: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Stream for T {}
 
 /// The proxy settings a request may take, read from the environment or given by a test.
-#[derive(Debug, Clone, Default)]
+///
+/// Bun's rule (bun.com/docs/runtime/networking/fetch.md, "Proxying requests"): `HTTP_PROXY` for
+/// `http:` and `HTTPS_PROXY` for `https:`, either case, with `ALL_PROXY` when the scheme's
+/// variable is unset; a value naming another kind of proxy (socks5) is ignored; `no_proxy` is
+/// read when `NO_PROXY` is unset or empty, with comma or whitespace separated entries.
+#[derive(Clone, Default)]
 pub struct ProxyEnv {
     http: Option<String>,
     https: Option<String>,
+    all: Option<String>,
     no_proxy: Vec<String>,
 }
 
+impl std::fmt::Debug for ProxyEnv {
+    /// The proxy URL may hold a password: it never reaches a log line.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ProxyEnv")
+            .field("http", &self.http.as_deref().map(redact))
+            .field("https", &self.https.as_deref().map(redact))
+            .field("all", &self.all.as_deref().map(redact))
+            .field("no_proxy", &self.no_proxy)
+            .finish()
+    }
+}
+
+/// A proxy URL without its credentials, for logs and errors.
+fn redact(url: &str) -> String {
+    match Url::parse(url) {
+        Ok(mut parsed) if !parsed.username().is_empty() || parsed.password().is_some() => {
+            let _ = parsed.set_username("");
+            let _ = parsed.set_password(None);
+            parsed.to_string()
+        }
+        _ => url.to_string(),
+    }
+}
+
 impl ProxyEnv {
-    /// The variables Bun's fetch reads, case-insensitively as the platform spells them.
+    /// The variables Bun's fetch reads, each time a request is made.
     pub fn from_env() -> Self {
         Self::from_lookup(|name| std::env::var(name).ok())
     }
@@ -39,67 +70,159 @@ impl ProxyEnv {
         Self::from_lookup(|name| {
             pairs
                 .iter()
-                .find(|(key, _)| key.eq_ignore_ascii_case(name))
+                .find(|(key, _)| *key == name)
                 .map(|(_, value)| value.to_string())
         })
     }
 
     fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Self {
-        let first = |names: [&str; 2]| {
-            names
-                .iter()
-                .find_map(|name| lookup(name))
-                .filter(|v| !v.is_empty())
+        // A lowercase name wins, then the uppercase one; an empty value is unset.
+        let named = |lower: &str, upper: &str| {
+            lookup(lower)
+                .filter(|value| !value.is_empty())
+                .or_else(|| lookup(upper).filter(|value| !value.is_empty()))
         };
-        let no_proxy = lookup("NO_PROXY")
-            .or_else(|| lookup("no_proxy"))
+        let no_proxy = named("no_proxy", "NO_PROXY")
             .map(|value| {
                 value
-                    .split(',')
+                    .split([',', ' ', '\t', '\n'])
                     .map(|entry| entry.trim().to_ascii_lowercase())
                     .filter(|entry| !entry.is_empty())
                     .collect()
             })
             .unwrap_or_default();
         Self {
-            http: first(["HTTP_PROXY", "http_proxy"]),
-            https: first(["HTTPS_PROXY", "https_proxy"]),
+            http: named("http_proxy", "HTTP_PROXY"),
+            https: named("https_proxy", "HTTPS_PROXY"),
+            all: named("all_proxy", "ALL_PROXY"),
             no_proxy,
         }
     }
 
-    /// The proxy a URL goes through, or `None` for a direct connection.
-    fn proxy_for(&self, url: &Url) -> Option<Url> {
-        let host = url.host_str()?.to_ascii_lowercase();
-        if self.excluded(&host, url.port()) {
-            return None;
+    /// The proxy a URL goes through, `None` for a direct connection, or the caller's error for a
+    /// variable that cannot be used.
+    fn proxy_for(&self, url: &Url) -> Result<Option<Url>, Error> {
+        let host = host_parts(url)?.bare;
+        if self.excluded(&host, url.port_or_known_default()) {
+            return Ok(None);
         }
         let raw = match url.scheme() {
-            "https" => self.https.clone().or_else(|| self.http.clone()),
-            "http" => self.http.clone(),
+            "https" => self.https.clone().or_else(|| self.all.clone()),
+            "http" => self.http.clone().or_else(|| self.all.clone()),
             _ => None,
-        }?;
-        Url::parse(&raw).ok()
+        };
+        let Some(raw) = raw else {
+            return Ok(None);
+        };
+        let parsed = Url::parse(&raw).map_err(|error| {
+            invalid(format!(
+                "the proxy URL {} is not valid: {error}",
+                redact(&raw)
+            ))
+        })?;
+        match parsed.scheme() {
+            // Bun ignores a value that names another kind of proxy, such as socks5://.
+            "http" => Ok(Some(parsed)),
+            "https" => Err(invalid(
+                "an https:// proxy is not supported; use an http:// CONNECT proxy".to_string(),
+            )),
+            _ => Ok(None),
+        }
     }
 
+    /// `no_proxy` entries: `*`, a domain (with its subdomains), an IP, or `host:port`.
     fn excluded(&self, host: &str, port: Option<u16>) -> bool {
         self.no_proxy.iter().any(|entry| {
             if entry == "*" {
                 return true;
             }
-            let (name, allowed_port) = match entry.rsplit_once(':') {
-                Some((name, value)) if value.chars().all(|c| c.is_ascii_digit()) => {
-                    (name, value.parse::<u16>().ok())
-                }
-                _ => (entry.as_str(), None),
-            };
+            let (name, allowed_port) = split_no_proxy_entry(entry);
             if allowed_port.is_some() && allowed_port != port {
                 return false;
             }
-            let name = name.trim_start_matches('.');
+            let name = name.trim_start_matches("*.").trim_start_matches('.');
             host == name || host.ends_with(&format!(".{name}"))
         })
     }
+}
+
+/// A `no_proxy` entry's host and optional port. An unbracketed IPv6 literal has no port: its
+/// colons are not separators.
+fn split_no_proxy_entry(entry: &str) -> (&str, Option<u16>) {
+    if let Some(rest) = entry.strip_prefix('[') {
+        return match rest.split_once(']') {
+            Some((host, suffix)) => match suffix.strip_prefix(':') {
+                Some(port) => (host, port.parse::<u16>().ok()),
+                None if suffix.is_empty() => (host, None),
+                None => (host, None),
+            },
+            None => (entry, None),
+        };
+    }
+    if entry.matches(':').count() == 1
+        && let Some((host, port)) = entry.rsplit_once(':')
+        && !port.is_empty()
+        && port.chars().all(|c| c.is_ascii_digit())
+    {
+        return (host, port.parse::<u16>().ok());
+    }
+    (entry, None)
+}
+
+/// A URL's host, bare for TLS and SNI and bracketed for `Host`/`CONNECT`.
+struct HostParts {
+    bare: String,
+    authority: String,
+}
+
+fn host_parts(url: &Url) -> Result<HostParts, Error> {
+    match url.host() {
+        Some(url::Host::Domain(domain)) => Ok(HostParts {
+            bare: domain.to_string(),
+            authority: domain.to_string(),
+        }),
+        Some(url::Host::Ipv4(address)) => Ok(HostParts {
+            bare: address.to_string(),
+            authority: address.to_string(),
+        }),
+        Some(url::Host::Ipv6(address)) => Ok(HostParts {
+            bare: address.to_string(),
+            authority: format!("[{address}]"),
+        }),
+        None => Err(invalid("the URL names no host".to_string())),
+    }
+}
+
+/// `%XX` escapes as Bun decodes proxy credentials.
+fn percent_decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%'
+            && index + 2 < bytes.len()
+            && let Ok(byte) = u8::from_str_radix(&text[index + 1..index + 3], 16)
+        {
+            decoded.push(byte);
+            index += 3;
+            continue;
+        }
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&decoded).into_owned()
+}
+
+/// The `Proxy-Authorization` a proxy URL's userinfo asks for, if any.
+fn proxy_authorization(proxy: &Url) -> Option<String> {
+    let user = percent_decode(proxy.username());
+    let password = proxy.password().map(percent_decode).unwrap_or_default();
+    if user.is_empty() && password.is_empty() {
+        return None;
+    }
+    use base64::Engine as _;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(format!("{user}:{password}"));
+    Some(format!("Basic {encoded}"))
 }
 
 /// A download client: one TLS configuration and proxy selection, shared by every request.
@@ -177,6 +300,16 @@ impl Client {
         let mut current = Url::parse(url)
             .map_err(|error| invalid(format!("{label} URL is not valid: {error}")))?;
         for _ in 0..10 {
+            if !matches!(current.scheme(), "http" | "https") {
+                return Err(bad(
+                    &self.hint,
+                    label,
+                    &format!(
+                        "refusing a redirect to {}; only http and https are followed",
+                        current.scheme()
+                    ),
+                ));
+            }
             let downgrade = current.scheme() == "https";
             let response = self.once(&current, limit, label).await?;
             match response.status {
@@ -214,35 +347,37 @@ impl Client {
     }
 
     async fn once(&self, url: &Url, limit: u64, label: &str) -> Result<Response, Error> {
-        let host = url
-            .host_str()
-            .ok_or_else(|| invalid(format!("{label} URL names no host")))?;
+        let parts = host_parts(url)?;
+        let host = parts.bare.clone();
         let port = url
             .port_or_known_default()
             .ok_or_else(|| invalid(format!("{label} URL names no port")))?;
-        let proxy = self.proxy.proxy_for(url);
+        let proxy = self.proxy.proxy_for(url)?;
         let absolute = matches!((url.scheme(), &proxy), ("http", Some(_)));
         let stream = match &proxy {
             Some(proxy) => {
-                let proxy_host = proxy
-                    .host_str()
-                    .ok_or_else(|| invalid(format!("{label} proxy names no host")))?;
+                let proxy_parts = host_parts(proxy)?;
                 let proxy_port = proxy
                     .port_or_known_default()
                     .ok_or_else(|| invalid(format!("{label} proxy names no port")))?;
-                let mut tunnel =
-                    TcpStream::connect((proxy_host, proxy_port))
-                        .await
-                        .map_err(|error| {
-                            bad(&self.hint, label, &format!("download failed: {error}"))
-                        })?;
+                let authorization = proxy_authorization(proxy);
+                let mut tunnel = TcpStream::connect((proxy_parts.bare.as_str(), proxy_port))
+                    .await
+                    .map_err(|error| {
+                        bad(&self.hint, label, &format!("download failed: {error}"))
+                    })?;
                 if absolute {
                     Box::new(tunnel) as Box<dyn Stream>
                 } else {
-                    // The authority the proxy connects to, then TLS inside the tunnel.
-                    let authority = format!("{host}:{port}");
-                    let request =
-                        format!("CONNECT {authority} HTTP/1.1\r\nhost: {authority}\r\n\r\n");
+                    // The authority the proxy connects to, then TLS inside the tunnel. CONNECT
+                    // always names the port, even the scheme's default.
+                    let authority = format!("{}:{port}", parts.authority);
+                    let authorization = authorization
+                        .map(|value| format!("proxy-authorization: {value}\r\n"))
+                        .unwrap_or_default();
+                    let request = format!(
+                        "CONNECT {authority} HTTP/1.1\r\nhost: {authority}\r\n{authorization}\r\n"
+                    );
                     tunnel
                         .write_all(request.as_bytes())
                         .await
@@ -266,15 +401,17 @@ impl Client {
                         ));
                     }
                     skip_headers(&mut tunnel, &mut seen, label, &self.hint).await?;
-                    self.tls(host, tunnel, label).await?
+                    self.tls(&host, tunnel, label).await?
                 }
             }
             None => {
-                let socket = TcpStream::connect((host, port)).await.map_err(|error| {
-                    bad(&self.hint, label, &format!("download failed: {error}"))
-                })?;
+                let socket = TcpStream::connect((host.as_str(), port))
+                    .await
+                    .map_err(|error| {
+                        bad(&self.hint, label, &format!("download failed: {error}"))
+                    })?;
                 if url.scheme() == "https" {
-                    self.tls(host, socket, label).await?
+                    self.tls(&host, socket, label).await?
                 } else {
                     Box::new(socket)
                 }
@@ -292,11 +429,20 @@ impl Client {
             target
         };
         let authority = match url.port() {
-            Some(port) => format!("{host}:{port}"),
-            None => host.to_string(),
+            Some(port) => format!("{}:{port}", parts.authority),
+            None => parts.authority.clone(),
+        };
+        let authorization = if absolute {
+            proxy
+                .as_ref()
+                .and_then(proxy_authorization)
+                .map(|value| format!("proxy-authorization: {value}\r\n"))
+                .unwrap_or_default()
+        } else {
+            String::new()
         };
         let request = format!(
-            "GET {target} HTTP/1.1\r\nhost: {authority}\r\nconnection: close\r\naccept: */*\r\nuser-agent: ace-devices\r\n\r\n"
+            "GET {target} HTTP/1.1\r\nhost: {authority}\r\n{authorization}connection: close\r\naccept: */*\r\nuser-agent: ace-devices\r\n\r\n"
         );
         stream
             .write_all(request.as_bytes())
@@ -313,12 +459,32 @@ impl Client {
         let status = parse_status(&status_line)
             .ok_or_else(|| bad(&self.hint, label, "download failed: no HTTP status"))?;
         let headers = read_headers(&mut stream, &mut head_bytes, label, &self.hint).await?;
-        let chunked = headers
-            .get("transfer-encoding")
-            .is_some_and(|value| value.to_ascii_lowercase().contains("chunked"));
+        let chunked = match headers.get("transfer-encoding") {
+            None => false,
+            Some(value) => {
+                let codings: Vec<String> = value
+                    .split(',')
+                    .map(|coding| coding.trim().to_ascii_lowercase())
+                    .collect();
+                // No other transfer coding has a decoder here, and `chunked` must come last.
+                if codings.len() != 1 || codings[0] != "chunked" {
+                    return Err(bad(
+                        &self.hint,
+                        label,
+                        &format!("download failed: unsupported transfer coding {value:?}"),
+                    ));
+                }
+                true
+            }
+        };
         let length = headers
             .get("content-length")
-            .and_then(|value| value.parse::<u64>().ok());
+            .map(|value| {
+                value
+                    .parse::<u64>()
+                    .map_err(|_| bad(&self.hint, label, "download failed: bad content-length"))
+            })
+            .transpose()?;
         let mut body = Vec::new();
         if chunked {
             loop {
@@ -328,7 +494,7 @@ impl Client {
                     read_head_line(&mut stream, 256, &mut chunk_seen, label, &self.hint).await?;
                 // A chunk-size line may carry extensions after `;`.
                 let size_text = line.trim().split(';').next().unwrap_or_default();
-                let size = usize::from_str_radix(size_text, 16)
+                let size = u64::from_str_radix(size_text, 16)
                     .map_err(|_| bad(&self.hint, label, "download failed: bad chunk"))?;
                 if size == 0 {
                     // Trailers end at the blank line, bounded like the headers.
@@ -336,18 +502,34 @@ impl Client {
                     skip_headers(&mut stream, &mut trailer_seen, label, &self.hint).await?;
                     break;
                 }
-                if body.len() as u64 + size as u64 > limit {
+                // `size > limit - len` cannot overflow, and no buffer is sized from the wire.
+                if size > limit.saturating_sub(body.len() as u64) {
                     return Err(bad(&self.hint, label, "download is too large"));
                 }
-                let mut chunk = vec![0u8; size];
-                stream.read_exact(&mut chunk).await.map_err(|error| {
-                    bad(&self.hint, label, &format!("download failed: {error}"))
-                })?;
-                body.extend_from_slice(&chunk);
+                let mut left = size;
+                let mut buffer = [0u8; 16 * 1024];
+                while left > 0 {
+                    let take = left.min(buffer.len() as u64) as usize;
+                    stream
+                        .read_exact(&mut buffer[..take])
+                        .await
+                        .map_err(|error| {
+                            bad(&self.hint, label, &format!("download failed: {error}"))
+                        })?;
+                    body.extend_from_slice(&buffer[..take]);
+                    left -= take as u64;
+                }
                 let mut tail = [0u8; 2];
                 stream.read_exact(&mut tail).await.map_err(|error| {
                     bad(&self.hint, label, &format!("download failed: {error}"))
                 })?;
+                if tail != *b"\r\n" {
+                    return Err(bad(
+                        &self.hint,
+                        label,
+                        "download failed: a chunk did not end in CRLF",
+                    ));
+                }
             }
         } else if let Some(length) = length {
             if length > limit {
@@ -448,7 +630,34 @@ async fn read_headers<R: AsyncRead + Unpin>(
             return Ok(headers);
         }
         if let Some((name, value)) = line.split_once(':') {
-            headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_string());
+            let name = name.trim().to_ascii_lowercase();
+            let value = value.trim().to_string();
+            match name.as_str() {
+                "content-length" => match headers.get("content-length") {
+                    Some(existing) if existing != &value => {
+                        return Err(bad(
+                            hint,
+                            label,
+                            "download failed: conflicting content-length headers",
+                        ));
+                    }
+                    Some(_) => {}
+                    None => {
+                        headers.insert(name, value);
+                    }
+                },
+                // Several transfer-encoding headers name one coding list, in order.
+                "transfer-encoding" => {
+                    let joined = match headers.get("transfer-encoding") {
+                        Some(existing) => format!("{existing}, {value}"),
+                        None => value,
+                    };
+                    headers.insert(name, joined);
+                }
+                _ => {
+                    headers.insert(name, value);
+                }
+            }
         }
     }
 }
@@ -614,38 +823,163 @@ sNKg9MDYnS847JT+lnvPBormSOSC",
     }
 
     #[test]
-    fn the_proxy_selection_follows_https_and_no_proxy() {
+    fn the_proxy_selection_follows_buns_rules() {
+        let url = |text: &str| Url::parse(text).expect("url");
         let proxy = ProxyEnv::from_pairs(&[
             ("HTTPS_PROXY", "http://proxy.local:8080"),
-            ("NO_PROXY", "example.com, .internal.test, secure.test:8443"),
+            (
+                "NO_PROXY",
+                "example.com, .internal.test, secure.test:8443, 127.0.0.1",
+            ),
         ]);
-        let url = |text: &str| Url::parse(text).expect("url");
         assert_eq!(
             proxy
                 .proxy_for(&url("https://registry.npmjs.org/x"))
+                .expect("proxy")
                 .map(|u| u.to_string()),
             Some("http://proxy.local:8080/".to_string())
         );
-        assert!(proxy.proxy_for(&url("https://example.com/x")).is_none());
-        assert!(proxy.proxy_for(&url("https://a.internal.test/x")).is_none());
+        assert!(
+            proxy
+                .proxy_for(&url("https://example.com/x"))
+                .expect("proxy")
+                .is_none()
+        );
+        assert!(
+            proxy
+                .proxy_for(&url("https://a.internal.test/x"))
+                .expect("proxy")
+                .is_none()
+        );
         assert!(
             proxy
                 .proxy_for(&url("https://secure.test:8443/x"))
+                .expect("proxy")
                 .is_none()
         );
-        assert!(proxy.proxy_for(&url("https://anything.test/x")).is_some());
-        let wildcard = ProxyEnv::from_pairs(&[
+        // A NO_PROXY entry with 443 matches https://host/ whose port is not in the URL.
+        let by_port = ProxyEnv::from_pairs(&[
             ("HTTPS_PROXY", "http://proxy.local:8080"),
-            ("NO_PROXY", "*"),
+            ("NO_PROXY", "example.com:443"),
         ]);
+        assert!(
+            by_port
+                .proxy_for(&url("https://example.com/x"))
+                .expect("proxy")
+                .is_none()
+        );
+        // Bun has no HTTP_PROXY fallback for https; ALL_PROXY covers both.
+        let http_only = ProxyEnv::from_pairs(&[("HTTP_PROXY", "http://p:3128")]);
+        assert!(
+            http_only
+                .proxy_for(&url("https://host.test/x"))
+                .expect("proxy")
+                .is_none()
+        );
+        assert!(
+            http_only
+                .proxy_for(&url("http://host.test/x"))
+                .expect("proxy")
+                .is_some()
+        );
+        let all = ProxyEnv::from_pairs(&[("ALL_PROXY", "http://all:8080")]);
+        assert!(
+            all.proxy_for(&url("https://host.test/x"))
+                .expect("proxy")
+                .is_some()
+        );
+        assert!(
+            all.proxy_for(&url("http://host.test/x"))
+                .expect("proxy")
+                .is_some()
+        );
+        // A lowercase name wins; an empty lowercase value falls back to the uppercase one.
+        let both = ProxyEnv::from_pairs(&[
+            ("https_proxy", "http://lower:1"),
+            ("HTTPS_PROXY", "http://upper:2"),
+        ]);
+        assert_eq!(
+            both.proxy_for(&url("https://host.test/x"))
+                .expect("proxy")
+                .map(|u| u.to_string()),
+            Some("http://lower:1/".to_string())
+        );
+        let empty_lower =
+            ProxyEnv::from_pairs(&[("https_proxy", ""), ("HTTPS_PROXY", "http://upper:2")]);
+        assert_eq!(
+            empty_lower
+                .proxy_for(&url("https://host.test/x"))
+                .expect("proxy")
+                .map(|u| u.to_string()),
+            Some("http://upper:2/".to_string())
+        );
+        let wildcard = ProxyEnv::from_pairs(&[("HTTPS_PROXY", "http://p:1"), ("NO_PROXY", "*")]);
         assert!(
             wildcard
                 .proxy_for(&url("https://anything.test/x"))
+                .expect("proxy")
                 .is_none()
         );
-        let http_only = ProxyEnv::from_pairs(&[("HTTP_PROXY", "http://p:3128")]);
-        assert!(http_only.proxy_for(&url("https://host.test/x")).is_some());
-        assert!(http_only.proxy_for(&url("http://host.test/x")).is_some());
+        // A value naming another kind of proxy is ignored, as Bun ignores socks5://.
+        let socks = ProxyEnv::from_pairs(&[("HTTPS_PROXY", "socks5://p:1080")]);
+        assert!(
+            socks
+                .proxy_for(&url("https://host.test/x"))
+                .expect("proxy")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn an_unusable_proxy_variable_is_an_error() {
+        let broken = ProxyEnv::from_pairs(&[("HTTPS_PROXY", "not a url")]);
+        let error = broken
+            .proxy_for(&Url::parse("https://host.test/x").expect("url"))
+            .expect_err("invalid");
+        assert!(error.to_string().contains("proxy URL"), "{error}");
+        let secure = ProxyEnv::from_pairs(&[("HTTPS_PROXY", "https://proxy.test:3128")]);
+        let error = secure
+            .proxy_for(&Url::parse("https://host.test/x").expect("url"))
+            .expect_err("https proxy");
+        assert!(
+            error
+                .to_string()
+                .contains("https:// proxy is not supported"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn ipv6_hosts_and_no_proxy_entries_are_bracketed_and_matched() {
+        let url = Url::parse("https://[::1]/file").expect("url");
+        for entry in ["::1", "[::1]", "[::1]:443"] {
+            let proxy = ProxyEnv::from_pairs(&[("HTTPS_PROXY", "http://p:1"), ("NO_PROXY", entry)]);
+            assert!(
+                proxy.proxy_for(&url).expect("proxy").is_none(),
+                "NO_PROXY={entry}"
+            );
+        }
+        let proxy = ProxyEnv::from_pairs(&[("HTTPS_PROXY", "http://p:1")]);
+        assert!(proxy.proxy_for(&url).expect("proxy").is_some());
+        let parts = host_parts(&url).expect("parts");
+        assert_eq!(parts.bare, "::1");
+        assert_eq!(parts.authority, "[::1]");
+    }
+
+    #[test]
+    fn proxy_credentials_are_percent_decoded_into_basic_authorization() {
+        let proxy = Url::parse("http://u%40x:p%3Aword@corp.test:3128").expect("url");
+        assert_eq!(
+            proxy_authorization(&proxy).as_deref(),
+            Some("Basic dUB4OnA6d29yZA==")
+        );
+        let anonymous = Url::parse("http://corp.test:3128").expect("url");
+        assert!(proxy_authorization(&anonymous).is_none());
+        let redacted = format!(
+            "{:?}",
+            ProxyEnv::from_pairs(&[("HTTPS_PROXY", "http://u:p@corp.test:3128")])
+        );
+        assert!(!redacted.contains(":p@"), "{redacted}");
     }
 
     /// A TLS server on 127.0.0.1 that answers one request with `response`.
@@ -689,6 +1023,14 @@ sNKg9MDYnS847JT+lnvPBormSOSC",
 
     /// A CONNECT proxy in front of `target_port` that counts tunnels.
     fn proxy(target_port: u16) -> (String, Arc<std::sync::atomic::AtomicUsize>, JoinHandle<()>) {
+        proxy_with_auth(target_port, None)
+    }
+
+    /// A CONNECT proxy that requires `required` as `Proxy-Authorization`, when given.
+    fn proxy_with_auth(
+        target_port: u16,
+        required: Option<String>,
+    ) -> (String, Arc<std::sync::atomic::AtomicUsize>, JoinHandle<()>) {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
         listener.set_nonblocking(true).expect("nonblocking");
@@ -720,6 +1062,24 @@ sNKg9MDYnS847JT+lnvPBormSOSC",
                         .write_all(b"HTTP/1.1 405 Method Not Allowed\r\ncontent-length: 0\r\n\r\n")
                         .await;
                     return;
+                }
+                if let Some(required) = required {
+                    let sent = request
+                        .lines()
+                        .find_map(|line| {
+                            line.split_once(':').filter(|(name, _)| {
+                                name.eq_ignore_ascii_case("proxy-authorization")
+                            })
+                        })
+                        .map(|(_, value)| value.trim().to_string());
+                    if sent.as_deref() != Some(required.as_str()) {
+                        let _ = client
+                            .write_all(
+                                b"HTTP/1.1 407 Proxy Authentication Required\r\ncontent-length: 0\r\n\r\n",
+                            )
+                            .await;
+                        return;
+                    }
                 }
                 let Ok(mut target) = TcpStream::connect(("127.0.0.1", target_port)).await else {
                     return;
@@ -856,6 +1216,114 @@ sNKg9MDYnS847JT+lnvPBormSOSC",
             error.to_string().contains("header line is too long"),
             "{error}"
         );
+        drop(handle);
+    }
+
+    #[test]
+    fn a_chunk_size_that_would_overflow_is_refused_without_allocating() {
+        for size in ["ffffffffffffffff", "8000000000000000", "7fffffffffffffff"] {
+            let mut response =
+                b"HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n"
+                    .to_vec();
+            response.extend_from_slice(size.as_bytes());
+            response.extend_from_slice(b"\r\n");
+            let (port, handle) = raw_server(response);
+            let error = block_on(plain_client().get(
+                &format!("http://127.0.0.1:{port}/chunk"),
+                64 * 1024,
+                "fixture",
+            ))
+            .expect_err("overflow");
+            assert!(error.to_string().contains("too large"), "{size}: {error}");
+            drop(handle);
+        }
+    }
+
+    #[test]
+    fn proxy_credentials_reach_connect_after_percent_decoding() {
+        let (target, target_handle) = tls_server(ok_response(b"authorized"));
+        let (proxy_url, count, proxy_handle) =
+            proxy_with_auth(target, Some("Basic dUB4OnA6d29yZA==".to_string()));
+        let secure = proxy_url.replacen("http://", "http://u%40x:p%3Aword@", 1);
+        let proxy_env = ProxyEnv::from_pairs(&[("HTTPS_PROXY", &secure)]);
+        let body = block_on(client(proxy_env).get(
+            &format!("https://127.0.0.1:{target}/file"),
+            1024,
+            "fixture",
+        ))
+        .expect("authorized");
+        assert_eq!(body, b"authorized");
+        assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 1);
+        proxy_handle.join().expect("proxy");
+        target_handle.join().expect("target");
+    }
+
+    #[test]
+    fn a_redirect_to_another_scheme_is_refused() {
+        let redirect = "HTTP/1.1 302 Found\r\nlocation: ws://127.0.0.1:1/x\r\ncontent-length: 0\r\nconnection: close\r\n\r\n";
+        let (target, target_handle) = tls_server(redirect.as_bytes().to_vec());
+        let error = block_on(plain_client().get(
+            &format!("https://127.0.0.1:{target}/file"),
+            1024,
+            "fixture",
+        ))
+        .expect_err("scheme");
+        assert!(error.to_string().contains("only http and https"), "{error}");
+        target_handle.join().expect("target");
+    }
+
+    #[test]
+    fn differing_duplicate_content_lengths_are_refused() {
+        let (port, handle) = raw_server(
+            b"HTTP/1.1 200 OK\r\ncontent-length: 1\r\ncontent-length: 2\r\nconnection: close\r\n\r\nx"
+                .to_vec(),
+        );
+        let error = block_on(plain_client().get(
+            &format!("http://127.0.0.1:{port}/length"),
+            1024,
+            "fixture",
+        ))
+        .expect_err("conflicting");
+        assert!(
+            error.to_string().contains("conflicting content-length"),
+            "{error}"
+        );
+        drop(handle);
+    }
+
+    #[test]
+    fn transfer_codings_other_than_chunked_are_refused() {
+        for coding in ["gzip", "gzip, chunked", "chunked, gzip"] {
+            let (port, handle) = raw_server(
+                format!(
+                    "HTTP/1.1 200 OK\r\ntransfer-encoding: {coding}\r\nconnection: close\r\n\r\n0\r\n\r\n"
+                )
+                .into_bytes(),
+            );
+            let error = block_on(plain_client().get(
+                &format!("http://127.0.0.1:{port}/coding"),
+                1024,
+                "fixture",
+            ))
+            .expect_err("coding");
+            assert!(
+                error.to_string().contains("unsupported transfer coding"),
+                "{coding}: {error}"
+            );
+            drop(handle);
+        }
+    }
+
+    #[test]
+    fn a_chunk_that_does_not_end_in_crlf_is_refused() {
+        let (port, handle) = raw_server(
+            b"HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n1\r\nxXX"
+                .to_vec(),
+        );
+        let error =
+            block_on(plain_client().get(&format!("http://127.0.0.1:{port}/crlf"), 1024, "fixture"))
+                .expect_err("crlf");
+        assert!(error.to_string().contains("did not end in CRLF"), "{error}");
         drop(handle);
     }
 
