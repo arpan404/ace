@@ -49,6 +49,13 @@ function rustEvent(
   };
 }
 
+/** The rows the Rust and JavaScript frames inserted through the shared connection. */
+function probeRows(seam: EngineSeam): string[] {
+  return seam.store
+    .atomic((db) => db.prepare("SELECT label FROM probe_rows ORDER BY rowid").all())
+    .map((row) => String(row["label"]));
+}
+
 /** A seam with one real thread, so both directions can write genuine stored events. */
 async function nestedSeam() {
   const home = mkdtempSync(join(tmpdir(), "ace-engine-nesting-"));
@@ -58,6 +65,7 @@ async function nestedSeam() {
     seed: (store) => {
       const workspace = store.createWorkspace(home, "Nesting");
       threadId = createDevThread(store, workspace).id;
+      store.atomic((db) => db.exec("CREATE TABLE probe_rows (label TEXT NOT NULL)"));
     },
   });
   if (threadId === undefined) throw new Error("the seed created no thread");
@@ -133,7 +141,8 @@ describe.runIf(native)("the engine skeleton", () => {
         seam.probe.setCallback(() => {
           // The Rust transaction is the top frame; this JavaScript transaction is a savepoint
           // in its context, and its event publishes with the Rust one.
-          seam.store.atomic(() => {
+          seam.store.atomic((db) => {
+            db.exec("INSERT INTO probe_rows (label) VALUES ('js-row')");
             seam.store.appendEvents(threadId, [jsPayload]);
             seam.probe.defer("js-wake");
           });
@@ -143,6 +152,7 @@ describe.runIf(native)("the engine skeleton", () => {
             op: "write",
             events: [rustEvent(seam, threadId, "probe.rust-before")],
             defer: "rust-wake",
+            row: "rust-row",
             js: true,
             nested: {
               events: [rustEvent(seam, threadId, "probe.rust-after", 1)],
@@ -154,6 +164,7 @@ describe.runIf(native)("the engine skeleton", () => {
         expect(seen).toEqual(["probe.rust-before", "unknown", "probe.rust-after"]);
         expect(wakesAtPublish).toEqual([0]);
         expect(seam.probe.woken()).toEqual(["rust-wake", "js-wake", "nested-wake"]);
+        expect(probeRows(seam)).toEqual(["rust-row", "js-row"]);
       } finally {
         stop();
       }
@@ -176,7 +187,7 @@ describe.runIf(native)("the engine skeleton", () => {
         // The JavaScript transaction is the top frame; the Rust transaction nests in it as a
         // savepoint and its write lands in the same context.
         seam.store.atomic(() => {
-          seam.probe.writeNow([rustEvent(seam, threadId, "probe.rust")], "rust-wake");
+          seam.probe.writeNow([rustEvent(seam, threadId, "probe.rust")], "rust-wake", "rust-row");
           seam.store.appendEvents(threadId, [jsPayload]);
           seam.probe.defer("js-wake");
         });
@@ -184,9 +195,52 @@ describe.runIf(native)("the engine skeleton", () => {
         expect(seen).toEqual(["probe.rust", "unknown"]);
         expect(wakesAtPublish).toEqual([0]);
         expect(seam.probe.woken()).toEqual(["rust-wake", "js-wake"]);
+        expect(probeRows(seam)).toEqual(["rust-row"]);
       } finally {
         stop();
       }
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("Rust work inside a rolled-back JavaScript transaction leaves no row", async () => {
+    const { seam } = await nestedSeam();
+    try {
+      await seam.engine.ready();
+      // The Rust savepoint committed into the JavaScript transaction; the outer rollback takes
+      // its row and its deferred wake with it.
+      expect(() =>
+        seam.store.atomic(() => {
+          seam.probe.writeNow([], "rust-wake", "rust-row");
+          throw new Error("outer rollback");
+        }),
+      ).toThrow("outer rollback");
+      expect(probeRows(seam)).toEqual([]);
+      await seam.engine.flush();
+      expect(seam.probe.woken()).toEqual([]);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a JavaScript transaction inside a rolled-back Rust one leaves no row", async () => {
+    const { seam } = await nestedSeam();
+    try {
+      await seam.engine.ready();
+      seam.probe.setCallback(() => {
+        seam.store.atomic((db) => {
+          db.exec("INSERT INTO probe_rows (label) VALUES ('js-row')");
+          seam.probe.defer("js-wake");
+        });
+      });
+      // The JavaScript savepoint released into the Rust transaction, which then fails.
+      seam.probe.spawn("work", [
+        { op: "write", events: [], row: "rust-row", js: true, fail: true },
+      ]);
+      await seam.engine.flush();
+      expect(probeRows(seam)).toEqual([]);
+      expect(seam.probe.woken()).toEqual([]);
     } finally {
       await seam.close();
     }
@@ -311,6 +365,57 @@ describe.runIf(native)("the engine skeleton", () => {
       await flushing;
       expect(seam.probe.marks()).toEqual(["late"]);
       expect(seam.probe.woken()).toEqual(["t1"]);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a flush raises its depth and seals the actors until it settles", async () => {
+    const seam = await engineSeam();
+    try {
+      await seam.engine.ready();
+      expect(seam.probe.flushState()).toEqual({ depth: 0, seals: 0 });
+      const flushing = seam.engine.flush();
+      // More than one turn's budget of ordinary work: the flush is still looping after one.
+      for (let index = 0; index < 300; index += 1)
+        seam.probe.spawn("work", [{ op: "mark", label: `m${index}` }]);
+      await tick(3);
+      // Mid-flush: the depth is up for its whole duration and every actor was sealed first.
+      expect(seam.probe.flushState()).toEqual({ depth: 1, seals: 1 });
+      await flushing;
+      expect(seam.probe.flushState()).toEqual({ depth: 0, seals: 1 });
+      expect(seam.probe.marks()).toHaveLength(300);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("the wake log keeps only a bounded tail", async () => {
+    const seam = await engineSeam();
+    try {
+      await seam.engine.ready();
+      for (let index = 0; index < 1100; index += 1) seam.probe.defer(`w${index}`);
+      const woken = seam.probe.woken();
+      expect(woken).toHaveLength(1024);
+      expect(woken[0]).toBe("w76");
+      expect(woken.at(-1)).toBe("w1099");
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a thread's registered waker is dropped when its actor goes away", async () => {
+    const seam = await engineSeam();
+    try {
+      await seam.engine.ready();
+      seam.probe.registerWaker("t1");
+      seam.probe.defer("t1");
+      expect(seam.probe.wakeCount("t1")).toBe(1);
+      seam.probe.unregisterWaker("t1");
+      seam.probe.defer("t1");
+      // The wake is still logged; it no longer reaches the waker that went away.
+      expect(seam.probe.wakeCount("t1")).toBe(1);
+      expect(seam.probe.woken().filter((thread) => thread === "t1")).toHaveLength(2);
     } finally {
       await seam.close();
     }
@@ -507,13 +612,13 @@ describe.runIf(native)("the engine skeleton", () => {
     const seam = await engineSeam();
     try {
       await seam.engine.ready();
-      for (let index = 0; index < 200; index += 1)
+      for (let index = 0; index < 300; index += 1)
         seam.probe.spawn("work", [{ op: "mark", label: `task-${index}` }]);
       const before = (await seam.probe.turns()).turns.length;
       await seam.engine.close().catch(() => {});
       const after = (await seam.probe.turns()).turns.length;
       expect(after).toBeGreaterThan(before + 1);
-      expect(seam.probe.marks()).toHaveLength(200);
+      expect(seam.probe.marks()).toHaveLength(300);
     } finally {
       await seam.store.close();
     }

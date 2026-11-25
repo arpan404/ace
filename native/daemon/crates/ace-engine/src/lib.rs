@@ -45,7 +45,7 @@ use futures::future::{LocalBoxFuture, Shared};
 use ports::{Ports, Timer};
 use registry::Registry;
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::panic::AssertUnwindSafe;
 use std::rc::{Rc, Weak};
 use std::task::Waker;
@@ -142,7 +142,7 @@ impl Default for State {
             lifecycle: Lifecycle::default(),
             flush_depth: 0,
             probe_empty_candidates: false,
-            actors: actor::Actors,
+            actors: actor::Actors::default(),
             repo: repository::Repo,
             commands: commands::Commands,
             sessions: sessions::Sessions,
@@ -263,6 +263,49 @@ impl Inputs {
 
 type ReadyFuture = Shared<oneshot::Receiver<Result<(), String>>>;
 
+/// The most wake labels the log keeps. The log exists for the probe and E5.2's tests, and an
+/// engine lives for days: it keeps a bounded tail rather than every wake it ever released.
+pub const WAKE_LOG_CAPACITY: usize = 1024;
+
+/// The released-wake log and the wakers parked actors registered. A long-lived engine must not
+/// grow either: the log keeps the newest `WAKE_LOG_CAPACITY` labels, and a thread's waker is
+/// removed when its actor goes away.
+#[derive(Default)]
+pub struct Wakes {
+    log: VecDeque<ThreadId>,
+    wakers: HashMap<ThreadId, Waker>,
+}
+
+impl Wakes {
+    /// Records one released wake, keeping the newest labels, and returns the waker it reaches.
+    /// The caller wakes outside this borrow.
+    pub fn record(&mut self, thread: &str) -> Option<Waker> {
+        if self.log.len() == WAKE_LOG_CAPACITY {
+            self.log.pop_front();
+        }
+        self.log.push_back(thread.to_string());
+        self.wakers.get(thread).cloned()
+    }
+
+    pub fn register(&mut self, thread: ThreadId, waker: Waker) {
+        self.wakers.insert(thread, waker);
+    }
+
+    /// Drops the waker a thread registered when its actor goes away. Its later wakes are still
+    /// logged, and reach nobody.
+    pub fn unregister(&mut self, thread: &str) {
+        self.wakers.remove(thread);
+    }
+
+    pub fn log(&self) -> Vec<String> {
+        self.log.iter().cloned().collect()
+    }
+
+    pub fn registered(&self) -> usize {
+        self.wakers.len()
+    }
+}
+
 pub struct Core {
     pub executor: Executor,
     pub ports: Rc<dyn Ports>,
@@ -276,9 +319,8 @@ pub struct Core {
     sweep: Cell<Option<u64>>,
     closing: Cell<bool>,
     admission_closed: Cell<bool>,
-    /// Wakes released from the after-commit queue, in order (the probe's log; E5.2 reads it).
-    wakes: RefCell<Vec<String>>,
-    wakers: RefCell<HashMap<ThreadId, Waker>>,
+    /// Wakes released from the after-commit queue and the wakers parked actors registered.
+    wakes: RefCell<Wakes>,
     /// The probe's close step: awaits a port that may never settle.
     probe_close_stall: RefCell<Option<LocalBoxFuture<'static, ()>>>,
     /// The engine's own long-lived tasks, so `shut` cancels them.
@@ -314,12 +356,25 @@ impl Core {
 
     /// Wakes released so far, in release order.
     pub fn wakes(&self) -> Vec<String> {
-        self.wakes.borrow().clone()
+        self.wakes.borrow().log()
     }
 
     /// Registers the waker a deferred wake of `thread` reaches (E5.2's actor tasks).
     pub fn register_waker(&self, thread: ThreadId, waker: Waker) {
-        self.wakers.borrow_mut().insert(thread, waker);
+        self.wakes.borrow_mut().register(thread, waker);
+    }
+
+    /// Drops the waker a thread registered when its actor goes away (E5.2 calls this).
+    pub fn unregister_waker(&self, thread: &str) {
+        self.wakes.borrow_mut().unregister(thread);
+    }
+
+    /// The flush depth and how many actor seals flush has asked for (the probe's, E5.1).
+    pub fn flush_snapshot(&self) -> (u32, u32) {
+        self.state
+            .try_borrow()
+            .map(|state| (state.flush_depth, state.actors.seals))
+            .unwrap_or((0, 0))
     }
 
     /// The only way a synchronous entry starts work: after the outermost commit, never inline.
@@ -336,8 +391,9 @@ impl Core {
     }
 
     fn record_wake(&self, thread: &str) {
-        self.wakes.borrow_mut().push(thread.to_string());
-        if let Some(waker) = self.wakers.borrow().get(thread) {
+        // The waker comes out with the borrow released, so a wake never runs under it.
+        let waker = self.wakes.borrow_mut().record(thread);
+        if let Some(waker) = waker {
             waker.wake_by_ref();
         }
     }
@@ -353,9 +409,22 @@ impl Core {
         self.ports.resolve_ready(result.err());
     }
 
-    /// `flush`'s loop, for a task that flushes from inside another one: it excludes its own
-    /// task and worker run.
+    /// `flush`: raise `flushDepth` for its whole duration and seal every actor's pending batch
+    /// first (`index.ts:1411`–`:1426`, `actor.flush()`'s `sealFrames`), then the loop, for a task
+    /// that flushes from inside another one: it excludes its own task and worker run.
     pub async fn flush_to_quiescence(&self, exclude: Option<TaskId>) -> Result<(), EngineError> {
+        self.with_state(|state| {
+            state.flush_depth += 1;
+            actor::seal(state);
+        })?;
+        let outcome = self.flush_loop(exclude).await;
+        let _ = self.with_state(|state| {
+            state.flush_depth = state.flush_depth.saturating_sub(1);
+        });
+        outcome
+    }
+
+    async fn flush_loop(&self, exclude: Option<TaskId>) -> Result<(), EngineError> {
         if let Some(ready) = self.ready_future() {
             match ready.await {
                 Ok(Ok(())) => {}
@@ -496,8 +565,7 @@ impl Engine {
             sweep: Cell::new(None),
             closing: Cell::new(false),
             admission_closed: Cell::new(false),
-            wakes: RefCell::new(Vec::new()),
-            wakers: RefCell::new(HashMap::new()),
+            wakes: RefCell::new(Wakes::default()),
             probe_close_stall: RefCell::new(None),
             tasks: RefCell::new(Vec::new()),
         });
@@ -726,4 +794,57 @@ async fn close_sequence(core: Rc<Core>) -> CloseOutcome {
         let _ = drained.await;
     }
     outcome
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::task::{Wake, Waker};
+
+    /// Counts the wakes it receives.
+    struct Counter(Arc<AtomicUsize>);
+
+    impl Wake for Counter {
+        fn wake(self: Arc<Self>) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn the_wake_log_keeps_only_the_newest_labels() {
+        let mut wakes = Wakes::default();
+        for index in 0..WAKE_LOG_CAPACITY + 7 {
+            wakes.record(&format!("t{index}"));
+        }
+        let log = wakes.log();
+        assert_eq!(log.len(), WAKE_LOG_CAPACITY);
+        assert_eq!(log.first().map(String::as_str), Some("t7"));
+        let newest = format!("t{}", WAKE_LOG_CAPACITY + 6);
+        assert_eq!(log.last().map(String::as_str), Some(newest.as_str()));
+    }
+
+    #[test]
+    fn an_unregistered_thread_keeps_its_log_entries_but_loses_its_waker() {
+        let counted = Arc::new(AtomicUsize::new(0));
+        let mut wakes = Wakes::default();
+        wakes.register(
+            "t1".to_string(),
+            Waker::from(Arc::new(Counter(Arc::clone(&counted)))),
+        );
+        if let Some(waker) = wakes.record("t1") {
+            waker.wake();
+        }
+        assert_eq!(counted.load(Ordering::SeqCst), 1);
+        wakes.unregister("t1");
+        assert_eq!(wakes.registered(), 0);
+        assert!(wakes.record("t1").is_none(), "the actor's waker is gone");
+        assert_eq!(counted.load(Ordering::SeqCst), 1, "it is not woken again");
+        assert_eq!(wakes.log(), vec!["t1", "t1"]);
+    }
 }

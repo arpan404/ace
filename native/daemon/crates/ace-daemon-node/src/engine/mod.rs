@@ -280,7 +280,9 @@ impl NativeDatabase {
             holders: Cell::new(0),
             limit_policies: RefCell::new(HashMap::new()),
             #[cfg(feature = "engine-probe")]
-            probe: Rc::new(RefCell::new(probe::ProbeState::default())),
+            probe: Rc::new(RefCell::new(probe::ProbeState::new(std::sync::Arc::clone(
+                self.connection(),
+            )))),
             #[cfg(feature = "engine-probe")]
             stack,
         };

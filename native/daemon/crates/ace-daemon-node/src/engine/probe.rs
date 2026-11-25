@@ -8,17 +8,49 @@
 use ace_engine::EngineError;
 use ace_engine::executor::{Deferred, Lane};
 use ace_engine::ports::Ports;
+use ace_store::{Connection, Value};
 use napi::Env;
 use napi::bindgen_prelude::FunctionRef;
 use napi_derive::napi;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::task::{Wake, Waker};
 
 use super::NativeEngine;
 
-/// The probe's own state: the marks scripted tasks record and the one JS callback an op runs.
-#[derive(Default)]
+/// The probe's own state: the marks scripted tasks record, the one JS callback an op runs, the
+/// connection Rust probe writes share with the shell's transactions, and the wake counters that
+/// make a registered waker observable.
 pub struct ProbeState {
     marks: Vec<String>,
     callback: Option<std::rc::Rc<FunctionRef<(), ()>>>,
+    connection: Arc<Connection>,
+    counters: HashMap<String, Arc<AtomicUsize>>,
+}
+
+impl ProbeState {
+    pub fn new(connection: Arc<Connection>) -> ProbeState {
+        ProbeState {
+            marks: Vec::new(),
+            callback: None,
+            connection,
+            counters: HashMap::new(),
+        }
+    }
+}
+
+/// Counts the wakes a registered waker receives.
+struct WakeCounter(Arc<AtomicUsize>);
+
+impl Wake for WakeCounter {
+    fn wake(self: Arc<Self>) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
 }
 
 fn lane(name: &str) -> Lane {
@@ -97,6 +129,7 @@ impl NativeEngine {
         let ports = std::rc::Rc::clone(&self.ports);
         let probe = std::rc::Rc::clone(&self.probe);
         let callback = self.probe.borrow().callback.clone();
+        let connection = Arc::clone(&self.probe.borrow().connection);
         let task_env = env;
         let inner = std::rc::Rc::clone(&core);
         let task = core.executor.spawn(lane(&lane_name), async move {
@@ -116,7 +149,7 @@ impl NativeEngine {
                         let thread = text(field(&step, "thread")).unwrap_or_default();
                         core.defer(Deferred::Wake(thread, lane(&lane_name)));
                     }
-                    "write" => probe_write(&core, &step, &task_env, callback.as_ref()),
+                    "write" => probe_write(&core, &step, &task_env, callback.as_ref(), &connection),
                     "mark" => {
                         let label = text(field(&step, "label")).unwrap_or_default();
                         probe.borrow_mut().marks.push(label);
@@ -150,8 +183,52 @@ impl NativeEngine {
         let parsed =
             ace_json::parse(&step).map_err(|error| napi::Error::from_reason(error.to_string()))?;
         let callback = self.probe.borrow().callback.clone();
-        probe_write(&self.engine.core(), &parsed, &env, callback.as_ref());
+        let connection = Arc::clone(&self.probe.borrow().connection);
+        probe_write(
+            &self.engine.core(),
+            &parsed,
+            &env,
+            callback.as_ref(),
+            &connection,
+        );
         Ok(())
+    }
+
+    /// The flush depth and the actor seals a flush asked for, as JSON.
+    #[napi]
+    pub fn probe_flush_state(&self) -> String {
+        let (depth, seals) = self.engine.core().flush_snapshot();
+        format!("{{\"depth\":{depth},\"seals\":{seals}}}")
+    }
+
+    /// Registers a counted waker for `thread`, as an actor task would.
+    #[napi]
+    pub fn probe_register_waker(&self, thread: String) {
+        let counter = Arc::new(AtomicUsize::new(0));
+        self.probe
+            .borrow_mut()
+            .counters
+            .insert(thread.clone(), Arc::clone(&counter));
+        self.engine
+            .core()
+            .register_waker(thread, Waker::from(Arc::new(WakeCounter(counter))));
+    }
+
+    /// Drops the waker `thread` registered, as its actor going away does.
+    #[napi]
+    pub fn probe_unregister_waker(&self, thread: String) {
+        self.engine.core().unregister_waker(&thread);
+    }
+
+    /// Wakes the counted waker of `thread` has received.
+    #[napi]
+    pub fn probe_wake_count(&self, thread: String) -> u32 {
+        self.probe
+            .borrow()
+            .counters
+            .get(&thread)
+            .map(|counter| counter.load(Ordering::SeqCst) as u32)
+            .unwrap_or(0)
     }
 
     /// Defers one wake outside a transaction: it is released at once.
@@ -253,6 +330,7 @@ fn probe_write(
     step: &ace_json::Value,
     env: &Env,
     callback: Option<&std::rc::Rc<FunctionRef<(), ()>>>,
+    connection: &Arc<Connection>,
 ) {
     let defer = text(field(step, "defer"));
     let fail = flag(field(step, "fail"));
@@ -262,11 +340,15 @@ fn probe_write(
     let json = ace_json::to_string(&events);
     let nested = field(step, "nested").cloned();
     let runs_js = flag(field(step, "js"));
+    let row = text(field(step, "row"));
     let result = core.store.atomic(|tx| {
         if let Some(thread) = defer.clone() {
             core.defer(Deferred::Wake(thread, Lane::Work));
         }
         tx.append_events(&json)?;
+        if let Some(label) = row.as_deref() {
+            write_row(connection, label)?;
+        }
         if runs_js && let Some(callback) = callback {
             if let Ok(function) = callback.borrow_back(env) {
                 let _ = function.call(());
@@ -294,6 +376,15 @@ fn probe_write(
     if let Err(error) = result {
         core.ports.report(error.to_string());
     }
+}
+
+/// One real row through the shared connection, inside whatever frame the probe has open, so a
+/// test can see the Rust write commit or roll back with the shell's transaction.
+fn write_row(connection: &Arc<Connection>, label: &str) -> Result<(), ace_store::Error> {
+    let statement = connection.prepare("INSERT INTO probe_rows (label) VALUES (?1)")?;
+    statement.bind(&[Some(Value::Text(label.to_string()))])?;
+    statement.step()?;
+    Ok(())
 }
 
 fn engine_error(error: EngineError) -> napi::Error {

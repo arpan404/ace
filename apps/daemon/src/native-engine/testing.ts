@@ -24,7 +24,7 @@ export interface ProbeTurns {
 export interface EngineProbe {
   spawn(lane: "control" | "work", script: readonly ProbeStep[]): void;
   /** One Rust transaction now, inside whatever transaction the caller has open. */
-  writeNow(events: readonly unknown[], defer?: string): void;
+  writeNow(events: readonly unknown[], defer?: string, row?: string): void;
   defer(threadId: string): void;
   claim(): string;
   turns(): Promise<ProbeTurns>;
@@ -43,6 +43,14 @@ export interface EngineProbe {
   attachSession(): Promise<never>;
   /** The labels scripted tasks marked, in order. */
   marks(): string[];
+  /** The flush depth and how many actor seals flushes have asked for. */
+  flushState(): { depth: number; seals: number };
+  /** Registers a counted waker for `thread`, as an actor task would. */
+  registerWaker(thread: string): void;
+  /** Drops the waker `thread` registered, as its actor going away does. */
+  unregisterWaker(thread: string): void;
+  /** Wakes the counted waker of `thread` has received. */
+  wakeCount(thread: string): number;
   /** The one JS callback a `js` step runs. */
   setCallback(callback: () => void): void;
   /** Timers the binding still has armed. */
@@ -61,6 +69,8 @@ export type ProbeStep =
       fail?: boolean;
       /** Runs the callback inside the open Rust transaction, before `nested`. */
       js?: boolean;
+      /** Inserts this label in `probe_rows` through the shared connection, in the frame. */
+      row?: string;
       nested?: { events: readonly unknown[]; defer?: string };
     }
   | { op: "flush" }
@@ -194,6 +204,7 @@ function probeFor(native: NativeEngineHandle): EngineProbe {
   };
   const call = required("probeSpawn");
   const writeNow = required("probeWriteNow") as (step: string) => void;
+  const flushState = required("probeFlushState") as () => string;
   const defer = required("probeDefer") as (thread: string) => void;
   const claim = required("probeClaim") as () => string;
   const turnLog = required("probeTurns") as () => string;
@@ -206,9 +217,20 @@ function probeFor(native: NativeEngineHandle): EngineProbe {
     spawn: (lane, script) => {
       call(lane, JSON.stringify(script));
     },
-    writeNow: (events, deferred) => {
-      writeNow(JSON.stringify({ op: "write", events, ...(deferred ? { defer: deferred } : {}) }));
+    writeNow: (events, deferred, row) => {
+      writeNow(
+        JSON.stringify({
+          op: "write",
+          events,
+          ...(deferred ? { defer: deferred } : {}),
+          ...(row ? { row } : {}),
+        }),
+      );
     },
+    flushState: () => JSON.parse(flushState()) as { depth: number; seals: number },
+    registerWaker: (thread) => required("probeRegisterWaker")(thread),
+    unregisterWaker: (thread) => required("probeUnregisterWaker")(thread),
+    wakeCount: (thread) => required("probeWakeCount")(thread) as number,
     defer,
     claim,
     async turns() {

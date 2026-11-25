@@ -351,6 +351,19 @@ fn a_barrier_that_is_dropped_while_queued_leaves_the_queue() {
     assert!(exec.idle(None), "shutdown drops every queued runnable");
 }
 
+/// The window a concurrent wake can hit: a producer has counted its runnable and has not
+/// pushed it yet. `idle` must read the ordinary count directly, never infer it from lengths.
+#[test]
+fn a_producer_counted_before_its_push_keeps_the_engine_busy() {
+    let (exec, _posts) = executor();
+    // The producer has counted the ordinary runnable and has not pushed it yet, so both lanes
+    // still look empty; the old length-minus-barriers test said idle here.
+    exec.shared.ordinary_queued.fetch_add(1, SeqCst);
+    assert!(!exec.idle(None), "the counted runnable is work");
+    exec.shared.ordinary_queued.fetch_sub(1, SeqCst);
+    assert!(exec.idle(None), "counted and popped, nothing is left");
+}
+
 #[test]
 fn controls_run_first_but_yield_one_work_runnable_after_eight() {
     let (exec, _posts) = executor();

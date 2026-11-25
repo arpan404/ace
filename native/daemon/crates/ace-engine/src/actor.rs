@@ -4,9 +4,18 @@
 use crate::executor::TaskId;
 use crate::{EngineError, State, ThreadId};
 
-/// The thread actors (E5.2).
+/// The thread actors (E5.2). `seals` counts the flushes that asked every actor to seal its
+/// pending frame batch; E5.1 has no actors, so it is the proof that flush reaches this step.
 #[derive(Debug, Default)]
-pub struct Actors;
+pub struct Actors {
+    pub seals: u32,
+}
+
+/// Seals every actor's pending frame batch before a flush's quiescence loop (E5.2 fills this;
+/// `actor.flush()`'s `sealFrames`). E5.1 has no actors.
+pub fn seal(state: &mut State) {
+    state.actors.seals += 1;
+}
 
 /// Whether the actors hold no work E5.1 must wait for (E5.2 fills this).
 pub fn quiescent(_state: &State, _exclude: Option<TaskId>) -> bool {

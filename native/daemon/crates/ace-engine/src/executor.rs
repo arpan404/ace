@@ -20,7 +20,7 @@ use futures::channel::oneshot;
 use std::cell::{Cell, RefCell};
 use std::future::Future;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering::SeqCst};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering::SeqCst};
 use std::time::Instant;
 
 /// A task's identity, carried as the runnable's metadata and read by the pump.
@@ -93,9 +93,11 @@ pub struct Shared {
     inbox: ConcurrentQueue<Item>,
     control: ConcurrentQueue<Runnable<TaskId>>,
     work: ConcurrentQueue<Runnable<TaskId>>,
-    /// How many of the runnables queued in both lanes are barriers. Every push of a barrier
-    /// increments it and every pop decrements it, so `idle` can tell a waiting flush from work.
-    barriers_queued: AtomicU64,
+    /// How many ordinary (non-barrier) runnables a producer has counted for the two lanes.
+    /// Every ordinary runnable increments it before its push and every pop decrements it, so
+    /// `idle` never infers work from queue lengths: a producer paused between its count and its
+    /// push still keeps the engine busy.
+    ordinary_queued: AtomicUsize,
     notifier: Box<dyn Notifier>,
     next_task: AtomicU64,
 }
@@ -209,7 +211,7 @@ impl Executor {
                 inbox: ConcurrentQueue::unbounded(),
                 control: ConcurrentQueue::unbounded(),
                 work: ConcurrentQueue::unbounded(),
-                barriers_queued: AtomicU64::new(0),
+                ordinary_queued: AtomicUsize::new(0),
                 notifier,
                 next_task: AtomicU64::new(1),
             }),
@@ -266,12 +268,12 @@ impl Executor {
                 // No runnable is accepted after `shut`: dropping it cancels this wake-up.
                 return;
             }
-            if is_barrier(id) {
-                shared.barriers_queued.fetch_add(1, SeqCst);
+            if !is_barrier(id) {
+                shared.ordinary_queued.fetch_add(1, SeqCst);
             }
             if shared.queue(lane).push(runnable).is_err() {
-                if is_barrier(id) {
-                    shared.barriers_queued.fetch_sub(1, SeqCst);
+                if !is_barrier(id) {
+                    shared.ordinary_queued.fetch_sub(1, SeqCst);
                 }
                 return;
             }
@@ -285,26 +287,24 @@ impl Executor {
         (id, task)
     }
 
-    /// Whether nothing is left but barriers: `flush` and the shutdown join's empty end. Empty
-    /// when the inbox is empty, every queued runnable in both lanes is a barrier, and nothing
-    /// non-barrier is running. `exclude` is the caller's own task, which may be ordinary work
-    /// (`flush` reached from inside a task, which must not wait on itself).
+    /// Whether nothing ordinary is left: `flush` and the shutdown join's empty end. Empty when
+    /// the inbox is empty, no ordinary runnable is counted in either lane (queued or about to
+    /// be), and nothing ordinary is running. `exclude` is the caller's own task, which may be
+    /// ordinary work (`flush` reached from inside a task, which must not wait on itself).
     pub fn idle(&self, exclude: Option<TaskId>) -> bool {
-        let queued = self.shared.control.len() + self.shared.work.len();
-        let barriers = self.shared.barriers_queued.load(SeqCst) as usize;
         self.shared.inbox.is_empty()
-            && queued == barriers
+            && self.shared.ordinary_queued.load(SeqCst) == 0
             && self
                 .current
                 .get()
                 .is_none_or(|id| Some(id) == exclude || is_barrier(id))
     }
 
-    /// Pops one runnable, keeping the queued-barrier count in step.
+    /// Pops one runnable, keeping the ordinary count in step.
     fn take(&self, lane: Lane) -> Option<Runnable<TaskId>> {
         let runnable = self.shared.queue(lane).pop().ok()?;
-        if is_barrier(*runnable.metadata()) {
-            self.shared.barriers_queued.fetch_sub(1, SeqCst);
+        if !is_barrier(*runnable.metadata()) {
+            self.shared.ordinary_queued.fetch_sub(1, SeqCst);
         }
         Some(runnable)
     }
@@ -538,8 +538,8 @@ impl Executor {
         while self.shared.inbox.pop().is_ok() {}
         while self.shared.control.pop().is_ok() {}
         while self.shared.work.pop().is_ok() {}
-        // Dropped barriers are no longer queued; the count must not outlive them.
-        self.shared.barriers_queued.store(0, SeqCst);
+        // Dropped runnables are no longer queued; the count must not outlive them.
+        self.shared.ordinary_queued.store(0, SeqCst);
         self.draining.take();
     }
 
