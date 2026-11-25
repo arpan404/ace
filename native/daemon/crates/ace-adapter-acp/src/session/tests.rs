@@ -96,6 +96,7 @@ fn open_handshake_negotiates_capabilities_filters_mcp_servers_and_emits_notes() 
         ],
         secrets: vec!["top-secret-lease".to_owned()],
         instructions: Some("use ace tools".to_owned()),
+        developer_instructions: None,
     });
 
     let (mut core, init_effects) = AcpCore::new(config);
@@ -871,6 +872,53 @@ fn leader_exit_settles_pending_calls_before_a_buffered_reply_can() {
         )),
         "the drain still captures frames: {drained:?}"
     );
+}
+
+/// An agent that takes system-prompt text gets ace's guidance in `_meta`, from
+/// the lease when it carried instructions and from the daemon's rendered
+/// developer instructions otherwise (`session.ts:155`, `:447`).
+#[test]
+fn system_prompt_append_carries_lease_or_developer_instructions() {
+    let cases = [
+        (Some("lease guidance".to_owned()), "lease guidance"),
+        (None, "developer guidance"),
+    ];
+    for (lease, expected) in cases {
+        let mut config =
+            AcpCoreConfig::new("thread-guidance", "/work", AcpSessionQuirks::antigravity());
+        config.version = Some("1.2.1".to_owned());
+        config.mcp = Some(McpConfig {
+            instructions: lease.clone(),
+            developer_instructions: Some("developer guidance".to_owned()),
+            ..McpConfig::default()
+        });
+        let (mut core, _) = AcpCore::new(config);
+        let mut opened = core.start_open(3);
+        ack_writes(&mut core, &mut opened);
+        let init_reply = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "protocolVersion": 1,
+                "agentInfo": { "name": "antigravity-acp", "version": "1.2.1" },
+                "_meta": { "steering": { "supported": true } },
+                "agentCapabilities": {
+                    "loadSession": true,
+                    "_meta": { "antigravity": { "systemPrompt": { "append": true } } }
+                }
+            }
+        });
+        let mut after = core.stdout_bytes(format!("{}\n", init_reply.to_json()).as_bytes());
+        ack_writes(&mut core, &mut after);
+        let sent = sent_json_messages(&after);
+        assert_eq!(
+            sent[0]
+                .pointer("/params/_meta/antigravity/systemPrompt/append")
+                .and_then(Value::as_str),
+            Some(expected),
+            "lease instructions {lease:?}"
+        );
+    }
 }
 
 #[test]

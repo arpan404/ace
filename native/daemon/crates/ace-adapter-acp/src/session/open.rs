@@ -289,8 +289,8 @@ impl AcpCore {
         let system_prompt = if negotiated.system_prompt_append {
             self.mcp
                 .as_ref()
-                .and_then(|mcp| mcp.instructions.clone())
-                .filter(|text| !text.is_empty())
+                .and_then(|mcp| mcp.guidance())
+                .map(str::to_owned)
         } else {
             None
         };

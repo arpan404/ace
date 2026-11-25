@@ -38,7 +38,23 @@ pub struct McpConfig {
     pub stdio_servers: Vec<Value>,
     pub configured_servers: Vec<Value>,
     pub secrets: Vec<String>,
+    /// ace's guidance for this session, rendered once by the daemon.
     pub instructions: Option<String>,
+    /// The provider's developer instructions, rendered by the daemon
+    /// (`packages/mcp-server/src/session-guidance.ts:106`; Rust has no port of that
+    /// module yet, so the facade renders it), used when the lease carried none.
+    pub developer_instructions: Option<String>,
+}
+
+impl McpConfig {
+    /// ace's guidance for this session (`session.ts:155`): the lease's own
+    /// instructions, else the provider's developer instructions.
+    pub fn guidance(&self) -> Option<&str> {
+        self.instructions
+            .as_deref()
+            .or(self.developer_instructions.as_deref())
+            .filter(|text| !text.is_empty())
+    }
 }
 
 /// One user-configured server omitted because the agent lacks its transport.
@@ -160,6 +176,7 @@ mod tests {
             ],
             secrets: Vec::new(),
             instructions: None,
+            developer_instructions: None,
         };
 
         let prepared = match prepare_acp_mcp(Some(&mcp), false, false) {
