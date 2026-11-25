@@ -117,8 +117,14 @@ for await (const line of createInterface({ input: process.stdin })) {
       });
     else if (text !== "hold") complete(thread);
   } else if (method === "turn/interrupt") {
-    respond({});
-    complete(str(p["threadId"]), "interrupted");
+    // A close always names the turn it stops; a request without one is refused,
+    // so a caller that forgets it cannot pass for a working interrupt.
+    if (!str(p["turnId"]))
+      write({ id, error: { code: -32602, message: "turn/interrupt needs a turnId" } });
+    else {
+      respond({});
+      complete(str(p["threadId"]), "interrupted");
+    }
   } else if (method === "thread/read") {
     const thread = str(p["threadId"]);
     const parent = parents.get(thread);
