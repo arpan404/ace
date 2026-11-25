@@ -508,6 +508,7 @@ switch off, `packages/devices/src` is today's TypeScript, unchanged.
 | `log-line`                                  | `platform/log_line.rs`              | not yet (U5)                                                                               |
 | `simulator-jpeg`                            | `platform/simulator_jpeg/mod.rs`    | not yet: the state machine returns actions; HTTP is the capture's port (U3)                |
 | `media-paths`                               | `platform/media_paths/mod.rs`       | not yet: paths, merge and egress are decisions; the media source is the capture's (U3)     |
+| `scrcpy-protocol` (video), `scrcpy-video`   | `platform/scrcpy/video/mod.rs`      | not yet: the capture's socket reader runs it in-process (U2)                               |
 
 The Android JPEG cap's words now come from the catalog (`jpegTooLarge`), and the incomplete
 Simulator picture's from `simulatorIncompletePicture`, which `jpeg.ts` and `simulator-frames.ts`
@@ -516,6 +517,14 @@ TypeScript's reachable behaviour only: `(record[4] & 3) + 1` cannot be 3, so `av
 length-size-3 refusal is unreachable and is not reproduced. The splitter keeps the `.avcc`
 record bound (8 MiB, the length prefix included) and an empty body refused at once, and its
 buffer never holds more than the record still arriving.
+
+`scrcpy/video/mod.rs` keeps the video socket's framing and the units a capture hands on: the
+u32 codec id, session packets, media packets bounded at 8 MiB, the 61-bit PTS, the SPS's
+`avc1.PPCCLL`, the parameter sets repeated in front of every keyframe, and a rotation waiting for
+its session's config and keyframe. `media_paths`' egress unit is this same `VideoUnit`. Per chunk
+the reader does work proportional to the chunk; it is library code the capture runs in-process,
+so no chunk crosses the addon per frame. A unit wired across the addon per frame would need a
+paired median measurement against the TypeScript first.
 
 `media_paths/mod.rs` keeps the device's path decisions: the producer's move to ace-media, a
 refused move, the codec list (H.264 only), the path the merge is on, a cut at a switch, an

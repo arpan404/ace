@@ -14,7 +14,8 @@
 mod egress;
 mod merge;
 
-pub use egress::{EgressFrame, EgressUnit, H264_ONLY, VideoUnit, egress_video_unit};
+pub use crate::platform::scrcpy::video::VideoUnit;
+pub use egress::{EgressFrame, EgressUnit, H264_ONLY, egress_video_unit};
 pub use merge::{HOLD_MS, MAX_HELD_BYTES};
 
 use std::collections::{HashMap, VecDeque};

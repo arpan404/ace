@@ -2,6 +2,8 @@
 //! `media-paths.ts`'s egress side: one ace-media unit as the capture's own video unit, with the
 //! producer stamp's capture time, the keyframe's own codec string and the encode's codec.
 
+use crate::platform::scrcpy::video::VideoUnit;
+
 /// A device's stream is H.264 whatever its producer.
 pub const H264_ONLY: &str = "avc1.42E033";
 const KEYFRAME: u32 = 1;
@@ -26,18 +28,6 @@ pub struct EgressUnit {
     pub source: String,
     pub sequence: u64,
     pub frame: EgressFrame,
-}
-
-/// The capture's own video unit, as `scrcpy-video.ts` declares it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VideoUnit {
-    pub payload: Vec<u8>,
-    pub keyframe: bool,
-    pub video_codec: String,
-    pub width: u32,
-    pub height: u32,
-    pub pts: i64,
-    pub encode: u32,
 }
 
 /// The producer's stamp as `readProducerStamp` reads it (docs/media/plan.md, "Producer stamp"):
@@ -123,6 +113,6 @@ pub fn egress_video_unit(unit: &EgressUnit, codec: &str) -> Option<VideoUnit> {
         width: frame.width,
         height: frame.height,
         pts: ((stamp.map_or(0.0, |stamp| stamp.timestamp)) * 1000.0).round() as i64,
-        encode: frame.encode,
+        encode: Some(frame.encode),
     })
 }

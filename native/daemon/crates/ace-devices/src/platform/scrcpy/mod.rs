@@ -6,3 +6,4 @@
 pub mod clipboard;
 pub mod input;
 pub mod protocol;
+pub mod video;
