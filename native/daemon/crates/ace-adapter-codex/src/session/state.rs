@@ -19,7 +19,7 @@ use indexmap::{IndexMap, IndexSet};
 use super::catalog::{ExtensionCatalog, OptionalFrames};
 use super::commands::Commands;
 use super::discovery::Discovery;
-use super::frames::{Calls, Effect, Frames};
+use super::frames::{Calls, Effect, FrameDir, Frames};
 use super::host::Admission;
 use super::lifetime::{Lifetime, Redactor};
 use super::mcp::McpControls;
@@ -181,13 +181,13 @@ impl Session {
             scope: config.scope,
             started: config.started,
             root: String::new(),
-            frames: Frames::new(config.bearer),
+            frames: Frames::new(config.bearer.clone()),
             calls: Calls::new(),
             commands: Commands::new(),
             mcp: McpControls::new(),
             catalog: ExtensionCatalog::new(config.cwd),
             optional_frames: OptionalFrames::default(),
-            lifetime: Lifetime::new(generation, config.redact),
+            lifetime: Lifetime::new(generation, config.redact, config.bearer),
             discovery: Discovery::new(),
             foreign: config.foreign,
             permission_mode: None,
@@ -247,10 +247,18 @@ impl Session {
         !self.active.is_empty() || !self.shells.is_empty() || self.discovery.output_uncertain()
     }
 
-    /// The handler's `admit`: a received frame is always taken; the frame's
-    /// bound is decided by `emit`, as today.
-    pub fn admit(&self, _dir: Direction, _data: &Value) -> Admission {
-        Admission::Taken
+    /// The handler's `admit`: a server request the frame bound refuses is
+    /// refused here, before the host dispatches it, so no interaction waits
+    /// unseen. Every other frame is admitted and `emit` decides it.
+    pub fn admit(&self, dir: Direction, data: &Value) -> Admission {
+        let dir = match dir {
+            Direction::Send => FrameDir::Send,
+            Direction::Recv => FrameDir::Recv,
+        };
+        match self.frames.undispatchable(dir, data) {
+            Some(message) => Admission::Failed(message),
+            None => Admission::Taken,
+        }
     }
 }
 
@@ -260,6 +268,12 @@ pub(crate) fn text_of(value: Option<&Value>) -> String {
         .and_then(Value::as_js_str)
         .map(|text| text.as_str().to_owned())
         .unwrap_or_default()
+}
+
+/// `String.prototype.length`: UTF-16 code units, as every zod `.max()` bound
+/// counts them and as JavaScript's `slice` does.
+pub(crate) fn utf16_len(text: &str) -> usize {
+    text.encode_utf16().count()
 }
 
 /// `turn.id` from a notification's params.

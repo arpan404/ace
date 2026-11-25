@@ -205,13 +205,17 @@ impl Session {
                 return Vec::new();
             }
         }
+        if state.list_call.is_some() {
+            // The next page is still on its way; the scan resumes when it lands.
+            return Vec::new();
+        }
         match state.pending.pop_front() {
             Some(thread) => {
-                if self.recovered.contains(&thread) || self.discovery.reads.contains_key(&thread) {
-                    // A read already in flight covers this thread; the scan does
-                    // not wait on someone else's read.
+                if self.recovered.contains(&thread) {
                     return self.reconcile_continue(task, "");
                 }
+                // `reconcileLoaded` awaits the read: one already in flight is
+                // joined, and this scan moves on when it releases.
                 state.current = Some(thread.clone());
                 self.read_thread(
                     &thread,

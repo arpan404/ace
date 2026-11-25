@@ -372,7 +372,58 @@ fn a_loaded_scan_reads_every_unrecovered_thread_once() {
         Some("child-1")
     );
     let thread = call_of(read).expect("the read's call");
+    // A thread with no owned ancestor is dropped by the tree gate, and the
+    // scan's continuation is published with that read's own effects.
     let effects = session.settled(thread, Ok(&thread_read("child-1", "idle", "")));
-    // The scan moves on to the next pending thread once this read releases.
-    assert!(effects.is_empty());
+    let next = effects
+        .iter()
+        .find(|effect| method_of(effect) == Some("thread/read"))
+        .expect("the scan continues with the next thread");
+    let Effect::Request { params, .. } = next else {
+        panic!("the read is a request");
+    };
+    assert_eq!(
+        params.get("threadId").and_then(Value::as_str),
+        Some("child-2")
+    );
+    let thread = call_of(next).expect("the next read's call");
+    let effects = session.settled(thread, Ok(&thread_read("child-2", "idle", "")));
+    let finished = effects.iter().find_map(note).expect("the scan ends");
+    assert_eq!(
+        finished.get("event").and_then(Value::as_str),
+        Some("discovery-finished")
+    );
+}
+
+#[test]
+fn a_loaded_scan_joins_a_read_already_in_flight_and_continues_when_it_releases() {
+    let mut session = session();
+    session.recovered.insert("root-1".to_owned());
+    // The session's own read is running for child-1.
+    let effects = session.read_root("child-1");
+    let running = call_of(&effects[0]).expect("the running read's call");
+    let effects = session.reconcile_loaded("discovery:turn-1");
+    let call = call_of(&effects[0]).expect("the loaded list call");
+    let effects = session
+        .settled(call, Ok(&json("{\"data\":[\"child-1\",\"child-2\"]}")))
+        .into_iter()
+        .collect::<Vec<_>>();
+    // The scan waits on the running read instead of reading it twice.
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| method_of(effect) == Some("thread/read"))
+    );
+    let effects = session.settled(running, Ok(&thread_read("child-1", "idle", "")));
+    let next = effects
+        .iter()
+        .find(|effect| method_of(effect) == Some("thread/read"))
+        .expect("the scan continues after the joined read");
+    let Effect::Request { params, .. } = next else {
+        panic!("the read is a request");
+    };
+    assert_eq!(
+        params.get("threadId").and_then(Value::as_str),
+        Some("child-2")
+    );
 }

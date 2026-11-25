@@ -61,6 +61,9 @@ struct Channel {
 pub struct Lifetime {
     generation: String,
     redact: Redactor,
+    /// The ace MCP bearer, which the redactor's inputs include
+    /// (`session-lifetime.ts:21`-`:27`).
+    bearer: Option<String>,
     stderr: String,
     retirement: Option<Retirement>,
     closed: bool,
@@ -71,10 +74,11 @@ pub struct Lifetime {
 }
 
 impl Lifetime {
-    pub fn new(generation: String, redact: Redactor) -> Lifetime {
+    pub fn new(generation: String, redact: Redactor, bearer: Option<String>) -> Lifetime {
         Lifetime {
             generation,
             redact,
+            bearer,
             stderr: String::new(),
             retirement: None,
             closed: false,
@@ -124,11 +128,22 @@ impl Lifetime {
         &self.stderr
     }
 
+    /// The redactor's inputs, which include the ace MCP bearer
+    /// (`session-lifetime.ts:21`-`:27`): the generic redactor runs first, then
+    /// the emitter's own credential placeholder, so no path can retain it.
+    fn scrub(&self, text: &str) -> String {
+        let redacted = (self.redact)(text);
+        match &self.bearer {
+            Some(bearer) => redacted.replace(bearer.as_str(), super::frames::MCP_CREDENTIAL),
+            None => redacted,
+        }
+    }
+
     /// `lifetime.stderr(line)`: scrub, then keep the tail. Scrubbing comes
     /// before slicing, so neither a split credential nor a raw frame enters the
     /// retained bytes, and the encoded bound survives replacement.
     pub fn stderr_line(&mut self, frames: &Frames, line: &str) -> Vec<Effect> {
-        let safe = (self.redact)(line);
+        let safe = self.scrub(line);
         let mut bytes = Vec::with_capacity(self.stderr.len() + safe.len() + 1);
         bytes.extend_from_slice(self.stderr.as_bytes());
         bytes.extend_from_slice(safe.as_bytes());
@@ -224,14 +239,16 @@ impl Lifetime {
         diagnostic.insert("stderr", Value::from(self.stderr.clone()));
         let diagnostic = Value::Object(diagnostic);
         effects.extend(emit(frames, FrameDir::Note, &diagnostic, "stdio"));
-        let message = format!(
+        // The message serializes the diagnostic, so it is scrubbed as a whole:
+        // the note's frame is redacted by the emitter, this string is not.
+        let message = self.scrub(&format!(
             "Codex app-server {}: {}",
             match self.retirement {
                 Some(reason) if deliberate => format!("retired ({})", reason.as_str()),
                 _ => "disconnected".to_owned(),
             },
             ace_json::to_string(&diagnostic)
-        );
+        ));
         effects.push(Effect::Exited {
             deliberate,
             message,
@@ -268,7 +285,7 @@ impl Lifetime {
         let mut note = Map::new();
         note.insert("event", Value::from("codex-stop-failed"));
         note.insert("retirement", Value::from(reason.as_str()));
-        note.insert("message", Value::from((self.redact)(message)));
+        note.insert("message", Value::from(self.scrub(message)));
         emit(frames, FrameDir::Note, &Value::Object(note), "stdio")
     }
 

@@ -12,7 +12,7 @@ fn unredacted() -> Redactor {
 
 /// A busy session alone on a shared host whose stop does not confirm.
 fn busy_alone() -> Lifetime {
-    let mut lifetime = Lifetime::new("g1".to_owned(), unredacted());
+    let mut lifetime = Lifetime::new("g1".to_owned(), unredacted(), None);
     lifetime.attached(true, true);
     lifetime
 }
@@ -111,7 +111,7 @@ fn a_transport_failure_whose_stop_fails_records_it_on_the_session() {
 
 #[test]
 fn a_shared_host_with_other_tenants_stops_this_trees_work_before_it_detaches() {
-    let mut lifetime = Lifetime::new("g1".to_owned(), unredacted());
+    let mut lifetime = Lifetime::new("g1".to_owned(), unredacted(), None);
     lifetime.attached(true, false);
     let started = lifetime.close(Retirement::User, true);
     assert_eq!(
@@ -134,7 +134,7 @@ fn a_shared_host_with_other_tenants_stops_this_trees_work_before_it_detaches() {
 
 #[test]
 fn work_that_cannot_be_confirmed_retires_the_host_instead() {
-    let mut lifetime = Lifetime::new("g1".to_owned(), unredacted());
+    let mut lifetime = Lifetime::new("g1".to_owned(), unredacted(), None);
     lifetime.attached(true, false);
     lifetime.close(Retirement::User, true);
     let retired = lifetime.work_stopped(Err("interrupt timed out".to_owned()));
@@ -150,7 +150,7 @@ fn work_that_cannot_be_confirmed_retires_the_host_instead() {
 
 #[test]
 fn a_private_sessions_close_detaches_after_its_cleanup() {
-    let mut lifetime = Lifetime::new("g1".to_owned(), unredacted());
+    let mut lifetime = Lifetime::new("g1".to_owned(), unredacted(), None);
     lifetime.attached(false, false);
     assert_eq!(
         lifetime.close(Retirement::Shutdown, false),
@@ -200,7 +200,7 @@ fn a_session_retired_up_front_closes_at_once_after_its_cleanup() {
 
 #[test]
 fn a_process_that_died_on_its_own_is_not_reported_as_deliberate() {
-    let mut lifetime = Lifetime::new("g1".to_owned(), unredacted());
+    let mut lifetime = Lifetime::new("g1".to_owned(), unredacted(), None);
     lifetime.attached(false, false);
     let exit = lifetime.exited(&Frames::new(None), &host_exit(ExitReason::Signal));
     let diagnostic = notes(&exit)[0].clone();
@@ -224,7 +224,7 @@ fn a_process_that_died_on_its_own_is_not_reported_as_deliberate() {
 
 #[test]
 fn the_stderr_tail_keeps_the_last_4096_bytes_and_its_last_1024_characters() {
-    let mut lifetime = Lifetime::new("g1".to_owned(), unredacted());
+    let mut lifetime = Lifetime::new("g1".to_owned(), unredacted(), None);
     for index in 0..200 {
         lifetime.stderr_line(&Frames::new(None), &format!("line {index}"));
     }
@@ -245,10 +245,40 @@ fn the_stderr_tail_keeps_the_last_4096_bytes_and_its_last_1024_characters() {
 }
 
 #[test]
+fn the_bearer_never_reaches_the_tail_the_note_or_the_exit_message() {
+    let bearer = "a".repeat(64);
+    // A redactor that knows nothing of the bearer, as a generic one may not.
+    let mut lifetime = Lifetime::new("g1".to_owned(), unredacted(), Some(bearer.clone()));
+    lifetime.attached(false, false);
+    lifetime.stderr_line(
+        &Frames::new(Some(bearer.clone())),
+        &format!("bearer {bearer}"),
+    );
+    assert!(!lifetime.stderr_tail().contains(&bearer));
+    let exit = lifetime.exited(
+        &Frames::new(Some(bearer.clone())),
+        &HostExit {
+            reason: ExitReason::Exit,
+            code: Some(0),
+            signal: None,
+            pid: Some(42),
+            output_drained: true,
+        },
+    );
+    let diagnostic = notes(&exit)[0].clone();
+    assert!(!ace_json::to_string(&diagnostic).contains(&bearer));
+    let Some(Effect::Exited { message, .. }) = exit.last() else {
+        panic!("the exit is reported");
+    };
+    assert!(!message.contains(&bearer), "{message}");
+}
+
+#[test]
 fn a_line_is_scrubbed_before_it_is_retained_or_emitted() {
     let mut lifetime = Lifetime::new(
         "g1".to_owned(),
         Box::new(|line: &str| line.replace("secret-token", "<CREDENTIAL>")),
+        None,
     );
     let effects = lifetime.stderr_line(&Frames::new(None), "bearer secret-token");
     assert!(!lifetime.stderr_tail().contains("secret-token"));

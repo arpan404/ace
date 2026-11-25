@@ -204,8 +204,9 @@ impl Session {
         if thread != self.root && parent.as_ref().is_none_or(|p| !self.known.contains(p)) {
             self.revisions.shift_remove(thread);
             self.discovery.uncertain.shift_remove(thread);
-            self.release_read(thread);
-            return self.finish_output_recovery();
+            let mut effects = self.release_read(thread);
+            effects.extend(self.finish_output_recovery());
+            return effects;
         }
         let read_number = self.discovery.history_reads + 1;
         self.discovery.history_reads = read_number;
@@ -324,7 +325,7 @@ impl Session {
         // Children waiting on a failed read fail with it; `release_read`
         // reports them before the starter's own retry.
         let mut effects = self.diagnostic(message);
-        self.release_read(thread);
+        effects.extend(self.release_read(thread));
         effects.extend(origin_failed(self, origin, thread));
         effects
     }
@@ -337,11 +338,11 @@ impl Session {
     }
 
     /// `readThread`'s release: the read, its observation, and its recovery
-    /// bookkeeping. Children blocked on it continue; a reconcile waiting on it
-    /// moves on.
-    pub(crate) fn release_read(&mut self, thread: &str) {
+    /// bookkeeping. Whatever awaited it continues, and every continuation's
+    /// effects are returned in the order they were decided.
+    pub(crate) fn release_read(&mut self, thread: &str) -> Vec<Effect> {
         let Some(read) = self.discovery.reads.shift_remove(thread) else {
-            return;
+            return Vec::new();
         };
         self.reading.shift_remove(thread);
         self.discovery.observations.shift_remove(thread);
@@ -355,19 +356,21 @@ impl Session {
             .blocked
             .shift_remove(thread)
             .unwrap_or_default();
+        let mut effects = Vec::new();
         if self.known.contains(thread) {
             for child in blocked {
-                let _ = self.read_gate(&child);
+                effects.extend(self.read_gate(&child));
             }
         } else {
             let message = "Codex thread read failed";
             for child in blocked {
-                let _ = self.read_failed(&child, message);
+                effects.extend(self.read_failed(&child, message));
             }
         }
         let tasks: Vec<String> = self.discovery.tasks.keys().cloned().collect();
         for task in &tasks {
-            let _ = self.reconcile_continue(task, thread);
+            effects.extend(self.reconcile_continue(task, thread));
         }
+        effects
     }
 }

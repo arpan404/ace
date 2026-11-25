@@ -183,13 +183,14 @@ impl Session {
         match self.emit(dir, &recorded, channel, optional) {
             Ok(ref mut emitted) => effects.append(emitted),
             Err(rejected) => {
-                // A frame the bound refuses is never published: the transport
-                // fails rather than letting the channel's state and its frames
-                // drift apart. (TypeScript throws out of the callback, which
-                // closes the peer for a received frame.)
-                let _ = rejected;
-                let busy = self.busy();
-                effects.extend(self.lifetime.fail_transport(&self.frames, busy));
+                // A received frame the bound refuses retires the transport, as
+                // the TypeScript's throw out of the callback closes the peer. An
+                // outgoing frame is the writer's: it is left out, and the
+                // session goes on (`session.ts:153`-`:156`).
+                if rejected.fail_transport {
+                    let busy = self.busy();
+                    effects.extend(self.lifetime.fail_transport(&self.frames, busy));
+                }
                 return effects;
             }
         }

@@ -139,8 +139,8 @@ impl ToolFactsRead {
             && let Some(key) = main.key.take()
         {
             // The load lands in the cache whether or not this read still waits
-            // on it: a deadline never leaves the entry loading.
-            catalog_cache.settle(&key, done);
+            // on it, and every other read that joined it is handed the value.
+            effects.extend(self.publish_load(catalog_cache, &key, done));
         }
         if self.stage == Stage::Catalog && self.main.as_ref().is_some_and(|p| p.done.is_some()) {
             self.facts.catalog = self.main.take().and_then(|pager| pager.done.flatten());
@@ -247,12 +247,32 @@ impl ToolFactsRead {
     fn adopt_load(&mut self, pager: Pager, catalog_cache: &mut CodexCatalogCache) -> Vec<Effect> {
         let done = pager.done.clone();
         if let (Some(done), Some(key)) = (done, pager.key.clone()) {
-            catalog_cache.settle(&key, done.clone());
+            let mut effects = self.publish_load(catalog_cache, &key, done.clone());
             self.facts.catalog = done;
-            return self.finish(ToolFactsOutcome::Facts(self.facts.clone()));
+            effects.extend(self.finish(ToolFactsOutcome::Facts(self.facts.clone())));
+            return effects;
         }
         self.main = Some(pager);
         Vec::new()
+    }
+
+    /// Settles an owned load and tells every other read that waited on it.
+    fn publish_load(
+        &self,
+        catalog_cache: &mut CodexCatalogCache,
+        key: &str,
+        catalog: Option<Catalog>,
+    ) -> Vec<Effect> {
+        let settled = catalog_cache.settle(key, catalog);
+        settled
+            .waiters
+            .into_iter()
+            .filter(|wake| *wake != self.wake)
+            .map(|wake| Effect::WakeCatalog {
+                wake,
+                catalog: settled.catalog.clone(),
+            })
+            .collect()
     }
 
     fn finish(&mut self, outcome: ToolFactsOutcome) -> Vec<Effect> {

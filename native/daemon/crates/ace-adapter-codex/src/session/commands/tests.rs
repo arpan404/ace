@@ -367,3 +367,57 @@ fn a_second_id_is_taken_when_the_queue_needs_one_of_its_own() {
         Some("id-1")
     );
 }
+
+#[test]
+fn a_steer_too_large_for_one_frame_is_refused_before_it_is_written_and_never_retried() {
+    let mut session = running();
+    let text = parts("huge");
+    let effects = session.send(send(40, &text, Delivery::Steer, None, &message_id));
+    let (call, ..) = request(&effects[0]);
+    let effects = session.settled(call, Err("Provider payload exceeds byte limit"));
+    let failure = settled(&effects[0]);
+    assert_eq!(failure.message, "Provider payload exceeds byte limit");
+    assert_ne!(
+        failure.code,
+        ace_adapter_api::bridge::queue::STEER_TARGET_LOST
+    );
+    // Nothing retried it into another turn, and no turn was started in its place.
+    assert!(session.commands.flights.is_empty());
+    assert!(session.commands.starts.is_empty());
+}
+
+#[test]
+fn a_queued_message_too_large_for_one_frame_settles_with_the_frames_own_error() {
+    let mut session = running();
+    let text = parts("huge");
+    let effects = session.send(send(41, &text, Delivery::Queue, None, &message_id));
+    let (call, ..) = request(&effects[0]);
+    let effects = session.settled(call, Err("Provider payload exceeds byte limit"));
+    assert_eq!(
+        settled(&effects[0]).message,
+        "Provider payload exceeds byte limit"
+    );
+    assert!(session.commands.flights.is_empty());
+}
+
+#[test]
+fn a_turn_start_too_large_for_one_frame_settles_with_the_frames_own_error() {
+    let mut session = session();
+    let text = parts("huge");
+    let effects = session.send(send(42, &text, Delivery::Steer, None, &message_id));
+    assert!(matches!(effects[0], Effect::LaunchOptions { id: 42, .. }));
+    let effects = session.launch_ready(
+        42,
+        Ok(Launch {
+            mode: None,
+            options: Map::new(),
+        }),
+    );
+    let (call, method, _) = request(&effects[1]);
+    assert_eq!(method, "turn/start");
+    let effects = session.settled(call, Err("Provider payload exceeds byte limit"));
+    assert_eq!(
+        settled(&effects[0]).message,
+        "Provider payload exceeds byte limit"
+    );
+}
