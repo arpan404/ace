@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The saved mode, model and effort a launch applies before its open settles
-//! (`packages/adapter-acp/src/session.ts:495`–`:533`, `:572`–`:590`).
+//! (`packages/adapter-acp/src/session.ts:495`-`:533`, `:572`-`:590`).
 //!
 //! Sans-IO: every selection is one `session/set_mode`, `session/set_config_option` or
 //! `session/set_model` request whose reply arrives in frame order. A value the agent
 //! no longer lists, or refuses, is reported as refused instead of failing the start;
-//! a closed session still fails it (`session.ts:511`–`:520`).
+//! a closed session still fails it (`session.ts:511`-`:520`).
 
 use ace_json::{Map, Value};
 use ace_supervisor::peer::Timeout;

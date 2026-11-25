@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! ACP MCP server selection, transport filtering, and collision checks
-//! (`packages/mcp-server/src/injection.ts:239`–`:250` and
-//! `packages/adapter-acp/src/session.ts:417`–`:437`).
+//! (`packages/mcp-server/src/injection.ts:239`-`:250` and
+//! `packages/adapter-acp/src/session.ts:417`-`:437`).
 
 use ace_json::Value;
 use indexmap::IndexSet;

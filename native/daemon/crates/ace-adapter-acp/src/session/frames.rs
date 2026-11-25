@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! ACP frame capture (`packages/adapter-acp/src/session.ts:360`–`:382` and
+//! ACP frame capture (`packages/adapter-acp/src/session.ts:360`-`:382` and
 //! `packages/provider-kit/src/payload.ts`).
 //!
 //! Redacts lease secrets through the E1 port (`translate::frame_redaction`), admits the

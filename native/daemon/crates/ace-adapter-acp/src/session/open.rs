@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! ACP session open handshake state machine (`packages/adapter-acp/src/session.ts:383`–`:495`).
+//! ACP session open handshake state machine (`packages/adapter-acp/src/session.ts:383`-`:495`).
 //!
 //! Sign-in is not here: `openWithSignIn` (`packages/provider-kit/src/acp-sign-in.ts:14`) stays
 //! TypeScript around the native open (E3-acp.3), so an agent that wants a sign-in method

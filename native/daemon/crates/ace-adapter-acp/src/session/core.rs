@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The sans-IO ACP session core (`packages/adapter-acp/src/session.ts:118`–`:940`, E3-acp.1).
+//! The sans-IO ACP session core (`packages/adapter-acp/src/session.ts:118`-`:940`, E3-acp.1).
 //!
 //! Runs over `ace_supervisor::peer::{RpcPeer, PeerOwner}` and `ace_supervisor::lines::LineFramer`.
 //! Settlement (`sending`, `replied`, `prompt_ended`) runs immediately inside the peer's
