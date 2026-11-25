@@ -3,7 +3,7 @@
 
 use super::limits;
 use crate::actor::deps::BatchAck;
-use crate::actor::state::Pending;
+use crate::actor::state::{ActorInstance, ActorRef, Pending, current};
 use crate::actor::{flow, fold, intake};
 use crate::executor::{Deferred, Lane};
 use crate::{Core, EngineError, ThreadId};
@@ -71,51 +71,27 @@ pub enum Next {
 }
 
 /// `acceptOperation(run, bytes, frames)` (`actor.ts:198`): the capacity check, then the queue.
-fn admit(core: &Core, thread: &ThreadId, bytes: usize, frames: usize) -> Option<bool> {
-    let limits = limits(core);
-    core.with_state(|state| {
-        let actor = state.actors.get(thread)?;
-        if actor.stopped || actor.overflowed {
-            return Some(false);
-        }
-        Some(true)
-    })
-    .ok()
-    .flatten()
-    .filter(|accepted| *accepted)?;
-
-    let over = core
-        .with_state(|state| {
-            let actor = state.actors.get(thread)?;
-            Some(
-                actor.queued + frames > limits.max_queued_frames as usize
-                    || actor.queued_bytes + bytes > limits.max_queued_bytes as usize,
-            )
-        })
-        .ok()
-        .flatten()
-        .unwrap_or(true);
-    if over {
-        core.with_state(|state| {
-            if let Some(mut actor) = state.actors.get_mut(thread) {
-                actor.overflowed = true;
-                // Preserve the accepted prefix, then fail explicitly instead of dropping facts.
-                actor.mailbox.push_back(Op::Overflow);
-            }
-        })
-        .ok();
-        return Some(false);
+fn admit(
+    actor: &mut ActorInstance,
+    limits: &crate::limits::EngineLimits,
+    bytes: usize,
+    frames: usize,
+) -> bool {
+    if actor.stopped || actor.overflowed {
+        return false;
     }
-    core.with_state(|state| {
-        let limits = state.limits;
-        if let Some(mut actor) = state.actors.get_mut(thread) {
-            actor.queued += frames;
-            actor.queued_bytes += bytes;
-            flow::update_pressure(&mut actor, &limits);
-        }
-    })
-    .ok();
-    Some(true)
+    if actor.queued + frames > limits.max_queued_frames as usize
+        || actor.queued_bytes + bytes > limits.max_queued_bytes as usize
+    {
+        actor.overflowed = true;
+        // Keep the accepted prefix and fail explicitly after it.
+        actor.mailbox.push_back(Op::Overflow);
+        return false;
+    }
+    actor.queued += frames;
+    actor.queued_bytes += bytes;
+    flow::update_pressure(actor, limits);
+    true
 }
 
 /// `enqueue(run)` (`actor.ts:191`): seal first, then admit the wrapped run. A timer that fired
@@ -139,22 +115,27 @@ fn atomic_run(run: RunFn) -> RunFn {
 
 /// `accept` outside a transaction: the capacity check, then the queue.
 pub(crate) fn admit_run(core: &Rc<Core>, thread: &ThreadId, run: RunFn) {
-    let Some(true) = admit(core, thread, 0, 1) else {
-        return;
-    };
-    let run = atomic_run(run);
-    core.with_state(|state| {
-        if let Some(mut actor) = state.actors.get_mut(thread) {
-            actor.mailbox.push_back(Op::Run(Box::new(RunOp {
-                run,
-                bytes: 0,
-                frames: 1,
-                ack: None,
-            })));
+    if let Some(actor) = current(core, thread) {
+        admit_instance_run(core, &actor, run);
+    }
+}
+
+pub(crate) fn admit_instance_run(core: &Rc<Core>, actor: &ActorRef, run: RunFn) {
+    let limits = limits(core);
+    let thread = {
+        let mut actor = actor.borrow_mut();
+        if !admit(&mut actor, &limits, 0, 1) {
+            return;
         }
-    })
-    .ok();
-    core.record_wake(thread);
+        actor.mailbox.push_back(Op::Run(Box::new(RunOp {
+            run: atomic_run(run),
+            bytes: 0,
+            frames: 1,
+            ack: None,
+        })));
+        actor.id.clone()
+    };
+    core.record_wake(&thread);
 }
 
 /// A run made inside an open transaction: a staged slot keeps its place, counts nothing, and is
@@ -249,7 +230,8 @@ fn admit_staged(core: &Rc<Core>, thread: &ThreadId, slot: u64, run: Option<RunFn
     if !still_pending {
         return;
     }
-    let Some(true) = admit(core, thread, 0, 1) else {
+    let limits = limits(core);
+    if !current(core, thread).is_some_and(|actor| admit(&mut actor.borrow_mut(), &limits, 0, 1)) {
         discard_staged(core, thread, slot);
         return;
     };
@@ -292,71 +274,35 @@ fn discard_staged(core: &Core, thread: &ThreadId, slot: u64) {
 
 /// Takes the front entry, resolving staged slots.
 pub fn take_next(core: &Core, thread: &ThreadId) -> Next {
+    current(core, thread).map_or(Next::Exit, |actor| select_next(&mut actor.borrow_mut()))
+}
+
+pub(crate) fn select_next(actor: &mut ActorInstance) -> Next {
     loop {
-        let entry = core.with_state(|state| {
-            let actor = state.actors.get(thread)?;
-            let Some(front) = actor.mailbox.front() else {
-                return Some(None);
-            };
-            match front {
-                Op::Staged(slot) => Some(Some((true, *slot))),
-                _ => Some(Some((false, 0))),
+        let Some(front) = actor.mailbox.front() else {
+            return Next::Park;
+        };
+        let Op::Staged(slot) = *front else {
+            if let Some(op) = actor.mailbox.pop_front() {
+                actor.running = true;
+                return Next::Run(op);
             }
-        });
-        match entry {
-            Ok(None) | Err(_) => return Next::Exit,
-            // The mailbox is empty.
-            Ok(Some(Some((_, 0)))) if false => return Next::Park,
-            Ok(Some(front)) => {
-                let Some((staged, slot)) = front else {
-                    return Next::Park;
-                };
-                if !staged {
-                    let op = core.with_state(|state| {
-                        let mut actor = state.actors.get_mut(thread)?;
-                        let op = actor.mailbox.pop_front();
-                        // The op is in flight until it settles, so a flush waits for it even
-                        // while it is parked on the store's retry timer.
-                        if op.is_some() {
-                            actor.running = true;
-                        }
-                        op
-                    });
-                    return match op {
-                        Ok(Some(op)) => Next::Run(op),
-                        _ => Next::Exit,
-                    };
-                }
-                let ready = core.with_state(|state| {
-                    let mut actor = state.actors.get_mut(thread)?;
-                    let shared = actor.staged.get(&slot)?.clone();
-                    let mut state_borrow = shared.borrow_mut();
-                    match &mut *state_borrow {
-                        Staged::Ready(_) => {
-                            let Staged::Ready(run) =
-                                std::mem::replace(&mut *state_borrow, Staged::Discarded)
-                            else {
-                                unreachable!()
-                            };
-                            actor.staged.shift_remove(&slot);
-                            actor.mailbox.pop_front();
-                            actor.running = true;
-                            Some(Next::Run(Op::Run(run)))
-                        }
-                        Staged::Discarded => {
-                            actor.staged.shift_remove(&slot);
-                            actor.mailbox.pop_front();
-                            Some(Next::Park)
-                        }
-                        Staged::Pending => Some(Next::Wait),
-                    }
-                });
-                match ready {
-                    Ok(Some(Next::Park)) => continue,
-                    Ok(Some(next)) => return next,
-                    _ => return Next::Exit,
-                }
-            }
+            return Next::Park;
+        };
+        let Some(shared) = actor.staged.get(&slot) else {
+            return Next::Exit;
+        };
+        let mut state = shared.borrow_mut();
+        if matches!(*state, Staged::Pending) {
+            return Next::Wait;
+        }
+        let entry = std::mem::replace(&mut *state, Staged::Discarded);
+        drop(state);
+        actor.staged.shift_remove(&slot);
+        actor.mailbox.pop_front();
+        if let Staged::Ready(run) = entry {
+            actor.running = true;
+            return Next::Run(Op::Run(run));
         }
     }
 }

@@ -3,9 +3,9 @@
 //! flush (`actor.ts:254`-`:266`, `:431`-`:442`, `:589`-`:608`).
 
 use super::RunFn;
-use super::queue::admit_run;
+use super::queue::admit_instance_run;
 use crate::actor::deps::BatchAck;
-use crate::actor::state::{ActorInstance, FrameRef};
+use crate::actor::state::{ActorInstance, ActorRef, FrameRef, current};
 use crate::actor::{flow, fold, intake, timer};
 use crate::futures::channel::oneshot;
 use crate::{Core, EngineError, ThreadId};
@@ -17,30 +17,14 @@ use std::task::Poll;
 /// `runWhenWritable` (`actor.ts:254`): the store's gate, re-checked in the turn that runs the op.
 pub async fn run_when_writable(
     core: &Rc<Core>,
-    thread: &ThreadId,
-    instance: u64,
+    actor: Option<&ActorRef>,
     run: &mut RunFn,
-    drained: bool,
 ) -> Result<bool, EngineError> {
     loop {
-        // A retry resumes after an eviction: the batch belongs to the actor that queued it.
-        let alive = core
-            .with_state(|state| {
-                state
-                    .actors
-                    .get(thread)
-                    .is_some_and(|actor| actor.instance == instance)
-            })
-            .unwrap_or(false);
-        if !alive && !drained {
-            return Ok(false);
-        }
-        let poisoned = core
-            .with_state(|state| state.actors.get(thread).map(|actor| actor.poisoned))
-            .ok()
-            .flatten()
-            .unwrap_or(!drained);
-        if poisoned {
+        if actor.is_some_and(|actor| {
+            let actor = actor.borrow();
+            actor.detached || actor.poisoned
+        }) {
             return Ok(false);
         }
         let live = core.actor_deps.borrow().live.clone();
@@ -63,18 +47,27 @@ pub async fn run_when_writable(
 
 /// Settles every acknowledgement attached to an op after it ran (`actor.ts:431`).
 pub fn settle(core: &Core, thread: &ThreadId, frames: usize, bytes: usize, ack: BatchAck) -> bool {
-    let reject = core
-        .with_state(|state| {
-            let limits = state.limits;
-            let Some(mut actor) = state.actors.get_mut(thread) else {
-                return true;
-            };
-            actor.queued = actor.queued.saturating_sub(frames);
-            actor.queued_bytes = actor.queued_bytes.saturating_sub(bytes);
-            flow::update_pressure(&mut actor, &limits);
-            actor.poisoned || actor.overflowed
-        })
-        .unwrap_or(true);
+    let Some(actor) = current(core, thread) else {
+        return settle_rejected(core, ack);
+    };
+    settle_instance(core, &actor, frames, bytes, ack)
+}
+
+pub(crate) fn settle_instance(
+    core: &Core,
+    actor: &ActorRef,
+    frames: usize,
+    bytes: usize,
+    ack: BatchAck,
+) -> bool {
+    let limits = super::limits(core);
+    let reject = {
+        let mut actor = actor.borrow_mut();
+        actor.queued = actor.queued.saturating_sub(frames);
+        actor.queued_bytes = actor.queued_bytes.saturating_sub(bytes);
+        flow::update_pressure(&mut actor, &limits);
+        actor.poisoned || actor.overflowed
+    };
     let mut ack = ack;
     let js = ack.js;
     if reject {
@@ -159,18 +152,16 @@ pub fn settle_rejected(core: &Core, ack: BatchAck) -> bool {
 }
 
 /// The mailbox task's own wait: the front entry, or a park on both timers.
-pub async fn park(core: &Rc<Core>, thread: &ThreadId) -> bool {
+pub async fn park(core: &Rc<Core>, thread: &ThreadId, actor: &ActorRef) {
     let mut once = false;
-    let ready = futures::future::poll_fn(|cx| {
+    futures::future::poll_fn(|cx| {
         if once {
-            return Poll::Ready(true);
+            return Poll::Ready(());
         }
         once = true;
         core.register_waker(thread.clone(), cx.waker().clone());
-        let polled = core.with_state(|state| {
-            let Some(mut actor) = state.actors.get_mut(thread) else {
-                return Poll::Ready(false);
-            };
+        {
+            let mut actor = actor.borrow_mut();
             let mut fired = false;
             if let Some(timer) = actor.batch_timer.as_mut()
                 && Pin::new(&mut timer.fired).poll(cx).is_ready()
@@ -183,17 +174,13 @@ pub async fn park(core: &Rc<Core>, thread: &ThreadId) -> bool {
                 fired = true;
             }
             if fired {
-                Poll::Ready(true)
+                Poll::Ready(())
             } else {
                 Poll::Pending
             }
-        });
-        match polled {
-            Ok(polled) => polled,
-            Err(_) => Poll::Ready(false),
         }
-    });
-    ready.await
+    })
+    .await
 }
 
 /// `backlog()` (`actor.ts:583`).
@@ -261,11 +248,11 @@ pub fn actor_quiescent(actor: &ActorInstance) -> bool {
 }
 
 /// The tick a fired actor timer stands for (`actor.ts:564`).
-pub fn fire_tick(core: &Rc<Core>, thread: &ThreadId) {
-    let op_thread = thread.clone();
+pub fn fire_tick(core: &Rc<Core>, actor: &ActorRef) {
+    let op_thread = actor.borrow().id.clone();
     admit_now(
         core,
-        thread,
+        actor,
         Box::new(move |core: &Rc<Core>| {
             let thread: &String = &op_thread;
             let now = core.ports.now();
@@ -319,7 +306,7 @@ pub fn fire_tick(core: &Rc<Core>, thread: &ThreadId) {
 
 /// Work of the first kind: a zone that does not depend on an enclosing transaction (a timer's
 /// tick) seals and admits at once, so a rollback cannot discard it.
-pub fn admit_now(core: &Rc<Core>, thread: &ThreadId, run: RunFn) {
-    intake::seal(core, thread);
-    admit_run(core, thread, run);
+fn admit_now(core: &Rc<Core>, actor: &ActorRef, run: RunFn) {
+    intake::seal_instance(core, actor);
+    admit_instance_run(core, actor, run);
 }

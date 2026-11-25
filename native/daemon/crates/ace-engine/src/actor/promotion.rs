@@ -34,20 +34,16 @@ pub fn commit_promotion(core: &Rc<Core>, promotion: &Rc<state::Promotion>) {
     // their drains resolve, and every acknowledgement they still hold settles as failed.
     let aside = std::mem::take(&mut *promotion.kept_aside.borrow_mut());
     for (_, _, actor) in aside {
-        let (id, generation, instance, ops) = {
+        let (id, generation, ops) = {
             let mut state = actor.borrow_mut();
-            (
-                state.id.clone(),
-                state.generation,
-                state.instance,
-                take_ops(&mut state),
-            )
+            (state.id.clone(), state.generation, take_ops(&mut state))
         };
         stop_aside(core, &deps, actor);
         // A parked task of an evicted victim wakes once to see it owns nothing.
         core.record_wake(&id);
+        core.unregister_waker(&id);
         // The victim's sealed work commits, as the TypeScript's tail did after `stop()`.
-        spawn_drain(core, &id, instance, generation, ops);
+        spawn_drain(core, &id, generation, ops);
     }
     core.with_state(|state| {
         state.actors.reserved.shift_remove(&thread);
@@ -72,13 +68,13 @@ pub fn evict_now(core: &Rc<Core>, thread: &ThreadId) {
         .with_state(|state| {
             state.actors.get_mut(thread).map(|mut actor| {
                 let ops = take_ops(&mut actor);
-                (ops, actor.generation, actor.instance)
+                (ops, actor.generation)
             })
         })
         .ok()
         .flatten()
         .unwrap_or_default();
-    let (ops, generation, instance) = taken;
+    let (ops, generation) = taken;
     let actor = core
         .with_state(|state| state.actors.remove(thread))
         .ok()
@@ -88,11 +84,13 @@ pub fn evict_now(core: &Rc<Core>, thread: &ThreadId) {
     }
     // The evicted actor's task parks on its timer; waking it lets it see it owns nothing.
     core.record_wake(thread);
-    spawn_drain(core, thread, instance, generation, ops);
+    core.unregister_waker(thread);
+    spawn_drain(core, thread, generation, ops);
 }
 
 /// Takes an actor's accepted work: unsealed pending frames become one batch, then the mailbox.
 fn take_ops(actor: &mut state::ActorInstance) -> Vec<mailbox::Op> {
+    actor.detached = true;
     let mut ops = Vec::new();
     if !actor.pending.is_empty() {
         let frames = std::mem::take(&mut actor.pending);
@@ -114,13 +112,7 @@ fn take_ops(actor: &mut state::ActorInstance) -> Vec<mailbox::Op> {
 }
 
 /// Drains an evicted actor's accepted work on the pump, one op per poll, as the mailbox would.
-fn spawn_drain(
-    core: &Rc<Core>,
-    thread: &ThreadId,
-    instance: u64,
-    generation: u64,
-    ops: Vec<mailbox::Op>,
-) {
+fn spawn_drain(core: &Rc<Core>, thread: &ThreadId, generation: u64, ops: Vec<mailbox::Op>) {
     if ops.is_empty() {
         return;
     }
@@ -130,7 +122,7 @@ fn spawn_drain(
         let mut queue = ops.into_iter();
         let mut failed = false;
         for op in queue.by_ref() {
-            if !crate::actor::drain_op(&owned, &id, instance, generation, op).await {
+            if !crate::actor::drain_op(&owned, &id, generation, op).await {
                 failed = true;
                 break;
             }

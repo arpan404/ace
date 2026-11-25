@@ -85,6 +85,7 @@ pub struct ActorInstance {
     pub running: bool,
     pub timer: Option<(Timer, ArmedTimer)>,
     pub stopped: bool,
+    pub detached: bool,
     pub mailbox_task: Option<TaskId>,
     pub staged: IndexMap<u64, Rc<RefCell<crate::actor::mailbox::Staged>>>,
     pub waker: Option<Waker>,
@@ -119,6 +120,7 @@ impl ActorInstance {
             running: false,
             timer: None,
             stopped: false,
+            detached: false,
             mailbox_task: None,
             staged: IndexMap::new(),
             waker: None,
@@ -269,6 +271,13 @@ impl Actors {
     pub fn live(&self) -> impl Iterator<Item = Ref<'_, ActorInstance>> {
         self.by_thread.values().map(|actor| actor.borrow())
     }
+}
+
+/// Captures the current actor for a synchronous entry.
+pub fn current(core: &Core, thread: &str) -> Option<ActorRef> {
+    core.with_state(|state| state.actors.by_thread.get(thread).cloned())
+        .ok()
+        .flatten()
 }
 
 /// The re-entrancy bug the actor never makes: `with_state` refused a nested borrow.

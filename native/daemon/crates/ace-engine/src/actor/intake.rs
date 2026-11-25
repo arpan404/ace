@@ -6,7 +6,7 @@
 use crate::actor::deps::BatchAck;
 use crate::actor::flow;
 use crate::actor::mailbox::{self, BatchOp};
-use crate::actor::state::{FrameRef, Pending};
+use crate::actor::state::{ActorRef, FrameRef, Pending, current};
 use crate::frames::envelope::{Envelope, envelope_error};
 use crate::futures::channel::oneshot;
 use crate::ports::PortError;
@@ -48,22 +48,26 @@ fn fired(timer: &mut crate::ports::Timer) -> bool {
 /// Decision 3, synchronous catch-up: a fired actor timer enqueues its tick (which seals first),
 /// and a fired batch timer seals.
 pub fn catch_up(core: &Rc<Core>, thread: &ThreadId) {
-    let fired_now = core.with_state(|state| {
-        let Some(mut actor) = state.actors.get_mut(thread) else {
-            return (false, false);
-        };
+    if let Some(actor) = current(core, thread) {
+        catch_up_instance(core, &actor);
+    }
+}
+
+pub(crate) fn catch_up_instance(core: &Rc<Core>, actor: &ActorRef) {
+    let (tick, batch) = {
+        let mut actor = actor.borrow_mut();
         let tick = actor.timer.as_mut().is_some_and(|(timer, _)| fired(timer));
         let batch = actor.batch_timer.as_mut().is_some_and(fired);
+        if !tick && !batch {
+            return;
+        }
         (tick, batch)
-    });
-    let Ok((tick, batch)) = fired_now else {
-        return;
     };
     if tick {
-        mailbox::fire_tick(core, thread);
+        mailbox::fire_tick(core, actor);
     }
     if batch {
-        seal(core, thread);
+        seal_instance(core, actor);
     }
 }
 
@@ -266,20 +270,24 @@ pub fn arm_batch_timer(core: &Rc<Core>, thread: &ThreadId) {
 
 /// `sealFrames()`'s take: cancel the batch timer and move the pending frames into one op.
 pub fn seal(core: &Rc<Core>, thread: &ThreadId) {
-    let taken = core.with_state(|state| {
-        let mut actor = state.actors.get_mut(thread)?;
-        let timer = actor.batch_timer.take();
-        if actor.pending.is_empty() {
-            return Some((None, None));
-        }
-        let frames = std::mem::take(&mut actor.pending);
-        let bytes = actor.pending_bytes;
-        actor.pending_bytes = 0;
-        let ack = actor.pending_ack.take().unwrap_or_default();
-        Some((timer, Some((frames, bytes, ack))))
-    });
-    let Ok(Some((timer, batch))) = taken else {
-        return;
+    if let Some(actor) = current(core, thread) {
+        seal_instance(core, &actor);
+    }
+}
+
+pub(crate) fn seal_instance(core: &Rc<Core>, actor: &ActorRef) {
+    let (timer, batch) = {
+        let mut state = actor.borrow_mut();
+        let timer = state.batch_timer.take();
+        let batch = if state.pending.is_empty() {
+            None
+        } else {
+            let frames = std::mem::take(&mut state.pending);
+            let bytes = std::mem::take(&mut state.pending_bytes);
+            let ack = state.pending_ack.take().unwrap_or_default();
+            Some((frames, bytes, ack))
+        };
+        (timer, batch)
     };
     if let Some(timer) = timer {
         core.ports.cancel_timer(timer.key);
@@ -287,78 +295,46 @@ pub fn seal(core: &Rc<Core>, thread: &ThreadId) {
     let Some((frames, bytes, ack)) = batch else {
         return;
     };
-    let op = BatchOp {
-        frames,
-        bytes,
-        ack,
-        admitted: false,
-        memory: Default::default(),
-    };
-    accept_batch(core, thread, op);
+    accept_batch(
+        core,
+        actor,
+        BatchOp {
+            frames,
+            bytes,
+            ack,
+            admitted: false,
+            memory: Default::default(),
+        },
+    );
 }
 
-/// The batch's admission: a refused batch still settles its acknowledgement after the ops before
-/// it (`actor.ts:430`).
-fn accept_batch(core: &Rc<Core>, thread: &ThreadId, mut op: BatchOp) {
+/// Refused batches settle their acknowledgements after the ops before them.
+fn accept_batch(core: &Rc<Core>, actor: &ActorRef, mut op: BatchOp) {
     let frames = op.frames.len();
-    let refused = core
-        .with_state(|state| {
-            state
-                .actors
-                .get(thread)
-                .is_none_or(|actor| actor.stopped || actor.overflowed)
-        })
-        .unwrap_or(true);
-    if refused {
-        // The batch never translates, so the shell's frame objects are released with it.
-        release_handles(core, &op.frames);
-        push_settle(core, thread, op.ack);
-        return;
-    }
-    let limits = core.with_state(|state| state.limits).unwrap_or_default();
-    let over = core
-        .with_state(|state| {
-            let actor = state.actors.get(thread)?;
-            Some(
-                actor.queued + frames > limits.max_queued_frames as usize
-                    || actor.queued_bytes + op.bytes > limits.max_queued_bytes as usize,
-            )
-        })
-        .ok()
-        .flatten()
-        .unwrap_or(true);
-    if over {
-        release_handles(core, &op.frames);
-        core.with_state(|state| {
-            if let Some(mut actor) = state.actors.get_mut(thread) {
-                actor.overflowed = true;
-                actor.mailbox.push_back(mailbox::Op::Overflow);
+    let limits = mailbox::limits(core);
+    let (thread, release) = {
+        let mut state = actor.borrow_mut();
+        let over = state.queued + frames > limits.max_queued_frames as usize
+            || state.queued_bytes + op.bytes > limits.max_queued_bytes as usize;
+        let release = if state.stopped || state.overflowed || over {
+            if over && !state.stopped && !state.overflowed {
+                state.overflowed = true;
+                state.mailbox.push_back(mailbox::Op::Overflow);
             }
-        })
-        .ok();
-        push_settle(core, thread, op.ack);
-        return;
+            state.mailbox.push_back(mailbox::Op::Settle(op.ack));
+            Some(op.frames)
+        } else {
+            op.admitted = true;
+            state.queued += frames;
+            state.queued_bytes += op.bytes;
+            flow::update_pressure(&mut state, &limits);
+            state.mailbox.push_back(mailbox::Op::Batch(Box::new(op)));
+            None
+        };
+        (state.id.clone(), release)
+    };
+    if let Some(frames) = release {
+        release_handles(core, &frames);
     }
-    op.admitted = true;
-    core.with_state(|state| {
-        let limits = state.limits;
-        if let Some(mut actor) = state.actors.get_mut(thread) {
-            actor.queued += frames;
-            actor.queued_bytes += op.bytes;
-            flow::update_pressure(&mut actor, &limits);
-            actor.mailbox.push_back(mailbox::Op::Batch(Box::new(op)));
-        }
-    })
-    .ok();
-    core.record_wake(thread);
-}
-
-fn push_settle(core: &Rc<Core>, thread: &ThreadId, ack: BatchAck) {
-    core.with_state(|state| {
-        if let Some(mut actor) = state.actors.get_mut(thread) {
-            actor.mailbox.push_back(mailbox::Op::Settle(ack));
-        }
-    })
-    .ok();
-    core.record_wake(thread);
+    core.record_wake(&thread);
 }
