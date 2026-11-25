@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::time::timeout;
 
 use super::{
     MESSAGE_OVERHEAD, SendResult, SocketEvent, SocketEvents, masked_frame, next, server_frame,
@@ -137,4 +138,138 @@ async fn a_consumer_that_never_returns_credit_gets_the_close_at_the_timeout() {
         .expect("the server drops its half")
         .expect("a read");
     assert_eq!(read, 0);
+}
+
+#[tokio::test]
+async fn a_send_after_the_handlers_return_credit_is_refused() {
+    let (server, mut client) = tokio::io::duplex(1 << 16);
+    let (handle, mut events) = open(Box::new(server), None, None);
+    let mut bytes = masked_frame(0x1, b"hello");
+    bytes.extend(masked_frame(0x3, b""));
+    client
+        .write_all(&bytes)
+        .await
+        .expect("the frames are written");
+
+    match next(&mut events).await {
+        SocketEvent::Message { .. } => {}
+        other => panic!("expected the message, got {other:?}"),
+    }
+    assert_eq!(
+        handle.send(Bytes::from_static(b"echo"), true, true, 1),
+        SendResult::Queued
+    );
+    handle.delivered(b"hello".len() as u64 + MESSAGE_OVERHEAD);
+    assert_eq!(
+        handle.ready_state(),
+        crate::socket::CLOSING,
+        "a failure closes the socket as soon as it is parsed, as ws does"
+    );
+    assert_eq!(
+        handle.send(Bytes::from_static(b"late"), true, true, 2),
+        SendResult::NotOpen,
+        "a send after the handler returned is refused, as ws refuses it"
+    );
+}
+
+/// A server that opens a socket per connection and echoes, holding each
+/// delivery's credit until the test hands it back, as a stalled consumer would.
+async fn stalling_server() -> (
+    std::net::SocketAddr,
+    tokio::sync::mpsc::UnboundedReceiver<crate::socket::SocketHandle>,
+) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("a port");
+    let address = listener.local_addr().expect("an address");
+    let (held, handles) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else {
+                return;
+            };
+            let (handle, mut events) = open(Box::new(stream), None, None);
+            let held = held.clone();
+            tokio::spawn(async move {
+                let mut id = 0;
+                while let Some(event) = events.recv().await {
+                    match event {
+                        SocketEvent::Message { data, .. } => {
+                            id += 1;
+                            let _ = handle.send(Bytes::from(data), true, true, id);
+                            // The credit is never returned here: the socket
+                            // waits for it before its error's close.
+                            let _ = held.send(handle.clone());
+                        }
+                        SocketEvent::Close { .. } => return,
+                        _ => {}
+                    }
+                }
+            });
+        }
+    });
+    (address, handles)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sockets_waiting_to_close_still_serve_a_new_connection() {
+    let (address, mut held) = stalling_server().await;
+    // More sockets than workers, each waiting for credit before its close.
+    let mut clients = Vec::new();
+    for _ in 0..4 {
+        let mut client = tokio::net::TcpStream::connect(address)
+            .await
+            .expect("a connection");
+        let mut bytes = masked_frame(0x1, b"hello");
+        bytes.extend(masked_frame(0x3, b""));
+        client
+            .write_all(&bytes)
+            .await
+            .expect("the frames are written");
+        clients.push(client);
+    }
+    let mut handles = Vec::new();
+    for _ in 0..4 {
+        handles.push(
+            timeout(Duration::from_secs(2), held.recv())
+                .await
+                .expect("a stalled socket")
+                .expect("its handle"),
+        );
+    }
+
+    // None of that may hold a worker: a new connection is served at once.
+    let mut next = timeout(
+        Duration::from_secs(1),
+        tokio::net::TcpStream::connect(address),
+    )
+    .await
+    .expect("a new connection is accepted")
+    .expect("connected");
+    next.write_all(&masked_frame(0x1, b"next"))
+        .await
+        .expect("the message is written");
+    let (opcode, payload) = timeout(Duration::from_secs(1), server_frame(&mut next))
+        .await
+        .expect("the echo arrives");
+    assert_eq!((opcode, payload.as_slice()), (0x2, b"next".as_slice()));
+
+    // The credit returning late still ends each stalled socket at once.
+    for handle in &handles {
+        handle.delivered(b"hello".len() as u64 + MESSAGE_OVERHEAD);
+    }
+    for client in &mut clients {
+        let (opcode, payload) = timeout(Duration::from_secs(1), server_frame(client))
+            .await
+            .expect("the held socket's echo");
+        assert_eq!((opcode, payload.as_slice()), (0x2, b"hello".as_slice()));
+        let (opcode, payload) = timeout(Duration::from_secs(1), server_frame(client))
+            .await
+            .expect("its close frame");
+        assert_eq!(
+            (opcode, payload.as_slice()),
+            (0x8, [0x03, 0xea].as_slice()),
+            "the close follows the reply once the credit is back"
+        );
+    }
 }

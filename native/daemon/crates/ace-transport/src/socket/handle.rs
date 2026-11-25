@@ -75,7 +75,13 @@ impl SocketHandle {
         };
         let shared = &self.shared;
         let inner = lock(&shared.inner);
-        if inner.state != OPEN {
+        // `ws` refuses a send once the socket is no longer OPEN, but its
+        // handlers run synchronously, so a reply to a message handed over
+        // before a failure is already queued by then. Here the handler runs
+        // later: while one of those deliveries is still unhandled, its send is
+        // the equivalent, and anything after that is refused.
+        let closing_reply = inner.state == CLOSING && inner.failed && shared.delivering();
+        if inner.state != OPEN && !closing_reply {
             return SendResult::NotOpen;
         }
         let Some(outbound) = inner.outbound.as_ref() else {
@@ -215,5 +221,6 @@ impl SocketHandle {
         debit(&shared.waiting_bytes, charge);
         debit(&shared.waiting_messages, 1);
         shared.wake();
+        shared.settle.notify_one();
     }
 }

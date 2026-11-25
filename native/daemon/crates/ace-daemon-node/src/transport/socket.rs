@@ -224,6 +224,7 @@ async fn pump(
         let (event, charge) = translate(event);
         let delivered = handle.clone();
         let done = Arc::clone(&closed);
+        let owed = charge;
         let status = listener.call_with_return_value(
             event,
             ThreadsafeFunctionCallMode::NonBlocking,
@@ -246,6 +247,15 @@ async fn pump(
         if status == napi::Status::Closing {
             break;
         }
+        if !reached_callback(status) {
+            // The call never reached its callback, so nothing would hand this
+            // message's charge back: a later error would then wait on it for
+            // the close timeout. The close is settled by the tail below.
+            if let Some(charge) = owed {
+                handle.delivered(charge);
+            }
+            break;
+        }
         if last {
             queued_close = true;
             break;
@@ -256,6 +266,13 @@ async fn pump(
     if !queued_close {
         closed();
     }
+}
+
+/// Whether a listener call with `status` reached its callback. Only `Ok` did;
+/// `Closing` is excluded because events already queued still reach their
+/// callbacks, and those hand their own charges back.
+fn reached_callback(status: Status) -> bool {
+    status == Status::Ok
 }
 
 /// One event as JavaScript receives it, and the charge its message holds until
@@ -310,5 +327,29 @@ fn count(value: f64) -> u64 {
         value as u64
     } else {
         0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_listener_call_that_ran_hands_its_own_charge_back() {
+        // A call that never reached its callback would keep its message's credit
+        // for good, and a later error would wait for it until the close timeout;
+        // `pump` hands it back instead. `Closing` is not one of those: events
+        // already queued still reach their callbacks.
+        for status in [
+            Status::InvalidArg,
+            Status::GenericFailure,
+            Status::Cancelled,
+        ] {
+            assert!(
+                !reached_callback(status),
+                "{status:?} never reaches its callback"
+            );
+        }
+        assert!(reached_callback(Status::Ok));
     }
 }

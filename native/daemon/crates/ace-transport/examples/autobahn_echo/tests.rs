@@ -17,19 +17,34 @@ const LARGE: usize = 256 * 1024;
 /// the scratch server's, and would only slow these down under load.
 const LARGEST: usize = 4 * 1024 * 1024;
 
-async fn connect(compressed: bool) -> TcpStream {
+/// A server on a fresh port that keeps accepting, as `main` does, so a test can
+/// open a second connection after the first.
+async fn server() -> std::net::SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.unwrap();
-        let handler = WebSocketUpgrades::with_deflate(
-            Arc::new(AcceptAll {
-                next: AtomicU64::new(1),
-            }),
-            Arc::new(Echo),
-        );
-        serve(Arc::new(handler), stream).await;
+        loop {
+            let Ok((stream, _)) = listener.accept().await else {
+                return;
+            };
+            let handler = WebSocketUpgrades::with_deflate(
+                Arc::new(AcceptAll {
+                    next: AtomicU64::new(1),
+                }),
+                Arc::new(Echo),
+            );
+            tokio::spawn(serve(Arc::new(handler), stream));
+        }
     });
+    address
+}
+
+async fn connect(compressed: bool) -> TcpStream {
+    let address = server().await;
+    connect_to(address, compressed).await
+}
+
+async fn connect_to(address: std::net::SocketAddr, compressed: bool) -> TcpStream {
     let mut client = TcpStream::connect(address).await.unwrap();
     let offer = if compressed {
         "Sec-WebSocket-Extensions: permessage-deflate\r\n"
@@ -234,4 +249,27 @@ async fn echoes_the_suites_4_mib_fragment_case() {
     )
     .await
     .expect("the message is echoed");
+}
+
+#[tokio::test]
+async fn a_thousand_round_trips_leave_the_next_connection_working() {
+    // 9.7.x: 1,000 messages round trip per case, then the suite's next case
+    // opens a new connection. A finished connection must not keep the server
+    // from accepting.
+    let address = server().await;
+    let mut client = connect_to(address, false).await;
+    let message = masked_fragment(0x1, true, b"case 9.7");
+    for _ in 0..1_000 {
+        client.write_all(&message).await.unwrap();
+        expect_echo(&mut client, b"case 9.7", false).await;
+    }
+    client.shutdown().await.unwrap();
+
+    let mut next = timeout(Duration::from_secs(1), connect_to(address, false))
+        .await
+        .expect("the next connection is accepted and upgraded at once");
+    next.write_all(&masked_fragment(0x1, true, b"after"))
+        .await
+        .unwrap();
+    expect_echo(&mut next, b"after", false).await;
 }

@@ -39,6 +39,10 @@ pub(super) struct Ending {
     reason: Vec<u8>,
     /// The `Error` event to report before `Close`.
     error: Option<(&'static str, String)>,
+    /// Whether the close waits for the messages delivered before it, so their
+    /// handlers' replies go out first. A refused pong backlog does not: its
+    /// close is what unblocks the queue.
+    settles: bool,
     wire: Wire,
 }
 
@@ -59,6 +63,7 @@ impl Ending {
             code: 1006,
             reason: Vec::new(),
             error: None,
+            settles: false,
             wire: Wire::Nothing,
         }
     }
@@ -80,6 +85,7 @@ impl Ending {
             code: 1006,
             reason: Vec::new(),
             error: Some((error.error_code(), message)),
+            settles: true,
             wire,
         }
     }
@@ -91,6 +97,7 @@ impl Ending {
             code: 1006,
             reason: Vec::new(),
             error: Some(("protocol", "Too many queued pong bytes".to_owned())),
+            settles: false,
             wire: Wire::Close(1008),
         }
     }
@@ -105,6 +112,7 @@ impl Ending {
             code,
             reason,
             error: None,
+            settles: false,
             wire: Wire::Peer(reply),
         }
     }
@@ -138,6 +146,7 @@ pub fn open_with_limits(
             state: OPEN,
             outbound: Some(outbound),
             events: Some(events),
+            failed: false,
             close: None,
             close_sent: false,
         }),
@@ -148,6 +157,7 @@ pub fn open_with_limits(
         waiting_bytes: AtomicU64::new(0),
         waiting_messages: AtomicU64::new(0),
         wake,
+        settle: tokio::sync::Notify::new(),
         over: CancellationToken::new(),
         stop: CancellationToken::new(),
         ending: Mutex::new(None),
@@ -274,9 +284,11 @@ async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver
     // A failure does not outrun the messages that arrived before it: `ws` runs
     // the consumer's handler synchronously, so a reply to a message delivered
     // just before the error is queued, and written, ahead of the close frame
-    // (`websocket.js:1335-1411`). Nothing more is read meanwhile.
-    if ending.error.is_some() {
-        settled(&shared, &mut woken).await;
+    // (`websocket.js:1335-1411`). The socket is closing from here on, and
+    // nothing more is read.
+    if ending.settles {
+        shared.error_closing();
+        settled(&shared).await;
     }
     shared.end(ending);
 }
@@ -285,7 +297,16 @@ async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver
 /// what their handlers queued has reached the wire, or until [`CLOSE_TIMEOUT`],
 /// whichever comes first. A socket that delivered nothing has no handler reply
 /// to order the close behind, so it does not wait at all.
-async fn settled(shared: &Shared, woken: &mut mpsc::Receiver<()>) {
+///
+/// Everything here is a future: no worker is held while it waits, and a wake
+/// from `delivered` or from the last frame leaving the wire parks a permit, so
+/// none is lost between the check and the await.
+async fn settled(shared: &Shared) {
+    eprintln!(
+        "settled: enter delivering={} settling={}",
+        shared.delivering(),
+        shared.settling()
+    );
     if !shared.delivering() {
         return;
     }
@@ -295,12 +316,18 @@ async fn settled(shared: &Shared, woken: &mut mpsc::Receiver<()>) {
         if !shared.settling() {
             return;
         }
+        eprintln!(
+            "settled: waiting delivering={} buffered={}",
+            shared.delivering(),
+            shared.buffered.load(std::sync::atomic::Ordering::Relaxed)
+        );
+        let notified = shared.settle.notified();
         tokio::select! {
             biased;
             _ = shared.over.cancelled() => return,
             _ = shared.stop.cancelled() => return,
             _ = &mut deadline => return,
-            _ = woken.recv() => {}
+            _ = notified => {}
         }
     }
 }

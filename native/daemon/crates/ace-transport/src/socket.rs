@@ -95,6 +95,9 @@ struct Inner {
     /// `None` once the socket is closed: no later `send` can queue anything.
     outbound: Option<mpsc::UnboundedSender<Queued>>,
     events: Option<mpsc::UnboundedSender<SocketEvent>>,
+    /// A failure ended the conversation (`ws`'s `receiverOnError`), so the only
+    /// sends still allowed are those from messages already handed over.
+    failed: bool,
     /// The local close frame queued but not yet on the wire (`ws`'s
     /// `_closeFrameSent === false` after `close()`).
     close: Option<Vec<u8>>,
@@ -115,6 +118,8 @@ struct Shared {
     waiting_bytes: AtomicU64,
     waiting_messages: AtomicU64,
     wake: mpsc::Sender<()>,
+    /// Tells a reader waiting for the end of the conversation to look again.
+    settle: tokio::sync::Notify,
     /// The conversation has ended: both tasks stop.
     over: CancellationToken,
     /// `terminate` was called: the stream is dropped where it stands.
@@ -141,6 +146,17 @@ impl Shared {
     /// the wire: what an error's close waits for once there is one.
     fn settling(&self) -> bool {
         self.delivering() || self.buffered.load(Ordering::Relaxed) > 0
+    }
+
+    /// A failure ended the conversation: `ws` moves to CLOSING as soon as the
+    /// bad frame is refused (`receiverOnError`, `websocket.js:1215`) and refuses
+    /// later sends, keeping only those from messages already handed over.
+    fn error_closing(&self) {
+        let mut inner = lock(&self.inner);
+        if inner.state == OPEN {
+            inner.state = CLOSING;
+            inner.failed = true;
+        }
     }
 
     fn readable(&self) -> bool {
@@ -245,9 +261,9 @@ impl Shared {
             debit(&self.control_bytes, memory);
         }
         // The last queued frame leaving the wire is what an error's close waits
-        // for before it is reported, so the reader has to hear about it.
+        // for before it is reported, so a waiting reader has to hear about it.
         if self.buffered.load(Ordering::Relaxed) == 0 {
-            self.wake();
+            self.settle.notify_one();
         }
     }
 
