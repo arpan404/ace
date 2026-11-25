@@ -117,7 +117,7 @@ pub fn validate_resolution(request: &Value, input: &Value) -> Result<Value, AcpE
             }
             optional_string(resolution, &mut kept, "feedback")?;
             if let Some(Value::String(feedback)) = kept.get("feedback")
-                && feedback.len_utf16() > MAX_FEEDBACK_UNITS
+                && feedback.as_str().chars().count() > MAX_FEEDBACK_CODE_POINTS
             {
                 return Err(invalid_resolution());
             }
@@ -207,8 +207,9 @@ pub fn validate_resolution(request: &Value, input: &Value) -> Result<Value, AcpE
     Ok(validated)
 }
 
-/// The reply feedback's bound in UTF-16 units (`feedback: z.string().max(8192)`).
-const MAX_FEEDBACK_UNITS: usize = 8192;
+/// The reply feedback's bound in code points: `feedback: z.string().max(8192)` is a zod
+/// bound, and ace's patched zod counts code points, not UTF-16 units (rule 17).
+const MAX_FEEDBACK_CODE_POINTS: usize = 8192;
 
 /// A validation failure is a plain error, not an interaction that went away
 /// (`interactions.ts:273`: `throw new Error(...)`).

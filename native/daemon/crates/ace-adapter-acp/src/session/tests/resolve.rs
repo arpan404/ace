@@ -242,6 +242,34 @@ fn a_resolution_is_canonicalised_the_way_zod_parses_it() {
     );
 }
 
+/// The feedback bound is a zod `.max(8192)`, so it counts code points: 8192 emoji fit and
+/// 8193 do not, even though 8192 emoji are 16384 UTF-16 units (rule 17).
+#[test]
+fn the_feedback_bound_counts_code_points_not_utf16_units() {
+    let question = json!({
+        "kind": "question",
+        "questions": [{ "id": "q1", "text": "Which?", "options": [{ "id": "a", "label": "A" }] }]
+    });
+    let fits = "\u{1F600}".repeat(8192);
+    assert_eq!(fits.chars().count(), 8192, "one code point");
+    assert_eq!(fits.encode_utf16().count(), 16384, "two units each");
+    assert!(
+        validate_resolution(
+            &question,
+            &json!({ "kind": "question", "answers": { "q1": ["a"] }, "feedback": fits })
+        )
+        .is_ok()
+    );
+    let over = "\u{1F600}".repeat(8193);
+    assert!(
+        validate_resolution(
+            &question,
+            &json!({ "kind": "question", "answers": { "q1": ["a"] }, "feedback": over })
+        )
+        .is_err()
+    );
+}
+
 /// A validation failure is a plain error, not an interaction that went away
 /// (`interactions.ts:273`, `throw new Error`).
 #[test]
