@@ -117,53 +117,33 @@ fn a_sandboxed_command_never_reaches_the_reviewer_under_any_fact() {
 }
 
 #[test]
-fn sends_and_payments_run_only_on_always_allow_and_never_on_a_tool_grant() {
-    for effect in [Effect::SendAsPerson, Effect::Pay] {
-        let always = Call {
-            always: true,
-            rule: Decision::Run,
-            ..call("gmail__send", Some(effect))
-        };
-        assert_eq!(route(always), Route::Run);
-        // Always allow under untrusted content: the rule gate holds it, so the person decides.
-        let tainted = Call {
-            always: true,
-            tainted: true,
-            ..call("gmail__send", Some(effect))
-        };
-        assert!(matches!(route(tainted), Route::Ask { .. }));
-        let tool_grant = Call {
-            granted: Granted::Tool,
-            ..call("gmail__send", Some(effect))
-        };
-        assert!(matches!(route(tool_grant), Route::Ask { .. }));
-        // A read-only claim doesn't run it: the effect decides.
-        let read_risk = Call {
-            risk: Risk::Read,
-            rule: Decision::Run,
-            ..call("gmail__send", Some(effect))
-        };
-        assert!(matches!(route(read_risk), Route::Ask { .. }));
-    }
-}
+fn typed_hard_stops_ask_in_both_modes_even_with_always_allow_or_a_grant() {
+    use crate::autonomy::Mode;
 
-#[test]
-fn a_push_runs_within_its_grant_and_otherwise_goes_to_the_person() {
-    let push = call(GIT_PUSH, Some(Effect::SendAsPerson));
-    let cases = [
-        (Granted::Typed, false, Route::Run),
-        (Granted::Typed, true, reviewed(Some(GRANTED_TAINTED))),
-        (Granted::No, false, asks(PUSHES)),
-        (Granted::No, true, asks(PUSHES)),
-        (Granted::Tool, false, asks(PUSHES)),
-    ];
-    for (granted, tainted, expected) in cases {
-        let call = Call {
-            granted,
-            tainted,
-            ..push
-        };
-        assert_eq!(route(call), expected, "{granted:?} tainted={tainted}");
+    for (tool, effect, line) in [
+        ("send_message", Effect::SendAsPerson, SENDS_AS_YOU),
+        (GIT_PUSH, Effect::SendAsPerson, PUSHES),
+        ("shop__pay", Effect::Pay, SPENDS),
+        ("app__share", Effect::ChangeAccess, CHANGES_ACCESS),
+    ] {
+        for mode in [Mode::AutoReview, Mode::FullAccess] {
+            for granted in [Granted::No, Granted::Tool, Granted::Typed] {
+                for always in [false, true] {
+                    for tainted in [false, true] {
+                        let call = Call {
+                            mode,
+                            granted,
+                            always,
+                            tainted,
+                            risk: Risk::Read,
+                            rule: if always { Decision::Run } else { Decision::Ask },
+                            ..call(tool, Some(effect))
+                        };
+                        assert_eq!(to_auto_review(&call, route(call)), asks(line), "{call:?}");
+                    }
+                }
+            }
+        }
     }
 }
 

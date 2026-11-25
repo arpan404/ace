@@ -959,33 +959,21 @@ pub fn ceiling_holds(
     ceiling::refusal(ceiling, effect, confined)
 }
 
-/// Where a person-only effect goes: to the person unless their Always allow covers it, or, for a
-/// push or comment, a grant of its own kind. `None` for every other effect.
+/// The person's approval for a typed hard stop or an unknown effect in Auto-review.
 fn persons(call: Call<'_>, effect: Effect, allowed: bool) -> Option<Route> {
     let line = match effect {
         Effect::Pay => SPENDS,
         Effect::ChangeAccess => CHANGES_ACCESS,
-        Effect::Unknown if call.mode != Mode::FullAccess => UNKNOWN,
+        Effect::Unknown if call.mode != Mode::FullAccess => {
+            if allowed {
+                return Some(Route::Run);
+            }
+            UNKNOWN
+        }
         Effect::SendAsPerson if call.tool == GIT_PUSH => PUSHES,
         Effect::SendAsPerson => SENDS_AS_YOU,
         _ => return None,
     };
-    if allowed {
-        return Some(Route::Run);
-    }
-    // The person granted this push or comment for that repository.
-    if call.mode != Mode::FullAccess
-        && effect == Effect::SendAsPerson
-        && call.granted == Granted::Typed
-    {
-        if !call.tainted {
-            return Some(Route::Run);
-        }
-        // In full access no reviewer looks at it, so the person does.
-        if call.fits && call.mode == Mode::AutoReview {
-            return Some(Route::Review(Some(GRANTED_TAINTED.to_owned())));
-        }
-    }
     let line = match call.target {
         Some(target) if call.tool == GIT_PUSH => {
             format!("It pushes to {target} with your sign-in, so you decide.")

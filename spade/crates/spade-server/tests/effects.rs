@@ -148,24 +148,15 @@ mod sandboxed {
     use support::sandbox::{output, reviewed_world, world};
 
     #[tokio::test]
-    async fn a_push_inside_its_grant_runs_and_any_other_goes_to_the_person() -> Result {
+    async fn a_push_asks_the_person_even_inside_its_grant() -> Result {
         let push = FakeTool::new("git_push", Risk::Write, "Pushed");
         let pushes = push.calls();
         let w = world(false, vec![Arc::new(push)], |_| {
-            vec![
-                Script::reply("").call(
-                    "c1",
-                    "git_push",
-                    json!({ "repo": "acme/app", "branch": "spade/fix" }),
-                ),
-                Script::reply("Pushed."),
-                Script::reply("").plain(TITLE),
-                Script::reply("").call(
-                    "c2",
-                    "git_push",
-                    json!({ "repo": "acme/app", "branch": "main" }),
-                ),
-            ]
+            vec![Script::reply("").call(
+                "c1",
+                "git_push",
+                json!({ "repo": "acme/app", "branch": "spade/fix" }),
+            )]
         })
         .await?;
         let (status, granted) = w
@@ -177,21 +168,18 @@ mod sandboxed {
             .await?;
         assert_eq!(status, 201, "{granted}");
         w.spade.say(&w.conversation, "Push the fix").await?;
-        w.spade.wait_for(&w.conversation, "reply_finished").await?;
-        assert_eq!(ran(&pushes), 1);
-        w.spade.say(&w.conversation, "Now push main").await?;
         let events = w
             .spade
             .wait_for(&w.conversation, "approval_requested")
             .await?;
         let asked = requests(&events);
-        assert_eq!(asked.len(), 1, "only the push outside the grant asks");
-        assert_eq!(asked[0]["call_id"], "c2");
+        assert_eq!(asked.len(), 1, "the push inside the grant asks");
+        assert_eq!(asked[0]["call_id"], "c1");
         assert_eq!(
             asked[0]["reviewer_reason"],
-            "It pushes to github.com/acme/app, branch main with your sign-in, so you decide."
+            "It pushes to github.com/acme/app, branch spade/fix with your sign-in, so you decide."
         );
-        assert_eq!(ran(&pushes), 1);
+        assert_eq!(ran(&pushes), 0);
         Ok(())
     }
 

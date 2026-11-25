@@ -363,7 +363,7 @@ calls, task changes, undeclared effects and explicit requests to leave the sandb
 The first model refusal goes to the bot. A later model refusal of the same call and
 review context reaches the person. Oversized input, review outages, and altered or
 unreadable launch bindings return errors to the bot. The three person-only effects
-keep their approval cards. Organization authorization stays independent.
+always ask in both modes, even under a stored Always allow or matching grant. Organization authorization stays independent.
 
 
 ### Full access security review
