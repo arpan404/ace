@@ -87,7 +87,8 @@ export function handleQueue(
         if (agentDevices.has(command.deviceId)) dependencies.repo.steerNotes.steeredAgain(entry.id);
         else dependencies.repo.steerNotes.personSteered(entry.id);
         // Choosing Steer aims the message at the turn running now, replacing the one it kept.
-        recordSteerAim(dependencies.repo, entry.id, p.threadId, edited);
+        // Any other edit keeps the aim it had, as it keeps its payload target.
+        if (p.delivery === "steer") recordSteerAim(dependencies.repo, entry.id, p.threadId, edited);
       }
       dependencies.repo.reviseInput(edited, p.threadId, dependencies.clock.now());
       queueSteerSelection(dependencies.repo, p.threadId, steer, dependencies.clock.now());
