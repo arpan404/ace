@@ -45,6 +45,70 @@ async function seeded(): Promise<{ seam: EngineSeam; queue: string; stale: strin
   return { seam, queue, stale };
 }
 
+describe.runIf(native)("E5.4a queue writes beside a store hook", () => {
+  test("a write hook may re-enter the engine while the fold stages a queue update", async () => {
+    const { seam, stale } = await seeded();
+    try {
+      const reentered: string[] = [];
+      const stop = seam.store.onWrite(() => {
+        // A state-taking engine read from the hook: before the fold released its borrow this
+        // was Reentrant and failed the retirement. This thread has no stored state, so the
+        // read itself answers with that, not the borrow.
+        try {
+          reentered.push(String(seam.engine.rootAgent(stale as never)));
+        } catch (error) {
+          reentered.push(String(error));
+        }
+      });
+      try {
+        seam.probe.inputFacts("retireEndedTurnInputs", {
+          thread: stale,
+          generation: 2,
+          at: 70,
+        });
+      } finally {
+        stop();
+      }
+      expect(reentered.length).toBeGreaterThan(0);
+      expect(reentered.some((entry) => entry.includes("Reentrant"))).toBe(false);
+      expect(seam.engine.queue(stale as never).messages.map((message) => message.id)).toEqual([
+        "gen-one",
+      ]);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a hook that throws rolls the retirement back", async () => {
+    const { seam, stale } = await seeded();
+    try {
+      const stop = seam.store.onWrite(() => {
+        throw new Error("hook failed");
+      });
+      let failed = false;
+      try {
+        seam.probe.inputFacts("retireEndedTurnInputs", {
+          thread: stale,
+          generation: 2,
+          at: 70,
+        });
+      } catch (error) {
+        failed = String(error).includes("hook failed");
+      } finally {
+        stop();
+      }
+      expect(failed).toBe(true);
+      // The clear the hook ran beside rolled back with the failed event write.
+      expect(seam.engine.queue(stale as never).messages.map((message) => message.id)).toEqual([
+        "gen-one",
+        "gen-two",
+      ]);
+    } finally {
+      await seam.close();
+    }
+  });
+});
+
 describe.runIf(native)("E5.4a queue reads on a TypeScript-written home", () => {
   test("a queue the TypeScript engine wrote reads the same natively: snapshot, first page, next page, total", async () => {
     const { seam, queue } = await seeded();

@@ -87,6 +87,3 @@ for (const [id, text, generation] of [
   queue.uncertain(intent);
 }
 queue.set(stale, { paused: true, reason: "uncertain" }, at);
-
-process.stdout.write(`seed ${thread} ${stale}\n`);
-await store.close();

@@ -4,20 +4,16 @@
 //! settings defaults with its pending count from `intents`, and every writer `ensure`s the row
 //! first. Pending work is never read from the row.
 
-use ace_json::Value as Json;
 use ace_store::{Value, stmt_cache};
 use std::sync::Arc;
 
-use super::patch::RecoveryPatch;
 use super::record::RecoveryRecord;
-use super::wake;
 use crate::repository::residency::{cell_int, cell_text};
 use crate::{EngineError, EngineStore};
 
 const SELECT_ROW: &str = "SELECT * FROM engine_queue WHERE thread_id=?";
 const HOLD: &str = "SELECT paused, reason FROM engine_queue WHERE thread_id=?";
 const ENSURE: &str = "INSERT OR IGNORE INTO engine_queue(thread_id) VALUES (?)";
-const UPDATE: &str = "UPDATE engine_queue SET revision=?,paused=?,reason=?,limited=?,reset_at=?,resume_at=?,timer_action=?,continuation=?,trigger=?,hold_token=?,last_failure=?,exited=? WHERE thread_id=?";
 const COUNT: &str = "SELECT COUNT(*) AS n FROM intents WHERE thread_id=? AND (trigger IS NULL OR trigger != 'subagent_result') AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1))";
 const WAITING: &str = "SELECT COUNT(*) AS n FROM intents WHERE thread_id=? AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1))";
 const UNCERTAIN_RECOVERY: &str = "SELECT 1 FROM intents WHERE thread_id=? AND kind IN ('thread.resume','queue.resume','thread.limit') AND uncertain=1 LIMIT 1";
@@ -141,205 +137,12 @@ pub fn shown(store: &EngineStore, thread: &str) -> Result<RecoveryRecord, Engine
     Ok(get(store, thread)?.shown())
 }
 
-/// `set` (`:141`): one revision bump and one `appendEvents`, the snooze wake first.
-pub fn set(store: &EngineStore, thread: &str, patch: &str, at: f64) -> Result<(), EngineError> {
-    store.atomic(|tx| {
-        let before = get(store, thread)?;
-        let mut value = RecoveryPatch::parse(patch)?.apply(&before)?;
-        value.revision += 1;
-        value.validate()?;
-        ensure(tx.conn(), thread)?;
-        let pending = count(tx.conn(), thread)?
-            + i64::from(
-                value
-                    .continuation
-                    .as_deref()
-                    .is_some_and(|text| !text.is_empty())
-                    && !uncertain_recovery(tx.conn(), thread)?,
-            );
-        value.pending_count = pending;
-        stmt_cache::run(
-            tx.conn(),
-            UPDATE,
-            vec![
-                Value::Integer(value.revision),
-                Value::Integer(i64::from(value.paused)),
-                value.reason.clone().map_or(Value::Null, Value::Text),
-                Value::Integer(i64::from(value.limited)),
-                value.reset_at.map_or(Value::Null, Value::Integer),
-                value.resume_at.map_or(Value::Null, Value::Integer),
-                value.timer_action.clone().map_or(Value::Null, Value::Text),
-                value.continuation.clone().map_or(Value::Null, Value::Text),
-                value.trigger.clone().map_or(Value::Null, Value::Text),
-                Value::Integer(value.hold_token),
-                value.last_failure.as_ref().map_or(Value::Null, |failure| {
-                    Value::Text(ace_json::to_string(failure))
-                }),
-                Value::Integer(i64::from(value.exited)),
-                Value::Text(thread.to_owned()),
-            ],
-        )?;
-        let queue = value.to_json();
-        let mut events = wake::wake_for(store, thread, &queue, at)?;
-        let updated = match queue {
-            Json::Object(map) => map,
-            _ => return Err(EngineError::Records("Invalid queue metadata".into())),
-        };
-        let mut ordered = ace_json::Map::new();
-        ordered.insert("type", Json::from("queue.updated"));
-        for (key, item) in updated {
-            ordered.insert(key, item);
-        }
-        events.push(Json::Object(ordered));
-        store.write_events(
-            thread,
-            &ace_json::to_string(&Json::Array(events.into())),
-            at,
-        )?;
-        Ok(())
-    })
-}
-
 /// `position` (`:313`).
 pub fn position(conn: &Arc<ace_store::Connection>, thread: &str) -> Result<i64, EngineError> {
     let row = stmt_cache::get_row(conn, POSITION, vec![Value::Text(thread.to_owned())])?;
     Ok(row
         .and_then(|row| row.get("n").and_then(cell_int))
         .unwrap_or(1))
-}
-
-/// `reconcileUncertainty` (`:388`): only the ambiguity hold moves.
-pub fn reconcile_uncertainty(
-    store: &EngineStore,
-    thread: &str,
-    at: f64,
-) -> Result<(), EngineError> {
-    let value = get(store, thread)?;
-    let patch = match reconciled_reason(&value, has_uncertain(store.conn(), thread)?) {
-        Some(reason) => format!("{{\"reason\":\"{reason}\",\"paused\":true}}"),
-        None => "{}".to_owned(),
-    };
-    set(store, thread, &patch, at)
-}
-
-/// The reason only an ambiguity hold moves to, or none when it is not the one held.
-fn reconciled_reason(value: &RecoveryRecord, has_uncertain: bool) -> Option<&'static str> {
-    if value.reason.as_deref() != Some("uncertain") || has_uncertain {
-        return None;
-    }
-    Some(if value.limited {
-        "limit"
-    } else if value.continuation.is_some() {
-        if value.trigger.as_deref() == Some("limit_resume") {
-            "limit"
-        } else {
-            "restart"
-        }
-    } else {
-        "manual"
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::repository::testsupport::Shell;
-    use crate::repository::testsupport::{header, home, sql_text};
-
-    fn send(command: &str, text: &str) -> String {
-        format!(
-            r#"{{"id":"{command}","deviceId":"device","payload":{{"type":"thread.send","threadId":"noqueue","input":[{{"type":"text","text":"{text}"}}]}}}}"#
-        )
-    }
-
-    #[test]
-    fn a_thread_with_no_queue_row_reads_the_defaults_and_its_pending_sends() {
-        // The intended difference from TypeScript: the pending work is in `intents`, the row
-        // only holds settings, so a missing row must not hide or fail the queue.
-        let conn = home("noqueue", &header("noqueue"));
-        conn.exec("DELETE FROM engine_queue").unwrap();
-        for (position, (command, text)) in [("a", "one"), ("b", "two")].into_iter().enumerate() {
-            conn.exec(&format!(
-                "INSERT INTO intents (command_id,thread_id,kind,payload,status,delivery,position) \
-                 VALUES ({}, 'noqueue', 'thread.send', {}, 'pending', 'queue', {})",
-                sql_text(command),
-                sql_text(&send(command, text)),
-                position + 1
-            ))
-            .unwrap();
-        }
-        let store = Shell::store(&conn);
-        let record = get(&store, "noqueue").unwrap();
-        assert_eq!(record.pending_count, 2);
-        assert_eq!(record.revision, 0);
-        assert!(!record.paused && !record.limited && !record.exited);
-        assert_eq!(record.hold_token, 0);
-        assert!(record.continuation.is_none() && record.trigger.is_none());
-        let snapshot = crate::queue::page::snapshot(&store, "noqueue").unwrap();
-        assert_eq!(
-            snapshot
-                .get("pendingCount")
-                .and_then(ace_json::Value::as_i64),
-            Some(2)
-        );
-        assert_eq!(
-            snapshot
-                .get("messages")
-                .and_then(ace_json::Value::as_array)
-                .map(|messages| messages.len()),
-            Some(2)
-        );
-        // And the thread still runs: `runnableThreads` keeps a thread with no queue row.
-        assert_eq!(
-            crate::intents::store::runnable_threads(store.conn(), 8).unwrap(),
-            vec!["noqueue".to_owned()]
-        );
-    }
-}
-
-#[cfg(test)]
-mod reconcile_tests {
-    use super::*;
-
-    fn held(limited: bool, continuation: Option<&str>, trigger: Option<&str>) -> RecoveryRecord {
-        RecoveryRecord {
-            paused: true,
-            reason: Some("uncertain".into()),
-            limited,
-            continuation: continuation.map(str::to_owned),
-            trigger: trigger.map(str::to_owned),
-            ..RecoveryRecord::defaults(0)
-        }
-    }
-
-    #[test]
-    fn only_the_uncertainty_hold_moves_and_keeps_its_own_reason() {
-        // A limit wins over a continuation; a continuation says why it is held; with neither
-        // the hold becomes the person's. A hold another reason keeps, or one still ambiguous,
-        // does not move.
-        assert_eq!(
-            reconciled_reason(&held(true, Some("go on"), Some("restart")), false),
-            Some("limit")
-        );
-        assert_eq!(
-            reconciled_reason(&held(false, Some("go on"), Some("limit_resume")), false),
-            Some("limit")
-        );
-        assert_eq!(
-            reconciled_reason(&held(false, Some("go on"), Some("restart")), false),
-            Some("restart")
-        );
-        assert_eq!(
-            reconciled_reason(&held(false, None, None), false),
-            Some("manual")
-        );
-        assert_eq!(reconciled_reason(&held(true, None, None), true), None);
-        let manual = RecoveryRecord {
-            reason: Some("manual".into()),
-            ..held(false, None, None)
-        };
-        assert_eq!(reconciled_reason(&manual, false), None);
-    }
 }
 
 #[cfg(test)]
@@ -407,10 +210,10 @@ mod read_tests {
     fn a_patch_revision_is_merged_then_incremented_once() {
         let conn = home("queue-revision", &header("queue-revision"));
         let store = Shell::store(&conn);
-        set(&store, "queue-revision", "{\"revision\":5}", 1.0).unwrap();
+        crate::queue::write::set(&store, "queue-revision", "{\"revision\":5}", 1.0).unwrap();
         // The patch's 5 is the revision the bump counts from.
         assert_eq!(get(&store, "queue-revision").unwrap().revision, 6);
-        set(&store, "queue-revision", "{}", 2.0).unwrap();
+        crate::queue::write::set(&store, "queue-revision", "{}", 2.0).unwrap();
         assert_eq!(get(&store, "queue-revision").unwrap().revision, 7);
     }
 }

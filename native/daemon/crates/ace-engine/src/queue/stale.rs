@@ -24,7 +24,7 @@ pub fn retire_ended_turn_inputs(
     thread: &str,
     generation: i64,
     at: f64,
-) -> Result<(), EngineError> {
+) -> Result<Vec<super::write::StagedEvent>, EngineError> {
     const ENDED: &str = "SELECT id FROM intents WHERE thread_id=? AND uncertain=1 AND kind IN ('thread.send','thread.create') AND submitted_generation=?";
     let rows = stmt_cache::all_rows(
         store.conn(),
@@ -33,9 +33,11 @@ pub fn retire_ended_turn_inputs(
     )?;
     let rows = ids(&rows)?;
     if retire(store.conn(), &rows)? {
-        release_uncertain_hold(store, thread, at)?;
+        return Ok(release_uncertain_hold(store, thread, at)?
+            .into_iter()
+            .collect());
     }
-    Ok(())
+    Ok(Vec::new())
 }
 
 /// `retireUncertainInputs` (`stale-inputs.ts:33`): a new message is the go-ahead past every
@@ -45,7 +47,7 @@ pub fn retire_uncertain_inputs(
     thread: &str,
     backend: &str,
     at: f64,
-) -> Result<(), EngineError> {
+) -> Result<Vec<super::write::StagedEvent>, EngineError> {
     let keep_continuation = backend == "cursor-sdk";
     let continuation = if keep_continuation {
         None
@@ -64,18 +66,20 @@ pub fn retire_uncertain_inputs(
         vec![Value::Text(thread.to_owned())],
     )?;
     if !retire(store.conn(), &ids(&rows)?)? {
-        return Ok(());
+        return Ok(Vec::new());
     }
+    let mut staged = Vec::new();
     if continuation.is_some() {
         crate::intents::store::finish_continuation(store.conn(), thread)?;
-        super::store::set(
+        staged.push(super::write::stage(
             store,
             thread,
             "{\"continuation\":null,\"trigger\":null}",
             at,
-        )?;
+        )?);
     }
-    release_uncertain_hold(store, thread, at)
+    staged.extend(release_uncertain_hold(store, thread, at)?);
+    Ok(staged)
 }
 
 fn retire(conn: &Arc<ace_store::Connection>, rows: &[i64]) -> Result<bool, EngineError> {
@@ -87,18 +91,29 @@ fn retire(conn: &Arc<ace_store::Connection>, rows: &[i64]) -> Result<bool, Engin
 }
 
 /// Only the ambiguity hold is lifted; a limit, Stop or continuation hold keeps its own reason.
-fn release_uncertain_hold(store: &EngineStore, thread: &str, at: f64) -> Result<(), EngineError> {
+fn release_uncertain_hold(
+    store: &EngineStore,
+    thread: &str,
+    at: f64,
+) -> Result<Option<super::write::StagedEvent>, EngineError> {
     let queue = super::store::get(store, thread)?;
     if queue.reason.as_deref() != Some("uncertain")
         || super::store::has_uncertain(store.conn(), thread)?
     {
         // The queue still changed: bump its revision so clients drop the retired entries.
-        return super::store::set(store, thread, "{}", at);
+        return Ok(Some(super::write::stage(store, thread, "{}", at)?));
     }
     if queue.limited || queue.continuation.is_some() {
-        super::store::reconcile_uncertainty(store, thread, at)
+        Ok(Some(super::write::reconcile_uncertainty(
+            store, thread, at,
+        )?))
     } else {
-        super::store::set(store, thread, "{\"paused\":false,\"reason\":null}", at)
+        Ok(Some(super::write::stage(
+            store,
+            thread,
+            "{\"paused\":false,\"reason\":null}",
+            at,
+        )?))
     }
 }
 

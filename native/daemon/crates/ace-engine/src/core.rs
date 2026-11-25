@@ -110,10 +110,18 @@ impl Core {
         let outcome = self.store.atomic(|_tx| {
             // The snapshot loads inside the transaction, as `repository.ts:413` reads it there;
             // opening the frame (which can flush a pinned batch) therefore holds no borrow.
-            self.with_state(|state| {
+            let fold = self.with_state(|state| {
                 let snapshot = state.repo.require_state(&self.store, id)?;
                 state.fold_frame(&self.store, id, &snapshot, facts_json, now, generation)
-            })?
+            })?;
+            if fold.is_err() {
+                let _ = self.with_state(|state| state.deferred_queue.clear());
+            }
+            fold?;
+            // The queue's event writer runs with the borrow released, so a store write hook may
+            // re-enter the engine (E5.4a round 2).
+            self.flush_deferred()?;
+            Ok(())
         });
         if let Err(error) = outcome {
             let _ = self.with_state(|state| state.repo.evict(&self.store, id));
@@ -128,6 +136,7 @@ impl Core {
     pub fn stream(&self, id: &str, facts_json: &str, now: f64) -> Result<bool, EngineError> {
         let prepared =
             self.with_state(|state| state.prepare_stream(&self.store, id, facts_json, now))??;
+        self.flush_deferred()?;
         let Some(prepared) = prepared else {
             return Ok(false);
         };
@@ -202,6 +211,16 @@ impl Core {
     /// Wakes released so far, in release order.
     pub fn wakes(&self) -> Vec<String> {
         self.wakes.borrow().log()
+    }
+
+    /// Writes the queue events a fold staged, with no `State` borrow held, so an event-writer
+    /// hook can re-enter the engine.
+    pub fn flush_deferred(&self) -> Result<(), EngineError> {
+        let staged = self.with_state(|state| std::mem::take(&mut state.deferred_queue))?;
+        for write in staged {
+            crate::queue::write::finish(&self.store, &write)?;
+        }
+        Ok(())
     }
 
     /// Registers the waker a deferred wake of `thread` reaches (E5.2's actor tasks).

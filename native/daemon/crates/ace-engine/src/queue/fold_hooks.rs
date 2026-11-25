@@ -95,7 +95,10 @@ impl InputFacts for State {
         let Some(core) = self.engine()? else {
             return Ok(());
         };
-        crate::queue::store::set(&core.store, thread, json, at)
+        // The row now, its events after the fold releases the borrow (E5.4a round 2).
+        let staged = crate::queue::write::stage(&core.store, thread, json, at)?;
+        self.deferred_queue.push(staged);
+        Ok(())
     }
 
     /// `queue.prune` (`:351`).
@@ -124,7 +127,14 @@ impl InputFacts for State {
         let Some(core) = self.engine()? else {
             return Ok(());
         };
-        crate::queue::stale::retire_ended_turn_inputs(&core.store, thread, generation as i64, now)
+        let staged = crate::queue::stale::retire_ended_turn_inputs(
+            &core.store,
+            thread,
+            generation as i64,
+            now,
+        )?;
+        self.deferred_queue.extend(staged);
+        Ok(())
     }
 
     /// 4b's: the input journal and correlation. 4a leaves E5.3's probe pass-through in place.

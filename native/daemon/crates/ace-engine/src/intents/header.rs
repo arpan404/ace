@@ -161,8 +161,7 @@ impl Intent {
     /// The row and its payload as `claim`/`uncertainSends` read it.
     pub fn with_command(row: &Row) -> Result<Intent, EngineError> {
         let payload = text(row, "payload")?;
-        let command = ace_json::parse(&payload)
-            .map_err(|_| EngineError::Records("Invalid queue entry".into()))?;
+        let command = super::command::parse(&payload)?;
         Ok(Intent {
             header: IntentHeader::from_row(row)?,
             command,

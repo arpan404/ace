@@ -11,3 +11,4 @@ pub mod record;
 pub mod stale;
 pub mod store;
 pub mod wake;
+pub mod write;
