@@ -39,6 +39,7 @@ impl Store {
 
     /// Stages reach accounting and removes the source events together. If a live notice could
     /// not be handed to the stream, dropping the transaction leaves the batch queued.
+    /// Publishing before commit permits a retry after a crash in that gap.
     pub fn finish_ask_notices(
         &self,
         sources: &[(String, i64)],

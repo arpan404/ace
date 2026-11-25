@@ -271,7 +271,9 @@ quiet ends. ace's daemon turns `reach: now` notices into its alerts.
   `approvals`, `questions`, the highest `level` in the group, and `items`). A single ask stays an
   individual `kind: "event"` notice. Each item is still decided with its own bot switches so a
   silenced bot never leaks into a live alert and `block`/`stop` levels always follow ADR 0195
-  (`stop` escalations are never buffered).
+  (`stop` escalations are never buffered). Spade records pending sources with their events and
+  picks them up when the notice stream connects, including after a restart. At flush it drops
+  asks that have closed. If Spade cannot read the reach settings or budget, it retries the batch.
 - **Spend alerts**: a bot's last hour above `spend.floor_micros` and `spend.factor` times its
   trailing hourly median alerts once per episode, as a `spend` notice and a `digests` row of
   kind `spend` in its chat. Information only.
