@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-devices"
+description = "The device platform behind @ace/devices' interfaces: Simulator and Android identity, package lifecycle plans and the emulator's discovery files (D3.1)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-json: every JS-visible value serializes with JSON.parse/JSON.stringify semantics, never serde_json.
+ace-json = { path = "../ace-json" }
+# thiserror: one typed error enum for the crate, mapped in the binding.
+thiserror = { version = "2" }
+# serde: the results are structs in the TypeScript's field order, serialized by ace-json.
+serde = { version = "1", features = ["derive"] }
+# serde_json: reads the device word catalog this crate embeds (catalog/devices.json).
+serde_json = { version = "1" }

@@ -1,0 +1,79 @@
+{
+  "platform": {
+    "installSimulatorApp": {
+      "code": "not_supported",
+      "message": "iOS Simulator installs Simulator-built .app bundles",
+      "hint": "Extract a Simulator-built .app from the IPA; device-only IPA binaries cannot run in Simulator."
+    },
+    "installAndroidApk": {
+      "code": "invalid_data",
+      "message": "Android install requires an .apk",
+      "hint": "Select an APK built for the emulator architecture."
+    },
+    "installPathRelative": {
+      "code": "invalid_data",
+      "message": "Device install path must be absolute",
+      "hint": "Supply the full path to the package on this machine."
+    },
+    "installPathInvalid": {
+      "code": "invalid_data",
+      "message": "Device install path is not valid",
+      "hint": "Supply a path of 1 to 4096 bytes on this machine."
+    },
+    "appIdInvalid": {
+      "code": "invalid_data",
+      "message": "Device app identifier is not valid",
+      "hint": "Use a bundle id or package name, or package/activity for Android."
+    },
+    "appNotLaunchable": {
+      "code": "not_found",
+      "message": "Android app has no launchable activity",
+      "hint": "Supply a package/activity component or install the app first."
+    },
+    "urlInvalid": {
+      "code": "invalid_data",
+      "message": "Device URL is not valid",
+      "hint": "Use a URL with a scheme, such as https:// or myapp://."
+    },
+    "localeUnsupported": {
+      "code": "not_supported",
+      "message": "Runtime locale configuration is not supported by the installed public CLI contract",
+      "hint": "Change language in the device Settings app, then restart the app."
+    },
+    "locationPhysical": {
+      "code": "not_supported",
+      "message": "Only an emulator's location can be set",
+      "hint": "Use a mock location app on the device, or set the location on an emulator."
+    },
+    "simulatorNotBooted": {
+      "code": "not_booted",
+      "message": "Selected Simulator is not booted",
+      "hint": "Boot this Simulator before starting capture."
+    },
+    "simulatorNameAmbiguous": {
+      "code": "busy",
+      "message": "Booted Simulators have ambiguous display names",
+      "hint": "Rename one Simulator or shut down the duplicate before starting capture."
+    },
+    "identityPlatformMismatch": {
+      "code": "invalid_data",
+      "message": "Device identity does not match its platform",
+      "hint": "Refresh the device list."
+    },
+    "identityNotUdid": {
+      "code": "invalid_data",
+      "message": "Simulator identity is not a UDID",
+      "hint": "Refresh the device list."
+    },
+    "identityNotAvd": {
+      "code": "invalid_data",
+      "message": "Android device identity is not an AVD name",
+      "hint": "Refresh the device list."
+    },
+    "sizeUndecoded": {
+      "code": "invalid_data",
+      "message": "Android display size could not be decoded",
+      "hint": "Check adb shell wm size on the selected emulator."
+    }
+  }
+}
