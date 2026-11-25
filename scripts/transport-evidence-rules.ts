@@ -103,34 +103,43 @@ export const LIFECYCLE_CASES: readonly LifecycleCase[] = [
     file: "remote-direct.process",
     title: "a bind that finishes after remote access closed leaves nothing listening",
     proof:
-      "the case's one bind, its close-requested with bound: true and a close with no connections and no handled traffic: the listener the retire outran never served",
+      "a close-requested with bound: false on the port, the bind that lands after it, its close-requested with bound: true, then a close with no connections and no handled traffic",
     check(view) {
-      const binds = boundRemote(view);
-      if (binds.length !== 1) return `${binds.length} binds; the case leaves exactly one, closed`;
-      const late = binds[0];
-      if (late === undefined) return "no bind line";
-      // The case's own retire is remote-direct's call, which holds no listener whose bind is in
-      // flight: no listener line can see it, so the gate is what it left behind — a bind closed
-      // before it served anything.
-      const requested = view.lines.find(
+      const retire = view.lines.find(
+        (line) =>
+          line.listener === "remote" &&
+          line.event === "close-requested" &&
+          line.bound === false &&
+          line.port !== undefined,
+      );
+      if (retire === undefined)
+        return "no close-requested with bound: false: nothing says the retire preceded the bind";
+      const port = retire.port;
+      if (port === undefined) return "the close-requested names no port";
+      // A request for port 0 has no port to name until it binds; the case's one bind is that one.
+      const late = boundRemote(view).find(
+        (listener) => listener.bindAt > (retire.at ?? -1) && (port === 0 || listener.port === port),
+      );
+      if (late === undefined) return `no bind on port ${port} after the retire`;
+      const acknowledged = view.lines.find(
         (line) =>
           line.instance === late.instance &&
           line.event === "close-requested" &&
           line.bound === true,
       );
-      if (requested === undefined)
-        return `no close-requested with bound: true for the instance that bound on port ${late.port}`;
+      if (acknowledged === undefined)
+        return `no close-requested with bound: true for the instance that bound on port ${port}`;
       const close = late.close;
-      if (close === undefined) return `the instance that bound on port ${late.port} has no close`;
+      if (close === undefined) return `the instance that bound on port ${port} has no close`;
       if ((close.connections ?? 0) !== 0)
-        return `the close on port ${late.port} counts connections, so the late listener served`;
+        return `the close on port ${port} counts connections, so the late listener served`;
       const served = view.lines.some(
         (line) =>
           line.instance === late.instance &&
           line.event === "handled" &&
           ((line.connections ?? 0) > 0 || (line.exchanges ?? 0) > 0 || (line.upgrades ?? 0) > 0),
       );
-      if (served) return `a handled line on port ${late.port} counts traffic, so it served`;
+      if (served) return `a handled line on port ${port} counts traffic, so it served`;
       return undefined;
     },
   },
@@ -168,11 +177,11 @@ export const LIFECYCLE_CASES: readonly LifecycleCase[] = [
         (listener) => listener.port === port && listener.bindAt > (failed.at ?? -1),
       );
       if (bound === undefined) return `no bind on port ${port} after the refused one`;
-      if (eventLines(view, bound.instance, "handled").length === 0)
+      const handled = eventLines(view, bound.instance, "handled");
+      if (handled.length === 0)
         return `no handled line for the instance that bound on port ${port}`;
-      const counts = ownedOf(view, bound);
-      if (counts === undefined || counts.exchanges <= 0)
-        return `no exchanges on port ${port} after its bind`;
+      if (!handled.some((line) => (line.exchanges ?? 0) > 0))
+        return `the handled line on port ${port} reports no exchanges, and a close's total is not proof of a request`;
       return undefined;
     },
   },
