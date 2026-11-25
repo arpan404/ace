@@ -259,4 +259,52 @@ mod tests {
         assert!(!state.repo.live.contains_key(&token), "the pin is settled");
         assert!(state.repo.holds("stream"));
     }
+
+    #[test]
+    fn two_buffered_batches_for_one_thread_leave_no_pin_after_eviction() {
+        // Two tokens for one thread; the store drops the batch and tells the engine. The
+        // eviction removes every pin for that thread, so no snapshot outlives its eviction.
+        let conn = home("twice", &header("twice"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        state.repo.probe_passthrough = true;
+        state
+            .apply(
+                &store,
+                "twice",
+                r#"[{"type":"turn.started","agent":"root","trigger":"user"},{"type":"item.upsert","agent":"root","item":"item-1","draft":{"type":"message","role":"assistant","parts":[{"type":"text","text":""}],"complete":false}}]"#,
+                1.0,
+                None,
+            )
+            .unwrap();
+        let delta = r#"[{"type":"item.delta","agent":"root","item":"item-1","field":"text","append":" more"}]"#;
+        let mut tokens = Vec::new();
+        for now in [2.0, 3.0] {
+            let prepared = state
+                .prepare_stream(&store, "twice", delta, now)
+                .unwrap()
+                .expect("the delta took the live path");
+            tokens.push(prepared.token);
+            state.repo.live.insert(
+                prepared.token,
+                Pin {
+                    snapshot: Rc::clone(&prepared.snapshot),
+                    events: prepared.events.clone(),
+                },
+            );
+        }
+        assert!(state.repo.holds("twice"));
+        state.quarantined(&store, "twice").unwrap();
+        assert!(
+            !state
+                .repo
+                .live
+                .values()
+                .any(|pin| pin.snapshot.borrow().state.thread_id == "twice"),
+            "no pin for the quarantined thread survives"
+        );
+        assert!(!state.repo.holds("twice"));
+        state.repo.live.clear();
+        assert!(state.repo.budget().borrow().size() <= 8192);
+    }
 }
