@@ -430,15 +430,14 @@ export class IntentStore {
   }
   /**
    * Puts a send the provider refused unread back in the queue as a plain queued message, so it
-   * goes in when the running turn ends instead of trying to steer again.
+   * goes in when the running turn ends instead of trying to steer again. The turn it was aimed at
+   * is gone: the message keeps no target, so choosing Steer again aims it at the turn running then.
    */
   requeue(intent: IntentHeader, error: string): void {
     this.sql(`UPDATE intents SET status='queued',delivery='queue',
-      payload=json_set(payload,'$.payload.delivery','queue'),awaiting=0,ack_target=NULL,
-      submitted_generation=NULL,uncertain=0,acknowledged=0,error=? WHERE id=?`).run(
-      error,
-      intent.id,
-    );
+      payload=json_remove(json_set(payload,'$.payload.delivery','queue'),'$.payload.runId'),
+      awaiting=0,ack_target=NULL,submitted_generation=NULL,uncertain=0,acknowledged=0,error=?
+      WHERE id=?`).run(error, intent.id);
   }
   mark(intent: IntentHeader, status: string, error?: string): void {
     this.store.atomic(() => {

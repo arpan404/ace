@@ -516,6 +516,58 @@ test("choosing Steer on a queued message cancels the turn running now", async ()
   }
 });
 
+test("choosing Steer again on a steer that lost its turn cancels the turn running now", async () => {
+  const dir = tempDir();
+  const { h, id, sessions } = await antigravity("hold-shell-natural", dir);
+  try {
+    const first = activeRootRun(h, id);
+    if (!first) throw new Error("Expected the first prompt to be active");
+    expect(queueMessage(h, id, "hold-for-steer:1")).toBe(true);
+    expect(steer(h, id, "late steer")).toBe(true);
+
+    // A ends by itself; the queued turn starts, and the steer aimed at A fell back to the queue.
+    release(dir, 1);
+    const running = await nextActiveRun(h, id, first.id);
+    await expect
+      .poll(() => queuedTexts(h, id), { timeout: 10_000 })
+      .toEqual([{ text: "late steer", delivery: "queue" }]);
+
+    // The person chooses Steer on that message again: the turn running now is the one they saw.
+    const queue = h.engine.queue(id);
+    const message = queue.messages.find(
+      (entry) => entry.input[0]?.type === "text" && entry.input[0].text === "late steer",
+    );
+    if (!message) throw new Error("Expected the lost steer to still be queued");
+    expect(
+      h.command({
+        type: "queue.edit",
+        threadId: id,
+        expectedRevision: queue.revision,
+        messageId: message.id,
+        input: message.input,
+        delivery: "steer",
+      }).ok,
+    ).toBe(true);
+
+    await expect
+      .poll(() => sessions[0]?.prompts, { timeout: 10_000 })
+      .toEqual(["hold-shell-natural", "hold-for-steer:1", "late steer"]);
+    await h.engine.flush();
+    // B was cancelled once, and the message went in once as the steer it was chosen to be.
+    expect(sessions[0]?.cancels).toEqual(["root"]);
+    expect(h.store.snapshotThread(id).runs[running.id]).toMatchObject({
+      state: "interrupted",
+      endedBy: "steer",
+    });
+    expect(sessions[0]?.prompts.filter((prompt) => prompt === "late steer")).toHaveLength(1);
+    expect(events(dir)).toEqual(["release", "cancel"]);
+    expect(h.engine.queue(id)).toMatchObject({ pendingCount: 0, paused: false });
+  } finally {
+    if (activeRootRun(h, id)) h.command({ type: "thread.interrupt", threadId: id, cascade: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 /** Every shell the thread's snapshot lists, in no order: each held prompt reports its own. */
 function shells(h: Awaited<ReturnType<typeof antigravity>>["h"], id: ThreadId) {
   return Object.values(h.store.snapshotThread(id).items).flatMap((item) =>

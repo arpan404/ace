@@ -30,14 +30,32 @@ export function fenceSteer(repo: EngineRepository, command: Command, id: ThreadI
 }
 
 /**
- * Aims a fresh steer at the turn running as the person sends it, or chooses a waiting message to
- * steer in (or at nothing, `null`, when no turn runs). That turn is the one the person meant to
- * steer into: once it ends, the message queues as the next one instead of cancelling a later turn
- * they never saw.
+ * Aims a fresh steer at the turn running as the person sends it (or at nothing, `null`, when no
+ * turn runs). That turn is the one the person meant to steer into: once it ends, the message
+ * queues as the next one instead of cancelling a later turn they never saw.
  */
 export function aimSteerAtRun(repo: EngineRepository, command: Command, id: ThreadId): Command {
   const p = command.payload;
   if (p.type !== "thread.send" || p.delivery !== "steer" || p.runId !== undefined) return command;
+  return aimAtActiveRun(repo, command, id);
+}
+
+/**
+ * Aims a waiting message the person chooses to steer in at the turn running now, replacing any
+ * target it kept: one that has already ended would bounce it straight back to the queue.
+ */
+export function reaimSteerAtRun(repo: EngineRepository, command: Command, id: ThreadId): Command {
+  const p = command.payload;
+  if (p.type !== "thread.send" || p.delivery !== "steer") return command;
+  return aimAtActiveRun(repo, command, id);
+}
+
+/**
+ * Aims a steer at the turn an active run names, or at `null` when none runs.
+ */
+function aimAtActiveRun(repo: EngineRepository, command: Command, id: ThreadId): Command {
+  const p = command.payload;
+  if (p.type !== "thread.send") return command;
   const state = repo.state(id);
   if (!state) return command;
   const runId = state.agents[state.rootKey ?? ""]?.activeRun ?? null;
