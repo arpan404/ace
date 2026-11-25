@@ -5,6 +5,8 @@
 //! `thread-lease.ts` and `app-server.ts`.
 
 pub mod app_server;
+pub mod dropped;
+pub mod frames;
 pub mod host;
 pub mod lease;
 pub mod pool;
