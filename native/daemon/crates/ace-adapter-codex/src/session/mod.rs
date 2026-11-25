@@ -5,6 +5,7 @@
 //! (E3-codex.3), and the commands and admission built on them (E3-codex.4).
 
 pub mod app_server;
+pub mod commands;
 pub mod discovery;
 pub mod dropped;
 pub mod frames;

@@ -52,6 +52,31 @@ pub enum Effect {
         id: RpcId,
         message: String,
     },
+    /// A deferred server request's answer (`Host::answer`), in place of the
+    /// rejection above.
+    Answer {
+        id: RpcId,
+        result: Value,
+    },
+    /// One context callback, on the session's ordered queue by name and as a
+    /// JSON array of arguments: the identity a command and its native message
+    /// share, queued before the write it belongs to (behaviour.md section 8).
+    Callback {
+        name: &'static str,
+        json: String,
+    },
+    /// Settles the facade's promise `id` (E3.0c, `SessionEvent::Settle`).
+    Settle {
+        id: u64,
+        result: Result<Value, Failure>,
+    },
+    /// The launch options an awaited port holds (`getLaunchOptions`): the facade
+    /// resolves them and calls `Session::launch_ready(id, launch)`, which pushes
+    /// the turn it was asked for. A start's awaits happen here, before its push.
+    LaunchOptions {
+        id: u64,
+        thread: String,
+    },
     ArmTimer {
         key: String,
         ms: f64,
@@ -91,6 +116,44 @@ pub enum Effect {
 pub use super::host::Retirement;
 pub use ace_adapter_api::FrameDirection as FrameDir;
 pub use ace_supervisor::jsonrpc::RpcId;
+
+/// Why a command failed, as the facade throws it (ADR 0223 section 7 rule 2): a
+/// code the binding maps to the engine-api class, and the message. An unknown
+/// code is a plain `Error`, which is what a provider's own refusal must be.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Failure {
+    pub code: &'static str,
+    pub message: String,
+}
+
+/// A failure only the session itself can report.
+pub const CODEX_FAILED: &str = "ACE_CODEX_FAILED";
+
+impl Failure {
+    /// The turn the input was meant to join has ended: unread, never retried.
+    pub fn steer_target_lost(message: impl Into<String>) -> Failure {
+        Failure {
+            code: ace_adapter_api::bridge::queue::STEER_TARGET_LOST,
+            message: message.into(),
+        }
+    }
+
+    /// The provider refused before taking any of the input.
+    pub fn input_rejected(message: impl Into<String>) -> Failure {
+        Failure {
+            code: ace_adapter_api::bridge::queue::INPUT_REJECTED,
+            message: message.into(),
+        }
+    }
+
+    /// Anything else: a transport failure or a provider's own error.
+    pub fn failed(message: impl Into<String>) -> Failure {
+        Failure {
+            code: CODEX_FAILED,
+            message: message.into(),
+        }
+    }
+}
 
 /// One frame ready to publish.
 #[derive(Debug, Clone, PartialEq)]

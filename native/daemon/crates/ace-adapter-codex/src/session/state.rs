@@ -16,6 +16,7 @@ use ace_supervisor::jsonrpc::RpcId;
 use ace_supervisor::peer::Direction;
 use indexmap::{IndexMap, IndexSet};
 
+use super::commands::Commands;
 use super::discovery::Discovery;
 use super::frames::{Calls, Effect, Frames};
 use super::host::Admission;
@@ -131,6 +132,8 @@ pub struct Session {
     pub(crate) root: String,
     pub(crate) frames: Frames,
     pub(crate) calls: Calls,
+    /// The commands this session has in flight (E3-codex.4).
+    pub(crate) commands: Commands,
     pub(crate) lifetime: Lifetime,
     pub(crate) discovery: Discovery,
     pub(crate) foreign: Foreign,
@@ -170,6 +173,7 @@ impl Session {
             root: String::new(),
             frames: Frames::new(config.bearer),
             calls: Calls::new(),
+            commands: Commands::new(),
             lifetime: Lifetime::new(generation, config.redact),
             discovery: Discovery::new(),
             foreign: config.foreign,

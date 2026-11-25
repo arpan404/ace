@@ -112,6 +112,9 @@ impl Session {
         if let Some(effects) = self.read_terminal_page(call, reply) {
             return effects;
         }
+        if let Some(effects) = self.command_settled(call, reply) {
+            return effects;
+        }
         if let Some(effects) = self.queue_settled(call, reply) {
             return effects;
         }
@@ -142,6 +145,7 @@ impl Session {
         self.pending.clear();
         self.async_questions.clear();
         self.plans.clear();
+        effects.extend(self.commands.clear());
         effects
     }
 

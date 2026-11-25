@@ -10,6 +10,7 @@ use indexmap::IndexSet;
 use crate::session::frames::Effect;
 use crate::session::state::{Session, text_of};
 
+use super::super::commands::settle;
 use super::{OUTPUT_TASK, Origin, RECOVERY_MS, REQUEST_MS};
 
 /// One `thread/loaded/list` scan (`reconcileLoaded`, `:266`).
@@ -26,11 +27,24 @@ pub(crate) struct QueueRead {
     pub thread: String,
     pub cursor: Option<String>,
     pub count: u64,
+    /// The command waiting for this refresh, if one asked for it: it settles
+    /// when the read (or its failure) does, as the TypeScript's `await` did.
+    pub operation: Option<u64>,
 }
 
 impl Session {
     /// `refreshQueue`: one thread's queued messages, in bounded pages (`:252`).
     pub(crate) fn refresh_queue(&mut self, thread: &str) -> Vec<Effect> {
+        self.refresh_queue_for(thread, None)
+    }
+
+    /// `refreshQueue` for a command that awaits it: the command's promise
+    /// settles with the read.
+    pub(crate) fn refresh_queue_for(
+        &mut self,
+        thread: &str,
+        operation: Option<u64>,
+    ) -> Vec<Effect> {
         let call = self.calls.take();
         self.discovery.queues.insert(
             call,
@@ -38,6 +52,7 @@ impl Session {
                 thread: thread.to_owned(),
                 cursor: None,
                 count: 0,
+                operation,
             },
         );
         queue_page(call, thread, None)
@@ -55,8 +70,14 @@ impl Session {
         let result = match reply {
             Ok(result) => result,
             Err(message) => {
-                self.discovery.queues.shift_remove(&call);
-                return Some(self.diagnostic(message));
+                let read = self.discovery.queues.shift_remove(&call);
+                return Some(match read.and_then(|read| read.operation) {
+                    Some(operation) => settle(
+                        operation,
+                        Err(crate::session::frames::Failure::failed(message.to_owned())),
+                    ),
+                    None => self.diagnostic(message),
+                });
             }
         };
         let body = result.as_object().cloned().unwrap_or_default();
@@ -85,7 +106,11 @@ impl Session {
         let mut note = Map::new();
         note.insert("event", Value::from("queue-state"));
         note.insert("count", Value::from(total as f64));
-        Some(self.emit_note(&Value::Object(note)))
+        let mut effects = self.emit_note(&Value::Object(note));
+        if let Some(operation) = read.operation {
+            effects.extend(settle(operation, Ok(Value::Null)));
+        }
+        Some(effects)
     }
 
     /// `reconcileLoaded(task, scanRevision = outputRevision)`: every loaded
