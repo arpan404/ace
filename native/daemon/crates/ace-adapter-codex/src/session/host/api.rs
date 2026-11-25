@@ -396,6 +396,43 @@ impl Host {
         });
     }
 
+    /// A close that already stopped this tree's work lets go without stopping
+    /// it again (`session-lifetime.ts:41`-`:78` branch 4): the channel issues
+    /// nothing new and unsubscribes its threads, and its frames still arrive
+    /// until the unsubscribes land.
+    pub fn detach_passive(&self, tenant: u64, retirement: Retirement, reason: &str) {
+        self.input(|inner| {
+            if inner.detaching.contains_key(&tenant)
+                || inner
+                    .tenants
+                    .get(&tenant)
+                    .is_none_or(|entry| entry.closed.is_some())
+            {
+                return;
+            }
+            if inner.config.dedicated || inner.exiting {
+                inner.abort_calls(tenant, reason);
+                inner.retire(retirement, true);
+                return;
+            }
+            inner.next_attempt += 1;
+            let attempt = inner.next_attempt;
+            inner.detaching.insert(
+                tenant,
+                Detaching {
+                    remaining: 0,
+                    retirement,
+                    reason: reason.to_owned(),
+                    attempt,
+                    phase: Leaving::Unsubscribes,
+                    stops: VecDeque::new(),
+                    stopping: false,
+                },
+            );
+            inner.unsubscribe_threads(tenant);
+        });
+    }
+
     /// Stop the whole process (`retire`, `:379`); every channel on it exits.
     /// A poisoned host has already published its exits, so its owner's retire
     /// only stops the child — a stop the poison's own may not have made. One
