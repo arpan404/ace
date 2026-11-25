@@ -98,9 +98,11 @@ impl State {
             return Ok(Vec::new());
         };
         let Some(snapshot) = self.snapshot(&core, thread)? else {
-            return Ok(Vec::new());
+            return Err(EngineError::MissingState);
         };
-        let mut borrowed = snapshot.borrow_mut();
+        let mut borrowed = snapshot
+            .try_borrow_mut()
+            .map_err(|_| EngineError::Reentrant)?;
         crate::inputs::runs::bind_started_run(&mut borrowed, core.store.conn(), run, generation)
     }
 
@@ -116,9 +118,11 @@ impl State {
             return Ok(Vec::new());
         };
         let Some(snapshot) = self.snapshot(&core, thread)? else {
-            return Ok(Vec::new());
+            return Err(EngineError::MissingState);
         };
-        let mut borrowed = snapshot.borrow_mut();
+        let mut borrowed = snapshot
+            .try_borrow_mut()
+            .map_err(|_| EngineError::Reentrant)?;
         crate::inputs::runs::bind_consumed_input(
             &mut borrowed,
             core.store.conn(),
@@ -165,9 +169,11 @@ impl InputFacts for State {
             return Ok(None);
         };
         let Some(snapshot) = self.snapshot(&core, thread)? else {
-            return Ok(None);
+            return Err(EngineError::MissingState);
         };
-        let mut borrowed = snapshot.borrow_mut();
+        let mut borrowed = snapshot
+            .try_borrow_mut()
+            .map_err(|_| EngineError::Reentrant)?;
         let mut touched = crate::snapshot::touched::Touched::default();
         if let Some(item) = fact.get("item").and_then(Value::as_str) {
             touched.items.insert(item.to_owned());
