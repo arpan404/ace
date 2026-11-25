@@ -90,6 +90,20 @@ export class NativeDevicePlatform extends DevicePlatformBase {
       sources.push(await this.#source("ios", () => this.readIosSource()));
     }
     sources.push(await this.#source("android", () => this.android.list()));
+    // Keep both outcomes before the Rust composition: a compose failure must not lose the
+    // reads a later scoped trigger composes against.
+    for (const source of sources) {
+      const platform = source.platform as Device["platform"];
+      this.recordOutcome(
+        platform,
+        source.failure
+          ? { status: "rejected", reason: deviceRefusal(source.failure) }
+          : {
+              status: "fulfilled",
+              value: source.devices.map((device) => DeviceSchema.parse(device)),
+            },
+      );
+    }
     const answer = deviceAnswer<ListAnswer>(() =>
       nativeDevices().devicePlatformList(JSON.stringify(sources)),
     );
@@ -102,19 +116,6 @@ export class NativeDevicePlatform extends DevicePlatformBase {
       })),
     );
     const devices = answer.devices.map((device) => DeviceSchema.parse(device));
-    // D2's scoped triggers compose against the peer's last read, so both outcomes are kept.
-    for (const source of sources) {
-      const platform = source.platform as Device["platform"];
-      this.recordOutcome(
-        platform,
-        source.failure
-          ? { status: "rejected", reason: deviceRefusal(source.failure) }
-          : {
-              status: "fulfilled",
-              value: devices.filter((device) => device.platform === platform),
-            },
-      );
-    }
     await this.adoptInventory(devices);
     return devices;
   }
