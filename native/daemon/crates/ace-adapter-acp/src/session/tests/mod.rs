@@ -168,6 +168,19 @@ pub(super) fn sent_id(effects: &[AcpEffect], method: &str) -> Option<Value> {
         .and_then(|message| message.get("id").cloned())
 }
 
+/// The fake agent's `_session/steering` answer (`testing/acp-server.ts:234`-`:237`).
+pub(super) fn steer_reply(id: &Value, outcome: &str) -> Vec<u8> {
+    let result = match outcome {
+        "promptRequired" => json!({ "outcome": outcome, "reason": "noRunningTurn" }),
+        _ => json!({ "outcome": outcome }),
+    };
+    format!(
+        "{}\n",
+        json!({ "jsonrpc": "2.0", "id": id, "result": result }).to_json()
+    )
+    .into_bytes()
+}
+
 pub(super) fn prompt_reply(id: &Value, reason: &str) -> Vec<u8> {
     format!(
         "{}\n",

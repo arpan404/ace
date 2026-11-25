@@ -6,7 +6,7 @@ use ace_json::{JsString, Value, json};
 
 use super::{
     core_with_prompt, fence, prompt_reply, send, sent_id, sent_json_messages, session_core,
-    settlements,
+    settlements, steer_reply,
 };
 use crate::session::core::{AcpCore, AcpCoreConfig, AcpEffect};
 use crate::session::input::InputSend;
@@ -25,12 +25,7 @@ fn a_prompt_required_steer_goes_in_as_the_next_prompt() {
     let effects = send(&mut core, 10, Delivery::Steer, None);
     let id = sent_id(&effects, "_session/steering").unwrap_or_default();
     assert!(settlements(&effects, 10).is_empty());
-    let reply = json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "result": { "outcome": { "outcome": "promptRequired" } }
-    });
-    let queued = core.stdout_bytes(format!("{}\n", reply.to_json()).as_bytes());
+    let queued = core.stdout_bytes(&steer_reply(&id, "promptRequired"));
     assert!(settlements(&queued, 10).is_empty(), "still queued");
     assert_eq!(core.queue_len(), 1);
 

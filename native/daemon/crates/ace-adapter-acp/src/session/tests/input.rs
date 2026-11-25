@@ -7,6 +7,7 @@ use ace_json::{Value, json};
 
 use super::{
     core_with_prompt, fence, send, sent_id, sent_json_messages, session_core, settlements,
+    steer_reply,
 };
 use crate::session::input::{InputSend, STEER_TARGET_LOST};
 
@@ -76,12 +77,7 @@ fn a_current_fence_steers_into_the_running_prompt_in_one_step() {
     );
 
     let id = sent_id(&effects, "_session/steering").unwrap_or_default();
-    let reply = json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "result": { "outcome": { "outcome": "injected" } }
-    });
-    let settled = core.stdout_bytes(format!("{}\n", reply.to_json()).as_bytes());
+    let settled = core.stdout_bytes(&steer_reply(&id, "injected"));
     assert_eq!(settlements(&settled, 9).len(), 1);
     assert!(settlements(&settled, 9)[0].is_ok());
 }
@@ -91,14 +87,12 @@ fn a_steer_outcome_the_agent_did_not_take_refuses_the_send() {
     let (mut core, _prompt) = core_with_prompt("t-outcome");
     let effects = send(&mut core, 11, Delivery::Steer, None);
     let id = sent_id(&effects, "_session/steering").unwrap_or_default();
-    let reply =
-        json!({ "jsonrpc": "2.0", "id": id, "result": { "outcome": { "outcome": "rejected" } } });
-    let settled = core.stdout_bytes(format!("{}\n", reply.to_json()).as_bytes());
+    let settled = core.stdout_bytes(&steer_reply(&id, "failed"));
     assert_eq!(
         settlements(&settled, 11),
         vec![Err((
             "ACE_INPUT_REJECTED".to_owned(),
-            "The agent couldn't take the steer (rejected)".to_owned()
+            "The agent couldn't take the steer (failed)".to_owned()
         ))]
     );
 }

@@ -230,11 +230,9 @@ impl AcpCore {
             return false;
         };
         match result {
-            Ok(reply) => match reply
-                .pointer("/outcome/outcome")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-            {
+            // The reply's `outcome` is flat (`session.ts:657`, `acp-registry.md`'s
+            // steering section, the fake server's `_session/steering` answer).
+            Ok(reply) => match reply.get("outcome").and_then(Value::as_str).unwrap_or("") {
                 "injected" | "startedNewTurn" => {
                     self.finish_steer_batch(flight.batch, Ok(Value::Null.to_json()), effects);
                 }
