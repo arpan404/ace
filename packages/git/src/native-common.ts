@@ -51,6 +51,34 @@ export type NativeReply = Uint8Array | string;
  */
 export type NativeSettle = (error: unknown, reply?: NativeReply) => void;
 
+export type NativePortHandler = (eventJson: string, data: Uint8Array) => void;
+export type NativeCoreRawSettle = (error: unknown, metaJson?: string, stdout?: Uint8Array) => void;
+export type NativeJsonSettle = (error: unknown, json?: string) => void;
+
+export interface NativeGitCoreHandle {
+  executeRaw(reqJson: string, input: Uint8Array | null, settle: NativeCoreRawSettle): number;
+  writeStdin(callId: number, chunk: Uint8Array): void;
+  endStdin(callId: number): void;
+  failStdin(callId: number, code: string | null, errno: string | null, message: string): void;
+  abortCall(callId: number): void;
+  awaitCleanup(cleanupId: number, settle: NativeJsonSettle): void;
+  pause(milliseconds: number, settle: NativeJsonSettle): void;
+  close(settle: NativeJsonSettle): void;
+  activeCalls(): number;
+  runningChildren(): number[];
+  jobAlive(pid: number): boolean;
+  replyPort(reqId: number, replyJson: string): void;
+  /** One lease operation (`mutationState`, `heal`, ...) with its JSON arguments. */
+  leaseOp(op: string, argsJson: string, settle: NativeJsonSettle): void;
+  pushSpawnEvent(
+    spawnId: number,
+    kind: string,
+    payloadJson: string,
+    chunk?: Uint8Array | null,
+  ): void;
+  fireTimer(timerId: number): void;
+}
+
 interface GitAddon {
   gitRefsAbortToken(): number;
   gitRefsAbort(token: number): void;
@@ -72,6 +100,9 @@ interface GitAddon {
   gitRefsCommit(token: number, root: string, reference: string, settle: NativeSettle): void;
   gitRefsBranchHead(token: number, root: string, reference: string, settle: NativeSettle): void;
   gitCoreProbe(op: string): string;
+  gitValidateTimeout(ms?: number | null): number;
+  gitVerifyVersion(stdout: Uint8Array, binary: string): void;
+  NativeGitCore: new (configJson: string, onPort: NativePortHandler) => NativeGitCoreHandle;
   gitReadsProbe(op: string): string;
   gitWritesProbe(op: string): string;
   gitCheckpointsProbe(op: string): string;
