@@ -12,6 +12,8 @@ item (`ace/rust-devices-<item>`).
 
 ## Rules for every item
 
+**Lengths:** a zod string bound counts code points in this repo (patched zod), while TypeScript's `.length` and `.slice()` count UTF-16 units. Match the unit of the TypeScript source, and test the boundary with an emoji. See rule 17 of `docs/engine/porting-guide.md`.
+
 1. **Same TypeScript interface.** You replace what sits behind `DevicePlatform`,
    `DevicesService`, `startCapture`, `devicesToolkit` and the bridge, never the interface:
    signatures, return shapes, `DeviceError` codes, timing (what is synchronous stays synchronous)

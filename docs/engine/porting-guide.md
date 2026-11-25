@@ -102,6 +102,12 @@ Branch from `ace/rust-engine` once E0 has landed on it, one branch per work item
     task, with the adapter's secrets, and a `send` frame is emitted after its write is handed to
     the transport, in outbound order (behaviour.md §14, "Raw is post-redaction; the wire is not";
     `adapter-pi/src/rpc.ts:70`–`:78`). The raw data you keep is the redacted copy.
+17. **Count lengths the way the TypeScript does.** ace patches zod (`patches/zod@4.6.7.patch`),
+    so a zod string bound (`.min()`, `.max()`, `.length()`) counts **code points**: two emoji pass
+    `z.string().max(2)`. TypeScript's own `.length`, `.slice()`, `.substring()` and `charCodeAt`
+    count **UTF-16 units**. Find the TypeScript source of every bound you port: a zod schema means
+    `chars().count()`, plain string arithmetic means `encode_utf16().count()`. Never assume one;
+    test the boundary with an astral character (an emoji) on both sides of the limit.
 
 ## Files per work item
 

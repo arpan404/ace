@@ -12,6 +12,8 @@ Branch from `ace/rust-git-forge` once G0 has landed on it, one branch per work i
 
 ## Rules for every work item
 
+**Lengths:** a zod string bound counts code points in this repo (patched zod), while TypeScript's `.length` and `.slice()` count UTF-16 units. Match the unit of the TypeScript source, and test the boundary with an emoji. See rule 17 of `docs/engine/porting-guide.md`.
+
 1. **Same TypeScript interface.** `GitService`, `GitTransfer`, every export of `.` and
    `./remote-url`, `GitError` (with `code`, `details`, `cleanup.settled`) and
    `WorktreeRemovalRefused` keep their signatures, results, codes and timing. What is synchronous
