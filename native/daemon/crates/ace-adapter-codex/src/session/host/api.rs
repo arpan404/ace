@@ -177,7 +177,25 @@ impl Host {
                 // The send frame is attributed while the sender is still known.
                 Ok(peer) => {
                     inner.calls.insert(id, tenant);
-                    inner.apply(peer);
+                    // A frame the channel refuses never reaches the wire: the
+                    // peer's line is dropped and the call fails with the
+                    // refusal, as the TypeScript throws before `writer.send`
+                    // (`session.ts:153`-`:156`, `jsonrpc.ts:291`-`:292`).
+                    let refused = peer.iter().find_map(|effect| match effect {
+                        PeerEffect::Frame {
+                            dir: Direction::Send,
+                            value,
+                        } => inner.refused_send(tenant, value),
+                        _ => None,
+                    });
+                    match refused {
+                        Some(message) => {
+                            inner.calls.shift_remove(&id);
+                            let aborted = inner.peer.abort(id, &message);
+                            inner.apply(aborted);
+                        }
+                        None => inner.apply(peer),
+                    }
                 }
                 Err(error) => {
                     inner.sender = None;

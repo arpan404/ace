@@ -243,6 +243,73 @@ fn a_dropped_reply_settles_its_request_once_and_reports_the_drop() {
     )));
 }
 
+/// `session.ts:153`-`:156`, `jsonrpc.ts:291`-`:292`: a frame the bound refuses
+/// never reaches the wire, and its call fails with the bound's error.
+#[test]
+fn a_refused_outgoing_frame_is_never_written_and_fails_its_call() {
+    struct Bound;
+    impl ChannelHandlers for Bound {
+        fn admit(&self, dir: Direction, data: &Value) -> Admission {
+            let big = data
+                .pointer("/params/instructions")
+                .and_then(Value::as_str)
+                .is_some_and(|text| text.len() > 1024);
+            match (dir, big) {
+                (Direction::Send, true) => {
+                    Admission::Failed("Provider payload exceeds byte limit".to_owned())
+                }
+                _ => Admission::Taken,
+            }
+        }
+        fn frame(&self, _dir: Direction, _data: &Value) {}
+        fn notification(&self, _method: &ace_json::JsString, _params: Option<&Value>) {}
+        fn request(
+            &self,
+            _id: &RpcId,
+            _method: &ace_json::JsString,
+            _params: Option<&Value>,
+        ) -> RequestAnswer {
+            RequestAnswer::Answered(ace_json::json!({}))
+        }
+        fn dropped(&self, _line: &DroppedLine) {}
+        fn output_uncertain(&self) {}
+        fn malformed(&self, _line: &str) {}
+        fn stderr(&self, _line: &str) {}
+        fn error(&self, _message: &str) {}
+        fn failed(&self, _message: &str) {}
+        fn exited(&self, _exit: &HostExit) {}
+        fn ready(&self) {}
+    }
+    let host = Shell::start(HostConfig::dedicated(initialize()));
+    let _ = host.pump(|| {});
+    host.attach(1, Arc::new(Bound)).expect("a channel attaches");
+    let _ = host.pump(|| {});
+    let instructions = "x".repeat(2_000_000);
+    let (effects, lines) = host.pump(|| {
+        host.request(
+            1,
+            "turn/start",
+            Some(&ace_json::json!({"threadId": "t1", "instructions": instructions})),
+            7,
+            Timeout::After(1_000.0),
+        )
+        .expect("the request is queued");
+    });
+    assert!(
+        !lines.iter().any(|line| line.contains("turn/start")),
+        "nothing reached the wire"
+    );
+    let settles: Vec<&HostEffect> = effects
+        .iter()
+        .filter(|effect| matches!(effect, HostEffect::Settle { id: 7, .. }))
+        .collect();
+    assert_eq!(settles.len(), 1, "the call settles once");
+    assert!(matches!(
+        settles[0],
+        HostEffect::Settle { result: Err(_), .. }
+    ));
+}
+
 /// `host.ts:469`-`:473`: only a dropped *reply* rejects a pending call. A
 /// server request that reuses a client call's numeric id is not that reply.
 #[test]

@@ -273,6 +273,16 @@ impl Frames {
         !is_request
     }
 
+    /// A frame that may not leave at all: the bound `emit` would refuse it
+    /// with, before the writer submits it (`session.ts:153`-`:156`). Nothing
+    /// optional applies to an outgoing frame here: catalog requests are small.
+    pub fn refuses_send(&self, data: &Value) -> Option<String> {
+        let encoded = self.redact(&ace_json::to_string(data));
+        admit_payload(&encoded)
+            .err()
+            .map(|admission| admission.message(&encoded))
+    }
+
     /// A frame the host must not dispatch: a server request over the frame
     /// bound. Its interaction would otherwise wait with no visible prompt, and
     /// the host would hold the attribution for a frame it never published.

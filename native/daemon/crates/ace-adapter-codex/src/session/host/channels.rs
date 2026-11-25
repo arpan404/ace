@@ -3,6 +3,12 @@
 
 use super::*;
 
+/// A send frame the channel refused: its line must never reach the wire.
+pub(super) struct RefusedSend {
+    pub tenant: u64,
+    pub message: String,
+}
+
 impl Inner {
     /// Keep each thread's running turn, so a close can interrupt it.
     pub(super) fn track_active(&mut self, message: &Value) {
@@ -31,9 +37,19 @@ impl Inner {
         }
     }
 
+    /// Whether a channel would refuse this outgoing frame, before the peer's
+    /// line is submitted (`jsonrpc.ts:291`-`:292`).
+    pub(super) fn refused_send(&self, tenant: u64, data: &Value) -> Option<String> {
+        let entry = self.tenants.get(&tenant)?;
+        match entry.handlers.admit(Direction::Send, data) {
+            Admission::Taken => None,
+            Admission::Failed(message) => Some(message),
+        }
+    }
+
     /// An outgoing frame: a tenant's own, its answer, or an init frame to
     /// everyone (`#sent`, `:437`).
-    pub(super) fn sent(&mut self, data: &Value) -> Option<String> {
+    pub(super) fn sent(&mut self, data: &Value) -> Option<RefusedSend> {
         let sender = self.sender;
         let tenant = self.router.sent(data, sender.as_ref());
         if let Some(tenant) = tenant {
@@ -53,7 +69,10 @@ impl Inner {
                 });
                 return None;
             }
-            return failed.or_else(|| Some("Codex send frame was not admitted".to_owned()));
+            return Some(RefusedSend {
+                tenant,
+                message: failed.unwrap_or_else(|| "Codex send frame was not admitted".to_owned()),
+            });
         }
         let method = data.get("method").and_then(Value::as_str)?;
         if method == "initialize" {
