@@ -258,3 +258,30 @@ fn an_item_larger_than_a_whole_note_is_left_out_with_a_note_saying_so() {
         )
     );
 }
+
+#[test]
+fn a_page_that_fills_the_quota_still_refuses_a_cursor_it_already_followed() {
+    let mut calls = Calls::new();
+    let (mut read, _) = HistoryRead::start("root-1", &mut calls);
+    read.settled(
+        &mut calls,
+        Ok(&page(r#"{"id":"t4"},{"id":"t3"},{"id":"t2"}"#, Some("c2"))),
+    );
+    read.settled(&mut calls, Ok(&page(r#"{"id":"t1"}"#, Some("c2"))));
+    assert_eq!(
+        read.outcome(),
+        Some(&Err("Codex history repeated a page cursor".to_owned()))
+    );
+}
+
+#[test]
+fn an_older_server_is_recognised_by_its_code_wherever_the_reply_carries_it() {
+    let mut calls = Calls::new();
+    let (mut read, _) = HistoryRead::start("root-1", &mut calls);
+    let effects = read.settled(
+        &mut calls,
+        Err(r#"{"code":-32000,"data":{"code": -32601},"message":"no paged history"}"#),
+    );
+    let (_, method, _) = request(&effects[0]);
+    assert_eq!(method, "thread/read");
+}

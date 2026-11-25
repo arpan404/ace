@@ -153,12 +153,18 @@ impl HistoryRead {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_owned();
-        if next.is_empty() || data.is_empty() || self.newest.len() >= HISTORY_PAGE_TURNS {
+        if next.is_empty() || data.is_empty() {
             self.finished();
             return Vec::new();
         }
+        // The pager refuses a cursor it already followed even for the page that
+        // fills the quota, as the TypeScript does before its loop can end.
         if !self.seen.insert(next.clone()) {
             self.outcome = Some(Err("Codex history repeated a page cursor".to_owned()));
+            return Vec::new();
+        }
+        if self.newest.len() >= HISTORY_PAGE_TURNS {
+            self.finished();
             return Vec::new();
         }
         self.cursor = Some(next.clone());
@@ -306,20 +312,19 @@ fn record(value: &Value) -> Value {
 /// `methodMissing`: a server without paged history answers `-32601`.
 fn method_missing(message: &str) -> bool {
     const CODE: &str = "\"code\":";
-    let Some(at) = message.find(CODE) else {
-        return false;
-    };
-    let rest = &message[at + CODE.len()..];
-    let rest = rest.trim_start();
-    let Some(digits) = rest.strip_prefix("-32601") else {
-        return false;
-    };
-    // `\b`: the code ends where the number ends, so `-3260` or `-32601x` is no
-    // `-32601`.
-    digits
-        .chars()
-        .next()
-        .is_none_or(|ch| !(ch.is_ascii_alphanumeric() || ch == '_'))
+    // `/"code":\s*-32601\b/`: any occurrence, whichever code the reply names
+    // first.
+    message.match_indices(CODE).any(|(at, code)| {
+        let rest = message[at + code.len()..].trim_start();
+        rest.strip_prefix("-32601").is_some_and(|digits| {
+            // `\b`: the code ends where the number ends, so `-3260` or
+            // `-32601x` is no `-32601`.
+            digits
+                .chars()
+                .next()
+                .is_none_or(|ch| !(ch.is_ascii_alphanumeric() || ch == '_'))
+        })
+    })
 }
 
 /// The bytes a dropped reply's error reports (`OutputLineDroppedError`), when
