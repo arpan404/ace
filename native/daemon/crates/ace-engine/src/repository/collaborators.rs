@@ -419,7 +419,6 @@ impl FrameFacts for State {
         )
     }
 }
-impl InputFacts for State {}
 impl SessionFacts for State {}
 impl AccessFacts for State {}
 impl RecoveryFacts for State {}

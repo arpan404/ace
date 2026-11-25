@@ -135,6 +135,8 @@ export interface EngineProbe {
   timerCount(): number;
   /** The transaction shell's bookkeeping: open frames, top aliases and released lists. */
   stackEntries(): { frames: number; released: number };
+  /** One E5.3 `InputFacts` method natively, inside a transaction of its own. */
+  inputFacts(method: string, args: unknown): unknown;
 }
 
 /** What `attachSession` scripts. */

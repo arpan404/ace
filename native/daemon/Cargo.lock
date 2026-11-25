@@ -183,6 +183,8 @@ name = "ace-engine"
 version = "0.1.0"
 dependencies = [
  "ace-adapter-api",
+ "ace-adapter-claude",
+ "ace-adapter-pi",
  "ace-core",
  "ace-json",
  "ace-store",

@@ -46,3 +46,7 @@ indexmap = "2"
 sha2 = "0.10"
 # base64: the echo decodes that data URL exactly as `Buffer.from(…, "base64")` does.
 base64 = "0.22"
+# ace-adapter-claude, ace-adapter-pi: the input journal re-signs an input with the rendering the
+# provider's own adapter sends (E5.4b), so the two stay one copy.
+ace-adapter-claude = { path = "../ace-adapter-claude" }
+ace-adapter-pi = { path = "../ace-adapter-pi" }
