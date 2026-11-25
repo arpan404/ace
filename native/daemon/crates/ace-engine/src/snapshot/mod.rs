@@ -437,3 +437,143 @@ mod reload_fix_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod cleared_nested_tests {
+    use crate::State;
+    use crate::repository::testsupport::{Shell, header, home};
+
+    #[test]
+    fn a_fresh_retry_does_not_keep_the_previous_until_or_message() {
+        // A retry replaces the record; the encoder omits `until`/`message` when they are None,
+        // and the stored base must not bring them back, or a reload shows a stale retry.
+        let conn = home("retry", &header("retry"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        state.repo.probe_passthrough = true;
+        state
+            .apply(
+                &store,
+                "retry",
+                r#"[{"type":"retry","agent":"root","on":"network","attempt":1,"until":5000,"message":"overloaded"}]"#,
+                1.0,
+                None,
+            )
+            .unwrap();
+        state
+            .apply(
+                &store,
+                "retry",
+                r#"[{"type":"retry","agent":"root","on":"network","attempt":2}]"#,
+                2.0,
+                None,
+            )
+            .unwrap();
+        drop(state);
+        let mut after = State::default();
+        after.repo.probe_passthrough = true;
+        let snapshot = after.repo.require_state(&store, "retry").unwrap();
+        let record = snapshot
+            .borrow_mut()
+            .agents
+            .read("root")
+            .unwrap()
+            .expect("the root agent");
+        let retry = record.retry.expect("the retry");
+        assert_eq!(retry.attempt, Some(2));
+        assert!(retry.until.is_none(), "the old until is gone");
+        assert!(retry.message.is_none(), "the old message is gone");
+    }
+
+    #[test]
+    fn a_second_rate_limit_does_not_keep_the_first_until() {
+        let conn = home("limit", &header("limit"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        state.repo.probe_passthrough = true;
+        state
+            .apply(
+                &store,
+                "limit",
+                r#"[{"type":"retry","agent":"root","on":"rate_limit","until":9000,"message":"slow down"}]"#,
+                1.0,
+                None,
+            )
+            .unwrap();
+        state
+            .apply(
+                &store,
+                "limit",
+                r#"[{"type":"retry","agent":"root","on":"rate_limit"}]"#,
+                2.0,
+                None,
+            )
+            .unwrap();
+        drop(state);
+        let mut after = State::default();
+        after.repo.probe_passthrough = true;
+        let snapshot = after.repo.require_state(&store, "limit").unwrap();
+        let record = snapshot
+            .borrow_mut()
+            .agents
+            .read("root")
+            .unwrap()
+            .expect("the root agent");
+        let limited = record.limited.expect("the limit");
+        assert!(limited.until.is_none(), "the first limit's until is gone");
+        assert!(limited.message.is_none());
+    }
+
+    #[test]
+    fn a_corrupt_open_item_fails_the_fold_instead_of_dropping_its_key() {
+        // A record that fails to decode must surface, never silently lose its open-text key: the
+        // item would stream forever with no error.
+        let conn = home("corrupt", &header("corrupt"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        state.repo.probe_passthrough = true;
+        state
+            .apply(
+                &store,
+                "corrupt",
+                r#"[{"type":"turn.started","agent":"root","trigger":"user"}]"#,
+                1.0,
+                None,
+            )
+            .unwrap();
+        // The index names an item whose stored value cannot be decoded.
+        ace_store::stmt_cache::run(
+            &conn,
+            "INSERT INTO engine_state_records VALUES (?,?,?,?)",
+            vec![
+                ace_store::Value::Text("corrupt".to_owned()),
+                ace_store::Value::Text("items".to_owned()),
+                ace_store::Value::Text("broken".to_owned()),
+                ace_store::Value::Text("{not json".to_owned()),
+            ],
+        )
+        .unwrap();
+        ace_store::stmt_cache::run(
+            &conn,
+            "INSERT INTO engine_state_records VALUES (?,?,?,?)",
+            vec![
+                ace_store::Value::Text("corrupt".to_owned()),
+                ace_store::Value::Text("openText".to_owned()),
+                ace_store::Value::Text("broken".to_owned()),
+                ace_store::Value::Text("true".to_owned()),
+            ],
+        )
+        .unwrap();
+        drop(state);
+        let mut after = State::default();
+        after.repo.probe_passthrough = true;
+        let result = after.apply(
+            &store,
+            "corrupt",
+            r#"[{"type":"turn.ended","agent":"root","outcome":"completed"}]"#,
+            2.0,
+            None,
+        );
+        assert!(result.is_err(), "the corrupt record surfaces");
+    }
+}

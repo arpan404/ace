@@ -23,7 +23,7 @@ fn keep_unknown_fields(encoded: &str, base: &str) -> String {
         return encoded.to_owned();
     };
     let mut merged = typed.clone();
-    let added = merge_unknown(&mut merged, &original);
+    let added = merge_unknown(&mut merged, &original, &KNOWN_FIELDS);
     if !added {
         return encoded.to_owned();
     }
@@ -82,13 +82,39 @@ const KNOWN_FIELDS: [&str; 46] = [
     "error",
 ];
 
-/// Copy every field the typed form does not know, at any depth of objects: a tool record's
-/// unknown field inside `call` survives the rewrite too. A known field the fold cleared stays
-/// cleared. Arrays are left as the typed form has them.
-fn merge_unknown(typed: &mut ace_json::Map, original: &ace_json::Map) -> bool {
+/// The fields of the nested record objects this build writes. A nested object is merged only
+/// when its type is known here: a cleared optional inside it (`retry.until`, `call.error`) must
+/// not come back, while an unknown field inside a known type (`call.futureField`) is kept.
+fn nested_known(key: &str) -> Option<&'static [&'static str]> {
+    match key {
+        "retry" => Some(&["on", "attempt", "until", "message"]),
+        "limited" => Some(&["until", "message"]),
+        "call" => Some(&[
+            "id",
+            "agentId",
+            "kind",
+            "title",
+            "status",
+            "detail",
+            "backgroundTaskId",
+            "error",
+            "result",
+            "startedAt",
+            "endedAt",
+            "raw",
+            "measurement",
+        ]),
+        _ => None,
+    }
+}
+
+/// Copy every field the typed form does not know: a known field the fold cleared stays cleared,
+/// at any level. Objects of types not listed in [`nested_known`] are left as the typed form has
+/// them; arrays too.
+fn merge_unknown(typed: &mut ace_json::Map, original: &ace_json::Map, known: &[&str]) -> bool {
     let mut added = false;
     for (key, value) in original {
-        if KNOWN_FIELDS.contains(&key.as_str()) && !typed.contains_key(key) {
+        if known.contains(&key.as_str()) && !typed.contains_key(key) {
             continue;
         }
         match typed.get_mut(key) {
@@ -97,8 +123,8 @@ fn merge_unknown(typed: &mut ace_json::Map, original: &ace_json::Map) -> bool {
                 added = true;
             }
             Some(Value::Object(inner)) => {
-                if let Value::Object(outer) = value {
-                    added |= merge_unknown(inner, outer);
+                if let (Value::Object(outer), Some(nested)) = (value, nested_known(key)) {
+                    added |= merge_unknown(inner, outer, nested);
                 }
             }
             Some(_) => {}

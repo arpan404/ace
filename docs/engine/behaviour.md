@@ -721,3 +721,13 @@ of those fixes.
 | Quarantine        | A quarantined live write evicts the snapshot only through its actor (`actor.ts:276`), so a thread with no actor keeps the discarded buffer's state resident at the stored `seq`.                                  | The engine's quarantine listener evicts and releases the snapshot whether or not an actor exists, then tells the actor (`repository/residency.rs::quarantined`).                                                                                                               | `persistence.test.ts`, "a quarantined thread with no actor reloads its stored state". |
 | Restarted thought | Closing a streaming thought after a restart relies on the core's proxy reads: `state.items[key]` loads the record when `turn.ended` reads the open-text index.                                                    | The enumerated index sections' records are loaded with the index (`snapshot/mod.rs::load_indexes`), so a thought streaming before a restart closes when its turn ends.                                                                                                         | `snapshot::tests::a_thought_still_streaming_at_restart_closes_when_its_turn_ends`.    |
 | Record budget     | A state read (`state()`) caches nothing: every section is a lazy proxy, so a reloaded thread's budget is empty until core reads a record.                                                                         | The index sections core enumerates are read at load (they are the live set, never the transcript), so a reloaded snapshot's budget holds those few short rows. The bounded limit (8192 entries / 8 MiB, `records/budget.rs`) and every other section's laziness are unchanged. | `persistence.test.ts`, the rolled-back fold case.                                     |
+
+### Startup retry classification, and the JavaScript message gap
+
+`skippableAtStartup` refuses a store retry: SQLite's primary busy (5), locked (6) and full (13)
+codes, masked off the extended code the store reports, are retried, never skipped. The store's own
+`"Store is busy"` and a pinned live batch that is retrying arrive as port errors, and are retried
+too. A JavaScript error that reaches Rust as a message alone (`ports.rs` keeps only the reason
+text) cannot be classified by code: a JavaScript `"database is locked"` is reported and retried as
+a damaged thread would be skipped. Recorded here as a gap; closing it needs the port error to
+carry SQLite's code.

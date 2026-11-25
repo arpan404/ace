@@ -107,9 +107,11 @@ impl Core {
         now: f64,
         generation: Option<f64>,
     ) -> Result<(), EngineError> {
-        let snapshot = self.with_state(|state| state.repo.require_state(&self.store, id))??;
         let outcome = self.store.atomic(|_tx| {
+            // The snapshot loads inside the transaction, as `repository.ts:413` reads it there;
+            // opening the frame (which can flush a pinned batch) therefore holds no borrow.
             self.with_state(|state| {
+                let snapshot = state.repo.require_state(&self.store, id)?;
                 state.fold_frame(&self.store, id, &snapshot, facts_json, now, generation)
             })?
         });
@@ -168,11 +170,12 @@ impl Core {
     /// The store's quarantine notification for one thread (E5.3 step 8): the pin is already
     /// removed, so the snapshot is evicted and released, then the actor is told.
     pub fn quarantined(&self, thread: &str, message: &str) -> Result<(), EngineError> {
-        self.with_state(|state| state.quarantined(&self.store, thread))??;
+        let evicted = self.with_state(|state| state.quarantined(&self.store, thread));
+        // The actor is told however the eviction went: its session is stopped either way.
         if let Some(core) = self.self_rc() {
             crate::actor::failure::quarantine(&core, &thread.to_owned(), message);
         }
-        Ok(())
+        evicted?
     }
 
     /// A strong handle to this engine, for a synchronous entry that starts work.

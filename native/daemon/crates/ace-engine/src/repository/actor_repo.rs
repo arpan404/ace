@@ -86,7 +86,22 @@ impl ActorRepo for EngineRepo {
     }
 
     fn root_agent_id(&self, core: &Core, thread: &ThreadId) -> Result<Option<String>, EngineError> {
-        core.with_state(|state| state.actor_root_agent_id(&core.store, thread))?
+        let found = core.with_state(|state| {
+            state
+                .repo
+                .require_state(&core.store, thread)
+                .map(|snapshot| snapshot.borrow().root_agent_id())
+        })??;
+        if found.is_some() {
+            return Ok(found);
+        }
+        core.apply(thread, "[{\"type\":\"tick\"}]", core.store.now(), None)?;
+        core.with_state(|state| {
+            state
+                .repo
+                .require_state(&core.store, thread)
+                .map(|snapshot| snapshot.borrow().root_agent_id())
+        })?
     }
 
     fn released_thread(&self, core: &Core, thread: &ThreadId) -> Result<bool, EngineError> {
@@ -216,19 +231,6 @@ impl State {
         snapshot.borrow_mut().running_foreground_command()
     }
 
-    /// `repo.apply` (`repository.ts:413`).
-    pub fn actor_apply(
-        &mut self,
-        store: &crate::EngineStore,
-        id: &str,
-        facts: &[Value],
-        now: f64,
-        generation: u64,
-    ) -> Result<(), EngineError> {
-        let json = ace_json::to_string(&Value::Array(facts.to_vec().into()));
-        self.apply(store, id, &json, now, Some(generation as f64))
-    }
-
     /// `repo.deadline` (`repository.ts:232`, `actor.ts:552`).
     pub fn actor_deadline(
         &mut self,
@@ -252,22 +254,6 @@ impl State {
         let done = snapshot.borrow().is_done();
         let left_running = snapshot.borrow_mut().left_running()?;
         Ok(Some(ScheduleView { done, left_running }))
-    }
-
-    /// `rootAgent` (`index.ts:856`-`:859`): a prepared thread materializes its root with a tick.
-    pub fn actor_root_agent_id(
-        &mut self,
-        store: &crate::EngineStore,
-        id: &str,
-    ) -> Result<Option<String>, EngineError> {
-        let snapshot = self.repo.require_state(store, id)?;
-        let found = snapshot.borrow().root_agent_id();
-        if found.is_some() {
-            return Ok(found);
-        }
-        self.apply(store, id, "[{\"type\":\"tick\"}]", store.now(), None)?;
-        let snapshot = self.repo.require_state(store, id)?;
-        Ok(snapshot.borrow().root_agent_id())
     }
 
     /// `releasedThread(getThread(id))` (`provider-release.ts:18`): archived or settled.

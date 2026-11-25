@@ -70,7 +70,7 @@ impl State {
         now: f64,
         generation: Option<f64>,
     ) -> Result<(), EngineError> {
-        snapshot.borrow_mut().begin();
+        snapshot.borrow_mut().begin()?;
         let deadline = snapshot.borrow_mut().deadline(None);
         let mut batch = FactBatch::new(Some(deadline));
         let opening = self.repo.opening.contains(id);

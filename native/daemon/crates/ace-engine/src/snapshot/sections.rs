@@ -60,10 +60,12 @@ impl Snapshot {
                 // the runs those ids name are loaded with them: a restarted turn's `turn.ended`
                 // must find its run, not create a second one.
                 if record.native_runs.is_some() {
+                    // The run ids stay in their section (a thread's runs grow with its turn
+                    // count); a fact that names one loads it (`hydrate_native_run`).
                     let runs = self.native_runs(&key)?;
-                    let ids: Vec<String> = runs
-                        .values()
-                        .chain(record.active_run.iter())
+                    let ids: Vec<String> = record
+                        .active_run
+                        .iter()
                         .chain(record.last_run.iter())
                         .cloned()
                         .collect();

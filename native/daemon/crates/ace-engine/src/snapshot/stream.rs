@@ -69,7 +69,10 @@ fn event_values(events: &[Event]) -> Vec<Value> {
 
 impl StreamSnapshot for LiveStream<'_> {
     fn begin(&mut self) {
-        self.snapshot.begin();
+        // The fold's trait carries no error; a decode failure surfaces from `take_error`, which
+        // `stream` checks once the fold ends.
+        let outcome = self.snapshot.begin();
+        self.record(outcome);
     }
 
     fn deadline(&self) -> Option<Option<i64>> {

@@ -71,7 +71,8 @@ impl EngineError {
             EngineError::Incompatible { .. } => false,
             // SQLITE_BUSY (5), SQLITE_LOCKED (6) and SQLITE_FULL (13): `isStoreBusy`
             // (`store-busy.ts:4`) and disk-full are the retryable ones.
-            EngineError::Store(error) => !matches!(error.code, 5 | 6 | 13),
+            // SQLite reports the extended code for a primary one (`sqlite.rs`): mask it off.
+            EngineError::Store(error) => !matches!(error.code & 0xff, 5 | 6 | 13),
             // `isStoreRetry` also retries the store's own busy signal and a pinned live batch
             // that is still retrying (`LiveWriteRetry`), which reach Rust as port errors.
             EngineError::Port(crate::ports::PortError::Threw(message)) => {

@@ -6,7 +6,7 @@ use super::Snapshot;
 use crate::EngineError;
 
 impl Snapshot {
-    pub fn begin(&mut self) {
+    pub fn begin(&mut self) -> Result<(), EngineError> {
         self.items.begin();
         self.agents.begin();
         // The core's closers look up the keys the live indexes name (`open_text_keys`,
@@ -24,10 +24,13 @@ impl Snapshot {
             if self.state.items.contains_key(&key) {
                 continue;
             }
-            if let Ok(Some(item)) = self.items.read(&key) {
+            // A record that fails to decode is `Invalid snapshot record`, never a silent miss:
+            // a dropped open-text key would let the item stream forever.
+            if let Some(item) = self.items.read(&key)? {
                 self.state.items.insert(key, item);
             }
         }
+        Ok(())
     }
 
     /// Persist every touched section (`:285`). Agent serialization may register another section.

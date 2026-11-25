@@ -168,8 +168,8 @@ describe.runIf(native)("engine persistence across modes", () => {
         .filter((row) => row["key"] === "long")
         .map((row) => (JSON.parse(String(row["patch"])) as { text: string }).text)
         .join("");
-      expect(afterText.length + afterPatches.length).toBeGreaterThan(32_768);
-      expect(afterPatches.endsWith("!")).toBe(true);
+      // The full rebuilt text: 40,000 appended characters and the native engine's one more.
+      expect(afterText + afterPatches).toBe(`${"x".repeat(40_000)}!`);
     } finally {
       await seam.close();
     }

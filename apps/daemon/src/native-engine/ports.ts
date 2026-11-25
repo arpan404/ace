@@ -66,10 +66,7 @@ export interface EngineBindings {
   getThread(id: string): string | null;
   capRaw(rawJson: string, threadId: string): string;
   prepareLiveWrite(bytes: number): void;
-  /**
-   * E5.2 owns the live buffer. E5.3 declares the port and its token callbacks; until E5.2 binds
-   * it, buffering a live write fails at the call.
-   */
+  /** The store's one live buffer; its `persist`/`committed` callbacks are keyed by `token`. */
   bufferLiveWrite(threadId: string, eventsJson: string, at: number, token: number): void;
   frameCall(): number;
   releaseFrames(json: string): void;
