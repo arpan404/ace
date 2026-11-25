@@ -3,13 +3,15 @@
 //! (`session.ts:591`-`:797`).
 
 use ace_adapter_api::session::Delivery;
-use ace_json::{Value, json};
+use ace_json::{JsString, Value, json};
 
 use super::{
     core_with_prompt, fence, send, sent_id, sent_json_messages, session_core, settlements,
-    steer_reply,
+    steer_reply, text,
 };
+use crate::session::core::{AcpCore, AcpCoreConfig, AcpEffect};
 use crate::session::input::{InputSend, STEER_TARGET_LOST};
+use crate::session::quirks::AcpSessionQuirks;
 
 #[test]
 fn a_stale_fence_refuses_the_send_before_anything_is_written_or_queued() {
@@ -105,6 +107,96 @@ fn close_settles_a_written_steer_as_uncertain() {
             "ACE_ACP_RPC_ERROR".to_owned(),
             "ACP session closed".to_owned()
         ))]
+    );
+}
+
+/// A steer whose write the shell never confirmed never left: closing then refuses it as
+/// unread, so the engine may send it again (`session.ts:630`,
+/// `intent-delivery.ts:140`-`:147`).
+#[test]
+fn close_before_the_write_ack_refuses_the_steer() {
+    let (mut core, _prompt) = core_with_prompt("t-steer-unacked");
+    let input = vec![text("hello")];
+    let mut effects = Vec::new();
+    core.send(
+        InputSend {
+            operation: 84,
+            input: &input,
+            delivery: Delivery::Steer,
+            command_id: None,
+            origin: None,
+            fence: None,
+        },
+        &mut effects,
+    );
+    assert!(sent_id(&effects, "_session/steering").is_some());
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, AcpEffect::Write { .. })),
+        "the line waits in the writer, unacknowledged"
+    );
+
+    let mut closed = Vec::new();
+    core.close(ace_adapter_api::session::CloseReason::User, &mut closed);
+    assert_eq!(
+        settlements(&closed, 84),
+        vec![Err((
+            "ACE_INPUT_REJECTED".to_owned(),
+            "ACP session closed".to_owned()
+        ))]
+    );
+}
+
+/// A steer the writer refuses is settled before any line: nothing reached the agent, so it
+/// is a refusal, never uncertain. (The peer's own message bound is higher than the session's
+/// queue cap, so the writer's refusal is the way a steer is settled without a write.)
+#[test]
+fn a_steer_the_writer_refuses_is_refused() {
+    let mut config = AcpCoreConfig::new("t-steer-unwritten", "/work", AcpSessionQuirks::generic());
+    // Room for the prompt's line, not for a steer's.
+    config.peer_config.max_queued_bytes = 512;
+    let (mut core, _) = AcpCore::new(config);
+    core.native_session_id = JsString::from("sess-1");
+    let mut opened = Vec::new();
+    core.send(
+        InputSend {
+            operation: 83,
+            input: &[text("hello")],
+            delivery: Delivery::Queue,
+            command_id: None,
+            origin: None,
+            fence: None,
+        },
+        &mut opened,
+    );
+    assert!(core.prompt_id.is_some(), "the prompt is in flight");
+
+    let long = text(&"y".repeat(2000));
+    let mut effects = Vec::new();
+    core.send(
+        InputSend {
+            operation: 85,
+            input: &[long],
+            delivery: Delivery::Steer,
+            command_id: None,
+            origin: None,
+            fence: None,
+        },
+        &mut effects,
+    );
+    assert_eq!(
+        settlements(&effects, 85),
+        vec![Err((
+            "ACE_INPUT_REJECTED".to_owned(),
+            "JSON-RPC write queue exceeded limit".to_owned()
+        ))]
+    );
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, AcpEffect::Write { .. })),
+        "nothing was written"
     );
 }
 
