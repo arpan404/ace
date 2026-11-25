@@ -158,7 +158,11 @@ export class PatchPump {
     return this.#queues[priority(key)];
   }
   #waitingForInboxReset(key: string): boolean {
-    return key !== "inbox:reset" && key.startsWith("inbox:") && this.#queues[0].has("inbox:reset");
+    return (
+      key !== "inbox:reset" &&
+      key.startsWith("inbox:") &&
+      this.#queue("inbox:reset").has("inbox:reset")
+    );
   }
   /** Explicit snapshot revisions for live commits, stamped onto ready when missing. */
   #snapshots = new Map<string, { revision: number; before: number | null }>();
