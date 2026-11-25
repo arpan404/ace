@@ -203,7 +203,7 @@ impl ToolFactsRead {
         }
         let key = match &self.config {
             Some(config) => config.key(),
-            // `config ? … : null`: the key of an unread config.
+            // `config ? ... : null`: the key of an unread config.
             None => "[\"openai\",null,null]".to_owned(),
         };
         self.stage = Stage::Catalog;
