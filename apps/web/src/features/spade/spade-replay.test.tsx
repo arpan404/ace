@@ -2,7 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { spadeApp, withEndpoint } from "@/test/spade.ts";
+import { openSettingsPage, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -66,6 +66,7 @@ function templateBot(fake: FakeSpadeApi) {
 
 test("an update review replays the kept runs free and says which differ, and why", async () => {
   const { spade } = await spadeApp("/spade/inbox?profile=details", templateBot);
+  await openSettingsPage("Job");
   await userEvent.click(await screen.findByRole("button", { name: "Update to 1.0.0" }));
   const review = within(await screen.findByRole("dialog"));
   expect(
@@ -82,6 +83,7 @@ test("an update review replays the kept runs free and says which differ, and why
 
 test("a replay on the bot's own model runs only when the person presses Try it, its cost said first", async () => {
   const { spade } = await spadeApp("/spade/inbox?profile=details", templateBot);
+  await openSettingsPage("Job");
   await userEvent.click(await screen.findByRole("button", { name: "Update to 1.0.0" }));
   const review = within(await screen.findByRole("dialog"));
   expect(

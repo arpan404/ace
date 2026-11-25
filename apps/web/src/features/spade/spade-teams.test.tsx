@@ -116,7 +116,7 @@ test("a group's chat coalesces each member's turn into one block under a single 
   expect(chat.queryByText(/web_search/)).toBeNull();
 });
 
-test("in a club, a quote sits inside the bubble and clicking it jumps to a coalesced reply block", async () => {
+test("in a club, a quote sits as a ghost just above the bubble and clicking it jumps to a coalesced reply block", async () => {
   const scrolled = vi.fn();
   Element.prototype.scrollIntoView = scrolled;
   await spadeApp(
@@ -137,10 +137,12 @@ test("in a club, a quote sits inside the bubble and clicking it jumps to a coale
   );
   const chat = await openTrips();
   const quote = await chat.findByRole("button", {
-    name: "Replying to Research: Tuesday is cheapest. Show the message",
+    name: "You replied to Research: Tuesday is cheapest. Show the message",
   });
   const pill = chat.getByText("Book Tuesday then.").closest("[data-part=spade-message]");
-  expect(pill?.contains(quote)).toBe(true);
+  const ghost = quote.closest("[data-part=spade-reply-ghost]");
+  expect(ghost?.parentElement?.contains(pill)).toBe(true);
+  expect(pill?.contains(quote)).toBe(false);
   await userEvent.click(quote);
   const original = document.querySelector('[data-spade-message-ids~="m7"]');
   expect(original?.textContent).toContain("Tuesday is cheapest");

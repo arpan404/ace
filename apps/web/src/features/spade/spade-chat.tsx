@@ -68,7 +68,6 @@ import {
 } from "./spade-chat-coalesce.ts";
 import { useShowWork } from "./spade-show-work.ts";
 import { SkillProposal } from "./spade-skill-bubble.tsx";
-import type { SpadeTalkContext } from "./spade-talk-row.tsx";
 import { KeepCaseDialog } from "./spade-keep-case.tsx";
 import { SpadeRequestBubble, type RequestAnswer } from "./spade-request-bubble.tsx";
 import { SpadeRequestGroup } from "./spade-request-group.tsx";
@@ -324,12 +323,6 @@ export function SpadeChat(props: {
     keep,
     profile: props.profile,
     listed: (id) => bot.names.has(id),
-    talk: {
-      self: { name: bot.name, avatar: bot.avatar },
-      names: bot.names,
-      face: (id) => bot.others.get(id) ?? parseSpadeAvatar(undefined, id),
-      phrases: bot.phrases,
-    },
     busy: view.busy,
   };
   return (
@@ -511,8 +504,6 @@ interface Handlers {
   profile: RosterBot | undefined;
   /** Whether a bot is still in the person's list. */
   listed(id: string): boolean;
-  /** What a turn card's messages and contract calls read: this bot and the others. */
-  talk: SpadeTalkContext;
   /** This bot is at work: a contract call it was given is being answered. */
   busy: boolean;
 }
