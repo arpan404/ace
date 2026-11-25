@@ -32,6 +32,10 @@ fn field<'a>(value: &'a ace_json::Value, name: &str) -> Option<&'a ace_json::Val
     }
 }
 
+fn is_current(item: &ace_json::Value) -> bool {
+    matches!(field(item, "current"), Some(ace_json::Value::Bool(true)))
+}
+
 fn text(value: Option<&ace_json::Value>) -> Option<String> {
     match value {
         Some(ace_json::Value::String(text)) => Some(text.as_str().to_string()),
@@ -55,6 +59,9 @@ impl Registry {
         self.entries.clear();
         self.by_provider.clear();
         self.by_backend.clear();
+        // The shell marks each provider's current entry. Older callers omit the marker, and
+        // then the last registration wins, as before.
+        let marked = items.iter().any(is_current);
         for item in items {
             let provider = text(field(&item, "provider")).unwrap_or_default();
             if provider.is_empty() {
@@ -73,7 +80,9 @@ impl Registry {
                 capabilities: field(&item, "capabilities").cloned().unwrap_or_default(),
                 discovery: field(&item, "discovery").cloned().unwrap_or_default(),
             });
-            self.by_provider.insert(provider.clone(), index);
+            if is_current(&item) || !marked {
+                self.by_provider.insert(provider.clone(), index);
+            }
             if let Some(backend) = backend {
                 self.by_backend
                     .insert(format!("{provider}:{backend}"), index);
@@ -191,6 +200,40 @@ mod tests {
         assert_eq!(
             registry.capabilities("codex", None).expect("capabilities"),
             r#"{"steer":true}"#
+        );
+    }
+
+    /// The shell's snapshot lists each provider's current entry, then the older backend
+    /// registrations; the provider default must resolve the entry the snapshot marked current,
+    /// whichever position it takes in the list.
+    #[test]
+    fn the_current_entry_wins_the_provider_default() {
+        let mut registry = Registry::default();
+        registry
+            .set_entries(
+                r#"[
+                    {"provider":"codex","backend":"acp","adapter":2,"current":true,
+                     "capabilities":{"steer":false},
+                     "discovery":{"installed":true,"auth":"ok"}},
+                    {"provider":"codex","backend":"sdk","adapter":1,"current":false,
+                     "capabilities":{"steer":true},
+                     "discovery":{"installed":true,"auth":"ok"}}
+                ]"#,
+            )
+            .expect("entries");
+        let entry = registry.get("codex", None).expect("provider default");
+        assert_eq!(entry.adapter, 2, "the current entry");
+        assert_eq!(
+            registry.capabilities("codex", None).expect("capabilities"),
+            r#"{"steer":false}"#
+        );
+        // An older backend keeps its own lookup beside the current entry.
+        assert_eq!(
+            registry
+                .get("codex", Some("sdk"))
+                .expect("older backend")
+                .adapter,
+            1
         );
     }
 

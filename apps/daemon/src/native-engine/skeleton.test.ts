@@ -8,21 +8,60 @@
  * - after-commit release and drop, nesting and subscriber re-entry: `reliability.process`;
  * - promise identity and close: `engine.process`'s startup/shutdown cases (E5.6, E5.10).
  */
+import { mkdtempSync } from "node:fs";
+import type { ThreadId } from "@ace/protocol";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { engineBackend } from "@ace/provider-kit/native-switches";
-import { engineSeam } from "./testing.ts";
+import { createDevThread } from "../commands.ts";
+import { engineSeam, type EngineSeam } from "./testing.ts";
 import { AdapterRegistry, type RegistryEntry } from "../engine/registry.ts";
 
 const native = engineBackend() === "native";
 
-function codexAdapter(backend: string) {
+function codexAdapter(backend: string, capabilities: Record<string, unknown> = {}) {
   return {
     provider: "codex",
     backend,
-    capabilities: () => ({}) as never,
+    capabilities: () => capabilities as never,
     createTranslator: () => ({}) as never,
     openSession: async () => ({}) as never,
   } as never;
+}
+
+/** A payload the event writer accepts, so a JavaScript write is a real stored event. */
+const jsPayload = { type: "unknown", raw: { probe: "js" } } as never;
+
+/** A real event the Rust side appends, at this home's next sequence. */
+function rustEvent(
+  seam: EngineSeam,
+  threadId: string,
+  type: string,
+  offset = 0,
+): Record<string, unknown> {
+  return {
+    seq: seam.store.headSeq() + 1 + offset,
+    id: `probe-${type}`,
+    at: seam.clock.now(),
+    threadId,
+    payload: { type },
+  };
+}
+
+/** A seam with one real thread, so both directions can write genuine stored events. */
+async function nestedSeam() {
+  const home = mkdtempSync(join(tmpdir(), "ace-engine-nesting-"));
+  let threadId: ThreadId | undefined;
+  const seam = await engineSeam({
+    options: { home },
+    seed: (store) => {
+      const workspace = store.createWorkspace(home, "Nesting");
+      threadId = createDevThread(store, workspace).id;
+    },
+  });
+  if (threadId === undefined) throw new Error("the seed created no thread");
+  return { seam, threadId };
 }
 
 /** Lets the pump's macrotasks run. Deterministic: no sleeps, only the event loop. */
@@ -79,30 +118,42 @@ describe.runIf(native)("the engine skeleton", () => {
     }
   });
 
-  test("a JavaScript transaction inside a Rust one publishes both batches once, in the Rust transaction", async () => {
-    const seam = await engineSeam();
+  test("a JavaScript transaction inside an open Rust one writes into its context and publishes in position", async () => {
+    const { seam, threadId } = await nestedSeam();
     try {
       await seam.engine.ready();
       const seen: string[] = [];
+      const wakesAtPublish: number[] = [];
       const stop = seam.store.subscribe((events) => {
         for (const event of events) seen.push(event.payload.type);
+        // Every publication records how many wakes had already been released.
+        wakesAtPublish.push(seam.probe.woken().length);
       });
       try {
-        // The Rust body writes, then a port runs a JavaScript transaction (a savepoint in the
-        // same context), then the Rust body writes again: one publication, in position.
         seam.probe.setCallback(() => {
+          // The Rust transaction is the top frame; this JavaScript transaction is a savepoint
+          // in its context, and its event publishes with the Rust one.
           seam.store.atomic(() => {
-            seam.probe.spawn("work", [{ op: "mark", label: "unused" }]);
+            seam.store.appendEvents(threadId, [jsPayload]);
+            seam.probe.defer("js-wake");
           });
         });
         seam.probe.spawn("work", [
-          { op: "write", events: [] },
-          { op: "js" },
-          { op: "write", events: [], defer: "t1" },
+          {
+            op: "write",
+            events: [rustEvent(seam, threadId, "probe.rust-before")],
+            defer: "rust-wake",
+            js: true,
+            nested: {
+              events: [rustEvent(seam, threadId, "probe.rust-after", 1)],
+              defer: "nested-wake",
+            },
+          },
         ]);
         await seam.engine.flush();
-        expect(seam.probe.woken()).toEqual(["t1"]);
-        expect(seen).toEqual([]);
+        expect(seen).toEqual(["probe.rust-before", "unknown", "probe.rust-after"]);
+        expect(wakesAtPublish).toEqual([0]);
+        expect(seam.probe.woken()).toEqual(["rust-wake", "js-wake", "nested-wake"]);
       } finally {
         stop();
       }
@@ -111,24 +162,28 @@ describe.runIf(native)("the engine skeleton", () => {
     }
   });
 
-  test("a Rust transaction inside a JavaScript one publishes the outer transaction's events once", async () => {
-    const seam = await engineSeam();
+  test("Rust work inside an open JavaScript transaction writes into its context and wakes after its publication", async () => {
+    const { seam, threadId } = await nestedSeam();
     try {
       await seam.engine.ready();
       const seen: string[] = [];
+      const wakesAtPublish: number[] = [];
       const stop = seam.store.subscribe((events) => {
         for (const event of events) seen.push(event.payload.type);
+        wakesAtPublish.push(seam.probe.woken().length);
       });
       try {
-        seam.probe.setCallback(() => {
-          seam.store.atomic(() => {
-            // The Rust write here is a savepoint in the JavaScript transaction's context.
-            seam.probe.spawn("work", [{ op: "write", events: [], defer: "t2" }]);
-          });
+        // The JavaScript transaction is the top frame; the Rust transaction nests in it as a
+        // savepoint and its write lands in the same context.
+        seam.store.atomic(() => {
+          seam.probe.writeNow([rustEvent(seam, threadId, "probe.rust")], "rust-wake");
+          seam.store.appendEvents(threadId, [jsPayload]);
+          seam.probe.defer("js-wake");
         });
-        seam.probe.spawn("work", [{ op: "write", events: [], defer: "t1" }, { op: "js" }]);
         await seam.engine.flush();
-        expect(seam.probe.woken()).toEqual(["t1", "t2"]);
+        expect(seen).toEqual(["probe.rust", "unknown"]);
+        expect(wakesAtPublish).toEqual([0]);
+        expect(seam.probe.woken()).toEqual(["rust-wake", "js-wake"]);
       } finally {
         stop();
       }
@@ -224,6 +279,38 @@ describe.runIf(native)("the engine skeleton", () => {
         seam.probe.spawn("work", [{ op: "mark", label: `queued-${index}` }]);
       await flushing;
       expect(seam.probe.marks()).toHaveLength(50);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("two concurrent flushes both settle", async () => {
+    const seam = await engineSeam();
+    try {
+      await seam.engine.ready();
+      seam.probe.spawn("work", [{ op: "write", events: [], defer: "t1" }]);
+      // Each flush's own yielded runnable is queued while the other checks; neither may wait
+      // on the other forever.
+      const first = seam.engine.flush();
+      const second = seam.engine.flush();
+      await Promise.all([first, second]);
+      expect(seam.probe.woken()).toEqual(["t1"]);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a flush with new work queued settles after that work", async () => {
+    const seam = await engineSeam();
+    try {
+      await seam.engine.ready();
+      const flushing = seam.engine.flush();
+      // Both land before the flush's own task first runs, so it must wait for them.
+      seam.probe.spawn("work", [{ op: "mark", label: "late" }]);
+      seam.probe.spawn("work", [{ op: "write", events: [], defer: "t1" }]);
+      await flushing;
+      expect(seam.probe.marks()).toEqual(["late"]);
+      expect(seam.probe.woken()).toEqual(["t1"]);
     } finally {
       await seam.close();
     }
@@ -438,6 +525,27 @@ describe.runIf(native)("the engine skeleton", () => {
     try {
       await seam.engine.ready();
       expect(() => seam.engine.providerAvailability("codex")).toThrow(/isn't ready/);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("the registry's current entry wins the native provider default", async () => {
+    const registry = new AdapterRegistry();
+    // The older backend is registered first; the current entry is the second registration, and
+    // the snapshot lists it before the older entry.
+    registry.register(codexAdapter("sdk", { steer: true }), {
+      installed: true,
+      auth: "ok",
+    } as never);
+    registry.register(codexAdapter("acp", { steer: false }), {
+      installed: true,
+      auth: "ok",
+    } as never);
+    const seam = await engineSeam({ options: { registry } });
+    try {
+      await seam.engine.ready();
+      expect(seam.engine.capabilities("codex")).toEqual({ steer: false });
     } finally {
       await seam.close();
     }

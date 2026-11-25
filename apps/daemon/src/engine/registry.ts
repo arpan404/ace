@@ -11,6 +11,8 @@ type Entry = {
 export interface RegistryEntry {
   provider: ProviderKind;
   backend?: ProviderBackend;
+  /** The entry that answers a provider default, as against an older backend registration. */
+  current: boolean;
   /** A stable number for the adapter object, so a native view can name it across engines. */
   handle: number;
   adapter: ProviderAdapter & { close?(): Promise<void> };
@@ -46,22 +48,29 @@ export class AdapterRegistry {
     return handle;
   }
 
-  /** Every entry, including the older backend registrations a provider's map does not hold. */
+  /**
+   * Every entry, including the older backend registrations a provider's map does not hold. A
+   * provider's current entry is marked, because a native view keeps the last entry per key and
+   * the older registrations come after it.
+   */
   private snapshot(): RegistryEntry[] {
     const entries: RegistryEntry[] = [];
     const seen = new Set<object>();
-    for (const entry of [...this.entries.values(), ...this.backends.values()]) {
-      if (seen.has(entry.adapter)) continue;
+    const push = (entry: Entry, current: boolean): void => {
+      if (seen.has(entry.adapter)) return;
       seen.add(entry.adapter);
       entries.push({
         provider: entry.adapter.provider,
         ...(entry.adapter.backend ? { backend: entry.adapter.backend } : {}),
+        current,
         handle: this.handle(entry.adapter),
         adapter: entry.adapter,
         capabilities: entry.capabilities,
         discovery: entry.discovery,
       });
-    }
+    };
+    for (const entry of this.entries.values()) push(entry, true);
+    for (const entry of this.backends.values()) push(entry, false);
     return entries;
   }
 

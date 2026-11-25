@@ -148,6 +148,7 @@ export class NativeEngine implements EngineSurface {
         list.map((entry) => ({
           provider: entry.provider,
           backend: entry.backend ?? null,
+          current: entry.current,
           adapter: entry.handle,
           capabilities: entry.capabilities,
           discovery: entry.discovery,

@@ -23,6 +23,8 @@ export interface ProbeTurns {
 /** What the probe exposes: executor and store hooks, with no thread behaviour. */
 export interface EngineProbe {
   spawn(lane: "control" | "work", script: readonly ProbeStep[]): void;
+  /** One Rust transaction now, inside whatever transaction the caller has open. */
+  writeNow(events: readonly unknown[], defer?: string): void;
   defer(threadId: string): void;
   claim(): string;
   turns(): Promise<ProbeTurns>;
@@ -57,6 +59,8 @@ export type ProbeStep =
       events: readonly unknown[];
       defer?: string;
       fail?: boolean;
+      /** Runs the callback inside the open Rust transaction, before `nested`. */
+      js?: boolean;
       nested?: { events: readonly unknown[]; defer?: string };
     }
   | { op: "flush" }
@@ -189,6 +193,7 @@ function probeFor(native: NativeEngineHandle): EngineProbe {
     return member.bind(native) as (...args: unknown[]) => unknown;
   };
   const call = required("probeSpawn");
+  const writeNow = required("probeWriteNow") as (step: string) => void;
   const defer = required("probeDefer") as (thread: string) => void;
   const claim = required("probeClaim") as () => string;
   const turnLog = required("probeTurns") as () => string;
@@ -200,6 +205,9 @@ function probeFor(native: NativeEngineHandle): EngineProbe {
   return {
     spawn: (lane, script) => {
       call(lane, JSON.stringify(script));
+    },
+    writeNow: (events, deferred) => {
+      writeNow(JSON.stringify({ op: "write", events, ...(deferred ? { defer: deferred } : {}) }));
     },
     defer,
     claim,

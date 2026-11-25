@@ -26,6 +26,15 @@ use std::time::Instant;
 /// A task's identity, carried as the runnable's metadata and read by the pump.
 pub type TaskId = u64;
 
+/// The bit `TaskId`s of barriers carry: a barrier waits for other work instead of doing it (a
+/// `flush`, `close`), so its queued runnable never makes the engine look busy.
+const BARRIER_MARK: TaskId = 1 << 63;
+
+/// Whether `id` names a barrier.
+pub fn is_barrier(id: TaskId) -> bool {
+    id & BARRIER_MARK != 0
+}
+
 /// Which ready queue a runnable waits in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Lane {
@@ -84,6 +93,9 @@ pub struct Shared {
     inbox: ConcurrentQueue<Item>,
     control: ConcurrentQueue<Runnable<TaskId>>,
     work: ConcurrentQueue<Runnable<TaskId>>,
+    /// How many of the runnables queued in both lanes are barriers. Every push of a barrier
+    /// increments it and every pop decrements it, so `idle` can tell a waiting flush from work.
+    barriers_queued: AtomicU64,
     notifier: Box<dyn Notifier>,
     next_task: AtomicU64,
 }
@@ -197,6 +209,7 @@ impl Executor {
                 inbox: ConcurrentQueue::unbounded(),
                 control: ConcurrentQueue::unbounded(),
                 work: ConcurrentQueue::unbounded(),
+                barriers_queued: AtomicU64::new(0),
                 notifier,
                 next_task: AtomicU64::new(1),
             }),
@@ -220,20 +233,48 @@ impl Executor {
         self.spawn_next(lane, future).1
     }
 
+    /// Spawns on `lane` a barrier: a task that waits for other work rather than doing it. Its
+    /// queued runnable does not make the engine busy (see `idle`).
+    pub fn spawn_barrier<T: 'static>(
+        &self,
+        lane: Lane,
+        future: impl Future<Output = T> + 'static,
+    ) -> Task<T, TaskId> {
+        self.spawn_marked(lane, future, true).1
+    }
+
     /// `spawn`, also returning the task's id so the caller can recognise its own poll.
     pub fn spawn_next<T: 'static>(
         &self,
         lane: Lane,
         future: impl Future<Output = T> + 'static,
     ) -> (TaskId, Task<T, TaskId>) {
-        let id = self.shared.next_task.fetch_add(1, SeqCst);
+        self.spawn_marked(lane, future, false)
+    }
+
+    fn spawn_marked<T: 'static>(
+        &self,
+        lane: Lane,
+        future: impl Future<Output = T> + 'static,
+        barrier: bool,
+    ) -> (TaskId, Task<T, TaskId>) {
+        let raw = self.shared.next_task.fetch_add(1, SeqCst);
+        let id = if barrier { raw | BARRIER_MARK } else { raw };
         let shared = Arc::clone(&self.shared);
         let schedule = move |runnable: Runnable<TaskId>| {
             if shared.shut.load(SeqCst) {
                 // No runnable is accepted after `shut`: dropping it cancels this wake-up.
                 return;
             }
-            let _ = shared.queue(lane).push(runnable);
+            if is_barrier(id) {
+                shared.barriers_queued.fetch_add(1, SeqCst);
+            }
+            if shared.queue(lane).push(runnable).is_err() {
+                if is_barrier(id) {
+                    shared.barriers_queued.fetch_sub(1, SeqCst);
+                }
+                return;
+            }
             shared.moved();
         };
         let (runnable, task) = Builder::new()
@@ -244,12 +285,28 @@ impl Executor {
         (id, task)
     }
 
-    /// Whether nothing is admitted, queued or running: `flush` and the shutdown join's empty
-    /// end. The caller's own poll is running, not queued.
-    pub fn idle(&self) -> bool {
+    /// Whether nothing is left but barriers: `flush` and the shutdown join's empty end. Empty
+    /// when the inbox is empty, every queued runnable in both lanes is a barrier, and nothing
+    /// non-barrier is running. `exclude` is the caller's own task, which may be ordinary work
+    /// (`flush` reached from inside a task, which must not wait on itself).
+    pub fn idle(&self, exclude: Option<TaskId>) -> bool {
+        let queued = self.shared.control.len() + self.shared.work.len();
+        let barriers = self.shared.barriers_queued.load(SeqCst) as usize;
         self.shared.inbox.is_empty()
-            && self.shared.control.is_empty()
-            && self.shared.work.is_empty()
+            && queued == barriers
+            && self
+                .current
+                .get()
+                .is_none_or(|id| Some(id) == exclude || is_barrier(id))
+    }
+
+    /// Pops one runnable, keeping the queued-barrier count in step.
+    fn take(&self, lane: Lane) -> Option<Runnable<TaskId>> {
+        let runnable = self.shared.queue(lane).pop().ok()?;
+        if is_barrier(*runnable.metadata()) {
+            self.shared.barriers_queued.fetch_sub(1, SeqCst);
+        }
+        Some(runnable)
     }
 
     /// A `Send` handle for producers on any thread.
@@ -367,21 +424,21 @@ impl Executor {
     fn next_runnable(&self) -> Option<Runnable<TaskId>> {
         let streak = self.control_streak.get();
         if streak >= 8
-            && let Ok(runnable) = self.shared.work.pop()
+            && let Some(runnable) = self.take(Lane::Work)
         {
             self.control_streak.set(0);
             return Some(runnable);
         }
-        if let Ok(runnable) = self.shared.control.pop() {
+        if let Some(runnable) = self.take(Lane::Control) {
             self.control_streak.set((streak + 1).min(8));
             return Some(runnable);
         }
-        match self.shared.work.pop() {
-            Ok(runnable) => {
+        match self.take(Lane::Work) {
+            Some(runnable) => {
                 self.control_streak.set(0);
                 Some(runnable)
             }
-            Err(_) => None,
+            None => None,
         }
     }
 
@@ -481,6 +538,8 @@ impl Executor {
         while self.shared.inbox.pop().is_ok() {}
         while self.shared.control.pop().is_ok() {}
         while self.shared.work.pop().is_ok() {}
+        // Dropped barriers are no longer queued; the count must not outlive them.
+        self.shared.barriers_queued.store(0, SeqCst);
         self.draining.take();
     }
 

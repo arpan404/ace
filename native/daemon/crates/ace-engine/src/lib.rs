@@ -365,7 +365,7 @@ impl Core {
         }
         loop {
             let waiters = self.worker_waiters(exclude);
-            if waiters.is_empty() && self.executor.idle() && self.quiescent(exclude) {
+            if waiters.is_empty() && self.executor.idle(exclude) && self.quiescent(exclude) {
                 return Ok(());
             }
             if !waiters.is_empty() {
@@ -544,7 +544,7 @@ impl Engine {
         let exclude = self.core.executor.current();
         let core = Rc::clone(&self.core);
         let inner = Rc::clone(&core);
-        let task = core.executor.spawn(Lane::Work, async move {
+        let task = core.executor.spawn_barrier(Lane::Work, async move {
             let core = inner;
             let result = core.flush_to_quiescence(exclude).await;
             core.ports
@@ -557,7 +557,7 @@ impl Engine {
     pub fn start_close(self: &Rc<Self>) {
         let core = Rc::clone(&self.core);
         let inner = Rc::clone(&core);
-        let task = core.executor.spawn(Lane::Control, async move {
+        let task = core.executor.spawn_barrier(Lane::Control, async move {
             close_task(inner).await;
         });
         task.detach();

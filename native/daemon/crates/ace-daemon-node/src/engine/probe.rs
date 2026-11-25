@@ -116,7 +116,7 @@ impl NativeEngine {
                         let thread = text(field(&step, "thread")).unwrap_or_default();
                         core.defer(Deferred::Wake(thread, lane(&lane_name)));
                     }
-                    "write" => probe_write(&core, &step),
+                    "write" => probe_write(&core, &step, &task_env, callback.as_ref()),
                     "mark" => {
                         let label = text(field(&step, "label")).unwrap_or_default();
                         probe.borrow_mut().marks.push(label);
@@ -139,6 +139,18 @@ impl NativeEngine {
             }
         });
         task.detach();
+        Ok(())
+    }
+
+    /// Runs one Rust transaction synchronously on the JavaScript stack, inside whatever
+    /// transaction the caller has open: the seam's "Rust work inside an open JS Store.atomic".
+    #[napi]
+    pub fn probe_write_now(&self, env: Env, step: String) -> napi::Result<()> {
+        let _guard = self.ports.enter(env);
+        let parsed =
+            ace_json::parse(&step).map_err(|error| napi::Error::from_reason(error.to_string()))?;
+        let callback = self.probe.borrow().callback.clone();
+        probe_write(&self.engine.core(), &parsed, &env, callback.as_ref());
         Ok(())
     }
 
@@ -234,8 +246,14 @@ impl NativeEngine {
     }
 }
 
-/// One `write` step: a Rust transaction with events and a deferred wake, optionally nested.
-fn probe_write(core: &std::rc::Rc<ace_engine::Core>, step: &ace_json::Value) {
+/// One `write` step: a Rust transaction with events and a deferred wake, optionally running the
+/// JavaScript callback (`js`) and a nested Rust savepoint inside the same open transaction.
+fn probe_write(
+    core: &std::rc::Rc<ace_engine::Core>,
+    step: &ace_json::Value,
+    env: &Env,
+    callback: Option<&std::rc::Rc<FunctionRef<(), ()>>>,
+) {
     let defer = text(field(step, "defer"));
     let fail = flag(field(step, "fail"));
     let events = field(step, "events")
@@ -243,11 +261,17 @@ fn probe_write(core: &std::rc::Rc<ace_engine::Core>, step: &ace_json::Value) {
         .unwrap_or(ace_json::Value::Null);
     let json = ace_json::to_string(&events);
     let nested = field(step, "nested").cloned();
+    let runs_js = flag(field(step, "js"));
     let result = core.store.atomic(|tx| {
         if let Some(thread) = defer.clone() {
             core.defer(Deferred::Wake(thread, Lane::Work));
         }
         tx.append_events(&json)?;
+        if runs_js && let Some(callback) = callback {
+            if let Ok(function) = callback.borrow_back(env) {
+                let _ = function.call(());
+            }
+        }
         if let Some(nested) = nested.as_ref() {
             let inner_json = ace_json::to_string(
                 &field(nested, "events")

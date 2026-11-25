@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
-import { AdapterRegistry } from "./registry.ts";
+import { AdapterRegistry, type RegistryEntry } from "./registry.ts";
 
 const adapter = () =>
   createScriptedAdapter({
@@ -43,6 +43,22 @@ test("a reading of another executable or version leaves the registered CLI's fac
   registry.refreshDiscovery("opencode", { ...located, version: "2.4.0", auth: "logged_in" });
   registry.refreshDiscovery("opencode", { ...located, installed: false, auth: "logged_in" });
   expect(registry.get("opencode").discovery.auth).toBe("unknown");
+});
+
+test("the observer marks the entry that answers a provider's default", () => {
+  const registry = new AdapterRegistry();
+  let entries: readonly RegistryEntry[] = [];
+  const stop = registry.observe((list) => {
+    entries = list;
+  });
+  registry.register({ ...adapter(), backend: "acp" }, located);
+  registry.register({ ...adapter(), backend: "cursor-sdk" }, located);
+  stop();
+  // The snapshot also lists the older backend entry; only the second registration is current.
+  expect(entries).toHaveLength(2);
+  expect(entries.filter((entry) => entry.current).map((entry) => entry.backend)).toEqual([
+    "cursor-sdk",
+  ]);
 });
 
 test("a login read for a provider with no adapter registers nothing", () => {

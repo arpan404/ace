@@ -38,6 +38,10 @@ pub trait AfterCommitSink {
     fn drop_tokens(&self, tokens: Vec<u64>);
 }
 
+/// A finish's tokens and the sink that receives them, taken out of the state so the caller
+/// can drop its borrow before the sink runs.
+type Dispatch = (Rc<dyn AfterCommitSink>, Vec<u64>);
+
 /// The one transaction stack a connection owns.
 #[derive(Default)]
 pub struct StackState {
@@ -77,30 +81,34 @@ impl StackState {
 
     /// Records a finish's released and dropped tokens. Only an outermost commit releases, and
     /// its own frame id is the id `releaseWakes` is called with, so no alias is ever held.
-    fn record(&mut self, frame: u64, finish: &Finish) {
+    /// The dropped tokens and their sink come back to the caller, which drops its borrow
+    /// before the sink runs: a sink that re-enters the stack must find it free.
+    fn record(&mut self, frame: u64, finish: &Finish) -> Option<Dispatch> {
         if !finish.released.is_empty() {
             self.released
                 .entry(frame)
                 .or_default()
                 .extend(finish.released.iter().copied());
         }
-        if !finish.dropped.is_empty()
-            && let Some(sink) = self.sink.as_ref().and_then(Weak::upgrade)
-        {
-            sink.drop_tokens(finish.dropped.clone());
+        if finish.dropped.is_empty() {
+            return None;
         }
+        self.sink
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .map(|sink| (sink, finish.dropped.clone()))
     }
 
-    fn release_frame(&mut self, frame: f64) -> napi::Result<()> {
+    /// The tokens `frame` released and the sink to hand them to, taken out of the state so the
+    /// caller can drop its borrow before the sink runs.
+    fn take_release(&mut self, frame: f64) -> napi::Result<Option<Dispatch>> {
         let id = count(frame, "frame")?;
         let tokens = self.released.remove(&id).unwrap_or_default();
         if tokens.is_empty() {
-            return Ok(());
+            return Ok(None);
         }
-        if let Some(sink) = self.sink.as_ref().and_then(Weak::upgrade) {
-            sink.release(tokens);
-        }
-        Ok(())
+        let sink = self.sink.as_ref().and_then(Weak::upgrade);
+        Ok(sink.map(|sink| (sink, tokens)))
     }
 
     /// The bookkeeping a probe reads: open frames and released token lists.
@@ -175,20 +183,32 @@ impl NativeTransactionStack {
     /// The frame's work returned: its finish as JSON, its tokens recorded.
     #[napi(catch_unwind)]
     pub fn succeed(&self, frame: f64) -> napi::Result<String> {
-        let mut state = self.state.borrow_mut();
-        let (id, frame) = state.take(frame)?;
-        let finish = state.stack.succeed(self.connection.as_ref(), frame);
-        state.record(id, &finish);
+        let (finish, dropped) = {
+            let mut state = self.state.borrow_mut();
+            let (id, frame) = state.take(frame)?;
+            let finish = state.stack.succeed(self.connection.as_ref(), frame);
+            let dropped = state.record(id, &finish);
+            (finish, dropped)
+        };
+        if let Some((sink, tokens)) = dropped {
+            sink.drop_tokens(tokens);
+        }
         Ok(finish_json(&finish))
     }
 
     /// The frame's work failed: rolled back, its dropped tokens handed to the sink at once.
     #[napi(catch_unwind)]
     pub fn fail(&self, frame: f64) -> napi::Result<String> {
-        let mut state = self.state.borrow_mut();
-        let (id, frame) = state.take(frame)?;
-        let finish = state.stack.fail(self.connection.as_ref(), frame);
-        state.record(id, &finish);
+        let (finish, dropped) = {
+            let mut state = self.state.borrow_mut();
+            let (id, frame) = state.take(frame)?;
+            let finish = state.stack.fail(self.connection.as_ref(), frame);
+            let dropped = state.record(id, &finish);
+            (finish, dropped)
+        };
+        if let Some((sink, tokens)) = dropped {
+            sink.drop_tokens(tokens);
+        }
         Ok(finish_json(&finish))
     }
 
@@ -196,8 +216,14 @@ impl NativeTransactionStack {
     /// transaction; an unknown frame id is a no-op.
     #[napi(catch_unwind)]
     pub fn release_wakes(&self, frame: f64) {
-        let mut state = self.state.borrow_mut();
-        let _ = state.release_frame(frame);
+        let taken = {
+            let mut state = self.state.borrow_mut();
+            state.take_release(frame)
+        };
+        let Ok(Some((sink, tokens))) = taken else {
+            return;
+        };
+        sink.release(tokens);
     }
 
     /// Detaches the engine's sink; the tokens no publication released yet are returned.
@@ -209,5 +235,63 @@ impl NativeTransactionStack {
             .into_iter()
             .map(|token| token as f64)
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ace_store::{Connection, OpenOptions};
+
+    /// A sink that touches the stack while it runs: the release must not hold the state's
+    /// borrow, or this re-entry finds it taken.
+    struct Reentrant {
+        state: std::cell::RefCell<Option<Rc<RefCell<StackState>>>>,
+        released: std::cell::RefCell<Vec<u64>>,
+    }
+
+    impl AfterCommitSink for Reentrant {
+        fn release(&self, tokens: Vec<u64>) {
+            let state = self.state.borrow().clone().expect("the sink is attached");
+            assert!(!state.borrow().is_open(), "the stack is free");
+            self.released.borrow_mut().extend(tokens);
+        }
+
+        fn drop_tokens(&self, _tokens: Vec<u64>) {}
+    }
+
+    fn stack() -> (Rc<RefCell<StackState>>, NativeTransactionStack) {
+        let connection = Connection::open(
+            ":memory:",
+            OpenOptions {
+                read_only: false,
+                timeout_ms: 0,
+            },
+        )
+        .expect("open in-memory store");
+        let state = Rc::new(RefCell::new(StackState::default()));
+        (
+            Rc::clone(&state),
+            NativeTransactionStack::new(connection, state),
+        )
+    }
+
+    #[test]
+    fn a_reentrant_sink_runs_after_the_release_borrow_is_dropped() {
+        let (state, stack) = stack();
+        state
+            .borrow_mut()
+            .released
+            .entry(3)
+            .or_default()
+            .extend([7, 9]);
+        let sink = Rc::new(Reentrant {
+            state: std::cell::RefCell::new(Some(Rc::clone(&state))),
+            released: std::cell::RefCell::new(Vec::new()),
+        });
+        attach_sink(&state, Rc::downgrade(&sink) as Weak<dyn AfterCommitSink>);
+        stack.release_wakes(3.0);
+        assert_eq!(*sink.released.borrow(), vec![7, 9]);
+        assert!(state.borrow().released.is_empty(), "the list was taken");
     }
 }
